@@ -1,8 +1,16 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { MediaFolder } from './index'
 
 // Custom APIs for renderer
-const api = {}
+const api = {
+  getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
+  scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
+  getPlayerCommand: (): Promise<string | null> => ipcRenderer.invoke('get-player-command'),
+  setPlayerCommand: (command: string): Promise<void> =>
+    ipcRenderer.invoke('set-player-command', command),
+  playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file)
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

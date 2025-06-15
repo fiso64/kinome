@@ -4,16 +4,15 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
 
 #### Phase 1: The Foundation - MVP with Local Files
 
-The goal is to be able to browse and play movies from a single local folder, regardless of its internal structure.
-
 *   `[X]` **Project Setup:** Basic Electron + Svelte project template is in place.
-*   `[ ]` **Database Abstraction (JSON):** Create the "database" module in the `main` process. It will be responsible for loading, querying, and saving a single `database.json`. It must be able to model the library as a hierarchical tree, storing folders and media files with their parent-child relationships.
-*   `[ ]` **Local Source Scanner:** Implement the core scanning logic. This should run in a background worker.
+*   `[X]` **Database Abstraction (JSON):** Create the "database" module in the `main` process. It will be responsible for loading, querying, and saving a single `database.json`. It must be able to model the library as a hierarchical tree, storing folders and media files with their parent-child relationships.
+*   `[X]` **Local Source Scanner:** Implement the core scanning logic. This should run in a background worker.
     *   It will recursively scan a user-configured folder.
     *   It will generate stable IDs for **both folders and files**.
     *   It will build a tree structure representing the full directory hierarchy and save this structure to the `database.json`.
-*   `[ ]` **Basic Media List UI Component:** Create a single, reusable Svelte component that can display items from the database. Initially, it will only support a "grid view." By default, this view will render only the **immediate children** of the library root, preventing a cluttered view of every single file at the top level.
-*   `[ ]` **Player Integration:** Implement the "fire and forget" playback logic.
+*   `[X]` **Basic Media List UI Component:** Create a single, reusable Svelte component that can display items from the database. Initially, it will only support a "grid view." By default, this view will render only the **immediate children** of the library root, preventing a cluttered view of every single file at the top level.
+*   `[X]` **Item Detail View:** Create a page that displays when an item is clicked. For now, it can be very basic, serving only as a way to reach the folder's files in order to test the playback functionality that we'll implement in the next step.
+*   `[X]` **Player Integration:** Implement the "fire and forget" playback logic.
     *   Add a setting for the user's player command.
     *   When a user clicks an item in the grid, the app marks it as watched in the JSON file and launches the external player with the file path.
 
@@ -25,7 +24,7 @@ The goal is to make the app visually appealing and more informative.
     *   The background scanner will now call the TMDB API to fetch metadata for new items.
     *   The scanner will download poster images and save them to the `images/` subfolder in the Library Data Directory.
 *   `[ ]` **Enhanced Media List UI:** Upgrade the media list component to display the fetched poster image instead of just the filename.
-*   `[ ]` **Item Detail View:** Create a new "page" that displays when an item is clicked, showing the backdrop and full overview. **This page will reuse the Media List component** to show the item's contents, defaulting it to a simple list or tree view.
+*   `[ ]` **Item Detail View:** Improve the page that displays when an item is clicked, showing the poster, backdrop and full overview in a clean UI. **This page will reuse the Media List component** to show the item's contents, defaulting it to a simple list or tree view.
 *   `[ ]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
 #### Phase 3: Core Feature Completion
