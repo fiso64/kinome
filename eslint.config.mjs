@@ -17,7 +17,8 @@ export default tseslint.config(
   {
     files: ['**/*.{tsx,svelte}'],
     rules: {
-      'svelte/no-unused-svelte-ignore': 'off'
+      'svelte/no-unused-svelte-ignore': 'off',
+      'no-undef': 'off'
     }
   },
   eslintConfigPrettier

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { MediaFolder } from './index'
+import type { MediaFile, MediaFolder } from '../main/types'
 
 // Custom APIs for renderer
 const api = {

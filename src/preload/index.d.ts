@@ -1,24 +1,24 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
-export interface MediaFile {
-  id: string
-  name: string
-  path: string
-  type: 'file'
-  watched?: boolean
-}
-
-export interface MediaFolder {
-  id: string
-  name: string
-  path: string
-  type: 'folder'
-  children: LibraryItem[]
-}
-
-export type LibraryItem = MediaFile | MediaFolder
-
 declare global {
+  interface MediaFile {
+    id: string
+    name: string
+    path: string
+    type: 'file'
+    watched?: boolean
+  }
+
+  interface MediaFolder {
+    id: string
+    name: string
+    path: string
+    type: 'folder'
+    children: LibraryItem[]
+  }
+
+  type LibraryItem = MediaFile | MediaFolder
+
   interface Window {
     electron: ElectronAPI
     api: {

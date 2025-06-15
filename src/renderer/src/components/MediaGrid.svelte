@@ -1,24 +1,17 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
-
   // Types are globally available from src/preload/index.d.ts
-  export let items: LibraryItem[] = []
-
-  const dispatch = createEventDispatcher<{ itemclick: LibraryItem }>()
-
-  function onItemClick(item: LibraryItem): void {
-    dispatch('itemclick', item)
-  }
+  let { items = [], itemclick }: { items?: LibraryItem[]; itemclick: (item: LibraryItem) => void } =
+    $props()
 </script>
 
 <div class="media-grid">
   {#if items.length > 0}
     {#each items as item (item.id)}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div
+      <button
+        type="button"
         class="grid-item"
         class:watched={item.type === 'file' && item.watched}
-        on:click={() => onItemClick(item)}
+        onclick={() => itemclick(item)}
       >
         {#if item.type === 'file' && item.watched}
           <div class="watched-indicator" title="Watched">✔</div>
@@ -27,7 +20,7 @@
           {item.type === 'folder' ? '📁' : '📄'}
         </div>
         <div class="name" title={item.name}>{item.name}</div>
-      </div>
+      </button>
     {/each}
   {:else}
     <p>This folder is empty.</p>
@@ -46,6 +39,9 @@
   }
 
   .grid-item {
+    border: none;
+    font: inherit;
+    color: inherit;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -60,6 +56,7 @@
       background-color 0.2s ease,
       opacity 0.2s ease;
     aspect-ratio: 2 / 3; /* Poster-like aspect ratio */
+    width: 100%; /* Ensure button takes full grid cell width */
   }
 
   .grid-item.watched {

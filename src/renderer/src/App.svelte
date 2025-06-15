@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import MediaGrid from './components/MediaGrid.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
 
   // Types are globally available from src/preload/index.d.ts
-  let viewStack: MediaFolder[] = []
-  let isLoading = true
-  let showSettings = false
+  let viewStack: MediaFolder[] = $state([])
+  let isLoading = $state(true)
+  let showSettings = $state(false)
 
-  $: currentFolder = viewStack.length > 0 ? viewStack[viewStack.length - 1] : null
-  $: atRoot = viewStack.length <= 1
+  const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
+  const atRoot = $derived(viewStack.length <= 1)
 
-  onMount(async () => {
-    const root = await window.api.getLibraryRoot()
-    if (root) {
-      viewStack = [root]
-    }
-    isLoading = false
+  $effect(() => {
+    window.api.getLibraryRoot().then((root) => {
+      if (root) {
+        viewStack = [root]
+      }
+      isLoading = false
+    })
   })
 
   async function handleScan(): Promise<void> {
@@ -31,44 +31,48 @@
     isLoading = false
   }
 
-  async function handleItemClick(event: CustomEvent<LibraryItem>): Promise<void> {
-    const item = event.detail
+  async function handleItemClick(item: LibraryItem): Promise<void> {
     if (item.type === 'folder') {
-      viewStack = [...viewStack, item]
+      viewStack.push(item)
     } else {
-      // Now we await confirmation from the main process
-      const success = await window.api.playFile(item)
+      // De-proxy the item before sending it over IPC by creating a plain object.
+      // The $state proxy object cannot be cloned for IPC.
+      const plainFile: MediaFile = {
+        id: item.id,
+        name: item.name,
+        path: item.path,
+        type: 'file',
+        watched: item.watched
+      }
+      const success = await window.api.playFile(plainFile)
       // Only update the UI if the backend call was processed successfully.
       if (success) {
+        // Mutate the original proxied item to trigger UI update
         item.watched = true
-        // Trigger Svelte reactivity by reassigning the array
-        viewStack = viewStack
       }
     }
   }
 
   function goBack(): void {
     if (!atRoot) {
-      viewStack = viewStack.slice(0, -1)
+      viewStack.pop()
     }
   }
 </script>
 
 {#if showSettings}
-  <SettingsModal on:close={() => (showSettings = false)} />
+  <SettingsModal close={() => (showSettings = false)} />
 {/if}
 
 <main>
   <header>
     <div class="header-left">
-      <button class="back-button" on:click={goBack} disabled={atRoot} title="Go back">
-        &larr;
-      </button>
+      <button class="back-button" onclick={goBack} disabled={atRoot} title="Go back"> ← </button>
       <h1>{currentFolder?.name ?? 'Media Browser'}</h1>
     </div>
     <div class="header-right">
-      <button on:click={() => (showSettings = true)} title="Settings">⚙️</button>
-      <button on:click={handleScan} disabled={isLoading}>
+      <button onclick={() => (showSettings = true)} title="Settings">⚙️</button>
+      <button onclick={handleScan} disabled={isLoading}>
         {isLoading ? 'Loading...' : 'Scan Library Folder'}
       </button>
     </div>
@@ -78,12 +82,12 @@
     {#if isLoading}
       <p class="status-text">Loading library...</p>
     {:else if currentFolder}
-      <MediaGrid items={currentFolder.children} on:itemclick={handleItemClick} />
+      <MediaGrid items={currentFolder.children} itemclick={handleItemClick} />
     {:else}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>
         <p>To get started, scan a folder containing your media.</p>
-        <button on:click={handleScan}>Select Media Folder</button>
+        <button onclick={handleScan}>Select Media Folder</button>
       </div>
     {/if}
   </div>

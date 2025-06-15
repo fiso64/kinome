@@ -1,36 +1,36 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte'
-
-  let playerCommand = ''
   const placeholderText = 'e.g., mpv {PATH} or vlc {PATH}'
 
-  const dispatch = createEventDispatcher<{ close: void }>()
+  let { close }: { close: () => void } = $props()
 
-  const handleKeydown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      dispatch('close')
+  let playerCommand = $state('')
+
+  $effect(() => {
+    window.api.getPlayerCommand().then((cmd) => {
+      playerCommand = cmd ?? ''
+    })
+
+    const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        close()
+      }
     }
-  }
-
-  onMount(async () => {
-    playerCommand = (await window.api.getPlayerCommand()) ?? ''
     window.addEventListener('keydown', handleKeydown)
-  })
-
-  onDestroy(() => {
-    window.removeEventListener('keydown', handleKeydown)
+    return () => {
+      window.removeEventListener('keydown', handleKeydown)
+    }
   })
 
   async function handleSave(): Promise<void> {
     await window.api.setPlayerCommand(playerCommand)
-    dispatch('close')
+    close()
   }
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events, a11y-interactive-supports-focus -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 <div
   class="modal-backdrop"
-  on:click|self={() => dispatch('close')}
+  onclick={(e) => e.target === e.currentTarget && close()}
   role="dialog"
   aria-modal="true"
   tabindex="-1"
@@ -50,8 +50,8 @@
       </p>
     </div>
     <div class="actions">
-      <button on:click={handleSave}>Save & Close</button>
-      <button class="secondary" on:click={() => dispatch('close')}>Cancel</button>
+      <button onclick={handleSave}>Save & Close</button>
+      <button class="secondary" onclick={() => close()}>Cancel</button>
     </div>
   </div>
 </div>

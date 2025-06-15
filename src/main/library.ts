@@ -29,7 +29,7 @@ async function readDb(): Promise<Database | null> {
       return null
     }
     return db
-  } catch (error) {
+  } catch {
     // File doesn't exist or is corrupt, which is fine on first run
     return null
   }
