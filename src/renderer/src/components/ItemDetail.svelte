@@ -90,10 +90,16 @@
 
 <style>
   .detail-view {
-    width: 100%;
-    height: 100%;
-    position: relative;
+    position: fixed;
+    top: var(--header-height); /* Position self below the header */
+    bottom: 0;
+    left: 0;
+    right: 0;
     color: var(--color-text);
+    background-color: var(--color-background); /* Cover the content underneath */
+    z-index: 5;
+    overflow-y: auto; /* The detail view now needs its own scrollbar */
+    scrollbar-gutter: stable;
   }
 
   .backdrop-container {

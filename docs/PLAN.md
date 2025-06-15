@@ -38,10 +38,9 @@ The goal is to make the app visually appealing and more informative.
     *   Full rescan / Change library location should now be available through the settings. There should also be a dropdown to select the source type, for now with only one option (local path). When local path is selected in the dropdown, a path selection input should appear.
 *   `[ ]` Get more items like year and genre from tmdb and optionally display them in the detail view.
 *   `[ ]` Improve performance
-    *   Why do the images in the grid view sometimes not show up immediately after returning from detail view?
+    *   There is a very slight delay before the detail page shows.
     *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
     *   If not possible to improve backdrop performance, at least make it fade in smoothly (fade in will always be needed when it is first downloaded as a delay is unavoidable in that case).
-    *   Sometimes there is a (small, but noticeable) delay when clicking back in a detail view before the grid is shown again. 
 
 #### Phase 3: Core Feature Completion
 

@@ -219,10 +219,10 @@
       </div>
     {:else}
       <!-- 
-        Keep MediaGrid mounted but hidden when showing ItemDetail.
-        This makes navigating "back" from the detail view instant.
+        The MediaGrid is always rendered to preserve scroll position.
+        The ItemDetail view will be rendered as an overlay on top of it.
       -->
-      <div hidden={selectedItemForDetailView !== null}>
+      <div>
         <MediaGrid items={filteredChildren} itemclick={handleGridItemClick} />
       </div>
 
@@ -259,6 +259,7 @@
   }
 
   main {
+    --header-height: 56px;
     display: flex;
     flex-direction: column;
     width: 100vw;
@@ -270,7 +271,7 @@
     display: flex;
     border-bottom: 1px solid var(--color-background-mute);
     -webkit-app-region: drag;
-    height: 56px;
+    height: var(--header-height);
     flex-shrink: 0;
     transition: background-color 0.3s ease;
     position: relative;
@@ -350,6 +351,7 @@
     display: flex;
     flex-direction: column;
     scrollbar-gutter: stable;
+    position: relative; /* Needed for the absolute positioned detail view */
   }
 
   .welcome-screen,
