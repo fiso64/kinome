@@ -36,7 +36,7 @@ The goal is to make the app visually appealing and more informative.
 
 The goal is to implement the key features that make the app unique and powerful.
 
-*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork.
+*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
 *   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
     *   Update the scanner to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children.

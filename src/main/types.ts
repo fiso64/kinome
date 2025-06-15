@@ -8,6 +8,8 @@ export interface MediaFile {
   title?: string
   overview?: string
   posterPath?: string // e.g. 'xxxx.jpg'
+  backdropPath?: string
+  tmdbId?: number
   mediaType?: 'movie' | 'tv'
 }
 
@@ -21,6 +23,8 @@ export interface MediaFolder {
   title?: string
   overview?: string
   posterPath?: string // e.g. 'xxxx.jpg'
+  backdropPath?: string
+  tmdbId?: number
   mediaType?: 'movie' | 'tv'
 }
 

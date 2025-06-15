@@ -2,19 +2,23 @@
   import MediaGrid from './components/MediaGrid.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
   import WindowControls from './components/WindowControls.svelte'
+  import ItemDetail from './components/ItemDetail.svelte'
 
   // Types are globally available from src/preload/index.d.ts
   let viewStack: MediaFolder[] = $state([])
   let isLoading = $state(true)
   let showSettings = $state(false)
   let searchQuery = $state('')
+  let selectedItemForDetailView: LibraryItem | null = $state(null)
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
-  const atRoot = $derived(viewStack.length <= 1)
+  // Back button is disabled if we are at the root grid view.
+  // It should be enabled if we are in a detail view.
+  const canGoBack = $derived(selectedItemForDetailView !== null || viewStack.length > 1)
 
   const filteredChildren = $derived(
     currentFolder?.children.filter((item) =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      (item.title ?? item.name).toLowerCase().includes(searchQuery.toLowerCase())
     ) ?? []
   )
 
@@ -28,9 +32,9 @@
   })
 
   $effect(() => {
-    // When the current folder changes, reset the search query.
-    // The dependency on currentFolder.id ensures this runs on navigation.
+    // When the current folder changes, or we enter/exit detail view, reset search.
     void currentFolder?.id
+    void selectedItemForDetailView
     searchQuery = ''
   })
 
@@ -46,6 +50,10 @@
           // Mutate the object to trigger reactivity.
           Object.assign(itemInTree, updatedItem)
         }
+      }
+      // If the updated item is the one in the detail view, update it too
+      if (selectedItemForDetailView?.id === updatedItem.id) {
+        Object.assign(selectedItemForDetailView, updatedItem)
       }
     })
 
@@ -68,6 +76,7 @@
 
   async function handleScan(): Promise<void> {
     isLoading = true
+    selectedItemForDetailView = null // Go back to grid view
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
       viewStack = [newRoot]
@@ -78,32 +87,44 @@
     isLoading = false
   }
 
-  async function handleItemClick(item: LibraryItem): Promise<void> {
-    if (item.type === 'folder') {
-      // Create a deep copy to avoid issues with Svelte's proxy objects
-      // when pushing to the view stack.
-      viewStack.push(JSON.parse(JSON.stringify(item)))
-    } else {
-      // De-proxy the item before sending it over IPC by creating a plain object.
-      // The $state proxy object cannot be cloned for IPC.
-      const plainFile: MediaFile = {
-        id: item.id,
-        name: item.name,
-        path: item.path,
-        type: 'file',
-        watched: item.watched
-      }
-      const success = await window.api.playFile(plainFile)
-      // Only update the UI if the backend call was processed successfully.
-      if (success) {
-        // Mutate the original proxied item to trigger UI update
-        item.watched = true
+  async function handlePlayFile(item: MediaFile): Promise<void> {
+    // De-proxy the item before sending it over IPC by creating a plain object.
+    const plainFile: MediaFile = {
+      id: item.id,
+      name: item.name,
+      path: item.path,
+      type: 'file',
+      watched: item.watched
+    }
+    const success = await window.api.playFile(plainFile)
+    if (success) {
+      // Find the item in the main tree and update its watched state.
+      const root = viewStack[0]
+      if (root) {
+        const itemInTree = findItemInTree(root, item.id)
+        if (itemInTree && itemInTree.type === 'file') {
+          itemInTree.watched = true
+        }
       }
     }
   }
 
+  // Used by the main MediaGrid. Always opens the detail view.
+  function handleGridItemClick(item: LibraryItem): void {
+    selectedItemForDetailView = JSON.parse(JSON.stringify(item))
+  }
+
+  // Used by ItemDetail when a child folder is clicked.
+  function handleNavigateFolder(folder: MediaFolder): void {
+    selectedItemForDetailView = null
+    // Create a deep copy to avoid issues with Svelte's proxy objects
+    viewStack.push(JSON.parse(JSON.stringify(folder)))
+  }
+
   function goBack(): void {
-    if (!atRoot) {
+    if (selectedItemForDetailView) {
+      selectedItemForDetailView = null
+    } else if (viewStack.length > 1) {
       viewStack.pop()
     }
   }
@@ -114,15 +135,20 @@
 {/if}
 
 <main>
-  <header>
+  <header class:in-detail-view={selectedItemForDetailView}>
     <div class="header-content">
       <div class="header-left">
-        <button class="back-button" onclick={goBack} disabled={atRoot} title="Go back"> ← </button>
-        <h1>{currentFolder?.name ?? 'Media Browser'}</h1>
+        <button class="back-button" onclick={goBack} disabled={!canGoBack} title="Go back">
+          ←
+        </button>
+        <!-- In detail view, the title is handled by the component itself -->
+        {#if !selectedItemForDetailView}
+          <h1>{currentFolder?.title ?? currentFolder?.name ?? 'Media Browser'}</h1>
+        {/if}
       </div>
 
       <div class="search-container">
-        {#if currentFolder}
+        {#if currentFolder && !selectedItemForDetailView}
           <input
             type="search"
             placeholder="Search..."
@@ -145,8 +171,14 @@
   <div class="content">
     {#if isLoading}
       <p class="status-text">Loading library...</p>
+    {:else if selectedItemForDetailView}
+      <ItemDetail
+        item={selectedItemForDetailView}
+        onPlayFile={handlePlayFile}
+        onNavigateFolder={handleNavigateFolder}
+      />
     {:else if currentFolder}
-      <MediaGrid items={filteredChildren} itemclick={handleItemClick} />
+      <MediaGrid items={filteredChildren} itemclick={handleGridItemClick} />
     {:else}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>
@@ -192,6 +224,14 @@
     -webkit-app-region: drag;
     height: 56px;
     flex-shrink: 0;
+    transition: background-color 0.3s ease;
+    position: relative;
+    z-index: 10;
+  }
+
+  header.in-detail-view {
+    background-color: transparent;
+    border-bottom: none;
   }
 
   .header-content {

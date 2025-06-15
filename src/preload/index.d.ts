@@ -11,6 +11,8 @@ declare global {
     title?: string
     overview?: string
     posterPath?: string // e.g. 'xxxx.jpg'
+    backdropPath?: string
+    tmdbId?: number
     mediaType?: 'movie' | 'tv'
   }
 
@@ -24,6 +26,8 @@ declare global {
     title?: string
     overview?: string
     posterPath?: string // e.g. 'xxxx.jpg'
+    backdropPath?: string
+    tmdbId?: number
     mediaType?: 'movie' | 'tv'
   }
 
@@ -37,6 +41,8 @@ declare global {
       // Settings
       getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string }>
       saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }) => Promise<void>
+      // Data
+      getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       minimizeWindow: () => void

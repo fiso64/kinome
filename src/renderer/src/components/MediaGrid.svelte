@@ -1,13 +1,24 @@
 <script lang="ts">
   // Types are globally available from src/preload/index.d.ts
-  let { items = [], itemclick }: { items?: LibraryItem[]; itemclick: (item: LibraryItem) => void } =
-    $props()
+  let {
+    items = [],
+    itemclick,
+    viewMode = 'grid'
+  }: {
+    items?: LibraryItem[]
+    itemclick: (item: LibraryItem) => void
+    viewMode?: 'grid' | 'list'
+  } = $props()
 </script>
 
-<div class="media-grid">
+<div class:media-grid={viewMode === 'grid'} class:media-list={viewMode === 'list'}>
   {#if items.length > 0}
     {#each items as item (item.id)}
-      <button type="button" class="grid-item" onclick={() => itemclick(item)}>
+      <button
+        type="button"
+        class={viewMode === 'grid' ? 'grid-item' : 'list-item'}
+        onclick={() => itemclick(item)}
+      >
         <div
           class="poster"
           style:background-image={item.posterPath
@@ -35,6 +46,7 @@
 </div>
 
 <style>
+  /* --- VIEW CONTAINERS --- */
   .media-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -43,8 +55,15 @@
     width: 100%;
     align-content: start;
   }
+  .media-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
 
-  .grid-item {
+  /* --- ITEM BUTTONS --- */
+  .grid-item,
+  .list-item {
     background: none;
     border: none;
     padding: 0;
@@ -53,15 +72,30 @@
     cursor: pointer;
     text-align: left;
     display: flex;
-    flex-direction: column;
     gap: 0.5rem;
+    width: 100%;
   }
 
+  /* Grid Item */
+  .grid-item {
+    flex-direction: column;
+  }
   .grid-item:hover .poster {
     transform: scale(1.05);
     background-color: var(--color-background-mute);
   }
 
+  /* List Item */
+  .list-item {
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 6px;
+  }
+  .list-item:hover {
+    background-color: var(--color-background-soft);
+  }
+
+  /* --- ITEM COMPONENTS --- */
   .poster {
     position: relative;
     display: flex;
@@ -70,8 +104,6 @@
     justify-content: center;
     background-color: var(--color-background-soft);
     border-radius: 8px;
-    width: 100%;
-    aspect-ratio: 2 / 3;
     overflow: hidden;
     background-size: cover;
     background-position: center;
@@ -80,17 +112,34 @@
       background-color 0.2s ease;
   }
 
+  .grid-item .poster {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+  }
+  .list-item .poster {
+    width: 40px;
+    height: 60px;
+    flex-shrink: 0;
+  }
+
   .icon {
-    font-size: 4rem;
+    font-size: 4rem; /* Default for grid */
+  }
+  .list-item .icon {
+    font-size: 2rem;
   }
 
   .name {
-    font-size: 0.9rem;
     font-weight: 600;
     width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 0.9rem; /* Default for grid */
+  }
+  .list-item .name {
+    flex-grow: 1;
+    font-size: 1rem;
   }
 
   .watched-indicator {

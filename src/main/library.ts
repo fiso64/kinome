@@ -4,7 +4,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import type { Database, MediaFolder, LibraryItem, MediaFile } from './types'
-import { fetchAndApplyMetadata } from './retriever'
+import { fetchAndApplyMetadata, fetchItemDetails } from './retriever'
 import { readSettings } from './settings'
 
 const LIBRARY_DATA_DIR_NAME = 'library'
@@ -203,6 +203,36 @@ export function setupLibraryIpc(): void {
       console.error('Failed to scan directory:', error)
       return null
     }
+  })
+
+  ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
+    const db = await readDb()
+    const settings = await readSettings()
+
+    if (!db || !db.root) {
+      console.error('Cannot get item details: database not found.')
+      return null
+    }
+
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot get item details: item with id ${itemId} not found.`)
+      return null
+    }
+
+    // If we have the details we need (backdrop), return immediately.
+    if (item.backdropPath) {
+      return item
+    }
+
+    // Otherwise, fetch them, update DB, and return updated item.
+    if (settings.tmdbApiKey) {
+      await fetchItemDetails(item, settings.tmdbApiKey, getLibraryDataPath())
+      await writeDb(db) // Save changes
+    } else {
+      console.warn('Cannot fetch item details: TMDB API key not configured.')
+    }
+    return item // Return the (possibly updated) item
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {

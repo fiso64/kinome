@@ -7,6 +7,8 @@ const api = {
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
+  getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
+    ipcRenderer.invoke('get-item-details', itemId),
 
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>

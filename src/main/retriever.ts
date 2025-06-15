@@ -105,6 +105,7 @@ export async function fetchAndApplyMetadata(
     )?.[0]
 
     if (result) {
+      item.tmdbId = result.id
       item.mediaType = result.media_type ?? endpoint // Fallback to our guessed endpoint type
       item.title = result.title || result.name // 'title' for movie, 'name' for tv
       item.overview = result.overview
@@ -123,5 +124,46 @@ export async function fetchAndApplyMetadata(
     }
   } catch (error) {
     console.error(`Error fetching metadata for "${item.name}":`, error)
+  }
+}
+
+export async function fetchItemDetails(
+  item: LibraryItem,
+  tmdbApiKey: string,
+  libraryDataPath: string
+): Promise<void> {
+  if (!item.tmdbId || !item.mediaType) {
+    console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
+    return
+  }
+
+  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Fetching details for "${item.title ?? item.name}" from ${detailUrl}`)
+
+  try {
+    const response = await fetch(detailUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB detail fetch failed: ${response.statusText}`)
+    }
+    const details = await response.json()
+
+    if (details.backdrop_path) {
+      // Use original quality for backdrop
+      const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
+      const imagesDir = getImagesPath(libraryDataPath)
+      const backdropFileName = `${item.id}-backdrop.jpg`
+      const backdropDestPath = path.join(imagesDir, backdropFileName)
+
+      await downloadImage(backdropUrl, backdropDestPath)
+      item.backdropPath = backdropFileName
+      console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
+    }
+
+    // We can also update other fields here if they are more detailed than the search result
+    if (details.overview) {
+      item.overview = details.overview
+    }
+  } catch (error) {
+    console.error(`Error fetching full details for "${item.name}":`, error)
   }
 }
