@@ -82,7 +82,7 @@
     {#if detailedItem.type === 'folder' && detailedItem.children.length > 0}
       <div class="children-section">
         <h2>Contents</h2>
-        <MediaGrid items={detailedItem.children} itemclick={handleItemClick} viewMode="list" />
+        <MediaGrid items={detailedItem.children} itemclick={handleItemClick} viewMode="tree" />
       </div>
     {/if}
   </div>
@@ -145,7 +145,7 @@
   }
 
   .poster {
-    width: 150px;
+    width: 200px;
     flex-shrink: 0;
     aspect-ratio: 2 / 3;
     background-color: var(--color-background-soft);

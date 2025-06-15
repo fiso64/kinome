@@ -295,6 +295,7 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
+    scrollbar-gutter: stable;
   }
 
   .welcome-screen,

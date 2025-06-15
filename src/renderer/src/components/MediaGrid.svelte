@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TreeItem from './TreeItem.svelte'
+
   // Types are globally available from src/preload/index.d.ts
   let {
     items = [],
@@ -7,43 +9,52 @@
   }: {
     items?: LibraryItem[]
     itemclick: (item: LibraryItem) => void
-    viewMode?: 'grid' | 'list'
+    viewMode?: 'grid' | 'tree'
   } = $props()
 </script>
 
-<div class:media-grid={viewMode === 'grid'} class:media-list={viewMode === 'list'}>
-  {#if items.length > 0}
-    {#each items as item (item.id)}
-      <button
-        type="button"
-        class={viewMode === 'grid' ? 'grid-item' : 'list-item'}
-        onclick={() => itemclick(item)}
-      >
-        <div
-          class="poster"
-          style:background-image={item.posterPath
-            ? `url(media-browser-asset://images/${item.posterPath})`
-            : 'none'}
-        >
-          {#if !item.posterPath}
-            <div class="icon">
-              {item.type === 'folder' ? '📁' : '📄'}
-            </div>
-          {/if}
+{#if viewMode === 'grid'}
+  <div class="media-grid">
+    {#if items.length > 0}
+      {#each items as item (item.id)}
+        <button type="button" class="grid-item" onclick={() => itemclick(item)}>
+          <div
+            <div
+            class="poster"
+            style:background-image={item.posterPath
+              ? `url(media-browser-asset://images/${item.posterPath})`
+              : 'none'}
+          >
+            {#if !item.posterPath}
+              <div class="icon">
+                {item.type === 'folder' ? '📁' : '📄'}
+              </div>
+            {/if}
 
-          {#if item.type === 'file' && item.watched}
-            <div class="watched-indicator" title="Watched">✔</div>
-          {/if}
-        </div>
-        <div class="name" title={item.title ?? item.name}>
-          {item.title ?? item.name}
-        </div>
-      </button>
-    {/each}
-  {:else}
-    <p>This folder is empty.</p>
-  {/if}
-</div>
+            {#if item.type === 'file' && item.watched}
+              <div class="watched-indicator" title="Watched">✔</div>
+            {/if}
+          </div>
+          <div class="name" title={item.title ?? item.name}>
+            {item.title ?? item.name}
+          </div>
+        </button>
+      {/each}
+    {:else}
+      <p>This folder is empty.</p>
+    {/if}
+  </div>
+{:else if viewMode === 'tree'}
+  <div class="media-tree">
+    {#if items.length > 0}
+      {#each items as item (item.id)}
+        <TreeItem {item} {itemclick} />
+      {/each}
+    {:else}
+      <p>This folder is empty.</p>
+    {/if}
+  </div>
+{/if}
 
 <style>
   /* --- VIEW CONTAINERS --- */
@@ -55,15 +66,14 @@
     width: 100%;
     align-content: start;
   }
-  .media-list {
+  .media-tree {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    padding: 0 0.5rem; /* Give some space for the tree */
   }
 
-  /* --- ITEM BUTTONS --- */
-  .grid-item,
-  .list-item {
+  /* --- ITEM BUTTONS (Grid only) --- */
+  .grid-item {
     background: none;
     border: none;
     padding: 0;
@@ -72,30 +82,16 @@
     cursor: pointer;
     text-align: left;
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
     width: 100%;
-  }
-
-  /* Grid Item */
-  .grid-item {
-    flex-direction: column;
   }
   .grid-item:hover .poster {
     transform: scale(1.05);
     background-color: var(--color-background-mute);
   }
 
-  /* List Item */
-  .list-item {
-    align-items: center;
-    padding: 0.5rem;
-    border-radius: 6px;
-  }
-  .list-item:hover {
-    background-color: var(--color-background-soft);
-  }
-
-  /* --- ITEM COMPONENTS --- */
+  /* --- ITEM COMPONENTS (Grid only) --- */
   .poster {
     position: relative;
     display: flex;
@@ -104,6 +100,8 @@
     justify-content: center;
     background-color: var(--color-background-soft);
     border-radius: 8px;
+    width: 100%;
+    aspect-ratio: 2 / 3;
     overflow: hidden;
     background-size: cover;
     background-position: center;
@@ -111,37 +109,17 @@
       transform 0.2s ease,
       background-color 0.2s ease;
   }
-
-  .grid-item .poster {
-    width: 100%;
-    aspect-ratio: 2 / 3;
-  }
-  .list-item .poster {
-    width: 40px;
-    height: 60px;
-    flex-shrink: 0;
-  }
-
   .icon {
-    font-size: 4rem; /* Default for grid */
+    font-size: 4rem;
   }
-  .list-item .icon {
-    font-size: 2rem;
-  }
-
   .name {
+    font-size: 0.9rem;
     font-weight: 600;
     width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 0.9rem; /* Default for grid */
   }
-  .list-item .name {
-    flex-grow: 1;
-    font-size: 1rem;
-  }
-
   .watched-indicator {
     position: absolute;
     top: 8px;
