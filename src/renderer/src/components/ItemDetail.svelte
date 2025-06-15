@@ -13,6 +13,7 @@
 
   // Create a reactive copy of the item to hold fetched details
   let detailedItem = $state<LibraryItem>(JSON.parse(JSON.stringify(item)))
+  let isBackdropLoaded = $state(false)
 
   $effect(() => {
     // This effect runs only when the `item` prop changes.
@@ -20,6 +21,8 @@
     // the effect from depending on `detailedItem`, which would cause an infinite loop.
     const localCopy = JSON.parse(JSON.stringify(item))
     detailedItem = localCopy
+    // Reset the loaded flag for the new backdrop
+    isBackdropLoaded = false
 
     // Fetch details if the local copy doesn't have them.
     if (!localCopy.backdropPath) {
@@ -45,10 +48,17 @@
 <div class="detail-view">
   <div class="backdrop-container">
     {#if detailedItem.backdropPath}
+      <!-- 
+        The 'load' event fires only after the image is decoded.
+        We use this to trigger a CSS class that fades the image in,
+        ensuring the transition is always smooth.
+      -->
       <img
         src="media-browser-asset://images/{detailedItem.backdropPath}"
         alt=""
         class="backdrop-image"
+        class:loaded={isBackdropLoaded}
+        onload={() => (isBackdropLoaded = true)}
       />
     {/if}
     <div class="backdrop-overlay"></div>
@@ -129,6 +139,14 @@
     height: 100%;
     object-fit: cover;
     filter: blur(4px);
+    /* Start invisible and prepare for transition */
+    opacity: 0;
+    transition: opacity 0.4s ease-in-out;
+  }
+
+  .backdrop-image.loaded {
+    /* Fade in when the 'loaded' class is applied */
+    opacity: 1;
   }
 
   .backdrop-overlay {

@@ -126,14 +126,17 @@
 
   // Used by the main MediaGrid. Always opens the detail view.
   function handleGridItemClick(item: LibraryItem): void {
-    selectedItemForDetailView = JSON.parse(JSON.stringify(item))
+    // Pass the reactive proxy directly. This is much faster than a deep copy
+    // and makes the UI feel instantaneous. The ItemDetail component will
+    // handle creating its own mutable copy if needed.
+    selectedItemForDetailView = item
   }
 
   // Used by ItemDetail when a child folder is clicked.
   function handleNavigateFolder(folder: MediaFolder): void {
     selectedItemForDetailView = null
-    // Create a deep copy to avoid issues with Svelte's proxy objects
-    viewStack.push(JSON.parse(JSON.stringify(folder)))
+    // Pushing the reactive proxy is fine; Svelte 5 handles this efficiently.
+    viewStack.push(folder)
   }
 
   function goBack(): void {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
+  import TreeItem from './TreeItem.svelte'
   // Types are globally available from src/preload/index.d.ts
   let {
     item,
@@ -59,7 +60,7 @@
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
       {#each item.children as child (child.id)}
-        <svelte:self item={child} {itemclick} level={level + 1} />
+        <TreeItem item={child} {itemclick} level={level + 1} />
       {/each}
     </div>
   {/if}
