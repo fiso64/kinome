@@ -19,7 +19,7 @@
     isLoading = false
   })
 
-  async function handleScan() {
+  async function handleScan(): Promise<void> {
     isLoading = true
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
@@ -31,7 +31,7 @@
     isLoading = false
   }
 
-  async function handleItemClick(event: CustomEvent<LibraryItem>) {
+  async function handleItemClick(event: CustomEvent<LibraryItem>): Promise<void> {
     const item = event.detail
     if (item.type === 'folder') {
       viewStack = [...viewStack, item]
@@ -47,7 +47,7 @@
     }
   }
 
-  function goBack() {
+  function goBack(): void {
     if (!atRoot) {
       viewStack = viewStack.slice(0, -1)
     }
@@ -61,7 +61,9 @@
 <main>
   <header>
     <div class="header-left">
-      <button class="back-button" on:click={goBack} disabled={atRoot} title="Go back"> &larr; </button>
+      <button class="back-button" on:click={goBack} disabled={atRoot} title="Go back">
+        &larr;
+      </button>
       <h1>{currentFolder?.name ?? 'Media Browser'}</h1>
     </div>
     <div class="header-right">

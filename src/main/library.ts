@@ -23,7 +23,9 @@ async function readDb(): Promise<Database | null> {
     const data = await fs.readFile(dbPath, 'utf-8')
     const db = JSON.parse(data) as Database
     if (db.version !== DB_VERSION) {
-      console.warn(`Database version mismatch. Expected ${DB_VERSION}, got ${db.version}. Ignoring old DB.`)
+      console.warn(
+        `Database version mismatch. Expected ${DB_VERSION}, got ${db.version}. Ignoring old DB.`
+      )
       return null
     }
     return db

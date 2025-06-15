@@ -6,7 +6,7 @@
 
   const dispatch = createEventDispatcher<{ itemclick: LibraryItem }>()
 
-  function onItemClick(item: LibraryItem) {
+  function onItemClick(item: LibraryItem): void {
     dispatch('itemclick', item)
   }
 </script>
@@ -15,7 +15,11 @@
   {#if items.length > 0}
     {#each items as item (item.id)}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="grid-item" class:watched={item.type === 'file' && item.watched} on:click={() => onItemClick(item)}>
+      <div
+        class="grid-item"
+        class:watched={item.type === 'file' && item.watched}
+        on:click={() => onItemClick(item)}
+      >
         {#if item.type === 'file' && item.watched}
           <div class="watched-indicator" title="Watched">✔</div>
         {/if}

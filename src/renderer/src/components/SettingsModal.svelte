@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte'
 
   let playerCommand = ''
+  const placeholderText = 'e.g., mpv {PATH} or vlc {PATH}'
 
   const dispatch = createEventDispatcher<{ close: void }>()
 
@@ -20,25 +21,33 @@
     window.removeEventListener('keydown', handleKeydown)
   })
 
-  async function handleSave() {
+  async function handleSave(): Promise<void> {
     await window.api.setPlayerCommand(playerCommand)
     dispatch('close')
   }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events, a11y-interactive-supports-focus -->
-<div class="modal-backdrop" on:click|self={() => dispatch('close')} role="dialog" aria-modal="true" tabindex="-1">
-    <div class="modal-content">
-      <h2>Settings</h2>
+<div
+  class="modal-backdrop"
+  on:click|self={() => dispatch('close')}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+>
+  <div class="modal-content">
+    <h2>Settings</h2>
     <div class="form-group">
       <label for="player-command">Player Command</label>
       <input
         type="text"
         id="player-command"
         bind:value={playerCommand}
-        placeholder='e.g., mpv "{PATH}" or vlc "{PATH}"'
+        placeholder={placeholderText}
       />
-      <p class="help-text">Use <code>{'{PATH}'}</code> as a placeholder for the file path.</p>
+      <p class="help-text">
+        Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
+      </p>
     </div>
     <div class="actions">
       <button on:click={handleSave}>Save & Close</button>

@@ -15,6 +15,7 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
 *   `[X]` **Player Integration:** Implement the "fire and forget" playback logic.
     *   Add a setting for the user's player command.
     *   When a user clicks an item in the grid, the app marks it as watched in the JSON file and launches the external player with the file path.
+*   `[ ]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
 #### Phase 2: Adding Intelligence & Polish
 
@@ -25,14 +26,13 @@ The goal is to make the app visually appealing and more informative.
     *   The scanner will download poster images and save them to the `images/` subfolder in the Library Data Directory.
 *   `[ ]` **Enhanced Media List UI:** Upgrade the media list component to display the fetched poster image instead of just the filename.
 *   `[ ]` **Item Detail View:** Improve the page that displays when an item is clicked, showing the poster, backdrop and full overview in a clean UI. **This page will reuse the Media List component** to show the item's contents, defaulting it to a simple list or tree view.
-*   `[ ]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
 #### Phase 3: Core Feature Completion
 
 The goal is to implement the key features that make the app unique and powerful.
 
 *   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork.
-*   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. Update the search bar to support searching by tags (e.g., `tag:favorite`).
+*   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
     *   Update the scanner to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children.
     *   In the Item Detail view for a folder, add UI controls to allow the user to set these two properties.
