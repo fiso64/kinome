@@ -1,13 +1,15 @@
 <script lang="ts">
-  const placeholderText = 'e.g., mpv {PATH} or vlc {PATH}'
+  const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let { close }: { close: () => void } = $props()
 
   let playerCommand = $state('')
+  let tmdbApiKey = $state('')
 
   $effect(() => {
-    window.api.getPlayerCommand().then((cmd) => {
-      playerCommand = cmd ?? ''
+    window.api.getSettings().then((settings) => {
+      playerCommand = settings.playerCommand ?? ''
+      tmdbApiKey = settings.tmdbApiKey ?? ''
     })
 
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -22,7 +24,7 @@
   })
 
   async function handleSave(): Promise<void> {
-    await window.api.setPlayerCommand(playerCommand)
+    await window.api.saveSettings({ playerCommand, tmdbApiKey })
     close()
   }
 </script>
@@ -48,6 +50,11 @@
       <p class="help-text">
         Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
       </p>
+    </div>
+    <div class="form-group">
+      <label for="tmdb-api-key">The Movie Database (TMDB) API Key</label>
+      <input type="password" id="tmdb-api-key" bind:value={tmdbApiKey} />
+      <p class="help-text">Required for fetching movie and show posters and details.</p>
     </div>
     <div class="actions">
       <button onclick={handleSave}>Save & Close</button>

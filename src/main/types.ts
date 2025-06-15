@@ -4,6 +4,11 @@ export interface MediaFile {
   path: string // Full path to the file
   type: 'file'
   watched?: boolean
+  // TMDB metadata
+  title?: string
+  overview?: string
+  posterPath?: string // e.g. 'xxxx.jpg'
+  mediaType?: 'movie' | 'tv'
 }
 
 export interface MediaFolder {
@@ -12,6 +17,11 @@ export interface MediaFolder {
   path: string // Full path to the folder
   type: 'folder'
   children: LibraryItem[]
+  // TMDB metadata
+  title?: string
+  overview?: string
+  posterPath?: string // e.g. 'xxxx.jpg'
+  mediaType?: 'movie' | 'tv'
 }
 
 export type LibraryItem = MediaFile | MediaFolder
@@ -19,6 +29,5 @@ export type LibraryItem = MediaFile | MediaFolder
 export interface Database {
   version: number
   mediaSourcePath: string | null
-  playerCommand: string | null
   root: MediaFolder | null
 }

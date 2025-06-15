@@ -7,6 +7,11 @@ declare global {
     path: string
     type: 'file'
     watched?: boolean
+    // TMDB metadata
+    title?: string
+    overview?: string
+    posterPath?: string // e.g. 'xxxx.jpg'
+    mediaType?: 'movie' | 'tv'
   }
 
   interface MediaFolder {
@@ -15,6 +20,11 @@ declare global {
     path: string
     type: 'folder'
     children: LibraryItem[]
+    // TMDB metadata
+    title?: string
+    overview?: string
+    posterPath?: string // e.g. 'xxxx.jpg'
+    mediaType?: 'movie' | 'tv'
   }
 
   type LibraryItem = MediaFile | MediaFolder
@@ -24,14 +34,17 @@ declare global {
     api: {
       getLibraryRoot: () => Promise<MediaFolder | null>
       scanLibrary: () => Promise<MediaFolder | null>
-      getPlayerCommand: () => Promise<string | null>
-      setPlayerCommand: (command: string) => Promise<void>
+      // Settings
+      getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string }>
+      saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }) => Promise<void>
+      // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void
       closeWindow: () => void
       isWindowMaximized: () => Promise<boolean>
       onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
+      onLibraryItemUpdated: (callback: (item: LibraryItem) => void) => () => void
     }
   }
 }

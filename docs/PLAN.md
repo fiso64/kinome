@@ -21,12 +21,16 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
 
 The goal is to make the app visually appealing and more informative.
 
-*   `[ ]` **TMDB Retriever:** Implement the first metadata retriever for TMDB.
+*   `[X]` **TMDB Retriever:** Implement the first metadata retriever for TMDB.
     *   The background scanner will now call the TMDB API to fetch metadata for new items.
     *   The scanner will download poster images and save them to the `images/` subfolder in the Library Data Directory.
     *   Need to add configuration UI for the api key (`tmdbApiKey`)
-*   `[ ]` **Enhanced Media List UI:** Upgrade the media list component to display the fetched poster image instead of just the filename.
+    *   For now, only retrieve images of the immediate children of the root media directory.
+*   `[X]` **Enhanced Media List UI:** Upgrade the media list component to display the fetched poster image instead of just the filename.
 *   `[ ]` **Item Detail View:** Improve the page that displays when an item is clicked, showing the poster, backdrop and full overview in a clean UI. **This page will reuse the Media List component** to show the item's contents, defaulting it to a simple list or tree view.
+    *   First, implement tree view for the media list component
+    *   Only download the backdrop when the item detail view is opened. Get the maximum quality backdrop possible.
+    *   If there is other metadata needed that can not be retrieved in the single request during the initial scan, also only fetch it when the details view for that item is opened.
 
 #### Phase 3: Core Feature Completion
 

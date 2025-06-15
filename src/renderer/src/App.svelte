@@ -34,6 +34,38 @@
     searchQuery = ''
   })
 
+  // Set up a listener for real-time metadata updates from the main process.
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+      // Find the item in the root of the library and update its properties.
+      // Svelte's reactivity will handle the rest.
+      const root = viewStack[0]
+      if (root) {
+        const itemInTree = findItemInTree(root, updatedItem.id)
+        if (itemInTree) {
+          // Mutate the object to trigger reactivity.
+          Object.assign(itemInTree, updatedItem)
+        }
+      }
+    })
+
+    // Cleanup the listener when the component is destroyed.
+    return () => unlisten()
+  })
+
+  function findItemInTree(node: MediaFolder, id: string): LibraryItem | null {
+    for (const child of node.children) {
+      if (child.id === id) {
+        return child
+      }
+      if (child.type === 'folder') {
+        const found = findItemInTree(child, id)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
   async function handleScan(): Promise<void> {
     isLoading = true
     const newRoot = await window.api.scanLibrary()
@@ -48,7 +80,9 @@
 
   async function handleItemClick(item: LibraryItem): Promise<void> {
     if (item.type === 'folder') {
-      viewStack.push(item)
+      // Create a deep copy to avoid issues with Svelte's proxy objects
+      // when pushing to the view stack.
+      viewStack.push(JSON.parse(JSON.stringify(item)))
     } else {
       // De-proxy the item before sending it over IPC by creating a plain object.
       // The $state proxy object cannot be cloned for IPC.

@@ -6,11 +6,15 @@ import type { MediaFile, MediaFolder } from '../main/types'
 const api = {
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
-  getPlayerCommand: (): Promise<string | null> => ipcRenderer.invoke('get-player-command'),
-  setPlayerCommand: (command: string): Promise<void> =>
-    ipcRenderer.invoke('set-player-command', command),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
 
+  // Settings
+  getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>
+    ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }): Promise<void> =>
+    ipcRenderer.invoke('save-settings', settings),
+
+  // Window Controls
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),
   toggleMaximizeWindow: (): void => ipcRenderer.send('window-toggle-maximize'),
   closeWindow: (): void => ipcRenderer.send('window-close'),
@@ -20,6 +24,13 @@ const api = {
     ipcRenderer.on('window-is-maximized', listener)
     return () => {
       ipcRenderer.removeListener('window-is-maximized', listener)
+    }
+  },
+  onLibraryItemUpdated: (callback: (item: LibraryItem) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, item: LibraryItem): void => callback(item)
+    ipcRenderer.on('library-item-updated', listener)
+    return () => {
+      ipcRenderer.removeListener('library-item-updated', listener)
     }
   }
 }

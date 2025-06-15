@@ -1,7 +1,8 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
+import { join, resolve as resolvePath } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { setupLibraryIpc } from './library'
+import { setupLibraryIpc, getLibraryDataPath } from './library'
+import { readSettings, writeSettings } from './settings'
 
 function createWindow(): void {
   // Create the browser window.
@@ -10,6 +11,7 @@ function createWindow(): void {
     height: 720,
     show: false,
     autoHideMenuBar: true,
+    title: 'Media Browser',
     frame: false,
     backgroundColor: '#1b1b1f',
     webPreferences: {
@@ -19,9 +21,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.maximize()
     mainWindow.show()
   })
+
+  // Start maximized
+  mainWindow.maximize()
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -48,6 +52,14 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  protocol.registerFileProtocol('media-browser-asset', (request, callback) => {
+    // url is "media-browser-asset://images/someid.jpg"
+    // we want to get "images/someid.jpg"
+    const relativePath = request.url.substring('media-browser-asset://'.length)
+    const absolutePath = resolvePath(getLibraryDataPath(), relativePath)
+    callback({ path: absolutePath })
+  })
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -59,6 +71,16 @@ app.whenReady().then(() => {
   })
 
   setupLibraryIpc()
+
+  // --- Settings IPC Handlers ---
+  ipcMain.handle('get-settings', async () => {
+    return await readSettings()
+  })
+
+  ipcMain.handle('save-settings', async (_, settings) => {
+    await writeSettings(settings)
+  })
+  // --- End Settings IPC Handlers ---
 
   // --- Window Control IPC Handlers ---
   ipcMain.on('window-minimize', () => {
