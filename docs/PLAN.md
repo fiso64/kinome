@@ -47,9 +47,10 @@ The goal is to make the app visually appealing and more informative.
 The goal is to implement the key features that make the app unique and powerful.
 
 *   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. 
-    *   The UI should allow adding, removing or modifying any tag or metadata entry, including things that have been fetched from tmdb like title and genre and others. It should show as a modal window
-    *   Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
-    *   Some tag keys should be converted to user friendly names for display in the UI (e.g. tmdbId -> TMDB ID)
+    *   The UI should allow adding, removing or modifying any tag or metadata entry, including things that have been fetched from tmdb like title and genre and others. It should show as a modal window.
+    *   Custom tags consist of a custom tag name, and a value for that tag.
+    *   There should be a three dot menu somewhere in the detail page view. Clicking it will bring out a context menu with an entry to edit metadata and tags.
+*   `[ ]` Update the search bar to support searching by tags (e.g., `mytagname:favorite` or `genre:sci-fi`).
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
     *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user.
     *   These two flags will be editable through the same tagging UI as above.
