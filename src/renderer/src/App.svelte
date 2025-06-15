@@ -3,6 +3,7 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import WindowControls from './components/WindowControls.svelte'
   import ItemDetail from './components/ItemDetail.svelte'
+  import { initializeShortcuts } from './lib/shortcuts'
 
   // Types are globally available from src/preload/index.d.ts
   let viewStack: MediaFolder[] = $state([])
@@ -10,6 +11,7 @@
   let showSettings = $state(false)
   let searchQuery = $state('')
   let selectedItemForDetailView: LibraryItem | null = $state(null)
+  let searchInputEl: HTMLInputElement
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   // Back button is disabled if we are at the root grid view.
@@ -122,12 +124,30 @@
   }
 
   function goBack(): void {
-    if (selectedItemForDetailView) {
-      selectedItemForDetailView = null
-    } else if (viewStack.length > 1) {
-      viewStack.pop()
+    if (canGoBack) {
+      if (selectedItemForDetailView) {
+        selectedItemForDetailView = null
+      } else if (viewStack.length > 1) {
+        viewStack.pop()
+      }
     }
   }
+
+  function goForward(): void {
+    // This can be implemented in the future to handle forward navigation.
+  }
+
+  $effect(() => {
+    const cleanupShortcuts = initializeShortcuts({
+      openSettings: () => (showSettings = true),
+      focusSearch: () => searchInputEl?.focus(),
+      navigateBack: goBack,
+      navigateForward: goForward
+    })
+
+    // Cleanup the listeners when the component is destroyed.
+    return () => cleanupShortcuts()
+  })
 </script>
 
 {#if showSettings}
@@ -150,6 +170,7 @@
       <div class="search-container">
         {#if currentFolder && !selectedItemForDetailView}
           <input
+            bind:this={searchInputEl}
             type="search"
             placeholder="Search..."
             bind:value={searchQuery}
@@ -171,20 +192,28 @@
   <div class="content">
     {#if isLoading}
       <p class="status-text">Loading library...</p>
-    {:else if selectedItemForDetailView}
-      <ItemDetail
-        item={selectedItemForDetailView}
-        onPlayFile={handlePlayFile}
-        onNavigateFolder={handleNavigateFolder}
-      />
-    {:else if currentFolder}
-      <MediaGrid items={filteredChildren} itemclick={handleGridItemClick} />
-    {:else}
+    {:else if !currentFolder}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>
         <p>To get started, scan a folder containing your media.</p>
         <button onclick={handleScan}>Select Media Folder</button>
       </div>
+    {:else}
+      <!-- 
+        Keep MediaGrid mounted but hidden when showing ItemDetail.
+        This makes navigating "back" from the detail view instant.
+      -->
+      <div hidden={selectedItemForDetailView !== null}>
+        <MediaGrid items={filteredChildren} itemclick={handleGridItemClick} />
+      </div>
+
+      {#if selectedItemForDetailView}
+        <ItemDetail
+          item={selectedItemForDetailView}
+          onPlayFile={handlePlayFile}
+          onNavigateFolder={handleNavigateFolder}
+        />
+      {/if}
     {/if}
   </div>
 </main>
