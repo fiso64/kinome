@@ -9,6 +9,19 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [svelte()]
+    plugins: [
+      svelte({
+        onwarn: (warning, handler) => {
+          // Suppress all accessibility warnings
+          if (warning.code.startsWith('a11y_')) {
+            return
+          }
+          // Let Vite handle all other warnings
+          if (handler) {
+            handler(warning)
+          }
+        }
+      })
+    ]
   }
 })

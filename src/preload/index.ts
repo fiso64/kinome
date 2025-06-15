@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { MediaFile, MediaFolder } from '../main/types'
 
@@ -16,7 +16,7 @@ const api = {
   closeWindow: (): void => ipcRenderer.send('window-close'),
   isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('is-window-maximized'),
   onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void): (() => void) => {
-    const listener = (_event, isMaximized: boolean) => callback(isMaximized)
+    const listener = (_event: IpcRendererEvent, isMaximized: boolean): void => callback(isMaximized)
     ipcRenderer.on('window-is-maximized', listener)
     return () => {
       ipcRenderer.removeListener('window-is-maximized', listener)

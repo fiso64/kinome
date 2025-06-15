@@ -30,12 +30,16 @@
 </script>
 
 <div class="window-controls">
-  <button title="Minimize" onclick={handleMinimize}>
+  <button title="Minimize" aria-label="Minimize" onclick={handleMinimize}>
     <svg width="12" height="12" viewBox="0 0 12 12"
       ><rect fill="currentColor" width="10" height="1" x="1" y="6"></rect></svg
     >
   </button>
-  <button title={isMaximized ? 'Restore' : 'Maximize'} onclick={handleToggleMaximize}>
+  <button
+    title={isMaximized ? 'Restore' : 'Maximize'}
+    aria-label={isMaximized ? 'Restore' : 'Maximize'}
+    onclick={handleToggleMaximize}
+  >
     {#if isMaximized}
       <svg width="12" height="12" viewBox="0 0 12 12">
         <path
@@ -49,7 +53,7 @@
       >
     {/if}
   </button>
-  <button title="Close" class="close-button" onclick={handleClose}>
+  <button title="Close" aria-label="Close" class="close-button" onclick={handleClose}>
     <svg width="12" height="12" viewBox="0 0 12 12"
       ><polygon
         fill="currentColor"

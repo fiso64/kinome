@@ -30,7 +30,7 @@
   $effect(() => {
     // When the current folder changes, reset the search query.
     // The dependency on currentFolder.id ensures this runs on navigation.
-    const _ = currentFolder?.id
+    void currentFolder?.id
     searchQuery = ''
   })
 
