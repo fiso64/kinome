@@ -42,7 +42,7 @@ The goal is to make the app visually appealing and more informative.
     *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
     *   If not possible to improve backdrop performance, at least make it fade in smoothly (fade in will always be needed when it is first downloaded as a delay is unavoidable in that case).
 
-#### Phase 3: Core Feature Completion
+#### Phase 3: Core Feature Completion 
 
 The goal is to implement the key features that make the app unique and powerful.
 
