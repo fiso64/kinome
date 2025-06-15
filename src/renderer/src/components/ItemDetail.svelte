@@ -131,7 +131,7 @@
     position: relative;
     padding: 1.5rem;
     padding-top: 15vh; /* Push content down from top */
-    max-width: 1000px;
+    max-width: 100ch;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
