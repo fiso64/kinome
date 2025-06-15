@@ -31,7 +31,7 @@ The goal is to make the app visually appealing and more informative.
     *   First, implement tree view for the media list component
     *   Only download the backdrop when the item detail view is opened. Get the maximum quality backdrop possible.
     *   If there is other metadata needed that can not be retrieved in the single request during the initial scan, also only fetch it when the details view for that item is opened.
-*   `[ ]` Allow scanning for new items and updating database
+*   `[X]` Allow scanning for new items and updating database
     *   Replace the "Scan Library Folder" by a reload button (⟳). Animate it while reloading. Reloading will re-scan the media folder for new items and add them to the database and search tmdb for the items that have not been searched yet
     *   Items that fail to be found should have tmdbId key set explicitly to null (also during the initial scan), so that they are not searched again on refresh.
     *   Add F5 shortcut to reload
@@ -52,7 +52,7 @@ The goal is to implement the key features that make the app unique and powerful.
     *   Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
     *   Some tag keys should be converted to user friendly names for display in the UI (e.g. tmdbId -> TMDB ID)
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
-    *   Update the scanner to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children.
+    *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user.
     *   These two flags will be editable through the same tagging UI as above.
 *   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).

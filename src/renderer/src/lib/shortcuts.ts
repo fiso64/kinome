@@ -3,6 +3,7 @@ interface ShortcutActions {
   focusSearch: () => void
   navigateBack: () => void
   navigateForward: () => void
+  reloadLibrary: () => void
 }
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
@@ -34,6 +35,9 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     if (modKey && event.key.toLowerCase() === 'p') {
       event.preventDefault()
       actions.openSettings()
+    } else if (event.key === 'F5') {
+      event.preventDefault()
+      actions.reloadLibrary()
     } else if (event.altKey && event.key === 'ArrowLeft') {
       event.preventDefault()
       actions.navigateBack()

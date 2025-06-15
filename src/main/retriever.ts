@@ -42,6 +42,10 @@ function parseTitle(name: string): string {
 
 async function downloadImage(url: string, destinationPath: string): Promise<void> {
   try {
+    // Ensure the destination directory exists before writing the file.
+    const dir = path.dirname(destinationPath)
+    await fs.mkdir(dir, { recursive: true })
+
     const response = await fetch(url)
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.statusText}`)
@@ -50,7 +54,9 @@ async function downloadImage(url: string, destinationPath: string): Promise<void
     const imageBuffer = Buffer.from(await (response as any).arrayBuffer())
     await fs.writeFile(destinationPath, imageBuffer)
   } catch (error) {
-    console.error(`Error downloading image from ${url}:`, error)
+    console.error(`Error during image download or save from ${url}:`, error)
+    // Re-throw the error so the calling function knows the operation failed.
+    throw error
   }
 }
 
@@ -113,17 +119,59 @@ export async function fetchAndApplyMetadata(
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
         const imagesDir = getImagesPath(libraryDataPath)
-        await fs.mkdir(imagesDir, { recursive: true })
         const posterFileName = `${item.id}.jpg`
         const posterDestPath = path.join(imagesDir, posterFileName)
-        await downloadImage(posterUrl, posterDestPath)
-        item.posterPath = posterFileName
+        try {
+          await downloadImage(posterUrl, posterDestPath)
+          item.posterPath = posterFileName
+        } catch {
+          console.error(`Failed to download or save poster for item: ${item.name}`)
+          // Do not set item.posterPath if download fails
+        }
       }
     } else {
       console.log(`No TMDB result found for "${query}" with endpoint "${endpoint}"`)
+      item.tmdbId = null // Explicitly mark as not found to prevent re-scanning
     }
   } catch (error) {
     console.error(`Error fetching metadata for "${item.name}":`, error)
+  }
+}
+
+export async function refetchPoster(
+  item: LibraryItem,
+  tmdbApiKey: string,
+  libraryDataPath: string
+): Promise<void> {
+  if (!item.tmdbId || !item.mediaType) {
+    console.log(`Skipping poster refetch for "${item.name}", no tmdbId or mediaType.`);
+    return
+  }
+
+  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}`
+
+  try {
+    const response = await fetch(detailUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB detail fetch failed for poster: ${response.statusText}`)
+    }
+    const details = await response.json()
+
+    if (details.poster_path) {
+      const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
+      const imagesDir = getImagesPath(libraryDataPath)
+      const posterFileName = `${item.id}.jpg`
+      const posterDestPath = path.join(imagesDir, posterFileName)
+      try {
+        await downloadImage(posterUrl, posterDestPath)
+        item.posterPath = posterFileName
+        console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
+      } catch {
+        // Error is logged inside downloadImage
+      }
+    }
+  } catch (error) {
+    console.error(`Error refetching poster for "${item.name}":`, error)
   }
 }
 
@@ -148,15 +196,18 @@ export async function fetchItemDetails(
     const details = await response.json()
 
     if (details.backdrop_path) {
-      // Use original quality for backdrop
       const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
       const imagesDir = getImagesPath(libraryDataPath)
       const backdropFileName = `${item.id}-backdrop.jpg`
       const backdropDestPath = path.join(imagesDir, backdropFileName)
-
-      await downloadImage(backdropUrl, backdropDestPath)
-      item.backdropPath = backdropFileName
-      console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
+      try {
+        await downloadImage(backdropUrl, backdropDestPath)
+        item.backdropPath = backdropFileName
+        console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
+      } catch {
+        console.error(`Failed to download or save backdrop for item: ${item.name}`)
+        // Do not set item.backdropPath if download fails
+      }
     }
 
     // We can also update other fields here if they are more detailed than the search result

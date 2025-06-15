@@ -6,6 +6,7 @@ import type { MediaFile, MediaFolder } from '../main/types'
 const api = {
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
+  refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-details', itemId),
@@ -13,6 +14,8 @@ const api = {
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>
     ipcRenderer.invoke('get-settings'),
+  getLibraryMediaSourcePath: (): Promise<string | null> =>
+    ipcRenderer.invoke('get-library-media-source-path'),
   saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }): Promise<void> =>
     ipcRenderer.invoke('save-settings', settings),
 

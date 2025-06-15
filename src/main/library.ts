@@ -4,7 +4,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import type { Database, MediaFolder, LibraryItem, MediaFile } from './types'
-import { fetchAndApplyMetadata, fetchItemDetails } from './retriever'
+import { fetchAndApplyMetadata, fetchItemDetails, refetchPoster } from './retriever'
 import { readSettings } from './settings'
 
 const LIBRARY_DATA_DIR_NAME = 'library'
@@ -62,6 +62,52 @@ function findItemById(id: string, node: MediaFolder): LibraryItem | null {
     }
   }
   return null
+}
+
+function getAllItemsAsList(node: MediaFolder, list: LibraryItem[] = []): LibraryItem[] {
+  list.push(node)
+  for (const child of node.children) {
+    if (child.type === 'folder') {
+      getAllItemsAsList(child, list)
+    } else {
+      list.push(child)
+    }
+  }
+  return list
+}
+
+function getAllItemsAsMap(
+  node: MediaFolder,
+  map: Map<string, LibraryItem> = new Map()
+): Map<string, LibraryItem> {
+  map.set(node.id, node)
+  for (const child of node.children) {
+    if (child.type === 'folder') {
+      getAllItemsAsMap(child, map)
+    }
+    map.set(child.id, child)
+  }
+  return map
+}
+
+// Checks if image files exist on disk. If not, it nullifies the path in the item object.
+async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
+  if (item.posterPath) {
+    try {
+      await fs.access(path.join(imagesDir, item.posterPath))
+    } catch {
+      console.log(`Poster for "${item.name}" not found. Marking for re-download.`)
+      item.posterPath = undefined
+    }
+  }
+  if (item.backdropPath) {
+    try {
+      await fs.access(path.join(imagesDir, item.backdropPath))
+    } catch {
+      console.log(`Backdrop for "${item.name}" not found. Marking for re-download.`)
+      item.backdropPath = undefined
+    }
+  }
 }
 
 async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFolder> {
@@ -127,38 +173,116 @@ async function processInChunks<T>(
 
 async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
   const libraryDataPath = getLibraryDataPath()
-
   if (!tmdbApiKey || !db.root) {
     console.warn('Metadata fetch skipped: No API key or library root.')
     return
   }
 
-  const itemsToProcess = [...db.root.children]
-  console.log(`Starting metadata fetch for ${itemsToProcess.length} top-level items...`)
+  // Group 1: New items needing a full metadata search.
+  const newItems = db.root.children.filter((item) => typeof item.tmdbId === 'undefined')
+  // Group 2: Existing items that are just missing a poster.
+  const itemsMissingPosters = db.root.children.filter(
+    (item) => item.tmdbId && !item.posterPath
+  )
 
-  const task = async (item: LibraryItem) => {
-    // Check if item already has a poster to avoid re-fetching
-    if (item.posterPath) return
-
-    await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath)
-
-    // If metadata was successfully added, notify the renderer.
-    if (item.posterPath) {
-      window.webContents.send('library-item-updated', item)
-    }
+  if (newItems.length === 0 && itemsMissingPosters.length === 0) {
+    console.log('No new items or missing posters to fetch.')
+    return
   }
 
-  await processInChunks(itemsToProcess, 17, task)
+  // Process new items by searching for them on TMDB.
+  if (newItems.length > 0) {
+    console.log(`Starting metadata fetch for ${newItems.length} new top-level items...`)
+    const task = async (item: LibraryItem): Promise<void> => {
+      await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath)
+      if (item.posterPath || item.tmdbId === null) {
+        window.webContents.send('library-item-updated', item)
+      }
+    }
+    await processInChunks(newItems, 17, task)
+  }
 
-  // Save the fully updated DB at the very end.
+  // Re-fetch posters for existing items that are missing them.
+  if (itemsMissingPosters.length > 0) {
+    console.log(`Starting poster refetch for ${itemsMissingPosters.length} items...`)
+    const task = async (item: LibraryItem): Promise<void> => {
+      await refetchPoster(item, tmdbApiKey, libraryDataPath)
+      if (item.posterPath) {
+        window.webContents.send('library-item-updated', item)
+      }
+    }
+    await processInChunks(itemsMissingPosters, 17, task)
+  }
+
   await writeDb(db)
-  console.log('Finished all metadata fetching and saved final DB.')
+  console.log('Finished all metadata/poster fetching and saved final DB.')
 }
 
 export function setupLibraryIpc(): void {
   ipcMain.handle('get-library-root', async () => {
     const db = await readDb()
     return db?.root ?? null
+  })
+
+  ipcMain.handle('get-library-media-source-path', async () => {
+    const db = await readDb()
+    return db?.mediaSourcePath ?? null
+  })
+
+  ipcMain.handle('refresh-library', async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow()
+    if (!focusedWindow) return null
+
+    const db = await readDb()
+    if (!db || !db.mediaSourcePath) {
+      console.log('Cannot refresh, no library configured.')
+      return null
+    }
+
+    console.log(`Refreshing library from: ${db.mediaSourcePath}`)
+    try {
+      const imagesDir = path.join(getLibraryDataPath(), 'images')
+      const newRoot = await scanDirectory(db.mediaSourcePath, db.mediaSourcePath)
+      const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
+
+      // This function merges old metadata and verifies image paths for all items.
+      async function processItem(item: LibraryItem) {
+        const oldItem = oldItemsMap.get(item.id)
+        if (oldItem) {
+          Object.assign(item, {
+            title: oldItem.title,
+            overview: oldItem.overview,
+            posterPath: oldItem.posterPath,
+            backdropPath: oldItem.backdropPath,
+            tmdbId: oldItem.tmdbId,
+            mediaType: oldItem.mediaType,
+            watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
+          })
+        }
+
+        // Verify image paths, nullifying them if files are missing.
+        await verifyImagePaths(item, imagesDir)
+
+        if (item.type === 'folder') {
+          // Process children concurrently
+          await Promise.all(item.children.map(processItem))
+        }
+      }
+
+      await processItem(newRoot)
+
+      db.root = newRoot
+      await writeDb(db)
+      console.log('Library refresh and image verification complete. Database updated.')
+
+      const settings = await readSettings()
+      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey)
+
+      return db.root
+    } catch (error) {
+      console.error('Failed to refresh library:', error)
+      return db?.root ?? null // Return old root on failure
+    }
   })
 
   ipcMain.handle('scan-library', async () => {
@@ -208,6 +332,7 @@ export function setupLibraryIpc(): void {
   ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
     const db = await readDb()
     const settings = await readSettings()
+    const libraryDataPath = getLibraryDataPath()
 
     if (!db || !db.root) {
       console.error('Cannot get item details: database not found.')
@@ -220,17 +345,24 @@ export function setupLibraryIpc(): void {
       return null
     }
 
-    // If we have the details we need (backdrop), return immediately.
+    // Verify that the backdrop image file actually exists on disk.
+    await verifyImagePaths(item, path.join(libraryDataPath, 'images'))
+
+    // If we still have the backdrop after verification, return immediately.
     if (item.backdropPath) {
       return item
     }
 
     // Otherwise, fetch them, update DB, and return updated item.
-    if (settings.tmdbApiKey) {
-      await fetchItemDetails(item, settings.tmdbApiKey, getLibraryDataPath())
+    if (settings.tmdbApiKey && item.tmdbId) {
+      await fetchItemDetails(item, settings.tmdbApiKey, libraryDataPath)
       await writeDb(db) // Save changes
     } else {
-      console.warn('Cannot fetch item details: TMDB API key not configured.')
+      if (!item.tmdbId) {
+        console.warn(`Cannot fetch item details for "${item.name}": item has no TMDB ID.`)
+      } else {
+        console.warn('Cannot fetch item details: TMDB API key not configured.')
+      }
     }
     return item // Return the (possibly updated) item
   })

@@ -7,7 +7,8 @@
 
   // Types are globally available from src/preload/index.d.ts
   let viewStack: MediaFolder[] = $state([])
-  let isLoading = $state(true)
+  let isScanning = $state(true) // For initial load or changing library folder
+  let isRefreshing = $state(false) // For updating the current library
   let showSettings = $state(false)
   let searchQuery = $state('')
   let selectedItemForDetailView: LibraryItem | null = $state(null)
@@ -29,7 +30,7 @@
       if (root) {
         viewStack = [root]
       }
-      isLoading = false
+      isScanning = false
     })
   })
 
@@ -77,16 +78,28 @@
   }
 
   async function handleScan(): Promise<void> {
-    isLoading = true
+    isScanning = true
     selectedItemForDetailView = null // Go back to grid view
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
       viewStack = [newRoot]
-    } else {
-      // If scan is cancelled or fails, reset the stack.
+    } else if (!currentFolder) {
+      // If scan is cancelled or fails on welcome screen, reset the stack.
       viewStack = []
     }
-    isLoading = false
+    isScanning = false
+  }
+
+  async function handleRefresh(): Promise<void> {
+    if (isRefreshing || isScanning) return
+    isRefreshing = true
+    const refreshedRoot = await window.api.refreshLibrary()
+    if (refreshedRoot) {
+      // This resets navigation to the root, which is the simplest approach.
+      viewStack = [refreshedRoot]
+      selectedItemForDetailView = null
+    }
+    isRefreshing = false
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
@@ -142,7 +155,8 @@
       openSettings: () => (showSettings = true),
       focusSearch: () => searchInputEl?.focus(),
       navigateBack: goBack,
-      navigateForward: goForward
+      navigateForward: goForward,
+      reloadLibrary: handleRefresh
     })
 
     // Cleanup the listeners when the component is destroyed.
@@ -151,7 +165,7 @@
 </script>
 
 {#if showSettings}
-  <SettingsModal close={() => (showSettings = false)} />
+  <SettingsModal close={() => (showSettings = false)} scanLibrary={handleScan} />
 {/if}
 
 <main>
@@ -180,17 +194,22 @@
       </div>
 
       <div class="header-right">
-        <button onclick={() => (showSettings = true)} title="Settings">⚙️</button>
-        <button onclick={handleScan} disabled={isLoading}>
-          {isLoading ? 'Loading...' : 'Scan Library Folder'}
+        <button
+          onclick={handleRefresh}
+          disabled={isRefreshing || isScanning}
+          title="Refresh Library (F5)"
+          class="refresh-button"
+        >
+          <span class:reloading={isRefreshing}>⟳</span>
         </button>
+        <button onclick={() => (showSettings = true)} title="Settings" class="settings-button">⚙️</button>
       </div>
     </div>
     <WindowControls />
   </header>
 
   <div class="content">
-    {#if isLoading}
+    {#if isScanning}
       <p class="status-text">Loading library...</p>
     {:else if !currentFolder}
       <div class="welcome-screen">
@@ -303,11 +322,17 @@
     flex-shrink: 0; /* Prevent scan button from shrinking */
   }
 
-  .back-button {
-    padding: 0.5rem;
-    line-height: 1;
+  .back-button,
+  .refresh-button,
+  .settings-button {
     width: 36px;
     height: 36px;
+    padding: 0;
+    font-size: 1.2rem;
+    line-height: 1;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
   }
 
   button:hover {
@@ -337,5 +362,22 @@
     gap: 1rem;
     padding: 2rem;
     text-align: center;
+  }
+
+  /* --- Refresh Button Animation --- */
+  .refresh-button {
+    /* Sizing is now handled by the unified button style above */
+  }
+  .reloading {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

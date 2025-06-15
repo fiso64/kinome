@@ -12,7 +12,7 @@ declare global {
     overview?: string
     posterPath?: string // e.g. 'xxxx.jpg'
     backdropPath?: string
-    tmdbId?: number
+    tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
   }
 
@@ -27,7 +27,7 @@ declare global {
     overview?: string
     posterPath?: string // e.g. 'xxxx.jpg'
     backdropPath?: string
-    tmdbId?: number
+    tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
   }
 
@@ -37,9 +37,11 @@ declare global {
     electron: ElectronAPI
     api: {
       getLibraryRoot: () => Promise<MediaFolder | null>
-      scanLibrary: () => Promise<MediaFolder | null>
+      scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
+      refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
       // Settings
       getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string }>
+      getLibraryMediaSourcePath: () => Promise<string | null>
       saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }) => Promise<void>
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>

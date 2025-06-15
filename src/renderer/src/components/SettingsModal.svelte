@@ -1,15 +1,23 @@
 <script lang="ts">
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
-  let { close }: { close: () => void } = $props()
+  let {
+    close,
+    scanLibrary
+  }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
 
   let playerCommand = $state('')
   let tmdbApiKey = $state('')
+  let libraryPath = $state('')
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
+    })
+
+    window.api.getLibraryMediaSourcePath().then((path) => {
+      libraryPath = path ?? 'Not set'
     })
 
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -26,6 +34,13 @@
   async function handleSave(): Promise<void> {
     await window.api.saveSettings({ playerCommand, tmdbApiKey })
     close()
+  }
+
+  async function handleChangeLibrary() {
+    // This will trigger the scan in App.svelte, which handles all UI updates.
+    await scanLibrary()
+    // After scan, re-fetch the path to display the new one.
+    libraryPath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
   }
 </script>
 
@@ -56,6 +71,25 @@
       <input type="password" id="tmdb-api-key" bind:value={tmdbApiKey} />
       <p class="help-text">Required for fetching movie and show posters and details.</p>
     </div>
+
+    <div class="divider"></div>
+
+    <h2>Library</h2>
+    <div class="form-group">
+      <label for="source-type">Source Type</label>
+      <select id="source-type" disabled>
+        <option>Local Path</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Current Path</label>
+      <div class="path-display">{libraryPath}</div>
+      <button class="secondary" onclick={handleChangeLibrary}>Change Folder...</button>
+      <p class="help-text">
+        Changing the folder will start a full re-scan of the new location.
+      </p>
+    </div>
+
     <div class="actions">
       <button onclick={handleSave}>Save & Close</button>
       <button class="secondary" onclick={() => close()}>Cancel</button>
@@ -81,7 +115,7 @@
     padding: 2rem;
     border-radius: 8px;
     width: 90%;
-    max-width: 500px;
+    max-width: 600px;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -94,7 +128,8 @@
   label {
     font-weight: bold;
   }
-  input {
+  input,
+  select {
     padding: 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);
@@ -108,6 +143,10 @@
       Consolas,
       Liberation Mono,
       monospace;
+  }
+  select:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
   }
   .help-text {
     font-size: 0.8rem;
@@ -125,7 +164,32 @@
     gap: 1rem;
   }
   button.secondary {
-    background-color: transparent;
-    border: 1px solid var(--ev-c-gray-1);
+    background-color: var(--ev-button-alt-bg);
+    border: 1px solid var(--ev-button-alt-border);
+  }
+  button.secondary:hover {
+    background-color: var(--ev-button-alt-hover-bg);
+  }
+  .path-display {
+    padding: 0.5rem;
+    background-color: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 4px;
+    font-family:
+      ui-monospace,
+      SFMono-Regular,
+      SF Mono,
+      Menlo,
+      Consolas,
+      Liberation Mono,
+      monospace;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow-x: auto;
+    color: var(--ev-c-text-2);
+  }
+  .divider {
+    border-bottom: 1px solid var(--color-background-mute);
+    margin: -0.5rem 0;
   }
 </style>
