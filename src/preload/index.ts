@@ -10,6 +10,7 @@ const api = {
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-details', itemId),
+  updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
 
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>

@@ -46,18 +46,16 @@ The goal is to make the app visually appealing and more informative.
 
 The goal is to implement the key features that make the app unique and powerful.
 
-*   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. 
+*   `[X]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. 
     *   The UI should allow adding, removing or modifying any tag or metadata entry, including things that have been fetched from tmdb like title and genre and others. It should show as a modal window.
     *   Custom tags consist of a custom tag name, and a value for that tag.
-    *   There should be a three dot menu somewhere in the detail page view. Clicking it will bring out a context menu with an entry to edit metadata and tags.
 *   `[ ]` Update the search bar to support searching by tags (e.g., `mytagname:favorite` or `genre:sci-fi`).
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
     *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user.
     *   These two flags will be editable through the same tagging UI as above.
 *   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
-
-*   `[ ]` **Flexible UI Engine & Component:**
+*   `[ ]` **Flexible UI Engine:**
     *   Implement the UI/backend logic for saving the chosen layout strategy (Grid, Tree, Tabs, Sections) for any folder.
     *   Heavily refactor the `Media List` component to be able to render its items using any of the four layout strategies based on the parent folder's configuration.
     *   This includes the logic for rendering tabs and section headers, which will themselves contain a nested instance of the `Media List` component.

@@ -13,6 +13,7 @@ export interface MediaFile {
   mediaType?: 'movie' | 'tv'
   year?: number
   genres?: string[]
+  tags?: Record<string, string>
 }
 
 export interface MediaFolder {
@@ -30,6 +31,7 @@ export interface MediaFolder {
   mediaType?: 'movie' | 'tv'
   year?: number
   genres?: string[]
+  tags?: Record<string, string>
 }
 
 export type LibraryItem = MediaFile | MediaFolder

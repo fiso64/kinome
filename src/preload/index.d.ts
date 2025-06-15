@@ -16,6 +16,7 @@ declare global {
     mediaType?: 'movie' | 'tv'
     year?: number
     genres?: string[]
+    tags?: Record<string, string>
   }
 
   interface MediaFolder {
@@ -33,6 +34,7 @@ declare global {
     mediaType?: 'movie' | 'tv'
     year?: number
     genres?: string[]
+    tags?: Record<string, string>
   }
 
   type LibraryItem = MediaFile | MediaFolder
@@ -49,6 +51,7 @@ declare global {
       saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }) => Promise<void>
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
+      updateItem: (item: LibraryItem) => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       minimizeWindow: () => void

@@ -268,6 +268,7 @@ export function setupLibraryIpc(): void {
             mediaType: oldItem.mediaType,
             year: oldItem.year,
             genres: oldItem.genres,
+            tags: oldItem.tags,
             watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
           })
         }
@@ -419,5 +420,31 @@ export function setupLibraryIpc(): void {
     })
 
     return true // Indicate that the attempt to play was processed.
+  })
+
+  ipcMain.handle('update-item', async (event, updatedItem: LibraryItem): Promise<void> => {
+    const db = await readDb()
+    if (!db || !db.root) {
+      console.error('Cannot update item: database not found.')
+      return
+    }
+
+    const itemInDb = findItemById(updatedItem.id, db.root)
+    if (itemInDb) {
+      // The updatedItem from the renderer is a modified clone of the original.
+      // We merge its properties into the item in our database.
+      // This preserves properties not editable in the UI (like `path`) and
+      // the object reference within the parent's `children` array.
+      Object.assign(itemInDb, updatedItem)
+
+      await writeDb(db)
+      console.log(`Updated item ${updatedItem.id} in database.`)
+
+      // Notify renderer about the update so UI can refresh everywhere.
+      const window = BrowserWindow.fromWebContents(event.sender)
+      window?.webContents.send('library-item-updated', itemInDb)
+    } else {
+      console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
+    }
   })
 }

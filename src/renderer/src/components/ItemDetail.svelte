@@ -1,5 +1,6 @@
 <script lang="ts">
   import MediaGrid from './MediaGrid.svelte'
+  import MetadataEditor from './MetadataEditor.svelte'
 
   let {
     item,
@@ -14,15 +15,24 @@
   // Create a reactive copy of the item to hold fetched details
   let detailedItem = $state<LibraryItem>(JSON.parse(JSON.stringify(item)))
   let isBackdropLoaded = $state(false)
+  let previousBackdropPath: string | undefined
+  let showMetadataEditor = $state(false)
+  let showContextMenu = $state(false)
+  let contextMenuPosition = $state({ top: 0, left: 0 })
 
   $effect(() => {
     // This effect runs only when the `item` prop changes.
     // We create a local, non-reactive copy to use for logic. This prevents
     // the effect from depending on `detailedItem`, which would cause an infinite loop.
     const localCopy = JSON.parse(JSON.stringify(item))
+
+    // Only reset the animation flag if the image source itself is changing.
+    if (localCopy.backdropPath !== previousBackdropPath) {
+      isBackdropLoaded = false
+    }
+    previousBackdropPath = localCopy.backdropPath
+
     detailedItem = localCopy
-    // Reset the loaded flag for the new backdrop
-    isBackdropLoaded = false
 
     // Fetch details if the local copy doesn't have them.
     if (!localCopy.backdropPath) {
@@ -36,6 +46,33 @@
     }
   })
 
+  function handleContextMenu(event: MouseEvent) {
+    // We only want our custom menu, not the browser's default.
+    event.preventDefault()
+
+    // Position the menu at the cursor's location.
+    contextMenuPosition = { top: event.clientY, left: event.clientX }
+    showContextMenu = true
+  }
+
+  $effect(() => {
+    // This effect handles closing the context menu when the user clicks away.
+    if (!showContextMenu) return
+
+    const closeMenu = () => {
+      showContextMenu = false
+    }
+
+    // A click or another contextmenu event anywhere should close the current menu.
+    window.addEventListener('click', closeMenu, { once: true })
+    window.addEventListener('contextmenu', closeMenu, { capture: true, once: true })
+
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('contextmenu', closeMenu, { capture: true })
+    }
+  })
+
   function handleItemClick(clickedItem: LibraryItem) {
     if (clickedItem.type === 'folder') {
       onNavigateFolder(clickedItem)
@@ -45,7 +82,7 @@
   }
 </script>
 
-<div class="detail-view">
+<div class="detail-view" oncontextmenu={handleContextMenu}>
   <div class="backdrop-container">
     {#if detailedItem.backdropPath}
       <!-- 
@@ -108,6 +145,27 @@
       </div>
     {/if}
   </div>
+
+  {#if showContextMenu}
+    <div
+      class="context-menu"
+      style="top: {contextMenuPosition.top}px; left: {contextMenuPosition.left}px;"
+    >
+      <button
+        class="context-menu-item"
+        onclick={() => {
+          showMetadataEditor = true
+          showContextMenu = false
+        }}
+      >
+        Edit Metadata
+      </button>
+    </div>
+  {/if}
+
+  {#if showMetadataEditor}
+    <MetadataEditor item={detailedItem} onClose={() => (showMetadataEditor = false)} />
+  {/if}
 </div>
 
 <style>
@@ -208,6 +266,7 @@
     flex-direction: column;
     gap: 1rem;
     align-self: flex-end;
+    flex-grow: 1;
   }
 
   h1 {
@@ -256,6 +315,33 @@
   }
   .play-button:hover {
     transform: scale(1.05);
+  }
+
+  .context-menu {
+    position: fixed; /* Position relative to the viewport */
+    background-color: var(--ev-c-black-soft);
+    border: 1px solid var(--ev-c-black-mute);
+    border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    z-index: 1000; /* Ensure it's on top of everything */
+    width: max-content;
+    overflow: hidden;
+  }
+
+  .context-menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1.25rem;
+    background: none;
+    border: none;
+    color: var(--color-text);
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+
+  .context-menu-item:hover {
+    background-color: var(--ev-c-gray-2);
   }
 
   .overview {
