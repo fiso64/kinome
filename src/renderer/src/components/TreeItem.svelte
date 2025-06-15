@@ -5,10 +5,12 @@
   let {
     item,
     itemclick,
+    showContextMenu,
     level = 0
   }: {
     item: LibraryItem
     itemclick: (item: LibraryItem) => void
+    showContextMenu: (item: LibraryItem, event: MouseEvent) => void
     level: number
   } = $props()
 
@@ -31,7 +33,12 @@
 </script>
 
 <div class="tree-item-container">
-  <button type="button" class="tree-item" onclick={handleItemClick}>
+  <button
+    type="button"
+    class="tree-item"
+    onclick={handleItemClick}
+    oncontextmenu={(e) => showContextMenu(item, e)}
+  >
     <div class="poster" style:margin-left={`${level * 24}px`}>
       {#if item.type === 'folder'}
         <span class="chevron">{isExpanded ? '▾' : '▸'}</span>
@@ -60,7 +67,7 @@
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
       {#each item.children as child (child.id)}
-        <TreeItem item={child} {itemclick} level={level + 1} />
+        <TreeItem item={child} {itemclick} {showContextMenu} level={level + 1} />
       {/each}
     </div>
   {/if}

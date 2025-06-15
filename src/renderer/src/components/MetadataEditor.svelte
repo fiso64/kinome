@@ -154,8 +154,7 @@
     font-weight: bold;
   }
   input,
-  textarea,
-  select {
+  textarea {
     padding: 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);

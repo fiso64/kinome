@@ -3,6 +3,9 @@
   import SettingsModal from './components/SettingsModal.svelte'
   import WindowControls from './components/WindowControls.svelte'
   import ItemDetail from './components/ItemDetail.svelte'
+  import LayoutSelector from './components/LayoutSelector.svelte'
+  import ContextMenu from './components/ContextMenu.svelte'
+  import MetadataEditor from './components/MetadataEditor.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
 
   // Types are globally available from src/preload/index.d.ts
@@ -10,9 +13,16 @@
   let isScanning = $state(true) // For initial load or changing library folder
   let isRefreshing = $state(false) // For updating the current library
   let showSettings = $state(false)
+  let showLayoutSelector = $state(false)
+  let showMetadataEditor = $state(false)
   let searchQuery = $state('')
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl: HTMLInputElement
+
+  // Global Context Menu State
+  let contextMenuItem = $state<LibraryItem | null>(null)
+  let contextMenuPosition = $state({ top: 0, left: 0 })
+  let modalItem = $state<LibraryItem | null>(null) // Item for the currently open modal
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   // Back button is disabled if we are at the root grid view.
@@ -65,6 +75,9 @@
   })
 
   function findItemInTree(node: MediaFolder, id: string): LibraryItem | null {
+    if (node.id === id) {
+      return node
+    }
     for (const child of node.children) {
       if (child.id === id) {
         return child
@@ -124,15 +137,32 @@
     }
   }
 
-  // Used by the main MediaGrid. Always opens the detail view.
+  // Used by the main MediaGrid.
   function handleGridItemClick(item: LibraryItem): void {
-    // Pass the reactive proxy directly. This is much faster than a deep copy
-    // and makes the UI feel instantaneous. The ItemDetail component will
-    // handle creating its own mutable copy if needed.
-    selectedItemForDetailView = item
+    // If the setting is 'navigate', push folder to stack. Otherwise, show detail view.
+    if (
+      currentFolder &&
+      currentFolder.childrenClickAction === 'navigate' &&
+      item.type === 'folder'
+    ) {
+      handleNavigateFolder(item as MediaFolder)
+    } else {
+      selectedItemForDetailView = item
+    }
   }
 
   // Used by ItemDetail when a child folder is clicked.
+  function handleFolderClickInDetailView(folder: MediaFolder): void {
+    const parent = selectedItemForDetailView
+    if (parent && parent.type === 'folder' && parent.childrenClickAction === 'navigate') {
+      handleNavigateFolder(folder)
+    } else {
+      // Default to opening detail view for the child
+      selectedItemForDetailView = folder
+    }
+  }
+
+  // Used to navigate to a new folder list view, closing any detail view.
   function handleNavigateFolder(folder: MediaFolder): void {
     selectedItemForDetailView = null
     // Pushing the reactive proxy is fine; Svelte 5 handles this efficiently.
@@ -165,10 +195,55 @@
     // Cleanup the listeners when the component is destroyed.
     return () => cleanupShortcuts()
   })
+
+function handleShowContextMenu(item: LibraryItem, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenuItem = item
+  modalItem = null // Ensure no old modal data is lingering
+  contextMenuPosition = { top: event.clientY, left: event.clientX }
+}
 </script>
 
 {#if showSettings}
   <SettingsModal close={() => (showSettings = false)} scanLibrary={handleScan} />
+{/if}
+
+{#if showLayoutSelector && modalItem?.type === 'folder'}
+  <LayoutSelector
+    item={modalItem}
+    currentLayout={modalItem.layout ?? (modalItem.id === currentFolder?.id ? 'grid' : 'tree')}
+    onClose={() => {
+      showLayoutSelector = false
+      modalItem = null
+    }}
+  />
+{/if}
+
+{#if showMetadataEditor && modalItem}
+  <MetadataEditor
+    item={modalItem}
+    onClose={() => {
+      showMetadataEditor = false
+      modalItem = null
+    }}
+  />
+{/if}
+
+{#if contextMenuItem}
+  <ContextMenu
+    item={contextMenuItem}
+    position={contextMenuPosition}
+    onClose={() => (contextMenuItem = null)}
+    onEditMetadata={() => {
+      modalItem = contextMenuItem // Pass the item to the modal state
+      showMetadataEditor = true
+    }}
+    onSetLayout={() => {
+      modalItem = contextMenuItem // Pass the item to the modal state
+      showLayoutSelector = true
+    }}
+  />
 {/if}
 
 <main>
@@ -205,6 +280,34 @@
         >
           <span class:reloading={isRefreshing}>⟳</span>
         </button>
+        {#if currentFolder}
+          <button
+            onclick={() => {
+              modalItem = currentFolder
+              showLayoutSelector = true
+            }}
+            title="Set Children View Layout"
+            class="layout-button"
+          >
+            <!-- A simple layout icon -->
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+            </svg>
+          </button>
+        {/if}
         <button onclick={() => (showSettings = true)} title="Settings" class="settings-button">⚙️</button>
       </div>
     </div>
@@ -226,14 +329,21 @@
         The ItemDetail view will be rendered as an overlay on top of it.
       -->
       <div>
-        <MediaGrid items={filteredChildren} itemclick={handleGridItemClick} />
+        <MediaGrid
+          parentItem={currentFolder}
+          items={filteredChildren}
+          itemclick={handleGridItemClick}
+          layout={currentFolder.layout ?? 'grid'}
+          showContextMenu={handleShowContextMenu}
+        />
       </div>
 
       {#if selectedItemForDetailView}
         <ItemDetail
           item={selectedItemForDetailView}
           onPlayFile={handlePlayFile}
-          onNavigateFolder={handleNavigateFolder}
+          onNavigateFolder={handleFolderClickInDetailView}
+          showContextMenu={handleShowContextMenu}
         />
       {/if}
     {/if}
@@ -328,6 +438,7 @@
 
   .back-button,
   .refresh-button,
+  .layout-button,
   .settings-button {
     width: 36px;
     height: 36px;

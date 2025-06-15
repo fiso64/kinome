@@ -49,21 +49,23 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[X]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. 
     *   The UI should allow adding, removing or modifying any tag or metadata entry, including things that have been fetched from tmdb like title and genre and others. It should show as a modal window.
     *   Custom tags consist of a custom tag name, and a value for that tag.
-*   `[ ]` Update the search bar to support searching by tags (e.g., `mytagname:favorite` or `genre:sci-fi`).
-*   `[ ]` **Implement Per-Folder Metadata Settings:**
-    *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user.
-    *   These two flags will be editable through the same tagging UI as above.
-*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
-    *   Also allow to select a local image as backdrop or poster (will be copied to the database).
-*   `[ ]` **Flexible UI Engine:**
+*   `[X]` **Flexible UI Engine:**
     *   Implement the UI/backend logic for saving the chosen layout strategy (Grid, Tree, Tabs, Sections) for any folder.
     *   Heavily refactor the `Media List` component to be able to render its items using any of the four layout strategies based on the parent folder's configuration.
     *   This includes the logic for rendering tabs and section headers, which will themselves contain a nested instance of the `Media List` component.
+*   `[ ]` **Implement Per-Folder Metadata Settings:**
+    *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user (add new toggleable checkmark in the context menu).
+    *   children type hint will be editable in the metadata window
+*   `[ ]` Update the search bar to support searching by tags (e.g., `mytagname:favorite` or `genre:sci-fi`).
+    *   Search bar needs to also filter tab/section contents rather than tabs/sections themselves when using tab or section view.
+*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
+    *   Also allow to select a local image as backdrop or poster (will be copied to the database).
 
 #### Phase 4: Expansion & Refinement
 
 The goal is to expand source support and prepare for future growth.
 
 *   `[ ]` **Add Rclone Source:** Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
+*   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
 *   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.

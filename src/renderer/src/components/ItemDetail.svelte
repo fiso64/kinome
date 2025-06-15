@@ -1,24 +1,25 @@
 <script lang="ts">
   import MediaGrid from './MediaGrid.svelte'
+  import LayoutSelector from './LayoutSelector.svelte'
   import MetadataEditor from './MetadataEditor.svelte'
 
   let {
     item,
     onNavigateFolder,
-    onPlayFile
+    onPlayFile,
+    showContextMenu
   }: {
     item: LibraryItem
     onNavigateFolder: (folder: MediaFolder) => void
     onPlayFile: (file: MediaFile) => void
+    showContextMenu: (item: LibraryItem, event: MouseEvent) => void
   } = $props()
 
+  // Create a reactive copy of the item to hold fetched details
   // Create a reactive copy of the item to hold fetched details
   let detailedItem = $state<LibraryItem>(JSON.parse(JSON.stringify(item)))
   let isBackdropLoaded = $state(false)
   let previousBackdropPath: string | undefined
-  let showMetadataEditor = $state(false)
-  let showContextMenu = $state(false)
-  let contextMenuPosition = $state({ top: 0, left: 0 })
 
   $effect(() => {
     // This effect runs only when the `item` prop changes.
@@ -46,33 +47,6 @@
     }
   })
 
-  function handleContextMenu(event: MouseEvent) {
-    // We only want our custom menu, not the browser's default.
-    event.preventDefault()
-
-    // Position the menu at the cursor's location.
-    contextMenuPosition = { top: event.clientY, left: event.clientX }
-    showContextMenu = true
-  }
-
-  $effect(() => {
-    // This effect handles closing the context menu when the user clicks away.
-    if (!showContextMenu) return
-
-    const closeMenu = () => {
-      showContextMenu = false
-    }
-
-    // A click or another contextmenu event anywhere should close the current menu.
-    window.addEventListener('click', closeMenu, { once: true })
-    window.addEventListener('contextmenu', closeMenu, { capture: true, once: true })
-
-    return () => {
-      window.removeEventListener('click', closeMenu)
-      window.removeEventListener('contextmenu', closeMenu, { capture: true })
-    }
-  })
-
   function handleItemClick(clickedItem: LibraryItem) {
     if (clickedItem.type === 'folder') {
       onNavigateFolder(clickedItem)
@@ -82,7 +56,7 @@
   }
 </script>
 
-<div class="detail-view" oncontextmenu={handleContextMenu}>
+<div class="detail-view" oncontextmenu={(e) => showContextMenu(detailedItem, e)}>
   <div class="backdrop-container">
     {#if detailedItem.backdropPath}
       <!-- 
@@ -141,31 +115,16 @@
     {#if detailedItem.type === 'folder' && detailedItem.children.length > 0}
       <div class="children-section">
         <h2>Contents</h2>
-        <MediaGrid items={detailedItem.children} itemclick={handleItemClick} viewMode="tree" />
+        <MediaGrid
+          parentItem={detailedItem}
+          items={detailedItem.children}
+          itemclick={handleItemClick}
+          layout={detailedItem.layout ?? 'tree'}
+          {showContextMenu}
+        />
       </div>
     {/if}
   </div>
-
-  {#if showContextMenu}
-    <div
-      class="context-menu"
-      style="top: {contextMenuPosition.top}px; left: {contextMenuPosition.left}px;"
-    >
-      <button
-        class="context-menu-item"
-        onclick={() => {
-          showMetadataEditor = true
-          showContextMenu = false
-        }}
-      >
-        Edit Metadata
-      </button>
-    </div>
-  {/if}
-
-  {#if showMetadataEditor}
-    <MetadataEditor item={detailedItem} onClose={() => (showMetadataEditor = false)} />
-  {/if}
 </div>
 
 <style>

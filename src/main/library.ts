@@ -259,6 +259,11 @@ export function setupLibraryIpc(): void {
       async function processItem(item: LibraryItem) {
         const oldItem = oldItemsMap.get(item.id)
         if (oldItem) {
+          const oldFolderProps =
+            oldItem.type === 'folder'
+              ? { layout: oldItem.layout, childrenClickAction: oldItem.childrenClickAction }
+              : {}
+
           Object.assign(item, {
             title: oldItem.title,
             overview: oldItem.overview,
@@ -269,6 +274,7 @@ export function setupLibraryIpc(): void {
             year: oldItem.year,
             genres: oldItem.genres,
             tags: oldItem.tags,
+            ...oldFolderProps,
             watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
           })
         }

@@ -35,6 +35,8 @@ declare global {
     year?: number
     genres?: string[]
     tags?: Record<string, string>
+    layout?: 'grid' | 'tree' | 'tabs' | 'sections'
+    childrenClickAction?: 'detail' | 'navigate'
   }
 
   type LibraryItem = MediaFile | MediaFolder

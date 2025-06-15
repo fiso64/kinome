@@ -32,6 +32,8 @@ export interface MediaFolder {
   year?: number
   genres?: string[]
   tags?: Record<string, string>
+  layout?: 'grid' | 'tree' | 'tabs' | 'sections'
+  childrenClickAction?: 'detail' | 'navigate'
 }
 
 export type LibraryItem = MediaFile | MediaFolder
