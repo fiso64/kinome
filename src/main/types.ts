@@ -11,6 +11,8 @@ export interface MediaFile {
   backdropPath?: string
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv'
+  year?: number
+  genres?: string[]
 }
 
 export interface MediaFolder {
@@ -26,6 +28,8 @@ export interface MediaFolder {
   backdropPath?: string
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv'
+  year?: number
+  genres?: string[]
 }
 
 export type LibraryItem = MediaFile | MediaFolder

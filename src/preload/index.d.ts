@@ -14,6 +14,8 @@ declare global {
     backdropPath?: string
     tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
+    year?: number
+    genres?: string[]
   }
 
   interface MediaFolder {
@@ -29,6 +31,8 @@ declare global {
     backdropPath?: string
     tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
+    year?: number
+    genres?: string[]
   }
 
   type LibraryItem = MediaFile | MediaFolder

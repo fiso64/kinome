@@ -171,6 +171,13 @@ async function processInChunks<T>(
   }
 }
 
+import {
+  fetchAndApplyMetadata,
+  fetchItemDetails,
+  refetchPoster,
+  cacheGenreLists
+} from './retriever'
+
 async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
   const libraryDataPath = getLibraryDataPath()
   if (!tmdbApiKey || !db.root) {
@@ -189,6 +196,9 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
     console.log('No new items or missing posters to fetch.')
     return
   }
+
+  // Fetch and cache the genre lists before processing items.
+  await cacheGenreLists(tmdbApiKey)
 
   // Process new items by searching for them on TMDB.
   if (newItems.length > 0) {
@@ -256,6 +266,8 @@ export function setupLibraryIpc(): void {
             backdropPath: oldItem.backdropPath,
             tmdbId: oldItem.tmdbId,
             mediaType: oldItem.mediaType,
+            year: oldItem.year,
+            genres: oldItem.genres,
             watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
           })
         }

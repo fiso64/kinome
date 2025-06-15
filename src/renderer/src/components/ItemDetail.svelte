@@ -67,6 +67,18 @@
       </div>
       <div class="header-info">
         <h1>{detailedItem.title ?? detailedItem.name}</h1>
+        <div class="meta">
+          {#if detailedItem.year}
+            <span class="year">{detailedItem.year}</span>
+          {/if}
+          {#if detailedItem.genres && detailedItem.genres.length > 0}
+            <div class="genres">
+              {#each detailedItem.genres as genre}
+                <span class="genre-tag">{genre}</span>
+              {/each}
+            </div>
+          {/if}
+        </div>
         {#if detailedItem.type === 'file'}
           <button class="play-button" onclick={() => onPlayFile(detailedItem)}>
             ▶ Play
@@ -185,6 +197,32 @@
     font-weight: bold;
     line-height: 1.1;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    color: var(--ev-c-text-2);
+  }
+
+  .year {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .genres {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .genre-tag {
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
   }
 
   .play-button {

@@ -2,6 +2,36 @@ import path from 'path'
 import fs from 'fs/promises'
 import type { LibraryItem } from './types'
 
+const genreCache = new Map<number, string>()
+
+export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
+  // Don't re-fetch if the cache is already populated.
+  if (genreCache.size > 0) {
+    return
+  }
+  console.log('[TMDB] Caching genre lists...')
+
+  const endpoints = ['movie', 'tv']
+  try {
+    const promises = endpoints.map((type) =>
+      fetch(`https://api.themoviedb.org/3/genre/${type}/list?api_key=${tmdbApiKey}`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
+          return res.json()
+        })
+        .then((data) => {
+          for (const genre of data.genres) {
+            genreCache.set(genre.id, genre.name)
+          }
+        })
+    )
+    await Promise.all(promises)
+    console.log(`[TMDB] Successfully cached ${genreCache.size} unique genres.`)
+  } catch (error) {
+    console.error('[TMDB] Failed to cache genre lists:', error)
+  }
+}
+
 const SPECIAL_SUBFOLDER_NAMES = [
   'extras',
   'featurettes',
@@ -116,6 +146,17 @@ export async function fetchAndApplyMetadata(
       item.title = result.title || result.name // 'title' for movie, 'name' for tv
       item.overview = result.overview
 
+      const date = result.release_date || result.first_air_date
+      if (date) {
+        item.year = new Date(date).getFullYear()
+      }
+
+      if (result.genre_ids && Array.isArray(result.genre_ids) && genreCache.size > 0) {
+        item.genres = result.genre_ids
+          .map((id: number) => genreCache.get(id))
+          .filter((name): name is string => !!name)
+      }
+
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
         const imagesDir = getImagesPath(libraryDataPath)
@@ -213,6 +254,14 @@ export async function fetchItemDetails(
     // We can also update other fields here if they are more detailed than the search result
     if (details.overview) {
       item.overview = details.overview
+    }
+
+    const date = details.release_date || details.first_air_date
+    if (date) {
+      item.year = new Date(date).getFullYear()
+    }
+    if (details.genres && Array.isArray(details.genres)) {
+      item.genres = details.genres.map((g: { name: string }) => g.name)
     }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)

@@ -36,7 +36,7 @@ The goal is to make the app visually appealing and more informative.
     *   Items that fail to be found should have tmdbId key set explicitly to null (also during the initial scan), so that they are not searched again on refresh.
     *   Add F5 shortcut to reload
     *   Full rescan / Change library location should now be available through the settings. There should also be a dropdown to select the source type, for now with only one option (local path). When local path is selected in the dropdown, a path selection input should appear.
-*   `[ ]` Get more items like year and genre from tmdb and optionally display them in the detail view.
+*   `[X]` Get more items like year and genre from tmdb and optionally display them in the detail view.
 *   `[ ]` Improve performance
     *   There is a very slight delay before the detail page shows.
     *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
