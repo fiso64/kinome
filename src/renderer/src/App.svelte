@@ -1,14 +1,22 @@
 <script lang="ts">
   import MediaGrid from './components/MediaGrid.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
+  import WindowControls from './components/WindowControls.svelte'
 
   // Types are globally available from src/preload/index.d.ts
   let viewStack: MediaFolder[] = $state([])
   let isLoading = $state(true)
   let showSettings = $state(false)
+  let searchQuery = $state('')
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   const atRoot = $derived(viewStack.length <= 1)
+
+  const filteredChildren = $derived(
+    currentFolder?.children.filter((item) =>
+      item.name.toLowerCase().includes(searchQuery.toLowerCase())
+    ) ?? []
+  )
 
   $effect(() => {
     window.api.getLibraryRoot().then((root) => {
@@ -17,6 +25,13 @@
       }
       isLoading = false
     })
+  })
+
+  $effect(() => {
+    // When the current folder changes, reset the search query.
+    // The dependency on currentFolder.id ensures this runs on navigation.
+    const _ = currentFolder?.id
+    searchQuery = ''
   })
 
   async function handleScan(): Promise<void> {
@@ -66,23 +81,38 @@
 
 <main>
   <header>
-    <div class="header-left">
-      <button class="back-button" onclick={goBack} disabled={atRoot} title="Go back"> ← </button>
-      <h1>{currentFolder?.name ?? 'Media Browser'}</h1>
+    <div class="header-content">
+      <div class="header-left">
+        <button class="back-button" onclick={goBack} disabled={atRoot} title="Go back"> ← </button>
+        <h1>{currentFolder?.name ?? 'Media Browser'}</h1>
+      </div>
+
+      <div class="search-container">
+        {#if currentFolder}
+          <input
+            type="search"
+            placeholder="Search..."
+            bind:value={searchQuery}
+            aria-label="Search current folder"
+          />
+        {/if}
+      </div>
+
+      <div class="header-right">
+        <button onclick={() => (showSettings = true)} title="Settings">⚙️</button>
+        <button onclick={handleScan} disabled={isLoading}>
+          {isLoading ? 'Loading...' : 'Scan Library Folder'}
+        </button>
+      </div>
     </div>
-    <div class="header-right">
-      <button onclick={() => (showSettings = true)} title="Settings">⚙️</button>
-      <button onclick={handleScan} disabled={isLoading}>
-        {isLoading ? 'Loading...' : 'Scan Library Folder'}
-      </button>
-    </div>
+    <WindowControls />
   </header>
 
   <div class="content">
     {#if isLoading}
       <p class="status-text">Loading library...</p>
     {:else if currentFolder}
-      <MediaGrid items={currentFolder.children} itemclick={handleItemClick} />
+      <MediaGrid items={filteredChildren} itemclick={handleItemClick} />
     {:else}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>
@@ -94,6 +124,26 @@
 </main>
 
 <style>
+  .search-container {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    min-width: 150px;
+  }
+
+  .search-container input {
+    -webkit-app-region: no-drag;
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem 0.9rem;
+    background-color: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    color: var(--color-text);
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
   main {
     display: flex;
     flex-direction: column;
@@ -104,13 +154,19 @@
 
   header {
     display: flex;
+    border-bottom: 1px solid var(--color-background-mute);
+    -webkit-app-region: drag;
+    height: 56px;
+    flex-shrink: 0;
+  }
+
+  .header-content {
+    flex-grow: 1;
+    display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--color-background-mute);
-    flex-shrink: 0;
-    -webkit-app-region: drag;
     gap: 1.5rem;
+    padding: 0 1.5rem;
   }
 
   .header-left,
@@ -122,6 +178,7 @@
 
   .header-left {
     overflow: hidden; /* For long folder names */
+    flex-shrink: 0;
   }
 
   h1 {

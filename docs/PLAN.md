@@ -15,7 +15,7 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
 *   `[X]` **Player Integration:** Implement the "fire and forget" playback logic.
     *   Add a setting for the user's player command.
     *   When a user clicks an item in the grid, the app marks it as watched in the JSON file and launches the external player with the file path.
-*   `[ ]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
+*   `[X]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
 #### Phase 2: Adding Intelligence & Polish
 
@@ -24,6 +24,7 @@ The goal is to make the app visually appealing and more informative.
 *   `[ ]` **TMDB Retriever:** Implement the first metadata retriever for TMDB.
     *   The background scanner will now call the TMDB API to fetch metadata for new items.
     *   The scanner will download poster images and save them to the `images/` subfolder in the Library Data Directory.
+    *   Need to add configuration UI for the api key (`tmdbApiKey`)
 *   `[ ]` **Enhanced Media List UI:** Upgrade the media list component to display the fetched poster image instead of just the filename.
 *   `[ ]` **Item Detail View:** Improve the page that displays when an item is clicked, showing the poster, backdrop and full overview in a clean UI. **This page will reuse the Media List component** to show the item's contents, defaulting it to a simple list or tree view.
 

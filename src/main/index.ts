@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc } from './library'
@@ -6,11 +6,12 @@ import { setupLibraryIpc } from './library'
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1280,
+    height: 720,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? {} : {}),
+    frame: false,
+    backgroundColor: '#1b1b1f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -18,12 +19,20 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    mainWindow.maximize()
     mainWindow.show()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow.webContents.send('window-is-maximized', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow.webContents.send('window-is-maximized', false)
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -50,6 +59,32 @@ app.whenReady().then(() => {
   })
 
   setupLibraryIpc()
+
+  // --- Window Control IPC Handlers ---
+  ipcMain.on('window-minimize', () => {
+    BrowserWindow.getFocusedWindow()?.minimize()
+  })
+
+  ipcMain.on('window-toggle-maximize', () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (window) {
+      if (window.isMaximized()) {
+        window.unmaximize()
+      } else {
+        window.maximize()
+      }
+    }
+  })
+
+  ipcMain.on('window-close', () => {
+    BrowserWindow.getFocusedWindow()?.close()
+  })
+
+  ipcMain.handle('is-window-maximized', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    return window?.isMaximized() ?? false
+  })
+  // --- End Window Control IPC Handlers ---
 
   createWindow()
 

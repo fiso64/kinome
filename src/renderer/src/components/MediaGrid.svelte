@@ -36,6 +36,7 @@
     width: 100%;
     height: 100%;
     overflow-y: auto;
+    align-content: start;
   }
 
   .grid-item {

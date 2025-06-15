@@ -27,6 +27,11 @@ declare global {
       getPlayerCommand: () => Promise<string | null>
       setPlayerCommand: (command: string) => Promise<void>
       playFile: (file: MediaFile) => Promise<boolean>
+      minimizeWindow: () => void
+      toggleMaximizeWindow: () => void
+      closeWindow: () => void
+      isWindowMaximized: () => Promise<boolean>
+      onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
     }
   }
 }

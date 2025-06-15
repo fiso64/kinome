@@ -9,7 +9,19 @@ const api = {
   getPlayerCommand: (): Promise<string | null> => ipcRenderer.invoke('get-player-command'),
   setPlayerCommand: (command: string): Promise<void> =>
     ipcRenderer.invoke('set-player-command', command),
-  playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file)
+  playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
+
+  minimizeWindow: (): void => ipcRenderer.send('window-minimize'),
+  toggleMaximizeWindow: (): void => ipcRenderer.send('window-toggle-maximize'),
+  closeWindow: (): void => ipcRenderer.send('window-close'),
+  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('is-window-maximized'),
+  onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void): (() => void) => {
+    const listener = (_event, isMaximized: boolean) => callback(isMaximized)
+    ipcRenderer.on('window-is-maximized', listener)
+    return () => {
+      ipcRenderer.removeListener('window-is-maximized', listener)
+    }
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
