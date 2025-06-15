@@ -60,8 +60,8 @@
   /* --- VIEW CONTAINERS --- */
   .media-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.8rem;
     padding: 1.5rem;
     width: 100%;
     align-content: start;

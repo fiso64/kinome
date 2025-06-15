@@ -31,16 +31,31 @@ The goal is to make the app visually appealing and more informative.
     *   First, implement tree view for the media list component
     *   Only download the backdrop when the item detail view is opened. Get the maximum quality backdrop possible.
     *   If there is other metadata needed that can not be retrieved in the single request during the initial scan, also only fetch it when the details view for that item is opened.
+*   `[ ]` Allow scanning for new items and updating database
+    *   Replace the "Scan Library Folder" by a reload button (⟳). Animate it while reloading. Reloading will re-scan the media folder for new items and add them to the database and search tmdb for the items that have not been searched yet
+    *   Items that fail to be found should have tmdbId key set explicitly to null (also during the initial scan), so that they are not searched again on refresh.
+    *   Add F5 shortcut to reload
+    *   Full rescan / Change library location should now be available through the settings. There should also be a dropdown to select the source type, for now with only one option (local path). When local path is selected in the dropdown, a path selection input should appear.
+*   `[ ]` Get more items like year and genre from tmdb and optionally display them in the detail view.
+*   `[ ]` Improve performance
+    *   Why do the images in the grid view sometimes not show up immediately after returning from detail view?
+    *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
+    *   If not possible to improve backdrop performance, at least make it fade in smoothly (fade in will always be needed when it is first downloaded as a delay is unavoidable in that case).
+    *   Sometimes there is a (small, but noticeable) delay when clicking back in a detail view before the grid is shown again. 
 
 #### Phase 3: Core Feature Completion
 
 The goal is to implement the key features that make the app unique and powerful.
 
-*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
-*   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
+*   `[ ]` **Custom Tagging:** Implement the ability for users to add/remove tags on the Item Detail page. 
+    *   The UI should allow adding, removing or modifying any tag or metadata entry, including things that have been fetched from tmdb like title and genre and others.
+    *   Update the search bar to support searching by tags (e.g., `mytagname:favorite`).
+    *   Some tag keys should be converted to user friendly names for display in the UI (e.g. tmdbId -> TMDB ID)
 *   `[ ]` **Implement Per-Folder Metadata Settings:**
     *   Update the scanner to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children.
-    *   In the Item Detail view for a folder, add UI controls to allow the user to set these two properties.
+    *   These two flags will be editable through the same tagging UI as above.
+*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
+    *   Also allow to select a local image as backdrop or poster (will be copied to the database).
 
 *   `[ ]` **Flexible UI Engine & Component:**
     *   Implement the UI/backend logic for saving the chosen layout strategy (Grid, Tree, Tabs, Sections) for any folder.
