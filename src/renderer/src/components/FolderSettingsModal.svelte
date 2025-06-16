@@ -3,16 +3,19 @@
 
   let {
     item,
-    onClose
+    onClose,
+    onNeedRefresh
   }: {
     item: MediaFolder
     onClose: () => void
+    onNeedRefresh: () => Promise<void>
   } = $props()
 
   let retrieveChildrenMetadata = $state(item.retrieve_children_metadata ?? false)
   let childrenTypeHint = $state(item.children_type_hint ?? 'auto')
 
   async function handleSave() {
+    const wasEnabled = item.retrieve_children_metadata ?? false
     // Create a deep, plain JavaScript object copy to ensure it's clonable for IPC.
     const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
 
@@ -22,6 +25,11 @@
 
     await window.api.updateItem(updatedItem)
     onClose()
+
+    // If the setting was just turned on, trigger a refresh to fetch metadata
+    if (retrieveChildrenMetadata && !wasEnabled) {
+      onNeedRefresh()
+    }
   }
 
   $effect(() => {

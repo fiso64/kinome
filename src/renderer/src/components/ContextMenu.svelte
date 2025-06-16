@@ -21,6 +21,31 @@
     onManualSearch: () => void
   } = $props()
 
+  let menuElement = $state<HTMLDivElement>()
+  let style = $state('visibility: hidden;') // Start hidden to prevent flicker
+
+  $effect(() => {
+    if (menuElement) {
+      const menuRect = menuElement.getBoundingClientRect()
+      const { innerHeight: windowHeight, innerWidth: windowWidth } = window
+      const margin = 5 // a small margin from the edge
+
+      let top = position.top
+      if (top + menuRect.height > windowHeight - margin) {
+        top = windowHeight - menuRect.height - margin
+      }
+      if (top < margin) top = margin
+
+      let left = position.left
+      if (left + menuRect.width > windowWidth - margin) {
+        left = windowWidth - menuRect.width - margin
+      }
+      if (left < margin) left = margin
+
+      style = `top: ${top}px; left: ${left}px; visibility: visible;`
+    }
+  })
+
   function handleOpen() {
     onOpen()
     onClose()
@@ -68,8 +93,9 @@
 </script>
 
 <div
+  bind:this={menuElement}
   class="context-menu"
-  style="top: {position.top}px; left: {position.left}px;"
+  style={style}
   onclick={(e) => e.stopPropagation()}
 >
   {#if isTreeView && item.type === 'folder'}

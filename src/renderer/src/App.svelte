@@ -418,7 +418,11 @@
   {:else if activeModal.type === 'metadataEditor'}
     <MetadataEditor item={activeModal.item} onClose={() => (activeModal = null)} />
   {:else if activeModal.type === 'folderSettings'}
-    <FolderSettingsModal item={activeModal.item} onClose={() => (activeModal = null)} />
+    <FolderSettingsModal
+      item={activeModal.item}
+      onClose={() => (activeModal = null)}
+      onNeedRefresh={handleRefresh}
+    />
   {:else if activeModal.type === 'manualSearch'}
     <ManualSearchModal item={activeModal.item} onClose={() => (activeModal = null)} />
   {/if}
@@ -529,7 +533,31 @@
               <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
               ></rect>
             </svg>
-          </button>
+        </button>
+        <button
+          onclick={(e) => handleShowContextMenu(folderToConfigureLayout, e)}
+          title="More options..."
+          class="more-options-button"
+        >
+          <!-- vertical ellipsis icon -->
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 4 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            ><path
+              d="M2 4C3.10457 4 4 3.10457 4 2C4 0.895431 3.10457 0 2 0C0.895431 0 0 0.895431 0 2C0 3.10457 0.895431 4 2 4Z"
+              fill="currentColor"
+            /><path
+              d="M2 10C3.10457 10 4 9.10457 4 8C4 6.89543 3.10457 6 2 6C0.895431 6 0 6.89543 0 8C0 9.10457 0.895431 10 2 10Z"
+              fill="currentColor"
+            /><path
+              d="M2 16C3.10457 16 4 15.1046 4 14C4 12.8954 3.10457 12 2 12C0.895431 12 0 12.8954 0 14C0 15.1046 0.895431 16 2 16Z"
+              fill="currentColor"
+            /></svg
+          >
+        </button>
         {/if}
         <button
           onclick={() => (activeModal = { type: 'settings' })}
@@ -643,6 +671,7 @@
   .back-button,
   .refresh-button,
   .layout-button,
+  .more-options-button,
   .settings-button {
     width: 36px;
     height: 36px;
@@ -656,7 +685,8 @@
   }
 
   .settings-button,
-  .layout-button {
+  .layout-button,
+  .more-options-button {
     background-color: var(--ev-button-alt-bg);
     color: var(--ev-c-text-1);
   }
