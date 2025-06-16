@@ -101,18 +101,18 @@
           onclick={() => onItemClick(item)}
           oncontextmenu={(e) => onShowContextMenu(item, e, { layout })}
         >
-          <div
-            class="poster"
-            style:background-image={item.posterPath
-              ? `url(media-browser-asset://images/${item.posterPath})`
-              : 'none'}
-          >
-            {#if !item.posterPath}
+          <div class="poster">
+            {#if item.posterPath}
+              <img
+                src="media-browser-asset://images/{item.posterPath}"
+                alt={item.title ?? item.name}
+                loading="lazy"
+              />
+            {:else}
               <div class="icon">
                 {item.type === 'folder' ? '📁' : '📄'}
               </div>
             {/if}
-
             {#if item.type === 'file' && item.watched}
               <div class="watched-indicator" title="Watched">✔</div>
             {/if}
@@ -255,11 +255,14 @@
     width: 100%;
     aspect-ratio: 2 / 3;
     overflow: hidden;
-    background-size: cover;
-    background-position: center;
     transition:
       transform 0.2s ease,
       background-color 0.2s ease;
+  }
+  .poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
   .icon {
     font-size: 4rem;

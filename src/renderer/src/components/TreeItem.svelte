@@ -43,13 +43,14 @@
       {#if item.type === 'folder'}
         <span class="chevron">{isExpanded ? '▾' : '▸'}</span>
       {/if}
-      <div
-        class="icon"
-        style:background-image={item.posterPath
-          ? `url(media-browser-asset://images/${item.posterPath})`
-          : 'none'}
-      >
-        {#if !item.posterPath}
+      <div class="icon">
+        {#if item.posterPath}
+          <img
+            src="media-browser-asset://images/{item.posterPath}"
+            alt={item.title ?? item.name}
+            loading="lazy"
+          />
+        {:else}
           {item.type === 'folder' ? '📁' : '📄'}
         {/if}
       </div>
@@ -108,11 +109,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-size: cover;
-    background-position: center;
     border-radius: 4px;
     background-color: var(--color-background-soft);
     font-size: 1.5rem;
+    overflow: hidden; /* To ensure the image respects the border-radius */
+  }
+  .icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
   .name {
     flex-grow: 1;

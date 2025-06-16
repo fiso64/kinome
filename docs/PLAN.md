@@ -56,7 +56,7 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[X]` **Implement Per-Folder Metadata Settings:**
     *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user (add new toggleable checkmark in the context menu).
     *   children type hint will be editable in the metadata window
-*   `[ ]` Improve the search bar
+*   `[X]` Improve the search bar
     *   Update the search bar to support searching by tags (e.g., `:mytagname:favorite` or `:genre:sci-fi`). After typing :, autocompletions for the tag key should be shown. After typing the second : (or accepting an autocompletion, in which case it should insert the :), autocompletions for the tag values should be shown. After typing the second : or accepting the autcompletion, the key value pair should turn into a rounded tile (similar to the genres in the detail view). Backspacing it should delete it entirely.
     *   Also: Search bar needs to filter tab/section contents instead of tabs/sections themselves when using tab or section view.
 *   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
