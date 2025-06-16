@@ -16,7 +16,7 @@
   }
   type TmdbImage = { file_path: string; [key: string]: any }
 
-  let activeTab: 'match' | 'artwork' = $state(item.tmdbId ? 'artwork' : 'match')
+  let activeTab: 'match' | 'artwork' = $state('match')
 
   // --- Granular Loading States ---
   let isSearching = $state(false)
@@ -28,6 +28,7 @@
   let searchQuery = $state(item.title ?? item.name)
   let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
   let searchResults = $state<SearchResult[]>([])
+  let searchInput: HTMLInputElement
 
   // Artwork tab state
   let imageLang = $state('en')
@@ -94,8 +95,13 @@
 
 
 
-  // Keyboard shortcut
+  // Keyboard shortcut and initial focus
   $effect(() => {
+    // Focus the input when the modal opens and the input is rendered
+    if (searchInput) {
+      searchInput.focus()
+    }
+
     const handleKeydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
@@ -128,16 +134,16 @@
 
     <div class="tab-content">
       {#if activeTab === 'match'}
-        <div class="search-form">
-          <input type="text" bind:value={searchQuery} placeholder="Enter title to search..." />
+        <form class="search-form" onsubmit={(e) => { e.preventDefault(); performSearch(); }}>
+          <input type="text" bind:this={searchInput} bind:value={searchQuery} placeholder="Enter title to search..." />
           <select bind:value={searchType}>
             <option value="movie">Movie</option>
             <option value="tv">TV</option>
           </select>
-          <button onclick={performSearch} disabled={isSearching || !searchQuery.trim()}>
+          <button type="submit" disabled={isSearching || !searchQuery.trim()}>
             {#if isSearching}Searching...{:else}Search{/if}
           </button>
-        </div>
+        </form>
         <div class="search-results">
           {#each searchResults as result (result.id)}
             <div class="result-item">
