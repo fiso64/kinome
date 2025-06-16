@@ -1,4 +1,5 @@
-import type { LibraryItem, Settings } from './types'
+import type { LibraryItem } from './types'
+import type { Settings } from './settings'
 
 // These are the properties from a LibraryItem that will be available
 // as global variables inside the user's JS expression.
