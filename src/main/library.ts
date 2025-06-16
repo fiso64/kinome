@@ -370,6 +370,7 @@ export function setupLibraryIpc(): void {
             year: oldItem.year,
             genres: oldItem.genres,
             tags: oldItem.tags,
+            _v: oldItem._v,
             ...oldFolderProps,
             watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
           })
@@ -474,7 +475,12 @@ export function setupLibraryIpc(): void {
     // Otherwise, fetch them, update DB, and return updated item.
     if (settings.tmdbApiKey && item.tmdbId) {
       await fetchItemDetails(item, settings.tmdbApiKey, libraryDataPath)
+      item._v = Date.now() // Bust cache after image updates
       await writeDb(db) // Save changes to disk and memory
+
+      // Notify the renderer that the item has been updated with new details.
+      const focusedWindow = BrowserWindow.getFocusedWindow()
+      focusedWindow?.webContents.send('library-item-updated', item)
     } else {
       if (!item.tmdbId) {
         console.warn(`Cannot fetch item details for "${item.name}": item has no TMDB ID.`)
@@ -599,6 +605,7 @@ export function setupLibraryIpc(): void {
 
       // This will fetch poster, backdrop, and other details (overview, year, genres)
       await fetchItemDetails(item, tmdbApiKey, libraryDataPath)
+      item._v = Date.now() // Bust cache after image updates
 
       // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
       const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${tmdbApiKey}`
@@ -667,6 +674,7 @@ export function setupLibraryIpc(): void {
         if (imageType === 'poster') item.posterPath = fileName
         else item.backdropPath = fileName
 
+        item._v = Date.now() // Bust cache
         await writeDb(db)
         const window = BrowserWindow.fromWebContents(event.sender)
         window?.webContents.send('library-item-updated', item)

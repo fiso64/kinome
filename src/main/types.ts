@@ -14,6 +14,7 @@ export interface MediaFile {
   year?: number
   genres?: string[]
   tags?: Record<string, string>
+  _v?: number // Cache-busting version number
 }
 
 export interface MediaFolder {
@@ -37,6 +38,7 @@ export interface MediaFolder {
   // Retriever settings
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
+  _v?: number // Cache-busting version number
 }
 
 export type LibraryItem = MediaFile | MediaFolder

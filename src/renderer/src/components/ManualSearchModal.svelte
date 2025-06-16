@@ -30,7 +30,6 @@
   let searchResults = $state<SearchResult[]>([])
 
   // Artwork tab state
-  let detailedItem = $state<LibraryItem>(JSON.parse(JSON.stringify(item)))
   let imageLang = $state('en')
   let posters = $state<TmdbImage[]>([])
   let backdrops = $state<TmdbImage[]>([])
@@ -53,16 +52,12 @@
   }
 
   async function fetchImages() {
-    if (!detailedItem.tmdbId || !detailedItem.mediaType || isFetchingArtwork) return
+    if (!item.tmdbId || !item.mediaType || isFetchingArtwork) return
     isFetchingArtwork = true
     // Clear old results before fetching new ones
     posters = []
     backdrops = []
-    const images = await window.api.getTmdbImages(
-      detailedItem.tmdbId,
-      detailedItem.mediaType,
-      imageLang
-    )
+    const images = await window.api.getTmdbImages(item.tmdbId, item.mediaType, imageLang)
     posters = images.posters
     backdrops = images.backdrops
     isFetchingArtwork = false
@@ -80,13 +75,12 @@
           isSettingImage = false
           return // User cancelled dialog, do nothing further.
         }
-        await window.api.setImage(detailedItem.id, imageType, { type: 'local', path: localPath })
+        await window.api.setImage(item.id, imageType, { type: 'local', path: localPath })
       } else {
-        await window.api.setImage(detailedItem.id, imageType, JSON.parse(JSON.stringify(source)))
+        await window.api.setImage(item.id, imageType, JSON.parse(JSON.stringify(source)))
       }
       // The global onLibraryItemUpdated listener in App.svelte will now
-      // update the 'item' prop, which will trigger the effect below to update
-      // our local 'detailedItem' state.
+      // update the 'item' prop, and this modal's view will update reactively.
     } finally {
       isSettingImage = false
     }
@@ -98,10 +92,7 @@
     element.scrollLeft += event.deltaY
   }
 
-  // Update local copy of item if it changes from the main app state
-  $effect(() => {
-    detailedItem = JSON.parse(JSON.stringify(item))
-  })
+
 
   // Keyboard shortcut
   $effect(() => {
@@ -127,10 +118,10 @@
         <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
           >Match</button
         >
-        <button
+<button
           class:active={activeTab === 'artwork'}
           onclick={() => (activeTab = 'artwork')}
-          disabled={!detailedItem.tmdbId}>Artwork</button
+          disabled={!item.tmdbId}>Artwork</button
         >
       </div>
     </header>
@@ -191,9 +182,9 @@
             <div class="artwork-container">
               <div class="current-artwork-wrapper">
                 <div class="current-image">
-                  {#if detailedItem.posterPath}
+                  {#if item.posterPath}
                     <img
-                      src="media-browser-asset://images/{detailedItem.posterPath}"
+                      src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
                       alt="Current Poster"
                     />
                   {:else}
@@ -229,9 +220,9 @@
             <div class="artwork-container backdrop">
               <div class="current-artwork-wrapper backdrop">
                 <div class="current-image backdrop">
-                  {#if detailedItem.backdropPath}
+                  {#if item.backdropPath}
                     <img
-                      src="media-browser-asset://images/{detailedItem.backdropPath}"
+                      src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
                       alt="Current Backdrop"
                     />
                   {:else}

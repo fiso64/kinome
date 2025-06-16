@@ -53,9 +53,22 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   protocol.registerFileProtocol('media-browser-asset', (request, callback) => {
-    // url is "media-browser-asset://images/someid.jpg"
-    // we want to get "images/someid.jpg"
-    const relativePath = request.url.substring('media-browser-asset://'.length)
+    // The URL from the renderer now includes a cache-busting query parameter
+    // (e.g., "media-browser-asset://images/someid.jpg?v=12345").
+    // We need to strip this query string to find the actual file on disk.
+
+    // 1. Remove the protocol prefix.
+    let pathString = request.url.substring('media-browser-asset://'.length)
+
+    // 2. Find the '?' that indicates the start of the query string.
+    const queryIndex = pathString.indexOf('?')
+    if (queryIndex !== -1) {
+      // 3. If a query string exists, slice the string to remove it.
+      pathString = pathString.substring(0, queryIndex)
+    }
+
+    // 4. Decode the path and resolve it to an absolute file path.
+    const relativePath = decodeURIComponent(pathString)
     const absolutePath = resolvePath(getLibraryDataPath(), relativePath)
     callback({ path: absolutePath })
   })

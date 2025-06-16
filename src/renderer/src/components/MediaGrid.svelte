@@ -104,7 +104,7 @@
           <div class="poster">
             {#if item.posterPath}
               <img
-                src="media-browser-asset://images/{item.posterPath}"
+                src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
                 alt={item.title ?? item.name}
                 loading="lazy"
               />

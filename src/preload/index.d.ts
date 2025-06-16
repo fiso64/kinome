@@ -17,6 +17,7 @@ declare global {
     year?: number
     genres?: string[]
     tags?: Record<string, string>
+    _v?: number // Cache-busting version number
   }
 
   interface MediaFolder {
@@ -40,6 +41,7 @@ declare global {
     // Retriever settings
     retrieve_children_metadata?: boolean
     children_type_hint?: 'movie' | 'tv'
+    _v?: number // Cache-busting version number
   }
 
   type LibraryItem = MediaFile | MediaFolder

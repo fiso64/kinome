@@ -17,35 +17,25 @@
     onSearchByTag: (key: string, value: string) => void
   } = $props()
 
-  // Create a reactive copy of the item to hold fetched details
-  // Create a reactive copy of the item to hold fetched details
-  let detailedItem = $state<LibraryItem>(JSON.parse(JSON.stringify(item)))
+  // These values help manage the backdrop fade-in animation.
   let isBackdropLoaded = $state(false)
-  let previousBackdropPath: string | undefined
+  let previousBackdropPath = $state(item.backdropPath)
 
   $effect(() => {
-    // This effect runs only when the `item` prop changes.
-    // We create a local, non-reactive copy to use for logic. This prevents
-    // the effect from depending on `detailedItem`, which would cause an infinite loop.
-    const localCopy = JSON.parse(JSON.stringify(item))
+    // This effect runs whenever the `item` prop changes.
+    const { id, backdropPath } = item
 
     // Only reset the animation flag if the image source itself is changing.
-    if (localCopy.backdropPath !== previousBackdropPath) {
+    if (backdropPath !== previousBackdropPath) {
       isBackdropLoaded = false
+      previousBackdropPath = backdropPath
     }
-    previousBackdropPath = localCopy.backdropPath
 
-    detailedItem = localCopy
-
-    // Fetch details if the local copy doesn't have them.
-    if (!localCopy.backdropPath) {
-      window.api.getItemDetails(localCopy.id).then((updatedItem) => {
-        // Before updating, ensure the component is still displaying the same item.
-        if (updatedItem && updatedItem.id === detailedItem.id) {
-          // Update our reactive state. This won't re-trigger this effect.
-          Object.assign(detailedItem, updatedItem)
-        }
-      })
+    // Fetch details if they are missing. The main process will then send a
+    // 'library-item-updated' event which App.svelte handles, causing this
+    // component to re-render with the new data.
+    if (!backdropPath) {
+      window.api.getItemDetails(id)
     }
   })
 
@@ -58,16 +48,16 @@
   }
 </script>
 
-<div class="detail-view" oncontextmenu={(e) => showContextMenu(detailedItem, e)}>
+<div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
   <div class="backdrop-container">
-    {#if detailedItem.backdropPath}
-      <!-- 
+    {#if item.backdropPath}
+      <!--
         The 'load' event fires only after the image is decoded.
         We use this to trigger a CSS class that fades the image in,
         ensuring the transition is always smooth.
       -->
       <img
-        src="media-browser-asset://images/{detailedItem.backdropPath}"
+        src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
         alt=""
         class="backdrop-image"
         class:loaded={isBackdropLoaded}
@@ -80,23 +70,26 @@
   <div class="detail-content">
     <div class="header">
       <div class="poster">
-        {#if detailedItem.posterPath}
-          <img src="media-browser-asset://images/{detailedItem.posterPath}" alt="Poster" />
+        {#if item.posterPath}
+          <img
+            src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+            alt="Poster"
+          />
         {:else}
           <div class="icon">
-            {detailedItem.type === 'folder' ? '📁' : '📄'}
+            {item.type === 'folder' ? '📁' : '📄'}
           </div>
         {/if}
       </div>
       <div class="header-info">
-        <h1>{detailedItem.title ?? detailedItem.name}</h1>
+        <h1>{item.title ?? item.name}</h1>
         <div class="meta">
-          {#if detailedItem.year}
-            <span class="year">{detailedItem.year}</span>
+          {#if item.year}
+            <span class="year">{item.year}</span>
           {/if}
-          {#if detailedItem.genres && detailedItem.genres.length > 0}
+          {#if item.genres && item.genres.length > 0}
             <div class="genres">
-              {#each detailedItem.genres as genre}
+              {#each item.genres as genre}
                 <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
                   {genre}
                 </button>
@@ -104,27 +97,27 @@
             </div>
           {/if}
         </div>
-        {#if detailedItem.type === 'file'}
-          <button class="play-button" onclick={() => onPlayFile(detailedItem)}>
+        {#if item.type === 'file'}
+          <button class="play-button" onclick={() => onPlayFile(item)}>
             ▶ Play
           </button>
         {/if}
       </div>
     </div>
 
-    {#if detailedItem.overview}
-      <p class="overview">{detailedItem.overview}</p>
+    {#if item.overview}
+      <p class="overview">{item.overview}</p>
     {/if}
 
-    {#if detailedItem.type === 'folder' && detailedItem.children.length > 0}
+    {#if item.type === 'folder' && item.children.length > 0}
       <div class="children-section">
         <h2>Contents</h2>
         <MediaGrid
-          parentItem={detailedItem}
-          items={detailedItem.children}
+          parentItem={item}
+          items={item.children}
           onItemClick={handleItemClick}
-          layout={detailedItem.layout ?? 'tree'}
-          showContextMenu={showContextMenu}
+          layout={item.layout ?? 'tree'}
+          {showContextMenu}
         />
       </div>
     {/if}
