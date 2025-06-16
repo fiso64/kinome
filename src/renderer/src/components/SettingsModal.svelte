@@ -83,9 +83,8 @@
         >Library</button
       >
       <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>View</button>
-      <button
-        class:active={activeTab === 'virtualTags'}
-        onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
+      <button class:active={activeTab === 'virtualTags'} onclick={() => (activeTab = 'virtualTags')}
+        >Virtual Tags</button
       >
     </div>
   {/snippet}
@@ -122,9 +121,7 @@
           <div class="path-display">{libraryPath}</div>
           <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
         </div>
-        <p class="help-text">
-          Changing the folder will start a full re-scan of the new location.
-        </p>
+        <p class="help-text">Changing the folder will start a full re-scan of the new location.</p>
       </div>
     {:else if activeTab === 'view'}
       <div class="form-group">
@@ -222,7 +219,14 @@
   }
   input[type='text'],
   textarea.tag-expression {
-    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+    font-family:
+      ui-monospace,
+      SFMono-Regular,
+      SF Mono,
+      Menlo,
+      Consolas,
+      Liberation Mono,
+      monospace;
   }
   select:disabled {
     opacity: 0.7;
@@ -249,7 +253,14 @@
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);
     border-radius: 4px;
-    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+    font-family:
+      ui-monospace,
+      SFMono-Regular,
+      SF Mono,
+      Menlo,
+      Consolas,
+      Liberation Mono,
+      monospace;
     font-size: 0.9rem;
     white-space: nowrap;
     overflow-x: auto;

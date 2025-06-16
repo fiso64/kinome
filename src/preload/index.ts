@@ -66,10 +66,8 @@ const api = {
   onAutocompleteSuggestionsUpdated: (
     callback: (suggestions: AutocompleteSuggestions) => void
   ): (() => void) => {
-    const listener = (
-      _event: IpcRendererEvent,
-      suggestions: AutocompleteSuggestions
-    ): void => callback(suggestions)
+    const listener = (_event: IpcRendererEvent, suggestions: AutocompleteSuggestions): void =>
+      callback(suggestions)
     ipcRenderer.on('autocomplete-suggestions-updated', listener)
     return () => {
       ipcRenderer.removeListener('autocomplete-suggestions-updated', listener)

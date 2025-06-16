@@ -124,7 +124,9 @@
 <ModalWindow title="Manual Search" {onClose} cancelText="Close" maxWidth="900px">
   {#snippet header()}
     <div class="tabs">
-      <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}>Match</button>
+      <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
+        >Match</button
+      >
       <button
         class:active={activeTab === 'artwork'}
         onclick={() => (activeTab = 'artwork')}

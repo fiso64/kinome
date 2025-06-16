@@ -28,14 +28,12 @@
 
   // --- Helpers ---
   function normalizeText(text: string): string {
-    return (
-      text
-        .toLowerCase()
-        .replace(/:[a-zA-Z0-9_]+:?[^:\s]*/g, ' ')
-        .replace(/[.:_,-]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-    )
+    return text
+      .toLowerCase()
+      .replace(/:[a-zA-Z0-9_]+:?[^:\s]*/g, ' ')
+      .replace(/[.:_,-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
   }
 
   function filterItems(
@@ -47,17 +45,24 @@
     }
     const normalizedQueryText = normalizeText(query.text)
     return itemsToFilter.filter((item) => {
-      if (normalizedQueryText && !normalizeText(item.title ?? item.name).includes(normalizedQueryText)) {
+      if (
+        normalizedQueryText &&
+        !normalizeText(item.title ?? item.name).includes(normalizedQueryText)
+      ) {
         return false
       }
       if (query.tags.length > 0) {
         for (const tag of query.tags) {
           let tagMatch = false
           if (tag.key === 'genre') {
-            tagMatch = item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
+            tagMatch =
+              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
           } else if (tag.key === 'year') {
             tagMatch = item.year?.toString() === tag.value
-          } else if (item.virtualTags && Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)) {
+          } else if (
+            item.virtualTags &&
+            Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
+          ) {
             tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
           } else if (item.tags) {
             const itemTagValue = item.tags[tag.key]

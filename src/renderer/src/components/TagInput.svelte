@@ -45,15 +45,19 @@
       // Key context
       const key = currentInput.trim()
       const allKeys = suggestions.tagKeys
-      autocomplete.suggestions = allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
+      autocomplete.suggestions = allKeys.filter((s) =>
+        s.toLowerCase().startsWith(key.toLowerCase())
+      )
       autocomplete.type = 'key'
     } else {
       // Value context
       const key = currentInput.substring(0, colonIndex).trim()
       const value = currentInput.substring(colonIndex + 1).trimStart()
-      const source = key === 'genre' ? suggestions.genres : suggestions.tagValues[key] ?? []
+      const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
 
-      autocomplete.suggestions = source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
+      autocomplete.suggestions = source.filter((s) =>
+        s.toLowerCase().startsWith(value.toLowerCase())
+      )
       autocomplete.type = 'value'
       autocomplete.activeKey = key
     }

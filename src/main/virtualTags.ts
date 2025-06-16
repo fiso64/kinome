@@ -40,10 +40,7 @@ export function evaluateVirtualTagsForItem(
     try {
       // Create a function with a controlled scope. The user's code can only
       // access the variables we explicitly pass into the context.
-      const func = new Function(
-        ...CONTEXT_KEYS,
-        "'use strict'; return " + virtualTag.expression
-      )
+      const func = new Function(...CONTEXT_KEYS, "'use strict'; return " + virtualTag.expression)
 
       const result = func(...contextValues)
 

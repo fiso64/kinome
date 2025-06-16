@@ -92,12 +92,7 @@
   })
 </script>
 
-<div
-  bind:this={menuElement}
-  class="context-menu"
-  style={style}
-  onclick={(e) => e.stopPropagation()}
->
+<div bind:this={menuElement} class="context-menu" {style} onclick={(e) => e.stopPropagation()}>
   {#if isTreeView && item.type === 'folder'}
     <button class="context-menu-item" onclick={handleOpen}> Open </button>
   {/if}
