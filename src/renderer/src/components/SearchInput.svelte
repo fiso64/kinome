@@ -71,10 +71,7 @@
       const value = valueMatch[2]
       const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
 
-      autocomplete.suggestions = source.filter(
-        (s) =>
-          s.toLowerCase().startsWith(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()
-      )
+      autocomplete.suggestions = source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
       autocomplete.type = 'value'
       autocomplete.activeKey = key
     } else if (keyMatch) {
@@ -109,11 +106,12 @@
   function handleAutocompleteSelect(suggestion: string) {
     if (autocomplete.type === 'key') {
       currentInput = `:${suggestion}:`
+      handleInput()
     } else if (autocomplete.type === 'value') {
       currentInput = `:${autocomplete.activeKey}:${suggestion} `
       addPill(autocomplete.activeKey, suggestion)
+      autocomplete.show = false
     }
-    autocomplete.show = false
     element?.focus()
     updateParent()
   }
@@ -138,8 +136,9 @@
     bind:this={element}
     bind:value={currentInput}
     oninput={handleInput}
+    onfocus={handleInput}
     onkeydown={handleKeyDown}
-    onblur={() => setTimeout(() => (autocomplete.show = false), 150)}
+    onblur={() => (autocomplete.show = false)}
     placeholder={pills.length > 0 ? '' : 'Search or type : for tags...'}
     class="search-input-field"
     aria-label="Search current folder"

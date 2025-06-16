@@ -46,20 +46,11 @@
       }
     }
 
-    const handleClickOutside = (event: MouseEvent) => {
-      onClose()
-    }
-
-    // Add listeners on the next tick to avoid capturing the event that opened the menu
-    setTimeout(() => {
-      // Use capture to preempt default behaviors like Tab
-      window.addEventListener('keydown', handleKeydown, { capture: true })
-      window.addEventListener('click', handleClickOutside, { once: true })
-    }, 0)
+    // Use capture to preempt default behaviors like Tab
+    window.addEventListener('keydown', handleKeydown, { capture: true })
 
     return () => {
       window.removeEventListener('keydown', handleKeydown, { capture: true })
-      window.removeEventListener('click', handleClickOutside)
     }
   })
 </script>
@@ -68,6 +59,7 @@
   bind:this={menuElement}
   class="autocomplete-menu"
   style="top: {position.top}px; left: {position.left}px;"
+  onmousedown={(e) => e.preventDefault()}
 >
   {#each suggestions as suggestion, i (suggestion)}
     <button

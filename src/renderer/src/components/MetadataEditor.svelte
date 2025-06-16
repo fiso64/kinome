@@ -108,9 +108,6 @@
       <div class="form-group">
         <label for="genres-input">Genres</label>
         <GenreInput bind:genres suggestions={allSuggestions.genres} />
-        <p class="help-text">
-          Use Comma or Enter to add a genre. Backspace on empty input removes the last one.
-        </p>
       </div>
 
       <div class="divider"></div>
@@ -118,10 +115,6 @@
       <h3>Custom Tags</h3>
       <div class="form-group">
         <TagInput bind:tags suggestions={allSuggestions} />
-        <p class="help-text">
-          Type a key, then ':', then value. Use Enter to add. Backspace on empty input edits the
-          last tag.
-        </p>
       </div>
     </div>
 

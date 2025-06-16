@@ -31,7 +31,7 @@
       tags = [...tags, { id: crypto.randomUUID(), key: key.trim(), value }]
     }
     currentInput = ''
-    autocomplete.show = false
+    handleInput()
   }
 
   function removeTag(id: string) {
@@ -44,10 +44,8 @@
     if (colonIndex === -1) {
       // Key context
       const key = currentInput.trim()
-      const allKeys = Array.from(new Set(['genre', 'year', ...suggestions.tagKeys]))
-      autocomplete.suggestions = allKeys.filter(
-        (s) => s.toLowerCase().startsWith(key.toLowerCase()) && s.toLowerCase() !== key.toLowerCase()
-      )
+      const allKeys = suggestions.tagKeys
+      autocomplete.suggestions = allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
       autocomplete.type = 'key'
     } else {
       // Value context
@@ -55,10 +53,7 @@
       const value = currentInput.substring(colonIndex + 1).trimStart()
       const source = key === 'genre' ? suggestions.genres : suggestions.tagValues[key] ?? []
 
-      autocomplete.suggestions = source.filter(
-        (s) =>
-          s.toLowerCase().startsWith(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()
-      )
+      autocomplete.suggestions = source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
       autocomplete.type = 'value'
       autocomplete.activeKey = key
     }
@@ -87,12 +82,12 @@
   function handleAutocompleteSelect(suggestion: string) {
     if (autocomplete.type === 'key') {
       currentInput = `${suggestion}:`
+      handleInput()
     } else if (autocomplete.type === 'value') {
       currentInput = `${autocomplete.activeKey}:${suggestion}`
       addTagFromInput()
     }
-    autocomplete.show = false
-    queueMicrotask(() => inputElement.focus())
+    inputElement.focus()
   }
 </script>
 
@@ -117,9 +112,10 @@
     bind:this={inputElement}
     bind:value={currentInput}
     oninput={handleInput}
-    onblur={() => setTimeout(() => (autocomplete.show = false), 150)}
+    onfocus={handleInput}
+    onblur={() => (autocomplete.show = false)}
     onkeydown={handleKeyDown}
-    placeholder={tags.length === 0 ? 'e.g., quality:1080p' : ''}
+    placeholder={tags.length === 0 ? 'e.g., favorite:true' : ''}
   />
 </div>
 

@@ -15,7 +15,7 @@
       genres = [...genres, newGenre]
     }
     currentGenreInput = ''
-    showAutocomplete = false
+    handleInput()
   }
 
   function removeGenre(index: number) {
@@ -36,15 +36,8 @@
 
   function handleInput() {
     const currentTerm = currentGenreInput.trim()
-    if (!currentTerm) {
-      showAutocomplete = false
-      return
-    }
-
-    const filtered = suggestions.filter(
-      (s) =>
-        s.toLowerCase().startsWith(currentTerm.toLowerCase()) &&
-        s.toLowerCase() !== currentTerm.toLowerCase()
+    const filtered = suggestions.filter((s) =>
+      s.toLowerCase().startsWith(currentTerm.toLowerCase())
     )
 
     if (filtered.length > 0) {
@@ -62,8 +55,10 @@
       genres = [...genres, suggestion]
     }
     currentGenreInput = ''
-    showAutocomplete = false
-    queueMicrotask(() => genreInputElement.focus())
+    queueMicrotask(() => {
+      genreInputElement.focus()
+      handleInput()
+    })
   }
 </script>
 
@@ -88,7 +83,8 @@
     bind:this={genreInputElement}
     bind:value={currentGenreInput}
     oninput={handleInput}
-    onblur={() => setTimeout(() => (showAutocomplete = false), 150)}
+    onfocus={handleInput}
+    onblur={() => (showAutocomplete = false)}
     onkeydown={handleKeyDown}
     placeholder={genres.length === 0 ? 'e.g., Action, Sci-Fi' : ''}
   />
