@@ -172,14 +172,9 @@
   }
 
   function handleContextMenuOpen(item: LibraryItem) {
-    if (selectedItemForDetailView && item.type === 'folder') {
-      // In a detail view, right-clicked a child folder.
-      // Delegate to the same logic as a regular click.
-      handleFolderClickInDetailView(item as MediaFolder)
-    } else {
-      // Not in a detail view, or clicked a file. Use normal grid logic.
-      handleGridItemClick(item)
-    }
+    // This is called when the user selects "Open" from the context menu.
+    // We delegate to the same logic as a regular click.
+    handleItemClick(item)
   }
 
   async function handleScan(): Promise<void> {
