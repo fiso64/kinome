@@ -42,7 +42,9 @@
     }
 
     const filtered = suggestions.filter(
-      (s) => s.toLowerCase().startsWith(currentTerm.toLowerCase()) && s !== currentTerm
+      (s) =>
+        s.toLowerCase().startsWith(currentTerm.toLowerCase()) &&
+        s.toLowerCase() !== currentTerm.toLowerCase()
     )
 
     if (filtered.length > 0) {

@@ -23,12 +23,14 @@
     const handleKeydown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowDown') {
         event.preventDefault()
+        event.stopPropagation()
         activeIndex = (activeIndex + 1) % suggestions.length
         menuElement
           .querySelector('.active')
           ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       } else if (event.key === 'ArrowUp') {
         event.preventDefault()
+        event.stopPropagation()
         activeIndex = (activeIndex - 1 + suggestions.length) % suggestions.length
         menuElement
           .querySelector('.active')
