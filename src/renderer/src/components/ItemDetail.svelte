@@ -68,20 +68,26 @@
   </div>
 
   <div class="detail-content">
-    <div class="header">
-      <div class="poster">
-        {#if item.posterPath}
-          <img
-            src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-            alt="Poster"
-          />
-        {:else}
-          <div class="icon">
-            {item.type === 'folder' ? '📁' : '📄'}
-          </div>
+    <div class="info-grid">
+      <div class="poster-column">
+        <div class="poster">
+          {#if item.posterPath}
+            <img
+              src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+              alt="Poster"
+            />
+          {:else}
+            <div class="icon">
+              {item.type === 'folder' ? '📁' : '📄'}
+            </div>
+          {/if}
+        </div>
+        {#if item.type === 'file'}
+          <button class="play-button" onclick={() => onPlayFile(item)}> ▶ Play </button>
         {/if}
       </div>
-      <div class="header-info">
+
+      <div class="info-column">
         <h1>{item.title ?? item.name}</h1>
         <div class="meta">
           {#if item.year}
@@ -97,19 +103,18 @@
             </div>
           {/if}
         </div>
-        {#if item.type === 'file'}
-          <button class="play-button" onclick={() => onPlayFile(item)}> ▶ Play </button>
+        {#if item.overview}
+          <div class="overview-container">
+            <h2 class="section-title">Overview</h2>
+            <p class="overview">{item.overview}</p>
+          </div>
         {/if}
       </div>
     </div>
 
-    {#if item.overview}
-      <p class="overview">{item.overview}</p>
-    {/if}
-
     {#if item.type === 'folder' && item.children.length > 0}
       <div class="children-section">
-        <h2>Contents</h2>
+        <h2 class="section-title">Contents</h2>
         <MediaGrid
           parentItem={item}
           items={item.children}
@@ -169,8 +174,8 @@
     height: 100%;
     background: linear-gradient(
       to top,
-      var(--color-background) 5%,
-      rgba(0, 0, 0, 0.6) 50%,
+      var(--color-background) 15%,
+      rgba(0, 0, 0, 0.6) 60%,
       rgba(0, 0, 0, 0.2) 100%
     );
   }
@@ -178,22 +183,31 @@
   .detail-content {
     position: relative;
     padding: 1.5rem;
-    padding-top: 15vh; /* Push content down from top */
-    max-width: 100ch;
+    padding-top: 10vh; /* Push content down less */
+    max-width: 1200px; /* Wider content area */
     margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem; /* More space between sections */
+  }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr; /* Larger fixed poster size */
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .poster-column {
+    position: sticky;
+    top: calc(var(--header-height) + 1.5rem); /* Stick below main header */
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
   }
 
-  .header {
-    display: flex;
-    gap: 1.5rem;
-    align-items: flex-end;
-  }
-
   .poster {
-    width: 200px;
+    width: 100%;
     flex-shrink: 0;
     aspect-ratio: 2 / 3;
     background-color: var(--color-background-soft);
@@ -202,7 +216,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .poster img {
@@ -212,22 +227,21 @@
   }
 
   .poster .icon {
-    font-size: 4rem;
+    font-size: 6rem;
   }
 
-  .header-info {
+  .info-column {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    align-self: flex-end;
-    flex-grow: 1;
+    gap: 1.5rem;
   }
 
   h1 {
-    font-size: 2.5rem;
-    font-weight: bold;
+    font-size: 3.5rem;
+    font-weight: 800;
     line-height: 1.1;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
   }
 
   .meta {
@@ -239,7 +253,7 @@
   }
 
   .year {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 600;
   }
 
@@ -251,9 +265,9 @@
 
   .genre-tag {
     background-color: rgba(255, 255, 255, 0.1);
-    padding: 0.2rem 0.6rem;
-    border-radius: 12px;
-    font-size: 0.8rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 16px;
+    font-size: 0.9rem;
     border: none;
     color: var(--ev-c-text-2);
     font-family: inherit;
@@ -267,36 +281,48 @@
   }
 
   .play-button {
+    width: 100%;
     background-color: var(--ev-c-white-soft);
     color: var(--ev-c-black);
     border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 20px;
+    padding: 1rem;
+    border-radius: 8px; /* Match poster */
     font-weight: bold;
     cursor: pointer;
-    font-size: 1rem;
-    transition: transform 0.2s ease;
+    font-size: 1.2rem;
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
   }
   .play-button:hover {
-    transform: scale(1.05);
+    transform: scale(1.03);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  }
+
+  .overview-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .overview {
-    line-height: 1.6;
-    max-width: 75ch; /* Good reading length */
+    line-height: 1.7;
+    color: var(--ev-c-text-2);
   }
 
   .children-section {
+    grid-column: 1 / -1; /* Span full width if it were inside the grid */
     margin-top: 1rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
   }
 
-  h2 {
+  .section-title {
     font-size: 1.5rem;
     font-weight: bold;
     border-bottom: 1px solid var(--color-background-mute);
     padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 </style>
