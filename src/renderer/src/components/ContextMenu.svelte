@@ -75,11 +75,40 @@
   {#if isTreeView && item.type === 'folder'}
     <button class="context-menu-item" onclick={handleOpen}> Open </button>
   {/if}
-  <button class="context-menu-item" onclick={handleEdit}> Edit Metadata </button>
-  <button class="context-menu-item" onclick={handleManualSearch}> Manual Search... </button>
+  <button class="context-menu-item" onclick={handleEdit}>
+    <span class="icon">✏️</span>
+    <span>Edit Metadata</span>
+  </button>
+  <button class="context-menu-item" onclick={handleManualSearch}>
+    <span class="icon">🔍</span>
+    <span>Manual Search...</span>
+  </button>
   {#if item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleLayout}> Set View... </button>
-    <button class="context-menu-item" onclick={handleFolderSettings}> Folder Settings... </button>
+    <button class="context-menu-item" onclick={handleLayout}>
+      <span class="icon">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+          ></rect>
+          <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+          ></rect>
+          <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+          ></rect>
+          <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+          ></rect>
+        </svg>
+      </span>
+      <span>Set View...</span>
+    </button>
+    <button class="context-menu-item" onclick={handleFolderSettings}>
+      <span class="icon">⚙️</span>
+      <span>Folder Settings...</span>
+    </button>
   {/if}
 </div>
 
@@ -97,7 +126,9 @@
   }
 
   .context-menu-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     width: 100%;
     padding: 0.75rem 1.25rem;
     background: none;
@@ -107,6 +138,14 @@
     cursor: pointer;
     font-size: 0.9rem;
     border-radius: 4px;
+  }
+
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2em;
+    font-size: 1.1em;
   }
 
   .context-menu-item:hover {

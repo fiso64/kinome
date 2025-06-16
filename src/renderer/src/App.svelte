@@ -57,6 +57,14 @@
   // It should be enabled if we are in a detail view.
   const canGoBack = $derived(selectedItemForDetailView !== null || viewStack.length > 1)
 
+  // The folder whose layout can be configured from the header.
+  // In a detail view of a folder, it's that folder. Otherwise, it's the current list's folder.
+  const folderToConfigureLayout = $derived(
+    selectedItemForDetailView?.type === 'folder'
+      ? (selectedItemForDetailView as MediaFolder)
+      : currentFolder
+  )
+
   $effect(() => {
     window.api.getLibraryRoot().then((root) => {
       if (root) {
@@ -469,17 +477,20 @@
       </div>
 
       <div class="header-right">
-        <button
-          onclick={handleRefresh}
-          disabled={isRefreshing || isScanning}
-          title="Refresh Library (F5)"
-          class="refresh-button"
-        >
-          <span class:reloading={isRefreshing}>⟳</span>
-        </button>
-        {#if currentFolder}
+        {#if !selectedItemForDetailView}
           <button
-            onclick={() => (activeModal = { type: 'layoutSelector', item: currentFolder })}
+            onclick={handleRefresh}
+            disabled={isRefreshing || isScanning}
+            title="Refresh Library (F5)"
+            class="refresh-button"
+          >
+            <span class:reloading={isRefreshing}>⟳</span>
+          </button>
+        {/if}
+        {#if folderToConfigureLayout}
+          <button
+            onclick={() =>
+              (activeModal = { type: 'layoutSelector', item: folderToConfigureLayout })}
             title="Set View Layout"
             class="layout-button"
           >
