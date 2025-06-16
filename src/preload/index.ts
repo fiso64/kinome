@@ -11,6 +11,8 @@ const api = {
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-details', itemId),
   updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
+  getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
+    ipcRenderer.invoke('get-autocomplete-suggestions'),
 
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>

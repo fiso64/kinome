@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaGrid from './components/MediaGrid.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
+  import SearchInput from './components/SearchInput.svelte'
   import WindowControls from './components/WindowControls.svelte'
   import ItemDetail from './components/ItemDetail.svelte'
   import LayoutSelector from './components/LayoutSelector.svelte'
@@ -17,7 +18,15 @@
   let showLayoutSelector = $state(false)
   let showMetadataEditor = $state(false)
   let showFolderSettings = $state(false)
-  let searchQuery = $state('')
+  let searchQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
+    text: '',
+    tags: []
+  })
+  let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
+    genres: [],
+    tagKeys: [],
+    tagValues: {}
+  })
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl: HTMLInputElement
 
@@ -32,12 +41,6 @@ let modalItem = $state<LibraryItem | null>(null) // Item for the currently open 
   // It should be enabled if we are in a detail view.
   const canGoBack = $derived(selectedItemForDetailView !== null || viewStack.length > 1)
 
-  const filteredChildren = $derived(
-    currentFolder?.children.filter((item) =>
-      (item.title ?? item.name).toLowerCase().includes(searchQuery.toLowerCase())
-    ) ?? []
-  )
-
   $effect(() => {
     window.api.getLibraryRoot().then((root) => {
       if (root) {
@@ -45,13 +48,17 @@ let modalItem = $state<LibraryItem | null>(null) // Item for the currently open 
       }
       isScanning = false
     })
+
+    window.api.getAutocompleteSuggestions().then((suggestions) => {
+      allAutocompleteSuggestions = suggestions
+    })
   })
 
   $effect(() => {
     // When the current folder changes, or we enter/exit detail view, reset search.
     void currentFolder?.id
     void selectedItemForDetailView
-    searchQuery = ''
+    searchQuery = { text: '', tags: [] }
   })
 
   // Set up a listener for real-time metadata updates from the main process.
@@ -295,12 +302,10 @@ function handleShowContextMenu(
 
       <div class="search-container">
         {#if currentFolder && !selectedItemForDetailView}
-          <input
-            bind:this={searchInputEl}
-            type="search"
-            placeholder="Search..."
-            bind:value={searchQuery}
-            aria-label="Search current folder"
+          <SearchInput
+            suggestions={allAutocompleteSuggestions}
+            onQueryChange={(newQuery) => (searchQuery = newQuery)}
+            bind:element={searchInputEl}
           />
         {/if}
       </div>
@@ -365,10 +370,11 @@ function handleShowContextMenu(
       <div>
         <MediaGrid
           parentItem={currentFolder}
-          items={filteredChildren}
-          itemclick={handleGridItemClick}
+          items={currentFolder.children}
+          {searchQuery}
+          onItemClick={handleGridItemClick}
           layout={currentFolder.layout ?? 'grid'}
-          showContextMenu={handleShowContextMenu}
+          onShowContextMenu={handleShowContextMenu}
         />
       </div>
 

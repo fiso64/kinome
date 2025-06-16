@@ -11,6 +11,15 @@ const LIBRARY_DATA_DIR_NAME = 'library'
 const DATABASE_FILE_NAME = 'database.json'
 const DB_VERSION = 1
 
+// --- In-Memory Database Cache ---
+let db: Database | null = null
+
+async function loadDbIntoMemory(): Promise<void> {
+  console.log('[Database] Loading database into memory...')
+  db = await readDb()
+}
+// --- End In-Memory Database Cache ---
+
 export function getLibraryDataPath(): string {
   return path.join(app.getPath('userData'), LIBRARY_DATA_DIR_NAME)
 }
@@ -23,21 +32,24 @@ async function readDb(): Promise<Database | null> {
   try {
     const dbPath = getDbPath()
     const data = await fs.readFile(dbPath, 'utf-8')
-    const db = JSON.parse(data) as Database
-    if (db.version !== DB_VERSION) {
+    const parsedDb = JSON.parse(data) as Database
+    if (parsedDb.version !== DB_VERSION) {
       console.warn(
         `Database version mismatch. Expected ${DB_VERSION}, got ${db.version}. Ignoring old DB.`
       )
       return null
     }
-    return db
+    return parsedDb
   } catch {
     // File doesn't exist or is corrupt, which is fine on first run
     return null
   }
 }
 
-async function writeDb(db: Database): Promise<void> {
+async function writeDb(updatedDb: Database): Promise<void> {
+  // Update the in-memory copy first
+  db = updatedDb
+
   const libraryPath = getLibraryDataPath()
   await fs.mkdir(libraryPath, { recursive: true })
   const dbPath = getDbPath()
@@ -203,6 +215,54 @@ function collectItemsToProcess(
   }
 }
 
+async function getAutocompleteSuggestions() {
+  if (!db || !db.root) {
+    return { genres: [], tagKeys: [], tagValues: {} }
+  }
+
+  const allItems = getAllItemsAsList(db.root)
+  const genres = new Set<string>()
+  const tagKeys = new Set<string>()
+  const tagValues: Record<string, Set<string>> = {}
+
+  for (const item of allItems) {
+    // Collect genres
+    if (item.genres) {
+      item.genres.forEach((genre) => genres.add(genre.trim()))
+    }
+
+    // Collect tags
+    if (item.tags) {
+      for (const [key, value] of Object.entries(item.tags)) {
+        if (key) {
+          tagKeys.add(key.trim())
+          if (!tagValues[key]) {
+            tagValues[key] = new Set<string>()
+          }
+          // Split comma-separated values and add them individually
+          value.split(',').forEach((v) => {
+            const trimmedV = v.trim()
+            if (trimmedV) {
+              tagValues[key].add(trimmedV)
+            }
+          })
+        }
+      }
+    }
+  }
+
+  const tagValuesAsArrays: Record<string, string[]> = {}
+  for (const key in tagValues) {
+    tagValuesAsArrays[key] = Array.from(tagValues[key]).sort()
+  }
+
+  return {
+    genres: Array.from(genres).sort(),
+    tagKeys: Array.from(tagKeys).sort(),
+    tagValues: tagValuesAsArrays
+  }
+}
+
 async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
   const libraryDataPath = getLibraryDataPath()
   if (!tmdbApiKey || !db.root) {
@@ -255,13 +315,18 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
 }
 
 export function setupLibraryIpc(): void {
+  // Load the database into memory when the app is ready
+  loadDbIntoMemory()
+
   ipcMain.handle('get-library-root', async () => {
-    const db = await readDb()
+    // If db is not in memory, try loading it.
+    if (!db) {
+      await loadDbIntoMemory()
+    }
     return db?.root ?? null
   })
 
   ipcMain.handle('get-library-media-source-path', async () => {
-    const db = await readDb()
     return db?.mediaSourcePath ?? null
   })
 
@@ -269,7 +334,6 @@ export function setupLibraryIpc(): void {
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
 
-    const db = await readDb()
     if (!db || !db.mediaSourcePath) {
       console.log('Cannot refresh, no library configured.')
       return null
@@ -346,7 +410,6 @@ export function setupLibraryIpc(): void {
 
     if (result.canceled || result.filePaths.length === 0) {
       console.log('User canceled directory selection.')
-      const db = await readDb()
       return db?.root ?? null
     }
 
@@ -357,22 +420,23 @@ export function setupLibraryIpc(): void {
       // 1. Scan directory structure first.
       const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
 
-      const db: Database = {
+      const newDb: Database = {
         version: DB_VERSION,
         mediaSourcePath,
         root: rootNode
       }
 
-      // 2. Write the initial DB with file structure.
-      await writeDb(db)
+      // 2. Write the initial DB with file structure. This also updates our in-memory `db` variable.
+      await writeDb(newDb)
       console.log('Initial scan complete. Database updated with file structure.')
 
       // 3. Start background metadata fetching without blocking.
       const settings = await readSettings()
-      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey)
+      // Pass the new in-memory `db` object to the fetcher
+      fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey)
 
       // 4. Return the initial structure immediately to the UI.
-      return db.root
+      return db!.root
     } catch (error) {
       console.error('Failed to scan directory:', error)
       return null
@@ -380,7 +444,6 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
-    const db = await readDb()
     const settings = await readSettings()
     const libraryDataPath = getLibraryDataPath()
 
@@ -406,7 +469,7 @@ export function setupLibraryIpc(): void {
     // Otherwise, fetch them, update DB, and return updated item.
     if (settings.tmdbApiKey && item.tmdbId) {
       await fetchItemDetails(item, settings.tmdbApiKey, libraryDataPath)
-      await writeDb(db) // Save changes
+      await writeDb(db) // Save changes to disk and memory
     } else {
       if (!item.tmdbId) {
         console.warn(`Cannot fetch item details for "${item.name}": item has no TMDB ID.`)
@@ -418,7 +481,6 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
-    const db = await readDb()
     const { playerCommand } = await readSettings()
 
     if (!db || !db.root || !playerCommand) {
@@ -434,7 +496,7 @@ export function setupLibraryIpc(): void {
     const itemInDb = findItemById(file.id, db.root)
     if (itemInDb && itemInDb.type === 'file') {
       itemInDb.watched = true
-      await writeDb(db)
+      await writeDb(db) // Persist the change
       console.log('Database updated with watched state for item:', file.id)
     } else {
       console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
@@ -459,10 +521,11 @@ export function setupLibraryIpc(): void {
     return true // Indicate that the attempt to play was processed.
   })
 
+  ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
+
   ipcMain.handle('update-item', async (event, updatedItem: LibraryItem): Promise<void> => {
-    const db = await readDb()
     if (!db || !db.root) {
-      console.error('Cannot update item: database not found.')
+      console.error('Cannot update item: database not found in memory.')
       return
     }
 
@@ -474,7 +537,7 @@ export function setupLibraryIpc(): void {
       // the object reference within the parent's `children` array.
       Object.assign(itemInDb, updatedItem)
 
-      await writeDb(db)
+      await writeDb(db) // Persist changes to disk and update in-memory `db`
       console.log(`Updated item ${updatedItem.id} in database.`)
 
       // Notify renderer about the update so UI can refresh everywhere.

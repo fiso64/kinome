@@ -8,33 +8,98 @@
   let {
     parentItem,
     items = [],
-    itemclick,
+    onItemClick,
     layout = 'grid',
-    showContextMenu
+    onShowContextMenu,
+    searchQuery
   }: {
     parentItem: MediaFolder
     items?: LibraryItem[]
-    itemclick: (item: LibraryItem) => void
+    onItemClick: (item: LibraryItem) => void
     layout?: Layout
-    showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
+    onShowContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
+    searchQuery?: { text: string; tags: { key: string; value: string }[] }
   } = $props()
 
-  const folderItems = $derived(items.filter((item) => item.type === 'folder') as MediaFolder[])
-  const fileItems = $derived(items.filter((item) => item.type === 'file'))
+  function normalizeText(text: string): string {
+    return (
+      text
+        .toLowerCase()
+        // First, remove any patterns that look like incomplete tags from the text search
+        .replace(/:[a-zA-Z0-9_]+:?[^:\s]*/g, ' ')
+        .replace(/[.:_,-]/g, ' ') // Replace common punctuation with space
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .trim()
+    )
+  }
+
+  function filterItems(
+    itemsToFilter: LibraryItem[],
+    query?: { text: string; tags: { key: string; value: string }[] }
+  ): LibraryItem[] {
+    if (!query || (query.text === '' && query.tags.length === 0)) {
+      return itemsToFilter
+    }
+
+    const normalizedQueryText = normalizeText(query.text)
+
+    return itemsToFilter.filter((item) => {
+      // Text search part (AND)
+      if (normalizedQueryText) {
+        const normalizedItemTitle = normalizeText(item.title ?? item.name)
+        if (!normalizedItemTitle.includes(normalizedQueryText)) {
+          return false
+        }
+      }
+
+      // Tag search part (AND)
+      if (query.tags.length > 0) {
+        for (const tag of query.tags) {
+          let tagMatch = false
+          if (tag.key === 'genre') {
+            tagMatch =
+              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
+          } else if (tag.key === 'year') {
+            tagMatch = item.year?.toString() === tag.value
+          } else if (item.tags) {
+            const itemTagValue = item.tags[tag.key]
+            if (typeof itemTagValue === 'string') {
+              tagMatch = itemTagValue
+                .split(',')
+                .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
+            }
+          }
+          if (!tagMatch) return false // Must match ALL tags
+        }
+      }
+
+      return true // All conditions passed
+    })
+  }
+
+  // For grid/tree views, we filter the items.
+  // For tabs/sections, we filter the *content* of each tab/section, not the tabs/sections themselves.
+  const displayedItems = $derived(
+    layout === 'grid' || layout === 'tree' ? filterItems(items, searchQuery) : items
+  )
+
+  const folderItems = $derived(
+    displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
+  )
 
   // For tabs, pre-select the first folder tab if available
   let activeTabId = $state(folderItems[0]?.id ?? null)
 </script>
 
 {#if layout === 'grid'}
-  <div class="media-grid" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
-    {#if items.length > 0}
-      {#each items as item (item.id)}
+  <div class="media-grid" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+    {#if displayedItems.length > 0}
+      {#each displayedItems as item (item.id)}
         <button
           type="button"
           class="grid-item"
-          onclick={() => itemclick(item)}
-          oncontextmenu={(e) => showContextMenu(item, e, { layout })}
+          onclick={() => onItemClick(item)}
+          oncontextmenu={(e) => onShowContextMenu(item, e, { layout })}
         >
           <div
             class="poster"
@@ -62,13 +127,13 @@
     {/if}
   </div>
 {:else if layout === 'tree'}
-  <div class="media-tree" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
-    {#if items.length > 0}
-      {#each items as item (item.id)}
+  <div class="media-tree" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+    {#if displayedItems.length > 0}
+      {#each displayedItems as item (item.id)}
         <TreeItem
           {item}
-          {itemclick}
-          showContextMenu={(treeItem, event) => showContextMenu(treeItem, event, { layout })}
+          itemclick={onItemClick}
+          showContextMenu={(treeItem, event) => onShowContextMenu(treeItem, event, { layout })}
         />
       {/each}
     {:else}
@@ -83,7 +148,7 @@
           class="tab"
           class:active={activeTabId === folder.id}
           onclick={() => (activeTabId = folder.id)}
-          oncontextmenu={(e) => showContextMenu(folder, e, { layout })}
+          oncontextmenu={(e) => onShowContextMenu(folder, e, { layout })}
         >
           {folder.title ?? folder.name}
         </button>
@@ -92,16 +157,17 @@
     <div class="tab-content">
       {#if folderItems.length > 0}
         {#each folderItems as folder (folder.id)}
-      {#if activeTabId === folder.id}
-        <!-- Recurse with the child folder's configured layout, defaulting to grid -->
-        <MediaGrid
-          parentItem={folder}
-          items={folder.children}
-          {itemclick}
-          layout={folder.layout ?? 'grid'}
-          {showContextMenu}
-        />
-      {/if}
+          {#if activeTabId === folder.id}
+            <!-- Recurse with the child folder's configured layout, defaulting to grid -->
+            <MediaGrid
+              parentItem={folder}
+              items={folder.children}
+              {onItemClick}
+              layout={folder.layout ?? 'grid'}
+              {onShowContextMenu}
+              {searchQuery}
+            />
+          {/if}
         {/each}
       {:else}
         <p class="empty-message">No folders to display as tabs.</p>
@@ -115,8 +181,8 @@
         <section class="content-section">
           <h2
             class="section-title"
-            onclick={() => itemclick(folder)}
-            oncontextmenu={(e) => showContextMenu(folder, e, { layout })}
+            onclick={() => onItemClick(folder)}
+            oncontextmenu={(e) => onShowContextMenu(folder, e, { layout })}
           >
             {folder.title ?? folder.name}
           </h2>
@@ -124,9 +190,10 @@
           <MediaGrid
             parentItem={folder}
             items={folder.children}
-            {itemclick}
+            {onItemClick}
             layout={folder.layout ?? 'grid'}
-            {showContextMenu}
+            {onShowContextMenu}
+            {searchQuery}
           />
         </section>
       {/each}

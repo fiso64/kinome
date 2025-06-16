@@ -44,6 +44,12 @@ declare global {
 
   type LibraryItem = MediaFile | MediaFolder
 
+  interface AutocompleteSuggestions {
+    genres: string[]
+    tagKeys: string[]
+    tagValues: Record<string, string[]>
+  }
+
   interface Window {
     electron: ElectronAPI
     api: {
@@ -57,6 +63,7 @@ declare global {
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       updateItem: (item: LibraryItem) => Promise<void>
+      getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       minimizeWindow: () => void
