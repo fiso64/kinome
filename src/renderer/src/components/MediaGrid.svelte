@@ -159,7 +159,7 @@
     {/if}
   </div>
 {:else if layout === 'tabs'}
-  <div class="tabs-view">
+  <div class="tabs-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
     <div class="tab-list">
       {#each folderItems as folder (folder.id)}
         <button
@@ -193,7 +193,7 @@
     </div>
   </div>
 {:else if layout === 'sections'}
-  <div class="sections-view" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
+  <div class="sections-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
     {#if folderItems.length > 0}
       {#each folderItems as folder (folder.id)}
         <section class="content-section">
@@ -241,6 +241,7 @@
     display: flex;
     flex-direction: column;
     padding: 0 0.5rem; /* Give some space for the tree */
+    flex: 1;
   }
 
   /* --- ITEM BUTTONS (Grid only) --- */
@@ -344,6 +345,7 @@
   /* --- SECTIONS LAYOUT --- */
   .sections-view {
     padding: 1rem 0;
+    flex: 1;
   }
   .content-section {
     margin-bottom: 2rem;
