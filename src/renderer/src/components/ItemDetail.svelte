@@ -1,19 +1,21 @@
 <script lang="ts">
-    import MediaGrid from './MediaGrid.svelte'
-  
-    let {
-      item,
-      onNavigateFolder,
-      onPlayFile,
-      showContextMenu,
-      onSearchByTag
-    }: {
-      item: LibraryItem
-      onNavigateFolder: (folder: MediaFolder) => void
-      onPlayFile: (file: MediaFile) => void
-      showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
-      onSearchByTag: (key: string, value: string) => void
-    } = $props()
+  import MediaGrid from './MediaGrid.svelte'
+
+  let {
+    item,
+    onNavigateFolder,
+    onPlayFile,
+    showContextMenu,
+    onSearchByTag,
+    useLogos
+  }: {
+    item: LibraryItem
+    onNavigateFolder: (folder: MediaFolder) => void
+    onPlayFile: (file: MediaFile) => void
+    showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
+    onSearchByTag: (key: string, value: string) => void
+    useLogos: boolean
+  } = $props()
   
     // These values help manage the individual image fade-in animations.
     let isBackdropLoaded = $state(false)
@@ -84,7 +86,7 @@
   
         <div class="info-column">
           <div class="title-and-meta">
-            {#if item.logoPath}
+            {#if useLogos && item.logoPath}
               <div class="logo-container">
                 <img
                   src="media-browser-asset://images/{item.logoPath}{item._v ? `?v=${item._v}` : ''}"

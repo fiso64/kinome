@@ -669,16 +669,17 @@
     flex-shrink: 0;
   }
   button {
-    background-color: var(--ev-c-gray-3);
-    color: var(--ev-c-text-1);
     border: none;
     padding: 0.5rem 1rem;
     border-radius: 5px;
     cursor: pointer;
     font-weight: 600;
+    font-size: 0.9rem;
+    background-color: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
   }
   button:hover:not(:disabled) {
-    background-color: var(--ev-c-gray-2);
+    background-color: var(--ev-c-gray-1);
   }
   button:disabled {
     opacity: 0.6;
@@ -686,10 +687,10 @@
   }
   button.secondary {
     background-color: var(--ev-button-alt-bg);
-    border: 1px solid var(--ev-button-alt-border);
+    border: 1px solid var(--ev-c-gray-2);
   }
-  button.secondary:hover {
-    background-color: var(--ev-button-alt-hover-bg);
+  button.secondary:hover:not(:disabled) {
+    background-color: var(--ev-c-black-mute);
   }
   .empty-text {
     color: var(--ev-c-text-2);

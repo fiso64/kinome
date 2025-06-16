@@ -33,6 +33,9 @@
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
   let activeModal = $state<ActiveModal | null>(null)
+  let settings = $state<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean } | null>(
+    null
+  )
 
   // Global Context Menu State
   let contextMenuItem = $state<LibraryItem | null>(null)
@@ -55,6 +58,8 @@
     window.api.getAutocompleteSuggestions().then((suggestions) => {
       allAutocompleteSuggestions = suggestions
     })
+
+    window.api.getSettings().then((s) => (settings = s))
   })
 
   $effect(() => {
@@ -259,7 +264,17 @@
 
 {#if activeModal}
   {#if activeModal.type === 'settings'}
-    <SettingsModal close={() => (activeModal = null)} scanLibrary={handleScan} />
+    <SettingsModal
+      close={() => {
+        const wasSettings = activeModal?.type === 'settings'
+        activeModal = null
+        // Refetch settings after modal closes, as they might have changed
+        if (wasSettings) {
+          window.api.getSettings().then((s) => (settings = s))
+        }
+      }}
+      scanLibrary={handleScan}
+    />
   {:else if activeModal.type === 'layoutSelector'}
     <LayoutSelector
       item={activeModal.item}
@@ -406,13 +421,14 @@
         />
       </div>
 
-      {#if selectedItemForDetailView}
+      {#if selectedItemForDetailView && settings}
         <ItemDetail
           item={selectedItemForDetailView}
           onPlayFile={handlePlayFile}
           onNavigateFolder={handleFolderClickInDetailView}
           onSearchByTag={handleSearchByTag}
           showContextMenu={handleShowContextMenu}
+          useLogos={settings.useLogos ?? true}
         />
       {/if}
     {/if}

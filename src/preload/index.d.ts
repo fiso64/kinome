@@ -62,9 +62,9 @@ declare global {
       scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
       // Settings
-      getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string }>
+      getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean }>
       getLibraryMediaSourcePath: () => Promise<string | null>
-      saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }) => Promise<void>
+      saveSettings: (settings: Partial<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean }>) => Promise<void>
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       updateItem: (item: LibraryItem) => Promise<void>

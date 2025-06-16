@@ -493,7 +493,7 @@ export function setupLibraryIpc(): void {
         if (settings.tmdbApiKey && item.tmdbId) {
           // The `item` object is a reference to the one in the `db` cache,
           // so `fetchItemDetails` will modify it directly.
-          await fetchItemDetails(item, settings.tmdbApiKey, getLibraryDataPath())
+          await fetchItemDetails(item, settings, getLibraryDataPath())
           item._v = Date.now()
           await writeDb(db) // Save the updated database
 
@@ -611,9 +611,9 @@ export function setupLibraryIpc(): void {
       const item = findItemById(itemId, db.root)
       if (!item) return
 
-      const { tmdbApiKey } = await readSettings()
+      const settings = await readSettings()
       const libraryDataPath = getLibraryDataPath()
-      if (!tmdbApiKey) return
+      if (!settings.tmdbApiKey) return
 
       // Clear old data that will be replaced
       item.overview = undefined
@@ -629,11 +629,11 @@ export function setupLibraryIpc(): void {
       item.title = result.title
 
       // This will fetch poster, backdrop, and other details (overview, year, genres)
-      await fetchItemDetails(item, tmdbApiKey, libraryDataPath)
+      await fetchItemDetails(item, settings, libraryDataPath)
       item._v = Date.now() // Bust cache after image updates
 
       // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
-      const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${tmdbApiKey}`
+      const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
       try {
         const response = await fetch(detailUrl)
         if (response.ok) {

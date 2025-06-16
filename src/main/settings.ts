@@ -5,6 +5,7 @@ import fs from 'fs/promises'
 export interface Settings {
   playerCommand: string
   tmdbApiKey: string
+  useLogos?: boolean
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -16,7 +17,8 @@ function getSettingsPath(): string {
 async function readRawSettings(): Promise<Settings> {
   const defaultSettings: Settings = {
     playerCommand: 'mpv {PATH}',
-    tmdbApiKey: ''
+    tmdbApiKey: '',
+    useLogos: true
   }
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')

@@ -224,9 +224,11 @@ export async function refetchPoster(
   }
 }
 
+import type { Settings } from './settings'
+
 export async function fetchItemDetails(
   item: LibraryItem,
-  tmdbApiKey: string,
+  settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
 ): Promise<void> {
   if (!item.tmdbId || !item.mediaType) {
@@ -235,7 +237,7 @@ export async function fetchItemDetails(
   }
 
   const imagesDir = getImagesPath(libraryDataPath)
-  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}&append_to_response=images`
+  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${settings.tmdbApiKey}&append_to_response=images`
 
   console.log(`[TMDB] Fetching details for "${item.title ?? item.name}" from ${detailUrl}`)
 
@@ -283,28 +285,33 @@ export async function fetchItemDetails(
     }
 
     // --- Logo ---
-    if (typeof item.logoPath === 'undefined') {
-      const logos = details.images?.logos
-      const bestLogo =
-        logos?.find((l) => l.iso_639_1 === 'en') ||
-        logos?.find((l) => l.iso_639_1 === null) ||
-        logos?.[0]
+    if (settings.useLogos) {
+      if (typeof item.logoPath === 'undefined') {
+        const logos = details.images?.logos
+        const bestLogo =
+          logos?.find((l) => l.iso_639_1 === 'en') ||
+          logos?.find((l) => l.iso_639_1 === null) ||
+          logos?.[0]
 
-      if (bestLogo) {
-        const logoUrl = `https://image.tmdb.org/t/p/w500${bestLogo.file_path}`
-        const extension = path.extname(bestLogo.file_path)
-        const logoFileName = `${item.id}-logo${extension}`
-        const logoDestPath = path.join(imagesDir, logoFileName)
-        try {
-          await downloadImage(logoUrl, logoDestPath)
-          item.logoPath = logoFileName
-          console.log(`[TMDB] Downloaded logo for "${item.title ?? item.name}"`)
-        } catch {
+        if (bestLogo) {
+          const logoUrl = `https://image.tmdb.org/t/p/w500${bestLogo.file_path}`
+          const extension = path.extname(bestLogo.file_path)
+          const logoFileName = `${item.id}-logo${extension}`
+          const logoDestPath = path.join(imagesDir, logoFileName)
+          try {
+            await downloadImage(logoUrl, logoDestPath)
+            item.logoPath = logoFileName
+            console.log(`[TMDB] Downloaded logo for "${item.title ?? item.name}"`)
+          } catch {
+            item.logoPath = null
+          }
+        } else {
           item.logoPath = null
         }
-      } else {
-        item.logoPath = null
       }
+    } else {
+      // If setting is disabled, ensure logo path is null
+      item.logoPath = null
     }
 
     // Update other metadata fields

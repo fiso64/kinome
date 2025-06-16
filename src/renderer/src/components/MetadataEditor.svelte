@@ -264,8 +264,8 @@
     {/if}
 
     <div class="actions">
-      <button onclick={handleSave}>Save & Close</button>
       <button class="secondary" onclick={onClose}>Cancel</button>
+      <button class="primary" onclick={handleSave}>Save & Close</button>
     </div>
   </div>
 </div>
@@ -338,23 +338,31 @@
     margin-top: auto;
   }
   button {
-    background-color: var(--ev-c-gray-3);
-    color: var(--ev-c-text-1);
     border: none;
     padding: 0.5rem 1rem;
     border-radius: 5px;
     cursor: pointer;
     font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--ev-c-text-1);
   }
-  button:hover {
+  button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  button.primary {
     background-color: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
+  }
+  button.primary:hover:not(:disabled) {
+    background-color: var(--ev-c-gray-1);
   }
   button.secondary {
     background-color: var(--ev-button-alt-bg);
-    border: 1px solid var(--ev-button-alt-border);
+    border: 1px solid var(--ev-c-gray-2);
   }
-  button.secondary:hover {
-    background-color: var(--ev-button-alt-hover-bg);
+  button.secondary:hover:not(:disabled) {
+    background-color: var(--ev-c-black-mute);
   }
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
