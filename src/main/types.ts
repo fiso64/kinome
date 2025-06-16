@@ -7,8 +7,9 @@ export interface MediaFile {
   // TMDB metadata
   title?: string
   overview?: string
-  posterPath?: string // e.g. 'xxxx.jpg'
-  backdropPath?: string
+  posterPath?: string | null // e.g. 'xxxx.jpg'
+  backdropPath?: string | null
+  logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv'
   year?: number
@@ -26,8 +27,9 @@ export interface MediaFolder {
   // TMDB metadata
   title?: string
   overview?: string
-  posterPath?: string // e.g. 'xxxx.jpg'
-  backdropPath?: string
+  posterPath?: string | null // e.g. 'xxxx.jpg'
+  backdropPath?: string | null
+  logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv'
   year?: number

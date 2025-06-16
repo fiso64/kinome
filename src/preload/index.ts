@@ -23,16 +23,18 @@ const api = {
     tmdbId: number,
     mediaType: 'movie' | 'tv',
     language: string
-  ): Promise<{ posters: any[]; backdrops: any[] }> =>
+  ): Promise<{ posters: any[]; backdrops: any[]; logos: any[] }> =>
     ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
   applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
     ipcRenderer.invoke('apply-tmdb-result', itemId, result, mediaType),
   selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
   setImage: (
     itemId: string,
-    imageType: 'poster' | 'backdrop',
+    imageType: 'poster' | 'backdrop' | 'logo',
     source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
   ): Promise<void> => ipcRenderer.invoke('set-image', itemId, imageType, source),
+  removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void> =>
+    ipcRenderer.invoke('remove-image', itemId, imageType),
 
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>

@@ -35,6 +35,7 @@
   let imageLang = $state('en')
   let posters = $state<TmdbImage[]>([])
   let backdrops = $state<TmdbImage[]>([])
+  let logos = $state<TmdbImage[]>([])
 
   async function performSearch() {
     if (!searchQuery.trim() || isSearching) return
@@ -59,14 +60,23 @@
     // Clear old results before fetching new ones
     posters = []
     backdrops = []
+    logos = []
     const images = await window.api.getTmdbImages(item.tmdbId, item.mediaType, imageLang)
     posters = images.posters
     backdrops = images.backdrops
+    logos = images.logos
     isFetchingArtwork = false
   }
 
+  async function handleRemoveImage(imageType: 'poster' | 'backdrop' | 'logo') {
+    isSettingImage = true
+    await window.api.removeImage(item.id, imageType)
+    // The onLibraryItemUpdated listener will handle the UI refresh.
+    isSettingImage = false
+  }
+
   async function handleSetImage(
-    imageType: 'poster' | 'backdrop',
+    imageType: 'poster' | 'backdrop' | 'logo',
     source: { type: 'tmdb'; path: string } | { type: 'local' }
   ) {
     isSettingImage = true
@@ -209,17 +219,24 @@
             <h4>Poster</h4>
             <div class="artwork-container">
               <div class="current-artwork-wrapper">
-                <div class="current-image">
-                  {#if item.posterPath}
-                    <img
-                      src="media-browser-asset://images/{item.posterPath}{item._v
-                        ? `?v=${item._v}`
-                        : ''}"
-                      alt="Current Poster"
-                    />
-                  {:else}
-                    <div class="image-placeholder">No Poster</div>
-                  {/if}
+                <div class="current-image-container">
+                  <div class="current-image">
+                    {#if item.posterPath}
+                      <img
+                        src="media-browser-asset://images/{item.posterPath}{item._v
+                          ? `?v=${item._v}`
+                          : ''}"
+                        alt="Current Poster"
+                      />
+                      <button
+                        class="remove-image-btn"
+                        title="Remove Poster"
+                        onclick={() => handleRemoveImage('poster')}>&times;</button
+                      >
+                    {:else}
+                      <div class="image-placeholder">No Poster</div>
+                    {/if}
+                  </div>
                 </div>
                 <button
                   class="secondary"
@@ -247,20 +264,74 @@
           </section>
 
           <section>
+            <h4>Logo</h4>
+            <div class="artwork-container">
+              <div class="current-artwork-wrapper">
+                <div class="current-image-container">
+                  <div class="current-image logo">
+                    {#if item.logoPath}
+                      <img
+                        src="media-browser-asset://images/{item.logoPath}{item._v
+                          ? `?v=${item._v}`
+                          : ''}"
+                        alt="Current Logo"
+                      />
+                      <button
+                        class="remove-image-btn"
+                        title="Remove Logo"
+                        onclick={() => handleRemoveImage('logo')}>&times;</button
+                      >
+                    {:else}
+                      <div class="image-placeholder">No Logo</div>
+                    {/if}
+                  </div>
+                </div>
+                <button
+                  class="secondary"
+                  onclick={() => handleSetImage('logo', { type: 'local' })}
+                  disabled={isSettingImage}>Choose Local File</button
+                >
+              </div>
+              <div class="image-list" onwheel={horizontalScroll}>
+                {#each logos as image (image.file_path)}
+                  <button
+                    class="image-thumb logo"
+                    onclick={() => handleSetImage('logo', { type: 'tmdb', path: image.file_path })}
+                    disabled={isSettingImage}
+                  >
+                    <img
+                      src="https://image.tmdb.org/t/p/w154{image.file_path}"
+                      alt="Logo option"
+                      loading="lazy"
+                    />
+                  </button>
+                {/each}
+              </div>
+            </div>
+          </section>
+
+          <section>
             <h4>Backdrop</h4>
             <div class="artwork-container backdrop">
               <div class="current-artwork-wrapper backdrop">
-                <div class="current-image backdrop">
-                  {#if item.backdropPath}
-                    <img
-                      src="media-browser-asset://images/{item.backdropPath}{item._v
-                        ? `?v=${item._v}`
-                        : ''}"
-                      alt="Current Backdrop"
-                    />
-                  {:else}
-                    <div class="image-placeholder">No Backdrop</div>
-                  {/if}
+                <div class="current-image-container">
+                  <div class="current-image backdrop">
+                    {#if item.backdropPath}
+                      <img
+                        src="media-browser-asset://images/{item.backdropPath}{item._v
+                          ? `?v=${item._v}`
+                          : ''}"
+                        alt="Current Backdrop"
+                      />
+                      <button
+                        class="remove-image-btn"
+                        title="Remove Backdrop"
+                        onclick={() => handleRemoveImage('backdrop')}>&times;</button
+                      >
+                    {:else}
+                      <div class="image-placeholder">No Backdrop</div>
+                    {/if}
+                  </div>
                 </div>
                 <button
                   class="secondary"
@@ -484,16 +555,22 @@
     border-radius: 6px;
     overflow: hidden;
   }
-  .current-image.backdrop {
+  .current-image.backdrop,
+  .current-image.logo {
     aspect-ratio: 16/9;
   }
-  .current-image:not(.backdrop) {
+  .current-image:not(.backdrop):not(.logo) {
     aspect-ratio: 2/3;
   }
   .current-image img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  .current-image.logo img {
+    object-fit: contain;
+    background-color: var(--color-background); /* For letterboxing */
+    padding: 0.5rem;
   }
   .image-placeholder {
     width: 100%;
@@ -535,9 +612,51 @@
     object-fit: cover;
   }
   .current-image.backdrop img,
-  .image-thumb.backdrop img {
+  .image-thumb.backdrop img,
+  .image-thumb.logo img {
     object-fit: contain;
     background-color: var(--color-background); /* For letterboxing */
+  }
+  .image-thumb.logo img {
+    padding: 0.5rem;
+  }
+
+  .current-image-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .remove-image-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    z-index: 5; /* Above the image */
+  }
+
+  .current-image-container:hover .remove-image-btn {
+    opacity: 1;
+  }
+
+  .remove-image-btn:hover {
+    background-color: #e81123;
+    border-color: #e81123;
+    transform: scale(1.1);
   }
 
   /* Common */

@@ -10,8 +10,9 @@ declare global {
     // TMDB metadata
     title?: string
     overview?: string
-    posterPath?: string // e.g. 'xxxx.jpg'
-    backdropPath?: string
+    posterPath?: string | null // e.g. 'xxxx.jpg'
+    backdropPath?: string | null
+    logoPath?: string | null
     tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
     year?: number
@@ -29,8 +30,9 @@ declare global {
     // TMDB metadata
     title?: string
     overview?: string
-    posterPath?: string // e.g. 'xxxx.jpg'
-    backdropPath?: string
+    posterPath?: string | null // e.g. 'xxxx.jpg'
+    backdropPath?: string | null
+    logoPath?: string | null
     tmdbId?: number | null
     mediaType?: 'movie' | 'tv'
     year?: number
@@ -74,14 +76,15 @@ declare global {
         tmdbId: number,
         mediaType: 'movie' | 'tv',
         language: string
-      ) => Promise<{ posters: any[]; backdrops: any[] }>
+      ) => Promise<{ posters: any[]; backdrops: any[]; logos: any[] }>
       applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv') => Promise<void>
       selectLocalImage: () => Promise<string | null>
       setImage: (
         itemId: string,
-        imageType: 'poster' | 'backdrop',
+        imageType: 'poster' | 'backdrop' | 'logo',
         source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
       ) => Promise<void>
+      removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       // Window

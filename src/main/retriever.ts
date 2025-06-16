@@ -234,7 +234,9 @@ export async function fetchItemDetails(
     return
   }
 
-  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}`
+  const imagesDir = getImagesPath(libraryDataPath)
+  const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}&append_to_response=images`
+
   console.log(`[TMDB] Fetching details for "${item.title ?? item.name}" from ${detailUrl}`)
 
   try {
@@ -244,41 +246,71 @@ export async function fetchItemDetails(
     }
     const details = await response.json()
 
-    const imagesDir = getImagesPath(libraryDataPath)
-
-    // Download poster if it's missing
-    if (details.poster_path && !item.posterPath) {
-      const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
-      const posterFileName = `${item.id}.jpg`
-      const posterDestPath = path.join(imagesDir, posterFileName)
-      try {
-        await downloadImage(posterUrl, posterDestPath)
-        item.posterPath = posterFileName
-        console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
-      } catch {
-        // Error is logged inside downloadImage
+    // --- Poster ---
+    if (typeof item.posterPath === 'undefined') {
+      if (details.poster_path) {
+        const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
+        const posterFileName = `${item.id}.jpg`
+        const posterDestPath = path.join(imagesDir, posterFileName)
+        try {
+          await downloadImage(posterUrl, posterDestPath)
+          item.posterPath = posterFileName
+          console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
+        } catch {
+          item.posterPath = null // Mark as failed to prevent retries
+        }
+      } else {
+        item.posterPath = null // No poster provided by API
       }
     }
 
-    if (details.backdrop_path) {
-      const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
-      const backdropFileName = `${item.id}-backdrop.jpg`
-      const backdropDestPath = path.join(imagesDir, backdropFileName)
-      try {
-        await downloadImage(backdropUrl, backdropDestPath)
-        item.backdropPath = backdropFileName
-        console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
-      } catch {
-        console.error(`Failed to download or save backdrop for item: ${item.name}`)
-        // Do not set item.backdropPath if download fails
+    // --- Backdrop ---
+    if (typeof item.backdropPath === 'undefined') {
+      if (details.backdrop_path) {
+        const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
+        const backdropFileName = `${item.id}-backdrop.jpg`
+        const backdropDestPath = path.join(imagesDir, backdropFileName)
+        try {
+          await downloadImage(backdropUrl, backdropDestPath)
+          item.backdropPath = backdropFileName
+          console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
+        } catch {
+          item.backdropPath = null
+        }
+      } else {
+        item.backdropPath = null
       }
     }
 
-    // We can also update other fields here if they are more detailed than the search result
+    // --- Logo ---
+    if (typeof item.logoPath === 'undefined') {
+      const logos = details.images?.logos
+      const bestLogo =
+        logos?.find((l) => l.iso_639_1 === 'en') ||
+        logos?.find((l) => l.iso_639_1 === null) ||
+        logos?.[0]
+
+      if (bestLogo) {
+        const logoUrl = `https://image.tmdb.org/t/p/w500${bestLogo.file_path}`
+        const extension = path.extname(bestLogo.file_path)
+        const logoFileName = `${item.id}-logo${extension}`
+        const logoDestPath = path.join(imagesDir, logoFileName)
+        try {
+          await downloadImage(logoUrl, logoDestPath)
+          item.logoPath = logoFileName
+          console.log(`[TMDB] Downloaded logo for "${item.title ?? item.name}"`)
+        } catch {
+          item.logoPath = null
+        }
+      } else {
+        item.logoPath = null
+      }
+    }
+
+    // Update other metadata fields
     if (details.overview) {
       item.overview = details.overview
     }
-
     const date = details.release_date || details.first_air_date
     if (date) {
       item.year = new Date(date).getFullYear()
@@ -333,11 +365,11 @@ export async function getTmdbImages(
   mediaType: 'movie' | 'tv',
   tmdbApiKey: string,
   language: string
-): Promise<{ posters: any[]; backdrops: any[] }> {
-  if (!tmdbId) return { posters: [], backdrops: [] }
+): Promise<{ posters: any[]; backdrops: any[]; logos: any[] }> {
+  if (!tmdbId) return { posters: [], backdrops: [], logos: [] }
   const langParam =
     language && language !== 'none'
-      ? `&language=${language}&include_image_language=${language},null`
+      ? `&language=${language}&include_image_language=${language},null,en` // Also include English as a fallback
       : ''
   const imagesUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/images?api_key=${tmdbApiKey}${langParam}`
 
@@ -345,15 +377,16 @@ export async function getTmdbImages(
     const response = await fetch(imagesUrl)
     if (!response.ok) {
       console.error(`TMDB image fetch failed for "${tmdbId}": ${response.statusText}`)
-      return { posters: [], backdrops: [] }
+      return { posters: [], backdrops: [], logos: [] }
     }
     const images = await response.json()
     return {
       posters: images.posters || [],
-      backdrops: images.backdrops || []
+      backdrops: images.backdrops || [],
+      logos: images.logos || []
     }
   } catch (error) {
     console.error(`Error fetching images for "${tmdbId}":`, error)
-    return { posters: [], backdrops: [] }
+    return { posters: [], backdrops: [], logos: [] }
   }
 }

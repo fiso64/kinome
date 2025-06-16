@@ -17,24 +17,31 @@
     onSearchByTag: (key: string, value: string) => void
   } = $props()
 
-  // These values help manage the backdrop fade-in animation.
+  // These values help manage the image fade-in animations.
   let isBackdropLoaded = $state(false)
+  let isLogoLoaded = $state(item.logoPath ? true : false) // No fade if logo already exists
   let previousBackdropPath = $state(item.backdropPath)
+  let previousLogoPath = $state(item.logoPath)
 
   $effect(() => {
     // This effect runs whenever the `item` prop changes.
-    const { id, backdropPath } = item
+    const { id, backdropPath, logoPath } = item
 
     // Only reset the animation flag if the image source itself is changing.
     if (backdropPath !== previousBackdropPath) {
       isBackdropLoaded = false
       previousBackdropPath = backdropPath
     }
+    if (logoPath !== previousLogoPath) {
+      if (!previousLogoPath) {
+        isLogoLoaded = false
+      }
+      previousLogoPath = logoPath
+    }
 
-    // Fetch details if they are missing. The main process will then send a
-    // 'library-item-updated' event which App.svelte handles, causing this
-    // component to re-render with the new data.
-    if (!backdropPath) {
+    // Fetch details only if a path is explicitly undefined (meaning, we haven't checked yet).
+    // This prevents re-fetching when a path is `null` (checked, but none found/deleted).
+    if (typeof item.backdropPath === 'undefined' || typeof item.logoPath === 'undefined') {
       window.api.getItemDetails(id)
     }
   })
@@ -88,20 +95,34 @@
       </div>
 
       <div class="info-column">
-        <h1>{item.title ?? item.name}</h1>
-        <div class="meta">
-          {#if item.year}
-            <span class="year">{item.year}</span>
-          {/if}
-          {#if item.genres && item.genres.length > 0}
-            <div class="genres">
-              {#each item.genres as genre}
-                <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
-                  {genre}
-                </button>
-              {/each}
+        <div class="title-and-meta">
+          {#if item.logoPath}
+            <div class="logo-container">
+              <img
+                src="media-browser-asset://images/{item.logoPath}{item._v ? `?v=${item._v}` : ''}"
+                alt="{item.title ?? item.name} Logo"
+                class="logo-image"
+                class:loaded={isLogoLoaded}
+                onload={() => (isLogoLoaded = true)}
+              />
             </div>
+          {:else}
+            <h1>{item.title ?? item.name}</h1>
           {/if}
+          <div class="meta">
+            {#if item.year}
+              <span class="year">{item.year}</span>
+            {/if}
+            {#if item.genres && item.genres.length > 0}
+              <div class="genres">
+                {#each item.genres as genre}
+                  <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
+                    {genre}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
         {#if item.overview}
           <div class="overview-container">
@@ -233,7 +254,33 @@
   .info-column {
     display: flex;
     flex-direction: column;
+    gap: 2rem;
+  }
+
+  .title-and-meta {
+    display: flex;
+    flex-direction: column;
     gap: 1.5rem;
+  }
+
+  .logo-container {
+    max-width: 350px;
+    /* max-height removed to allow natural logo height */
+  }
+
+  .logo-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: left bottom;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
+    /* Animation */
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+  }
+
+  .logo-image.loaded {
+    opacity: 1;
   }
 
   h1 {

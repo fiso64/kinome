@@ -134,6 +134,14 @@ async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
       item.backdropPath = undefined
     }
   }
+  if (item.logoPath) {
+    try {
+      await fs.access(path.join(imagesDir, item.logoPath))
+    } catch {
+      console.log(`Logo for "${item.name}" not found. Marking for re-download.`)
+      item.logoPath = undefined
+    }
+  }
 }
 
 async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFolder> {
@@ -371,6 +379,7 @@ export function setupLibraryIpc(): void {
             overview: oldItem.overview,
             posterPath: oldItem.posterPath,
             backdropPath: oldItem.backdropPath,
+            logoPath: oldItem.logoPath,
             tmdbId: oldItem.tmdbId,
             mediaType: oldItem.mediaType,
             year: oldItem.year,
@@ -470,11 +479,13 @@ export function setupLibraryIpc(): void {
       return null
     }
 
-    // Verify that the backdrop image file actually exists on disk.
+    // Verify that the image files actually exist on disk.
     await verifyImagePaths(item, path.join(libraryDataPath, 'images'))
 
-    // If we still have the backdrop after verification, return immediately.
-    if (item.backdropPath) {
+    // If we have all images, we can likely return.
+    // The main point is to fetch if something major is missing.
+    // Let's check for backdrop and logo. Poster is fetched during initial scan.
+    if (item.backdropPath && item.logoPath) {
       return item
     }
 
@@ -600,6 +611,7 @@ export function setupLibraryIpc(): void {
       // Clear old data that will be replaced
       item.overview = undefined
       item.backdropPath = undefined
+      item.logoPath = undefined
       item.year = undefined
       item.genres = []
       item.posterPath = undefined // Clear poster so it gets re-fetched by fetchItemDetails
@@ -653,7 +665,7 @@ export function setupLibraryIpc(): void {
     async (
       event,
       itemId: string,
-      imageType: 'poster' | 'backdrop',
+      imageType: 'poster' | 'backdrop' | 'logo',
       source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
     ) => {
       if (!db || !db.root) return
@@ -662,14 +674,26 @@ export function setupLibraryIpc(): void {
 
       const libraryDataPath = getLibraryDataPath()
       const imagesDir = path.join(libraryDataPath, 'images')
-      const extension = source.type === 'local' ? path.extname(source.path) : '.jpg'
-      const fileName =
-        imageType === 'poster' ? `${item.id}${extension}` : `${item.id}-backdrop${extension}`
+      const extension = path.extname(source.path)
+      let fileName = ''
+      switch (imageType) {
+        case 'poster':
+          fileName = `${item.id}${extension || '.jpg'}`
+          break
+        case 'backdrop':
+          fileName = `${item.id}-backdrop${extension || '.jpg'}`
+          break
+        case 'logo':
+          fileName = `${item.id}-logo${extension || '.svg'}`
+          break
+      }
       const destPath = path.join(imagesDir, fileName)
 
       try {
         if (source.type === 'tmdb') {
-          const size = imageType === 'poster' ? 'w500' : 'original'
+          let size = 'original'
+          if (imageType === 'poster') size = 'w500'
+          if (imageType === 'logo') size = 'w500'
           const url = `https://image.tmdb.org/t/p/${size}${source.path}`
           await downloadImage(url, destPath)
         } else {
@@ -678,7 +702,8 @@ export function setupLibraryIpc(): void {
         }
 
         if (imageType === 'poster') item.posterPath = fileName
-        else item.backdropPath = fileName
+        else if (imageType === 'backdrop') item.backdropPath = fileName
+        else if (imageType === 'logo') item.logoPath = fileName
 
         item._v = Date.now() // Bust cache
         await writeDb(db)
@@ -688,6 +713,24 @@ export function setupLibraryIpc(): void {
         console.error(`Failed to set image for ${itemId}:`, err)
         dialog.showErrorBox('Image Error', `Failed to set image. Check logs for details.`)
       }
+    }
+  )
+
+  ipcMain.handle(
+    'remove-image',
+    async (event, itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
+      if (!db || !db.root) return
+      const item = findItemById(itemId, db.root)
+      if (!item) return
+
+      if (imageType === 'poster') item.posterPath = null
+      else if (imageType === 'backdrop') item.backdropPath = null
+      else if (imageType === 'logo') item.logoPath = null
+
+      item._v = Date.now() // Bust cache
+      await writeDb(db)
+      const window = BrowserWindow.fromWebContents(event.sender)
+      window?.webContents.send('library-item-updated', item)
     }
   )
 

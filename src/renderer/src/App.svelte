@@ -428,7 +428,7 @@
   }
 
   main {
-    --header-height: 56px;
+    --header-height: 54px;
     display: flex;
     flex-direction: column;
     width: 100vw;
