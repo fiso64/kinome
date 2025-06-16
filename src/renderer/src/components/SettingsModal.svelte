@@ -24,7 +24,18 @@
       libraryPath = path ?? 'Not set'
     })
 
+    const TABS = ['general', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.ctrlKey && event.key === 'Tab') {
+        event.preventDefault()
+        const currentIndex = TABS.indexOf(activeTab)
+        const nextIndex = event.shiftKey
+          ? (currentIndex - 1 + TABS.length) % TABS.length
+          : (currentIndex + 1) % TABS.length
+        activeTab = TABS[nextIndex]
+        return
+      }
+
       if (event.key === 'Escape') {
         close()
       } else if (event.key === 'Enter' && (event.target as HTMLElement).tagName !== 'BUTTON') {
@@ -62,7 +73,11 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-<div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && close()} role="dialog">
+<div
+  class="modal-backdrop"
+  onmousedown={(e) => e.target === e.currentTarget && close()}
+  role="dialog"
+>
   <div class="modal-content">
     <header class="modal-header">
       <h2>Settings</h2>
@@ -254,7 +269,8 @@
     flex-shrink: 0;
   }
   input,
-  select {
+  select,
+  textarea {
     padding: 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);

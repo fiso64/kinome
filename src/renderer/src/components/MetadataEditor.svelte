@@ -196,7 +196,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 <div
   class="modal-backdrop"
-  onclick={(e) => e.target === e.currentTarget && onClose()}
+  onmousedown={(e) => e.target === e.currentTarget && onClose()}
   role="dialog"
   aria-modal="true"
   tabindex="-1"
