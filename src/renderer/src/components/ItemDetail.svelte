@@ -131,7 +131,7 @@
             items={item.children}
             onItemClick={handleItemClick}
             layout={item.layout ?? 'tree'}
-            {showContextMenu}
+            onShowContextMenu={showContextMenu}
           />
         </div>
       {/if}

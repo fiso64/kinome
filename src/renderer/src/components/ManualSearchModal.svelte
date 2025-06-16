@@ -26,7 +26,7 @@
 
   // Match tab state
   let searchQuery = $state(item.title ?? item.name)
-  let searchYear = $state(item.year?.toString() ?? '')
+  let searchYear = $state('')
   let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
   let searchResults = $state<SearchResult[]>([])
   let searchInput = $state<HTMLInputElement | undefined>(undefined)

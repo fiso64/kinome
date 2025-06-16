@@ -409,16 +409,14 @@
         The MediaGrid is always rendered to preserve scroll position.
         The ItemDetail view will be rendered as an overlay on top of it.
       -->
-      <div>
-        <MediaGrid
-          parentItem={currentFolder}
-          items={currentFolder.children}
-          {searchQuery}
-          onItemClick={handleGridItemClick}
-          layout={currentFolder.layout ?? 'grid'}
-          onShowContextMenu={handleShowContextMenu}
-        />
-      </div>
+      <MediaGrid
+        parentItem={currentFolder}
+        items={currentFolder.children}
+        {searchQuery}
+        onItemClick={handleGridItemClick}
+        layout={currentFolder.layout ?? 'grid'}
+        onShowContextMenu={handleShowContextMenu}
+      />
 
       {#if selectedItemForDetailView && settings}
         <ItemDetail

@@ -235,6 +235,7 @@
     padding: 1.5rem;
     width: 100%;
     align-content: start;
+    flex: 1; /* Grow to fill available space */
   }
   .media-tree {
     display: flex;
