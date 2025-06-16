@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AutocompleteMenu from './AutocompleteMenu.svelte'
   import GenreInput from './GenreInput.svelte'
+  import TagInput from './TagInput.svelte'
   let { item, onClose }: { item: LibraryItem; onClose: () => void } = $props()
 
   // --- Form State ---
@@ -13,138 +13,18 @@
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
 
-  // --- Autocomplete State (for Tags only) ---
+  // --- Autocomplete Suggestions ---
   let allSuggestions = $state<{
     genres: string[]
     tagKeys: string[]
     tagValues: Record<string, string[]>
   }>({ genres: [], tagKeys: [], tagValues: {} })
 
-  let showAutocomplete = $state(false)
-  let autocompleteSuggestions = $state<string[]>([])
-  let autocompletePosition = $state({ top: 0, left: 0 })
-  let activeInput = $state<{
-    element: HTMLInputElement | HTMLTextAreaElement
-    type: 'tagKey' | 'tagValue'
-    tagId?: string
-  } | null>(null)
-
   $effect(() => {
     window.api.getAutocompleteSuggestions().then((data) => (allSuggestions = data))
   })
 
-  // --- Generic Handlers (for Tags only) ---
-  function handleFocus(event: FocusEvent, type: 'tagKey' | 'tagValue', tagId?: string) {
-    const element = event.target as HTMLInputElement
-    activeInput = { element, type, tagId }
-  }
-
-  function handleInput() {
-    if (!activeInput) return
-
-    const { element, type, tagId } = activeInput
-    const value = element.value
-    const cursorPosition = element.selectionStart ?? 0
-    let currentTerm = ''
-    let source: string[] = []
-
-    if (type === 'tagValue') {
-      const lastCommaIndex = value.lastIndexOf(',', cursorPosition - 1)
-      currentTerm = value.substring(lastCommaIndex + 1, cursorPosition).trim()
-      const tagKey = tags.find((t) => t.id === tagId)?.key
-      source = allSuggestions.tagValues[tagKey ?? ''] ?? []
-    } else {
-      // type === 'tagKey'
-      currentTerm = value.trim()
-      source = allSuggestions.tagKeys
-    }
-
-    if (!currentTerm) {
-      showAutocomplete = false
-      return
-    }
-
-    const filtered = source.filter(
-      (s) =>
-        s.toLowerCase().startsWith(currentTerm.toLowerCase()) &&
-        s.toLowerCase() !== currentTerm.toLowerCase()
-    )
-
-    if (filtered.length > 0) {
-      autocompleteSuggestions = filtered
-      const rect = element.getBoundingClientRect()
-      let left = rect.left
-
-      const textBefore = element.value.substring(0, cursorPosition)
-      const mirror = document.createElement('span')
-      const style = window.getComputedStyle(element)
-      Object.assign(mirror.style, {
-        font: style.font,
-        letterSpacing: style.letterSpacing,
-        visibility: 'hidden',
-        position: 'absolute'
-      })
-      mirror.textContent = textBefore
-      document.body.appendChild(mirror)
-      left += mirror.offsetWidth - element.scrollLeft
-      document.body.removeChild(mirror)
-
-      autocompletePosition = { top: rect.bottom + 4, left: Math.min(left, window.innerWidth - 200) }
-      showAutocomplete = true
-    } else {
-      showAutocomplete = false
-    }
-  }
-
-  function handleAutocompleteSelect(suggestion: string) {
-    if (!activeInput) return
-
-    showAutocomplete = false
-    const { element, type, tagId } = activeInput
-
-    const value = element.value
-    const cursorPosition = element.selectionStart ?? 0
-    let newValue: string, newCursorPos: number
-
-    if (type === 'tagValue') {
-      const lastCommaIndex = value.lastIndexOf(',', cursorPosition - 1)
-      const before = value.substring(0, lastCommaIndex + 1)
-      const after = value.substring(cursorPosition)
-      const prefix = before && !before.endsWith(' ') ? ' ' : ''
-      newValue = before + prefix + suggestion + ', ' + after.trimStart()
-      newCursorPos = (before + prefix + suggestion + ', ').length
-    } else {
-      // tagKey
-      newValue = suggestion
-      newCursorPos = newValue.length
-    }
-
-    // Update state
-    if (type === 'tagKey' && tagId) {
-      const tag = tags.find((t) => t.id === tagId)
-      if (tag) tag.key = newValue
-    } else if (type === 'tagValue' && tagId) {
-      const tag = tags.find((t) => t.id === tagId)
-      if (tag) tag.value = newValue
-    }
-
-    // Restore focus and de-select this input
-    queueMicrotask(() => {
-      element.focus()
-      element.setSelectionRange(newCursorPos, newCursorPos)
-    })
-    activeInput = null
-  }
-
   // --- Form Actions ---
-  function addTag() {
-    tags.push({ id: crypto.randomUUID(), key: '', value: '' })
-    tags = tags
-  }
-
-  function removeTag(id: string) {
-    tags = tags.filter((tag) => tag.id !== id)
-  }
 
   async function handleSave() {
     // Create a copy to modify
@@ -178,9 +58,8 @@
         onClose()
       } else if (event.key === 'Enter') {
         const target = event.target as HTMLElement
-        // Do not save if a button or textarea is the target,
-        // or if the autocomplete menu is open.
-        if (target.tagName !== 'BUTTON' && target.tagName !== 'TEXTAREA' && !showAutocomplete) {
+        // Do not save if a button or textarea is the target.
+        if (target.tagName !== 'BUTTON' && target.tagName !== 'TEXTAREA') {
           event.preventDefault()
           handleSave()
         }
@@ -237,45 +116,14 @@
       <div class="divider"></div>
 
       <h3>Custom Tags</h3>
-      <div class="tags-list">
-        {#each tags as tag (tag.id)}
-          <div class="tag-item">
-            <input
-              type="text"
-              bind:value={tag.key}
-              placeholder="Key"
-              class="tag-key"
-              onfocus={(e) => handleFocus(e, 'tagKey', tag.id)}
-              oninput={handleInput}
-              onblur={() => setTimeout(() => (showAutocomplete = false), 150)}
-            />
-            <span>:</span>
-            <input
-              type="text"
-              bind:value={tag.value}
-              placeholder="Value"
-              class="tag-value"
-              onfocus={(e) => handleFocus(e, 'tagValue', tag.id)}
-              oninput={handleInput}
-              onblur={() => setTimeout(() => (showAutocomplete = false), 150)}
-            />
-            <button class="remove-tag" onclick={() => removeTag(tag.id)} title="Remove Tag">
-              &times;
-            </button>
-          </div>
-        {/each}
+      <div class="form-group">
+        <TagInput bind:tags suggestions={allSuggestions} />
+        <p class="help-text">
+          Type a key, then ':', then value. Use Enter to add. Backspace on empty input edits the
+          last tag.
+        </p>
       </div>
-      <button class="secondary" onclick={addTag}>Add Tag</button>
     </div>
-
-    {#if showAutocomplete && activeInput}
-      <AutocompleteMenu
-        suggestions={autocompleteSuggestions}
-        position={autocompletePosition}
-        onSelect={handleAutocompleteSelect}
-        onClose={() => (showAutocomplete = false)}
-      />
-    {/if}
 
     <div class="actions">
       <button class="secondary" onclick={onClose}>Cancel</button>
@@ -390,33 +238,5 @@
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
     margin: -0.5rem 0;
-  }
-
-  .tags-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .tag-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .tag-key {
-    flex: 1;
-  }
-  .tag-value {
-    flex: 2;
-  }
-  .remove-tag {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    font-size: 1.5rem;
-    padding: 0 0.5rem;
-    cursor: pointer;
-  }
-  .remove-tag:hover {
-    color: #e81123;
   }
 </style>
