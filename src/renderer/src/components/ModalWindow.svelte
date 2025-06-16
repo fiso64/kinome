@@ -5,7 +5,9 @@
     onSave,
     cancelText = 'Cancel',
     saveText = 'Save & Close',
-    maxWidth = '600px'
+    maxWidth = '600px',
+    children,
+    header
   }: {
     title: string
     onClose: () => void
@@ -13,6 +15,8 @@
     cancelText?: string | null
     saveText?: string
     maxWidth?: string
+    children: Snippet
+    header?: Snippet
   } = $props()
 
   let isDragging = $state(false)
@@ -63,13 +67,15 @@
     <header class="modal-header" onmousedown={handleDragStart} class:dragging={isDragging}>
       <h2 id="modal-title">{title}</h2>
       <div class="header-extra">
-        <slot name="header" />
+        {#if header}
+          {@render header()}
+        {/if}
       </div>
       <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
     </header>
 
     <div class="modal-body">
-      <slot />
+      {@render children()}
     </div>
 
     {#if onSave || cancelText}

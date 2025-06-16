@@ -122,14 +122,16 @@
 </script>
 
 <ModalWindow title="Manual Search" {onClose} cancelText="Close" maxWidth="900px">
-  <div slot="header" class="tabs">
-    <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}>Match</button>
-    <button
-      class:active={activeTab === 'artwork'}
-      onclick={() => (activeTab = 'artwork')}
-      disabled={!item.tmdbId}>Artwork</button
-    >
-  </div>
+  {#snippet header()}
+    <div class="tabs">
+      <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}>Match</button>
+      <button
+        class:active={activeTab === 'artwork'}
+        onclick={() => (activeTab = 'artwork')}
+        disabled={!item.tmdbId}>Artwork</button
+      >
+    </div>
+  {/snippet}
 
   <div class="modal-body-content">
     {#if activeTab === 'match'}

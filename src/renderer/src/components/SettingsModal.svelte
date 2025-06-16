@@ -74,19 +74,21 @@
 </script>
 
 <ModalWindow title="Settings" onClose={close} onSave={handleSave}>
-  <div slot="header" class="tabs">
-    <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
-      >General</button
-    >
-    <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
-      >Library</button
-    >
-    <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>View</button>
-    <button
-      class:active={activeTab === 'virtualTags'}
-      onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
-    >
-  </div>
+  {#snippet header()}
+    <div class="tabs">
+      <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
+        >General</button
+      >
+      <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
+        >Library</button
+      >
+      <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>View</button>
+      <button
+        class:active={activeTab === 'virtualTags'}
+        onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
+      >
+    </div>
+  {/snippet}
 
   <div class="tab-content">
     {#if activeTab === 'general'}
