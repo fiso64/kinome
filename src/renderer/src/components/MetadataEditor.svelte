@@ -168,10 +168,18 @@
     onClose()
   }
 
-  $effect(() => {
+$effect(() => {
     const handleKeydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         onClose()
+      } else if (event.key === 'Enter') {
+        const target = event.target as HTMLElement
+        // Do not save if a button or textarea is the target,
+        // or if the autocomplete menu is open.
+        if (target.tagName !== 'BUTTON' && target.tagName !== 'TEXTAREA' && !showAutocomplete) {
+          event.preventDefault()
+          handleSave()
+        }
       }
     }
     window.addEventListener('keydown', handleKeydown)

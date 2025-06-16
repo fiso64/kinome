@@ -52,10 +52,16 @@
     onClose()
   }
 
-  $effect(() => {
+$effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose()
+      } else if (event.key === 'Enter') {
+        const target = event.target as HTMLElement
+        if (target.tagName !== 'BUTTON') {
+          event.preventDefault()
+          handleSave()
+        }
       }
     }
     window.addEventListener('keydown', handleKeydown)

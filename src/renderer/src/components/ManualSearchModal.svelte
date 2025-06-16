@@ -24,8 +24,9 @@
   let isSettingImage = $state(false)
   let applyingResultId = $state<number | null>(null)
 
-  // Match tab state
+// Match tab state
   let searchQuery = $state(item.title ?? item.name)
+  let searchYear = $state(item.year?.toString() ?? '')
   let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
   let searchResults = $state<SearchResult[]>([])
   let searchInput = $state<HTMLInputElement | undefined>(undefined)
@@ -35,10 +36,10 @@
   let posters = $state<TmdbImage[]>([])
   let backdrops = $state<TmdbImage[]>([])
 
-  async function performSearch() {
+async function performSearch() {
     if (!searchQuery.trim() || isSearching) return
     isSearching = true
-    searchResults = await window.api.manualSearch(searchQuery, searchType)
+    searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear)
     isSearching = false
   }
 
@@ -132,7 +133,7 @@
 
     <div class="tab-content">
       {#if activeTab === 'match'}
-        <form
+<form
           class="search-form"
           onsubmit={(e) => {
             e.preventDefault()
@@ -144,6 +145,14 @@
             bind:this={searchInput}
             bind:value={searchQuery}
             placeholder="Enter title to search..."
+            class="title-input"
+          />
+          <input
+            type="text"
+            bind:value={searchYear}
+            placeholder="Year"
+            class="year-input"
+            maxlength="4"
           />
           <select bind:value={searchType}>
             <option value="movie">Movie</option>
@@ -181,8 +190,12 @@
         <div class="artwork-controls">
           <div>
             <label for="lang-select">Image Language:</label>
-            <select id="lang-select" bind:value={imageLang} disabled={isFetchingArtwork}>
+<select id="lang-select" bind:value={imageLang} disabled={isFetchingArtwork}>
               <option value="en">English</option>
+              <option value="ja">Japanese</option>
+              <option value="de">German</option>
+              <option value="fr">French</option>
+              <option value="es">Spanish</option>
               <option value="none">All (No Language)</option>
             </select>
           </div>
@@ -365,8 +378,12 @@
     font-family: inherit;
     font-size: 1rem;
   }
-  .search-form input {
+.search-form .title-input {
     flex-grow: 1;
+  }
+  .search-form .year-input {
+    flex-grow: 0;
+    width: 70px;
   }
 
   .search-results {

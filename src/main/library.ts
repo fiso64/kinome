@@ -559,13 +559,13 @@ export function setupLibraryIpc(): void {
     }
   })
 
-  ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv') => {
+ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv', year?: string) => {
     const { tmdbApiKey } = await readSettings()
     if (!tmdbApiKey) {
       console.warn('Manual search skipped: No TMDB API key.')
       return []
     }
-    return manualSearch(query, type, tmdbApiKey)
+    return manualSearch(query, type, tmdbApiKey, year)
   })
 
   ipcMain.handle(

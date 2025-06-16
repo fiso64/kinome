@@ -16,9 +16,9 @@ const api = {
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-by-id', itemId),
 
-  // Manual Match
-  manualSearch: (query: string, type: 'movie' | 'tv'): Promise<any[]> =>
-    ipcRenderer.invoke('manual-search', query, type),
+// Manual Match
+  manualSearch: (query: string, type: 'movie' | 'tv', year?: string): Promise<any[]> =>
+    ipcRenderer.invoke('manual-search', query, type, year),
   getTmdbImages: (
     tmdbId: number,
     mediaType: 'movie' | 'tv',

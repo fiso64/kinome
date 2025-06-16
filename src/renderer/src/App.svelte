@@ -204,17 +204,37 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
-  function handleSearchByTag(key: string, value: string): void {
+function handleSearchByTag(key: string, value: string): void {
     selectedItemForDetailView = null // Exit detail view to see the search results
     // Clicking a genre tag starts a new search for that genre, clearing other tags.
     searchText = ''
     searchTags = [{ key, value }]
   }
 
-  $effect(() => {
+function handleSearchKeyDown(event: KeyboardEvent) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      // Query for the first interactive element in the currently visible media list.
+      const firstItem = document.querySelector<HTMLElement>(
+        '.media-grid .grid-item, .media-tree .tree-item'
+      )
+      firstItem?.focus()
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      const firstItem = document.querySelector<HTMLElement>(
+        '.media-grid .grid-item, .media-tree .tree-item'
+      )
+      firstItem?.click()
+    }
+  }
+
+$effect(() => {
     const cleanupShortcuts = initializeShortcuts({
       openSettings: () => (activeModal = { type: 'settings' }),
-      focusSearch: () => searchInputEl?.focus(),
+      focusSearch: () => {
+        searchInputEl?.focus()
+        searchInputEl?.select()
+      },
       navigateBack: goBack,
       navigateForward: goForward,
       reloadLibrary: handleRefresh
@@ -303,7 +323,7 @@
         {/if}
       </div>
 
-      <div class="search-container">
+<div class="search-container" onkeydown={handleSearchKeyDown}>
         {#if currentFolder && !selectedItemForDetailView}
           <SearchInput
             initialQuery={searchQuery}

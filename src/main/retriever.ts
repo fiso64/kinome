@@ -294,12 +294,14 @@ export async function fetchItemDetails(
 export async function manualSearch(
   query: string,
   type: 'movie' | 'tv',
-  tmdbApiKey: string
+  tmdbApiKey: string,
+  year?: string
 ): Promise<any[]> {
   if (!query) return []
+  const yearParam = year ? `&year=${year.trim()}` : ''
   const searchUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${tmdbApiKey}&query=${encodeURIComponent(
     query
-  )}`
+  )}${yearParam}`
 
   try {
     const searchResponse = await fetch(searchUrl)

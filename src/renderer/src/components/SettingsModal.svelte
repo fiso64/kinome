@@ -7,7 +7,7 @@
   let tmdbApiKey = $state('')
   let libraryPath = $state('')
 
-  $effect(() => {
+$effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
@@ -20,6 +20,12 @@
     const handleKeydown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         close()
+      } else if (event.key === 'Enter') {
+        const target = event.target as HTMLElement
+        if (target.tagName !== 'BUTTON') {
+          event.preventDefault()
+          handleSave()
+        }
       }
     }
     window.addEventListener('keydown', handleKeydown)
