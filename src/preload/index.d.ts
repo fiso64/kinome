@@ -19,6 +19,7 @@ declare global {
     year?: number
     genres?: string[]
     tags?: Record<string, string>
+    virtualTags?: Record<string, string>
     _v?: number // Cache-busting version number
   }
 
@@ -47,6 +48,7 @@ declare global {
     // Retriever settings
     retrieve_children_metadata?: boolean
     children_type_hint?: 'movie' | 'tv'
+    virtualTags?: Record<string, string>
     _v?: number // Cache-busting version number
   }
 
@@ -66,9 +68,9 @@ declare global {
       scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
       // Settings
-      getSettings: () => Promise<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean }>
+      getSettings: () => Promise<Settings>
       getLibraryMediaSourcePath: () => Promise<string | null>
-      saveSettings: (settings: Partial<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean }>) => Promise<void>
+      saveSettings: (settings: Partial<Settings>) => Promise<void>
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       updateItem: (item: LibraryItem) => Promise<void>

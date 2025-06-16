@@ -6,6 +6,7 @@ export interface Settings {
   playerCommand: string
   tmdbApiKey: string
   useLogos?: boolean
+  virtualTags?: { name: string; expression: string }[]
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -18,7 +19,8 @@ async function readRawSettings(): Promise<Settings> {
   const defaultSettings: Settings = {
     playerCommand: 'mpv {PATH}',
     tmdbApiKey: '',
-    useLogos: true
+    useLogos: true,
+    virtualTags: []
   }
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')

@@ -3,19 +3,21 @@
 
   let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
 
-  let activeTab: 'general' | 'library' | 'view' = $state('general')
+  let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
 
   // --- Form State ---
   let playerCommand = $state('')
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
   let libraryPath = $state('')
+  let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
+      virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
     })
 
     window.api.getLibraryMediaSourcePath().then((path) => {
@@ -36,8 +38,20 @@
     }
   })
 
+  function addVirtualTag() {
+    virtualTags.push({ id: crypto.randomUUID(), name: '', expression: '' })
+    virtualTags = virtualTags
+  }
+
+  function removeVirtualTag(id: string) {
+    virtualTags = virtualTags.filter((vt) => vt.id !== id)
+  }
+
   async function handleSave(): Promise<void> {
-    await window.api.saveSettings({ playerCommand, tmdbApiKey, useLogos })
+    const tagsToSave = virtualTags
+      .map(({ name, expression }) => ({ name, expression }))
+      .filter((vt) => vt.name && vt.expression)
+    await window.api.saveSettings({ playerCommand, tmdbApiKey, useLogos, virtualTags: tagsToSave })
     close()
   }
 
@@ -61,6 +75,10 @@
         >
         <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}
           >View</button
+        >
+        <button
+          class:active={activeTab === 'virtualTags'}
+          onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
         >
       </div>
     </header>
@@ -110,6 +128,39 @@
           <p class="help-text">
             When enabled, the app will try to download high-quality logos (e.g., a movie's title
             treatment) to display on detail pages.
+          </p>
+        </div>
+      {:else if activeTab === 'virtualTags'}
+        <div class="virtual-tags-list">
+          {#each virtualTags as tag (tag.id)}
+            <div class="virtual-tag-item">
+              <div class="virtual-tag-inputs">
+                <input type="text" bind:value={tag.name} placeholder="Tag Name" class="tag-name" />
+                <textarea
+                  bind:value={tag.expression}
+                  placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
+                  class="tag-expression"
+                  rows="2"
+                ></textarea>
+              </div>
+              <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
+                >&times;</button
+              >
+            </div>
+          {/each}
+        </div>
+        <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
+        <div class="help-text">
+          <p>
+            Create tags based on existing data using JavaScript. Your expression can access:
+            <br />
+            <code>tags, genres, year, title, name, mediaType, path</code>
+          </p>
+          <p>
+            Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>
+          </p>
+          <p>
+            You must manually refresh the library (F5) after saving to apply changes.
           </p>
         </div>
       {/if}
@@ -275,5 +326,43 @@
     overflow-x: auto;
     color: var(--ev-c-text-2);
     flex-grow: 1;
+  }
+
+  .virtual-tags-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .virtual-tag-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .virtual-tag-inputs {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .tag-name,
+  .tag-expression {
+    width: 100%;
+  }
+  .tag-expression {
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+    resize: vertical;
+    min-height: 50px;
+  }
+  .remove-tag {
+    background: none;
+    border: none;
+    color: var(--ev-c-text-2);
+    font-size: 1.5rem;
+    padding: 0 0.5rem;
+    cursor: pointer;
+    margin-top: 0.2rem;
+  }
+  .remove-tag:hover {
+    color: #e81123;
   }
 </style>

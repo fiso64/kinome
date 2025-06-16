@@ -37,6 +37,7 @@
     'mediaType',
     'genre',
     'year',
+    ...(settings?.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
     ...allAutocompleteSuggestions.tagKeys.map((k) => `tags.${k}`)
   ])
   let selectedItemForDetailView: LibraryItem | null = $state(null)

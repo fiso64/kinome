@@ -57,6 +57,8 @@
             tagMatch = item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
           } else if (tag.key === 'year') {
             tagMatch = item.year?.toString() === tag.value
+          } else if (item.virtualTags && Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)) {
+            tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
           } else if (item.tags) {
             const itemTagValue = item.tags[tag.key]
             if (typeof itemTagValue === 'string') {
@@ -80,6 +82,11 @@
       const tagKey = key.substring(5)
       const tagValue = item.tags?.[tagKey]
       return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
+    }
+    if (key.startsWith('vt.')) {
+      const vtKey = key.substring(3)
+      const vtValue = item.virtualTags?.[vtKey]
+      return vtValue ? [vtValue] : []
     }
     return []
   }

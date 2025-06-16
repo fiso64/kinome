@@ -3,6 +3,7 @@ import { exec } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
+import { evaluateVirtualTagsForItem } from './virtualTags'
 import type {
   Database,
   MediaFolder,
@@ -19,7 +20,7 @@ import {
   getTmdbImages,
   downloadImage
 } from './retriever'
-import { readSettings } from './settings'
+import { readSettings, type Settings } from './settings'
 
 const LIBRARY_DATA_DIR_NAME = 'library'
 const DATABASE_FILE_NAME = 'database.json'
@@ -28,9 +29,26 @@ const DB_VERSION = 1
 // --- In-Memory Database Cache ---
 let db: Database | null = null
 
+/**
+ * Recursively traverses the library tree and applies virtual tags to each item.
+ * This function MUTATES the items in place.
+ */
+function applyVirtualTagsToAllItems(node: LibraryItem, settings: Settings) {
+  node.virtualTags = evaluateVirtualTagsForItem(node, settings)
+  if (node.type === 'folder') {
+    for (const child of node.children) {
+      applyVirtualTagsToAllItems(child, settings)
+    }
+  }
+}
+
 async function loadDbIntoMemory(): Promise<void> {
   console.log('[Database] Loading database into memory...')
   db = await readDb()
+  if (db?.root) {
+    const settings = await readSettings()
+    applyVirtualTagsToAllItems(db.root, settings)
+  }
 }
 // --- End In-Memory Database Cache ---
 
@@ -370,7 +388,9 @@ export function setupLibraryIpc(): void {
                   layout: oldItem.layout,
                   childrenClickAction: oldItem.childrenClickAction,
                   retrieve_children_metadata: oldItem.retrieve_children_metadata,
-                  children_type_hint: oldItem.children_type_hint
+                  children_type_hint: oldItem.children_type_hint,
+                  groupBy: oldItem.groupBy,
+                  virtualFolderSettings: oldItem.virtualFolderSettings
                 }
               : {}
 
@@ -403,8 +423,15 @@ export function setupLibraryIpc(): void {
       await processItem(newRoot)
 
       db.root = newRoot
+
+      // Apply virtual tags before writing to DB and starting metadata fetch
+      const currentSettings = await readSettings()
+      applyVirtualTagsToAllItems(db.root, currentSettings)
+
       await writeDb(db)
-      console.log('Library refresh and image verification complete. Database updated.')
+      console.log(
+        'Library refresh, virtual tag application, and image verification complete. Database updated.'
+      )
 
       const settings = await readSettings()
       fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
@@ -445,12 +472,15 @@ export function setupLibraryIpc(): void {
         root: rootNode
       }
 
-      // 2. Write the initial DB with file structure. This also updates our in-memory `db` variable.
-      await writeDb(newDb)
-      console.log('Initial scan complete. Database updated with file structure.')
-
-      // 3. Start background metadata fetching without blocking.
+      // 2. Apply virtual tags before writing to the database.
       const settings = await readSettings()
+      applyVirtualTagsToAllItems(rootNode, settings)
+
+      // 3. Write the initial DB with file structure. This also updates our in-memory `db` variable.
+      await writeDb(newDb)
+      console.log('Initial scan complete. Database updated with file structure and virtual tags.')
+
+      // 4. Start background metadata fetching without blocking.
       // Pass the new in-memory `db` object to the fetcher
       fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey).catch((err) =>
         console.error('Background metadata fetch failed during initial scan:', err)
@@ -572,6 +602,10 @@ export function setupLibraryIpc(): void {
       // the object reference within the parent's `children` array.
       Object.assign(itemInDb, updatedItem)
 
+      // Re-evaluate virtual tags for the updated item.
+      const settings = await readSettings()
+      itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
+
       await writeDb(db) // Persist changes to disk and update in-memory `db`
       console.log(`Updated item ${updatedItem.id} in database.`)
 
@@ -651,6 +685,9 @@ export function setupLibraryIpc(): void {
       } catch (e) {
         console.error('Could not re-verify title from TMDB details endpoint', e)
       }
+
+      // Re-evaluate virtual tags after all other properties have been updated.
+      item.virtualTags = evaluateVirtualTagsForItem(item, settings)
 
       await writeDb(db)
 

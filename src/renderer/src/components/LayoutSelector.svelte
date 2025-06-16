@@ -47,6 +47,8 @@
     let displayKey = key
     if (key.startsWith('tags.')) {
       displayKey = key.substring(5)
+    } else if (key.startsWith('vt.')) {
+      displayKey = key.substring(3)
     }
     return displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
   }
