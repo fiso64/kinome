@@ -14,7 +14,7 @@
   // Types are globally available from src/preload/index.d.ts
   type ActiveModal =
     | { type: 'settings' }
-    | { type: 'layoutSelector'; item: MediaFolder }
+    | { type: 'layoutSelector'; item: MediaFolder; defaultLayout: 'grid' | 'tree' }
     | { type: 'metadataEditor'; item: LibraryItem }
     | { type: 'folderSettings'; item: MediaFolder }
     | { type: 'manualSearch'; item: LibraryItem }
@@ -374,6 +374,19 @@
     return () => cleanupShortcuts()
   })
 
+  function openLayoutSelector() {
+    if (folderToConfigureLayout) {
+      // The context is the detail view if we are configuring the item currently in the detail view.
+      const isDetailViewContext = selectedItemForDetailView?.id === folderToConfigureLayout.id
+      activeModal = {
+        type: 'layoutSelector',
+        item: folderToConfigureLayout,
+        // Pass the contextual default layout
+        defaultLayout: isDetailViewContext ? 'tree' : 'grid'
+      }
+    }
+  }
+
   function handleShowContextMenu(
     item: LibraryItem,
     event: MouseEvent,
@@ -405,6 +418,7 @@
       item={activeModal.item}
       groupByKeys={groupByKeys}
       onClose={() => (activeModal = null)}
+      defaultLayout={activeModal.defaultLayout}
     />
   {:else if activeModal.type === 'metadataEditor'}
     <MetadataEditor item={activeModal.item} onClose={() => (activeModal = null)} />
@@ -433,7 +447,17 @@
     }}
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
-        activeModal = { type: 'layoutSelector', item: contextMenuItem }
+        const itemToConfigure = contextMenuItem as MediaFolder
+        // The context is the detail view if we are configuring the layout
+        // for the very item that is currently displayed in the detail view.
+        const isDetailViewContext =
+          selectedItemForDetailView && selectedItemForDetailView.id === itemToConfigure.id
+
+        activeModal = {
+          type: 'layoutSelector',
+          item: itemToConfigure,
+          defaultLayout: isDetailViewContext ? 'tree' : 'grid'
+        }
       }
     }}
     onOpenFolderSettings={() => {
@@ -489,8 +513,7 @@
         {/if}
         {#if folderToConfigureLayout}
           <button
-            onclick={() =>
-              (activeModal = { type: 'layoutSelector', item: folderToConfigureLayout })}
+            onclick={openLayoutSelector}
             title="Set View Layout"
             class="layout-button"
           >

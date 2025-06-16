@@ -12,15 +12,17 @@
   let {
     item,
     groupByKeys,
-    onClose
+    onClose,
+    defaultLayout
   }: {
     item: MediaFolder & VirtualFolderProps
     groupByKeys: string[]
     onClose: () => void
+    defaultLayout: 'grid' | 'tree'
   } = $props()
 
   // --- Svelte 5 runes: local state for the form ---
-  let selectedLayout = $state(item.layout ?? 'grid')
+  let selectedLayout = $state(item.layout ?? defaultLayout)
   let selectedClickAction = $state(item.childrenClickAction ?? 'detail')
   let selectedGroupBy = $state(item.groupBy ?? 'folder')
 
