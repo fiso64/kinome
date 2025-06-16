@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ModalWindow from './ModalWindow.svelte'
+
   let {
     item,
     onClose
@@ -39,16 +41,8 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-<div
-  class="modal-backdrop"
-  onmousedown={(e) => e.target === e.currentTarget && onClose()}
-  role="dialog"
-  aria-modal="true"
-  tabindex="-1"
->
-  <div class="modal-content">
-    <h2>Folder Settings</h2>
+<ModalWindow title="Folder Settings" {onClose} onSave={handleSave}>
+  <div class="content">
     <p class="help-text">Configure retriever settings for "{item.title ?? item.name}".</p>
 
     <div class="settings-group">
@@ -71,33 +65,12 @@
       </select>
       <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
     </div>
-
-    <div class="actions">
-      <button class="secondary" onclick={onClose}>Cancel</button>
-      <button class="primary" onclick={handleSave}>Save & Close</button>
-    </div>
   </div>
-</div>
+</ModalWindow>
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 200;
-  }
-  .modal-content {
-    background-color: var(--color-background-soft);
-    padding: 2rem;
-    border-radius: 8px;
-    width: 90%;
-    max-width: 500px;
+  .content {
+    padding: 0 1.5rem 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -125,50 +98,5 @@
   }
   label {
     font-weight: bold;
-  }
-  select {
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 1rem;
-  }
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    flex-shrink: 0;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-background-mute);
-    margin-top: auto;
-  }
-  button {
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--ev-c-text-1);
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  button.primary {
-    background-color: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-  }
-  button.primary:hover:not(:disabled) {
-    background-color: var(--ev-c-gray-1);
-  }
-  button.secondary {
-    background-color: var(--ev-button-alt-bg);
-    border: 1px solid var(--ev-c-gray-2);
-  }
-  button.secondary:hover:not(:disabled) {
-    background-color: var(--ev-c-black-mute);
   }
 </style>

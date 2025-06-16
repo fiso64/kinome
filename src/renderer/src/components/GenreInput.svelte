@@ -42,8 +42,15 @@
 
     if (filtered.length > 0) {
       autocompleteSuggestions = filtered
-      const rect = genreInputElement.getBoundingClientRect()
-      autocompletePosition = { top: rect.bottom + 4, left: rect.left }
+      const inputRect = genreInputElement.getBoundingClientRect()
+      // The menu is now positioned relative to the transformed modal window
+      const modalWindow = genreInputElement.closest('.modal-window')
+      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
+
+      autocompletePosition = {
+        top: inputRect.bottom - modalRect.top + 4,
+        left: inputRect.left - modalRect.left
+      }
       showAutocomplete = true
     } else {
       showAutocomplete = false

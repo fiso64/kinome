@@ -59,8 +59,14 @@
     }
 
     if (autocomplete.suggestions.length > 0) {
-      const rect = inputElement.getBoundingClientRect()
-      autocomplete.position = { top: rect.bottom + 4, left: rect.left }
+      const inputRect = inputElement.getBoundingClientRect()
+      const modalWindow = inputElement.closest('.modal-window')
+      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
+
+      autocomplete.position = {
+        top: inputRect.bottom - modalRect.top + 4,
+        left: inputRect.left - modalRect.left
+      }
       autocomplete.show = true
     } else {
       autocomplete.show = false

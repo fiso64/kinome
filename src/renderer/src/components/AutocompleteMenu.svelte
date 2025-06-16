@@ -75,7 +75,7 @@
 
 <style>
   .autocomplete-menu {
-    position: fixed;
+    position: absolute;
     background-color: var(--ev-c-black-soft);
     border: 1px solid var(--ev-c-black-mute);
     border-radius: 6px;

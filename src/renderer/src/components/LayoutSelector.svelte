@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ModalWindow from './ModalWindow.svelte'
+
   // A virtual folder will have these extra properties when created in MediaGrid.svelte
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -26,7 +28,11 @@
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
     { value: 'tree', label: 'Tree', description: 'Collapsible list view, good for files.' },
     { value: 'tabs', label: 'Tabs', description: 'Group children into tabs by metadata.' },
-    { value: 'sections', label: 'Sections', description: 'Group children into sections by metadata.' }
+    {
+      value: 'sections',
+      label: 'Sections',
+      description: 'Group children into sections by metadata.'
+    }
   ]
 
   const clickActions = [
@@ -68,7 +74,8 @@
       if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
         updatedParent.virtualFolderSettings[item.groupByKey!] = {}
       }
-      const settings = updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
+      const settings =
+        updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
 
       // Apply the new settings for this specific virtual group.
       settings.layout = selectedLayout
@@ -106,16 +113,8 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-<div
-  class="modal-backdrop"
-  onmousedown={(e) => e.target === e.currentTarget && onClose()}
-  role="dialog"
-  aria-modal="true"
-  tabindex="-1"
->
-  <div class="modal-content">
-    <h2>Set View Layout</h2>
+<ModalWindow title="Set View Layout" {onClose} onSave={handleSave}>
+  <div class="content">
     <p class="help-text">Choose how the contents of "{item.title ?? item.name}" are displayed.</p>
 
     <div class="layout-options">
@@ -166,33 +165,12 @@
         </label>
       {/each}
     </div>
-
-    <div class="actions">
-      <button class="secondary" onclick={onClose}>Cancel</button>
-      <button class="primary" onclick={handleSave}>Save & Close</button>
-    </div>
   </div>
-</div>
+</ModalWindow>
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 200;
-  }
-  .modal-content {
-    background-color: var(--color-background-soft);
-    padding: 2rem;
-    border-radius: 8px;
-    width: 90%;
-    max-width: 500px;
+  .content {
+    padding: 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -202,19 +180,10 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  select {
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 1rem;
-  }
   .help-text {
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
-    margin-top: -1rem;
+    /* The negative margin was pulling the text up. Spacing is now handled by the container's gap. */
   }
 
   .layout-options {
@@ -253,49 +222,11 @@
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
   }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    flex-shrink: 0;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-background-mute);
-    margin-top: auto;
-  }
-  button {
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--ev-c-text-1);
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  button.primary {
-    background-color: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-  }
-  button.primary:hover:not(:disabled) {
-    background-color: var(--ev-c-gray-1);
-  }
-  button.secondary {
-    background-color: var(--ev-button-alt-bg);
-    border: 1px solid var(--ev-c-gray-2);
-  }
-  button.secondary:hover:not(:disabled) {
-    background-color: var(--ev-c-black-mute);
-  }
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
     margin: 0.5rem 0;
   }
   h3 {
     font-weight: bold;
-    margin-top: -0.5rem;
   }
 </style>

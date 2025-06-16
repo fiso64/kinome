@@ -305,6 +305,9 @@
     gap: 0.5rem;
     width: 100%;
   }
+  .grid-item:hover {
+    background-color: transparent; /* Override global button hover */
+  }
   .grid-item:hover .poster {
     transform: scale(1.05);
     background-color: var(--color-background-mute);

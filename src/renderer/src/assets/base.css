@@ -89,3 +89,78 @@ html::-webkit-scrollbar-thumb {
 html::-webkit-scrollbar-thumb:hover {
   background-color: var(--ev-c-gray-2);
 }
+
+/* --- Global Form Styles --- */
+input,
+select,
+textarea {
+  padding: 0.5rem;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-background-mute);
+  color: var(--color-text);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--ev-c-gray-1);
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* --- Global Button Styles --- */
+button {
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ev-c-text-1);
+  background-color: var(--ev-button-alt-bg);
+  -webkit-app-region: no-drag;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--ev-c-gray-2);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background-color: var(--ev-c-gray-2);
+  color: var(--ev-c-text-1);
+}
+
+button.primary:hover:not(:disabled) {
+  background-color: var(--ev-c-gray-1);
+}
+
+button.secondary {
+  background-color: var(--ev-button-alt-bg);
+  border: 1px solid var(--ev-c-gray-2);
+}
+
+button.secondary:hover:not(:disabled) {
+  background-color: var(--ev-c-black-mute);
+}
+
+/* Common modal actions container */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: 1.5rem;
+  border-top: 1px solid var(--color-background-mute);
+  margin-top: auto; /* Push to bottom if content is short */
+}

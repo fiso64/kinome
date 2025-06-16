@@ -445,7 +445,7 @@
   <header class:in-detail-view={selectedItemForDetailView}>
     <div class="header-content">
       <div class="header-left">
-        <button class="back-button" onclick={goBack} disabled={!canGoBack} title="Go back">
+        <button class="back-button" class:hidden={!canGoBack} onclick={goBack} title="Go back">
           ←
         </button>
         <!-- In detail view, the title is handled by the component itself -->
@@ -611,18 +611,6 @@
     text-overflow: ellipsis;
   }
 
-  button {
-    background-color: var(--ev-button-alt-bg);
-    color: var(--ev-c-text-1);
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: 600;
-    -webkit-app-region: no-drag;
-    flex-shrink: 0; /* Prevent scan button from shrinking */
-  }
-
   .back-button,
   .refresh-button,
   .layout-button,
@@ -635,15 +623,21 @@
     display: inline-flex;
     justify-content: center;
     align-items: center;
+    flex-shrink: 0;
   }
 
-  button:hover {
-    background-color: var(--ev-c-gray-2);
+  .settings-button,
+  .layout-button {
+    background-color: var(--ev-button-alt-bg);
+    color: var(--ev-c-text-1);
   }
 
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+  .back-button.hidden {
+    visibility: hidden;
+  }
+
+  .welcome-screen button {
+    flex-shrink: 0;
   }
 
   .content {

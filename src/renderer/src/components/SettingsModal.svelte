@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModalWindow from './ModalWindow.svelte'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
@@ -72,169 +73,119 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-<div
-  class="modal-backdrop"
-  onmousedown={(e) => e.target === e.currentTarget && close()}
-  role="dialog"
->
-  <div class="modal-content">
-    <header class="modal-header">
-      <h2>Settings</h2>
-      <div class="tabs">
-        <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
-          >General</button
-        >
-        <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
-          >Library</button
-        >
-        <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}
-          >View</button
-        >
-        <button
-          class:active={activeTab === 'virtualTags'}
-          onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
-        >
-      </div>
-    </header>
-
-    <div class="tab-content">
-      {#if activeTab === 'general'}
-        <div class="form-group">
-          <label for="player-command">Player Command</label>
-          <input
-            type="text"
-            id="player-command"
-            bind:value={playerCommand}
-            placeholder={placeholderText}
-          />
-          <p class="help-text">
-            Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
-          </p>
-        </div>
-        <div class="form-group">
-          <label for="tmdb-api-key">The Movie Database (TMDB) API Key</label>
-          <input type="password" id="tmdb-api-key" bind:value={tmdbApiKey} />
-          <p class="help-text">Required for fetching movie and show posters and details.</p>
-        </div>
-      {:else if activeTab === 'library'}
-        <div class="form-group">
-          <label for="source-type">Source Type</label>
-          <select id="source-type" disabled>
-            <option>Local Path</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Current Path</label>
-          <div class="path-display-container">
-            <div class="path-display">{libraryPath}</div>
-            <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
-          </div>
-          <p class="help-text">
-            Changing the folder will start a full re-scan of the new location.
-          </p>
-        </div>
-      {:else if activeTab === 'view'}
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input type="checkbox" bind:checked={useLogos} />
-            <span>Show and fetch logos for movies and shows</span>
-          </label>
-          <p class="help-text">
-            When enabled, the app will try to download high-quality logos (e.g., a movie's title
-            treatment) to display on detail pages.
-          </p>
-        </div>
-      {:else if activeTab === 'virtualTags'}
-        <div class="virtual-tags-list">
-          {#each virtualTags as tag (tag.id)}
-            <div class="virtual-tag-item">
-              <div class="virtual-tag-inputs">
-                <input type="text" bind:value={tag.name} placeholder="Tag Name" class="tag-name" />
-                <textarea
-                  bind:value={tag.expression}
-                  placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
-                  class="tag-expression"
-                  rows="2"
-                ></textarea>
-              </div>
-              <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
-                >&times;</button
-              >
-            </div>
-          {/each}
-        </div>
-        <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
-        <div class="help-text">
-          <p>
-            Create tags based on existing data using JavaScript. Your expression can access:
-            <br />
-            <code>tags, genres, year, title, name, mediaType, path</code>
-          </p>
-          <p>
-            Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>
-          </p>
-          <p>
-            You must manually refresh the library (F5) after saving to apply changes.
-          </p>
-        </div>
-      {/if}
-    </div>
-
-    <div class="actions">
-      <button class="secondary" onclick={() => close()}>Cancel</button>
-      <button class="primary" onclick={handleSave}>Save & Close</button>
-    </div>
+<ModalWindow title="Settings" onClose={close} onSave={handleSave}>
+  <div slot="header" class="tabs">
+    <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
+      >General</button
+    >
+    <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
+      >Library</button
+    >
+    <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>View</button>
+    <button
+      class:active={activeTab === 'virtualTags'}
+      onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
+    >
   </div>
-</div>
+
+  <div class="tab-content">
+    {#if activeTab === 'general'}
+      <div class="form-group">
+        <label for="player-command">Player Command</label>
+        <input
+          type="text"
+          id="player-command"
+          bind:value={playerCommand}
+          placeholder={placeholderText}
+        />
+        <p class="help-text">
+          Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
+        </p>
+      </div>
+      <div class="form-group">
+        <label for="tmdb-api-key">The Movie Database (TMDB) API Key</label>
+        <input type="password" id="tmdb-api-key" bind:value={tmdbApiKey} />
+        <p class="help-text">Required for fetching movie and show posters and details.</p>
+      </div>
+    {:else if activeTab === 'library'}
+      <div class="form-group">
+        <label for="source-type">Source Type</label>
+        <select id="source-type" disabled>
+          <option>Local Path</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Current Path</label>
+        <div class="path-display-container">
+          <div class="path-display">{libraryPath}</div>
+          <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
+        </div>
+        <p class="help-text">
+          Changing the folder will start a full re-scan of the new location.
+        </p>
+      </div>
+    {:else if activeTab === 'view'}
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={useLogos} />
+          <span>Show and fetch logos for movies and shows</span>
+        </label>
+        <p class="help-text">
+          When enabled, the app will try to download high-quality logos (e.g., a movie's title
+          treatment) to display on detail pages.
+        </p>
+      </div>
+    {:else if activeTab === 'virtualTags'}
+      <div class="virtual-tags-list">
+        {#each virtualTags as tag (tag.id)}
+          <div class="virtual-tag-item">
+            <div class="virtual-tag-inputs">
+              <input type="text" bind:value={tag.name} placeholder="Tag Name" class="tag-name" />
+              <textarea
+                bind:value={tag.expression}
+                placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
+                class="tag-expression"
+                rows="2"
+              ></textarea>
+            </div>
+            <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
+              >&times;</button
+            >
+          </div>
+        {/each}
+      </div>
+      <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
+      <div class="help-text">
+        <p>
+          Create tags based on existing data using JavaScript. Your expression can access:
+          <br />
+          <code>tags, genres, year, title, name, mediaType, path</code>
+        </p>
+        <p>
+          Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>
+        </p>
+        <p>You must manually refresh the library (F5) after saving to apply changes.</p>
+      </div>
+    {/if}
+  </div>
+</ModalWindow>
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 100;
-  }
-  .modal-content {
-    background-color: var(--color-background-soft);
-    padding: 0;
-    border-radius: 8px;
-    width: 90%;
-    max-width: 600px;
-    display: flex;
-    flex-direction: column;
-    max-height: 90vh;
-  }
-  .modal-header {
-    padding: 1.5rem 1.5rem 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid var(--color-background-mute);
-    flex-shrink: 0;
-  }
   .tabs {
     display: flex;
   }
   .tabs button {
     padding: 0.8rem 1.2rem;
-    cursor: pointer;
     background: none;
-    border: none;
-    color: var(--ev-c-text-2);
     font-size: 1rem;
     font-weight: 600;
+    color: var(--ev-c-text-2);
     border-bottom: 3px solid transparent;
-    margin-bottom: -1px;
+    transition: all 0.2s;
   }
   .tabs button:hover:not(:disabled) {
     color: var(--ev-c-text-1);
+    background: none;
   }
   .tabs button.active {
     color: var(--ev-c-text-1);
@@ -242,7 +193,6 @@
   }
   .tab-content {
     padding: 1.5rem;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -268,18 +218,8 @@
     height: 1.1rem;
     flex-shrink: 0;
   }
-  input,
-  select,
-  textarea {
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 1rem;
-  }
-  input[type='text'] {
+  input[type='text'],
+  textarea.tag-expression {
     font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
   }
   select:disabled {
@@ -296,36 +236,7 @@
     background-color: var(--color-background-mute);
     border-radius: 3px;
   }
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    padding: 1.5rem;
-    border-top: 1px solid var(--color-background-mute);
-  }
-  button {
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--ev-c-text-1);
-  }
-  button.primary {
-    background-color: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-  }
-  button.primary:hover {
-    background-color: var(--ev-c-gray-1);
-  }
-  button.secondary {
-    background-color: var(--ev-button-alt-bg);
-    border: 1px solid var(--ev-c-gray-2);
-  }
-  button.secondary:hover {
-    background-color: var(--ev-c-black-mute);
-  }
+
   .path-display-container {
     display: flex;
     gap: 0.5rem;
@@ -365,20 +276,18 @@
     width: 100%;
   }
   .tag-expression {
-    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     resize: vertical;
     min-height: 50px;
   }
   .remove-tag {
     background: none;
-    border: none;
     color: var(--ev-c-text-2);
     font-size: 1.5rem;
     padding: 0 0.5rem;
-    cursor: pointer;
     margin-top: 0.2rem;
   }
   .remove-tag:hover {
     color: #e81123;
+    background: none;
   }
 </style>
