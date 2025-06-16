@@ -621,6 +621,9 @@ export function setupLibraryIpc(): void {
       item.logoPath = undefined
       item.year = undefined
       item.genres = []
+      if (item.type === 'file') {
+        item.opensAsFolder = true
+      }
       item.posterPath = undefined // Clear poster so it gets re-fetched by fetchItemDetails
 
       // Set new core identifiers

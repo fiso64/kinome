@@ -4,6 +4,7 @@ export interface MediaFile {
   path: string // Full path to the file
   type: 'file'
   watched?: boolean
+  opensAsFolder?: boolean
   // TMDB metadata
   title?: string
   overview?: string

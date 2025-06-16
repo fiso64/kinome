@@ -78,7 +78,7 @@
   tabindex="-1"
 >
   <div class="modal-content">
-    <h2>Set Children View Layout</h2>
+    <h2>Set View Layout</h2>
     <p class="help-text">Choose how the contents of "{item.title ?? item.name}" are displayed.</p>
 
     <div class="layout-options">

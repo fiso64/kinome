@@ -64,6 +64,10 @@ The goal is to implement the key features that make the app unique and powerful.
     *   The current poster and backdrop should always be shown in the window
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
     *   Add manual search as context menu entry
+*   `[ ]` **Flexible UI Engine, Part 2** 
+    *   For tab and section views, allow defining the tabs or sections by arbitrary tags or metadata in the media list, not just folder names. (Store tab/section settings in "virtual folders")
+    *   Filtering items from view depending on conditions
+    *   Sorting by arbitrary values, or custom sort (drag and drop)
 
 #### Phase 4: Expansion & Refinement
 
@@ -71,9 +75,5 @@ The goal is to expand source support and prepare for future growth.
 
 *   `[ ]` **Add Rclone Source:** Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
-*   `[ ]` **Flexible UI Engine, Part 2** 
-    *   Allow grouping by arbitrary tags or metadata in the media list, not just folder names. (Store settings in "virtual folders")
-    *   Filtering items from view depending on conditions
-    *   Sorting by arbitrary values, or custom sort (drag and drop)
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
 *   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.

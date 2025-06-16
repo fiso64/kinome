@@ -78,7 +78,7 @@
   <button class="context-menu-item" onclick={handleEdit}> Edit Metadata </button>
   <button class="context-menu-item" onclick={handleManualSearch}> Manual Search... </button>
   {#if item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleLayout}> Set Children View... </button>
+    <button class="context-menu-item" onclick={handleLayout}> Set View... </button>
     <button class="context-menu-item" onclick={handleFolderSettings}> Folder Settings... </button>
   {/if}
 </div>

@@ -3,19 +3,24 @@
 
   let {
     item,
-    onNavigateFolder,
-    onPlayFile,
+    onItemClick,
     showContextMenu,
     onSearchByTag,
     useLogos
   }: {
     item: LibraryItem
-    onNavigateFolder: (folder: MediaFolder) => void
-    onPlayFile: (file: MediaFile) => void
+    onItemClick: (item: LibraryItem) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
     onSearchByTag: (key: string, value: string) => void
     useLogos: boolean
   } = $props()
+
+  const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
+  // Create a "fake" child that is the file itself, but without the special property
+  // to prevent an infinite loop of detail views. This also makes it playable by the grid.
+  const fileAsChild = $derived(
+    isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
+  )
 
   function findMediaDescendants(node: LibraryItem): LibraryItem[] {
     if (node.type !== 'folder') {
@@ -38,43 +43,35 @@
   }
 
   const mediaDescendants = $derived(findMediaDescendants(item))
-  const showContents = $derived(
+  const showRegularContents = $derived(
     item.type === 'folder' &&
       item.children.length > 0 &&
       !item.children.every((child) => child.posterPath)
   )
-  
-    // These values help manage the individual image fade-in animations.
-    let isBackdropLoaded = $state(false)
-    let isLogoLoaded = $state(false)
-    let previousBackdropPath = $state<string | null | undefined>(undefined)
-    let previousLogoPath = $state<string | null | undefined>(undefined)
-  
-    $effect(() => {
-      // This effect runs when the `item` prop changes.
-      // We kick off the details fetch, which will now return instantly.
-      window.api.getItemDetails(item.id)
-  
-      // Reset fade-in animation flags if the image source itself has changed.
-      // This prevents a re-fade if other metadata is updated.
-      if (item.backdropPath !== previousBackdropPath) {
-        isBackdropLoaded = false
-        previousBackdropPath = item.backdropPath
-      }
-      if (item.logoPath !== previousLogoPath) {
-        isLogoLoaded = false
-        previousLogoPath = item.logoPath
-      }
-    })
-  
-    function handleItemClick(clickedItem: LibraryItem) {
-      if (clickedItem.type === 'folder') {
-        onNavigateFolder(clickedItem)
-      } else {
-        onPlayFile(clickedItem)
-      }
+
+  // These values help manage the individual image fade-in animations.
+  let isBackdropLoaded = $state(false)
+  let isLogoLoaded = $state(false)
+  let previousBackdropPath = $state<string | null | undefined>(undefined)
+  let previousLogoPath = $state<string | null | undefined>(undefined)
+
+  $effect(() => {
+    // This effect runs when the `item` prop changes.
+    // We kick off the details fetch, which will now return instantly.
+    window.api.getItemDetails(item.id)
+
+    // Reset fade-in animation flags if the image source itself has changed.
+    // This prevents a re-fade if other metadata is updated.
+    if (item.backdropPath !== previousBackdropPath) {
+      isBackdropLoaded = false
+      previousBackdropPath = item.backdropPath
     }
-  </script>
+    if (item.logoPath !== previousLogoPath) {
+      isLogoLoaded = false
+      previousLogoPath = item.logoPath
+    }
+  })
+</script>
   
   <!-- No more complex loading state needed here. The view renders immediately. -->
   <div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
@@ -106,8 +103,8 @@
               </div>
             {/if}
           </div>
-          {#if item.type === 'file'}
-            <button class="play-button" onclick={() => onPlayFile(item)}> ▶ Play </button>
+          {#if item.type === 'file' && !item.opensAsFolder}
+            <button class="play-button" onclick={() => onItemClick(item)}> ▶ Play </button>
           {/if}
         </div>
   
@@ -150,26 +147,39 @@
         </div>
       </div>
   
-      {#if showContents && item.type === 'folder'}
+      {#if showRegularContents && item.type === 'folder'}
         <div class="children-section">
           <h2 class="section-title">Contents</h2>
           <MediaGrid
             parentItem={item}
             items={item.children}
-            onItemClick={handleItemClick}
+            onItemClick={onItemClick}
             layout={item.layout ?? 'tree'}
             onShowContextMenu={showContextMenu}
           />
         </div>
       {/if}
 
-      {#if mediaDescendants.length > 0}
+      {#if isSpecialFile}
+        <div class="children-section">
+          <h2 class="section-title">Contents</h2>
+          <MediaGrid
+            parentItem={item as MediaFolder}
+            items={fileAsChild}
+            onItemClick={onItemClick}
+            layout="tree"
+            onShowContextMenu={showContextMenu}
+          />
+        </div>
+      {/if}
+
+      {#if mediaDescendants.length > 0 && !isSpecialFile}
         <div class="children-section">
           <h2 class="section-title">Media</h2>
           <MediaGrid
             parentItem={item}
             items={mediaDescendants}
-            onItemClick={handleItemClick}
+            onItemClick={onItemClick}
             layout={'grid'}
             onShowContextMenu={showContextMenu}
           />

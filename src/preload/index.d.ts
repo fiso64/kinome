@@ -7,6 +7,7 @@ declare global {
     path: string
     type: 'file'
     watched?: boolean
+    opensAsFolder?: boolean
     // TMDB metadata
     title?: string
     overview?: string

@@ -153,6 +153,9 @@ export async function fetchAndApplyMetadata(
       item.mediaType = result.media_type ?? endpoint // Fallback to our guessed endpoint type
       item.title = result.title || result.name // 'title' for movie, 'name' for tv
       item.overview = result.overview
+      if (item.type === 'file') {
+        item.opensAsFolder = true
+      }
 
       const date = result.release_date || result.first_air_date
       if (date) {

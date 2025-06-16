@@ -204,39 +204,62 @@
     }
   }
 
-  // Used by the main MediaGrid.
-  function handleGridItemClick(item: LibraryItem): void {
-    lastDetailItem = null // Clear breadcrumb on any new grid navigation
-    // In tree view, files should be played directly.
-    if ((currentFolder?.layout ?? 'grid') === 'tree' && item.type === 'file') {
-      handlePlayFile(item as MediaFile)
+  function handleItemClick(item: LibraryItem): void {
+    // --- Are we currently in a detail view? ---
+    if (selectedItemForDetailView) {
+      const parent = selectedItemForDetailView
+
+      // A. Clicked a folder inside the detail view
+      if (item.type === 'folder') {
+        if ((parent as MediaFolder).childrenClickAction === 'navigate') {
+          drillDown(item as MediaFolder)
+        } else {
+          // 'detail'
+          lastDetailItem = parent
+          viewStack.push(parent as MediaFolder)
+          selectedItemForDetailView = item
+        }
+        return
+      }
+
+      // B. Clicked a file that should open its own detail view
+      if (item.type === 'file' && item.opensAsFolder) {
+        lastDetailItem = parent
+        viewStack.push(parent as MediaFolder) // We are drilling down one level
+        selectedItemForDetailView = item
+        return
+      }
+
+      // C. Clicked a normal, playable file
+      if (item.type === 'file') {
+        handlePlayFile(item)
+      }
       return
     }
 
-    // If the setting is 'navigate', push folder to stack. Otherwise, show detail view.
-    if (
-      currentFolder &&
-      currentFolder.childrenClickAction === 'navigate' &&
-      item.type === 'folder'
-    ) {
-      handleNavigateFolder(item as MediaFolder)
-    } else {
-      selectedItemForDetailView = item
-    }
-  }
+    // --- We are in a list/grid view (no detail view open) ---
+    lastDetailItem = null // Reset breadcrumb
 
-  // Used by ItemDetail when a child folder is clicked.
-  function handleFolderClickInDetailView(folder: MediaFolder): void {
-    const parent = selectedItemForDetailView as MediaFolder
-    if (parent.childrenClickAction === 'navigate') {
-      drillDown(folder)
-    } else {
-      // 'detail'
-      // Transition from Detail(parent) to Detail(folder)
-      lastDetailItem = parent // Set breadcrumb to current detail item
-      viewStack.push(parent) // Update the view stack to be the parent's children
-      selectedItemForDetailView = folder // Set new detail item
+    // 1. If it's a file that opens as a folder, just open it.
+    if (item.type === 'file' && item.opensAsFolder) {
+      selectedItemForDetailView = item
+      return
     }
+
+    // 2. If it's a regular file in a tree view, play it.
+    if (item.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
+      handlePlayFile(item)
+      return
+    }
+
+    // 3. If it's a folder and parent is set to navigate, navigate.
+    if (item.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
+      handleNavigateFolder(item as MediaFolder)
+      return
+    }
+
+    // 4. Default action: open detail view for the item.
+    selectedItemForDetailView = item
   }
 
   // Used to navigate to a new folder list view, closing any detail view.
@@ -439,7 +462,7 @@
         {#if currentFolder}
           <button
             onclick={() => (activeModal = { type: 'layoutSelector', item: currentFolder })}
-            title="Set Children View Layout"
+            title="Set View Layout"
             class="layout-button"
           >
             <!-- A simple layout icon -->
@@ -490,7 +513,7 @@
           parentItem={currentFolder}
           items={currentFolder.children}
           {searchQuery}
-          onItemClick={handleGridItemClick}
+          onItemClick={handleItemClick}
           layout={currentFolder.layout ?? 'grid'}
           onShowContextMenu={handleShowContextMenu}
         />
@@ -499,8 +522,7 @@
       {#if selectedItemForDetailView && settings}
         <ItemDetail
           item={selectedItemForDetailView}
-          onPlayFile={handlePlayFile}
-          onNavigateFolder={handleFolderClickInDetailView}
+          onItemClick={handleItemClick}
           onSearchByTag={handleSearchByTag}
           showContextMenu={handleShowContextMenu}
           useLogos={settings.useLogos ?? true}
