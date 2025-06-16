@@ -1,31 +1,32 @@
 <script lang="ts">
+  // A virtual folder will have these extra properties when created in MediaGrid.svelte
+  type VirtualFolderProps = {
+    isVirtual?: boolean
+    physicalParentId?: string
+    groupByKey?: string
+    groupByValue?: string
+  }
+
   let {
     item,
-    currentLayout,
+    groupByKeys,
     onClose
   }: {
-    item: MediaFolder
-    currentLayout: 'grid' | 'tree' | 'tabs' | 'sections'
+    item: MediaFolder & VirtualFolderProps
+    groupByKeys: string[]
     onClose: () => void
   } = $props()
 
-  // Svelte 5 runes: local state for the form
-  let selectedLayout = $state(currentLayout)
+  // --- Svelte 5 runes: local state for the form ---
+  let selectedLayout = $state(item.layout ?? 'grid')
   let selectedClickAction = $state(item.childrenClickAction ?? 'detail')
+  let selectedGroupBy = $state(item.groupBy ?? 'folder')
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
     { value: 'tree', label: 'Tree', description: 'Collapsible list view, good for files.' },
-    {
-      value: 'tabs',
-      label: 'Tabs',
-      description: 'Show each subfolder as a tab, good for seasons.'
-    },
-    {
-      value: 'sections',
-      label: 'Sections',
-      description: 'Show each subfolder as a section on one page.'
-    }
+    { value: 'tabs', label: 'Tabs', description: 'Group children into tabs by metadata.' },
+    { value: 'sections', label: 'Sections', description: 'Group children into sections by metadata.' }
   ]
 
   const clickActions = [
@@ -41,14 +42,48 @@
     }
   ]
 
-  async function handleSave() {
-    // Create a deep, plain JavaScript object copy to ensure it's clonable for IPC.
-    const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
-    // Apply the changes
-    updatedItem.layout = selectedLayout
-    updatedItem.childrenClickAction = selectedClickAction
+  function formatKey(key: string): string {
+    if (key === 'folder') return 'Folder'
+    let displayKey = key
+    if (key.startsWith('tags.')) {
+      displayKey = key.substring(5)
+    }
+    return displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
+  }
 
-    await window.api.updateItem(updatedItem)
+  async function handleSave() {
+    if (item.isVirtual && item.physicalParentId) {
+      // --- Editing a Virtual Folder ---
+      // Get the physical parent, which is where the configuration is stored.
+      const physicalParent = await window.api.getItemById(item.physicalParentId)
+      if (!physicalParent || physicalParent.type !== 'folder') return
+
+      // Create a clonable copy to modify.
+      const updatedParent: MediaFolder = JSON.parse(JSON.stringify(physicalParent))
+
+      // Ensure the nested structure for virtual settings exists.
+      if (!updatedParent.virtualFolderSettings) updatedParent.virtualFolderSettings = {}
+      if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
+        updatedParent.virtualFolderSettings[item.groupByKey!] = {}
+      }
+      const settings = updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
+
+      // Apply the new settings for this specific virtual group.
+      settings.layout = selectedLayout
+      settings.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
+      settings.childrenClickAction = selectedClickAction
+      updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
+
+      // Save the modified physical parent.
+      await window.api.updateItem(updatedParent)
+    } else {
+      // --- Editing a Physical Folder ---
+      const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
+      updatedItem.layout = selectedLayout
+      updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
+      updatedItem.childrenClickAction = selectedClickAction
+      await window.api.updateItem(updatedItem)
+    }
     onClose()
   }
 
@@ -92,6 +127,21 @@
         </label>
       {/each}
     </div>
+
+    {#if selectedLayout === 'tabs' || selectedLayout === 'sections'}
+      <div class="divider"></div>
+      <h3>Group By</h3>
+      <p class="help-text">
+        Choose a metadata field to group the contents of this folder into {selectedLayout}.
+      </p>
+      <div class="form-group">
+        <select bind:value={selectedGroupBy}>
+          {#each groupByKeys as key (key)}
+            <option value={key}>{formatKey(key)}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
 
     <div class="divider"></div>
     <h3>On Click...</h3>
@@ -144,6 +194,20 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+  }
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  select {
+    padding: 0.5rem;
+    background-color: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    color: var(--color-text);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 1rem;
   }
   .help-text {
     font-size: 0.9rem;

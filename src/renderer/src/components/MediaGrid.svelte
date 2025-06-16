@@ -2,8 +2,13 @@
   import TreeItem from './TreeItem.svelte'
   import MediaGrid from './MediaGrid.svelte' // Self-reference for recursion
 
-  // Types are globally available from src/preload/index.d.ts
   type Layout = 'grid' | 'tree' | 'tabs' | 'sections'
+  type VirtualFolder = MediaFolder & {
+    isVirtual: boolean
+    physicalParentId: string
+    groupByKey: string
+    groupByValue: string
+  }
 
   let {
     parentItem,
@@ -21,14 +26,14 @@
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
   } = $props()
 
+  // --- Helpers ---
   function normalizeText(text: string): string {
     return (
       text
         .toLowerCase()
-        // First, remove any patterns that look like incomplete tags from the text search
         .replace(/:[a-zA-Z0-9_]+:?[^:\s]*/g, ' ')
-        .replace(/[.:_,-]/g, ' ') // Replace common punctuation with space
-        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .replace(/[.:_,-]/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim()
     )
   }
@@ -40,25 +45,16 @@
     if (!query || (query.text === '' && query.tags.length === 0)) {
       return itemsToFilter
     }
-
     const normalizedQueryText = normalizeText(query.text)
-
     return itemsToFilter.filter((item) => {
-      // Text search part (AND)
-      if (normalizedQueryText) {
-        const normalizedItemTitle = normalizeText(item.title ?? item.name)
-        if (!normalizedItemTitle.includes(normalizedQueryText)) {
-          return false
-        }
+      if (normalizedQueryText && !normalizeText(item.title ?? item.name).includes(normalizedQueryText)) {
+        return false
       }
-
-      // Tag search part (AND)
       if (query.tags.length > 0) {
         for (const tag of query.tags) {
           let tagMatch = false
           if (tag.key === 'genre') {
-            tagMatch =
-              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
+            tagMatch = item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
           } else if (tag.key === 'year') {
             tagMatch = item.year?.toString() === tag.value
           } else if (item.tags) {
@@ -69,44 +65,88 @@
                 .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
             }
           }
-          if (!tagMatch) return false // Must match ALL tags
+          if (!tagMatch) return false
         }
       }
-
-      return true // All conditions passed
+      return true
     })
   }
 
-  // For grid/tree views, we filter the items.
-  // For tabs/sections, we filter the *content* of each tab/section, not the tabs/sections themselves.
-  const displayedItems = $derived(
-    layout === 'grid' || layout === 'tree' ? filterItems(items, searchQuery) : items
-  )
+  function getValuesForKey(item: LibraryItem, key: string): string[] {
+    if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
+    if (key === 'genre') return item.genres ?? []
+    if (key === 'year') return item.year ? [item.year.toString()] : []
+    if (key.startsWith('tags.')) {
+      const tagKey = key.substring(5)
+      const tagValue = item.tags?.[tagKey]
+      return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
+    }
+    return []
+  }
+
+  // --- Derived State ---
+  const { displayedItems, virtualFolders } = $derived.by(() => {
+    const filteredItems = filterItems(items, searchQuery)
+    if (
+      (layout === 'tabs' || layout === 'sections') &&
+      parentItem.groupBy &&
+      parentItem.groupBy !== 'folder'
+    ) {
+      const groupByKey = parentItem.groupBy
+      const groups: Record<string, LibraryItem[]> = {}
+      for (const item of filteredItems) {
+        const values = getValuesForKey(item, groupByKey)
+        if (values.length === 0) {
+          if (!groups['Uncategorized']) groups['Uncategorized'] = []
+          groups['Uncategorized'].push(item)
+        } else {
+          for (const value of values) {
+            if (!groups[value]) groups[value] = []
+            groups[value].push(item)
+          }
+        }
+      }
+      const vFolders = Object.entries(groups)
+        .map(([groupValue, groupItems]) => {
+          const virtualSettings = parentItem.virtualFolderSettings?.[groupByKey]?.[groupValue] ?? {}
+          const virtualFolder: VirtualFolder = {
+            id: `virtual--${parentItem.id}--${groupByKey}--${groupValue}`,
+            name: groupValue,
+            title: virtualSettings.title ?? groupValue,
+            type: 'folder',
+            children: groupItems,
+            path: '',
+            isVirtual: true,
+            physicalParentId: parentItem.id,
+            groupByKey: groupByKey,
+            groupByValue: groupValue,
+            ...virtualSettings
+          }
+          return virtualFolder
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      return { displayedItems: filteredItems, virtualFolders: vFolders }
+    }
+    return { displayedItems: filteredItems, virtualFolders: null }
+  })
 
   const sortedTreeItems = $derived(
     [...displayedItems].sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === 'file' ? -1 : 1 // Files before folders
-      }
-      // If types are the same, sort by name
-      return (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, {
-        numeric: true,
-        sensitivity: 'base'
-      })
+      if (a.type !== b.type) return a.type === 'folder' ? 1 : -1
+      return (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, { numeric: true })
     })
   )
 
-  const folderItems = $derived(
+  const physicalFolderItems = $derived(
     displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
   )
 
-  // For tabs, pre-select the first folder tab if available, and reset if it becomes invalid.
   let activeTabId = $state<string | null>(null)
-
   $effect(() => {
-    const currentFolderIds = folderItems.map((f) => f.id)
+    const currentFolders = virtualFolders ?? physicalFolderItems
+    const currentFolderIds = currentFolders.map((f) => f.id)
     if (activeTabId === null || !currentFolderIds.includes(activeTabId)) {
-      activeTabId = folderItems[0]?.id ?? null
+      activeTabId = currentFolders[0]?.id ?? null
     }
   })
 </script>
@@ -159,9 +199,10 @@
     {/if}
   </div>
 {:else if layout === 'tabs'}
+  {@const folders = virtualFolders ?? physicalFolderItems}
   <div class="tabs-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
     <div class="tab-list">
-      {#each folderItems as folder (folder.id)}
+      {#each folders as folder (folder.id)}
         <button
           class="tab"
           class:active={activeTabId === folder.id}
@@ -173,17 +214,16 @@
       {/each}
     </div>
     <div class="tab-content">
-      {#if folderItems.length > 0}
-        {#each folderItems as folder (folder.id)}
+      {#if folders.length > 0}
+        {#each folders as folder (folder.id)}
           {#if activeTabId === folder.id}
-            <!-- Recurse with the child folder's configured layout, defaulting to grid -->
             <MediaGrid
               parentItem={folder}
               items={folder.children}
               {onItemClick}
               layout={folder.layout ?? 'grid'}
               {onShowContextMenu}
-              {searchQuery}
+              searchQuery={virtualFolders ? undefined : searchQuery}
             />
           {/if}
         {/each}
@@ -193,9 +233,10 @@
     </div>
   </div>
 {:else if layout === 'sections'}
+  {@const folders = virtualFolders ?? physicalFolderItems}
   <div class="sections-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
-    {#if folderItems.length > 0}
-      {#each folderItems as folder (folder.id)}
+    {#if folders.length > 0}
+      {#each folders as folder (folder.id)}
         <section class="content-section">
           <h2
             class="section-title"
@@ -204,14 +245,13 @@
           >
             {folder.title ?? folder.name}
           </h2>
-          <!-- Recurse with the child folder's configured layout, defaulting to grid -->
           <MediaGrid
             parentItem={folder}
             items={folder.children}
             {onItemClick}
             layout={folder.layout ?? 'grid'}
             {onShowContextMenu}
-            {searchQuery}
+            searchQuery={virtualFolders ? undefined : searchQuery}
           />
         </section>
       {/each}

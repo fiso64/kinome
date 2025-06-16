@@ -558,7 +558,7 @@ export function setupLibraryIpc(): void {
 
   ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 
-  ipcMain.handle('update-item', async (event, updatedItem: LibraryItem): Promise<void> => {
+  ipcMain.handle('update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
     if (!db || !db.root) {
       console.error('Cannot update item: database not found in memory.')
       return
@@ -575,9 +575,14 @@ export function setupLibraryIpc(): void {
       await writeDb(db) // Persist changes to disk and update in-memory `db`
       console.log(`Updated item ${updatedItem.id} in database.`)
 
-      // Notify renderer about the update so UI can refresh everywhere.
-      const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', itemInDb)
+      // After updating, recalculate suggestions as they might have changed (e.g., new tag key).
+      const newSuggestions = await getAutocompleteSuggestions()
+
+      // Notify all renderer windows about the updates.
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('library-item-updated', itemInDb)
+        window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+      })
     } else {
       console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
     }

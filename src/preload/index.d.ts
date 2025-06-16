@@ -41,6 +41,9 @@ declare global {
     tags?: Record<string, string>
     layout?: 'grid' | 'tree' | 'tabs' | 'sections'
     childrenClickAction?: 'detail' | 'navigate'
+    // View grouping
+    groupBy?: string
+    virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>
     // Retriever settings
     retrieve_children_metadata?: boolean
     children_type_hint?: 'movie' | 'tv'
@@ -95,6 +98,9 @@ declare global {
       isWindowMaximized: () => Promise<boolean>
       onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
       onLibraryItemUpdated: (callback: (item: LibraryItem) => void) => () => void
+      onAutocompleteSuggestionsUpdated: (
+        callback: (suggestions: AutocompleteSuggestions) => void
+      ) => () => void
     }
   }
 }

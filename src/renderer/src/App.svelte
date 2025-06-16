@@ -31,6 +31,14 @@
     tagKeys: [],
     tagValues: {}
   })
+
+  const groupByKeys = $derived([
+    'folder',
+    'mediaType',
+    'genre',
+    'year',
+    ...allAutocompleteSuggestions.tagKeys.map((k) => `tags.${k}`)
+  ])
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
   let activeModal = $state<ActiveModal | null>(null)
@@ -56,11 +64,21 @@
       isScanning = false
     })
 
+    // Fetch initial data
     window.api.getAutocompleteSuggestions().then((suggestions) => {
       allAutocompleteSuggestions = suggestions
     })
-
     window.api.getSettings().then((s) => (settings = s))
+
+    // Listen for live updates to autocomplete suggestions
+    const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((suggestions) => {
+      allAutocompleteSuggestions = suggestions
+    })
+
+    // Cleanup the listener when the component is destroyed.
+    return () => {
+      unlistenSuggestions()
+    }
   })
 
   $effect(() => {
@@ -376,8 +394,7 @@
   {:else if activeModal.type === 'layoutSelector'}
     <LayoutSelector
       item={activeModal.item}
-      currentLayout={activeModal.item.layout ??
-        (activeModal.item.id === currentFolder?.id ? 'grid' : 'tree')}
+      groupByKeys={groupByKeys}
       onClose={() => (activeModal = null)}
     />
   {:else if activeModal.type === 'metadataEditor'}

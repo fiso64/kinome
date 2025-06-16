@@ -6,6 +6,7 @@
   // --- Form State ---
   let title = $state(item.title ?? item.name)
   let year = $state(item.year?.toString() ?? '')
+  let mediaType = $state(item.mediaType)
   let overview = $state(item.overview ?? '')
   let genres = $state<string[]>(JSON.parse(JSON.stringify(item.genres ?? [])))
   let tags = $state(
@@ -154,6 +155,7 @@
 
     const parsedYear = parseInt(year, 10)
     updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
+    updatedItem.mediaType = mediaType
 
     updatedItem.overview = overview
     // Convert the reactive genres array to a plain array before sending over IPC
@@ -202,9 +204,19 @@
   <div class="modal-content">
     <h2>Edit Metadata</h2>
     <div class="scroll-area">
-      <div class="form-group">
-        <label for="title">Title</label>
-        <input type="text" id="title" bind:value={title} />
+      <div class="form-row">
+        <div class="form-group" style="flex-grow: 1;">
+          <label for="title">Title</label>
+          <input type="text" id="title" bind:value={title} />
+        </div>
+        <div class="form-group">
+          <label for="media-type">Type</label>
+          <select id="media-type" bind:value={mediaType}>
+            <option value={undefined}>Unknown</option>
+            <option value="movie">Movie</option>
+            <option value="tv">TV Show</option>
+          </select>
+        </div>
       </div>
       <div class="form-group">
         <label for="year">Year</label>
@@ -296,6 +308,14 @@
     gap: 1.5rem;
     max-height: 90vh;
   }
+  .form-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end; /* Aligns the bottom of the form elements */
+  }
+  .form-row .form-group {
+    margin-bottom: 0; /* Override default margin if any */
+  }
   .scroll-area {
     overflow-y: auto;
     display: flex;
@@ -314,7 +334,8 @@
     font-weight: bold;
   }
   input,
-  textarea {
+  textarea,
+  select {
     padding: 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);

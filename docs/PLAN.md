@@ -65,9 +65,10 @@ The goal is to implement the key features that make the app unique and powerful.
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
     *   Add manual search as context menu entry
 *   `[ ]` **Flexible UI Engine, Part 2** 
-    *   For tab and section views, allow defining the tabs or sections by arbitrary tags or metadata in the media list, not just folder names. (Store tab/section settings in "virtual folders")
-    *   Filtering items from view depending on conditions
-    *   Sorting by arbitrary values, or custom sort (drag and drop)
+    *   `[X]` For tab and section views, allow defining the tabs or sections by arbitrary tags or metadata in the media list, not just folder names. (Store tab/section settings in "virtual folders")
+    *   `[ ]` "Virtual tags" (similar to MusicBee). Virtual tags are derived from metadata or custom tags. Add new tab in the settings for defining virtual tags, with key/values similar as in the custom tags section in metadata edit window. The values of the virtual tags will be expressions, possibly involving one or multiple metadata/custom tags ({genre}, {my-custom-tag}), and possibly involving functions which modify strings. E.g.: A virtual tag named "isAnimation" which is equal to "Animation" when the genre tag contains "Animation", and otherwise "Film". Virtual tags can be filtered by in the search bar or can be set as group by. Careful: They should not be included in autocompletions for custom tag keys.
+    *   `[ ]` Filtering items from view depending on conditions
+    *   `[ ]` Sorting by arbitrary values, or custom sort (drag and drop)
 
 #### Phase 4: Expansion & Refinement
 

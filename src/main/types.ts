@@ -38,6 +38,9 @@ export interface MediaFolder {
   tags?: Record<string, string>
   layout?: 'grid' | 'tree' | 'tabs' | 'sections'
   childrenClickAction?: 'detail' | 'navigate'
+  // View grouping
+  groupBy?: string
+  virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>
   // Retriever settings
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
