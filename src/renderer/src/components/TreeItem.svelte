@@ -36,6 +36,7 @@
   <button
     type="button"
     class="tree-item"
+    class:watched={item.type === 'file' && item.watched}
     onclick={handleItemClick}
     oncontextmenu={(e) => showContextMenu(item, e)}
   >
@@ -51,7 +52,7 @@
             loading="lazy"
           />
         {:else}
-          {item.type === 'folder' ? '📁' : '📄'}
+          {item.type === 'folder' ? '📁' : '🎬'}
         {/if}
       </div>
     </div>
@@ -59,10 +60,6 @@
     <div class="name" title={item.title ?? item.name}>
       {item.title ?? item.name}
     </div>
-
-    {#if item.type === 'file' && item.watched}
-      <div class="watched-indicator" title="Watched">✔</div>
-    {/if}
   </button>
 
   {#if item.type === 'folder' && isExpanded}
@@ -126,20 +123,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .watched-indicator {
-    background-color: #4caf50;
-    color: white;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
-    font-size: 12px;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-left: auto;
-    margin-right: 0.5rem;
+  .tree-item.watched {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+  }
+  .tree-item.watched:hover {
+    opacity: 1;
   }
   .children {
     overflow: hidden;

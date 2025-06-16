@@ -83,6 +83,19 @@
     layout === 'grid' || layout === 'tree' ? filterItems(items, searchQuery) : items
   )
 
+  const sortedTreeItems = $derived(
+    [...displayedItems].sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'file' ? -1 : 1 // Files before folders
+      }
+      // If types are the same, sort by name
+      return (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      })
+    })
+  )
+
   const folderItems = $derived(
     displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
   )
@@ -105,6 +118,7 @@
         <button
           type="button"
           class="grid-item"
+          class:watched={item.type === 'file' && item.watched}
           onclick={() => onItemClick(item)}
           oncontextmenu={(e) => onShowContextMenu(item, e, { layout })}
         >
@@ -117,11 +131,8 @@
               />
             {:else}
               <div class="icon">
-                {item.type === 'folder' ? '📁' : '📄'}
+                {item.type === 'folder' ? '📁' : '🎬'}
               </div>
-            {/if}
-            {#if item.type === 'file' && item.watched}
-              <div class="watched-indicator" title="Watched">✔</div>
             {/if}
           </div>
           <div class="name" title={item.title ?? item.name}>
@@ -135,8 +146,8 @@
   </div>
 {:else if layout === 'tree'}
   <div class="media-tree" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
-    {#if displayedItems.length > 0}
-      {#each displayedItems as item (item.id)}
+    {#if sortedTreeItems.length > 0}
+      {#each sortedTreeItems as item (item.id)}
         <TreeItem
           {item}
           itemclick={onItemClick}
@@ -282,21 +293,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .watched-indicator {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background-color: #4caf50;
-    color: white;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: bold;
-    z-index: 1;
+  .grid-item.watched {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+  }
+  .grid-item.watched:hover {
+    opacity: 1;
   }
 
   /* --- TABS LAYOUT --- */

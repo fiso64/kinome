@@ -159,7 +159,7 @@
   .search-box {
     -webkit-app-region: no-drag;
     width: 100%;
-    max-width: 400px;
+    max-width: 1000px;
     padding: 0.3rem 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);
@@ -168,9 +168,24 @@
     font-size: 1rem;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.4rem;
     cursor: text;
+    overflow-x: auto;
+  }
+
+  .search-box::-webkit-scrollbar {
+    height: 3px;
+  }
+  .search-box::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .search-box::-webkit-scrollbar-thumb {
+    background-color: var(--ev-c-gray-3);
+    border-radius: 3px;
+  }
+  .search-box::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ev-c-gray-2);
   }
   .search-box:focus-within {
     border-color: var(--ev-c-gray-1);
@@ -185,6 +200,7 @@
     font-size: 0.9rem;
     cursor: default;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .pill-key {
