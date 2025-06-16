@@ -63,9 +63,8 @@
   })
 
   $effect(() => {
-    // When the current folder changes, or we enter/exit detail view, reset search text.
+    // When the current folder changes, reset search text.
     void currentFolder?.id
-    void selectedItemForDetailView
 
     // This effect does not depend on `searchText`, so it only runs on navigation changes.
     searchText = ''
