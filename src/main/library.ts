@@ -85,7 +85,16 @@ async function writeDb(updatedDb: Database): Promise<void> {
   const libraryPath = getLibraryDataPath()
   await fs.mkdir(libraryPath, { recursive: true })
   const dbPath = getDbPath()
-  await fs.writeFile(dbPath, JSON.stringify(db, null, 2))
+
+  // Use a replacer to strip the derived `virtualTags` property before saving.
+  const replacer = (key: string, value: unknown) => {
+    if (key === 'virtualTags') {
+      return undefined // Omit the key from the output
+    }
+    return value
+  }
+
+  await fs.writeFile(dbPath, JSON.stringify(db, replacer, 2))
 }
 
 function generateId(relativePath: string): string {
