@@ -481,7 +481,7 @@
   }
 
   button {
-    background-color: var(--ev-c-gray-3);
+    background-color: var(--ev-button-alt-bg);
     color: var(--ev-c-text-1);
     border: none;
     padding: 0.5rem 1rem;
