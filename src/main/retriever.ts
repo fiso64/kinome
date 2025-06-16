@@ -93,26 +93,33 @@ async function downloadImage(url: string, destinationPath: string): Promise<void
 export async function fetchAndApplyMetadata(
   item: LibraryItem,
   tmdbApiKey: string,
-  libraryDataPath: string
+  libraryDataPath: string,
+  typeHint?: 'movie' | 'tv'
 ): Promise<void> {
-  let endpoint: 'movie' | 'tv' | 'multi' = 'multi'
+  let endpoint: 'movie' | 'tv' | 'multi'
 
-  // Apply heuristics to determine the best search endpoint
-  if (item.type === 'file') {
-    endpoint = 'movie'
-  } else if (item.type === 'folder') {
-    const videoFiles = item.children.filter((c) => c.type === 'file')
-    const significantSubfolders = item.children.filter(
-      (c) => c.type === 'folder' && !SPECIAL_SUBFOLDER_NAMES.includes(c.name.toLowerCase())
-    )
-
-    if (videoFiles.length === 1 && significantSubfolders.length === 0) {
+  // If a parent folder provides a hint, it takes precedence.
+  if (typeHint) {
+    endpoint = typeHint
+  } else {
+    // Otherwise, apply heuristics to determine the best search endpoint
+    endpoint = 'multi' // Default
+    if (item.type === 'file') {
       endpoint = 'movie'
-    } else if (videoFiles.length === 0 && significantSubfolders.length > 0) {
-      // Heuristic: Folder with only other folders is likely a TV show container
-      endpoint = 'tv'
+    } else if (item.type === 'folder') {
+      const videoFiles = item.children.filter((c) => c.type === 'file')
+      const significantSubfolders = item.children.filter(
+        (c) => c.type === 'folder' && !SPECIAL_SUBFOLDER_NAMES.includes(c.name.toLowerCase())
+      )
+
+      if (videoFiles.length === 1 && significantSubfolders.length === 0) {
+        endpoint = 'movie'
+      } else if (videoFiles.length === 0 && significantSubfolders.length > 0) {
+        // Heuristic: Folder with only other folders is likely a TV show container
+        endpoint = 'tv'
+      }
+      // If it's a mix, we stick with 'multi'
     }
-    // If it's a mix, we stick with 'multi'
   }
 
   const query = parseTitle(item.name)

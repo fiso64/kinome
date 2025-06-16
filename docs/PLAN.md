@@ -53,11 +53,12 @@ The goal is to implement the key features that make the app unique and powerful.
     *   Implement the UI/backend logic for saving the chosen layout strategy (Grid, Tree, Tabs, Sections) for any folder.
     *   Heavily refactor the `Media List` component to be able to render its items using any of the four layout strategies based on the parent folder's configuration.
     *   This includes the logic for rendering tabs and section headers, which will themselves contain a nested instance of the `Media List` component.
-*   `[ ]` **Implement Per-Folder Metadata Settings:**
+*   `[X]` **Implement Per-Folder Metadata Settings:**
     *   Update the retriever to fetch recursively for every subfolder instead of just the immediate children of the root media dir. Update the retriever to check for and obey the `retrieve_children_metadata` and `children_type_hint` flags on a folder before processing its children. `retrieve_children_metadata` will be assumed to be false by default for every folder level unless manually enabled by the user (add new toggleable checkmark in the context menu).
     *   children type hint will be editable in the metadata window
-*   `[ ]` Update the search bar to support searching by tags (e.g., `mytagname:favorite` or `genre:sci-fi`).
-    *   Search bar needs to also filter tab/section contents rather than tabs/sections themselves when using tab or section view.
+*   `[ ]` Improve the search bar
+    *   Update the search bar to support searching by tags (e.g., `:mytagname:favorite` or `:genre:sci-fi`). After typing :, autocompletions for the tag key should be shown. After typing the second : (or accepting an autocompletion, in which case it should insert the :), autocompletions for the tag values should be shown. After typing the second : or accepting the autcompletion, the key value pair should turn into a rounded tile (similar to the genres in the detail view). Backspacing it should delete it entirely.
+    *   Also: Search bar needs to filter tab/section contents instead of tabs/sections themselves when using tab or section view.
 *   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
 
@@ -67,5 +68,7 @@ The goal is to expand source support and prepare for future growth.
 
 *   `[ ]` **Add Rclone Source:** Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
+*   `[ ]` **Flexible UI Engine, Part 2:** Allow grouping by arbitrary tags or metadata in the media list, not just folder names.
+    *   Filtering items from view depending on conditions
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
 *   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.

@@ -37,6 +37,9 @@ declare global {
     tags?: Record<string, string>
     layout?: 'grid' | 'tree' | 'tabs' | 'sections'
     childrenClickAction?: 'detail' | 'navigate'
+    // Retriever settings
+    retrieve_children_metadata?: boolean
+    children_type_hint?: 'movie' | 'tv'
   }
 
   type LibraryItem = MediaFile | MediaFolder

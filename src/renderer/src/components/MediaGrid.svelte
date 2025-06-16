@@ -16,7 +16,7 @@
     items?: LibraryItem[]
     itemclick: (item: LibraryItem) => void
     layout?: Layout
-    showContextMenu: (item: LibraryItem, event: MouseEvent) => void
+    showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
   } = $props()
 
   const folderItems = $derived(items.filter((item) => item.type === 'folder') as MediaFolder[])
@@ -27,14 +27,14 @@
 </script>
 
 {#if layout === 'grid'}
-  <div class="media-grid" oncontextmenu={(e) => showContextMenu(parentItem, e)}>
+  <div class="media-grid" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
     {#if items.length > 0}
       {#each items as item (item.id)}
         <button
           type="button"
           class="grid-item"
           onclick={() => itemclick(item)}
-          oncontextmenu={(e) => showContextMenu(item, e)}
+          oncontextmenu={(e) => showContextMenu(item, e, { layout })}
         >
           <div
             class="poster"
@@ -62,10 +62,14 @@
     {/if}
   </div>
 {:else if layout === 'tree'}
-  <div class="media-tree" oncontextmenu={(e) => showContextMenu(parentItem, e)}>
+  <div class="media-tree" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
     {#if items.length > 0}
       {#each items as item (item.id)}
-        <TreeItem {item} {itemclick} {showContextMenu} />
+        <TreeItem
+          {item}
+          {itemclick}
+          showContextMenu={(treeItem, event) => showContextMenu(treeItem, event, { layout })}
+        />
       {/each}
     {:else}
       <p class="empty-message">This folder is empty.</p>
@@ -79,7 +83,7 @@
           class="tab"
           class:active={activeTabId === folder.id}
           onclick={() => (activeTabId = folder.id)}
-          oncontextmenu={(e) => showContextMenu(folder, e)}
+          oncontextmenu={(e) => showContextMenu(folder, e, { layout })}
         >
           {folder.title ?? folder.name}
         </button>
@@ -105,14 +109,14 @@
     </div>
   </div>
 {:else if layout === 'sections'}
-  <div class="sections-view" oncontextmenu={(e) => showContextMenu(parentItem, e)}>
+  <div class="sections-view" oncontextmenu={(e) => showContextMenu(parentItem, e, { layout })}>
     {#if folderItems.length > 0}
       {#each folderItems as folder (folder.id)}
         <section class="content-section">
           <h2
             class="section-title"
             onclick={() => itemclick(folder)}
-            oncontextmenu={(e) => showContextMenu(folder, e)}
+            oncontextmenu={(e) => showContextMenu(folder, e, { layout })}
           >
             {folder.title ?? folder.name}
           </h2>

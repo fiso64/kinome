@@ -12,7 +12,7 @@
     item: LibraryItem
     onNavigateFolder: (folder: MediaFolder) => void
     onPlayFile: (file: MediaFile) => void
-    showContextMenu: (item: LibraryItem, event: MouseEvent) => void
+    showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
   } = $props()
 
   // Create a reactive copy of the item to hold fetched details

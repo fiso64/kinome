@@ -6,6 +6,7 @@
   import LayoutSelector from './components/LayoutSelector.svelte'
   import ContextMenu from './components/ContextMenu.svelte'
   import MetadataEditor from './components/MetadataEditor.svelte'
+  import FolderSettingsModal from './components/FolderSettingsModal.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
 
   // Types are globally available from src/preload/index.d.ts
@@ -15,14 +16,16 @@
   let showSettings = $state(false)
   let showLayoutSelector = $state(false)
   let showMetadataEditor = $state(false)
+  let showFolderSettings = $state(false)
   let searchQuery = $state('')
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl: HTMLInputElement
 
   // Global Context Menu State
   let contextMenuItem = $state<LibraryItem | null>(null)
-  let contextMenuPosition = $state({ top: 0, left: 0 })
-  let modalItem = $state<LibraryItem | null>(null) // Item for the currently open modal
+let contextMenuPosition = $state({ top: 0, left: 0 })
+let contextMenuLayout = $state<string | undefined>(undefined)
+let modalItem = $state<LibraryItem | null>(null) // Item for the currently open modal
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   // Back button is disabled if we are at the root grid view.
@@ -139,6 +142,12 @@
 
   // Used by the main MediaGrid.
   function handleGridItemClick(item: LibraryItem): void {
+    // In tree view, files should be played directly.
+    if ((currentFolder?.layout ?? 'grid') === 'tree' && item.type === 'file') {
+      handlePlayFile(item as MediaFile)
+      return
+    }
+
     // If the setting is 'navigate', push folder to stack. Otherwise, show detail view.
     if (
       currentFolder &&
@@ -196,10 +205,15 @@
     return () => cleanupShortcuts()
   })
 
-function handleShowContextMenu(item: LibraryItem, event: MouseEvent) {
+function handleShowContextMenu(
+  item: LibraryItem,
+  event: MouseEvent,
+  options?: { layout?: string }
+) {
   event.preventDefault()
   event.stopPropagation()
   contextMenuItem = item
+  contextMenuLayout = options?.layout
   modalItem = null // Ensure no old modal data is lingering
   contextMenuPosition = { top: event.clientY, left: event.clientX }
 }
@@ -230,11 +244,27 @@ function handleShowContextMenu(item: LibraryItem, event: MouseEvent) {
   />
 {/if}
 
+{#if showFolderSettings && modalItem?.type === 'folder'}
+  <FolderSettingsModal
+    item={modalItem}
+    onClose={() => {
+      showFolderSettings = false
+      modalItem = null
+    }}
+  />
+{/if}
+
 {#if contextMenuItem}
   <ContextMenu
     item={contextMenuItem}
     position={contextMenuPosition}
+    isTreeView={contextMenuLayout === 'tree'}
     onClose={() => (contextMenuItem = null)}
+    onOpen={() => {
+      if (contextMenuItem) {
+        handleGridItemClick(contextMenuItem)
+      }
+    }}
     onEditMetadata={() => {
       modalItem = contextMenuItem // Pass the item to the modal state
       showMetadataEditor = true
@@ -242,6 +272,10 @@ function handleShowContextMenu(item: LibraryItem, event: MouseEvent) {
     onSetLayout={() => {
       modalItem = contextMenuItem // Pass the item to the modal state
       showLayoutSelector = true
+    }}
+    onOpenFolderSettings={() => {
+      modalItem = contextMenuItem // Pass the item to the modal state
+      showFolderSettings = true
     }}
   />
 {/if}

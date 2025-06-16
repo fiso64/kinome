@@ -2,16 +2,27 @@
   let {
     item,
     position,
+    isTreeView,
     onClose,
+    onOpen,
     onEditMetadata,
-    onSetLayout
+    onSetLayout,
+    onOpenFolderSettings
   }: {
     item: LibraryItem
     position: { top: number; left: number }
+    isTreeView: boolean
     onClose: () => void
+    onOpen: () => void
     onEditMetadata: () => void
     onSetLayout: () => void
+    onOpenFolderSettings: () => void
   } = $props()
+
+  function handleOpen() {
+    onOpen()
+    onClose()
+  }
 
   function handleEdit() {
     onEditMetadata()
@@ -20,6 +31,11 @@
 
   function handleLayout() {
     onSetLayout()
+    onClose() // Also close the menu
+  }
+
+  function handleFolderSettings() {
+    onOpenFolderSettings()
     onClose() // Also close the menu
   }
 
@@ -49,12 +65,20 @@
   style="top: {position.top}px; left: {position.left}px;"
   onclick={(e) => e.stopPropagation()}
 >
+  {#if isTreeView && item.type === 'folder'}
+    <button class="context-menu-item" onclick={handleOpen}>
+      Open
+    </button>
+  {/if}
   <button class="context-menu-item" onclick={handleEdit}>
     Edit Metadata
   </button>
   {#if item.type === 'folder'}
     <button class="context-menu-item" onclick={handleLayout}>
       Set Children View...
+    </button>
+    <button class="context-menu-item" onclick={handleFolderSettings}>
+      Folder Settings...
     </button>
   {/if}
 </div>

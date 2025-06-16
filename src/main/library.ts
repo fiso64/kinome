@@ -178,6 +178,31 @@ import {
   cacheGenreLists
 } from './retriever'
 
+// Recursively collects all items that need metadata or posters, based on folder flags.
+function collectItemsToProcess(
+  folder: MediaFolder,
+  newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
+  itemsMissingPosters: LibraryItem[]
+) {
+  // Process children of the current folder if the flag is set.
+  if (folder.retrieve_children_metadata) {
+    for (const child of folder.children) {
+      if (typeof child.tmdbId === 'undefined') {
+        newItems.push({ item: child, hint: folder.children_type_hint })
+      } else if (child.tmdbId && !child.posterPath) {
+        itemsMissingPosters.push(child)
+      }
+    }
+  }
+
+  // Always recurse into subfolders to check their flags.
+  for (const child of folder.children) {
+    if (child.type === 'folder') {
+      collectItemsToProcess(child, newItems, itemsMissingPosters)
+    }
+  }
+}
+
 async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
   const libraryDataPath = getLibraryDataPath()
   if (!tmdbApiKey || !db.root) {
@@ -185,15 +210,12 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
     return
   }
 
-  // Group 1: New items needing a full metadata search.
-  const newItems = db.root.children.filter((item) => typeof item.tmdbId === 'undefined')
-  // Group 2: Existing items that are just missing a poster.
-  const itemsMissingPosters = db.root.children.filter(
-    (item) => item.tmdbId && !item.posterPath
-  )
+  const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
+  const itemsMissingPosters: LibraryItem[] = []
+  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters)
 
-  if (newItems.length === 0 && itemsMissingPosters.length === 0) {
-    console.log('No new items or missing posters to fetch.')
+  if (newItemsToFetch.length === 0 && itemsMissingPosters.length === 0) {
+    console.log('[Metadata] No new items or missing posters to fetch based on folder settings.')
     return
   }
 
@@ -201,20 +223,24 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
   await cacheGenreLists(tmdbApiKey)
 
   // Process new items by searching for them on TMDB.
-  if (newItems.length > 0) {
-    console.log(`Starting metadata fetch for ${newItems.length} new top-level items...`)
-    const task = async (item: LibraryItem): Promise<void> => {
-      await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath)
+  if (newItemsToFetch.length > 0) {
+    console.log(`[Metadata] Starting fetch for ${newItemsToFetch.length} new items...`)
+    const task = async (itemWithHint: {
+      item: LibraryItem
+      hint?: 'movie' | 'tv'
+    }): Promise<void> => {
+      const { item, hint } = itemWithHint
+      await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
       if (item.posterPath || item.tmdbId === null) {
         window.webContents.send('library-item-updated', item)
       }
     }
-    await processInChunks(newItems, 17, task)
+    await processInChunks(newItemsToFetch, 17, task)
   }
 
   // Re-fetch posters for existing items that are missing them.
   if (itemsMissingPosters.length > 0) {
-    console.log(`Starting poster refetch for ${itemsMissingPosters.length} items...`)
+    console.log(`[Metadata] Starting poster refetch for ${itemsMissingPosters.length} items...`)
     const task = async (item: LibraryItem): Promise<void> => {
       await refetchPoster(item, tmdbApiKey, libraryDataPath)
       if (item.posterPath) {
@@ -225,7 +251,7 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
   }
 
   await writeDb(db)
-  console.log('Finished all metadata/poster fetching and saved final DB.')
+  console.log('[Metadata] Finished all fetching and saved final DB.')
 }
 
 export function setupLibraryIpc(): void {
@@ -261,7 +287,12 @@ export function setupLibraryIpc(): void {
         if (oldItem) {
           const oldFolderProps =
             oldItem.type === 'folder'
-              ? { layout: oldItem.layout, childrenClickAction: oldItem.childrenClickAction }
+              ? {
+                  layout: oldItem.layout,
+                  childrenClickAction: oldItem.childrenClickAction,
+                  retrieve_children_metadata: oldItem.retrieve_children_metadata,
+                  children_type_hint: oldItem.children_type_hint
+                }
               : {}
 
           Object.assign(item, {
