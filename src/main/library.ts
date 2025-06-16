@@ -4,7 +4,14 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import type { Database, MediaFolder, LibraryItem, MediaFile } from './types'
-import { fetchAndApplyMetadata, fetchItemDetails, refetchPoster } from './retriever'
+import {
+  fetchAndApplyMetadata,
+  fetchItemDetails,
+  refetchPoster,
+  manualSearch,
+  getTmdbImages,
+  downloadImage
+} from './retriever'
 import { readSettings } from './settings'
 
 const LIBRARY_DATA_DIR_NAME = 'library'
@@ -182,13 +189,6 @@ async function processInChunks<T>(
     }
   }
 }
-
-import {
-  fetchAndApplyMetadata,
-  fetchItemDetails,
-  refetchPoster,
-  cacheGenreLists
-} from './retriever'
 
 // Recursively collects all items that need metadata or posters, based on folder flags.
 function collectItemsToProcess(
@@ -546,5 +546,138 @@ export function setupLibraryIpc(): void {
     } else {
       console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
     }
+  })
+
+  ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv') => {
+    const { tmdbApiKey } = await readSettings()
+    if (!tmdbApiKey) {
+      console.warn('Manual search skipped: No TMDB API key.')
+      return []
+    }
+    return manualSearch(query, type, tmdbApiKey)
+  })
+
+  ipcMain.handle(
+    'get-tmdb-images',
+    async (_, tmdbId: number, mediaType: 'movie' | 'tv', language: string) => {
+      const { tmdbApiKey } = await readSettings()
+      if (!tmdbApiKey) {
+        console.warn('Image fetch skipped: No TMDB API key.')
+        return { posters: [], backdrops: [] }
+      }
+      return getTmdbImages(tmdbId, mediaType, tmdbApiKey, language)
+    }
+  )
+
+  ipcMain.handle(
+    'apply-tmdb-result',
+    async (event, itemId: string, result: any, mediaType: 'movie' | 'tv') => {
+      if (!db || !db.root) return
+      const item = findItemById(itemId, db.root)
+      if (!item) return
+
+      const { tmdbApiKey } = await readSettings()
+      const libraryDataPath = getLibraryDataPath()
+      if (!tmdbApiKey) return
+
+      // Clear old data that will be replaced
+      item.overview = undefined
+      item.backdropPath = undefined
+      item.year = undefined
+      item.genres = []
+      item.posterPath = undefined // Clear poster so it gets re-fetched by fetchItemDetails
+
+      // Set new core identifiers
+      item.tmdbId = result.id
+      item.mediaType = mediaType
+      item.title = result.title
+
+      // This will fetch poster, backdrop, and other details (overview, year, genres)
+      await fetchItemDetails(item, tmdbApiKey, libraryDataPath)
+
+      // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
+      const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${tmdbApiKey}`
+      try {
+        const response = await fetch(detailUrl)
+        if (response.ok) {
+          const details = await response.json()
+          item.title = details.title || details.name
+        }
+      } catch (e) {
+        console.error('Could not re-verify title from TMDB details endpoint', e)
+      }
+
+      await writeDb(db)
+
+      const window = BrowserWindow.fromWebContents(event.sender)
+      window?.webContents.send('library-item-updated', item)
+    }
+  )
+
+  ipcMain.handle('select-local-image', async (): Promise<string | null> => {
+    const focusedWindow = BrowserWindow.getFocusedWindow()
+    if (!focusedWindow) return null
+
+    const result = await dialog.showOpenDialog(focusedWindow, {
+      properties: ['openFile'],
+      title: 'Select Image',
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle(
+    'set-image',
+    async (
+      event,
+      itemId: string,
+      imageType: 'poster' | 'backdrop',
+      source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+    ) => {
+      if (!db || !db.root) return
+      const item = findItemById(itemId, db.root)
+      if (!item) return
+
+      const libraryDataPath = getLibraryDataPath()
+      const imagesDir = path.join(libraryDataPath, 'images')
+      const extension = source.type === 'local' ? path.extname(source.path) : '.jpg'
+      const fileName =
+        imageType === 'poster' ? `${item.id}${extension}` : `${item.id}-backdrop${extension}`
+      const destPath = path.join(imagesDir, fileName)
+
+      try {
+        if (source.type === 'tmdb') {
+          const size = imageType === 'poster' ? 'w500' : 'original'
+          const url = `https://image.tmdb.org/t/p/${size}${source.path}`
+          await downloadImage(url, destPath)
+        } else {
+          // local
+          await fs.copyFile(source.path, destPath)
+        }
+
+        if (imageType === 'poster') item.posterPath = fileName
+        else item.backdropPath = fileName
+
+        await writeDb(db)
+        const window = BrowserWindow.fromWebContents(event.sender)
+        window?.webContents.send('library-item-updated', item)
+      } catch (err) {
+        console.error(`Failed to set image for ${itemId}:`, err)
+        dialog.showErrorBox('Image Error', `Failed to set image. Check logs for details.`)
+      }
+    }
+  )
+
+  ipcMain.handle('get-item-by-id', async (_, itemId: string): Promise<LibraryItem | null> => {
+    if (!db || !db.root) {
+      return null
+    }
+    // Return a deep copy to avoid issues with proxies and non-clonable objects
+    const item = findItemById(itemId, db.root)
+    return item ? JSON.parse(JSON.stringify(item)) : null
   })
 }

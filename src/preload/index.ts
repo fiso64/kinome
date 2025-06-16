@@ -13,6 +13,26 @@ const api = {
   updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
   getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
     ipcRenderer.invoke('get-autocomplete-suggestions'),
+  getItemById: (itemId: string): Promise<LibraryItem | null> =>
+    ipcRenderer.invoke('get-item-by-id', itemId),
+
+  // Manual Match
+  manualSearch: (query: string, type: 'movie' | 'tv'): Promise<any[]> =>
+    ipcRenderer.invoke('manual-search', query, type),
+  getTmdbImages: (
+    tmdbId: number,
+    mediaType: 'movie' | 'tv',
+    language: string
+  ): Promise<{ posters: any[]; backdrops: any[] }> =>
+    ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
+  applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
+    ipcRenderer.invoke('apply-tmdb-result', itemId, result, mediaType),
+  selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
+  setImage: (
+    itemId: string,
+    imageType: 'poster' | 'backdrop',
+    source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+  ): Promise<void> => ipcRenderer.invoke('set-image', itemId, imageType, source),
 
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>

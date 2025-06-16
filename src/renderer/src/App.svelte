@@ -8,6 +8,7 @@
   import ContextMenu from './components/ContextMenu.svelte'
   import MetadataEditor from './components/MetadataEditor.svelte'
   import FolderSettingsModal from './components/FolderSettingsModal.svelte'
+  import ManualSearchModal from './components/ManualSearchModal.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
 
   // Types are globally available from src/preload/index.d.ts
@@ -16,6 +17,7 @@
     | { type: 'layoutSelector'; item: MediaFolder }
     | { type: 'metadataEditor'; item: LibraryItem }
     | { type: 'folderSettings'; item: MediaFolder }
+    | { type: 'manualSearch'; item: LibraryItem }
 
   let viewStack: MediaFolder[] = $state([])
   let isScanning = $state(true) // For initial load or changing library folder
@@ -249,6 +251,8 @@ function handleShowContextMenu(
     <MetadataEditor item={activeModal.item} onClose={() => (activeModal = null)} />
   {:else if activeModal.type === 'folderSettings'}
     <FolderSettingsModal item={activeModal.item} onClose={() => (activeModal = null)} />
+  {:else if activeModal.type === 'manualSearch'}
+    <ManualSearchModal item={activeModal.item} onClose={() => (activeModal = null)} />
   {/if}
 {/if}
 
@@ -276,6 +280,11 @@ function handleShowContextMenu(
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
         activeModal = { type: 'folderSettings', item: contextMenuItem }
+      }
+    }}
+    onManualSearch={() => {
+      if (contextMenuItem) {
+        activeModal = { type: 'manualSearch', item: contextMenuItem }
       }
     }}
   />

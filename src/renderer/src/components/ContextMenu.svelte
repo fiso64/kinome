@@ -7,7 +7,8 @@
     onOpen,
     onEditMetadata,
     onSetLayout,
-    onOpenFolderSettings
+    onOpenFolderSettings,
+    onManualSearch
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -17,6 +18,7 @@
     onEditMetadata: () => void
     onSetLayout: () => void
     onOpenFolderSettings: () => void
+    onManualSearch: () => void
   } = $props()
 
   function handleOpen() {
@@ -37,6 +39,11 @@
   function handleFolderSettings() {
     onOpenFolderSettings()
     onClose() // Also close the menu
+  }
+
+  function handleManualSearch() {
+    onManualSearch()
+    onClose()
   }
 
   $effect(() => {
@@ -72,6 +79,9 @@
   {/if}
   <button class="context-menu-item" onclick={handleEdit}>
     Edit Metadata
+  </button>
+  <button class="context-menu-item" onclick={handleManualSearch}>
+    Manual Search...
   </button>
   {#if item.type === 'folder'}
     <button class="context-menu-item" onclick={handleLayout}>

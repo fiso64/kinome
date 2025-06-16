@@ -53,6 +53,7 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
+      // Library
       getLibraryRoot: () => Promise<MediaFolder | null>
       scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
@@ -64,8 +65,24 @@ declare global {
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       updateItem: (item: LibraryItem) => Promise<void>
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
+      getItemById: (itemId: string) => Promise<LibraryItem | null>
+      // Manual Match
+      manualSearch: (query: string, type: 'movie' | 'tv') => Promise<any[]>
+      getTmdbImages: (
+        tmdbId: number,
+        mediaType: 'movie' | 'tv',
+        language: string
+      ) => Promise<{ posters: any[]; backdrops: any[] }>
+      applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv') => Promise<void>
+      selectLocalImage: () => Promise<string | null>
+      setImage: (
+        itemId: string,
+        imageType: 'poster' | 'backdrop',
+        source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+      ) => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
+      // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void
       closeWindow: () => void

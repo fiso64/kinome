@@ -70,7 +70,7 @@ function parseTitle(name: string): string {
   return cleaned.replace(/\s+/g, ' ').trim()
 }
 
-async function downloadImage(url: string, destinationPath: string): Promise<void> {
+export async function downloadImage(url: string, destinationPath: string): Promise<void> {
   try {
     // Ensure the destination directory exists before writing the file.
     const dir = path.dirname(destinationPath)
@@ -243,9 +243,24 @@ export async function fetchItemDetails(
     }
     const details = await response.json()
 
+    const imagesDir = getImagesPath(libraryDataPath)
+
+    // Download poster if it's missing
+    if (details.poster_path && !item.posterPath) {
+      const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
+      const posterFileName = `${item.id}.jpg`
+      const posterDestPath = path.join(imagesDir, posterFileName)
+      try {
+        await downloadImage(posterUrl, posterDestPath)
+        item.posterPath = posterFileName
+        console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
+      } catch {
+        // Error is logged inside downloadImage
+      }
+    }
+
     if (details.backdrop_path) {
       const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
-      const imagesDir = getImagesPath(libraryDataPath)
       const backdropFileName = `${item.id}-backdrop.jpg`
       const backdropDestPath = path.join(imagesDir, backdropFileName)
       try {
@@ -272,5 +287,70 @@ export async function fetchItemDetails(
     }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)
+  }
+}
+
+export async function manualSearch(
+  query: string,
+  type: 'movie' | 'tv',
+  tmdbApiKey: string
+): Promise<any[]> {
+  if (!query) return []
+  const searchUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${tmdbApiKey}&query=${encodeURIComponent(
+    query
+  )}`
+
+  try {
+    const searchResponse = await fetch(searchUrl)
+    if (!searchResponse.ok) {
+      console.error(`TMDB manual search failed for "${query}": ${searchResponse.statusText}`)
+      return []
+    }
+    const searchResults = await searchResponse.json()
+    // Return a curated list of results
+    return searchResults.results.map((r) => ({
+      id: r.id,
+      title: r.title || r.name,
+      year: r.release_date
+        ? new Date(r.release_date).getFullYear()
+        : r.first_air_date
+          ? new Date(r.first_air_date).getFullYear()
+          : null,
+      poster_path: r.poster_path,
+      overview: r.overview
+    }))
+  } catch (error) {
+    console.error(`Error during manual search for "${query}":`, error)
+    return []
+  }
+}
+
+export async function getTmdbImages(
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  tmdbApiKey: string,
+  language: string
+): Promise<{ posters: any[]; backdrops: any[] }> {
+  if (!tmdbId) return { posters: [], backdrops: [] }
+  const langParam =
+    language && language !== 'none'
+      ? `&language=${language}&include_image_language=${language},null`
+      : ''
+  const imagesUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/images?api_key=${tmdbApiKey}${langParam}`
+
+  try {
+    const response = await fetch(imagesUrl)
+    if (!response.ok) {
+      console.error(`TMDB image fetch failed for "${tmdbId}": ${response.statusText}`)
+      return { posters: [], backdrops: [] }
+    }
+    const images = await response.json()
+    return {
+      posters: images.posters || [],
+      backdrops: images.backdrops || []
+    }
+  } catch (error) {
+    console.error(`Error fetching images for "${tmdbId}":`, error)
+    return { posters: [], backdrops: [] }
   }
 }
