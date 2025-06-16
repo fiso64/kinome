@@ -5,17 +5,21 @@
   type SearchPill = { key: string; value: string; id: string }
 
   let {
+    initialQuery,
     suggestions,
     onQueryChange,
     element = $bindable()
   }: {
+    initialQuery?: { text: string; tags: { key: string; value: string }[] }
     suggestions: AutocompleteSuggestions
     onQueryChange: (query: { text: string; tags: { key: string; value: string }[] }) => void
     element?: HTMLInputElement
   } = $props()
 
-  let pills = $state<SearchPill[]>([])
-  let currentInput = $state('')
+  let pills = $state<SearchPill[]>(
+    initialQuery?.tags.map((t) => ({ ...t, id: crypto.randomUUID() })) ?? []
+  )
+  let currentInput = $state(initialQuery?.text ?? '')
 
   let autocomplete = $state<{
     show: boolean

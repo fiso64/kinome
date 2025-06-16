@@ -18,10 +18,9 @@
   let showLayoutSelector = $state(false)
   let showMetadataEditor = $state(false)
   let showFolderSettings = $state(false)
-  let searchQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
-    text: '',
-    tags: []
-  })
+  let searchText = $state('')
+  let searchTags = $state<{ key: string; value: string }[]>([])
+  const searchQuery = $derived({ text: searchText, tags: searchTags })
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     genres: [],
     tagKeys: [],
@@ -55,10 +54,12 @@ let modalItem = $state<LibraryItem | null>(null) // Item for the currently open 
   })
 
   $effect(() => {
-    // When the current folder changes, or we enter/exit detail view, reset search.
+    // When the current folder changes, or we enter/exit detail view, reset search text.
     void currentFolder?.id
     void selectedItemForDetailView
-    searchQuery = { text: '', tags: [] }
+
+    // This effect does not depend on `searchText`, so it only runs on navigation changes.
+    searchText = ''
   })
 
   // Set up a listener for real-time metadata updates from the main process.
@@ -199,6 +200,13 @@ let modalItem = $state<LibraryItem | null>(null) // Item for the currently open 
     // This can be implemented in the future to handle forward navigation.
   }
 
+  function handleSearchByTag(key: string, value: string): void {
+    selectedItemForDetailView = null // Exit detail view to see the search results
+    // Clicking a genre tag starts a new search for that genre, clearing other tags.
+    searchText = ''
+    searchTags = [{ key, value }]
+  }
+
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
       openSettings: () => (showSettings = true),
@@ -303,8 +311,12 @@ function handleShowContextMenu(
       <div class="search-container">
         {#if currentFolder && !selectedItemForDetailView}
           <SearchInput
+            initialQuery={searchQuery}
             suggestions={allAutocompleteSuggestions}
-            onQueryChange={(newQuery) => (searchQuery = newQuery)}
+            onQueryChange={(newQuery) => {
+              searchText = newQuery.text
+              searchTags = newQuery.tags
+            }}
             bind:element={searchInputEl}
           />
         {/if}
@@ -383,6 +395,7 @@ function handleShowContextMenu(
           item={selectedItemForDetailView}
           onPlayFile={handlePlayFile}
           onNavigateFolder={handleFolderClickInDetailView}
+          onSearchByTag={handleSearchByTag}
           showContextMenu={handleShowContextMenu}
         />
       {/if}

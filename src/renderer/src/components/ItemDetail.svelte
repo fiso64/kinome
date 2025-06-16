@@ -7,12 +7,14 @@
     item,
     onNavigateFolder,
     onPlayFile,
-    showContextMenu
+    showContextMenu,
+    onSearchByTag
   }: {
     item: LibraryItem
     onNavigateFolder: (folder: MediaFolder) => void
     onPlayFile: (file: MediaFile) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
+    onSearchByTag: (key: string, value: string) => void
   } = $props()
 
   // Create a reactive copy of the item to hold fetched details
@@ -95,7 +97,9 @@
           {#if detailedItem.genres && detailedItem.genres.length > 0}
             <div class="genres">
               {#each detailedItem.genres as genre}
-                <span class="genre-tag">{genre}</span>
+                <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
+                  {genre}
+                </button>
               {/each}
             </div>
           {/if}
@@ -259,6 +263,16 @@
     padding: 0.2rem 0.6rem;
     border-radius: 12px;
     font-size: 0.8rem;
+    border: none;
+    color: var(--ev-c-text-2);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .genre-tag:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: var(--ev-c-text-1);
   }
 
   .play-button {
