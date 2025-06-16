@@ -7,7 +7,7 @@
   let tmdbApiKey = $state('')
   let libraryPath = $state('')
 
-$effect(() => {
+  $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''

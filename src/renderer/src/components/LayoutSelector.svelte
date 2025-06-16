@@ -52,7 +52,7 @@
     onClose()
   }
 
-$effect(() => {
+  $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose()

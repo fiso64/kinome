@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { MediaFile, MediaFolder } from '../main/types'
+import type { MediaFile, MediaFolder, LibraryItem, AutocompleteSuggestions } from '../main/types'
 
 // Custom APIs for renderer
 const api = {
@@ -16,7 +16,7 @@ const api = {
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-by-id', itemId),
 
-// Manual Match
+  // Manual Match
   manualSearch: (query: string, type: 'movie' | 'tv', year?: string): Promise<any[]> =>
     ipcRenderer.invoke('manual-search', query, type, year),
   getTmdbImages: (

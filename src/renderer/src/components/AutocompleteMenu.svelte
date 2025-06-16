@@ -35,9 +35,11 @@
           ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       } else if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault()
+        event.stopPropagation()
         onSelect(suggestions[activeIndex])
       } else if (event.key === 'Escape') {
         event.preventDefault()
+        event.stopPropagation()
         onClose()
       }
     }

@@ -48,3 +48,9 @@ export interface Database {
   mediaSourcePath: string | null
   root: MediaFolder | null
 }
+
+export interface AutocompleteSuggestions {
+  genres: string[]
+  tagKeys: string[]
+  tagValues: Record<string, string[]>
+}

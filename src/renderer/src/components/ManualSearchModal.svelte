@@ -24,7 +24,7 @@
   let isSettingImage = $state(false)
   let applyingResultId = $state<number | null>(null)
 
-// Match tab state
+  // Match tab state
   let searchQuery = $state(item.title ?? item.name)
   let searchYear = $state(item.year?.toString() ?? '')
   let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
@@ -36,7 +36,7 @@
   let posters = $state<TmdbImage[]>([])
   let backdrops = $state<TmdbImage[]>([])
 
-async function performSearch() {
+  async function performSearch() {
     if (!searchQuery.trim() || isSearching) return
     isSearching = true
     searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear)
@@ -133,7 +133,7 @@ async function performSearch() {
 
     <div class="tab-content">
       {#if activeTab === 'match'}
-<form
+        <form
           class="search-form"
           onsubmit={(e) => {
             e.preventDefault()
@@ -190,7 +190,7 @@ async function performSearch() {
         <div class="artwork-controls">
           <div>
             <label for="lang-select">Image Language:</label>
-<select id="lang-select" bind:value={imageLang} disabled={isFetchingArtwork}>
+            <select id="lang-select" bind:value={imageLang} disabled={isFetchingArtwork}>
               <option value="en">English</option>
               <option value="ja">Japanese</option>
               <option value="de">German</option>
@@ -378,7 +378,7 @@ async function performSearch() {
     font-family: inherit;
     font-size: 1rem;
   }
-.search-form .title-input {
+  .search-form .title-input {
     flex-grow: 1;
   }
   .search-form .year-input {

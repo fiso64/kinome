@@ -3,7 +3,13 @@ import { exec } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
-import type { Database, MediaFolder, LibraryItem, MediaFile } from './types'
+import type {
+  Database,
+  MediaFolder,
+  LibraryItem,
+  MediaFile,
+  AutocompleteSuggestions
+} from './types'
 import {
   cacheGenreLists,
   fetchAndApplyMetadata,
@@ -43,7 +49,7 @@ async function readDb(): Promise<Database | null> {
     const parsedDb = JSON.parse(data) as Database
     if (parsedDb.version !== DB_VERSION) {
       console.warn(
-        `Database version mismatch. Expected ${DB_VERSION}, got ${db.version}. Ignoring old DB.`
+        `Database version mismatch. Expected ${DB_VERSION}, got ${parsedDb.version}. Ignoring old DB.`
       )
       return null
     }
@@ -216,7 +222,7 @@ function collectItemsToProcess(
   }
 }
 
-async function getAutocompleteSuggestions() {
+async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
     return { genres: [], tagKeys: [], tagValues: {} }
   }
@@ -559,7 +565,7 @@ export function setupLibraryIpc(): void {
     }
   })
 
-ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv', year?: string) => {
+  ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv', year?: string) => {
     const { tmdbApiKey } = await readSettings()
     if (!tmdbApiKey) {
       console.warn('Manual search skipped: No TMDB API key.')
