@@ -41,16 +41,16 @@
     }
   ]
 
-async function handleSave() {
-  // Create a deep, plain JavaScript object copy to ensure it's clonable for IPC.
-  const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
-  // Apply the changes
-  updatedItem.layout = selectedLayout
-  updatedItem.childrenClickAction = selectedClickAction
+  async function handleSave() {
+    // Create a deep, plain JavaScript object copy to ensure it's clonable for IPC.
+    const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
+    // Apply the changes
+    updatedItem.layout = selectedLayout
+    updatedItem.childrenClickAction = selectedClickAction
 
-  await window.api.updateItem(updatedItem)
-  onClose()
-}
+    await window.api.updateItem(updatedItem)
+    onClose()
+  }
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
@@ -75,39 +75,39 @@ async function handleSave() {
     <h2>Set Children View Layout</h2>
     <p class="help-text">Choose how the contents of "{item.title ?? item.name}" are displayed.</p>
 
-  <div class="layout-options">
-    {#each layouts as layout}
-      <label class="layout-option">
-        <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
-        <div class="option-details">
-          <div class="option-label">{layout.label}</div>
-          <div class="option-description">{layout.description}</div>
-        </div>
-      </label>
-    {/each}
-  </div>
+    <div class="layout-options">
+      {#each layouts as layout}
+        <label class="layout-option">
+          <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
+          <div class="option-details">
+            <div class="option-label">{layout.label}</div>
+            <div class="option-description">{layout.description}</div>
+          </div>
+        </label>
+      {/each}
+    </div>
 
-  <div class="divider"></div>
-  <h3>On Click...</h3>
-  <p class="help-text">
-    Choose what happens when clicking a child item. This does not apply to Tree view.
-  </p>
-  <div class="layout-options">
-    {#each clickActions as action}
-      <label class="layout-option">
-        <input
-          type="radio"
-          name="click-action"
-          bind:group={selectedClickAction}
-          value={action.value}
-        />
-        <div class="option-details">
-          <div class="option-label">{action.label}</div>
-          <div class="option-description">{action.description}</div>
-        </div>
-      </label>
-    {/each}
-  </div>
+    <div class="divider"></div>
+    <h3>On Click...</h3>
+    <p class="help-text">
+      Choose what happens when clicking a child item. This does not apply to Tree view.
+    </p>
+    <div class="layout-options">
+      {#each clickActions as action}
+        <label class="layout-option">
+          <input
+            type="radio"
+            name="click-action"
+            bind:group={selectedClickAction}
+            value={action.value}
+          />
+          <div class="option-details">
+            <div class="option-label">{action.label}</div>
+            <div class="option-description">{action.description}</div>
+          </div>
+        </label>
+      {/each}
+    </div>
 
     <div class="actions">
       <button onclick={handleSave}>Save & Close</button>

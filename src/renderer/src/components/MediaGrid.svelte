@@ -87,8 +87,15 @@
     displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
   )
 
-  // For tabs, pre-select the first folder tab if available
-  let activeTabId = $state(folderItems[0]?.id ?? null)
+  // For tabs, pre-select the first folder tab if available, and reset if it becomes invalid.
+  let activeTabId = $state<string | null>(null)
+
+  $effect(() => {
+    const currentFolderIds = folderItems.map((f) => f.id)
+    if (activeTabId === null || !currentFolderIds.includes(activeTabId)) {
+      activeTabId = folderItems[0]?.id ?? null
+    }
+  })
 </script>
 
 {#if layout === 'grid'}

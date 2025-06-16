@@ -73,23 +73,13 @@
   onclick={(e) => e.stopPropagation()}
 >
   {#if isTreeView && item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleOpen}>
-      Open
-    </button>
+    <button class="context-menu-item" onclick={handleOpen}> Open </button>
   {/if}
-  <button class="context-menu-item" onclick={handleEdit}>
-    Edit Metadata
-  </button>
-  <button class="context-menu-item" onclick={handleManualSearch}>
-    Manual Search...
-  </button>
+  <button class="context-menu-item" onclick={handleEdit}> Edit Metadata </button>
+  <button class="context-menu-item" onclick={handleManualSearch}> Manual Search... </button>
   {#if item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleLayout}>
-      Set Children View...
-    </button>
-    <button class="context-menu-item" onclick={handleFolderSettings}>
-      Folder Settings...
-    </button>
+    <button class="context-menu-item" onclick={handleLayout}> Set Children View... </button>
+    <button class="context-menu-item" onclick={handleFolderSettings}> Folder Settings... </button>
   {/if}
 </div>
 

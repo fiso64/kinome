@@ -28,7 +28,7 @@
   let searchQuery = $state(item.title ?? item.name)
   let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
   let searchResults = $state<SearchResult[]>([])
-  let searchInput: HTMLInputElement
+  let searchInput = $state<HTMLInputElement | undefined>(undefined)
 
   // Artwork tab state
   let imageLang = $state('en')
@@ -93,8 +93,6 @@
     element.scrollLeft += event.deltaY
   }
 
-
-
   // Keyboard shortcut and initial focus
   $effect(() => {
     // Focus the input when the modal opens and the input is rendered
@@ -124,7 +122,7 @@
         <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
           >Match</button
         >
-<button
+        <button
           class:active={activeTab === 'artwork'}
           onclick={() => (activeTab = 'artwork')}
           disabled={!item.tmdbId}>Artwork</button
@@ -134,8 +132,19 @@
 
     <div class="tab-content">
       {#if activeTab === 'match'}
-        <form class="search-form" onsubmit={(e) => { e.preventDefault(); performSearch(); }}>
-          <input type="text" bind:this={searchInput} bind:value={searchQuery} placeholder="Enter title to search..." />
+        <form
+          class="search-form"
+          onsubmit={(e) => {
+            e.preventDefault()
+            performSearch()
+          }}
+        >
+          <input
+            type="text"
+            bind:this={searchInput}
+            bind:value={searchQuery}
+            placeholder="Enter title to search..."
+          />
           <select bind:value={searchType}>
             <option value="movie">Movie</option>
             <option value="tv">TV</option>
@@ -190,7 +199,9 @@
                 <div class="current-image">
                   {#if item.posterPath}
                     <img
-                      src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+                      src="media-browser-asset://images/{item.posterPath}{item._v
+                        ? `?v=${item._v}`
+                        : ''}"
                       alt="Current Poster"
                     />
                   {:else}
@@ -207,7 +218,8 @@
                 {#each posters as image (image.file_path)}
                   <button
                     class="image-thumb"
-                    onclick={() => handleSetImage('poster', { type: 'tmdb', path: image.file_path })}
+                    onclick={() =>
+                      handleSetImage('poster', { type: 'tmdb', path: image.file_path })}
                     disabled={isSettingImage}
                   >
                     <img
@@ -228,7 +240,9 @@
                 <div class="current-image backdrop">
                   {#if item.backdropPath}
                     <img
-                      src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
+                      src="media-browser-asset://images/{item.backdropPath}{item._v
+                        ? `?v=${item._v}`
+                        : ''}"
                       alt="Current Backdrop"
                     />
                   {:else}
@@ -245,7 +259,8 @@
                 {#each backdrops as image (image.file_path)}
                   <button
                     class="image-thumb backdrop"
-                    onclick={() => handleSetImage('backdrop', { type: 'tmdb', path: image.file_path })}
+                    onclick={() =>
+                      handleSetImage('backdrop', { type: 'tmdb', path: image.file_path })}
                     disabled={isSettingImage}
                   >
                     <img

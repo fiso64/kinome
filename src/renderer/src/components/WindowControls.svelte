@@ -42,9 +42,7 @@
   >
     {#if isMaximized}
       <svg width="12" height="12" viewBox="0 0 12 12">
-        <path
-          fill="currentColor"
-          d="M2 3v7h7V3H2zm6 6H3V4h5v5zM4 1h5v1H4V1zM3 2h1V1h5v2H3V2z"
+        <path fill="currentColor" d="M2 3v7h7V3H2zm6 6H3V4h5v5zM4 1h5v1H4V1zM3 2h1V1h5v2H3V2z"
         ></path>
       </svg>
     {:else}

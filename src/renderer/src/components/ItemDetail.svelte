@@ -98,9 +98,7 @@
           {/if}
         </div>
         {#if item.type === 'file'}
-          <button class="play-button" onclick={() => onPlayFile(item)}>
-            ▶ Play
-          </button>
+          <button class="play-button" onclick={() => onPlayFile(item)}> ▶ Play </button>
         {/if}
       </div>
     </div>
@@ -281,33 +279,6 @@
   }
   .play-button:hover {
     transform: scale(1.05);
-  }
-
-  .context-menu {
-    position: fixed; /* Position relative to the viewport */
-    background-color: var(--ev-c-black-soft);
-    border: 1px solid var(--ev-c-black-mute);
-    border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-    z-index: 1000; /* Ensure it's on top of everything */
-    width: max-content;
-    overflow: hidden;
-  }
-
-  .context-menu-item {
-    display: block;
-    width: 100%;
-    padding: 0.75rem 1.25rem;
-    background: none;
-    border: none;
-    color: var(--color-text);
-    text-align: left;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .context-menu-item:hover {
-    background-color: var(--ev-c-gray-2);
   }
 
   .overview {

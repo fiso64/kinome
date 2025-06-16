@@ -135,7 +135,8 @@ export async function fetchAndApplyMetadata(
     }
 
     const searchResults = await searchResponse.json()
-    const firstResultTitle = searchResults.results?.[0]?.title ?? searchResults.results?.[0]?.name ?? 'None'
+    const firstResultTitle =
+      searchResults.results?.[0]?.title ?? searchResults.results?.[0]?.name ?? 'None'
     console.log(
       `[TMDB] Query: "${query}" | Endpoint: ${endpoint} | Top Result: "${firstResultTitle}"`
     )
@@ -192,7 +193,7 @@ export async function refetchPoster(
   libraryDataPath: string
 ): Promise<void> {
   if (!item.tmdbId || !item.mediaType) {
-    console.log(`Skipping poster refetch for "${item.name}", no tmdbId or mediaType.`);
+    console.log(`Skipping poster refetch for "${item.name}", no tmdbId or mediaType.`)
     return
   }
 

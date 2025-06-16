@@ -43,13 +43,13 @@
       {#if item.type === 'folder'}
         <span class="chevron">{isExpanded ? '▾' : '▸'}</span>
       {/if}
-    <div class="icon">
-      {#if item.posterPath}
-        <img
-          src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-          alt={item.title ?? item.name}
-          loading="lazy"
-        />
+      <div class="icon">
+        {#if item.posterPath}
+          <img
+            src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+            alt={item.title ?? item.name}
+            loading="lazy"
+          />
         {:else}
           {item.type === 'folder' ? '📁' : '📄'}
         {/if}

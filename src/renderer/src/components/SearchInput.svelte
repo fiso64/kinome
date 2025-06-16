@@ -69,13 +69,11 @@
     if (valueMatch) {
       const key = valueMatch[1]
       const value = valueMatch[2]
-      const source =
-        key === 'genre'
-          ? suggestions.genres
-          : suggestions.tagValues[key] ?? []
+      const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
 
       autocomplete.suggestions = source.filter(
-        (s) => s.toLowerCase().startsWith(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()
+        (s) =>
+          s.toLowerCase().startsWith(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()
       )
       autocomplete.type = 'value'
       autocomplete.activeKey = key

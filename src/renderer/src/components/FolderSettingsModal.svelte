@@ -63,9 +63,7 @@
         <option value="movie">Movie</option>
         <option value="tv">TV Show</option>
       </select>
-      <p class="help-text">
-        Improves matching accuracy by telling the retriever what to look for.
-      </p>
+      <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
     </div>
 
     <div class="actions">

@@ -1,10 +1,7 @@
 <script lang="ts">
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
-  let {
-    close,
-    scanLibrary
-  }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
+  let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
 
   let playerCommand = $state('')
   let tmdbApiKey = $state('')
@@ -85,9 +82,7 @@
       <label>Current Path</label>
       <div class="path-display">{libraryPath}</div>
       <button class="secondary" onclick={handleChangeLibrary}>Change Folder...</button>
-      <p class="help-text">
-        Changing the folder will start a full re-scan of the new location.
-      </p>
+      <p class="help-text">Changing the folder will start a full re-scan of the new location.</p>
     </div>
 
     <div class="actions">

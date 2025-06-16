@@ -31,7 +31,7 @@
     tagValues: {}
   })
   let selectedItemForDetailView: LibraryItem | null = $state(null)
-  let searchInputEl: HTMLInputElement
+  let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
   let activeModal = $state<ActiveModal | null>(null)
 
   // Global Context Menu State
@@ -224,17 +224,17 @@
     return () => cleanupShortcuts()
   })
 
-function handleShowContextMenu(
-  item: LibraryItem,
-  event: MouseEvent,
-  options?: { layout?: string }
-) {
-  event.preventDefault()
-  event.stopPropagation()
-  contextMenuItem = item
-  contextMenuLayout = options?.layout
-  contextMenuPosition = { top: event.clientY, left: event.clientX }
-}
+  function handleShowContextMenu(
+    item: LibraryItem,
+    event: MouseEvent,
+    options?: { layout?: string }
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    contextMenuItem = item
+    contextMenuLayout = options?.layout
+    contextMenuPosition = { top: event.clientY, left: event.clientX }
+  }
 </script>
 
 {#if activeModal}
@@ -351,7 +351,11 @@ function handleShowContextMenu(
             </svg>
           </button>
         {/if}
-        <button onclick={() => (activeModal = { type: 'settings' })} title="Settings" class="settings-button">⚙️</button>
+        <button
+          onclick={() => (activeModal = { type: 'settings' })}
+          title="Settings"
+          class="settings-button">⚙️</button
+        >
       </div>
     </div>
     <WindowControls />
@@ -401,19 +405,6 @@ function handleShowContextMenu(
     display: flex;
     justify-content: center;
     min-width: 150px;
-  }
-
-  .search-container input {
-    -webkit-app-region: no-drag;
-    width: 100%;
-    max-width: 400px;
-    padding: 0.5rem 0.9rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 5px;
-    font-size: 1rem;
-    font-weight: 600;
   }
 
   main {
