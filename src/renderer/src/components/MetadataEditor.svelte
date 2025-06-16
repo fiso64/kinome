@@ -1,21 +1,18 @@
 <script lang="ts">
   import AutocompleteMenu from './AutocompleteMenu.svelte'
+  import GenreInput from './GenreInput.svelte'
   let { item, onClose }: { item: LibraryItem; onClose: () => void } = $props()
 
   // --- Form State ---
   let title = $state(item.title ?? item.name)
   let year = $state(item.year?.toString() ?? '')
   let overview = $state(item.overview ?? '')
-  // Note: genres is now an array of strings
   let genres = $state<string[]>(JSON.parse(JSON.stringify(item.genres ?? [])))
-  let currentGenreInput = $state('')
-  let genreInputElement: HTMLInputElement
-
   let tags = $state(
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
 
-  // --- Autocomplete State ---
+  // --- Autocomplete State (for Tags only) ---
   let allSuggestions = $state<{
     genres: string[]
     tagKeys: string[]
@@ -27,7 +24,7 @@
   let autocompletePosition = $state({ top: 0, left: 0 })
   let activeInput = $state<{
     element: HTMLInputElement | HTMLTextAreaElement
-    type: 'genres' | 'tagKey' | 'tagValue'
+    type: 'tagKey' | 'tagValue'
     tagId?: string
   } | null>(null)
 
@@ -35,38 +32,8 @@
     window.api.getAutocompleteSuggestions().then((data) => (allSuggestions = data))
   })
 
-  // --- Genre Input Functions ---
-  function addGenreFromInput() {
-    const newGenre = currentGenreInput.trim()
-    if (newGenre && !genres.includes(newGenre)) {
-      genres = [...genres, newGenre]
-    }
-    currentGenreInput = ''
-    showAutocomplete = false
-  }
-
-  function removeGenre(index: number) {
-    genres.splice(index, 1)
-    genres = genres
-  }
-
-  function handleGenreKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Enter' || event.key === ',') {
-      event.preventDefault()
-      addGenreFromInput()
-    } else if (event.key === 'Backspace' && currentGenreInput === '' && genres.length > 0) {
-      event.preventDefault()
-      genres.pop()
-      genres = genres
-    }
-  }
-
-  // --- Generic Handlers ---
-  function handleFocus(
-    event: FocusEvent,
-    type: 'genres' | 'tagKey' | 'tagValue',
-    tagId?: string
-  ) {
+  // --- Generic Handlers (for Tags only) ---
+  function handleFocus(event: FocusEvent, type: 'tagKey' | 'tagValue', tagId?: string) {
     const element = event.target as HTMLInputElement
     activeInput = { element, type, tagId }
   }
@@ -75,20 +42,18 @@
     if (!activeInput) return
 
     const { element, type, tagId } = activeInput
-    const value = type === 'genres' ? currentGenreInput : element.value
+    const value = element.value
     const cursorPosition = element.selectionStart ?? 0
     let currentTerm = ''
     let source: string[] = []
 
-    if (type === 'genres') {
-      currentTerm = value.trim()
-      source = allSuggestions.genres
-    } else if (type === 'tagValue') {
+    if (type === 'tagValue') {
       const lastCommaIndex = value.lastIndexOf(',', cursorPosition - 1)
       currentTerm = value.substring(lastCommaIndex + 1, cursorPosition).trim()
       const tagKey = tags.find((t) => t.id === tagId)?.key
       source = allSuggestions.tagValues[tagKey ?? ''] ?? []
     } else {
+      // type === 'tagKey'
       currentTerm = value.trim()
       source = allSuggestions.tagKeys
     }
@@ -107,23 +72,19 @@
       const rect = element.getBoundingClientRect()
       let left = rect.left
 
-      if (type !== 'genres') {
-        const textBefore = element.value.substring(0, cursorPosition)
-        const mirror = document.createElement('span')
-        const style = window.getComputedStyle(element)
-        Object.assign(mirror.style, {
-          font: style.font,
-          letterSpacing: style.letterSpacing,
-          visibility: 'hidden',
-          position: 'absolute'
-        })
-        mirror.textContent = textBefore
-        document.body.appendChild(mirror)
-        left += mirror.offsetWidth - element.scrollLeft
-        document.body.removeChild(mirror)
-      } else {
-        left += 4 // Position relative to start of input
-      }
+      const textBefore = element.value.substring(0, cursorPosition)
+      const mirror = document.createElement('span')
+      const style = window.getComputedStyle(element)
+      Object.assign(mirror.style, {
+        font: style.font,
+        letterSpacing: style.letterSpacing,
+        visibility: 'hidden',
+        position: 'absolute'
+      })
+      mirror.textContent = textBefore
+      document.body.appendChild(mirror)
+      left += mirror.offsetWidth - element.scrollLeft
+      document.body.removeChild(mirror)
 
       autocompletePosition = { top: rect.bottom + 4, left: Math.min(left, window.innerWidth - 200) }
       showAutocomplete = true
@@ -138,47 +99,38 @@
     showAutocomplete = false
     const { element, type, tagId } = activeInput
 
-    if (type === 'genres') {
-      if (!genres.includes(suggestion)) {
-        genres = [...genres, suggestion]
-      }
-      currentGenreInput = ''
-      // Keep the input active for subsequent genre additions
-      queueMicrotask(() => element.focus())
+    const value = element.value
+    const cursorPosition = element.selectionStart ?? 0
+    let newValue: string, newCursorPos: number
+
+    if (type === 'tagValue') {
+      const lastCommaIndex = value.lastIndexOf(',', cursorPosition - 1)
+      const before = value.substring(0, lastCommaIndex + 1)
+      const after = value.substring(cursorPosition)
+      const prefix = before && !before.endsWith(' ') ? ' ' : ''
+      newValue = before + prefix + suggestion + ', ' + after.trimStart()
+      newCursorPos = (before + prefix + suggestion + ', ').length
     } else {
-      const value = element.value
-      const cursorPosition = element.selectionStart ?? 0
-      let newValue: string, newCursorPos: number
-
-      if (type === 'tagValue') {
-        const lastCommaIndex = value.lastIndexOf(',', cursorPosition - 1)
-        const before = value.substring(0, lastCommaIndex + 1)
-        const after = value.substring(cursorPosition)
-        const prefix = before && !before.endsWith(' ') ? ' ' : ''
-        newValue = before + prefix + suggestion + ', ' + after.trimStart()
-        newCursorPos = (before + prefix + suggestion + ', ').length
-      } else {
-        // tagKey
-        newValue = suggestion
-        newCursorPos = newValue.length
-      }
-
-      // Update state
-      if (type === 'tagKey' && tagId) {
-        const tag = tags.find((t) => t.id === tagId)
-        if (tag) tag.key = newValue
-      } else if (type === 'tagValue' && tagId) {
-        const tag = tags.find((t) => t.id === tagId)
-        if (tag) tag.value = newValue
-      }
-
-      // Restore focus and de-select this input
-      queueMicrotask(() => {
-        element.focus()
-        element.setSelectionRange(newCursorPos, newCursorPos)
-      })
-      activeInput = null
+      // tagKey
+      newValue = suggestion
+      newCursorPos = newValue.length
     }
+
+    // Update state
+    if (type === 'tagKey' && tagId) {
+      const tag = tags.find((t) => t.id === tagId)
+      if (tag) tag.key = newValue
+    } else if (type === 'tagValue' && tagId) {
+      const tag = tags.find((t) => t.id === tagId)
+      if (tag) tag.value = newValue
+    }
+
+    // Restore focus and de-select this input
+    queueMicrotask(() => {
+      element.focus()
+      element.setSelectionRange(newCursorPos, newCursorPos)
+    })
+    activeInput = null
   }
 
   // --- Form Actions ---
@@ -202,7 +154,8 @@
     updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
 
     updatedItem.overview = overview
-    updatedItem.genres = genres
+    // Convert the reactive genres array to a plain array before sending over IPC
+    updatedItem.genres = [...genres]
 
     updatedItem.tags = tags.reduce((acc, tag) => {
       if (tag.key) {
@@ -253,33 +206,7 @@
       </div>
       <div class="form-group">
         <label for="genres-input">Genres</label>
-        <div class="pills-input-container" onclick={() => genreInputElement?.focus()}>
-          {#each genres as genre, i (genre)}
-            <div class="pill">
-              {genre}
-              <button
-                type="button"
-                class="remove-pill"
-                onclick={(e) => {
-                  e.stopPropagation() // prevent container click
-                  removeGenre(i)
-                }}>&times;</button
-              >
-            </div>
-          {/each}
-          <input
-            type="text"
-            id="genres-input"
-            class="pills-input-field"
-            bind:this={genreInputElement}
-            bind:value={currentGenreInput}
-            onfocus={(e) => handleFocus(e, 'genres')}
-            oninput={handleInput}
-            onblur={() => setTimeout(() => (showAutocomplete = false), 150)}
-            onkeydown={handleGenreKeyDown}
-            placeholder={genres.length === 0 ? 'e.g., Action, Sci-Fi' : ''}
-          />
-        </div>
+        <GenreInput bind:genres suggestions={allSuggestions.genres} />
         <p class="help-text">
           Use Comma or Enter to add a genre. Backspace on empty input removes the last one.
         </p>
@@ -452,60 +379,5 @@
   }
   .remove-tag:hover {
     color: #e81123;
-  }
-
-  /* --- Pills Input --- */
-  .pills-input-container {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    cursor: text;
-  }
-  .pills-input-container:focus-within {
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 0.2rem 0.3rem 0.2rem 0.8rem;
-    border-radius: 12px;
-    font-size: 0.8rem;
-  }
-  .remove-pill {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    font-size: 1.1rem;
-    padding: 0;
-    line-height: 1;
-    border-radius: 50%;
-    width: 1.1rem;
-    height: 1.1rem;
-    transition: background-color 0.2s;
-  }
-  .remove-pill:hover {
-    background-color: rgba(0, 0, 0, 0.2);
-    color: var(--ev-c-text-1);
-  }
-
-  .pills-input-field {
-    flex-grow: 1;
-    background: none;
-    border: none;
-    outline: none;
-    padding: 0.1rem; /* Align with pill text */
-    min-width: 120px;
   }
 </style>

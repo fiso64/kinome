@@ -59,8 +59,11 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[X]` Improve the search bar
     *   Update the search bar to support searching by tags (e.g., `:mytagname:favorite` or `:genre:sci-fi`). After typing :, autocompletions for the tag key should be shown. After typing the second : (or accepting an autocompletion, in which case it should insert the :), autocompletions for the tag values should be shown. After typing the second : or accepting the autcompletion, the key value pair should turn into a rounded tile (similar to the genres in the detail view). Backspacing it should delete it entirely.
     *   Also: Search bar needs to filter tab/section contents instead of tabs/sections themselves when using tab or section view.
-*   `[ ]` **Manual Metadata Correction:** Build the UI for users to fix incorrect matches, search TMDB manually, and select their preferred artwork and backdrop.
+*   `[ ]` **Manual Metadata Search:** Build the UI for users to search TMDB manually, and select the desired movie/show from a list of results (search can be performed for a movie or tv show, not multi). The result list should also show posters of each result (take a smaller thumb).
+    *   Allow also to search for posters and backdrops. Show the result image list. Allow selecting the language (default en, can be none)
+    *   The current poster and backdrop should always be shown in the window
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
+    *   Add manual search as context menu entry
 
 #### Phase 4: Expansion & Refinement
 

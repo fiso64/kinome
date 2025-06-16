@@ -11,13 +11,15 @@
   import { initializeShortcuts } from './lib/shortcuts'
 
   // Types are globally available from src/preload/index.d.ts
+  type ActiveModal =
+    | { type: 'settings' }
+    | { type: 'layoutSelector'; item: MediaFolder }
+    | { type: 'metadataEditor'; item: LibraryItem }
+    | { type: 'folderSettings'; item: MediaFolder }
+
   let viewStack: MediaFolder[] = $state([])
   let isScanning = $state(true) // For initial load or changing library folder
   let isRefreshing = $state(false) // For updating the current library
-  let showSettings = $state(false)
-  let showLayoutSelector = $state(false)
-  let showMetadataEditor = $state(false)
-  let showFolderSettings = $state(false)
   let searchText = $state('')
   let searchTags = $state<{ key: string; value: string }[]>([])
   const searchQuery = $derived({ text: searchText, tags: searchTags })
@@ -28,12 +30,12 @@
   })
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl: HTMLInputElement
+  let activeModal = $state<ActiveModal | null>(null)
 
   // Global Context Menu State
   let contextMenuItem = $state<LibraryItem | null>(null)
-let contextMenuPosition = $state({ top: 0, left: 0 })
-let contextMenuLayout = $state<string | undefined>(undefined)
-let modalItem = $state<LibraryItem | null>(null) // Item for the currently open modal
+  let contextMenuPosition = $state({ top: 0, left: 0 })
+  let contextMenuLayout = $state<string | undefined>(undefined)
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   // Back button is disabled if we are at the root grid view.
@@ -209,7 +211,7 @@ let modalItem = $state<LibraryItem | null>(null) // Item for the currently open 
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
-      openSettings: () => (showSettings = true),
+      openSettings: () => (activeModal = { type: 'settings' }),
       focusSearch: () => searchInputEl?.focus(),
       navigateBack: goBack,
       navigateForward: goForward,
@@ -229,44 +231,25 @@ function handleShowContextMenu(
   event.stopPropagation()
   contextMenuItem = item
   contextMenuLayout = options?.layout
-  modalItem = null // Ensure no old modal data is lingering
   contextMenuPosition = { top: event.clientY, left: event.clientX }
 }
 </script>
 
-{#if showSettings}
-  <SettingsModal close={() => (showSettings = false)} scanLibrary={handleScan} />
-{/if}
-
-{#if showLayoutSelector && modalItem?.type === 'folder'}
-  <LayoutSelector
-    item={modalItem}
-    currentLayout={modalItem.layout ?? (modalItem.id === currentFolder?.id ? 'grid' : 'tree')}
-    onClose={() => {
-      showLayoutSelector = false
-      modalItem = null
-    }}
-  />
-{/if}
-
-{#if showMetadataEditor && modalItem}
-  <MetadataEditor
-    item={modalItem}
-    onClose={() => {
-      showMetadataEditor = false
-      modalItem = null
-    }}
-  />
-{/if}
-
-{#if showFolderSettings && modalItem?.type === 'folder'}
-  <FolderSettingsModal
-    item={modalItem}
-    onClose={() => {
-      showFolderSettings = false
-      modalItem = null
-    }}
-  />
+{#if activeModal}
+  {#if activeModal.type === 'settings'}
+    <SettingsModal close={() => (activeModal = null)} scanLibrary={handleScan} />
+  {:else if activeModal.type === 'layoutSelector'}
+    <LayoutSelector
+      item={activeModal.item}
+      currentLayout={activeModal.item.layout ??
+        (activeModal.item.id === currentFolder?.id ? 'grid' : 'tree')}
+      onClose={() => (activeModal = null)}
+    />
+  {:else if activeModal.type === 'metadataEditor'}
+    <MetadataEditor item={activeModal.item} onClose={() => (activeModal = null)} />
+  {:else if activeModal.type === 'folderSettings'}
+    <FolderSettingsModal item={activeModal.item} onClose={() => (activeModal = null)} />
+  {/if}
 {/if}
 
 {#if contextMenuItem}
@@ -281,16 +264,19 @@ function handleShowContextMenu(
       }
     }}
     onEditMetadata={() => {
-      modalItem = contextMenuItem // Pass the item to the modal state
-      showMetadataEditor = true
+      if (contextMenuItem) {
+        activeModal = { type: 'metadataEditor', item: contextMenuItem }
+      }
     }}
     onSetLayout={() => {
-      modalItem = contextMenuItem // Pass the item to the modal state
-      showLayoutSelector = true
+      if (contextMenuItem?.type === 'folder') {
+        activeModal = { type: 'layoutSelector', item: contextMenuItem }
+      }
     }}
     onOpenFolderSettings={() => {
-      modalItem = contextMenuItem // Pass the item to the modal state
-      showFolderSettings = true
+      if (contextMenuItem?.type === 'folder') {
+        activeModal = { type: 'folderSettings', item: contextMenuItem }
+      }
     }}
   />
 {/if}
@@ -333,10 +319,7 @@ function handleShowContextMenu(
         </button>
         {#if currentFolder}
           <button
-            onclick={() => {
-              modalItem = currentFolder
-              showLayoutSelector = true
-            }}
+            onclick={() => (activeModal = { type: 'layoutSelector', item: currentFolder })}
             title="Set Children View Layout"
             class="layout-button"
           >
@@ -359,7 +342,7 @@ function handleShowContextMenu(
             </svg>
           </button>
         {/if}
-        <button onclick={() => (showSettings = true)} title="Settings" class="settings-button">⚙️</button>
+        <button onclick={() => (activeModal = { type: 'settings' })} title="Settings" class="settings-button">⚙️</button>
       </div>
     </div>
     <WindowControls />

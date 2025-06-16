@@ -122,9 +122,9 @@
         <MediaGrid
           parentItem={detailedItem}
           items={detailedItem.children}
-          itemclick={handleItemClick}
+          onItemClick={handleItemClick}
           layout={detailedItem.layout ?? 'tree'}
-          {showContextMenu}
+          showContextMenu={showContextMenu}
         />
       </div>
     {/if}
