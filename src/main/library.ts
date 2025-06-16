@@ -5,6 +5,7 @@ import fs from 'fs/promises'
 import crypto from 'crypto'
 import type { Database, MediaFolder, LibraryItem, MediaFile } from './types'
 import {
+  cacheGenreLists,
   fetchAndApplyMetadata,
   fetchItemDetails,
   refetchPoster,
@@ -390,7 +391,9 @@ export function setupLibraryIpc(): void {
       console.log('Library refresh and image verification complete. Database updated.')
 
       const settings = await readSettings()
-      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey)
+      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
+        console.error('Background metadata fetch failed during refresh:', err)
+      )
 
       return db.root
     } catch (error) {
@@ -433,7 +436,9 @@ export function setupLibraryIpc(): void {
       // 3. Start background metadata fetching without blocking.
       const settings = await readSettings()
       // Pass the new in-memory `db` object to the fetcher
-      fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey)
+      fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey).catch((err) =>
+        console.error('Background metadata fetch failed during initial scan:', err)
+      )
 
       // 4. Return the initial structure immediately to the UI.
       return db!.root
