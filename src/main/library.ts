@@ -465,9 +465,6 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
-    const settings = await readSettings()
-    const libraryDataPath = getLibraryDataPath()
-
     if (!db || !db.root) {
       console.error('Cannot get item details: database not found.')
       return null
@@ -479,33 +476,43 @@ export function setupLibraryIpc(): void {
       return null
     }
 
-    // Verify that the image files actually exist on disk.
-    await verifyImagePaths(item, path.join(libraryDataPath, 'images'))
+    // Verify local image paths. This is a fast, local operation.
+    await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
-    // If we have all images, we can likely return.
-    // The main point is to fetch if something major is missing.
-    // Let's check for backdrop and logo. Poster is fetched during initial scan.
-    if (item.backdropPath && item.logoPath) {
-      return item
+    const detailsAlreadyFetched =
+      typeof item.backdropPath !== 'undefined' && typeof item.logoPath !== 'undefined'
+
+    // --- Fire-and-Forget Background Fetch ---
+    // If details are missing, start a background fetch but DO NOT wait for it to complete.
+    if (!detailsAlreadyFetched) {
+      // Use an IIFE (Immediately Invoked Function Expression) to run the async logic
+      // without blocking the main handler's return.
+      ;(async () => {
+        console.log(`[Details] Starting background fetch for "${item.name}" (${item.id})`)
+        const settings = await readSettings()
+        if (settings.tmdbApiKey && item.tmdbId) {
+          // The `item` object is a reference to the one in the `db` cache,
+          // so `fetchItemDetails` will modify it directly.
+          await fetchItemDetails(item, settings.tmdbApiKey, getLibraryDataPath())
+          item._v = Date.now()
+          await writeDb(db) // Save the updated database
+
+          // Notify all renderer windows that the item has been updated.
+          BrowserWindow.getAllWindows().forEach((window) => {
+            window.webContents.send('library-item-updated', item)
+          })
+          console.log(`[Details] Background fetch complete for "${item.name}"`)
+        }
+      })().catch((err) => {
+        // Catch errors within the fire-and-forget block to prevent unhandled rejections.
+        console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
+      })
     }
 
-    // Otherwise, fetch them, update DB, and return updated item.
-    if (settings.tmdbApiKey && item.tmdbId) {
-      await fetchItemDetails(item, settings.tmdbApiKey, libraryDataPath)
-      item._v = Date.now() // Bust cache after image updates
-      await writeDb(db) // Save changes to disk and memory
-
-      // Notify the renderer that the item has been updated with new details.
-      const focusedWindow = BrowserWindow.getFocusedWindow()
-      focusedWindow?.webContents.send('library-item-updated', item)
-    } else {
-      if (!item.tmdbId) {
-        console.warn(`Cannot fetch item details for "${item.name}": item has no TMDB ID.`)
-      } else {
-        console.warn('Cannot fetch item details: TMDB API key not configured.')
-      }
-    }
-    return item // Return the (possibly updated) item
+    // --- Immediate Return ---
+    // Return the current state of the item from the database right away.
+    // The UI will show this instantly and update later when the event arrives.
+    return item
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
