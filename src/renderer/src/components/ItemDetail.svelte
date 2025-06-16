@@ -16,6 +16,33 @@
     onSearchByTag: (key: string, value: string) => void
     useLogos: boolean
   } = $props()
+
+  function findMediaDescendants(node: LibraryItem): LibraryItem[] {
+    if (node.type !== 'folder') {
+      return []
+    }
+    const mediaItems: LibraryItem[] = []
+    function recurse(items: LibraryItem[]) {
+      for (const currentItem of items) {
+        // If the item itself has a poster, add it and DO NOT recurse further down this branch.
+        if (currentItem.posterPath) {
+          mediaItems.push(currentItem)
+        } else if (currentItem.type === 'folder') {
+          // If it's a folder without a poster, look inside for items that might have one.
+          recurse(currentItem.children)
+        }
+      }
+    }
+    recurse(node.children)
+    return mediaItems
+  }
+
+  const mediaDescendants = $derived(findMediaDescendants(item))
+  const showContents = $derived(
+    item.type === 'folder' &&
+      item.children.length > 0 &&
+      !item.children.every((child) => child.posterPath)
+  )
   
     // These values help manage the individual image fade-in animations.
     let isBackdropLoaded = $state(false)
@@ -123,7 +150,7 @@
         </div>
       </div>
   
-      {#if item.type === 'folder' && item.children.length > 0}
+      {#if showContents && item.type === 'folder'}
         <div class="children-section">
           <h2 class="section-title">Contents</h2>
           <MediaGrid
@@ -131,6 +158,19 @@
             items={item.children}
             onItemClick={handleItemClick}
             layout={item.layout ?? 'tree'}
+            onShowContextMenu={showContextMenu}
+          />
+        </div>
+      {/if}
+
+      {#if mediaDescendants.length > 0}
+        <div class="children-section">
+          <h2 class="section-title">Media</h2>
+          <MediaGrid
+            parentItem={item}
+            items={mediaDescendants}
+            onItemClick={handleItemClick}
+            layout={'grid'}
             onShowContextMenu={showContextMenu}
           />
         </div>
