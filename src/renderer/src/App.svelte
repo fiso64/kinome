@@ -20,6 +20,7 @@
     | { type: 'manualSearch'; item: LibraryItem }
 
   let viewStack: MediaFolder[] = $state([])
+  let lastDetailItem: LibraryItem | null = $state(null) // Breadcrumb for "back" from drill-down
   let isScanning = $state(true) // For initial load or changing library folder
   let isRefreshing = $state(false) // For updating the current library
   let searchText = $state('')
@@ -93,6 +94,25 @@
     return () => unlisten()
   })
 
+  function findPathToItem(root: MediaFolder, id: string): MediaFolder[] {
+    const path: MediaFolder[] = []
+    function find(current: MediaFolder): boolean {
+      path.push(current)
+      if (current.id === id) return true
+      for (const child of current.children) {
+        if (child.type === 'folder') {
+          if (find(child as MediaFolder)) return true
+        }
+      }
+      path.pop()
+      return false
+    }
+    if (root && find(root)) {
+      return path
+    }
+    return []
+  }
+
   function findItemInTree(node: MediaFolder, id: string): LibraryItem | null {
     if (node.id === id) {
       return node
@@ -109,9 +129,36 @@
     return null
   }
 
+  function drillDown(childFolder: MediaFolder) {
+    const parent = selectedItemForDetailView
+    if (!parent) return
+
+    const root = viewStack[0]
+    if (!root) return
+
+    const pathToParent = findPathToItem(root, parent.id)
+    if (pathToParent.length > 0) {
+      lastDetailItem = parent
+      selectedItemForDetailView = null
+      viewStack = [...pathToParent, childFolder]
+    }
+  }
+
+  function handleContextMenuOpen(item: LibraryItem) {
+    if (selectedItemForDetailView && item.type === 'folder') {
+      // In a detail view, right-clicked a child folder.
+      // Delegate to the same logic as a regular click.
+      handleFolderClickInDetailView(item as MediaFolder)
+    } else {
+      // Not in a detail view, or clicked a file. Use normal grid logic.
+      handleGridItemClick(item)
+    }
+  }
+
   async function handleScan(): Promise<void> {
     isScanning = true
     selectedItemForDetailView = null // Go back to grid view
+    lastDetailItem = null
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
       viewStack = [newRoot]
@@ -125,6 +172,7 @@
   async function handleRefresh(): Promise<void> {
     if (isRefreshing || isScanning) return
     isRefreshing = true
+    lastDetailItem = null
     const refreshedRoot = await window.api.refreshLibrary()
     if (refreshedRoot) {
       // This resets navigation to the root, which is the simplest approach.
@@ -158,6 +206,7 @@
 
   // Used by the main MediaGrid.
   function handleGridItemClick(item: LibraryItem): void {
+    lastDetailItem = null // Clear breadcrumb on any new grid navigation
     // In tree view, files should be played directly.
     if ((currentFolder?.layout ?? 'grid') === 'tree' && item.type === 'file') {
       handlePlayFile(item as MediaFile)
@@ -178,27 +227,54 @@
 
   // Used by ItemDetail when a child folder is clicked.
   function handleFolderClickInDetailView(folder: MediaFolder): void {
-    const parent = selectedItemForDetailView
-    if (parent && parent.type === 'folder' && parent.childrenClickAction === 'navigate') {
-      handleNavigateFolder(folder)
+    const parent = selectedItemForDetailView as MediaFolder
+    if (parent.childrenClickAction === 'navigate') {
+      drillDown(folder)
     } else {
-      // Default to opening detail view for the child
-      selectedItemForDetailView = folder
+      // 'detail'
+      // Transition from Detail(parent) to Detail(folder)
+      lastDetailItem = parent // Set breadcrumb to current detail item
+      viewStack.push(parent) // Update the view stack to be the parent's children
+      selectedItemForDetailView = folder // Set new detail item
     }
   }
 
   // Used to navigate to a new folder list view, closing any detail view.
   function handleNavigateFolder(folder: MediaFolder): void {
     selectedItemForDetailView = null
+    lastDetailItem = null // Clear breadcrumb on any new grid navigation
     // Pushing the reactive proxy is fine; Svelte 5 handles this efficiently.
     viewStack.push(folder)
   }
 
   function goBack(): void {
-    if (canGoBack) {
-      if (selectedItemForDetailView) {
+    if (!canGoBack) return
+
+    if (selectedItemForDetailView) {
+      // We are in a detail view.
+      // Check if we have a breadcrumb to a PREVIOUS detail view.
+      if (lastDetailItem) {
+        // We came from another detail view. Restore it.
+        selectedItemForDetailView = lastDetailItem
+        // The view stack for the previous detail view needs to be restored.
+        // It was the parent of the previous detail view. So we just need to pop.
+        viewStack.pop()
+        // Clear the breadcrumb now that we've used it.
+        lastDetailItem = null
+      } else {
+        // No breadcrumb, so we came from a list view. Just close the detail view.
         selectedItemForDetailView = null
+      }
+    } else {
+      // We are in a list view.
+      // Check if we got here from a drill-down.
+      if (lastDetailItem) {
+        selectedItemForDetailView = lastDetailItem
+        viewStack.pop() // remove current folder
+        viewStack.pop() // remove parent folder (the one we're restoring the detail view OF)
+        lastDetailItem = null
       } else if (viewStack.length > 1) {
+        // Standard list-to-list back navigation.
         viewStack.pop()
       }
     }
@@ -298,7 +374,7 @@
     onClose={() => (contextMenuItem = null)}
     onOpen={() => {
       if (contextMenuItem) {
-        handleGridItemClick(contextMenuItem)
+        handleContextMenuOpen(contextMenuItem)
       }
     }}
     onEditMetadata={() => {
@@ -405,18 +481,20 @@
         <button onclick={handleScan}>Select Media Folder</button>
       </div>
     {:else}
-      <!-- 
-        The MediaGrid is always rendered to preserve scroll position.
-        The ItemDetail view will be rendered as an overlay on top of it.
+      <!--
+        The MediaGrid is always rendered to preserve scroll position and perceived performance.
+        It is hidden with CSS when the detail view is active to prevent flashing.
       -->
-      <MediaGrid
-        parentItem={currentFolder}
-        items={currentFolder.children}
-        {searchQuery}
-        onItemClick={handleGridItemClick}
-        layout={currentFolder.layout ?? 'grid'}
-        onShowContextMenu={handleShowContextMenu}
-      />
+      <div class="media-grid-container" class:hidden={selectedItemForDetailView}>
+        <MediaGrid
+          parentItem={currentFolder}
+          items={currentFolder.children}
+          {searchQuery}
+          onItemClick={handleGridItemClick}
+          layout={currentFolder.layout ?? 'grid'}
+          onShowContextMenu={handleShowContextMenu}
+        />
+      </div>
 
       {#if selectedItemForDetailView && settings}
         <ItemDetail
@@ -535,6 +613,16 @@
     flex-direction: column;
     scrollbar-gutter: stable;
     position: relative; /* Needed for the absolute positioned detail view */
+  }
+
+  .media-grid-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1; /* Ensure it fills space so its child MediaGrid can too */
+  }
+
+  .media-grid-container.hidden {
+    visibility: hidden;
   }
 
   .welcome-screen,
