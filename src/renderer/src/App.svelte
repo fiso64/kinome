@@ -30,7 +30,7 @@
     | { type: 'layoutSelector'; item: MediaFolder; defaultLayout: 'grid' | 'tree' }
     | { type: 'metadataEditor'; item: LibraryItem }
     | { type: 'folderSettings'; item: MediaFolder }
-    | { type: 'manualSearch'; item: LibraryItem }
+    | { type: 'manualSearch'; item: LibraryItem; initialTab?: 'match' | 'artwork' }
     | { type: 'properties'; item: LibraryItem }
     | { type: 'rename'; item: LibraryItem }
 
@@ -726,7 +726,11 @@
       onNeedRefresh={handleRefresh}
     />
   {:else if activeModal.type === 'manualSearch'}
-    <ManualSearchModal item={activeModal.item} onClose={() => (activeModal = null)} />
+    <ManualSearchModal
+      item={activeModal.item}
+      initialTab={activeModal.initialTab}
+      onClose={() => (activeModal = null)}
+    />
   {:else if activeModal.type === 'properties'}
     <PropertiesModal item={activeModal.item} onClose={() => (activeModal = null)} />
   {:else if activeModal.type === 'rename'}
@@ -777,7 +781,12 @@
     }}
     onManualSearch={() => {
       if (contextMenuItem) {
-        activeModal = { type: 'manualSearch', item: contextMenuItem }
+        activeModal = { type: 'manualSearch', item: contextMenuItem, initialTab: 'match' }
+      }
+    }}
+    onEditArtwork={() => {
+      if (contextMenuItem) {
+        activeModal = { type: 'manualSearch', item: contextMenuItem, initialTab: 'artwork' }
       }
     }}
     onRevealInExplorer={() => {

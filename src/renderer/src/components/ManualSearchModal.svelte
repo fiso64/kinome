@@ -3,10 +3,12 @@
 
   let {
     item,
-    onClose
+    onClose,
+    initialTab = 'match'
   }: {
     item: LibraryItem
     onClose: () => void
+    initialTab?: 'match' | 'artwork'
   } = $props()
 
   type SearchResult = {
@@ -18,7 +20,7 @@
   }
   type TmdbImage = { file_path: string; [key: string]: any }
 
-  let activeTab: 'match' | 'artwork' = $state('match')
+  let activeTab: 'match' | 'artwork' = $state(initialTab)
 
   // --- Granular Loading States ---
   let isSearching = $state(false)
@@ -130,7 +132,7 @@
       <button
         class:active={activeTab === 'artwork'}
         onclick={() => (activeTab = 'artwork')}
-        disabled={!item.tmdbId}>Artwork</button
+        >Artwork</button
       >
     </div>
   {/snippet}
@@ -162,7 +164,7 @@
           <option value="movie">Movie</option>
           <option value="tv">TV</option>
         </select>
-        <button type="submit" disabled={isSearching || !searchQuery.trim()}>
+        <button class="primary" type="submit" disabled={isSearching || !searchQuery.trim()}>
           {#if isSearching}Searching...{:else}Search{/if}
         </button>
       </form>
@@ -203,7 +205,11 @@
             <option value="none">All (No Language)</option>
           </select>
         </div>
-        <button onclick={fetchImages} disabled={isFetchingArtwork}>
+        <button
+          class="primary"
+          onclick={fetchImages}
+          disabled={isFetchingArtwork || !item.tmdbId}
+        >
           {#if isFetchingArtwork}Finding...{:else}Find Artwork{/if}
         </button>
       </div>

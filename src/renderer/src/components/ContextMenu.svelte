@@ -9,6 +9,7 @@
     onSetLayout,
     onOpenFolderSettings,
     onManualSearch,
+    onEditArtwork,
     onRevealInExplorer,
     onDeleteItem,
     onRenameItem,
@@ -23,6 +24,7 @@
     onSetLayout: () => void
     onOpenFolderSettings: () => void
     onManualSearch: () => void
+    onEditArtwork: () => void
     onRevealInExplorer: () => void
     onDeleteItem: () => void
     onRenameItem: () => void
@@ -116,6 +118,11 @@
     onClose()
   }
 
+  function handleArtwork() {
+    onEditArtwork()
+    onClose()
+  }
+
   function handleReveal() {
     onRevealInExplorer()
     onClose()
@@ -178,6 +185,14 @@
   >
     <span class="icon">🔍</span>
     <span>Manual Search...</span>
+  </button>
+  <button
+    class="context-menu-item"
+    onclick={handleArtwork}
+    onmouseenter={() => (submenuVisible = false)}
+  >
+    <span class="icon">🖼️</span>
+    <span>Artwork...</span>
   </button>
   {#if item.type === 'folder'}
     <button
