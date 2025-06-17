@@ -83,6 +83,7 @@ export interface SearchIndexEntry {
   genres?: string[]
   tags?: Record<string, string>
   virtualTags?: Record<string, string>
+  episodeNumber?: number
   // We need properties for UI interaction
   _v?: number // Cache-busting version number
   // Score for ranking

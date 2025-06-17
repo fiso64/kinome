@@ -67,6 +67,7 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
     genres: genres,
     tags: tags,
     virtualTags: virtualTags,
+    episodeNumber: item.type === 'file' ? item.episodeNumber : undefined,
     _v: item._v,
     staticScore: calculateStaticScore(item, parent)
   }

@@ -15,6 +15,12 @@
     settings: Settings
   } = $props()
 
+  const displayTitle = $derived(
+    item.type === 'file' && item.episodeNumber != null
+      ? `${item.episodeNumber}. ${item.title ?? item.name}`
+      : item.title ?? item.name
+  )
+
   const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
   // Create a "fake" child that is the file itself, but without the special property
   // to prevent an infinite loop of detail views. This also makes it playable by the grid.
@@ -127,7 +133,7 @@
               />
             </div>
           {:else}
-            <h1>{item.title ?? item.name}</h1>
+            <h1>{displayTitle}</h1>
           {/if}
           <div class="meta">
             {#if item.year}

@@ -23,7 +23,8 @@
     onShowContextMenu,
     searchQuery,
     suggestions,
-    highlightedIndex
+    highlightedIndex,
+    isPreSorted = false
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -37,6 +38,7 @@
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
     suggestions?: AutocompleteSuggestions
     highlightedIndex?: number | null
+    isPreSorted?: boolean
   } = $props()
 
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
@@ -60,72 +62,108 @@
     return []
   }
 
+  function compareItems(a: DisplayableItem, b: DisplayableItem): number {
+    // The properties 'seasonNumber' and 'episodeNumber' might not exist on SearchIndexEntry
+    const aSeason = 'seasonNumber' in a ? (a as any).seasonNumber : undefined
+    const bSeason = 'seasonNumber' in b ? (b as any).seasonNumber : undefined
+    const aEpisode = 'episodeNumber' in a ? (a as any).episodeNumber : undefined
+    const bEpisode = 'episodeNumber' in b ? (b as any).episodeNumber : undefined
+
+    // Handle season numbers (nulls last)
+    if (aSeason != null && bSeason != null) {
+      if (aSeason !== bSeason) return aSeason - bSeason
+    } else if (aSeason != null) {
+      return -1 // a has season, b doesn't. a comes first.
+    } else if (bSeason != null) {
+      return 1 // b has season, a doesn't. b comes first.
+    }
+
+    // Handle episode numbers (nulls last)
+    if (aEpisode != null && bEpisode != null) {
+      if (aEpisode !== bEpisode) return aEpisode - bEpisode
+    } else if (aEpisode != null) {
+      return -1
+    } else if (bEpisode != null) {
+      return 1
+    }
+
+    // Fallback to alphabetical name sort
+    const aName = a.title ?? ('name' in a ? (a as LibraryItem).name : '')
+    const bName = b.title ?? ('name' in b ? (b as LibraryItem).name : '')
+    return aName.localeCompare(bName, undefined, { numeric: true })
+  }
+
   // --- Derived State for different layouts ---
-  const { displayedItems, virtualFolders } = $derived.by(() => {
-    // This now calls the centralized filter function. Performance is maintained
-    // because this filtering still happens entirely in the renderer process.
+  const { itemsForViews, foldersForTabsOrSections } = $derived.by(() => {
+    // 1. Filter first.
     const filteredItems = filterItems(items, searchQuery ?? { text: '', tags: [] })
 
-    if (
-      parentItem &&
-      (layout === 'tabs' || layout === 'sections') &&
-      parentItem.groupBy &&
-      parentItem.groupBy !== 'folder'
-    ) {
-      const groupByKey = parentItem.groupBy
-      const groups: Record<string, DisplayableItem[]> = {}
-      for (const item of filteredItems) {
-        const values = getValuesForKey(item, groupByKey)
-        if (values.length === 0) {
-          if (!groups['Uncategorized']) groups['Uncategorized'] = []
-          groups['Uncategorized'].push(item)
-        } else {
-          for (const value of values) {
-            if (!groups[value]) groups[value] = []
-            groups[value].push(item)
+    // 2. Handle grouping for tabs/sections.
+    if (layout === 'tabs' || layout === 'sections') {
+      if (parentItem?.groupBy && parentItem.groupBy !== 'folder') {
+        // Group by metadata (create virtual folders).
+        const groupByKey = parentItem.groupBy
+        const groups: Record<string, DisplayableItem[]> = {}
+        for (const item of filteredItems) {
+          const values = getValuesForKey(item, groupByKey)
+          if (values.length === 0) {
+            if (!groups['Uncategorized']) groups['Uncategorized'] = []
+            groups['Uncategorized'].push(item)
+          } else {
+            for (const value of values) {
+              if (!groups[value]) groups[value] = []
+              groups[value].push(item)
+            }
           }
         }
+        const vFolders = Object.entries(groups)
+          .map(([groupValue, groupItems]) => {
+            const virtualSettings =
+              parentItem.virtualFolderSettings?.[groupByKey]?.[groupValue] ?? {}
+            const virtualFolder: VirtualFolder = {
+              id: `virtual--${parentItem.id}--${groupByKey}--${groupValue}`,
+              name: groupValue,
+              title: virtualSettings.title ?? groupValue,
+              type: 'folder',
+              children: groupItems as LibraryItem[],
+              path: '',
+              isVirtual: true,
+              physicalParentId: parentItem.id,
+              groupByKey: groupByKey,
+              groupByValue: groupValue,
+              ...virtualSettings
+            }
+            return virtualFolder
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+
+        return { itemsForViews: [], foldersForTabsOrSections: vFolders }
+      } else {
+        // Group by physical folders.
+        const sortedFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
+          compareItems
+        ) as MediaFolder[]
+        return { itemsForViews: [], foldersForTabsOrSections: sortedFolders }
       }
-      const vFolders = Object.entries(groups)
-        .map(([groupValue, groupItems]) => {
-          const virtualSettings = parentItem.virtualFolderSettings?.[groupByKey]?.[groupValue] ?? {}
-          const virtualFolder: VirtualFolder = {
-            id: `virtual--${parentItem.id}--${groupByKey}--${groupValue}`,
-            name: groupValue,
-            title: virtualSettings.title ?? groupValue,
-            type: 'folder',
-            children: groupItems as LibraryItem[],
-            path: '',
-            isVirtual: true,
-            physicalParentId: parentItem.id,
-            groupByKey: groupByKey,
-            groupByValue: groupValue,
-            ...virtualSettings
-          }
-          return virtualFolder
-        })
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-      // In tabs/sections view, the filtering happens inside the recursive MediaGrid call,
-      // so we pass the original unfiltered items down. The sections themselves are built from filtered items.
-      return { displayedItems: items, virtualFolders: vFolders }
     }
-    return { displayedItems: filteredItems, virtualFolders: null }
+
+    // 3. Handle simple views (grid, list, tree).
+    const sortedItems = isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)
+    return { itemsForViews: sortedItems, foldersForTabsOrSections: [] }
   })
 
-  const sortedTreeItems = $derived(
-    [...displayedItems].sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'folder' ? 1 : -1
-      const aTitle = a.title ?? ('name' in a ? (a as LibraryItem).name : '')
-      const bTitle = b.title ?? ('name' in b ? (b as LibraryItem).name : '')
-      return aTitle.localeCompare(bTitle, undefined, { numeric: true })
+  // 4. Transform titles for display *after* sorting and filtering.
+  const finalItemsForViews = $derived(
+    itemsForViews.map((item) => {
+      const episodeNumber = 'episodeNumber' in item ? item.episodeNumber : undefined
+      if (episodeNumber != null) {
+        const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
+        // Create a new object to prevent mutation and ensure reactivity
+        return { ...item, title: `${episodeNumber}. ${baseTitle}` }
+      }
+      return item
     })
   )
-
-  const physicalFolderItems = $derived(
-    displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
-  )
-
-  const foldersForTabsOrSections = $derived(virtualFolders ?? physicalFolderItems)
 </script>
 
 <div
@@ -133,11 +171,11 @@
   oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
 >
   {#if layout === 'grid'}
-    <GridView items={displayedItems} {onItemClick} {onShowContextMenu} />
+    <GridView items={finalItemsForViews} {onItemClick} {onShowContextMenu} />
   {:else if layout === 'tree'}
-    <TreeView items={sortedTreeItems} {onItemClick} {onShowContextMenu} />
+    <TreeView items={finalItemsForViews} {onItemClick} {onShowContextMenu} />
   {:else if layout === 'list'}
-    <ListView items={displayedItems} {onItemClick} {onShowContextMenu} {highlightedIndex} />
+    <ListView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {highlightedIndex} />
   {:else if layout === 'tabs'}
     <TabsView folders={foldersForTabsOrSections} {onItemClick} {onShowContextMenu} {suggestions} />
   {:else if layout === 'sections'}

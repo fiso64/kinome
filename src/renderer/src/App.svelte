@@ -966,6 +966,7 @@
                 onShowContextMenu={handleShowContextMenu}
                 suggestions={allAutocompleteSuggestions}
                 highlightedIndex={highlightedSearchItemIndex}
+                isPreSorted={true}
               />
             {:else if !isPerformingSearch}
               <p class="status-text">No results found.</p>
