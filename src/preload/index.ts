@@ -54,6 +54,14 @@ const api = {
   removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void> =>
     ipcRenderer.invoke('remove-image', itemId, imageType),
 
+  // Filesystem
+  revealInExplorer: (path: string): void => ipcRenderer.send('reveal-in-explorer', path),
+  trashItem: (path: string): Promise<boolean> => ipcRenderer.invoke('trash-item', path),
+  renameItem: (oldPath: string, newName: string): Promise<boolean> =>
+    ipcRenderer.invoke('rename-item', oldPath, newName),
+  getItemProperties: (path: string): Promise<any | null> =>
+    ipcRenderer.invoke('get-item-properties', path),
+
   // Settings
   getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>
     ipcRenderer.invoke('get-settings'),

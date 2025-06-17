@@ -9,6 +9,8 @@
   import MetadataEditor from './components/MetadataEditor.svelte'
   import FolderSettingsModal from './components/FolderSettingsModal.svelte'
   import ManualSearchModal from './components/ManualSearchModal.svelte'
+  import PropertiesModal from './components/PropertiesModal.svelte'
+  import RenameModal from './components/RenameModal.svelte'
   import FilterBar from './components/FilterBar.svelte'
   import ListView from './components/media-views/ListView.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
@@ -29,6 +31,8 @@
     | { type: 'metadataEditor'; item: LibraryItem }
     | { type: 'folderSettings'; item: MediaFolder }
     | { type: 'manualSearch'; item: LibraryItem }
+    | { type: 'properties'; item: LibraryItem }
+    | { type: 'rename'; item: LibraryItem }
 
   let viewStack: MediaFolder[] = $state([])
   let lastDetailItem: LibraryItem | null = $state(null)
@@ -345,6 +349,45 @@
     }
   }
 
+  async function handleRevealItem(item: LibraryItem) {
+    // No path means it's probably a virtual item or from a remote source
+    if (!item.path) {
+      console.warn('Item has no path, cannot reveal.', item)
+      return
+    }
+    window.api.revealInExplorer(item.path)
+  }
+
+  async function handleDeleteItem(item: LibraryItem) {
+    if (!item.path) {
+      console.warn('Item has no path, cannot delete.', item)
+      return
+    }
+
+    const confirmed = confirm(
+      `Are you sure you want to move "${item.title ?? item.name}" to the trash?\n\nThis action cannot be undone from within the app.`
+    )
+    if (!confirmed) {
+      return
+    }
+
+    const success = await window.api.trashItem(item.path)
+    if (success) {
+      // Refresh the library to reflect the deletion
+      await handleRefresh()
+    }
+  }
+
+  async function handleRenameItem(item: LibraryItem) {
+    if (!item.path) return
+    activeModal = { type: 'rename', item }
+  }
+
+  function handleShowProperties(item: LibraryItem) {
+    if (!item.path) return
+    activeModal = { type: 'properties', item }
+  }
+
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
@@ -626,6 +669,14 @@
     />
   {:else if activeModal.type === 'manualSearch'}
     <ManualSearchModal item={activeModal.item} onClose={() => (activeModal = null)} />
+  {:else if activeModal.type === 'properties'}
+    <PropertiesModal item={activeModal.item} onClose={() => (activeModal = null)} />
+  {:else if activeModal.type === 'rename'}
+    <RenameModal
+      item={activeModal.item}
+      onClose={() => (activeModal = null)}
+      onNeedRefresh={handleRefresh}
+    />
   {/if}
 {/if}
 
@@ -666,6 +717,26 @@
     onManualSearch={() => {
       if (contextMenuItem) {
         activeModal = { type: 'manualSearch', item: contextMenuItem }
+      }
+    }}
+    onRevealInExplorer={() => {
+      if (contextMenuItem) {
+        handleRevealItem(contextMenuItem)
+      }
+    }}
+    onDeleteItem={() => {
+      if (contextMenuItem) {
+        handleDeleteItem(contextMenuItem)
+      }
+    }}
+    onRenameItem={() => {
+      if (contextMenuItem) {
+        handleRenameItem(contextMenuItem)
+      }
+    }}
+    onShowProperties={() => {
+      if (contextMenuItem) {
+        handleShowProperties(contextMenuItem)
       }
     }}
   />

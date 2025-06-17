@@ -8,7 +8,11 @@
     onEditMetadata,
     onSetLayout,
     onOpenFolderSettings,
-    onManualSearch
+    onManualSearch,
+    onRevealInExplorer,
+    onDeleteItem,
+    onRenameItem,
+    onShowProperties
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -19,9 +23,17 @@
     onSetLayout: () => void
     onOpenFolderSettings: () => void
     onManualSearch: () => void
+    onRevealInExplorer: () => void
+    onDeleteItem: () => void
+    onRenameItem: () => void
+    onShowProperties: () => void
   } = $props()
 
   let menuElement = $state<HTMLDivElement>()
+  let submenuElement = $state<HTMLDivElement>()
+  let submenuVisible = $state(false)
+  let submenuOnLeft = $state(false)
+  let submenuTop = $state(0) // For vertical adjustment
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
 
   $effect(() => {
@@ -43,6 +55,39 @@
       if (left < margin) left = margin
 
       style = `top: ${top}px; left: ${left}px; visibility: visible;`
+    }
+  })
+
+  // This effect checks if the submenu would go off-screen and flips its position if needed.
+  $effect(() => {
+    if (submenuVisible && menuElement && submenuElement) {
+      const mainRect = menuElement.getBoundingClientRect()
+      const subRect = submenuElement.getBoundingClientRect()
+      const parentRect = submenuElement.parentElement!.getBoundingClientRect()
+      const { innerWidth: windowWidth, innerHeight: windowHeight } = window
+      const margin = 5
+
+      // --- Horizontal Positioning ---
+      // Check if there's enough space on the right. If not, flip it to the left.
+      submenuOnLeft = mainRect.right + subRect.width > windowWidth
+
+      // --- Vertical Positioning ---
+      // Default top position (aligns with parent button, considering main menu's padding)
+      const defaultTop = -5
+
+      // Calculate where the bottom of the submenu would be in the viewport with default positioning
+      const potentialBottom = parentRect.top + defaultTop + subRect.height
+
+      if (potentialBottom > windowHeight - margin) {
+        // It overflows. Align bottom of submenu with bottom of viewport.
+        const newBottomInViewport = windowHeight - margin
+        const newTopInViewport = newBottomInViewport - subRect.height
+        // Convert the desired viewport 'top' to be relative to the submenu's parent container
+        submenuTop = newTopInViewport - parentRect.top
+      } else {
+        // No overflow, use the default top position.
+        submenuTop = defaultTop
+      }
     }
   })
 
@@ -71,6 +116,26 @@
     onClose()
   }
 
+  function handleReveal() {
+    onRevealInExplorer()
+    onClose()
+  }
+
+  function handleDelete() {
+    onDeleteItem()
+    onClose()
+  }
+
+  function handleRename() {
+    onRenameItem()
+    onClose()
+  }
+
+  function handleShowProperties() {
+    onShowProperties()
+    onClose()
+  }
+
   $effect(() => {
     // This effect adds global listeners to close the menu
     // when the user clicks or right-clicks anywhere *outside* of it.
@@ -94,18 +159,28 @@
 
 <div bind:this={menuElement} class="context-menu" {style} onclick={(e) => e.stopPropagation()}>
   {#if isTreeView && item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleOpen}> Open </button>
+    <button class="context-menu-item" onclick={handleOpen} onmouseenter={() => (submenuVisible = false)}>
+      Open
+    </button>
   {/if}
-  <button class="context-menu-item" onclick={handleEdit}>
+  <button class="context-menu-item" onclick={handleEdit} onmouseenter={() => (submenuVisible = false)}>
     <span class="icon">✏️</span>
     <span>Edit Metadata</span>
   </button>
-  <button class="context-menu-item" onclick={handleManualSearch}>
+  <button
+    class="context-menu-item"
+    onclick={handleManualSearch}
+    onmouseenter={() => (submenuVisible = false)}
+  >
     <span class="icon">🔍</span>
     <span>Manual Search...</span>
   </button>
   {#if item.type === 'folder'}
-    <button class="context-menu-item" onclick={handleLayout}>
+    <button
+      class="context-menu-item"
+      onclick={handleLayout}
+      onmouseenter={() => (submenuVisible = false)}
+    >
       <span class="icon">
         <svg
           width="16"
@@ -126,10 +201,56 @@
       </span>
       <span>Set View...</span>
     </button>
-    <button class="context-menu-item" onclick={handleFolderSettings}>
+    <button
+      class="context-menu-item"
+      onclick={handleFolderSettings}
+      onmouseenter={() => (submenuVisible = false)}
+    >
       <span class="icon">⚙️</span>
       <span>Folder Settings...</span>
     </button>
+  {/if}
+  {#if item.path}
+    <div class="separator" onmouseenter={() => (submenuVisible = false)}></div>
+    <div
+      class="submenu-container"
+      onmouseenter={() => (submenuVisible = true)}
+      onmouseleave={() => (submenuVisible = false)}
+    >
+      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+        <span class="icon">📄</span>
+        <span>File</span>
+        <span class="submenu-arrow">▸</span>
+      </button>
+
+      {#if submenuVisible}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu"
+          class:on-left={submenuOnLeft}
+          style="top: {submenuTop}px;"
+          onclick={(e) => e.stopPropagation()}
+        >
+          <button class="context-menu-item" onclick={handleReveal}>
+            <span class="icon">↗️</span>
+            <span>Show in Explorer</span>
+          </button>
+          <button class="context-menu-item" onclick={handleRename}>
+            <span class="icon">✏️</span>
+            <span>Rename...</span>
+          </button>
+          <button class="context-menu-item" onclick={handleShowProperties}>
+            <span class="icon">ℹ️</span>
+            <span>Properties...</span>
+          </button>
+          <div class="separator"></div>
+          <button class="context-menu-item danger" onclick={handleDelete}>
+            <span class="icon">🗑️</span>
+            <span>Move to Trash...</span>
+          </button>
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -142,7 +263,7 @@
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
     z-index: 1000; /* Ensure it's on top of everything */
     width: max-content;
-    overflow: hidden;
+    overflow: visible; /* Allow submenu to overflow */
     padding: 0.25rem;
   }
 
@@ -171,5 +292,49 @@
 
   .context-menu-item:hover {
     background-color: var(--ev-c-gray-2);
+  }
+
+  .separator {
+    height: 1px;
+    background-color: var(--ev-c-black-mute);
+    margin: 0.25rem 0.5rem;
+  }
+
+  .context-menu-item.danger:hover {
+    background-color: #c50f1f;
+    color: var(--ev-c-white);
+  }
+
+  .context-menu-item.has-submenu .submenu-arrow {
+    margin-left: auto;
+    font-size: 0.8em;
+    color: var(--ev-c-text-2);
+  }
+
+  .submenu {
+    position: absolute;
+    left: 100%;
+    margin-left: -1px;
+    animation: fadeIn 0.1s ease-out;
+  }
+
+  .submenu-container {
+    position: relative;
+  }
+
+  .submenu.on-left {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: -1px;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 </style>

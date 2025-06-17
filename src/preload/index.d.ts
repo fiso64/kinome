@@ -117,6 +117,11 @@ declare global {
       removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
+      // Filesystem
+      revealInExplorer: (path: string) => void
+      trashItem: (path: string) => Promise<boolean>
+      renameItem: (oldPath: string, newName: string) => Promise<boolean>
+      getItemProperties: (path: string) => Promise<any | null>
       // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void

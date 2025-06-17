@@ -1,11 +1,11 @@
-import { app, dialog, ipcMain, BrowserWindow } from 'electron'
+import { app, dialog, ipcMain, BrowserWindow, shell } from 'electron'
 import { exec } from 'child_process'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Main] ${message}`)
 }
 import path from 'path'
-import fs from 'fs/promises'
+import fs, { readdir, stat } from 'fs/promises'
 import crypto from 'crypto'
 import { evaluateVirtualTagsForItem } from './virtualTags'
 import {
@@ -191,6 +191,40 @@ function getAllItemsAsList(node: MediaFolder, list: LibraryItem[] = []): Library
     }
   }
   return list
+}
+
+async function getDirectoryContentStats(dirPath: string): Promise<{
+  totalSize: number
+  fileCount: number
+  folderCount: number
+}> {
+  const entries = await readdir(dirPath, { withFileTypes: true })
+  let totalSize = 0
+  let fileCount = 0
+  let folderCount = 0
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        folderCount++
+        const subDirStats = await getDirectoryContentStats(fullPath)
+        totalSize += subDirStats.totalSize
+        fileCount += subDirStats.fileCount
+        folderCount += subDirStats.folderCount
+      } else if (entry.isFile()) {
+        try {
+          const stats = await stat(fullPath)
+          totalSize += stats.size
+          fileCount++
+        } catch (e) {
+          console.error(`Could not stat file ${fullPath}:`, e)
+        }
+      }
+    })
+  )
+
+  return { totalSize, fileCount, folderCount }
 }
 
 function getAllItemsAsMap(
@@ -880,6 +914,24 @@ export function setupLibraryIpc(): void {
     }
   )
 
+  ipcMain.on('reveal-in-explorer', (_, itemPath: string) => {
+    shell.showItemInFolder(itemPath)
+  })
+
+  ipcMain.handle('trash-item', async (_, itemPath: string): Promise<boolean> => {
+    try {
+      await shell.trashItem(itemPath)
+      return true
+    } catch (error) {
+      console.error(`Failed to trash item at ${itemPath}:`, error)
+      dialog.showErrorBox(
+        'Deletion Error',
+        `Failed to move item to trash. Check logs or file permissions.\n\nError: ${(error as Error).message}`
+      )
+      return false
+    }
+  })
+
   ipcMain.handle(
     'perform-search',
     async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
@@ -887,6 +939,51 @@ export function setupLibraryIpc(): void {
       return performSearch(query)
     }
   )
+
+  ipcMain.handle(
+    'rename-item',
+    async (_, oldPath: string, newName: string): Promise<boolean> => {
+      const newPath = path.join(path.dirname(oldPath), newName)
+      try {
+        await fs.rename(oldPath, newPath)
+        return true
+      } catch (error) {
+        console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
+        dialog.showErrorBox(
+          'Rename Error',
+          `Failed to rename item. Check logs or file permissions.\n\nError: ${(error as Error).message}`
+        )
+        return false
+      }
+    }
+  )
+
+  ipcMain.handle('get-item-properties', async (_, itemPath: string) => {
+    try {
+      const stats = await fs.stat(itemPath)
+      const baseProperties = {
+        name: path.basename(itemPath),
+        path: itemPath,
+        type: stats.isDirectory() ? 'Folder' : ('File' as 'File' | 'Folder'),
+        created: stats.birthtime.toISOString(),
+        modified: stats.mtime.toISOString()
+      }
+
+      if (stats.isDirectory()) {
+        const contentStats = await getDirectoryContentStats(itemPath)
+        return {
+          ...baseProperties,
+          size: contentStats.totalSize,
+          contains: { files: contentStats.fileCount, folders: contentStats.folderCount }
+        }
+      } else {
+        return { ...baseProperties, size: stats.size }
+      }
+    } catch (error) {
+      console.error(`Failed to get properties for ${itemPath}:`, error)
+      return null
+    }
+  })
 
   ipcMain.handle(
     'debug-perform-search',
