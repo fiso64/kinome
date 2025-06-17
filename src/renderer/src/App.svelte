@@ -160,6 +160,13 @@
 
   // --- Global Search Effect (No Debounce) ---
   $effect(() => {
+    // VERY IMPORTANT NOTE:
+    // This search is intentionally not debounced to provide instant feedback on
+    // local filesystems. When network-based sources (like Rclone/Jellyfin) are
+    // implemented, the search logic for those sources MUST be debounced to
+    // prevent excessive network requests and API calls. The current implementation
+    // would be highly inefficient over a network.
+
     const query = globalSearchQuery
     if (isGlobalSearchActive) {
       isPerformingSearch = true
@@ -179,6 +186,9 @@
 
   // --- Detail View Search Effect ---
   $effect(() => {
+    // VERY IMPORTANT NOTE: See the note on the global search effect. This search
+    // must also be debounced when network sources are added.
+
     const query = detailViewSearchQuery
     if (selectedItemForDetailView && isDetailSearchActive) {
       isPerformingDetailSearch = true
@@ -246,6 +256,45 @@
         itemInSearch.posterPath = updatedItem.posterPath
         itemInSearch._v = updatedItem._v
         searchResults = [...searchResults]
+      }
+    })
+    return () => unlisten()
+  })
+
+  // Listener for BATCH metadata updates
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
+      log(`Received batch update for ${updatedItems.length} items.`)
+
+      for (const updatedItem of updatedItems) {
+        updateCachedItem(updatedItem)
+
+        let itemInTree: LibraryItem | null = null
+        for (const folder of viewStack) {
+          itemInTree = findItemInTree(folder, updatedItem.id)
+          if (itemInTree) break
+        }
+        if (itemInTree) Object.assign(itemInTree, updatedItem)
+
+        if (selectedItemForDetailView?.id === updatedItem.id) {
+          Object.assign(selectedItemForDetailView, updatedItem)
+        }
+        // Update item if it's in the current search results
+        const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
+        if (indexInSearch > -1) {
+          const itemInSearch = searchResults[indexInSearch]
+          // Only update fields that exist on SearchIndexEntry
+          itemInSearch.title = updatedItem.title ?? updatedItem.name
+          itemInSearch.posterPath = updatedItem.posterPath
+          itemInSearch._v = updatedItem._v
+        }
+      }
+
+      // Trigger reactivity after all items in the batch are processed
+      viewStack = [...viewStack]
+      searchResults = [...searchResults]
+      if (selectedItemForDetailView) {
+        selectedItemForDetailView = { ...selectedItemForDetailView }
       }
     })
     return () => unlisten()

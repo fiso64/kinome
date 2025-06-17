@@ -89,6 +89,13 @@ const api = {
       ipcRenderer.removeListener('library-item-updated', listener)
     }
   },
+  onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, items: LibraryItem[]): void => callback(items)
+    ipcRenderer.on('library-items-updated', listener)
+    return () => {
+      ipcRenderer.removeListener('library-items-updated', listener)
+    }
+  },
   onAutocompleteSuggestionsUpdated: (
     callback: (suggestions: AutocompleteSuggestions) => void
   ): (() => void) => {

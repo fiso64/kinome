@@ -139,6 +139,7 @@ declare global {
       isWindowMaximized: () => Promise<boolean>
       onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
       onLibraryItemUpdated: (callback: (item: LibraryItem) => void) => () => void
+      onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void) => () => void
       onAutocompleteSuggestionsUpdated: (
         callback: (suggestions: AutocompleteSuggestions) => void
       ) => () => void

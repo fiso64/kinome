@@ -419,12 +419,22 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
     return
   }
 
+  // A function to send batched updates to the renderer
+  const sendBatchUpdate = (updatedItems: LibraryItem[]): void => {
+    if (updatedItems.length > 0) {
+      // Create a plain, clonable copy of the items before sending over IPC.
+      const plainItems = JSON.parse(JSON.stringify(updatedItems))
+      window.webContents.send('library-items-updated', plainItems)
+    }
+  }
+
   // Fetch and cache the genre lists before processing items.
   await cacheGenreLists(tmdbApiKey)
 
   // Process new items by searching for them on TMDB.
   if (newItemsToFetch.length > 0) {
     console.log(`[Metadata] Starting fetch for ${newItemsToFetch.length} new items...`)
+    const updatedItemsBatch: LibraryItem[] = []
     const task = async (itemWithHint: {
       item: LibraryItem
       hint?: 'movie' | 'tv'
@@ -432,22 +442,25 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
       const { item, hint } = itemWithHint
       await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
       if (item.posterPath || item.tmdbId === null) {
-        window.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
+        updatedItemsBatch.push(item)
       }
     }
     await processInChunks(newItemsToFetch, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
   }
 
   // Re-fetch posters for existing items that are missing them.
   if (itemsMissingPosters.length > 0) {
     console.log(`[Metadata] Starting poster refetch for ${itemsMissingPosters.length} items...`)
+    const updatedItemsBatch: LibraryItem[] = []
     const task = async (item: LibraryItem): Promise<void> => {
       await refetchPoster(item, tmdbApiKey, libraryDataPath)
       if (item.posterPath) {
-        window.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
+        updatedItemsBatch.push(item)
       }
     }
     await processInChunks(itemsMissingPosters, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
   }
 
   await writeDb(db)
