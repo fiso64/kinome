@@ -140,21 +140,22 @@
     return []
   }
 
-  function findItemInTree(node: MediaFolder, id: string): LibraryItem | null {
-    if (node.id === id) {
-      return node
-    }
-    for (const child of node.children) {
-      if (child.id === id) {
-        return child
-      }
-      if (child.type === 'folder') {
-        const found = findItemInTree(child, id)
-        if (found) return found
-      }
-    }
-    return null
+function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
+  if (!node || !node.children) return null
+  if (node.id === id) {
+    return node
   }
+  for (const child of node.children) {
+    if (child.id === id) {
+      return child
+    }
+    if (child.type === 'folder') {
+      const found = findItemInTree(child, id)
+      if (found) return found
+    }
+  }
+  return null
+}
 
   function drillDown(childFolder: MediaFolder) {
     const parent = selectedItemForDetailView
@@ -226,9 +227,18 @@
     }
   }
 
-  function handleItemClick(item: LibraryItem): void {
-    // --- Are we currently in a detail view? ---
-    if (selectedItemForDetailView) {
+async function ensureChildrenAreLoaded(folder: MediaFolder): Promise<MediaFolder> {
+  // If children are null, it means they are not loaded yet.
+  if (folder.children === null) {
+    const children = await window.api.getChildren(folder.id)
+    folder.children = children ?? []
+  }
+  return folder
+}
+
+async function handleItemClick(item: LibraryItem): Promise<void> {
+  // --- Are we currently in a detail view? ---
+  if (selectedItemForDetailView) {
       const parent = selectedItemForDetailView
 
       // A. Clicked a folder inside the detail view
@@ -274,23 +284,30 @@
       return
     }
 
-    // 3. If it's a folder and parent is set to navigate, navigate.
-    if (item.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
-      handleNavigateFolder(item as MediaFolder)
-      return
-    }
+  // 3. If it's a folder and parent is set to navigate, navigate.
+  if (item.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
+    await handleNavigateFolder(item as MediaFolder)
+    return
+  }
 
-    // 4. Default action: open detail view for the item.
+  // 4. Default action: open detail view for the item.
+  if (item.type === 'folder') {
+    selectedItemForDetailView = await ensureChildrenAreLoaded(item)
+  } else {
     selectedItemForDetailView = item
   }
+}
 
-  // Used to navigate to a new folder list view, closing any detail view.
-  function handleNavigateFolder(folder: MediaFolder): void {
-    selectedItemForDetailView = null
-    lastDetailItem = null // Clear breadcrumb on any new grid navigation
-    // Pushing the reactive proxy is fine; Svelte 5 handles this efficiently.
-    viewStack.push(folder)
-  }
+// Used to navigate to a new folder list view, closing any detail view.
+async function handleNavigateFolder(folder: MediaFolder): Promise<void> {
+  selectedItemForDetailView = null
+  lastDetailItem = null // Clear breadcrumb on any new grid navigation
+
+  // Ensure children are loaded before pushing to the view stack
+  const folderWithChildren = await ensureChildrenAreLoaded(folder)
+
+  viewStack.push(folderWithChildren)
+}
 
   function goBack(): void {
     if (!canGoBack) return

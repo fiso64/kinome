@@ -76,6 +76,7 @@ declare global {
       updateItem: (item: LibraryItem) => Promise<void>
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       getItemById: (itemId: string) => Promise<LibraryItem | null>
+      getChildren: (parentId: string) => Promise<LibraryItem[] | null>
       // Manual Match
       manualSearch: (query: string, type: 'movie' | 'tv', year?: string) => Promise<any[]>
       getTmdbImages: (

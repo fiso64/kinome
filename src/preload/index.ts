@@ -15,6 +15,8 @@ const api = {
     ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-by-id', itemId),
+  getChildren: (parentId: string): Promise<LibraryItem[] | null> =>
+    ipcRenderer.invoke('get-children', parentId),
 
   // Manual Match
   manualSearch: (query: string, type: 'movie' | 'tv', year?: string): Promise<any[]> =>

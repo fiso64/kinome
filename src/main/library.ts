@@ -127,7 +127,31 @@ function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
 
-function findItemById(id: string, node: MediaFolder): LibraryItem | null {
+/**
+ * Creates a shallow, clonable copy of a library item.
+ * For folders, it replaces the `children` array with a shallow copy where
+ * each child's own `children` array is set to `null` to indicate they are not loaded.
+ * This is the core of the lazy-loading mechanism.
+ * @param item The item to create a shallow copy of.
+ * @returns A plain JavaScript object ready for IPC.
+ */
+function createShallowClonableCopy(item: LibraryItem): LibraryItem {
+  const plainItem = JSON.parse(JSON.stringify(item))
+
+  if (plainItem.type === 'folder') {
+    plainItem.children = plainItem.children.map((child: LibraryItem) => {
+      if (child.type === 'folder') {
+        // Mark nested children as not loaded
+        child.children = null as any
+      }
+      return child
+    })
+  }
+
+  return plainItem
+}
+
+function findItemById(id:string, node: MediaFolder): LibraryItem | null {
   if (node.id === id) {
     return node
   }
@@ -390,8 +414,8 @@ export function setupLibraryIpc(): void {
     if (!db) {
       await loadDbIntoMemory()
     }
-    // Return a deep copy to avoid sending a non-clonable proxy over IPC.
-    return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
+    // Return a shallow copy for lazy loading.
+    return db?.root ? createShallowClonableCopy(db.root) : null
   })
 
   ipcMain.handle('get-library-media-source-path', async () => {
@@ -475,9 +499,10 @@ export function setupLibraryIpc(): void {
         console.error('Background metadata fetch failed during refresh:', err)
       )
 
-      return db.root ? JSON.parse(JSON.stringify(db.root)) : null
+      return db.root ? createShallowClonableCopy(db.root) : null
     } catch (error) {
       console.error('Failed to refresh library:', error)
+      // On error, we can send a deep copy of the old root as a fallback.
       return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
     }
   })
@@ -525,7 +550,7 @@ export function setupLibraryIpc(): void {
       )
 
       // 5. Return the initial structure immediately to the UI.
-      return db!.root ? JSON.parse(JSON.stringify(db!.root)) : null
+      return db!.root ? createShallowClonableCopy(db!.root) : null
     } catch (error) {
       console.error('Failed to scan directory:', error)
       return null
@@ -837,5 +862,16 @@ export function setupLibraryIpc(): void {
     // Return a deep copy to avoid issues with proxies and non-clonable objects
     const item = findItemById(itemId, db.root)
     return item ? JSON.parse(JSON.stringify(item)) : null
+  })
+
+  ipcMain.handle('get-children', async (_, parentId: string): Promise<LibraryItem[] | null> => {
+    if (!db || !db.root) return null
+
+    const parent = findItemById(parentId, db.root)
+    if (!parent || parent.type !== 'folder') return null
+
+    // Create a shallow, clonable copy of each child.
+    const clonableChildren = parent.children.map((child) => createShallowClonableCopy(child))
+    return clonableChildren
   })
 }
