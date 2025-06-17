@@ -83,6 +83,9 @@
   button:hover {
     background-color: var(--color-background-soft);
   }
+  .close-button {
+    border-top-right-radius: 0;
+  }
   .close-button:hover {
     background-color: #e81123;
     color: white;

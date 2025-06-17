@@ -623,7 +623,6 @@
   header {
     display: flex;
     border-bottom: 1px solid var(--color-background-mute);
-    -webkit-app-region: drag;
     height: var(--header-height);
     flex-shrink: 0;
     transition: background-color 0.3s ease;
@@ -643,6 +642,7 @@
     align-items: center;
     gap: 1.5rem;
     padding: 0 1.5rem;
+    -webkit-app-region: drag;
   }
 
   .header-left,
