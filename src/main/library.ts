@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import { evaluateVirtualTagsForItem } from './virtualTags'
+import { createDbProxy, buildFullSearchIndex, updateIndexForItem } from './search'
 import type {
   Database,
   MediaFolder,
@@ -28,6 +29,13 @@ const DB_VERSION = 1
 
 // --- In-Memory Database Cache ---
 let db: Database | null = null
+let isBulkUpdating = false
+
+export const getBulkUpdateStatus = (): boolean => isBulkUpdating
+const setBulkUpdateStatus = (status: boolean): void => {
+  isBulkUpdating = status
+  console.log(`[Library] Bulk update mode: ${status ? 'ON' : 'OFF'}`)
+}
 
 /**
  * Recursively traverses the library tree and applies virtual tags to each item.
@@ -44,10 +52,23 @@ function applyVirtualTagsToAllItems(node: LibraryItem, settings: Settings) {
 
 async function loadDbIntoMemory(): Promise<void> {
   console.log('[Database] Loading database into memory...')
-  db = await readDb()
-  if (db?.root) {
-    const settings = await readSettings()
-    applyVirtualTagsToAllItems(db.root, settings)
+  const rawDb = await readDb()
+
+  if (rawDb) {
+    setBulkUpdateStatus(true)
+    if (rawDb.root) {
+      const settings = await readSettings()
+      applyVirtualTagsToAllItems(rawDb.root, settings)
+    }
+    // Wrap the loaded database in our proxy, passing our status checker.
+    db = createDbProxy(rawDb, getBulkUpdateStatus)
+    // And build the initial search index
+    buildFullSearchIndex(db.root)
+    setBulkUpdateStatus(false)
+  } else {
+    // Ensure db is null and the search index is cleared if no database was found.
+    db = null
+    buildFullSearchIndex(null)
   }
 }
 // --- End In-Memory Database Cache ---
@@ -79,22 +100,27 @@ async function readDb(): Promise<Database | null> {
 }
 
 async function writeDb(updatedDb: Database): Promise<void> {
-  // Update the in-memory copy first
-  db = updatedDb
-
+  // This function now handles both new raw objects and our existing proxy.
   const libraryPath = getLibraryDataPath()
   await fs.mkdir(libraryPath, { recursive: true })
   const dbPath = getDbPath()
 
-  // Use a replacer to strip the derived `virtualTags` property before saving.
   const replacer = (key: string, value: unknown) => {
-    if (key === 'virtualTags') {
-      return undefined // Omit the key from the output
-    }
+    if (key === 'virtualTags') return undefined
     return value
   }
 
-  await fs.writeFile(dbPath, JSON.stringify(db, replacer, 2))
+  // Persist the data. JSON.stringify reads through proxies just fine.
+  await fs.writeFile(dbPath, JSON.stringify(updatedDb, replacer, 2))
+
+  // If we were given a new object (not our current proxy), we must wrap it
+  // and update the global `db` reference.
+  if (db !== updatedDb) {
+    db = createDbProxy(updatedDb, getBulkUpdateStatus)
+    // A completely new DB means the search index needs a full rebuild.
+    buildFullSearchIndex(db.root)
+  }
+  // If `db === updatedDb`, then `db` is already the correct proxy and no-op is needed.
 }
 
 function generateId(relativePath: string): string {
@@ -361,11 +387,11 @@ export function setupLibraryIpc(): void {
   loadDbIntoMemory()
 
   ipcMain.handle('get-library-root', async () => {
-    // If db is not in memory, try loading it.
     if (!db) {
       await loadDbIntoMemory()
     }
-    return db?.root ?? null
+    // Return a deep copy to avoid sending a non-clonable proxy over IPC.
+    return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
   })
 
   ipcMain.handle('get-library-media-source-path', async () => {
@@ -383,6 +409,7 @@ export function setupLibraryIpc(): void {
 
     console.log(`Refreshing library from: ${db.mediaSourcePath}`)
     try {
+      setBulkUpdateStatus(true)
       const imagesDir = path.join(getLibraryDataPath(), 'images')
       const newRoot = await scanDirectory(db.mediaSourcePath, db.mediaSourcePath)
       const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
@@ -420,37 +447,38 @@ export function setupLibraryIpc(): void {
           })
         }
 
-        // Verify image paths, nullifying them if files are missing.
         await verifyImagePaths(item, imagesDir)
 
         if (item.type === 'folder') {
-          // Process children concurrently
           await Promise.all(item.children.map(processItem))
         }
       }
 
       await processItem(newRoot)
 
+      // Directly set the new root on our proxied DB. The proxy will detect this change.
       db.root = newRoot
 
-      // Apply virtual tags before writing to DB and starting metadata fetch
+      // Apply virtual tags. These changes will also be detected by the proxy.
       const currentSettings = await readSettings()
       applyVirtualTagsToAllItems(db.root, currentSettings)
 
+      // Rebuild the search index now that all data is merged and updated.
+      buildFullSearchIndex(db.root)
+      setBulkUpdateStatus(false)
+
       await writeDb(db)
-      console.log(
-        'Library refresh, virtual tag application, and image verification complete. Database updated.'
-      )
+      console.log('Library refresh and search index rebuild complete. Database updated.')
 
       const settings = await readSettings()
       fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
         console.error('Background metadata fetch failed during refresh:', err)
       )
 
-      return db.root
+      return db.root ? JSON.parse(JSON.stringify(db.root)) : null
     } catch (error) {
       console.error('Failed to refresh library:', error)
-      return db?.root ?? null // Return old root on failure
+      return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
     }
   })
 
@@ -475,28 +503,29 @@ export function setupLibraryIpc(): void {
       // 1. Scan directory structure first.
       const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
 
+      setBulkUpdateStatus(true)
       const newDb: Database = {
         version: DB_VERSION,
         mediaSourcePath,
         root: rootNode
       }
 
-      // 2. Apply virtual tags before writing to the database.
+      // 2. Apply virtual tags before creating the proxy.
       const settings = await readSettings()
       applyVirtualTagsToAllItems(rootNode, settings)
+      setBulkUpdateStatus(false) // Turn off before metadata fetch starts.
 
-      // 3. Write the initial DB with file structure. This also updates our in-memory `db` variable.
+      // 3. This will create the proxy, update the global `db`, and build the search index.
       await writeDb(newDb)
-      console.log('Initial scan complete. Database updated with file structure and virtual tags.')
+      console.log('Initial scan, DB write, and index build complete.')
 
       // 4. Start background metadata fetching without blocking.
-      // Pass the new in-memory `db` object to the fetcher
       fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey).catch((err) =>
         console.error('Background metadata fetch failed during initial scan:', err)
       )
 
-      // 4. Return the initial structure immediately to the UI.
-      return db!.root
+      // 5. Return the initial structure immediately to the UI.
+      return db!.root ? JSON.parse(JSON.stringify(db!.root)) : null
     } catch (error) {
       console.error('Failed to scan directory:', error)
       return null
@@ -532,13 +561,20 @@ export function setupLibraryIpc(): void {
         if (settings.tmdbApiKey && item.tmdbId) {
           // The `item` object is a reference to the one in the `db` cache,
           // so `fetchItemDetails` will modify it directly.
+          setBulkUpdateStatus(true)
           await fetchItemDetails(item, settings, getLibraryDataPath())
           item._v = Date.now()
+          setBulkUpdateStatus(false)
+
+          // Manually trigger a single, incremental re-index now that the fetch is complete.
+          updateIndexForItem(item)
+
           await writeDb(db) // Save the updated database
 
           // Notify all renderer windows that the item has been updated.
+          const plainItem = JSON.parse(JSON.stringify(item))
           BrowserWindow.getAllWindows().forEach((window) => {
-            window.webContents.send('library-item-updated', item)
+            window.webContents.send('library-item-updated', plainItem)
           })
           console.log(`[Details] Background fetch complete for "${item.name}"`)
         }
@@ -549,9 +585,8 @@ export function setupLibraryIpc(): void {
     }
 
     // --- Immediate Return ---
-    // Return the current state of the item from the database right away.
-    // The UI will show this instantly and update later when the event arrives.
-    return item
+    // Return a deep copy to avoid issues with proxies and non-clonable objects over IPC.
+    return item ? JSON.parse(JSON.stringify(item)) : null
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
@@ -605,25 +640,25 @@ export function setupLibraryIpc(): void {
 
     const itemInDb = findItemById(updatedItem.id, db.root)
     if (itemInDb) {
-      // The updatedItem from the renderer is a modified clone of the original.
-      // We merge its properties into the item in our database.
-      // This preserves properties not editable in the UI (like `path`) and
-      // the object reference within the parent's `children` array.
+      setBulkUpdateStatus(true)
       Object.assign(itemInDb, updatedItem)
 
-      // Re-evaluate virtual tags for the updated item.
       const settings = await readSettings()
       itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
+      setBulkUpdateStatus(false)
 
-      await writeDb(db) // Persist changes to disk and update in-memory `db`
+      // The proxy was suppressed during the bulk update.
+      // Manually trigger a single, incremental update for the item now.
+      updateIndexForItem(itemInDb)
+
+      await writeDb(db)
       console.log(`Updated item ${updatedItem.id} in database.`)
 
-      // After updating, recalculate suggestions as they might have changed (e.g., new tag key).
       const newSuggestions = await getAutocompleteSuggestions()
 
-      // Notify all renderer windows about the updates.
+      const plainItem = JSON.parse(JSON.stringify(itemInDb))
       BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send('library-item-updated', itemInDb)
+        window.webContents.send('library-item-updated', plainItem)
         window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
       })
     } else {
