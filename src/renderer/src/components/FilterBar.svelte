@@ -2,108 +2,108 @@
   import SearchInput from './SearchInput.svelte'
 
   let {
+    query = $bindable(),
     suggestions,
-    onQueryChange
+    onClose,
+    focusKey
   }: {
+    query: { text: string; tags: { key: string; value: string }[] }
     suggestions: AutocompleteSuggestions
-    onQueryChange: (query: { text: string; tags: { key: string; value: string }[] }) => void
+    onClose: () => void
+    focusKey: number
   } = $props()
 
-  let isOpen = $state(false)
-  let element = $state<HTMLElement | undefined>()
   let searchInput = $state<HTMLInputElement | undefined>()
 
-  let filterText = $state('')
-  let filterTags = $state<{ key: string; value: string }[]>([])
-  const filterQuery = $derived({ text: filterText, tags: filterTags })
-
   $effect(() => {
-    onQueryChange(filterQuery)
+    // This effect runs on mount and whenever focusKey changes.
+    void focusKey
+    searchInput?.focus()
   })
 
   $effect(() => {
-    if (isOpen && searchInput) {
-      searchInput.focus()
-    }
-  })
-
-  $effect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isOpen && element && !element.contains(event.target as Node)) {
-        isOpen = false
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
       }
     }
-    window.addEventListener('mousedown', handleClickOutside)
+    // Use capture to prevent other escape handlers (like modals) from firing first.
+    window.addEventListener('keydown', handleKeydown, { capture: true })
     return () => {
-      window.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleKeydown, { capture: true })
     }
   })
 </script>
 
-<div bind:this={element} class="filter-bar-container" class:open={isOpen}>
-  {#if isOpen}
-    <SearchInput
-      initialQuery={filterQuery}
-      {suggestions}
-      onQueryChange={(newQuery) => {
-        filterText = newQuery.text
-        filterTags = newQuery.tags
-      }}
-      bind:element={searchInput}
-    />
-  {:else}
-    <button
-      class="open-filter-btn"
-      onclick={(e) => {
-        e.stopPropagation()
-        isOpen = true
-      }}
-      title="Filter current view"
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        ><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-      </svg>
-      <span>Filter</span>
-    </button>
-  {/if}
+<div class="filter-bar-container">
+  <SearchInput bind:query {suggestions} bind:element={searchInput} />
+  <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
 </div>
 
 <style>
   .filter-bar-container {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    padding: 0 1.5rem;
-    height: 54px; /* Match header height */
-    flex-shrink: 0;
-  }
-  .filter-bar-container.open {
-    padding: 0;
-    justify-content: center;
-    padding: 0.5rem 1rem;
-  }
-  .open-filter-btn {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50; /* Above content, below modals */
+
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background-color: var(--color-background-soft);
-    border-radius: 20px;
+    padding: 0.5rem;
+    background-color: hsla(225, 8%, 15%, 0.9);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--ev-c-black-mute);
+    border-radius: 25px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+    animation: slide-in 0.2s ease-out;
+  }
+
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 1rem);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
   }
 
   /* Style SearchInput when inside filter bar */
   .filter-bar-container :global(.search-box) {
-    max-width: 400px;
+    max-width: 500px;
+    min-width: 300px;
     height: 38px;
-    background-color: var(--color-background-soft);
+    background-color: transparent;
+    border: none;
+  }
+
+  .close-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--ev-c-text-2);
+    cursor: pointer;
+    font-size: 1.5rem;
+    line-height: 1;
+    padding: 0 0.5rem;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .close-btn:hover {
+    background-color: var(--ev-c-gray-3);
+    color: var(--ev-c-text-1);
   }
 </style>

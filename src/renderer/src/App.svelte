@@ -35,9 +35,7 @@
   let isRefreshing = $state(false)
 
   // --- Search & Filter State ---
-  let globalSearchText = $state('')
-  let globalSearchTags = $state<{ key: string; value: string }[]>([])
-  const globalSearchQuery = $derived({ text: globalSearchText, tags: globalSearchTags })
+  let globalSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
   const isGlobalSearchActive = $derived(
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
   )
@@ -47,6 +45,8 @@
     text: '',
     tags: []
   })
+  let isFilterBarVisible = $state(false)
+  let filterFocusKey = $state(0)
   // --- End Search & Filter State ---
 
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
@@ -116,12 +116,31 @@
     }
   })
 
+  let wasFilterBarVisible = false
+  $effect(() => {
+    // Hide filter bar when navigating to detail view or global search, and restore it when returning.
+    if (selectedItemForDetailView || isGlobalSearchActive) {
+      if (isFilterBarVisible) {
+        wasFilterBarVisible = true
+        isFilterBarVisible = false
+      }
+    } else {
+      if (wasFilterBarVisible) {
+        isFilterBarVisible = true
+        wasFilterBarVisible = false // Reset the flag
+      }
+    }
+  })
+
   // --- Global Search Effect (No Debounce) ---
   $effect(() => {
+    // This effect now depends directly on the parts of globalSearchQuery that matter.
     const query = globalSearchQuery
+
     if (isGlobalSearchActive) {
       isPerformingSearch = true
       selectedItemForDetailView = null
+      // We still need to pass a plain object to IPC
       const plainQuery = JSON.parse(JSON.stringify(query))
       window.api.performSearch(plainQuery).then((results) => {
         searchResults = results
@@ -336,8 +355,7 @@
     if (!canGoBack) return
 
     if (isGlobalSearchActive && !selectedItemForDetailView) {
-      globalSearchText = ''
-      globalSearchTags = []
+      globalSearchQuery = { text: '', tags: [] }
       return
     }
 
@@ -367,8 +385,7 @@
 
   function handleSearchByTag(key: string, value: string): void {
     selectedItemForDetailView = null
-    globalSearchText = ''
-    globalSearchTags = [{ key, value }]
+    globalSearchQuery = { text: '', tags: [{ key, value }] }
   }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
@@ -396,7 +413,16 @@
       },
       navigateBack: goBack,
       navigateForward: goForward,
-      reloadLibrary: handleRefresh
+      reloadLibrary: handleRefresh,
+      showAndFocusFilterBar: () => {
+        if (isFilterBarVisible) {
+          // If already visible, just increment the key to trigger a refocus.
+          filterFocusKey++
+        } else {
+          // Otherwise, make it visible. The effect in FilterBar will handle the initial focus.
+          isFilterBarVisible = true
+        }
+      }
     })
     return () => cleanupShortcuts()
   })
@@ -532,19 +558,18 @@
         {/if}
       </div>
 
-      <div class="search-container" onkeydown={handleSearchKeyDown}>
-        {#if !selectedItemForDetailView}
+      {#if !selectedItemForDetailView}
+        <div class="search-container" onkeydown={handleSearchKeyDown}>
           <SearchInput
-            initialQuery={globalSearchQuery}
+            bind:query={globalSearchQuery}
             suggestions={allAutocompleteSuggestions}
-            onQueryChange={(newQuery) => {
-              globalSearchText = newQuery.text
-              globalSearchTags = newQuery.tags
-            }}
             bind:element={searchInputEl}
           />
-        {/if}
-      </div>
+        </div>
+      {:else}
+        <!-- Placeholder to keep grid alignment -->
+        <div></div>
+      {/if}
 
       <div class="header-right">
         {#if !selectedItemForDetailView}
@@ -650,10 +675,6 @@
         <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
         {#if currentFolder}
           <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
-            <FilterBar
-              suggestions={allAutocompleteSuggestions}
-              onQueryChange={(query) => (filterQuery = query)}
-            />
             <div class="folder-content-wrapper">
               <MediaView
                 parentItem={currentFolder}
@@ -680,14 +701,30 @@
       {/if}
     {/if}
   </div>
+
+  {#if isFilterBarVisible}
+    <FilterBar
+      suggestions={allAutocompleteSuggestions}
+      bind:query={filterQuery}
+      focusKey={filterFocusKey}
+      onClose={() => {
+        isFilterBarVisible = false
+        // Clear the filter state when it's manually closed.
+        filterQuery = { text: '', tags: [] }
+      }}
+    />
+  {/if}
 </main>
 
 <style>
   .search-container {
-    flex-grow: 1;
     display: flex;
     justify-content: center;
-    min-width: 150px;
+    min-width: 0; /* Let the child dictate min-width */
+    /* overflow: hidden; */ /* Removed to allow autocomplete menu to show */
+    position: relative;
+    /* Need to shift left to perfectly align with the result list (not ideal, but could not find a better solution) */
+    left: 50px;
   }
 
   main {
@@ -716,8 +753,10 @@
 
   .header-content {
     flex-grow: 1;
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    /* The middle column will be at least its min-content size, but no more than 1000px. */
+    /* The side columns take up the remaining space equally, ensuring stability. */
+    grid-template-columns: 1fr minmax(auto, 1000px) 1fr;
     align-items: center;
     gap: 1.5rem;
     padding: 0 1.5rem;
@@ -733,7 +772,11 @@
 
   .header-left {
     overflow: hidden; /* For long folder names */
-    flex-shrink: 0;
+    justify-self: start;
+  }
+
+  .header-right {
+    justify-self: end;
   }
 
   h1 {
@@ -810,6 +853,7 @@
   .search-content-wrapper {
     flex-grow: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable;
   }
 
   .search-content-wrapper :global(.media-list) {

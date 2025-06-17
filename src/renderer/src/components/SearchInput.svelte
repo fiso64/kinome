@@ -2,24 +2,15 @@
   import AutocompleteMenu from './AutocompleteMenu.svelte'
   // Types are available globally
 
-  type SearchPill = { key: string; value: string; id: string }
-
   let {
-    initialQuery,
+    query = $bindable({ text: '', tags: [] }),
     suggestions,
-    onQueryChange,
     element = $bindable()
   }: {
-    initialQuery?: { text: string; tags: { key: string; value: string }[] }
+    query: { text: string; tags: { key: string; value: string }[] }
     suggestions: AutocompleteSuggestions
-    onQueryChange: (query: { text: string; tags: { key: string; value: string }[] }) => void
     element?: HTMLInputElement
   } = $props()
-
-  let pills = $state<SearchPill[]>(
-    initialQuery?.tags.map((t) => ({ ...t, id: crypto.randomUUID() })) ?? []
-  )
-  let currentInput = $state(initialQuery?.text ?? '')
 
   let autocomplete = $state<{
     show: boolean
@@ -35,41 +26,38 @@
     activeKey: ''
   })
 
-  function updateParent() {
-    const tags = pills.map(({ key, value }) => ({ key, value }))
-    const text = currentInput
-    onQueryChange({ text, tags })
-  }
-
   function addPill(key: string, value: string) {
     if (key && value) {
-      pills.push({ key, value, id: crypto.randomUUID() })
-      currentInput = ''
-      pills = pills
+      query.tags.push({ key, value })
+      query.tags = query.tags // Trigger reactivity
+      query.text = ''
     }
   }
 
-  function removePill(id: string) {
-    pills = pills.filter((p) => p.id !== id)
+  function removePill(index: number) {
+    query.tags.splice(index, 1)
+    query.tags = query.tags // Trigger reactivity
   }
 
   function handleInput() {
     // A pill has been completed with a space
-    const tagMatch = currentInput.match(/:([a-zA-Z0-9_]+):([^:]+?)\s$/)
+    const tagMatch = query.text.match(/:([a-zA-Z0-9_]+):([^:]+?)\s$/)
     if (tagMatch) {
       addPill(tagMatch[1], tagMatch[2].trim())
-      updateParent()
       return
     }
 
     // --- Autocomplete logic ---
-    const keyMatch = currentInput.match(/:([a-zA-Z0-9_]*)$/)
-    const valueMatch = currentInput.match(/:([a-zA-Z0-9_]+):([^:]*)$/)
+    const keyMatch = query.text.match(/:([a-zA-Z0-9_]*)$/)
+    const valueMatch = query.text.match(/:([a-zA-Z0-9_]+):([^:]*)$/)
 
     if (valueMatch) {
       const key = valueMatch[1]
       const value = valueMatch[2]
-      const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
+      // This is a more robust way to get the suggestion source,
+      // guarding against undefined properties.
+      const source =
+        key === 'genre' ? suggestions.genres ?? [] : suggestions.tagValues?.[key] ?? []
 
       autocomplete.suggestions = source.filter((s) =>
         s.toLowerCase().startsWith(value.toLowerCase())
@@ -88,92 +76,97 @@
     }
 
     if (autocomplete.suggestions.length > 0) {
-      const rect = element!.getBoundingClientRect()
-      autocomplete.position = { top: rect.bottom + 4, left: rect.left }
-      autocomplete.show = true
+      const searchBox = element?.closest('.search-box')
+      if (searchBox) {
+        const rect = searchBox.getBoundingClientRect()
+        autocomplete.position = { top: rect.height + 4, left: 0 }
+        autocomplete.show = true
+      }
     } else {
       autocomplete.show = false
     }
-    updateParent()
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Backspace' && currentInput === '' && pills.length > 0) {
-      pills.pop()
-      pills = pills
-      updateParent()
+    if (e.key === 'Backspace' && query.text === '' && query.tags.length > 0) {
+      query.tags.pop()
+      query.tags = query.tags // Trigger reactivity
     }
   }
 
   function handleAutocompleteSelect(suggestion: string) {
     if (autocomplete.type === 'key') {
-      currentInput = `:${suggestion}:`
+      query.text = `:${suggestion}:`
       handleInput()
     } else if (autocomplete.type === 'value') {
-      currentInput = `:${autocomplete.activeKey}:${suggestion} `
       addPill(autocomplete.activeKey, suggestion)
       autocomplete.show = false
     }
     element?.focus()
-    updateParent()
   }
 </script>
 
-<div class="search-box" onclick={() => element?.focus()}>
-  {#each pills as pill (pill.id)}
-    <div class="pill">
-      <span class="pill-key">{pill.key}:</span>
-      <span class="pill-value">{pill.value}</span>
-      <button
-        class="remove-pill"
-        onclick={(e) => {
-          e.stopPropagation()
-          removePill(pill.id)
-          updateParent()
-        }}>&times;</button
-      >
-    </div>
-  {/each}
-  <input
-    bind:this={element}
-    bind:value={currentInput}
-    oninput={handleInput}
-    onfocus={handleInput}
-    onkeydown={handleKeyDown}
-    onblur={() => (autocomplete.show = false)}
-    placeholder={pills.length > 0 ? '' : 'Search or type : for tags...'}
-    class="search-input-field"
-    aria-label="Search current folder"
-  />
+<div class="search-input-wrapper">
+  <div class="search-box" onclick={() => element?.focus()}>
+    {#each query.tags as tag, i (i)}
+      <div class="pill">
+        <span class="pill-key">{tag.key}:</span>
+        <span class="pill-value">{tag.value}</span>
+        <button
+          class="remove-pill"
+          onclick={(e) => {
+            e.stopPropagation()
+            removePill(i)
+          }}>&times;</button
+        >
+      </div>
+    {/each}
+    <input
+      bind:this={element}
+      bind:value={query.text}
+      oninput={handleInput}
+      onfocus={handleInput}
+      onkeydown={handleKeyDown}
+      onblur={() => (autocomplete.show = false)}
+      placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
+      class="search-input-field"
+      aria-label="Search current folder"
+    />
+  </div>
+
+  {#if autocomplete.show}
+    <AutocompleteMenu
+      suggestions={autocomplete.suggestions}
+      position={autocomplete.position}
+      onSelect={handleAutocompleteSelect}
+      onClose={() => (autocomplete.show = false)}
+    />
+  {/if}
 </div>
 
-{#if autocomplete.show}
-  <AutocompleteMenu
-    suggestions={autocomplete.suggestions}
-    position={autocomplete.position}
-    onSelect={handleAutocompleteSelect}
-    onClose={() => (autocomplete.show = false)}
-  />
-{/if}
-
 <style>
-  .search-box {
-    -webkit-app-region: no-drag;
-    width: 100%;
-    max-width: 1000px;
-    padding: 0.3rem 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 5px;
-    font-size: 1rem;
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 0.4rem;
-    cursor: text;
-    overflow-x: auto;
-  }
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
+  /* min/max width is now handled by the parent grid container in App.svelte */
+}
+
+.search-box {
+  -webkit-app-region: no-drag;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-background-mute);
+  color: var(--color-text);
+  border-radius: 5px;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  cursor: text;
+  overflow-x: auto;
+}
 
   .search-box::-webkit-scrollbar {
     height: 3px;

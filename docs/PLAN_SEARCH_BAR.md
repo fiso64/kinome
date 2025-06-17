@@ -40,7 +40,7 @@ This approach will be implemented for the main search bar, providing a "deep sea
 
 **Step 4: UI and IPC Flow**
 
-*   `[ ]` **Status: To be implemented after Steps 2 & 3.**
+*   `[X]` **Status: Implemented.**
 
 1.  A new IPC channel, `api.performSearch(query)`, will be created (actually: already done).
 2.  When the user types in the main search bar, the UI will call this method, sending the current query text and tags.

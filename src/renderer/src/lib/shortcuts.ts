@@ -4,6 +4,7 @@ interface ShortcutActions {
   navigateBack: () => void
   navigateForward: () => void
   reloadLibrary: () => void
+  showAndFocusFilterBar: () => void
 }
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
@@ -24,6 +25,13 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     if (event.altKey && event.key.toLowerCase() === 'd') {
       event.preventDefault()
       actions.focusSearch()
+      return
+    }
+
+    // --- Special case for Ctrl+F, works everywhere ---
+    if (modKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault()
+      actions.showAndFocusFilterBar()
       return
     }
 
