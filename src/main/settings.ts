@@ -7,6 +7,9 @@ export interface Settings {
   tmdbApiKey: string
   useLogos?: boolean
   virtualTags?: { name: string; expression: string }[]
+  defaultFolderLayout?: 'grid' | 'list' | 'tree'
+  showDetailMediaSection?: boolean
+  gridPosterSize?: number
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -20,7 +23,10 @@ async function readRawSettings(): Promise<Settings> {
     playerCommand: 'mpv {PATH}',
     tmdbApiKey: '',
     useLogos: true,
-    virtualTags: []
+    virtualTags: [],
+    defaultFolderLayout: 'grid',
+    showDetailMediaSection: true,
+    gridPosterSize: 200
   }
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')

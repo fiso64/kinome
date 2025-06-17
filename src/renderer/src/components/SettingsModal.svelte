@@ -12,6 +12,10 @@
   let useLogos = $state(true)
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
+  let defaultFolderLayout = $state<'grid' | 'list' | 'tree'>('grid')
+  let showDetailMediaSection = $state(true)
+  let gridPosterSize = $state(200)
+  let originalGridPosterSize = 200
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
@@ -19,6 +23,10 @@
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
+      defaultFolderLayout = settings.defaultFolderLayout ?? 'grid'
+      showDetailMediaSection = settings.showDetailMediaSection ?? true
+      gridPosterSize = settings.gridPosterSize ?? 200
+      originalGridPosterSize = settings.gridPosterSize ?? 200
     })
 
     window.api.getLibraryMediaSourcePath().then((path) => {
@@ -38,7 +46,7 @@
       }
 
       if (event.key === 'Escape') {
-        close()
+        handleCancel()
       } else if (event.key === 'Enter' && (event.target as HTMLElement).tagName !== 'BUTTON') {
         event.preventDefault()
         handleSave()
@@ -50,6 +58,11 @@
     }
   })
 
+  // This effect provides a live preview for the poster size slider
+  $effect(() => {
+    document.documentElement.style.setProperty('--grid-poster-size', `${gridPosterSize}px`)
+  })
+
   function addVirtualTag() {
     virtualTags.push({ id: crypto.randomUUID(), name: '', expression: '' })
     virtualTags = virtualTags
@@ -59,11 +72,25 @@
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
   }
 
+  function handleCancel() {
+    // Revert the live preview to its original value before closing the modal
+    document.documentElement.style.setProperty('--grid-poster-size', `${originalGridPosterSize}px`)
+    close()
+  }
+
   async function handleSave(): Promise<void> {
     const tagsToSave = virtualTags
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
-    await window.api.saveSettings({ playerCommand, tmdbApiKey, useLogos, virtualTags: tagsToSave })
+    await window.api.saveSettings({
+      playerCommand,
+      tmdbApiKey,
+      useLogos,
+      virtualTags: tagsToSave,
+      defaultFolderLayout,
+      showDetailMediaSection,
+      gridPosterSize
+    })
     close()
   }
 
@@ -73,7 +100,7 @@
   }
 </script>
 
-<ModalWindow title="Settings" onClose={close} onSave={handleSave}>
+<ModalWindow title="Settings" onClose={handleCancel} onSave={handleSave}>
   {#snippet header()}
     <div class="tabs">
       <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
@@ -133,6 +160,42 @@
           When enabled, the app will try to download high-quality logos (e.g., a movie's title
           treatment) to display on detail pages.
         </p>
+      </div>
+      <div class="form-group">
+        <label for="default-layout">Default Folder Layout</label>
+        <select id="default-layout" bind:value={defaultFolderLayout}>
+          <option value="grid">Grid</option>
+          <option value="list">List</option>
+          <option value="tree">Tree</option>
+        </select>
+        <p class="help-text">
+          The default view used for folders that do not have a specific layout set.
+        </p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={showDetailMediaSection} />
+          <span>Show "Media" section in detail view</span>
+        </label>
+        <p class="help-text">
+          For folders with sub-items that have posters, a "Media" section is shown on the detail
+          page. Disable this to hide it.
+        </p>
+      </div>
+      <div class="form-group">
+        <label for="poster-size">Grid Poster Size</label>
+        <div class="slider-container">
+          <input
+            type="range"
+            id="poster-size"
+            bind:value={gridPosterSize}
+            min="50"
+            max="500"
+            step="10"
+          />
+          <span>{gridPosterSize}px</span>
+        </div>
+        <p class="help-text">Controls the base width of posters in the grid view.</p>
       </div>
     {:else if activeTab === 'virtualTags'}
       <div class="virtual-tags-list">
@@ -302,5 +365,13 @@
   .remove-tag:hover {
     color: #e81123;
     background: none;
+  }
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .slider-container input[type='range'] {
+    flex-grow: 1;
   }
 </style>

@@ -84,9 +84,7 @@
   let selectedItemForDetailView: LibraryItem | null = $state(null)
   let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
   let activeModal = $state<ActiveModal | null>(null)
-  let settings = $state<{ playerCommand: string; tmdbApiKey: string; useLogos: boolean } | null>(
-    null
-  )
+  let settings = $state<Settings | null>(null)
 
   // Global Context Menu State
   let contextMenuItem = $state<LibraryItem | null>(null)
@@ -105,6 +103,7 @@
       : currentFolder
   )
 
+  // This effect runs once on mount to fetch initial data
   $effect(() => {
     log('App mounted. Requesting library root from main process...')
     window.api.getLibraryRoot().then(async (root) => {
@@ -121,10 +120,18 @@
 
     window.api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
     window.api.getSettings().then((s) => (settings = s))
+
     const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((s) => {
       allAutocompleteSuggestions = s
     })
     return () => unlistenSuggestions()
+  })
+
+  // This effect is reactive and will update the CSS variable whenever the settings change
+  $effect(() => {
+    if (settings?.gridPosterSize) {
+      document.documentElement.style.setProperty('--grid-poster-size', `${settings.gridPosterSize}px`)
+    }
   })
 
   $effect(() => {
@@ -910,7 +917,7 @@
                 items={currentFolder.children}
                 searchQuery={filterQuery}
                 onItemClick={handleItemClick}
-                layout={currentFolder.layout ?? 'grid'}
+                layout={currentFolder.layout ?? settings?.defaultFolderLayout ?? 'grid'}
                 onShowContextMenu={handleShowContextMenu}
                 suggestions={allAutocompleteSuggestions}
               />
@@ -925,7 +932,7 @@
           onItemClick={handleItemClick}
           onSearchByTag={handleSearchByTag}
           showContextMenu={handleShowContextMenu}
-          useLogos={settings.useLogos ?? true}
+          {settings}
         />
       {/if}
     {/if}

@@ -1,6 +1,16 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 declare global {
+  interface Settings {
+    playerCommand: string
+    tmdbApiKey: string
+    useLogos?: boolean
+    virtualTags?: { name: string; expression: string }[]
+    defaultFolderLayout?: 'grid' | 'list' | 'tree'
+    showDetailMediaSection?: boolean
+    gridPosterSize?: number
+  }
+
   interface MediaFile {
     id: string
     name: string

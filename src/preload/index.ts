@@ -2,6 +2,7 @@ console.log(`[${new Date().toISOString()}] [Preload] Preload script execution st
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { Settings } from '../main/settings'
 import type {
   MediaFile,
   MediaFolder,
@@ -63,11 +64,10 @@ const api = {
     ipcRenderer.invoke('get-item-properties', path),
 
   // Settings
-  getSettings: (): Promise<{ playerCommand: string; tmdbApiKey: string }> =>
-    ipcRenderer.invoke('get-settings'),
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke('get-settings'),
   getLibraryMediaSourcePath: (): Promise<string | null> =>
     ipcRenderer.invoke('get-library-media-source-path'),
-  saveSettings: (settings: { playerCommand: string; tmdbApiKey: string }): Promise<void> =>
+  saveSettings: (settings: Partial<Settings>): Promise<void> =>
     ipcRenderer.invoke('save-settings', settings),
 
   // Window Controls

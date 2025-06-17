@@ -6,13 +6,13 @@
     onItemClick,
     showContextMenu,
     onSearchByTag,
-    useLogos
+    settings
   }: {
     item: LibraryItem
     onItemClick: (item: LibraryItem) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
     onSearchByTag: (key: string, value: string) => void
-    useLogos: boolean
+    settings: Settings
   } = $props()
 
   const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
@@ -116,7 +116,7 @@
 
       <div class="info-column">
         <div class="title-and-meta">
-          {#if useLogos && item.logoPath}
+          {#if (settings.useLogos ?? true) && item.logoPath}
             <div class="logo-container">
               <img
                 src="media-browser-asset://images/{item.logoPath}{item._v ? `?v=${item._v}` : ''}"
@@ -179,7 +179,7 @@
       </div>
     {/if}
 
-    {#if mediaDescendants.length > 0 && !isSpecialFile}
+    {#if (settings.showDetailMediaSection ?? true) && mediaDescendants.length > 0 && !isSpecialFile}
       <div class="children-section">
         <h2 class="section-title">Media</h2>
         <MediaView
