@@ -354,66 +354,65 @@
       return
     }
 
-    // --- Search Input Query Management ---
-    // The search bar text is cleared when entering detail view.
-    // The global query is preserved to allow "back to search" functionality.
-    if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
-      // It's a playable file, no need to change views or clear the query.
-      handlePlayFile(loadedItem)
-    } else {
-      // It's a folder or special file, open the detail view.
-      selectedItemForDetailView = loadedItem
-      // Clear the transient detail view search on navigation.
-      detailViewSearchQuery = { text: '', tags: [] }
-    }
-
-    if (fromSearch) {
-      // If the click came from the main search results, update the highlight.
-      const clickedIndex = searchResults.findIndex((sr) => sr.id === item.id)
-      if (clickedIndex !== -1) {
-        highlightedSearchItemIndex = clickedIndex
-      }
-      return // Don't process further, we've opened the detail view.
-    }
-
+    // --- Is the click on an item INSIDE an active detail view? ---
     if (selectedItemForDetailView) {
       const parent = selectedItemForDetailView
-      if (loadedItem.type === 'folder') {
-        if ((parent as MediaFolder).childrenClickAction === 'navigate') {
-          drillDown(loadedItem as MediaFolder)
-        } else {
-          lastDetailItem = parent
-          viewStack.push(parent as MediaFolder)
-          selectedItemForDetailView = loadedItem
-        }
-        return
-      }
-      if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
-        lastDetailItem = parent
-        viewStack.push(parent as MediaFolder)
-        selectedItemForDetailView = loadedItem
-        return
-      }
-      if (loadedItem.type === 'file') {
+
+      // Playable file click inside detail view
+      if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
         handlePlayFile(loadedItem)
+        return
+      }
+
+      // It's a folder or special file that opens another detail view from within a detail view
+      if (
+        loadedItem.type === 'folder' &&
+        (parent as MediaFolder).childrenClickAction === 'navigate'
+      ) {
+        drillDown(loadedItem as MediaFolder)
+      } else {
+        // Default 'detail' action when drilling down
+        lastDetailItem = parent
+        // The current detail view's item becomes part of the breadcrumb trail if it's a folder
+        if (parent.type === 'folder') {
+          viewStack.push(parent)
+        }
+        selectedItemForDetailView = loadedItem
       }
       return
     }
 
-    lastDetailItem = null
-    if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
-      selectedItemForDetailView = loadedItem
+    // --- The click is from the main view (grid, list, etc.) or search results ---
+
+    // Playable file click from main view
+    if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
+      handlePlayFile(loadedItem)
       return
     }
+    // Tree view special case for playing files
     if (loadedItem.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
       handlePlayFile(loadedItem)
       return
     }
+
+    // Main view folder navigation
     if (loadedItem.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
       handleNavigateFolder(loadedItem as MediaFolder)
       return
     }
+
+    // Default action from main view: open detail view
+    lastDetailItem = null // Important: reset lastDetailItem
     selectedItemForDetailView = loadedItem
+    detailViewSearchQuery = { text: '', tags: [] }
+
+    // If click was from search results, update highlight
+    if (fromSearch) {
+      const clickedIndex = searchResults.findIndex((sr) => sr.id === item.id)
+      if (clickedIndex !== -1) {
+        highlightedSearchItemIndex = clickedIndex
+      }
+    }
   }
 
   function handleNavigateFolder(folder: MediaFolder): void {
