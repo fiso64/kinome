@@ -1,4 +1,4 @@
-import type { LibraryItem } from './types'
+import type { LibraryItem } from '../shared/types'
 import type { Settings } from './settings'
 
 // These are the properties from a LibraryItem that will be available

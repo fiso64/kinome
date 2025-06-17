@@ -68,6 +68,7 @@
   // --- End Search & Filter State ---
 
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
+    mediaTypes: [],
     genres: [],
     tagKeys: [],
     tagValues: {}
@@ -130,7 +131,10 @@
   // This effect is reactive and will update the CSS variable whenever the settings change
   $effect(() => {
     if (settings?.gridPosterSize) {
-      document.documentElement.style.setProperty('--grid-poster-size', `${settings.gridPosterSize}px`)
+      document.documentElement.style.setProperty(
+        '--grid-poster-size',
+        `${settings.gridPosterSize}px`
+      )
     }
   })
 
@@ -224,7 +228,10 @@
   $effect(() => {
     // Auto-highlight the first search result or clear highlight
     if (searchResults.length > 0) {
-      if (highlightedSearchItemIndex === null || highlightedSearchItemIndex >= searchResults.length) {
+      if (
+        highlightedSearchItemIndex === null ||
+        highlightedSearchItemIndex >= searchResults.length
+      ) {
         highlightedSearchItemIndex = 0
       }
     } else {

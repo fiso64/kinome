@@ -9,7 +9,7 @@ import type {
   LibraryItem,
   AutocompleteSuggestions,
   SearchIndexEntry
-} from '../main/types'
+} from '../shared/types'
 
 // Custom APIs for renderer
 const api = {

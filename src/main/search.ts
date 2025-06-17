@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js'
-import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from './types'
+import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
+import { itemMatchesAllTags } from '../shared/filter'
 
 const SEARCH_RESULT_LIMIT = 50
 
@@ -277,33 +278,9 @@ function getRankedResults(query: {
     return []
   }
 
-  // 1. Filter by tags
+  // 1. Filter by tags using the shared utility
   const tagFilteredItems = hasTags
-    ? searchIndex.filter((item) => {
-        for (const tag of query.tags) {
-          let tagMatch = false
-          if (tag.key === 'genre') {
-            tagMatch =
-              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
-          } else if (tag.key === 'year') {
-            tagMatch = item.year?.toString() === tag.value
-          } else if (
-            item.virtualTags &&
-            Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
-          ) {
-            tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
-          } else if (item.tags) {
-            const itemTagValue = item.tags[tag.key]
-            if (typeof itemTagValue === 'string') {
-              tagMatch = itemTagValue
-                .split(',')
-                .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
-            }
-          }
-          if (!tagMatch) return false
-        }
-        return true
-      })
+    ? searchIndex.filter((item) => itemMatchesAllTags(item, query))
     : searchIndex
 
   // 2. If no text, sort by static score and return

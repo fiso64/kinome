@@ -129,9 +129,7 @@
       <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
         >Match</button
       >
-      <button
-        class:active={activeTab === 'artwork'}
-        onclick={() => (activeTab = 'artwork')}
+      <button class:active={activeTab === 'artwork'} onclick={() => (activeTab = 'artwork')}
         >Artwork</button
       >
     </div>
@@ -205,11 +203,7 @@
             <option value="none">All (No Language)</option>
           </select>
         </div>
-        <button
-          class="primary"
-          onclick={fetchImages}
-          disabled={isFetchingArtwork || !item.tmdbId}
-        >
+        <button class="primary" onclick={fetchImages} disabled={isFetchingArtwork || !item.tmdbId}>
           {#if isFetchingArtwork}Finding...{:else}Find Artwork{/if}
         </button>
       </div>

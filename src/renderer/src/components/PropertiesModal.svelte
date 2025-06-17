@@ -97,11 +97,16 @@
         <div class="separator"></div>
 
         <div class="prop-label">Size:</div>
-        <div class="prop-value">{formatBytes(properties.size)} ({properties.size.toLocaleString()} bytes)</div>
+        <div class="prop-value">
+          {formatBytes(properties.size)} ({properties.size.toLocaleString()} bytes)
+        </div>
 
         {#if properties.contains}
           <div class="prop-label">Contains:</div>
-          <div class="prop-value">{properties.contains.files.toLocaleString()} Files, {properties.contains.folders.toLocaleString()} Folders</div>
+          <div class="prop-value">
+            {properties.contains.files.toLocaleString()} Files, {properties.contains.folders.toLocaleString()}
+            Folders
+          </div>
         {/if}
 
         <div class="separator"></div>

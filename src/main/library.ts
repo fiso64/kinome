@@ -21,7 +21,7 @@ import type {
   LibraryItem,
   MediaFile,
   AutocompleteSuggestions
-} from './types'
+} from '../shared/types'
 import {
   cacheGenreLists,
   fetchAndApplyMetadata,
@@ -357,15 +357,20 @@ function collectItemsToProcess(
 
 async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
-    return { genres: [], tagKeys: [], tagValues: {} }
+    return { mediaTypes: [], genres: [], tagKeys: [], tagValues: {} }
   }
 
   const allItems = getAllItemsAsList(db.root)
+  const mediaTypes = new Set<string>()
   const genres = new Set<string>()
   const tagKeys = new Set<string>()
   const tagValues: Record<string, Set<string>> = {}
 
   for (const item of allItems) {
+    // Collect media types
+    if (item.mediaType) {
+      mediaTypes.add(item.mediaType.trim())
+    }
     // Collect genres
     if (item.genres) {
       item.genres.forEach((genre) => genres.add(genre.trim()))
@@ -397,6 +402,7 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   }
 
   return {
+    mediaTypes: Array.from(mediaTypes).sort(),
     genres: Array.from(genres).sort(),
     tagKeys: Array.from(tagKeys).sort(),
     tagValues: tagValuesAsArrays
@@ -955,23 +961,20 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.handle(
-    'rename-item',
-    async (_, oldPath: string, newName: string): Promise<boolean> => {
-      const newPath = path.join(path.dirname(oldPath), newName)
-      try {
-        await fs.rename(oldPath, newPath)
-        return true
-      } catch (error) {
-        console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
-        dialog.showErrorBox(
-          'Rename Error',
-          `Failed to rename item. Check logs or file permissions.\n\nError: ${(error as Error).message}`
-        )
-        return false
-      }
+  ipcMain.handle('rename-item', async (_, oldPath: string, newName: string): Promise<boolean> => {
+    const newPath = path.join(path.dirname(oldPath), newName)
+    try {
+      await fs.rename(oldPath, newPath)
+      return true
+    } catch (error) {
+      console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
+      dialog.showErrorBox(
+        'Rename Error',
+        `Failed to rename item. Check logs or file permissions.\n\nError: ${(error as Error).message}`
+      )
+      return false
     }
-  )
+  })
 
   ipcMain.handle('get-item-properties', async (_, itemPath: string) => {
     try {

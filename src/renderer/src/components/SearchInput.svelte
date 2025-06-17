@@ -2,6 +2,15 @@
   import AutocompleteMenu from './AutocompleteMenu.svelte'
   // Types are available globally
 
+  // This constant centralizes the "special" keys that have their own suggestion lists.
+  const SUGGESTION_KEYS = {
+    // Keys that have dedicated suggestion arrays (not from user-defined tags)
+    special: ['mediaType', 'genre'],
+    // All keys that can be used for autocompletion
+    all: (suggestions: AutocompleteSuggestions) =>
+      Array.from(new Set(['year', ...SUGGESTION_KEYS.special, ...(suggestions.tagKeys ?? [])]))
+  }
+
   let {
     query = $bindable({ text: '', tags: [] }),
     suggestions,
@@ -54,10 +63,12 @@
     if (valueMatch) {
       const key = valueMatch[1]
       const value = valueMatch[2]
-      // This is a more robust way to get the suggestion source,
-      // guarding against undefined properties.
-      const source =
-        key === 'genre' ? suggestions.genres ?? [] : suggestions.tagValues?.[key] ?? []
+      // This map provides a clean, data-driven way to get suggestion sources.
+      const sourceMap: Record<string, string[]> = {
+        mediaType: suggestions.mediaTypes ?? [],
+        genre: suggestions.genres ?? []
+      }
+      const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
 
       autocomplete.suggestions = source.filter((s) =>
         s.toLowerCase().startsWith(value.toLowerCase())
@@ -66,7 +77,8 @@
       autocomplete.activeKey = key
     } else if (keyMatch) {
       const key = keyMatch[1]
-      const allKeys = Array.from(new Set(['genre', 'year', ...suggestions.tagKeys]))
+      // Use the centralized constant to get all possible suggestion keys.
+      const allKeys = SUGGESTION_KEYS.all(suggestions)
       autocomplete.suggestions = allKeys.filter((s) =>
         s.toLowerCase().startsWith(key.toLowerCase())
       )
@@ -145,28 +157,28 @@
 </div>
 
 <style>
-.search-input-wrapper {
-  position: relative;
-  width: 100%;
-  /* min/max width is now handled by the parent grid container in App.svelte */
-}
+  .search-input-wrapper {
+    position: relative;
+    width: 100%;
+    /* min/max width is now handled by the parent grid container in App.svelte */
+  }
 
-.search-box {
-  -webkit-app-region: no-drag;
-  width: 100%;
-  padding: 0.3rem 0.5rem;
-  background-color: var(--color-background);
-  border: 1px solid var(--color-background-mute);
-  color: var(--color-text);
-  border-radius: 5px;
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 0.4rem;
-  cursor: text;
-  overflow-x: auto;
-}
+  .search-box {
+    -webkit-app-region: no-drag;
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    background-color: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    color: var(--color-text);
+    border-radius: 5px;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    cursor: text;
+    overflow-x: auto;
+  }
 
   .search-box::-webkit-scrollbar {
     height: 3px;

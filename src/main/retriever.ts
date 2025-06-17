@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem } from './types'
+import type { LibraryItem } from '../shared/types'
 
 const genreCache = new Map<number, string>()
 

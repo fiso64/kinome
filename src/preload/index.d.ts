@@ -65,6 +65,7 @@ declare global {
   type LibraryItem = MediaFile | MediaFolder
 
   interface AutocompleteSuggestions {
+    mediaTypes: string[]
     genres: string[]
     tagKeys: string[]
     tagValues: Record<string, string[]>

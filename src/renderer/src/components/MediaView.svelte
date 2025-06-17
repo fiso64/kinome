@@ -1,11 +1,12 @@
 <script lang="ts">
-import GridView from './media-views/GridView.svelte'
-import TreeView from './media-views/TreeView.svelte'
-import TabsView from './media-views/TabsView.svelte'
-import SectionsView from './media-views/SectionsView.svelte'
-import ListView from './media-views/ListView.svelte'
+  import GridView from './media-views/GridView.svelte'
+  import TreeView from './media-views/TreeView.svelte'
+  import TabsView from './media-views/TabsView.svelte'
+  import SectionsView from './media-views/SectionsView.svelte'
+  import ListView from './media-views/ListView.svelte'
+  import { filterItems } from '../../../shared/filter'
 
-type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
+  type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -41,55 +42,6 @@ type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
 
   // --- Helpers for data processing ---
-  function normalizeText(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/:[a-zA-Z0-9_]+:?[^:\s]*/g, ' ')
-      .replace(/[.:_,-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
-
-  function filterItems(
-    itemsToFilter: DisplayableItem[],
-    query: { text: string; tags: { key: string; value: string }[] }
-  ): DisplayableItem[] {
-    if (!query || (query.text === '' && query.tags.length === 0)) {
-      return itemsToFilter
-    }
-    const normalizedQueryText = normalizeText(query.text)
-    return itemsToFilter.filter((item) => {
-      const itemTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
-      if (normalizedQueryText && !normalizeText(itemTitle).includes(normalizedQueryText)) {
-        return false
-      }
-      if (query.tags.length > 0) {
-        for (const tag of query.tags) {
-          let tagMatch = false
-          if (tag.key === 'genre') {
-            tagMatch =
-              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
-          } else if (tag.key === 'year') {
-            tagMatch = item.year?.toString() === tag.value
-          } else if (
-            item.virtualTags &&
-            Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
-          ) {
-            tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
-          } else if (item.tags) {
-            const itemTagValue = item.tags[tag.key]
-            if (typeof itemTagValue === 'string') {
-              tagMatch = itemTagValue
-                .split(',')
-                .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
-            }
-          }
-          if (!tagMatch) return false
-        }
-      }
-      return true
-    })
-  }
 
   function getValuesForKey(item: DisplayableItem, key: string): string[] {
     if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
@@ -110,6 +62,8 @@ type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
 
   // --- Derived State for different layouts ---
   const { displayedItems, virtualFolders } = $derived.by(() => {
+    // This now calls the centralized filter function. Performance is maintained
+    // because this filtering still happens entirely in the renderer process.
     const filteredItems = filterItems(items, searchQuery ?? { text: '', tags: [] })
 
     if (
