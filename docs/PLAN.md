@@ -82,6 +82,7 @@ The goal is to implement the key features that make the app unique and powerful.
 The goal is to expand source support and prepare for future growth.
 
 *   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter. (ipc diffing?)
+*   `[ ]` Polish UI as much as possible
 *   `[ ]` **Add Rclone Source:** Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.

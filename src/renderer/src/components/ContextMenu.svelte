@@ -137,28 +137,32 @@
   }
 
   $effect(() => {
-    // This effect adds global listeners to close the menu
-    // when the user clicks or right-clicks anywhere *outside* of it.
-    const close = () => onClose()
-
-    // Use a timeout to ensure these listeners are added *after* the
-    // event that triggered the menu to open has completed.
-    setTimeout(() => {
-      // These are regular bubble-phase listeners.
-      window.addEventListener('click', close, { once: true })
-      window.addEventListener('contextmenu', close, { once: true })
-    }, 0)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    // Listen for the Escape key to close the menu.
+    // This is the only global listener we need, as the backdrop handles all click-away cases.
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
 
     return () => {
-      // Cleanup the listeners when the component is destroyed.
-      window.removeEventListener('click', close)
-      window.removeEventListener('contextmenu', close)
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
   })
 </script>
 
-<div bind:this={menuElement} class="context-menu" {style} onclick={(e) => e.stopPropagation()}>
-  {#if isTreeView && item.type === 'folder'}
+<div class="context-menu-backdrop" onmousedown={onClose} oncontextmenu={(e) => { e.preventDefault(); onClose(); }}>
+  <div
+    bind:this={menuElement}
+    class="context-menu"
+    {style}
+    onmousedown={(e) => e.stopPropagation()}
+    oncontextmenu={(e) => e.stopPropagation()}
+  >
+    {#if isTreeView && item.type === 'folder'}
     <button class="context-menu-item" onclick={handleOpen} onmouseenter={() => (submenuVisible = false)}>
       Open
     </button>
@@ -252,9 +256,19 @@
       {/if}
     </div>
   {/if}
+  </div>
 </div>
 
 <style>
+  .context-menu-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 999; /* Below menu, above everything else */
+  }
+
   .context-menu {
     position: fixed; /* Position relative to the viewport */
     background-color: var(--ev-c-black-soft);

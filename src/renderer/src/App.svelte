@@ -92,6 +92,7 @@
   let contextMenuItem = $state<LibraryItem | null>(null)
   let contextMenuPosition = $state({ top: 0, left: 0 })
   let contextMenuLayout = $state<string | undefined>(undefined)
+  let isContextMenuVisible = $state(false)
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   const canGoBack = $derived(
@@ -637,6 +638,7 @@
 
     contextMenuLayout = options?.layout
     contextMenuPosition = { top: event.clientY, left: event.clientX }
+    isContextMenuVisible = true
   }
 </script>
 
@@ -685,7 +687,10 @@
     item={contextMenuItem}
     position={contextMenuPosition}
     isTreeView={contextMenuLayout === 'tree'}
-    onClose={() => (contextMenuItem = null)}
+    onClose={() => {
+      contextMenuItem = null
+      isContextMenuVisible = false
+    }}
     onOpen={() => {
       if (contextMenuItem) {
         handleContextMenuOpen(contextMenuItem)
@@ -744,7 +749,7 @@
 
 <main>
   <header class:in-detail-view={selectedItemForDetailView}>
-    <div class="header-content">
+    <div class="header-content" class:no-drag={isContextMenuVisible}>
       <div class="header-left">
         <button class="back-button" class:hidden={!canGoBack} onclick={goBack} title="Go back">
           ←
@@ -1139,5 +1144,10 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  /* Temporarily disable dragging on the header when a context menu is open */
+  .header-content.no-drag {
+    -webkit-app-region: no-drag;
   }
 </style>
