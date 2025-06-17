@@ -874,7 +874,7 @@
 
   <div class="content">
     {#if isScanning}
-      <p class="status-text">Loading library...</p>
+      <!-- <p class="status-text">Loading library...</p> -->
     {:else if !currentFolder && !isGlobalSearchActive}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>

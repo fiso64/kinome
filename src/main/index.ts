@@ -2,7 +2,7 @@ console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
 
 import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
 import { join, resolve as resolvePath } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { electronApp, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc, getLibraryDataPath } from './library'
 import { readSettings, writeSettings } from './settings'
 

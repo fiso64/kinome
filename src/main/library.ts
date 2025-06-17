@@ -432,7 +432,7 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
       const { item, hint } = itemWithHint
       await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
       if (item.posterPath || item.tmdbId === null) {
-        window.webContents.send('library-item-updated', item)
+        window.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
       }
     }
     await processInChunks(newItemsToFetch, 17, task)
@@ -444,7 +444,7 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
     const task = async (item: LibraryItem): Promise<void> => {
       await refetchPoster(item, tmdbApiKey, libraryDataPath)
       if (item.posterPath) {
-        window.webContents.send('library-item-updated', item)
+        window.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
       }
     }
     await processInChunks(itemsMissingPosters, 17, task)
@@ -820,7 +820,7 @@ export function setupLibraryIpc(): void {
       await writeDb(db)
 
       const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', item)
+      window?.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
     }
   )
 
@@ -887,8 +887,9 @@ export function setupLibraryIpc(): void {
 
         item._v = Date.now() // Bust cache
         await writeDb(db)
+        const plainItem = JSON.parse(JSON.stringify(item))
         const window = BrowserWindow.fromWebContents(event.sender)
-        window?.webContents.send('library-item-updated', item)
+        window?.webContents.send('library-item-updated', plainItem)
       } catch (err) {
         console.error(`Failed to set image for ${itemId}:`, err)
         dialog.showErrorBox('Image Error', `Failed to set image. Check logs for details.`)
@@ -909,8 +910,9 @@ export function setupLibraryIpc(): void {
 
       item._v = Date.now() // Bust cache
       await writeDb(db)
+      const plainItem = JSON.parse(JSON.stringify(item))
       const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', item)
+      window?.webContents.send('library-item-updated', plainItem)
     }
   )
 
