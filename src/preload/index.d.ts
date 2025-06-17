@@ -31,6 +31,9 @@ declare global {
     tags?: Record<string, string>
     virtualTags?: Record<string, string>
     _v?: number // Cache-busting version number
+    // TV Show properties
+    seasonNumber?: number
+    episodeNumber?: number
   }
 
   interface MediaFolder {
@@ -60,6 +63,10 @@ declare global {
     children_type_hint?: 'movie' | 'tv'
     virtualTags?: Record<string, string>
     _v?: number // Cache-busting version number
+    // TV Show properties
+    seasonNumber?: number // For season folders
+    tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
+    tmdbEpisodeDataFetched?: boolean // For season folders, tracks if episode API call has been made
   }
 
   type LibraryItem = MediaFile | MediaFolder

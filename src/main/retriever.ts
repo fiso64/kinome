@@ -13,10 +13,11 @@ export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
 
   const endpoints = ['movie', 'tv']
   try {
-    const promises = endpoints.map((type) =>
-      fetch(`https://api.themoviedb.org/3/genre/${type}/list?api_key=${tmdbApiKey}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
+    const promises = endpoints.map((type) => {
+      const url = `https://api.themoviedb.org/3/genre/${type}/list?api_key=${tmdbApiKey}`
+      console.log(`[TMDB] Fetching from: ${url}`)
+      return fetch(url).then((res) => {
+        if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
           return res.json()
         })
         .then((data) => {
@@ -24,7 +25,7 @@ export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
             genreCache.set(genre.id, genre.name)
           }
         })
-    )
+  })
     await Promise.all(promises)
     console.log(`[TMDB] Successfully cached ${genreCache.size} unique genres.`)
   } catch (error) {
@@ -126,6 +127,7 @@ export async function fetchAndApplyMetadata(
   if (!query) return
 
   const searchUrl = `https://api.themoviedb.org/3/search/${endpoint}?api_key=${tmdbApiKey}&query=${encodeURIComponent(query)}`
+  console.log(`[TMDB] Fetching from: ${searchUrl}`)
 
   try {
     const searchResponse = await fetch(searchUrl)
@@ -201,6 +203,7 @@ export async function refetchPoster(
   }
 
   const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Fetching from: ${detailUrl}`)
 
   try {
     const response = await fetch(detailUrl)
@@ -328,8 +331,140 @@ export async function fetchItemDetails(
     if (details.genres && Array.isArray(details.genres)) {
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
+
+    // --- TV Show Specific Logic ---
+    if (item.type === 'folder' && item.mediaType === 'tv' && details.seasons) {
+      console.log(`[TMDB] Found ${details.seasons.length} seasons for "${item.name}".`)
+      item.tmdbSeasons = details.seasons // Cache the full season data
+
+      const seasonFolders = item.children.filter(
+        (c) => c.type === 'folder' && typeof c.seasonNumber !== 'undefined'
+      ) as MediaFolder[]
+
+      if (seasonFolders.length > 0) {
+        // Scenario A: Map TMDB season data to local season folders
+        for (const seasonFolder of seasonFolders) {
+          const tmdbSeason = details.seasons.find(
+            (s) => s.season_number === seasonFolder.seasonNumber
+          )
+          if (tmdbSeason) {
+            seasonFolder.title = tmdbSeason.name
+            seasonFolder.overview = tmdbSeason.overview
+            if (tmdbSeason.poster_path) {
+              const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
+              const posterFileName = `${seasonFolder.id}.jpg`
+              const posterDestPath = path.join(imagesDir, posterFileName)
+              try {
+                await downloadImage(posterUrl, posterDestPath)
+                seasonFolder.posterPath = posterFileName
+              } catch {
+                // Ignore download error
+              }
+            }
+          }
+        }
+      } else {
+        // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
+        const filesWithSeason = item.children.filter(
+          (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
+        ) as MediaFile[]
+
+        if (filesWithSeason.length > 0) {
+          // Group files by season number to handle multiple seasons in one folder
+          const seasonsToFetch = new Set(filesWithSeason.map((f) => f.seasonNumber!))
+
+          for (const seasonNum of seasonsToFetch) {
+            // We create a temporary "fake" season folder object to pass to the fetch function.
+            // It contains the children only for the current season number being processed.
+            const fakeSeasonFolder: MediaFolder = {
+              ...(item as MediaFolder), // Copy properties from the show's root folder
+              seasonNumber: seasonNum,
+              children: filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
+            }
+
+            console.log(`[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`)
+            await fetchAndApplyEpisodeData(
+              fakeSeasonFolder,
+              item.tmdbId!,
+              settings.tmdbApiKey!,
+              libraryDataPath
+            )
+          }
+          ;(item as MediaFolder).tmdbEpisodeDataFetched = true // Mark that we've attempted to fetch episode data.
+        }
+      }
+    }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)
+  }
+}
+
+/**
+ * Fetches episode data for a specific season from TMDB and applies it to the
+ * local file items within that season folder.
+ * @param seasonFolder The local folder item representing the season.
+ * @param showTmdbId The TMDB ID of the parent show.
+ * @param tmdbApiKey
+ * @param libraryDataPath
+ */
+export async function fetchAndApplyEpisodeData(
+  seasonFolder: MediaFolder,
+  showTmdbId: number,
+  tmdbApiKey: string,
+  libraryDataPath: string
+): Promise<void> {
+  // If the folder passed doesn't have a season number, it's the TV show root
+  // in "File Mode", and we are fetching details for season 1. For actual season
+  // folders, `seasonFolder.seasonNumber` will be defined from the earlier
+  // local file analysis step.
+  const seasonNumber = seasonFolder.seasonNumber ?? 1
+
+  const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
+  console.log(
+    `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
+  )
+
+  try {
+    const response = await fetch(episodeApiUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
+    }
+    const seasonDetails = await response.json()
+    const tmdbEpisodes = seasonDetails.episodes
+
+    if (!tmdbEpisodes || tmdbEpisodes.length === 0) {
+      console.log(`[TMDB] No episode data found for season ${seasonNumber}.`)
+      return
+    }
+
+    const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+
+    for (const localEpisode of localEpisodes) {
+      if (typeof localEpisode.episodeNumber === 'undefined') continue
+
+      const tmdbEpisode = tmdbEpisodes.find(
+        (e) => e.episode_number === localEpisode.episodeNumber
+      )
+
+      if (tmdbEpisode) {
+        localEpisode.title = tmdbEpisode.name
+        localEpisode.overview = tmdbEpisode.overview
+        if (tmdbEpisode.still_path) {
+          const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+          const imagesDir = getImagesPath(libraryDataPath)
+          const posterFileName = `${localEpisode.id}.jpg`
+          const posterDestPath = path.join(imagesDir, posterFileName)
+          try {
+            await downloadImage(posterUrl, posterDestPath)
+            localEpisode.posterPath = posterFileName
+          } catch {
+            // ignore download error
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   }
 }
 
@@ -344,6 +479,7 @@ export async function manualSearch(
   const searchUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${tmdbApiKey}&query=${encodeURIComponent(
     query
   )}${yearParam}`
+  console.log(`[TMDB] Fetching from: ${searchUrl}`)
 
   try {
     const searchResponse = await fetch(searchUrl)
@@ -382,6 +518,7 @@ export async function getTmdbImages(
       ? `&language=${language}&include_image_language=${language},null,en` // Also include English as a fallback
       : ''
   const imagesUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/images?api_key=${tmdbApiKey}${langParam}`
+  console.log(`[TMDB] Fetching from: ${imagesUrl}`)
 
   try {
     const response = await fetch(imagesUrl)

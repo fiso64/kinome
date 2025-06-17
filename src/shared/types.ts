@@ -18,6 +18,9 @@ export interface MediaFile {
   tags?: Record<string, string>
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
+  // TV Show properties
+  seasonNumber?: number
+  episodeNumber?: number
 }
 
 export interface MediaFolder {
@@ -47,6 +50,10 @@ export interface MediaFolder {
   children_type_hint?: 'movie' | 'tv'
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
+  // TV Show properties
+  seasonNumber?: number // For season folders
+  tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
+  tmdbEpisodeDataFetched?: boolean // For season folders, tracks if episode API call has been made
 }
 
 export type LibraryItem = MediaFile | MediaFolder

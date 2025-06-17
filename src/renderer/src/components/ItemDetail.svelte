@@ -49,7 +49,7 @@
   const showRegularContents = $derived(
     item.type === 'folder' &&
       item.children.length > 0 &&
-      !item.children.every((child) => child.posterPath)
+      (!(settings.showDetailMediaSection ?? true) || !item.children.every((child) => child.posterPath))
   )
 
   // These values help manage the individual image fade-in animations.

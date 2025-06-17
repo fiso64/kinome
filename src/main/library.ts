@@ -26,6 +26,7 @@ import {
   cacheGenreLists,
   fetchAndApplyMetadata,
   fetchItemDetails,
+  fetchAndApplyEpisodeData,
   refetchPoster,
   manualSearch,
   getTmdbImages,
@@ -239,6 +240,118 @@ function getAllItemsAsMap(
     map.set(child.id, child)
   }
   return map
+}
+
+function findParent(id: string, node: MediaFolder): MediaFolder | null {
+  for (const child of node.children) {
+    if (child.id === id) {
+      return node
+    }
+    if (child.type === 'folder') {
+      const found = findParent(id, child)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/**
+ * Parses season and episode numbers from a filename.
+ * @returns An object with season and episode, or null.
+ */
+function parseSeasonEpisode(name: string): { season: number; episode: number } | null {
+  // Common patterns: S01E01, 1x01, S01.E01, 101 (for season 1, ep 1) etc.
+  // Prioritize more specific patterns first.
+  const patterns = [
+    /S(\d{1,2})E(\d{1,3})/i, // S01E01
+    /(\d{1,2})x(\d{1,3})/i, // 1x01
+    /\b(\d{1,2})-(\d{1,3})\b/i, // 01-01
+    /\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i // S01.E01, S01 E01
+  ]
+
+  for (const pattern of patterns) {
+    const match = name.match(pattern)
+    if (match) {
+      return { season: parseInt(match[1]), episode: parseInt(match[2]) }
+    }
+  }
+
+  // Handle three-digit numbers like 101, 102 (Season 1, Ep 01, 02)
+  const threeDigitMatch = name.match(/\[(\d)(\d{2})]/) // Often in brackets from downloaders
+  if (threeDigitMatch) {
+    return { season: parseInt(threeDigitMatch[1]), episode: parseInt(threeDigitMatch[2]) }
+  }
+
+  return null
+}
+
+const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes']
+
+/**
+ * Analyzes a TV show's folder structure to assign season/episode numbers
+ * to its children before any API calls. This function MUTATES the children.
+ * @param showFolder The root folder of the TV show.
+ */
+function processTvShowStructure(showFolder: MediaFolder): void {
+  log(`Processing TV structure for: "${showFolder.name}"`)
+  const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+  const subFolders = showFolder.children.filter(
+    (c) =>
+      c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
+  ) as MediaFolder[]
+
+  // Heuristic 1: "Immediate Files" Rule
+  if (mediaFiles.length > 0) {
+    log(`TV Structure: Found ${mediaFiles.length} immediate files. Entering "File Mode".`)
+    let allParsedSuccessfully = true
+    for (const file of mediaFiles) {
+      const parsed = parseSeasonEpisode(file.name)
+      if (parsed) {
+        file.seasonNumber = parsed.season
+        file.episodeNumber = parsed.episode
+      } else {
+        allParsedSuccessfully = false
+        break // If one fails, we fall back to alphabetical for all.
+      }
+    }
+
+    if (!allParsedSuccessfully) {
+      log('TV Structure: SxxExx parsing failed, falling back to alphabetical sort for Season 1.')
+      // Alphabetical Fallback
+      mediaFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      mediaFiles.forEach((file, index) => {
+        file.seasonNumber = 1
+        file.episodeNumber = index + 1
+      })
+    }
+    return
+  }
+
+  // Heuristics 2 & 3 for subfolders
+  if (subFolders.length > 0) {
+    log(`TV Structure: Found ${subFolders.length} subfolders. Analyzing folder names.`)
+    let allParsedSuccessfully = true
+    // Heuristic 2: "Patterned Subfolders" Rule
+    for (const folder of subFolders) {
+      const seasonMatch = folder.name.match(/season\s*(\d{1,2})/i)
+      if (seasonMatch) {
+        folder.seasonNumber = parseInt(seasonMatch[1])
+      } else {
+        allParsedSuccessfully = false
+        break
+      }
+    }
+
+    if (!allParsedSuccessfully) {
+      log('TV Structure: Season folder name parsing failed, falling back to alphabetical sort.')
+      // Heuristic 3: "Alphabetical Subfolders" Rule
+      subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      subFolders.forEach((folder, index) => {
+        // Assign season number starting from 1
+        folder.seasonNumber = index + 1
+      })
+    }
+  }
 }
 
 // Checks if image files exist on disk. If not, it nullifies the path in the item object.
@@ -637,44 +750,97 @@ export function setupLibraryIpc(): void {
       return null
     }
 
+    // --- TV Show Structure Processing ---
+    // If it's a TV show root, process its structure to assign season/episode numbers locally first.
+    if (item.type === 'folder' && item.mediaType === 'tv' && !item.tmdbSeasons) {
+      setBulkUpdateStatus(true)
+      processTvShowStructure(item as MediaFolder)
+      setBulkUpdateStatus(false)
+    }
+
+    // If it's a season folder, process its children to assign episode numbers locally.
+    const isSeasonFolder =
+      item.type === 'folder' &&
+      typeof (item as MediaFolder).seasonNumber !== 'undefined' &&
+      !(item as MediaFolder).tmdbEpisodeDataFetched
+    if (isSeasonFolder) {
+      setBulkUpdateStatus(true)
+      const episodeFiles = (item as MediaFolder).children.filter(
+        (c) => c.type === 'file'
+      ) as MediaFile[]
+      episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      episodeFiles.forEach((file, index) => {
+        file.episodeNumber = index + 1
+      })
+      setBulkUpdateStatus(false)
+    }
+    // --- End TV Show Structure Processing ---
+
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
+    // Combine checks. For TV, we also want to fetch if `tmdbSeasons` is missing.
     const detailsAlreadyFetched =
-      typeof item.backdropPath !== 'undefined' && typeof item.logoPath !== 'undefined'
+      typeof item.backdropPath !== 'undefined' &&
+      typeof item.logoPath !== 'undefined' &&
+      (item.mediaType !== 'tv' || typeof (item as MediaFolder).tmdbSeasons !== 'undefined')
 
     // --- Fire-and-Forget Background Fetch ---
     // If details are missing, start a background fetch but DO NOT wait for it to complete.
-    if (!detailsAlreadyFetched) {
+    // Also fetch if it's a season folder that needs its episode data.
+    if (!detailsAlreadyFetched || isSeasonFolder) {
       // Use an IIFE (Immediately Invoked Function Expression) to run the async logic
       // without blocking the main handler's return.
       ;(async () => {
-        console.log(`[Details] Starting background fetch for "${item.name}" (${item.id})`)
-        const settings = await readSettings()
-        if (settings.tmdbApiKey && item.tmdbId) {
-          // The `item` object is a reference to the one in the `db` cache,
-          // so `fetchItemDetails` will modify it directly.
-          setBulkUpdateStatus(true)
-          await fetchItemDetails(item, settings, getLibraryDataPath())
+        setBulkUpdateStatus(true)
+        try {
+          const settings = await readSettings()
+          if (!settings.tmdbApiKey) {
+            return
+          }
+          // Allow fetch to proceed if it's a season folder, which gets its tmdbId from its parent.
+          if (!item.tmdbId && !isSeasonFolder) {
+            return
+          }
+
+          if (isSeasonFolder) {
+            // Lazy-load episode data for a season folder.
+            log(`[Details] Starting background episode fetch for season "${item.name}"`)
+            const showFolder = findParent(item.id, db!.root!)
+            if (showFolder && showFolder.tmdbId) {
+              await fetchAndApplyEpisodeData(
+                item as MediaFolder,
+                showFolder.tmdbId,
+                settings.tmdbApiKey,
+                getLibraryDataPath()
+              )
+              ;(item as MediaFolder).tmdbEpisodeDataFetched = true
+            }
+          } else {
+            // Fetch standard details (or TV show root details).
+            log(`[Details] Starting background fetch for "${item.name}" (${item.id})`)
+            await fetchItemDetails(item, settings, getLibraryDataPath())
+          }
           item._v = Date.now()
-          setBulkUpdateStatus(false)
+        } catch (err) {
+          // Catch errors within the fire-and-forget block to prevent unhandled rejections.
+          console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
+        } finally {
+          setBulkUpdateStatus(false) // Ensure bulk mode is always turned off.
 
           // Manually trigger a single, incremental re-index now that the fetch is complete.
           updateIndexForItem(item)
 
-          await writeDb(db) // Save the updated database
+          await writeDb(db!) // Save the updated database
 
           // Notify all renderer windows that the item has been updated.
           const plainItem = JSON.parse(JSON.stringify(item))
           BrowserWindow.getAllWindows().forEach((window) => {
             window.webContents.send('library-item-updated', plainItem)
           })
-          console.log(`[Details] Background fetch complete for "${item.name}"`)
+          log(`[Details] Background processing complete for "${item.name}"`)
         }
-      })().catch((err) => {
-        // Catch errors within the fire-and-forget block to prevent unhandled rejections.
-        console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
-      })
+      })()
     }
 
     // --- Immediate Return ---
