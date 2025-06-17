@@ -10,6 +10,7 @@
   import FolderSettingsModal from './components/FolderSettingsModal.svelte'
   import ManualSearchModal from './components/ManualSearchModal.svelte'
   import FilterBar from './components/FilterBar.svelte'
+  import ListView from './components/media-views/ListView.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import {
     getLoadedItem,
@@ -35,6 +36,7 @@
   let isRefreshing = $state(false)
 
   // --- Search & Filter State ---
+  // For the main, full-page search
   let globalSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
   const isGlobalSearchActive = $derived(
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
@@ -42,6 +44,17 @@
   let searchResults = $state<SearchIndexEntry[]>([])
   let highlightedSearchItemIndex = $state<number | null>(null)
   let isPerformingSearch = $state(false)
+
+  // For the search dropdown in the detail view
+  let detailViewSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
+  const isDetailSearchActive = $derived(
+    detailViewSearchQuery.text.trim() !== '' || detailViewSearchQuery.tags.length > 0
+  )
+  let detailViewSearchResults = $state<SearchIndexEntry[]>([])
+  let highlightedDetailSearchItemIndex = $state<number | null>(null)
+  let isPerformingDetailSearch = $state(false)
+
+  // For the local filter bar
   let filterQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
     text: '',
     tags: []
@@ -135,28 +148,54 @@
 
   // --- Global Search Effect (No Debounce) ---
   $effect(() => {
-    // This effect now depends directly on the parts of globalSearchQuery that matter.
     const query = globalSearchQuery
-
     if (isGlobalSearchActive) {
       isPerformingSearch = true
       selectedItemForDetailView = null
-      // We still need to pass a plain object to IPC
       const plainQuery = JSON.parse(JSON.stringify(query))
       window.api.performSearch(plainQuery).then((results) => {
         searchResults = results
         isPerformingSearch = false
-        // Reset highlighted index when new search results arrive
-        if (results.length > 0) {
-          highlightedSearchItemIndex = 0
-        } else {
-          highlightedSearchItemIndex = null
-        }
+        highlightedSearchItemIndex = results.length > 0 ? 0 : null
       })
     } else {
       searchResults = []
       isPerformingSearch = false
-      highlightedSearchItemIndex = null // Clear highlight when search is inactive
+      highlightedSearchItemIndex = null
+    }
+  })
+
+  // --- Detail View Search Effect ---
+  $effect(() => {
+    const query = detailViewSearchQuery
+    if (selectedItemForDetailView && isDetailSearchActive) {
+      isPerformingDetailSearch = true
+      const plainQuery = JSON.parse(JSON.stringify(query))
+      window.api.performSearch(plainQuery).then((results) => {
+        detailViewSearchResults = results
+        isPerformingDetailSearch = false
+        highlightedDetailSearchItemIndex = results.length > 0 ? 0 : null
+      })
+    } else {
+      detailViewSearchResults = []
+      isPerformingDetailSearch = false
+      highlightedDetailSearchItemIndex = null
+    }
+  })
+
+  // Effect to close detail view search dropdown when clicking outside
+  $effect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const searchContainer = document.querySelector('.search-container')
+      if (searchContainer && !searchContainer.contains(event.target as Node)) {
+        detailViewSearchQuery = { text: '', tags: [] }
+      }
+    }
+    if (selectedItemForDetailView && isDetailSearchActive) {
+      window.addEventListener('click', handleClickOutside, { capture: true })
+    }
+    return () => {
+      window.removeEventListener('click', handleClickOutside, { capture: true })
     }
   })
 
@@ -315,17 +354,26 @@
       return
     }
 
+    // --- Search Input Query Management ---
+    // The search bar text is cleared when entering detail view.
+    // The global query is preserved to allow "back to search" functionality.
+    if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
+      // It's a playable file, no need to change views or clear the query.
+      handlePlayFile(loadedItem)
+    } else {
+      // It's a folder or special file, open the detail view.
+      selectedItemForDetailView = loadedItem
+      // Clear the transient detail view search on navigation.
+      detailViewSearchQuery = { text: '', tags: [] }
+    }
+
     if (fromSearch) {
+      // If the click came from the main search results, update the highlight.
       const clickedIndex = searchResults.findIndex((sr) => sr.id === item.id)
       if (clickedIndex !== -1) {
         highlightedSearchItemIndex = clickedIndex
       }
-      if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
-        handlePlayFile(loadedItem)
-      } else {
-        selectedItemForDetailView = loadedItem
-      }
-      return
+      return // Don't process further, we've opened the detail view.
     }
 
     if (selectedItemForDetailView) {
@@ -406,44 +454,85 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
+  async function handleDetailSearchItemClick(item: SearchIndexEntry) {
+    // This click replaces the current detail view with a new one.
+    const loadedItem = await getLoadedItem(item.id)
+    if (!loadedItem) {
+      console.error('Failed to load item from store:', item.id)
+      return
+    }
+
+    // Treat this as a navigation: the current item becomes the "last" one for back-button purposes.
+    lastDetailItem = selectedItemForDetailView
+    // The viewStack logic for `lastDetailItem` expects a folder, so we only push if it is one.
+    // This is a simplification; a more robust solution might need a separate history stack.
+    if (lastDetailItem?.type === 'folder') {
+      viewStack.push(lastDetailItem as MediaFolder)
+    }
+
+    selectedItemForDetailView = loadedItem
+    detailViewSearchQuery = { text: '', tags: [] } // This will hide the dropdown.
+  }
+
   function handleSearchByTag(key: string, value: string): void {
     selectedItemForDetailView = null
     globalSearchQuery = { text: '', tags: [{ key, value }] }
   }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
-    if (!isGlobalSearchActive || searchResults.length === 0) {
-      return
-    }
-
-    // Check if the event target is inside the autocomplete menu, if so, let it handle.
-    // This check might be redundant if AutocompleteMenu's capture+stopPropagation is fully effective.
     const autocompleteMenu = document.querySelector('.autocomplete-menu')
     if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
-      return
+      return // Let autocomplete handle its own keyboard events
     }
 
+    const isDetailContext = !!selectedItemForDetailView
+    const items = isDetailContext ? detailViewSearchResults : searchResults
+    let highlightedIndex = isDetailContext
+      ? highlightedDetailSearchItemIndex
+      : highlightedSearchItemIndex
+
+    if (items.length === 0) return
+
+    let newIndex = highlightedIndex
+    let shouldPreventDefault = false
+
     if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      if (highlightedSearchItemIndex === null) {
-        highlightedSearchItemIndex = 0
+      shouldPreventDefault = true
+      if (highlightedIndex === null) {
+        newIndex = 0
       } else {
-        highlightedSearchItemIndex = (highlightedSearchItemIndex + 1) % searchResults.length
+        newIndex = (highlightedIndex + 1) % items.length
       }
     } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (highlightedSearchItemIndex === null || highlightedSearchItemIndex === 0) {
-        highlightedSearchItemIndex = searchResults.length - 1
+      shouldPreventDefault = true
+      if (highlightedIndex === null || highlightedIndex === 0) {
+        newIndex = items.length - 1
       } else {
-        highlightedSearchItemIndex--
+        newIndex--
       }
     } else if (event.key === 'Enter') {
-      event.preventDefault()
-      if (highlightedSearchItemIndex !== null) {
-        const selectedResult = searchResults[highlightedSearchItemIndex]
+      shouldPreventDefault = true
+      if (highlightedIndex !== null) {
+        const selectedResult = items[highlightedIndex]
         if (selectedResult) {
-          handleItemClick(selectedResult)
+          if (isDetailContext) {
+            handleDetailSearchItemClick(selectedResult)
+          } else {
+            handleItemClick(selectedResult)
+          }
         }
+      }
+    }
+
+    if (shouldPreventDefault) {
+      event.preventDefault()
+    }
+
+    if (newIndex !== highlightedIndex) {
+      if (isDetailContext) {
+        highlightedDetailSearchItemIndex = newIndex
+      } else {
+        highlightedSearchItemIndex = newIndex
       }
     }
   }
@@ -602,18 +691,38 @@
         {/if}
       </div>
 
-      {#if !selectedItemForDetailView}
-        <div class="search-container" onkeydown={handleSearchKeyDown}>
+      <div class="search-container" onkeydown={handleSearchKeyDown}>
+        {#if selectedItemForDetailView}
+          <SearchInput
+            bind:query={detailViewSearchQuery}
+            suggestions={allAutocompleteSuggestions}
+            bind:element={searchInputEl}
+          />
+        {:else}
           <SearchInput
             bind:query={globalSearchQuery}
             suggestions={allAutocompleteSuggestions}
             bind:element={searchInputEl}
           />
-        </div>
-      {:else}
-        <!-- Placeholder to keep grid alignment -->
-        <div></div>
-      {/if}
+        {/if}
+
+        {#if selectedItemForDetailView && (isDetailSearchActive || isPerformingDetailSearch)}
+          <div class="search-dropdown">
+            {#if isPerformingDetailSearch && detailViewSearchResults.length === 0}
+              <div class="dropdown-status">Searching...</div>
+            {:else if detailViewSearchResults.length > 0}
+              <ListView
+                items={detailViewSearchResults}
+                onItemClick={handleDetailSearchItemClick}
+                onShowContextMenu={(item, e) => handleShowContextMenu(item, e, { layout: 'list' })}
+                highlightedIndex={highlightedDetailSearchItemIndex}
+              />
+            {:else if !isPerformingDetailSearch}
+              <div class="dropdown-status">No results found.</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
 
       <div class="header-right">
         {#if !selectedItemForDetailView}
@@ -766,10 +875,32 @@
     display: flex;
     justify-content: center;
     min-width: 0; /* Let the child dictate min-width */
-    /* overflow: hidden; */ /* Removed to allow autocomplete menu to show */
     position: relative;
-    /* Need to shift left to perfectly align with the result list (not ideal, but could not find a better solution) */
-    left: 50px;
+    /* This shift is no longer needed with the new layout */
+    /* left: 50px; */
+  }
+
+  .search-dropdown {
+    position: absolute;
+    top: calc(100% + 5px); /* Position below the search input */
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background-color: var(--color-background-soft);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+    max-height: 70vh;
+    overflow-y: auto;
+    /* The ListView inside will need some padding */
+  }
+  .search-dropdown :global(.media-list) {
+    padding: 0.5rem;
+  }
+  .dropdown-status {
+    padding: 2rem;
+    text-align: center;
+    color: var(--ev-c-text-2);
   }
 
   main {
