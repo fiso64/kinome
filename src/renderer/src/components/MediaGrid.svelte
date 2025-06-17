@@ -153,12 +153,47 @@
     displayedItems.filter((item) => item.type === 'folder') as MediaFolder[]
   )
 
+  const foldersForTabsOrSections = $derived(virtualFolders ?? physicalFolderItems)
+
   let activeTabId = $state<string | null>(null)
   $effect(() => {
-    const currentFolders = virtualFolders ?? physicalFolderItems
+    const currentFolders = foldersForTabsOrSections
     const currentFolderIds = currentFolders.map((f) => f.id)
     if (activeTabId === null || !currentFolderIds.includes(activeTabId)) {
       activeTabId = currentFolders[0]?.id ?? null
+    }
+  })
+
+  $effect(() => {
+    if (layout !== 'tabs') return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't interfere with text input shortcuts
+      const target = event.target as HTMLElement
+      const isInput =
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      if (isInput) return
+
+      if (event.ctrlKey && event.key === 'Tab') {
+        event.preventDefault()
+        const folders = foldersForTabsOrSections
+        if (!folders || folders.length < 2) return
+
+        const currentIndex = folders.findIndex((f) => f.id === activeTabId)
+        if (currentIndex === -1) return
+
+        const nextIndex = event.shiftKey
+          ? (currentIndex - 1 + folders.length) % folders.length
+          : (currentIndex + 1) % folders.length
+
+        activeTabId = folders[nextIndex].id
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
     }
   })
 </script>
@@ -211,7 +246,7 @@
     {/if}
   </div>
 {:else if layout === 'tabs'}
-  {@const folders = virtualFolders ?? physicalFolderItems}
+  {@const folders = foldersForTabsOrSections}
   <div class="tabs-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
     <div class="tab-list">
       {#each folders as folder (folder.id)}
@@ -245,7 +280,7 @@
     </div>
   </div>
 {:else if layout === 'sections'}
-  {@const folders = virtualFolders ?? physicalFolderItems}
+  {@const folders = foldersForTabsOrSections}
   <div class="sections-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
     {#if folders.length > 0}
       {#each folders as folder (folder.id)}
