@@ -43,7 +43,7 @@ This approach will be implemented for the main search bar, providing a "deep sea
 
 *   `[ ]` **Status: To be implemented after Steps 2 & 3.**
 
-1.  A new IPC channel, `api.performSearch(query)`, will be created.
+1.  A new IPC channel, `api.performSearch(query)`, will be created (actually: already done).
 2.  When the user types in the main search bar, the UI will call this method, sending the current query text and tags.
 3.  The main process will filter and rank its local `searchIndex` using the `Final Score` and return a small, sorted list of the top results. **Crucially, the large index itself is never sent over IPC.**
 4.  The application will switch to a dedicated, flat search results view (a `MediaGrid`) to render the ranked results.

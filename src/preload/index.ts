@@ -2,10 +2,20 @@ console.log(`[${new Date().toISOString()}] [Preload] Preload script execution st
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { MediaFile, MediaFolder, LibraryItem, AutocompleteSuggestions } from '../main/types'
+import type {
+  MediaFile,
+  MediaFolder,
+  LibraryItem,
+  AutocompleteSuggestions,
+  SearchIndexEntry
+} from '../main/types'
 
 // Custom APIs for renderer
 const api = {
+  performSearch: (query: {
+    text: string
+    tags: { key: string; value: string }[]
+  }): Promise<SearchIndexEntry[]> => ipcRenderer.invoke('perform-search', query),
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),

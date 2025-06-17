@@ -60,10 +60,26 @@ declare global {
     tagValues: Record<string, string[]>
   }
 
+  interface SearchIndexEntry {
+    id: string
+    title: string
+    posterPath?: string | null
+    mediaType?: 'movie' | 'tv'
+    year?: number
+    genres?: string[]
+    tags?: Record<string, string>
+    virtualTags?: Record<string, string>
+    staticScore: number
+  }
+
   interface Window {
     electron: ElectronAPI
     api: {
       // Library
+      performSearch: (query: {
+        text: string
+        tags: { key: string; value: string }[]
+      }) => Promise<SearchIndexEntry[]>
       getLibraryRoot: () => Promise<MediaFolder | null>
       scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files

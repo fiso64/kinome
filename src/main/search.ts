@@ -38,20 +38,29 @@ function calculateStaticScore(item: LibraryItem, parent?: LibraryItem): number {
 
 /**
  * Creates a denormalized, flat search entry from a library item.
+ * This function is the key to performance: it creates plain JavaScript
+ * object copies of any nested data, ensuring the search index itself
+ * is free of proxies and is "IPC-safe" by design.
  * @param item The library item to convert.
  * @param parent The item's parent.
- * @returns A new search index entry.
+ * @returns A new, plain search index entry.
  */
 function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): SearchIndexEntry {
+  // Use JSON stringify/parse to create a deep, "de-proxied" copy of nested objects.
+  // This is acceptable here because it only runs during index creation, not on every search.
+  const genres = item.genres ? JSON.parse(JSON.stringify(item.genres)) : undefined
+  const tags = item.tags ? JSON.parse(JSON.stringify(item.tags)) : undefined
+  const virtualTags = item.virtualTags ? JSON.parse(JSON.stringify(item.virtualTags)) : undefined
+
   return {
     id: item.id,
     title: item.title ?? item.name,
     posterPath: item.posterPath,
     mediaType: item.mediaType,
     year: item.year,
-    genres: item.genres,
-    tags: item.tags,
-    virtualTags: item.virtualTags,
+    genres: genres,
+    tags: tags,
+    virtualTags: virtualTags,
     staticScore: calculateStaticScore(item, parent)
   }
 }
@@ -242,4 +251,60 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
   console.log(
     `[${new Date().toISOString()}] [Search] Index built with ${searchIndex.length} items in ${duration}ms.`
   )
+}
+
+function normalizeText(text: string): string {
+  // A simpler normalization for backend search, as tag syntax is already parsed out.
+  return text
+    .toLowerCase()
+    .replace(/[.:_,-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function performSearch(query: {
+  text: string
+  tags: { key: string; value: string }[]
+}): SearchIndexEntry[] {
+  if (!query || (query.text.trim() === '' && query.tags.length === 0)) {
+    // With no query, return nothing, as this is for an explicit search action.
+    // Unlike filtering, we don't want to return all items.
+    return []
+  }
+
+  const normalizedQueryText = normalizeText(query.text)
+
+  const results = searchIndex.filter((item) => {
+    // Text search
+    if (normalizedQueryText && !normalizeText(item.title).includes(normalizedQueryText)) {
+      return false
+    }
+
+    // Tag search
+    for (const tag of query.tags) {
+      let tagMatch = false
+      if (tag.key === 'genre') {
+        tagMatch = item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
+      } else if (tag.key === 'year') {
+        tagMatch = item.year?.toString() === tag.value
+      } else if (
+        item.virtualTags &&
+        Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
+      ) {
+        tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
+      } else if (item.tags) {
+        const itemTagValue = item.tags[tag.key]
+        if (typeof itemTagValue === 'string') {
+          tagMatch = itemTagValue
+            .split(',')
+            .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
+        }
+      }
+      if (!tagMatch) return false
+    }
+    return true
+  })
+
+  // For now, no ranking is applied. We just return the filtered results.
+  return results
 }

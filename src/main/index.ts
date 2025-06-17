@@ -84,7 +84,27 @@ app.whenReady().then(() => {
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+    // We replaced optimizer.watchWindowShortcuts(window) with this custom implementation
+    // to force the dev tools to open docked to the right.
+    if (is.dev) {
+      window.webContents.on('before-input-event', (event, input) => {
+        // F12 to open/close DevTools
+        if (input.key === 'F12') {
+          if (window.webContents.isDevToolsOpened()) {
+            window.webContents.closeDevTools()
+          } else {
+            window.webContents.openDevTools({ mode: 'right' })
+          }
+          event.preventDefault()
+        }
+
+        // Ctrl+R or Cmd+R to reload
+        if (input.control && input.key.toLowerCase() === 'r') {
+          window.webContents.reload()
+          event.preventDefault()
+        }
+      })
+    }
   })
 
   setupLibraryIpc()

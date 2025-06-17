@@ -8,7 +8,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import { evaluateVirtualTagsForItem } from './virtualTags'
-import { createDbProxy, buildFullSearchIndex, updateIndexForItem } from './search'
+import { createDbProxy, buildFullSearchIndex, updateIndexForItem, performSearch } from './search'
 import type {
   Database,
   MediaFolder,
@@ -871,6 +871,15 @@ export function setupLibraryIpc(): void {
       await writeDb(db)
       const window = BrowserWindow.fromWebContents(event.sender)
       window?.webContents.send('library-item-updated', item)
+    }
+  )
+
+  ipcMain.handle(
+    'perform-search',
+    async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
+      // This is now safe and fast because createSearchIndexEntry ensures
+      // the index contains only plain, clonable data.
+      return performSearch(query)
     }
   )
 
