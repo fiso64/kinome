@@ -27,17 +27,16 @@ This approach will be implemented for the main search bar, providing a "deep sea
 
 **Step 3: The Smart Ranking Algorithm (The "Which")**
 
-*   `[ ]` **Status: To be implemented alongside Step 2.** When a user searches, we will filter the index and then rank the results. An item's final score will be a combination of its inherent importance (`Static Score`) and how well it matches the query (`Match Score`).
+*   `[X]` **Status: Implemented.** When a user searches, the system now intelligently ranks results by combining a pre-calculated `Static Score` with a dynamic `Match Score` from a fuzzy search. This ensures the most relevant items appear first.
+    *   **How it Works:** The final score is calculated as `Final Score = Static Score + (Match Score * 50)`. We weight the match score to give it a significant impact on the final ranking.
 
-`Final Score = Static Score + Match Score`
-
-*   **A. Static Score (Pre-calculated Heuristics):** This gives each item a baseline "importance" score. It's calculated once when the item is added to the index.
+*   **A. Static Score (Pre-calculated Heuristics):** This gives each item a baseline "importance" score, calculated when the item is indexed.
     *   **Major Boost:** An item with a poster (`posterPath`) gets a very high score.
     *   **Minor Boosts:** Items with a `title` or items that are folders get smaller boosts.
     *   **Soft Deduplication:** A file whose parent is *also* a high-value item (e.g., an episode file whose parent show folder has a poster) receives a score penalty. This pushes individual files down the list when the main entry is also present.
 
 *   **B. Match Score (On-the-fly Fuzzy Search):** This measures how well an item's title matches the user's query.
-    *   We will use a lightweight fuzzy-search library (like Fuse.js) to compare the user's text against the `title` stored in the search index entry. This handles typos and partial matches gracefully.
+    *   We successfully integrated **Fuse.js**, a lightweight fuzzy-search library. It compares the user's text against the `title` in the search index, handling typos and partial matches gracefully. The library's "distance" score (0.0 for a perfect match) is inverted and weighted to create our final `Match Score`.
 
 **Step 4: UI and IPC Flow**
 
@@ -45,7 +44,7 @@ This approach will be implemented for the main search bar, providing a "deep sea
 
 1.  A new IPC channel, `api.performSearch(query)`, will be created (actually: already done).
 2.  When the user types in the main search bar, the UI will call this method, sending the current query text and tags.
-3.  The main process will filter and rank its local `searchIndex` using the `Final Score` and return a small, sorted list of the top results. **Crucially, the large index itself is never sent over IPC.**
+3.  The main process will filter and rank its local `searchIndex` using the `Final Score` and return a small, sorted list of the top results.
 4.  The application will switch to a dedicated, flat search results view (a `MediaGrid`) to render the ranked results.
 
 Future: A new, smaller "filter" bar will be added to the standard grid/tree views to provide the *current* functionality of filtering only the items in the immediate view.

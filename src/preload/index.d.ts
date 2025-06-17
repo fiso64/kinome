@@ -80,6 +80,10 @@ declare global {
         text: string
         tags: { key: string; value: string }[]
       }) => Promise<SearchIndexEntry[]>
+      debugPerformSearch: (query: {
+        text: string
+        tags: { key: string; value: string }[]
+      }) => Promise<any>
       getLibraryRoot: () => Promise<MediaFolder | null>
       scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files

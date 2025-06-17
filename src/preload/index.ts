@@ -16,6 +16,10 @@ const api = {
     text: string
     tags: { key: string; value: string }[]
   }): Promise<SearchIndexEntry[]> => ipcRenderer.invoke('perform-search', query),
+  debugPerformSearch: (query: {
+    text: string
+    tags: { key: string; value: string }[]
+  }): Promise<any> => ipcRenderer.invoke('debug-perform-search', query),
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),

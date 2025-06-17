@@ -1,4 +1,7 @@
+import Fuse from 'fuse.js'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from './types'
+
+const SEARCH_RESULT_LIMIT = 50
 
 let searchIndex: SearchIndexEntry[] = []
 const itemMap = new Map<string, LibraryItem>()
@@ -118,9 +121,7 @@ export function updateIndexForItem(item: LibraryItem) {
 
   const entry = createSearchIndexEntry(item, parent)
 
-  console.log(
-    `[Search Index] Incrementally updating index for: "${entry.title}" (ID: ${entry.id})`
-  )
+  console.log(`[Search Index] Incrementally updating index for: "${entry.title}" (ID: ${entry.id})`)
   _updateOrAddItemToIndex(entry)
 }
 
@@ -262,49 +263,112 @@ function normalizeText(text: string): string {
     .trim()
 }
 
+function getRankedResults(query: {
+  text: string
+  tags: { key: string; value: string }[]
+}): { item: SearchIndexEntry; finalScore: number; dynamicScore: number }[] {
+  const hasText = query.text.trim() !== ''
+  const hasTags = query.tags.length > 0
+
+  if (!hasText && !hasTags) {
+    return []
+  }
+
+  // 1. Filter by tags
+  const tagFilteredItems = hasTags
+    ? searchIndex.filter((item) => {
+        for (const tag of query.tags) {
+          let tagMatch = false
+          if (tag.key === 'genre') {
+            tagMatch =
+              item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
+          } else if (tag.key === 'year') {
+            tagMatch = item.year?.toString() === tag.value
+          } else if (
+            item.virtualTags &&
+            Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
+          ) {
+            tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
+          } else if (item.tags) {
+            const itemTagValue = item.tags[tag.key]
+            if (typeof itemTagValue === 'string') {
+              tagMatch = itemTagValue
+                .split(',')
+                .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
+            }
+          }
+          if (!tagMatch) return false
+        }
+        return true
+      })
+    : searchIndex
+
+  // 2. If no text, sort by static score and return
+  if (!hasText) {
+    return tagFilteredItems
+      .sort((a, b) => b.staticScore - a.staticScore)
+      .map((item) => ({ item, finalScore: item.staticScore, dynamicScore: 0 }))
+  }
+
+  // 3. Use Fuse.js for fuzzy search
+  const fuse = new Fuse(tagFilteredItems, {
+    keys: ['title'],
+    includeScore: true,
+    threshold: 0.4,
+    ignoreLocation: true
+  })
+  const fuseResults = fuse.search(normalizeText(query.text))
+
+  // 4. Combine scores
+  const rankedResults = fuseResults.map((result) => {
+    const matchScore = 1 - (result.score ?? 1)
+    const dynamicScore = matchScore * 50
+    const finalScore = result.item.staticScore + dynamicScore
+    return { item: result.item, finalScore, dynamicScore }
+  })
+
+  // 5. Sort by final score
+  return rankedResults.sort((a, b) => b.finalScore - a.finalScore)
+}
+
+/**
+ * Performs a search and returns a ranked list of items for the UI.
+ * This is the lean, production-ready version.
+ */
 export function performSearch(query: {
   text: string
   tags: { key: string; value: string }[]
 }): SearchIndexEntry[] {
-  if (!query || (query.text.trim() === '' && query.tags.length === 0)) {
-    // With no query, return nothing, as this is for an explicit search action.
-    // Unlike filtering, we don't want to return all items.
-    return []
-  }
+  const ranked = getRankedResults(query)
+  return ranked.map((r) => r.item).slice(0, SEARCH_RESULT_LIMIT)
+}
 
-  const normalizedQueryText = normalizeText(query.text)
+/**
+ * Performs a search and returns detailed data for debugging purposes.
+ */
+export function debugPerformSearch(query: {
+  text: string
+  tags: { key: string; value: string }[]
+}): any {
+  const ranked = getRankedResults(query)
 
-  const results = searchIndex.filter((item) => {
-    // Text search
-    if (normalizedQueryText && !normalizeText(item.title).includes(normalizedQueryText)) {
-      return false
-    }
-
-    // Tag search
-    for (const tag of query.tags) {
-      let tagMatch = false
-      if (tag.key === 'genre') {
-        tagMatch = item.genres?.some((g) => g.toLowerCase() === tag.value.toLowerCase()) ?? false
-      } else if (tag.key === 'year') {
-        tagMatch = item.year?.toString() === tag.value
-      } else if (
-        item.virtualTags &&
-        Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)
-      ) {
-        tagMatch = item.virtualTags[tag.key]?.toLowerCase() === tag.value.toLowerCase()
-      } else if (item.tags) {
-        const itemTagValue = item.tags[tag.key]
-        if (typeof itemTagValue === 'string') {
-          tagMatch = itemTagValue
-            .split(',')
-            .some((v) => v.trim().toLowerCase() === tag.value.toLowerCase())
-        }
+  // We use `reduce` to transform the array of results into an object.
+  // When console.table receives an object, it uses the object's keys
+  // as the index column, effectively replacing the default '0, 1, 2...' index.
+  const resultsAsObject = ranked
+    .slice(0, SEARCH_RESULT_LIMIT)
+    .reduce((acc: Record<string, unknown>, r) => {
+      // The key for our object is the final score.
+      const key = r.finalScore.toFixed(2)
+      // The value is the row data. We exclude noisy fields for a cleaner table.
+      const { id, posterPath, staticScore, ...restOfItem } = r.item
+      acc[key] = {
+        ...restOfItem,
+        breakdown: `${staticScore} + ${r.dynamicScore.toFixed(2)}`,
+        id // Keep id for reference
       }
-      if (!tagMatch) return false
-    }
-    return true
-  })
+      return acc
+    }, {})
 
-  // For now, no ranking is applied. We just return the filtered results.
-  return results
+  return resultsAsObject
 }

@@ -27,9 +27,9 @@ window.debugSearch = async (query) => {
   }
 
   try {
-    console.log(`Performing search for:`, searchQuery)
-    const results = await window.api.performSearch(searchQuery)
-    console.log(`Found ${results.length} results:`)
+    console.log(`Performing debug search for:`, searchQuery)
+    const results = await window.api.debugPerformSearch(searchQuery)
+    console.log(`Found ${Object.keys(results).length} results:`)
     console.table(results)
   } catch (e) {
     console.error('Search failed:', e)
