@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MediaGrid from './MediaGrid.svelte'
+  import MediaView from './MediaView.svelte'
 
   let {
     item,
@@ -156,7 +156,7 @@
     {#if showRegularContents && item.type === 'folder'}
       <div class="children-section">
         <h2 class="section-title">Contents</h2>
-        <MediaGrid
+        <MediaView
           parentItem={item}
           items={item.children}
           {onItemClick}
@@ -169,7 +169,7 @@
     {#if isSpecialFile}
       <div class="children-section">
         <h2 class="section-title">Contents</h2>
-        <MediaGrid
+        <MediaView
           parentItem={item as MediaFolder}
           items={fileAsChild}
           {onItemClick}
@@ -182,7 +182,7 @@
     {#if mediaDescendants.length > 0 && !isSpecialFile}
       <div class="children-section">
         <h2 class="section-title">Media</h2>
-        <MediaGrid
+        <MediaView
           parentItem={item}
           items={mediaDescendants}
           {onItemClick}

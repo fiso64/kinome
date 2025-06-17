@@ -165,7 +165,7 @@ function createShallowClonableCopy(item: LibraryItem): LibraryItem {
   return plainItem
 }
 
-function findItemById(id:string, node: MediaFolder): LibraryItem | null {
+function findItemById(id: string, node: MediaFolder): LibraryItem | null {
   if (node.id === id) {
     return node
   }

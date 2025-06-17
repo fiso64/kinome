@@ -1,7 +1,7 @@
 <script lang="ts">
   import ModalWindow from './ModalWindow.svelte'
 
-  // A virtual folder will have these extra properties when created in MediaGrid.svelte
+  // A virtual folder will have these extra properties when created in MediaView.svelte
   type VirtualFolderProps = {
     isVirtual?: boolean
     physicalParentId?: string

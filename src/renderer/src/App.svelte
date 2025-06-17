@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MediaGrid from './components/MediaGrid.svelte'
+  import MediaView from './components/MediaView.svelte'
   import SettingsModal from './components/SettingsModal.svelte'
   import SearchInput from './components/SearchInput.svelte'
   import WindowControls from './components/WindowControls.svelte'
@@ -11,7 +11,12 @@
   import ManualSearchModal from './components/ManualSearchModal.svelte'
   import FilterBar from './components/FilterBar.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
-  import { getLoadedItem, updateCachedItem, clearItemCache, primeCacheWithRoot } from './lib/item-store'
+  import {
+    getLoadedItem,
+    updateCachedItem,
+    clearItemCache,
+    primeCacheWithRoot
+  } from './lib/item-store'
 
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
@@ -629,7 +634,7 @@
           </div>
           <div class="search-content-wrapper">
             {#if searchResults.length > 0}
-              <MediaGrid
+              <MediaView
                 items={searchResults}
                 onItemClick={handleItemClick}
                 layout="grid"
@@ -650,7 +655,7 @@
               onQueryChange={(query) => (filterQuery = query)}
             />
             <div class="folder-content-wrapper">
-              <MediaGrid
+              <MediaView
                 parentItem={currentFolder}
                 items={currentFolder.children}
                 searchQuery={filterQuery}
