@@ -58,12 +58,14 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
   return {
     id: item.id,
     title: item.title ?? item.name,
+    type: item.type,
     posterPath: item.posterPath,
     mediaType: item.mediaType,
     year: item.year,
     genres: genres,
     tags: tags,
     virtualTags: virtualTags,
+    _v: item._v,
     staticScore: calculateStaticScore(item, parent)
   }
 }

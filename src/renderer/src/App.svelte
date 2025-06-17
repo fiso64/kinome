@@ -9,6 +9,7 @@
   import MetadataEditor from './components/MetadataEditor.svelte'
   import FolderSettingsModal from './components/FolderSettingsModal.svelte'
   import ManualSearchModal from './components/ManualSearchModal.svelte'
+  import FilterBar from './components/FilterBar.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import { getLoadedItem, updateCachedItem, clearItemCache, primeCacheWithRoot } from './lib/item-store'
 
@@ -16,7 +17,6 @@
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
   }
 
-  // Types are globally available from src/preload/index.d.ts
   type ActiveModal =
     | { type: 'settings' }
     | { type: 'layoutSelector'; item: MediaFolder; defaultLayout: 'grid' | 'tree' }
@@ -25,12 +25,25 @@
     | { type: 'manualSearch'; item: LibraryItem }
 
   let viewStack: MediaFolder[] = $state([])
-  let lastDetailItem: LibraryItem | null = $state(null) // Breadcrumb for "back" from drill-down
-  let isScanning = $state(true) // For initial load or changing library folder
-  let isRefreshing = $state(false) // For updating the current library
-  let searchText = $state('')
-  let searchTags = $state<{ key: string; value: string }[]>([])
-  const searchQuery = $derived({ text: searchText, tags: searchTags })
+  let lastDetailItem: LibraryItem | null = $state(null)
+  let isScanning = $state(true)
+  let isRefreshing = $state(false)
+
+  // --- Search & Filter State ---
+  let globalSearchText = $state('')
+  let globalSearchTags = $state<{ key: string; value: string }[]>([])
+  const globalSearchQuery = $derived({ text: globalSearchText, tags: globalSearchTags })
+  const isGlobalSearchActive = $derived(
+    globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
+  )
+  let searchResults = $state<SearchIndexEntry[]>([])
+  let isPerformingSearch = $state(false)
+  let filterQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
+    text: '',
+    tags: []
+  })
+  // --- End Search & Filter State ---
+
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     genres: [],
     tagKeys: [],
@@ -58,12 +71,10 @@
   let contextMenuLayout = $state<string | undefined>(undefined)
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
-  // Back button is disabled if we are at the root grid view.
-  // It should be enabled if we are in a detail view.
-  const canGoBack = $derived(selectedItemForDetailView !== null || viewStack.length > 1)
+  const canGoBack = $derived(
+    selectedItemForDetailView !== null || viewStack.length > 1 || isGlobalSearchActive
+  )
 
-  // The folder whose layout can be configured from the header.
-  // In a detail view of a folder, it's that folder. Otherwise, it's the current list's folder.
   const folderToConfigureLayout = $derived(
     selectedItemForDetailView?.type === 'folder'
       ? (selectedItemForDetailView as MediaFolder)
@@ -75,8 +86,6 @@
     window.api.getLibraryRoot().then(async (root) => {
       log('Library root received from main process.')
       if (root) {
-        // "Trust" the initial data from the backend and use it to prime the cache,
-        // avoiding the redundant startup fetch for the root and its children.
         primeCacheWithRoot(root)
         viewStack = [root]
         log('Root view rendered.')
@@ -86,57 +95,65 @@
       isScanning = false
     })
 
-    // Fetch initial data
-    window.api.getAutocompleteSuggestions().then((suggestions) => {
-      allAutocompleteSuggestions = suggestions
-    })
+    window.api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
     window.api.getSettings().then((s) => (settings = s))
-
-    // Listen for live updates to autocomplete suggestions
-    const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((suggestions) => {
-      allAutocompleteSuggestions = suggestions
+    const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((s) => {
+      allAutocompleteSuggestions = s
     })
-
-    // Cleanup the listener when the component is destroyed.
-    return () => {
-      unlistenSuggestions()
-    }
+    return () => unlistenSuggestions()
   })
 
   $effect(() => {
-    // When the current folder changes, reset search text.
+    // When navigating away from search results, clear the filter.
     void currentFolder?.id
+    if (!isGlobalSearchActive) {
+      filterQuery = { text: '', tags: [] }
+    }
+  })
 
-    // This effect does not depend on `searchText`, so it only runs on navigation changes.
-    searchText = ''
+  // --- Global Search Effect (No Debounce) ---
+  $effect(() => {
+    const query = globalSearchQuery
+    if (isGlobalSearchActive) {
+      isPerformingSearch = true
+      selectedItemForDetailView = null
+      const plainQuery = JSON.parse(JSON.stringify(query))
+      window.api.performSearch(plainQuery).then((results) => {
+        searchResults = results
+        isPerformingSearch = false
+      })
+    } else {
+      searchResults = []
+      isPerformingSearch = false
+    }
   })
 
   // Set up a listener for real-time metadata updates from the main process.
   $effect(() => {
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
-      // Update our central cache first.
       updateCachedItem(updatedItem)
 
-      // Find the item in the current viewStack and update its properties.
-      // Svelte's reactivity will handle the rest.
       let itemInTree: LibraryItem | null = null
       for (const folder of viewStack) {
         itemInTree = findItemInTree(folder, updatedItem.id)
         if (itemInTree) break
       }
+      if (itemInTree) Object.assign(itemInTree, updatedItem)
 
-      if (itemInTree) {
-        // Mutate the object to trigger reactivity.
-        Object.assign(itemInTree, updatedItem)
-      }
-
-      // If the updated item is the one in the detail view, update it too
       if (selectedItemForDetailView?.id === updatedItem.id) {
         Object.assign(selectedItemForDetailView, updatedItem)
       }
+      // Update item if it's in the current search results
+      const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
+      if (indexInSearch > -1) {
+        const itemInSearch = searchResults[indexInSearch]
+        // Only update fields that exist on SearchIndexEntry
+        itemInSearch.title = updatedItem.title ?? updatedItem.name
+        itemInSearch.posterPath = updatedItem.posterPath
+        itemInSearch._v = updatedItem._v
+        searchResults = [...searchResults]
+      }
     })
-
-    // Cleanup the listener when the component is destroyed.
     return () => unlisten()
   })
 
@@ -159,22 +176,22 @@
     return []
   }
 
-function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
-  if (!node || !node.children) return null
-  if (node.id === id) {
-    return node
-  }
-  for (const child of node.children) {
-    if (child.id === id) {
-      return child
+  function findItemInTree(node: MediaFolder, id: string): LibraryItem | null {
+    if (!node || !node.children) return null
+    if (node.id === id) {
+      return node
     }
-    if (child.type === 'folder') {
-      const found = findItemInTree(child, id)
-      if (found) return found
+    for (const child of node.children) {
+      if (child.id === id) {
+        return child
+      }
+      if (child.type === 'folder') {
+        const found = findItemInTree(child, id)
+        if (found) return found
+      }
     }
+    return null
   }
-  return null
-}
 
   function drillDown(childFolder: MediaFolder) {
     const parent = selectedItemForDetailView
@@ -191,25 +208,20 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     }
   }
 
-  function handleContextMenuOpen(item: LibraryItem) {
-    // This is called when the user selects "Open" from the context menu.
-    // We delegate to the same logic as a regular click.
+  function handleContextMenuOpen(item: LibraryItem | SearchIndexEntry) {
     handleItemClick(item)
   }
 
   async function handleScan(): Promise<void> {
     isScanning = true
-    selectedItemForDetailView = null // Go back to grid view
+    selectedItemForDetailView = null
     lastDetailItem = null
     clearItemCache()
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
       const loadedRoot = await getLoadedItem(newRoot.id)
-      if (loadedRoot) {
-        viewStack = [loadedRoot as MediaFolder]
-      }
+      if (loadedRoot) viewStack = [loadedRoot as MediaFolder]
     } else if (!currentFolder) {
-      // If scan is cancelled or fails on welcome screen, reset the stack.
       viewStack = []
     }
     isScanning = false
@@ -222,7 +234,6 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     clearItemCache()
     const refreshedRoot = await window.api.refreshLibrary()
     if (refreshedRoot) {
-      // Use the store to get the fully loaded root.
       const loadedRoot = await getLoadedItem(refreshedRoot.id)
       if (loadedRoot) {
         viewStack = [loadedRoot as MediaFolder]
@@ -233,7 +244,6 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    // De-proxy the item before sending it over IPC by creating a plain object.
     const plainFile: MediaFile = {
       id: item.id,
       name: item.name,
@@ -243,7 +253,6 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     }
     const success = await window.api.playFile(plainFile)
     if (success) {
-      // Find the item in the main tree and update its watched state.
       const root = viewStack[0]
       if (root) {
         const itemInTree = findItemInTree(root, item.id)
@@ -254,107 +263,94 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     }
   }
 
-async function handleItemClick(item: LibraryItem): Promise<void> {
-  // Use the new store to get a fully loaded version of the item.
-  // This prevents all classes of lazy-loading bugs downstream.
-  const loadedItem = await getLoadedItem(item.id)
-  if (!loadedItem) {
-    console.error('Failed to load item from store:', item.id)
-    return
-  }
+  async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
+    const fromSearch = 'staticScore' in item
 
-  // --- Are we currently in a detail view? ---
-  if (selectedItemForDetailView) {
-    const parent = selectedItemForDetailView
+    const loadedItem = await getLoadedItem(item.id)
+    if (!loadedItem) {
+      console.error('Failed to load item from store:', item.id)
+      return
+    }
 
-    // A. Clicked a folder inside the detail view
-    if (loadedItem.type === 'folder') {
-      if ((parent as MediaFolder).childrenClickAction === 'navigate') {
-        drillDown(loadedItem as MediaFolder)
+    if (fromSearch) {
+      if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
+        handlePlayFile(loadedItem)
       } else {
-        // 'detail'
-        lastDetailItem = parent
-        viewStack.push(parent as MediaFolder)
         selectedItemForDetailView = loadedItem
       }
       return
     }
 
-    // B. Clicked a file that should open its own detail view
-    if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
-      lastDetailItem = parent
-      viewStack.push(parent as MediaFolder) // We are drilling down one level
-      selectedItemForDetailView = loadedItem
+    if (selectedItemForDetailView) {
+      const parent = selectedItemForDetailView
+      if (loadedItem.type === 'folder') {
+        if ((parent as MediaFolder).childrenClickAction === 'navigate') {
+          drillDown(loadedItem as MediaFolder)
+        } else {
+          lastDetailItem = parent
+          viewStack.push(parent as MediaFolder)
+          selectedItemForDetailView = loadedItem
+        }
+        return
+      }
+      if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
+        lastDetailItem = parent
+        viewStack.push(parent as MediaFolder)
+        selectedItemForDetailView = loadedItem
+        return
+      }
+      if (loadedItem.type === 'file') {
+        handlePlayFile(loadedItem)
+      }
       return
     }
 
-    // C. Clicked a normal, playable file
-    if (loadedItem.type === 'file') {
-      handlePlayFile(loadedItem)
+    lastDetailItem = null
+    if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
+      selectedItemForDetailView = loadedItem
+      return
     }
-    return
-  }
-
-  // --- We are in a list/grid view (no detail view open) ---
-  lastDetailItem = null // Reset breadcrumb
-
-  // 1. If it's a file that opens as a folder, just open its detail view.
-  if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
+    if (loadedItem.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
+      handlePlayFile(loadedItem)
+      return
+    }
+    if (loadedItem.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
+      handleNavigateFolder(loadedItem as MediaFolder)
+      return
+    }
     selectedItemForDetailView = loadedItem
-    return
   }
 
-  // 2. If it's a regular file in a tree view, play it.
-  if (loadedItem.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
-    handlePlayFile(loadedItem)
-    return
+  function handleNavigateFolder(folder: MediaFolder): void {
+    selectedItemForDetailView = null
+    lastDetailItem = null
+    viewStack.push(folder)
   }
-
-  // 3. If it's a folder and parent is set to navigate, navigate into it.
-  if (loadedItem.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
-    handleNavigateFolder(loadedItem as MediaFolder)
-    return
-  }
-
-  // 4. Default action: open detail view for any other item (grid items, folders in detail-mode).
-  selectedItemForDetailView = loadedItem
-}
-
-// Used to navigate to a new folder list view, closing any detail view.
-function handleNavigateFolder(folder: MediaFolder): void {
-  selectedItemForDetailView = null
-  lastDetailItem = null // Clear breadcrumb on any new grid navigation
-  viewStack.push(folder)
-}
 
   function goBack(): void {
     if (!canGoBack) return
 
+    if (isGlobalSearchActive && !selectedItemForDetailView) {
+      globalSearchText = ''
+      globalSearchTags = []
+      return
+    }
+
     if (selectedItemForDetailView) {
-      // We are in a detail view.
-      // Check if we have a breadcrumb to a PREVIOUS detail view.
       if (lastDetailItem) {
-        // We came from another detail view. Restore it.
         selectedItemForDetailView = lastDetailItem
-        // The view stack for the previous detail view needs to be restored.
-        // It was the parent of the previous detail view. So we just need to pop.
         viewStack.pop()
-        // Clear the breadcrumb now that we've used it.
         lastDetailItem = null
       } else {
-        // No breadcrumb, so we came from a list view. Just close the detail view.
         selectedItemForDetailView = null
       }
     } else {
-      // We are in a list view.
-      // Check if we got here from a drill-down.
       if (lastDetailItem) {
         selectedItemForDetailView = lastDetailItem
-        viewStack.pop() // remove current folder
-        viewStack.pop() // remove parent folder (the one we're restoring the detail view OF)
+        viewStack.pop()
+        viewStack.pop()
         lastDetailItem = null
       } else if (viewStack.length > 1) {
-        // Standard list-to-list back navigation.
         viewStack.pop()
       }
     }
@@ -365,16 +361,14 @@ function handleNavigateFolder(folder: MediaFolder): void {
   }
 
   function handleSearchByTag(key: string, value: string): void {
-    selectedItemForDetailView = null // Exit detail view to see the search results
-    // Clicking a genre tag starts a new search for that genre, clearing other tags.
-    searchText = ''
-    searchTags = [{ key, value }]
+    selectedItemForDetailView = null
+    globalSearchText = ''
+    globalSearchTags = [{ key, value }]
   }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      // Query for the first interactive element in the currently visible media list.
       const firstItem = document.querySelector<HTMLElement>(
         '.media-grid .grid-item, .media-tree .tree-item'
       )
@@ -399,32 +393,42 @@ function handleNavigateFolder(folder: MediaFolder): void {
       navigateForward: goForward,
       reloadLibrary: handleRefresh
     })
-
-    // Cleanup the listeners when the component is destroyed.
     return () => cleanupShortcuts()
   })
 
   function openLayoutSelector() {
     if (folderToConfigureLayout) {
-      // The context is the detail view if we are configuring the item currently in the detail view.
       const isDetailViewContext = selectedItemForDetailView?.id === folderToConfigureLayout.id
       activeModal = {
         type: 'layoutSelector',
         item: folderToConfigureLayout,
-        // Pass the contextual default layout
         defaultLayout: isDetailViewContext ? 'tree' : 'grid'
       }
     }
   }
 
-  function handleShowContextMenu(
-    item: LibraryItem,
+  async function handleShowContextMenu(
+    item: LibraryItem | SearchIndexEntry,
     event: MouseEvent,
     options?: { layout?: string }
   ) {
     event.preventDefault()
     event.stopPropagation()
-    contextMenuItem = item
+
+    // If it's a search result, we only have partial data.
+    // Fetch the full LibraryItem before showing the menu.
+    if ('staticScore' in item) {
+      const fullItem = await getLoadedItem(item.id)
+      if (fullItem) {
+        contextMenuItem = fullItem
+      } else {
+        return // Can't show menu if full item fails to load
+      }
+    } else {
+      // It's already a full LibraryItem
+      contextMenuItem = item
+    }
+
     contextMenuLayout = options?.layout
     contextMenuPosition = { top: event.clientY, left: event.clientX }
   }
@@ -436,7 +440,6 @@ function handleNavigateFolder(folder: MediaFolder): void {
       close={() => {
         const wasSettings = activeModal?.type === 'settings'
         activeModal = null
-        // Refetch settings after modal closes, as they might have changed
         if (wasSettings) {
           window.api.getSettings().then((s) => (settings = s))
         }
@@ -482,8 +485,6 @@ function handleNavigateFolder(folder: MediaFolder): void {
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
         const itemToConfigure = contextMenuItem as MediaFolder
-        // The context is the detail view if we are configuring the layout
-        // for the very item that is currently displayed in the detail view.
         const isDetailViewContext =
           selectedItemForDetailView && selectedItemForDetailView.id === itemToConfigure.id
 
@@ -516,18 +517,24 @@ function handleNavigateFolder(folder: MediaFolder): void {
         </button>
         <!-- In detail view, the title is handled by the component itself -->
         {#if !selectedItemForDetailView}
-          <h1>{currentFolder?.title ?? currentFolder?.name ?? 'Media Browser'}</h1>
+          <h1>
+            {#if isGlobalSearchActive}
+              Search Results
+            {:else}
+              {currentFolder?.title ?? currentFolder?.name ?? 'Media Browser'}
+            {/if}
+          </h1>
         {/if}
       </div>
 
       <div class="search-container" onkeydown={handleSearchKeyDown}>
-        {#if currentFolder && !selectedItemForDetailView}
+        {#if !selectedItemForDetailView}
           <SearchInput
-            initialQuery={searchQuery}
+            initialQuery={globalSearchQuery}
             suggestions={allAutocompleteSuggestions}
             onQueryChange={(newQuery) => {
-              searchText = newQuery.text
-              searchTags = newQuery.tags
+              globalSearchText = newQuery.text
+              globalSearchTags = newQuery.tags
             }}
             bind:element={searchInputEl}
           />
@@ -603,26 +610,58 @@ function handleNavigateFolder(folder: MediaFolder): void {
   <div class="content">
     {#if isScanning}
       <p class="status-text">Loading library...</p>
-    {:else if !currentFolder}
+    {:else if !currentFolder && !isGlobalSearchActive}
       <div class="welcome-screen">
         <h2>Welcome to Media Browser</h2>
         <p>To get started, scan a folder containing your media.</p>
         <button onclick={handleScan}>Select Media Folder</button>
       </div>
     {:else}
-      <!--
-        The MediaGrid is always rendered to preserve scroll position and perceived performance.
-        It is hidden with CSS when the detail view is active to prevent flashing.
-      -->
-      <div class="media-grid-container" class:hidden={selectedItemForDetailView}>
-        <MediaGrid
-          parentItem={currentFolder}
-          items={currentFolder.children}
-          {searchQuery}
-          onItemClick={handleItemClick}
-          layout={currentFolder.layout ?? 'grid'}
-          onShowContextMenu={handleShowContextMenu}
-        />
+      <div class="main-view-container" class:hidden={selectedItemForDetailView}>
+        <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
+        <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
+          <div class="search-header">
+            {#if isPerformingSearch}
+              <span>Searching...</span>
+            {:else}
+              <span>Found {searchResults.length} results.</span>
+            {/if}
+          </div>
+          <div class="search-content-wrapper">
+            {#if searchResults.length > 0}
+              <MediaGrid
+                items={searchResults}
+                onItemClick={handleItemClick}
+                layout="grid"
+                onShowContextMenu={handleShowContextMenu}
+                suggestions={allAutocompleteSuggestions}
+              />
+            {:else if !isPerformingSearch}
+              <p class="status-text">No results found.</p>
+            {/if}
+          </div>
+        </div>
+
+        <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
+        {#if currentFolder}
+          <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
+            <FilterBar
+              suggestions={allAutocompleteSuggestions}
+              onQueryChange={(query) => (filterQuery = query)}
+            />
+            <div class="folder-content-wrapper">
+              <MediaGrid
+                parentItem={currentFolder}
+                items={currentFolder.children}
+                searchQuery={filterQuery}
+                onItemClick={handleItemClick}
+                layout={currentFolder.layout ?? 'grid'}
+                onShowContextMenu={handleShowContextMenu}
+                suggestions={allAutocompleteSuggestions}
+              />
+            </div>
+          </div>
+        {/if}
       </div>
 
       {#if selectedItemForDetailView && settings}
@@ -739,14 +778,41 @@ function handleNavigateFolder(folder: MediaFolder): void {
     position: relative; /* Needed for the absolute positioned detail view */
   }
 
-  .media-grid-container {
+  .main-view-container {
     display: flex;
     flex-direction: column;
-    flex: 1; /* Ensure it fills space so its child MediaGrid can too */
+    flex: 1;
+    position: relative; /* For stacking contexts */
+  }
+  .main-view-container.hidden {
+    visibility: hidden;
   }
 
-  .media-grid-container.hidden {
+  .view-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .view-wrapper.hidden {
     visibility: hidden;
+  }
+
+  .folder-content-wrapper,
+  .search-content-wrapper {
+    flex-grow: 1;
+    overflow-y: auto;
+  }
+
+  .search-header {
+    padding: 0.5rem 1.5rem;
+    font-style: italic;
+    color: var(--ev-c-text-2);
+    border-bottom: 1px solid var(--color-background-mute);
+    flex-shrink: 0;
   }
 
   .welcome-screen,
@@ -762,9 +828,6 @@ function handleNavigateFolder(folder: MediaFolder): void {
   }
 
   /* --- Refresh Button Animation --- */
-  .refresh-button {
-    /* Sizing is now handled by the unified button style above */
-  }
   .reloading {
     display: inline-block;
     animation: spin 1s linear infinite;

@@ -3,6 +3,7 @@
   import MediaGrid from './MediaGrid.svelte' // Self-reference for recursion
 
   type Layout = 'grid' | 'tree' | 'tabs' | 'sections'
+  type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
     physicalParentId: string
@@ -14,17 +15,25 @@
     parentItem,
     items = [],
     onItemClick,
-    layout = 'grid',
+    layout: layoutProp,
     onShowContextMenu,
-    searchQuery
+    searchQuery,
+    suggestions
   }: {
-    parentItem: MediaFolder
-    items?: LibraryItem[]
-    onItemClick: (item: LibraryItem) => void
+    parentItem?: MediaFolder | VirtualFolder
+    items: DisplayableItem[]
+    onItemClick: (item: DisplayableItem) => void
     layout?: Layout
-    onShowContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
+    onShowContextMenu: (
+      item: DisplayableItem,
+      event: MouseEvent,
+      options?: { layout?: string }
+    ) => void
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
+    suggestions?: AutocompleteSuggestions
   } = $props()
+
+  const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
 
   // --- Helpers ---
   function normalizeText(text: string): string {
@@ -37,18 +46,16 @@
   }
 
   function filterItems(
-    itemsToFilter: LibraryItem[],
-    query?: { text: string; tags: { key: string; value: string }[] }
-  ): LibraryItem[] {
+    itemsToFilter: DisplayableItem[],
+    query: { text: string; tags: { key: string; value: string }[] }
+  ): DisplayableItem[] {
     if (!query || (query.text === '' && query.tags.length === 0)) {
       return itemsToFilter
     }
     const normalizedQueryText = normalizeText(query.text)
     return itemsToFilter.filter((item) => {
-      if (
-        normalizedQueryText &&
-        !normalizeText(item.title ?? item.name).includes(normalizedQueryText)
-      ) {
+      const itemTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
+      if (normalizedQueryText && !normalizeText(itemTitle).includes(normalizedQueryText)) {
         return false
       }
       if (query.tags.length > 0) {
@@ -79,7 +86,7 @@
     })
   }
 
-  function getValuesForKey(item: LibraryItem, key: string): string[] {
+  function getValuesForKey(item: DisplayableItem, key: string): string[] {
     if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
     if (key === 'genre') return item.genres ?? []
     if (key === 'year') return item.year ? [item.year.toString()] : []
@@ -98,14 +105,16 @@
 
   // --- Derived State ---
   const { displayedItems, virtualFolders } = $derived.by(() => {
-    const filteredItems = filterItems(items, searchQuery)
+    const filteredItems = filterItems(items, searchQuery ?? { text: '', tags: [] })
+
     if (
+      parentItem &&
       (layout === 'tabs' || layout === 'sections') &&
       parentItem.groupBy &&
       parentItem.groupBy !== 'folder'
     ) {
       const groupByKey = parentItem.groupBy
-      const groups: Record<string, LibraryItem[]> = {}
+      const groups: Record<string, DisplayableItem[]> = {}
       for (const item of filteredItems) {
         const values = getValuesForKey(item, groupByKey)
         if (values.length === 0) {
@@ -126,7 +135,7 @@
             name: groupValue,
             title: virtualSettings.title ?? groupValue,
             type: 'folder',
-            children: groupItems,
+            children: groupItems as LibraryItem[],
             path: '',
             isVirtual: true,
             physicalParentId: parentItem.id,
@@ -137,7 +146,9 @@
           return virtualFolder
         })
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-      return { displayedItems: filteredItems, virtualFolders: vFolders }
+      // In tabs/sections view, the filtering happens inside the recursive MediaGrid call,
+      // so we pass the original unfiltered items down. The sections themselves are built from filtered items.
+      return { displayedItems: items, virtualFolders: vFolders }
     }
     return { displayedItems: filteredItems, virtualFolders: null }
   })
@@ -145,7 +156,9 @@
   const sortedTreeItems = $derived(
     [...displayedItems].sort((a, b) => {
       if (a.type !== b.type) return a.type === 'folder' ? 1 : -1
-      return (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, { numeric: true })
+      const aTitle = a.title ?? ('name' in a ? (a as LibraryItem).name : '')
+      const bTitle = b.title ?? ('name' in b ? (b as LibraryItem).name : '')
+      return aTitle.localeCompare(bTitle, undefined, { numeric: true })
     })
   )
 
@@ -168,7 +181,6 @@
     if (layout !== 'tabs') return
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't interfere with text input shortcuts
       const target = event.target as HTMLElement
       const isInput =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
@@ -199,13 +211,17 @@
 </script>
 
 {#if layout === 'grid'}
-  <div class="media-grid" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+  <div
+    class="media-grid"
+    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+  >
     {#if displayedItems.length > 0}
       {#each displayedItems as item (item.id)}
+        {@const title = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
         <button
           type="button"
           class="grid-item"
-          class:watched={item.type === 'file' && item.watched}
+          class:watched={'watched' in item && item.watched}
           onclick={() => onItemClick(item)}
           oncontextmenu={(e) => onShowContextMenu(item, e, { layout })}
         >
@@ -213,7 +229,7 @@
             {#if item.posterPath}
               <img
                 src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-                alt={item.title ?? item.name}
+                alt={title}
                 loading="lazy"
               />
             {:else}
@@ -222,32 +238,38 @@
               </div>
             {/if}
           </div>
-          <div class="name" title={item.title ?? item.name}>
-            {item.title ?? item.name}
+          <div class="name" {title}>
+            {title}
           </div>
         </button>
       {/each}
     {:else}
-      <p class="empty-message">This folder is empty.</p>
+      <p class="empty-message">No items match your filter.</p>
     {/if}
   </div>
 {:else if layout === 'tree'}
-  <div class="media-tree" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+  <div
+    class="media-tree"
+    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+  >
     {#if sortedTreeItems.length > 0}
       {#each sortedTreeItems as item (item.id)}
         <TreeItem
-          {item}
-          itemclick={onItemClick}
+          item={item as LibraryItem}
+          itemclick={onItemClick as (item: LibraryItem) => void}
           showContextMenu={(treeItem, event) => onShowContextMenu(treeItem, event, { layout })}
         />
       {/each}
     {:else}
-      <p class="empty-message">This folder is empty.</p>
+      <p class="empty-message">No items match your filter.</p>
     {/if}
   </div>
 {:else if layout === 'tabs'}
   {@const folders = foldersForTabsOrSections}
-  <div class="tabs-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+  <div
+    class="tabs-view"
+    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+  >
     <div class="tab-list">
       {#each folders as folder (folder.id)}
         <button
@@ -270,7 +292,7 @@
               {onItemClick}
               layout={folder.layout ?? 'grid'}
               {onShowContextMenu}
-              searchQuery={virtualFolders ? undefined : searchQuery}
+              {suggestions}
             />
           {/if}
         {/each}
@@ -281,7 +303,10 @@
   </div>
 {:else if layout === 'sections'}
   {@const folders = foldersForTabsOrSections}
-  <div class="sections-view" oncontextmenu={(e) => onShowContextMenu(parentItem, e, { layout })}>
+  <div
+    class="sections-view"
+    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+  >
     {#if folders.length > 0}
       {#each folders as folder (folder.id)}
         <section class="content-section">
@@ -298,7 +323,7 @@
             {onItemClick}
             layout={folder.layout ?? 'grid'}
             {onShowContextMenu}
-            searchQuery={virtualFolders ? undefined : searchQuery}
+            {suggestions}
           />
         </section>
       {/each}

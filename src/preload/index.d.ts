@@ -63,12 +63,14 @@ declare global {
   interface SearchIndexEntry {
     id: string
     title: string
+    type: 'file' | 'folder'
     posterPath?: string | null
     mediaType?: 'movie' | 'tv'
     year?: number
     genres?: string[]
     tags?: Record<string, string>
     virtualTags?: Record<string, string>
+    _v?: number // Cache-busting version number
     staticScore: number
   }
 

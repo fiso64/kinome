@@ -66,6 +66,7 @@ export interface AutocompleteSuggestions {
 export interface SearchIndexEntry {
   id: string
   title: string // This will be the primary display and search title (item.title ?? item.name)
+  type: 'file' | 'folder'
   posterPath?: string | null
   // We need all filterable properties
   mediaType?: 'movie' | 'tv'
@@ -73,6 +74,8 @@ export interface SearchIndexEntry {
   genres?: string[]
   tags?: Record<string, string>
   virtualTags?: Record<string, string>
+  // We need properties for UI interaction
+  _v?: number // Cache-busting version number
   // Score for ranking
   staticScore: number
 }
