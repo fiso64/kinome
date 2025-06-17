@@ -69,6 +69,10 @@ The goal is to implement the key features that make the app unique and powerful.
     *   `[X]` "Virtual tags" (similar to MusicBee). Virtual tags are derived from metadata or custom tags. Add new tab in the settings for defining virtual tags, with key/values similar as in the custom tags section in metadata edit window. The values of the virtual tags will be expressions, possibly involving one or multiple metadata/custom tags ({genre}, {my-custom-tag}), and possibly involving functions which modify strings. E.g.: A virtual tag named "isAnimation" which is equal to "Animation" when the genre tag contains "Animation", and otherwise "Film". Virtual tags can be filtered by in the search bar or can be set as group by. Careful: They should not be included in autocompletions for custom tag keys.
     *   `[ ]` Filtering items from view depending on conditions
     *   `[ ]` Sorting by arbitrary values, or custom sort (drag and drop)
+*   `[ ]` Improve search bar
+    *   `[ ]` Unified deep search: Make the search bar search all media library (all immediate children union all descendants which have an image, or maybe ALL descendants. Think what to include.). When searching, no tabs or sections will be displayed: results will be shown in a new separate media grid element (let's default it to poster grid view), all in one place. 
+    *   `[ ]` Rank results according to how closely they match the query (need a very fast rank algorithm. maybe normalize + ngram?)
+    *   `[ ]` Add a smaller "filter" bar inside the media grid view, which will filter only the immediate children on the current tab, similar to how the search bar works currently. The filter bar should initially be a looking glass button and expand to a small search bar when pressed.
 
 #### Phase 4: Expansion & Refinement
 
