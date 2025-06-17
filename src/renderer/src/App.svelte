@@ -40,6 +40,7 @@
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
   )
   let searchResults = $state<SearchIndexEntry[]>([])
+  let highlightedSearchItemIndex = $state<number | null>(null)
   let isPerformingSearch = $state(false)
   let filterQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
     text: '',
@@ -145,10 +146,28 @@
       window.api.performSearch(plainQuery).then((results) => {
         searchResults = results
         isPerformingSearch = false
+        // Reset highlighted index when new search results arrive
+        if (results.length > 0) {
+          highlightedSearchItemIndex = 0
+        } else {
+          highlightedSearchItemIndex = null
+        }
       })
     } else {
       searchResults = []
       isPerformingSearch = false
+      highlightedSearchItemIndex = null // Clear highlight when search is inactive
+    }
+  })
+
+  $effect(() => {
+    // Auto-highlight the first search result or clear highlight
+    if (searchResults.length > 0) {
+      if (highlightedSearchItemIndex === null || highlightedSearchItemIndex >= searchResults.length) {
+        highlightedSearchItemIndex = 0
+      }
+    } else {
+      highlightedSearchItemIndex = null
     }
   })
 
@@ -297,6 +316,10 @@
     }
 
     if (fromSearch) {
+      const clickedIndex = searchResults.findIndex((sr) => sr.id === item.id)
+      if (clickedIndex !== -1) {
+        highlightedSearchItemIndex = clickedIndex
+      }
       if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
         handlePlayFile(loadedItem)
       } else {
@@ -389,18 +412,39 @@
   }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
+    if (!isGlobalSearchActive || searchResults.length === 0) {
+      return
+    }
+
+    // Check if the event target is inside the autocomplete menu, if so, let it handle.
+    // This check might be redundant if AutocompleteMenu's capture+stopPropagation is fully effective.
+    const autocompleteMenu = document.querySelector('.autocomplete-menu')
+    if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
+      return
+    }
+
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      const firstItem = document.querySelector<HTMLElement>(
-        '.media-grid .grid-item, .media-tree .tree-item'
-      )
-      firstItem?.focus()
+      if (highlightedSearchItemIndex === null) {
+        highlightedSearchItemIndex = 0
+      } else {
+        highlightedSearchItemIndex = (highlightedSearchItemIndex + 1) % searchResults.length
+      }
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (highlightedSearchItemIndex === null || highlightedSearchItemIndex === 0) {
+        highlightedSearchItemIndex = searchResults.length - 1
+      } else {
+        highlightedSearchItemIndex--
+      }
     } else if (event.key === 'Enter') {
       event.preventDefault()
-      const firstItem = document.querySelector<HTMLElement>(
-        '.media-grid .grid-item, .media-tree .tree-item'
-      )
-      firstItem?.click()
+      if (highlightedSearchItemIndex !== null) {
+        const selectedResult = searchResults[highlightedSearchItemIndex]
+        if (selectedResult) {
+          handleItemClick(selectedResult)
+        }
+      }
     }
   }
 
@@ -665,6 +709,7 @@
                 layout="list"
                 onShowContextMenu={handleShowContextMenu}
                 suggestions={allAutocompleteSuggestions}
+                highlightedIndex={highlightedSearchItemIndex}
               />
             {:else if !isPerformingSearch}
               <p class="status-text">No results found.</p>

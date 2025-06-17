@@ -21,7 +21,8 @@ type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
     layout: layoutProp,
     onShowContextMenu,
     searchQuery,
-    suggestions
+    suggestions,
+    highlightedIndex
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -34,6 +35,7 @@ type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
     ) => void
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
     suggestions?: AutocompleteSuggestions
+    highlightedIndex?: number | null
   } = $props()
 
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
@@ -181,7 +183,7 @@ type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   {:else if layout === 'tree'}
     <TreeView items={sortedTreeItems} {onItemClick} {onShowContextMenu} />
   {:else if layout === 'list'}
-    <ListView items={displayedItems} {onItemClick} {onShowContextMenu} />
+    <ListView items={displayedItems} {onItemClick} {onShowContextMenu} {highlightedIndex} />
   {:else if layout === 'tabs'}
     <TabsView folders={foldersForTabsOrSections} {onItemClick} {onShowContextMenu} {suggestions} />
   {:else if layout === 'sections'}

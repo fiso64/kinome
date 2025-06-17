@@ -4,7 +4,8 @@
   let {
     items,
     onItemClick,
-    onShowContextMenu
+    onShowContextMenu,
+    highlightedIndex
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -13,18 +14,35 @@
       event: MouseEvent,
       options?: { layout?: string }
     ) => void
+    highlightedIndex?: number | null
   } = $props()
+
+  let listElement: HTMLDivElement | undefined = $state()
+
+  $effect(() => {
+    if (
+      listElement &&
+      highlightedIndex !== null &&
+      highlightedIndex >= 0 &&
+      items.length > highlightedIndex && // Check against items length
+      listElement.children.length > highlightedIndex // Check against actual rendered children
+    ) {
+      const itemElement = listElement.children[highlightedIndex] as HTMLElement
+      itemElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  })
 </script>
 
-<div class="media-list">
+<div class="media-list" bind:this={listElement}>
   {#if items.length > 0}
-    {#each items as item (item.id)}
+    {#each items as item, i (item.id)}
       {@const title = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
       {@const overview = 'overview' in item ? item.overview : ''}
       <button
         type="button"
         class="list-item"
         class:watched={'watched' in item && item.watched}
+        class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
@@ -153,5 +171,10 @@
   }
   .list-item.watched:hover {
     opacity: 1;
+  }
+  .list-item.highlighted {
+    background-color: var(--ev-c-gray-2);
+    border-color: var(--ev-c-gray-1);
+    transform: translateY(-2px) scale(1.01);
   }
 </style>
