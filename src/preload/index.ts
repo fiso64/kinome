@@ -1,3 +1,5 @@
+console.log(`[${new Date().toISOString()}] [Preload] Preload script execution start.`)
+
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { MediaFile, MediaFolder, LibraryItem, AutocompleteSuggestions } from '../main/types'

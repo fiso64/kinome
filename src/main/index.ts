@@ -1,3 +1,5 @@
+console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
+
 import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -52,6 +54,8 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  console.log(`[${new Date().toISOString()}] [Main] App is ready.`)
+
   protocol.registerFileProtocol('media-browser-asset', (request, callback) => {
     // The URL from the renderer now includes a cache-busting query parameter
     // (e.g., "media-browser-asset://images/someid.jpg?v=12345").

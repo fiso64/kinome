@@ -1,27 +1,78 @@
-import type { Database, LibraryItem, MediaFolder } from './types'
+import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from './types'
 
-// This will eventually hold our flat list of searchable items.
-let searchIndex: LibraryItem[] = []
+let searchIndex: SearchIndexEntry[] = []
+const itemMap = new Map<string, LibraryItem>()
+const parentMap = new Map<string, string>() // Map<childId, parentId>
+
+const EXCLUDED_FOLDER_NAMES = [
+  'extras',
+  'featurettes',
+  'specials',
+  'behind the scenes',
+  'deleted scenes',
+  'interviews'
+].map((name) => name.toLowerCase())
 
 /**
- * Adds or updates an item in the search index array.
- * @param item The item to add or update.
+ * Calculates a static "importance" score for an item.
+ * @param item The item to score.
+ * @param parent The item's parent, if it exists.
+ * @returns A numeric score.
  */
-function _updateOrAddItemToIndex(item: LibraryItem) {
-  const index = searchIndex.findIndex((i) => i.id === item.id)
-  if (index !== -1) {
-    searchIndex[index] = item // Update existing item
-  } else {
-    searchIndex.push(item) // Add new item
+function calculateStaticScore(item: LibraryItem, parent?: LibraryItem): number {
+  let score = 0
+  // Major boost for poster
+  if (item.posterPath) score += 100
+  // Minor boost for having a fetched title
+  if (item.title) score += 10
+  // Minor boost for being a folder
+  if (item.type === 'folder') score += 5
+
+  // Soft deduplication: a file whose parent has a poster gets a penalty.
+  if (item.type === 'file' && parent?.posterPath) {
+    score -= 50
+  }
+
+  return score
+}
+
+/**
+ * Creates a denormalized, flat search entry from a library item.
+ * @param item The library item to convert.
+ * @param parent The item's parent.
+ * @returns A new search index entry.
+ */
+function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): SearchIndexEntry {
+  return {
+    id: item.id,
+    title: item.title ?? item.name,
+    posterPath: item.posterPath,
+    mediaType: item.mediaType,
+    year: item.year,
+    genres: item.genres,
+    tags: item.tags,
+    virtualTags: item.virtualTags,
+    staticScore: calculateStaticScore(item, parent)
   }
 }
 
 /**
- * Removes an item from the search index array if it exists.
- * @param item The item to remove.
+ * Adds or updates an entry in the search index array.
  */
-function _removeItemFromIndex(item: LibraryItem) {
-  const index = searchIndex.findIndex((i) => i.id === item.id)
+function _updateOrAddItemToIndex(entry: SearchIndexEntry) {
+  const index = searchIndex.findIndex((i) => i.id === entry.id)
+  if (index !== -1) {
+    searchIndex[index] = entry // Update existing item
+  } else {
+    searchIndex.push(entry) // Add new item
+  }
+}
+
+/**
+ * Removes an entry from the search index array by its ID.
+ */
+function _removeItemFromIndex(itemId: string) {
+  const index = searchIndex.findIndex((i) => i.id === itemId)
   if (index !== -1) {
     searchIndex.splice(index, 1)
   }
@@ -29,29 +80,48 @@ function _removeItemFromIndex(item: LibraryItem) {
 
 /**
  * Evaluates a single item and decides whether to add, update, or remove it
- * from the search index. This will be the home for inclusion/exclusion logic.
+ * and its children from the search index.
  * @param item The LibraryItem to process.
  */
 export function updateIndexForItem(item: LibraryItem) {
-  // --- Future-proof place for exclusion rules ---
-  // Example: if (item.path.includes('/extras/')) {
-  //   _removeItemFromIndex(item);
-  //   return;
-  // }
+  // Always keep the item map up-to-date with the latest version of the item.
+  itemMap.set(item.id, item)
 
-  // For now, we assume all items are searchable.
+  // --- Exclusion Rules ---
+  if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
+    _removeItemFromIndex(item.id)
+    // Also remove all its descendants from the index.
+    function removeChildren(folder: MediaFolder) {
+      folder.children.forEach((child) => {
+        _removeItemFromIndex(child.id)
+        if (child.type === 'folder') {
+          removeChildren(child)
+        }
+      })
+    }
+    if (item.children) removeChildren(item)
+    return
+  }
+
+  // Find parent to calculate score correctly.
+  const parentId = parentMap.get(item.id)
+  const parent = parentId ? itemMap.get(parentId) : undefined
+
+  const entry = createSearchIndexEntry(item, parent)
+
   console.log(
-    `[Search Index] Incrementally updating index for: "${item.title ?? item.name}" (ID: ${item.id})`
+    `[Search Index] Incrementally updating index for: "${entry.title}" (ID: ${entry.id})`
   )
-  _updateOrAddItemToIndex(item)
+  _updateOrAddItemToIndex(entry)
 }
 
 /**
  * This is the generic handler called by the proxy on any data change.
  * @param target The raw object that was modified.
+ * @param prop The property key that was changed.
  * @param isBulkUpdate A flag to disable indexing during bulk operations.
  */
-function onObjectChange(target: object, isBulkUpdate: boolean) {
+function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boolean) {
   if (isBulkUpdate) {
     return
   }
@@ -64,8 +134,19 @@ function onObjectChange(target: object, isBulkUpdate: boolean) {
     return
   }
 
-  // The target of the `set` operation is the object that was changed.
-  updateIndexForItem(target as LibraryItem)
+  const item = target as LibraryItem
+
+  // Update the item itself in the search index.
+  updateIndexForItem(item)
+
+  // If a folder's poster path changes, its children's scores might be affected.
+  // We need to trigger an update for them too.
+  if (item.type === 'folder' && prop === 'posterPath' && item.children) {
+    console.log(`[Search Index] Parent poster changed for "${item.name}", re-indexing children.`)
+    item.children.forEach((child) => {
+      updateIndexForItem(child)
+    })
+  }
 }
 
 // A WeakMap caches proxies, preventing re-proxying of the same object and
@@ -93,7 +174,7 @@ function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
 
       // Only trigger the change handler if the new value is different from the old one.
       if (success && value !== oldValue) {
-        onObjectChange(target, isBulkUpdate())
+        onObjectChange(target, prop, isBulkUpdate())
       }
 
       return success
@@ -119,23 +200,46 @@ export function createDbProxy(db: Database, isBulkUpdate: () => boolean): Databa
 }
 
 /**
- * (Placeholder) Builds the entire search index from the library root.
+ * Builds the entire search index from the library root.
  * This is called once when the library is first loaded or fully replaced.
+ * It populates the search index and the necessary lookup maps.
  */
 export function buildFullSearchIndex(root: MediaFolder | null) {
-  // In a future step, this will implement the full inclusion/exclusion logic.
-  // For now, this placeholder clears and rebuilds a simple index of all items.
+  const startTime = performance.now()
   searchIndex = []
-  console.log('[Search Index] Full search index build initiated.')
-  if (root) {
-    // A simple recursive function to add all items to the index.
-    function addAll(item: LibraryItem) {
-      searchIndex.push(item)
-      if (item.type === 'folder') {
-        item.children.forEach(addAll)
-      }
-    }
-    addAll(root)
-    console.log(`[Search Index] Placeholder index built with ${searchIndex.length} items.`)
+  itemMap.clear()
+  parentMap.clear()
+  console.log(`[${new Date().toISOString()}] [Search] Full search index build initiated.`)
+  if (!root) {
+    return
   }
+
+  function traverse(item: LibraryItem, parent?: MediaFolder) {
+    // Exclusion rule
+    if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
+      return // Don't index this folder or its children
+    }
+
+    // Populate maps
+    itemMap.set(item.id, item)
+    if (parent) {
+      parentMap.set(item.id, parent.id)
+    }
+
+    // Create and add entry to search index
+    const entry = createSearchIndexEntry(item, parent)
+    searchIndex.push(entry)
+
+    // Recurse if it's a folder
+    if (item.type === 'folder' && item.children) {
+      item.children.forEach((child) => traverse(child, item))
+    }
+  }
+
+  traverse(root)
+  const endTime = performance.now()
+  const duration = (endTime - startTime).toFixed(2)
+  console.log(
+    `[${new Date().toISOString()}] [Search] Index built with ${searchIndex.length} items in ${duration}ms.`
+  )
 }

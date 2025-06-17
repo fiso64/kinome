@@ -28,6 +28,9 @@
     }
     const mediaItems: LibraryItem[] = []
     function recurse(items: LibraryItem[]) {
+      // Guard against lazy-loaded children which can be null.
+      if (!Array.isArray(items)) return
+
       for (const currentItem of items) {
         // If the item itself has a poster, add it and DO NOT recurse further down this branch.
         if (currentItem.posterPath) {
@@ -57,7 +60,10 @@
 
   $effect(() => {
     // This effect runs when the `item` prop changes.
-    // We kick off the details fetch, which will now return instantly.
+    // We kick off the details fetch here. This is a "fire-and-forget" call
+    // that tells the main process to fetch missing details (like backdrops and logos)
+    // in the background. The UI will update automatically when the `library-item-updated`
+    // event is received by App.svelte.
     window.api.getItemDetails(item.id)
 
     // Reset fade-in animation flags if the image source itself has changed.

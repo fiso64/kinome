@@ -1,6 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
+  import { getLoadedItem } from '../lib/item-store'
   // Types are globally available from src/preload/index.d.ts
   let {
     item,
@@ -16,13 +17,31 @@
 
   let isExpanded = $state(false)
 
-  function handleItemClick() {
-    // Files are played, folders are expanded/collapsed
+  async function handleItemClick() {
     if (item.type === 'file') {
       itemclick(item)
-    } else {
-      isExpanded = !isExpanded
+      return
     }
+
+    // --- Lazy loading logic for folders ---
+    // This is now essential as the backend only sends shallow data.
+    if (item.type === 'folder' && !isExpanded) {
+      // If children are null, it means they have not been loaded yet.
+      // This check is now reliable because the backend consistently sends shallow objects.
+      if (item.children === null) {
+        // This will now correctly log a "Cache MISS" on the first expand,
+        // then fetch the children.
+        const loadedItem = await getLoadedItem(item.id)
+        // By re-assigning the properties of the item from the now-loaded
+        // version in the cache, we update our local `item` prop.
+        if (loadedItem) {
+          Object.assign(item, loadedItem)
+        }
+      }
+    }
+
+    // Toggle expansion state
+    isExpanded = !isExpanded
   }
 
   function handleNavigateClick(e: MouseEvent) {

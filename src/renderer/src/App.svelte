@@ -10,6 +10,11 @@
   import FolderSettingsModal from './components/FolderSettingsModal.svelte'
   import ManualSearchModal from './components/ManualSearchModal.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
+  import { getLoadedItem, updateCachedItem, clearItemCache, primeCacheWithRoot } from './lib/item-store'
+
+  const log = (message: string): void => {
+    console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
+  }
 
   // Types are globally available from src/preload/index.d.ts
   type ActiveModal =
@@ -66,9 +71,17 @@
   )
 
   $effect(() => {
-    window.api.getLibraryRoot().then((root) => {
+    log('App mounted. Requesting library root from main process...')
+    window.api.getLibraryRoot().then(async (root) => {
+      log('Library root received from main process.')
       if (root) {
+        // "Trust" the initial data from the backend and use it to prime the cache,
+        // avoiding the redundant startup fetch for the root and its children.
+        primeCacheWithRoot(root)
         viewStack = [root]
+        log('Root view rendered.')
+      } else {
+        log('No library found. Displaying welcome screen.')
       }
       isScanning = false
     })
@@ -101,16 +114,22 @@
   // Set up a listener for real-time metadata updates from the main process.
   $effect(() => {
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
-      // Find the item in the root of the library and update its properties.
+      // Update our central cache first.
+      updateCachedItem(updatedItem)
+
+      // Find the item in the current viewStack and update its properties.
       // Svelte's reactivity will handle the rest.
-      const root = viewStack[0]
-      if (root) {
-        const itemInTree = findItemInTree(root, updatedItem.id)
-        if (itemInTree) {
-          // Mutate the object to trigger reactivity.
-          Object.assign(itemInTree, updatedItem)
-        }
+      let itemInTree: LibraryItem | null = null
+      for (const folder of viewStack) {
+        itemInTree = findItemInTree(folder, updatedItem.id)
+        if (itemInTree) break
       }
+
+      if (itemInTree) {
+        // Mutate the object to trigger reactivity.
+        Object.assign(itemInTree, updatedItem)
+      }
+
       // If the updated item is the one in the detail view, update it too
       if (selectedItemForDetailView?.id === updatedItem.id) {
         Object.assign(selectedItemForDetailView, updatedItem)
@@ -182,9 +201,13 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     isScanning = true
     selectedItemForDetailView = null // Go back to grid view
     lastDetailItem = null
+    clearItemCache()
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
-      viewStack = [newRoot]
+      const loadedRoot = await getLoadedItem(newRoot.id)
+      if (loadedRoot) {
+        viewStack = [loadedRoot as MediaFolder]
+      }
     } else if (!currentFolder) {
       // If scan is cancelled or fails on welcome screen, reset the stack.
       viewStack = []
@@ -196,11 +219,15 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     if (isRefreshing || isScanning) return
     isRefreshing = true
     lastDetailItem = null
+    clearItemCache()
     const refreshedRoot = await window.api.refreshLibrary()
     if (refreshedRoot) {
-      // This resets navigation to the root, which is the simplest approach.
-      viewStack = [refreshedRoot]
-      selectedItemForDetailView = null
+      // Use the store to get the fully loaded root.
+      const loadedRoot = await getLoadedItem(refreshedRoot.id)
+      if (loadedRoot) {
+        viewStack = [loadedRoot as MediaFolder]
+        selectedItemForDetailView = null
+      }
     }
     isRefreshing = false
   }
@@ -227,86 +254,77 @@ function findItemInTree(node: MediaFolder, id:string): LibraryItem | null {
     }
   }
 
-async function ensureChildrenAreLoaded(folder: MediaFolder): Promise<MediaFolder> {
-  // If children are null, it means they are not loaded yet.
-  if (folder.children === null) {
-    const children = await window.api.getChildren(folder.id)
-    folder.children = children ?? []
-  }
-  return folder
-}
-
 async function handleItemClick(item: LibraryItem): Promise<void> {
-  // --- Are we currently in a detail view? ---
-  if (selectedItemForDetailView) {
-      const parent = selectedItemForDetailView
-
-      // A. Clicked a folder inside the detail view
-      if (item.type === 'folder') {
-        if ((parent as MediaFolder).childrenClickAction === 'navigate') {
-          drillDown(item as MediaFolder)
-        } else {
-          // 'detail'
-          lastDetailItem = parent
-          viewStack.push(parent as MediaFolder)
-          selectedItemForDetailView = item
-        }
-        return
-      }
-
-      // B. Clicked a file that should open its own detail view
-      if (item.type === 'file' && item.opensAsFolder) {
-        lastDetailItem = parent
-        viewStack.push(parent as MediaFolder) // We are drilling down one level
-        selectedItemForDetailView = item
-        return
-      }
-
-      // C. Clicked a normal, playable file
-      if (item.type === 'file') {
-        handlePlayFile(item)
-      }
-      return
-    }
-
-    // --- We are in a list/grid view (no detail view open) ---
-    lastDetailItem = null // Reset breadcrumb
-
-    // 1. If it's a file that opens as a folder, just open it.
-    if (item.type === 'file' && item.opensAsFolder) {
-      selectedItemForDetailView = item
-      return
-    }
-
-    // 2. If it's a regular file in a tree view, play it.
-    if (item.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
-      handlePlayFile(item)
-      return
-    }
-
-  // 3. If it's a folder and parent is set to navigate, navigate.
-  if (item.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
-    await handleNavigateFolder(item as MediaFolder)
+  // Use the new store to get a fully loaded version of the item.
+  // This prevents all classes of lazy-loading bugs downstream.
+  const loadedItem = await getLoadedItem(item.id)
+  if (!loadedItem) {
+    console.error('Failed to load item from store:', item.id)
     return
   }
 
-  // 4. Default action: open detail view for the item.
-  if (item.type === 'folder') {
-    selectedItemForDetailView = await ensureChildrenAreLoaded(item)
-  } else {
-    selectedItemForDetailView = item
+  // --- Are we currently in a detail view? ---
+  if (selectedItemForDetailView) {
+    const parent = selectedItemForDetailView
+
+    // A. Clicked a folder inside the detail view
+    if (loadedItem.type === 'folder') {
+      if ((parent as MediaFolder).childrenClickAction === 'navigate') {
+        drillDown(loadedItem as MediaFolder)
+      } else {
+        // 'detail'
+        lastDetailItem = parent
+        viewStack.push(parent as MediaFolder)
+        selectedItemForDetailView = loadedItem
+      }
+      return
+    }
+
+    // B. Clicked a file that should open its own detail view
+    if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
+      lastDetailItem = parent
+      viewStack.push(parent as MediaFolder) // We are drilling down one level
+      selectedItemForDetailView = loadedItem
+      return
+    }
+
+    // C. Clicked a normal, playable file
+    if (loadedItem.type === 'file') {
+      handlePlayFile(loadedItem)
+    }
+    return
   }
+
+  // --- We are in a list/grid view (no detail view open) ---
+  lastDetailItem = null // Reset breadcrumb
+
+  // 1. If it's a file that opens as a folder, just open its detail view.
+  if (loadedItem.type === 'file' && loadedItem.opensAsFolder) {
+    selectedItemForDetailView = loadedItem
+    return
+  }
+
+  // 2. If it's a regular file in a tree view, play it.
+  if (loadedItem.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
+    handlePlayFile(loadedItem)
+    return
+  }
+
+  // 3. If it's a folder and parent is set to navigate, navigate into it.
+  if (loadedItem.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
+    handleNavigateFolder(loadedItem as MediaFolder)
+    return
+  }
+
+  // 4. Default action: open detail view for any other item (grid items, folders in detail-mode).
+  selectedItemForDetailView = loadedItem
 }
 
 // Used to navigate to a new folder list view, closing any detail view.
-async function handleNavigateFolder(folder: MediaFolder): Promise<void> {
+function handleNavigateFolder(folder: MediaFolder): void {
   selectedItemForDetailView = null
   lastDetailItem = null // Clear breadcrumb on any new grid navigation
-
-  // Ensure children are loaded before pushing to the view stack
-  const folderWithChildren = await ensureChildrenAreLoaded(folder)
-
-  viewStack.push(folderWithChildren)
+  viewStack.push(folder)
 }
 
   function goBack(): void {

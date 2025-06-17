@@ -17,13 +17,13 @@ This approach will be implemented for the main search bar, providing a "deep sea
 
 **Step 2: Building the Search Index (The "What")**
 
-*   `[ ]` **Status: Next Step.** Now that we can automatically update the index, we need to define *what* goes into it. On startup or library refresh, we will build a flat, in-memory search index containing a **denormalized** but optimized representation of all searchable items.
+*   `[X]` **Status: Implemented.** We now build a flat, denormalized search index on startup and refresh.
 
-*   **Inclusion Philosophy:** By default, every item (file or folder) is a candidate for the index. We will add a few high-confidence rules to reduce noise (e.g., exclude items from special folders like `extras` or `specials`).
+*   **Inclusion Philosophy:** We now exclude items from known "special" folders (e.g., `extras`, `deleted scenes`) to reduce noise in the search results.
 
-*   **Index Entry Structure:** Each entry in the index will be a small, self-contained object, storing the minimum data needed to filter, rank, and display a result. This includes the `id`, `title`, `posterPath`, filterable tags (`genres`, `year`, etc.), and a pre-calculated `staticScore`.
+*   **Index Entry Structure:** Each entry in the index is a small, self-contained `SearchIndexEntry` object, storing the minimum data needed to filter, rank, and display a result. This includes the `id`, `title`, `posterPath`, all filterable metadata (`genres`, `year`, `tags`, etc.), and a pre-calculated `staticScore`.
 
-*   **Performance Rationale (The Cache Discussion):** We are intentionally **duplicating** a small amount of data from the main database into this flat array. While a "normalized" index storing only IDs would use less memory, it would be drastically slower. A search would require constant, slow lookups from the index back to the scattered-in-memory database tree, leading to a high number of **CPU cache misses**. By creating a denormalized, **contiguous array** of search entries, we ensure that the search function can operate with maximum **memory locality**. The CPU can load chunks of the index into its fast cache and process them sequentially, leading to far superior performance. Our proxy architecture handles keeping this duplicated data perfectly in sync.
+*   **Performance Rationale (The Cache Discussion):** We are creating a denormalized, **contiguous array** of search entries to ensure the search function can operate with maximum **memory locality** and performance. To support extremely fast incremental updates, we also maintain two lookup maps: one mapping an item's ID to its full data (`itemMap`) and another mapping a child's ID to its parent's ID (`parentMap`). This avoids slow, recursive tree-walking and guarantees that updates (like changing a parent's poster) can be cascaded to children efficiently. The recursive proxy architecture keeps these data structures perfectly in sync.
 
 **Step 3: The Smart Ranking Algorithm (The "Which")**
 

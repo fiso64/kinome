@@ -62,3 +62,17 @@ export interface AutocompleteSuggestions {
   tagKeys: string[]
   tagValues: Record<string, string[]>
 }
+
+export interface SearchIndexEntry {
+  id: string
+  title: string // This will be the primary display and search title (item.title ?? item.name)
+  posterPath?: string | null
+  // We need all filterable properties
+  mediaType?: 'movie' | 'tv'
+  year?: number
+  genres?: string[]
+  tags?: Record<string, string>
+  virtualTags?: Record<string, string>
+  // Score for ranking
+  staticScore: number
+}

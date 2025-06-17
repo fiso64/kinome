@@ -1,3 +1,5 @@
+console.log(`[${new Date().toISOString()}] [Renderer] Renderer process entry point.`)
+
 import { mount } from 'svelte'
 
 import './assets/main.css'

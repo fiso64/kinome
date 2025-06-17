@@ -1,5 +1,9 @@
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { exec } from 'child_process'
+
+const log = (message: string): void => {
+  console.log(`[${new Date().toISOString()}] [Main] ${message}`)
+}
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
@@ -51,10 +55,11 @@ function applyVirtualTagsToAllItems(node: LibraryItem, settings: Settings) {
 }
 
 async function loadDbIntoMemory(): Promise<void> {
-  console.log('[Database] Loading database into memory...')
+  log('Attempting to load database from disk...')
   const rawDb = await readDb()
 
   if (rawDb) {
+    log('Database file found. Processing...')
     setBulkUpdateStatus(true)
     if (rawDb.root) {
       const settings = await readSettings()
@@ -62,10 +67,13 @@ async function loadDbIntoMemory(): Promise<void> {
     }
     // Wrap the loaded database in our proxy, passing our status checker.
     db = createDbProxy(rawDb, getBulkUpdateStatus)
+    log('Database wrapped in proxy.')
     // And build the initial search index
     buildFullSearchIndex(db.root)
     setBulkUpdateStatus(false)
+    log('Finished loading DB into memory.')
   } else {
+    log('No database file found or DB is invalid.')
     // Ensure db is null and the search index is cleared if no database was found.
     db = null
     buildFullSearchIndex(null)
@@ -414,7 +422,8 @@ export function setupLibraryIpc(): void {
     if (!db) {
       await loadDbIntoMemory()
     }
-    // Return a shallow copy for lazy loading.
+    // This now correctly returns only the root with its immediate children,
+    // enforcing a lazy-loading pattern on the frontend from the start.
     return db?.root ? createShallowClonableCopy(db.root) : null
   })
 
@@ -666,7 +675,17 @@ export function setupLibraryIpc(): void {
     const itemInDb = findItemById(updatedItem.id, db.root)
     if (itemInDb) {
       setBulkUpdateStatus(true)
-      Object.assign(itemInDb, updatedItem)
+      // Defensively apply updates. We create a copy of the incoming item
+      // and delete the properties we do not want to overwrite in the database.
+      // This prevents structural properties like `children` from being overwritten
+      // with `null` if the `updatedItem` object comes from a lazy-loaded part of the renderer.
+      const safeUpdates = { ...updatedItem }
+      delete (safeUpdates as Partial<MediaFolder>).children
+      delete (safeUpdates as Partial<LibraryItem>).id
+      delete (safeUpdates as Partial<LibraryItem>).path
+      delete (safeUpdates as Partial<LibraryItem>).type
+
+      Object.assign(itemInDb, safeUpdates)
 
       const settings = await readSettings()
       itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
@@ -859,9 +878,11 @@ export function setupLibraryIpc(): void {
     if (!db || !db.root) {
       return null
     }
-    // Return a deep copy to avoid issues with proxies and non-clonable objects
     const item = findItemById(itemId, db.root)
-    return item ? JSON.parse(JSON.stringify(item)) : null
+    // Return a shallow, clonable copy. This is crucial for enforcing the
+    // lazy-loading contract on the frontend. Any folder sent will have
+    // its deeper children marked as not-loaded (`null`).
+    return item ? createShallowClonableCopy(item) : null
   })
 
   ipcMain.handle('get-children', async (_, parentId: string): Promise<LibraryItem[] | null> => {
