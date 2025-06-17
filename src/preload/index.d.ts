@@ -65,6 +65,7 @@ declare global {
     title: string
     type: 'file' | 'folder'
     posterPath?: string | null
+    overview?: string
     mediaType?: 'movie' | 'tv'
     year?: number
     genres?: string[]

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import GridView from './media-views/GridView.svelte'
-  import TreeView from './media-views/TreeView.svelte'
-  import TabsView from './media-views/TabsView.svelte'
-  import SectionsView from './media-views/SectionsView.svelte'
+import GridView from './media-views/GridView.svelte'
+import TreeView from './media-views/TreeView.svelte'
+import TabsView from './media-views/TabsView.svelte'
+import SectionsView from './media-views/SectionsView.svelte'
+import ListView from './media-views/ListView.svelte'
 
-  type Layout = 'grid' | 'tree' | 'tabs' | 'sections'
+type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -179,6 +180,8 @@
     <GridView items={displayedItems} {onItemClick} {onShowContextMenu} />
   {:else if layout === 'tree'}
     <TreeView items={sortedTreeItems} {onItemClick} {onShowContextMenu} />
+  {:else if layout === 'list'}
+    <ListView items={displayedItems} {onItemClick} {onShowContextMenu} />
   {:else if layout === 'tabs'}
     <TabsView folders={foldersForTabsOrSections} {onItemClick} {onShowContextMenu} {suggestions} />
   {:else if layout === 'sections'}

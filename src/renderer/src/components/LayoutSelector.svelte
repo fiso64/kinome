@@ -28,6 +28,7 @@
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
+    { value: 'list', label: 'List', description: 'A detailed list with posters and info.' },
     { value: 'tree', label: 'Tree', description: 'Collapsible list view, good for files.' },
     { value: 'tabs', label: 'Tabs', description: 'Group children into tabs by metadata.' },
     {

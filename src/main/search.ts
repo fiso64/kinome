@@ -60,6 +60,7 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
     title: item.title ?? item.name,
     type: item.type,
     posterPath: item.posterPath,
+    overview: item.overview,
     mediaType: item.mediaType,
     year: item.year,
     genres: genres,

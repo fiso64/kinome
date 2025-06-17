@@ -68,6 +68,7 @@ export interface SearchIndexEntry {
   title: string // This will be the primary display and search title (item.title ?? item.name)
   type: 'file' | 'folder'
   posterPath?: string | null
+  overview?: string
   // We need all filterable properties
   mediaType?: 'movie' | 'tv'
   year?: number

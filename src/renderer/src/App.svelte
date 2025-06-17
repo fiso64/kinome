@@ -637,7 +637,7 @@
               <MediaView
                 items={searchResults}
                 onItemClick={handleItemClick}
-                layout="grid"
+                layout="list"
                 onShowContextMenu={handleShowContextMenu}
                 suggestions={allAutocompleteSuggestions}
               />
@@ -810,6 +810,11 @@
   .search-content-wrapper {
     flex-grow: 1;
     overflow-y: auto;
+  }
+
+  .search-content-wrapper :global(.media-list) {
+    max-width: 1000px;
+    margin: 0 auto;
   }
 
   .search-header {
