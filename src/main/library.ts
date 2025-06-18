@@ -260,13 +260,13 @@ function findParent(id: string, node: MediaFolder): MediaFolder | null {
  * @returns An object with season and episode, or null.
  */
 function parseSeasonEpisode(name: string): { season: number; episode: number } | null {
-  // Common patterns: S01E01, 1x01, S01.E01, 101 (for season 1, ep 1) etc.
-  // Prioritize more specific patterns first.
+  // Only use high-confidence SxxExx patterns to avoid false positives from things like
+  // video resolutions (e.g., 1920x1080).
   const patterns = [
-    /S(\d{1,2})E(\d{1,3})/i, // S01E01
-    /(\d{1,2})x(\d{1,3})/i, // 1x01
-    /\b(\d{1,2})-(\d{1,3})\b/i, // 01-01
-    /\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i // S01.E01, S01 E01
+    // Handles "S01 E01" or "S01.E01" as whole words.
+    /\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i,
+    // Handles "S01E01" possibly inside another word, e.g. "MyShowS01E01.mkv"
+    /S(\d{1,2})E(\d{1,3})/i
   ]
 
   for (const pattern of patterns) {
@@ -274,12 +274,6 @@ function parseSeasonEpisode(name: string): { season: number; episode: number } |
     if (match) {
       return { season: parseInt(match[1]), episode: parseInt(match[2]) }
     }
-  }
-
-  // Handle three-digit numbers like 101, 102 (Season 1, Ep 01, 02)
-  const threeDigitMatch = name.match(/\[(\d)(\d{2})]/) // Often in brackets from downloaders
-  if (threeDigitMatch) {
-    return { season: parseInt(threeDigitMatch[1]), episode: parseInt(threeDigitMatch[2]) }
   }
 
   return null

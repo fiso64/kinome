@@ -149,23 +149,21 @@
       }
     }
 
-    // 3. Handle simple views (grid, list, tree).
-    const sortedItems = isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)
-    return { itemsForViews: sortedItems, foldersForTabsOrSections: [] }
-  })
-
-  // 4. Transform titles for display *after* sorting and filtering.
-  const finalItemsForViews = $derived(
-    itemsForViews.map((item) => {
-      const episodeNumber = 'episodeNumber' in item ? item.episodeNumber : undefined
-      if (episodeNumber != null) {
-        const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
-        // Create a new object to prevent mutation and ensure reactivity
-        return { ...item, title: `${episodeNumber}. ${baseTitle}` }
+    // 3. Handle simple views (grid, list, tree): sort items, then map to add episode number prefixes.
+    const processedItems = (isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)).map(
+      (item) => {
+        const episodeNumber = 'episodeNumber' in item ? item.episodeNumber : undefined
+        if (episodeNumber != null) {
+          const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
+          // Create a new object to prevent mutation and ensure reactivity
+          return { ...item, title: `${episodeNumber}. ${baseTitle}` }
+        }
+        return item
       }
-      return item
-    })
-  )
+    )
+
+    return { itemsForViews: processedItems, foldersForTabsOrSections: [] }
+  })
 </script>
 
 <div
@@ -173,12 +171,12 @@
   oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
 >
   {#if layout === 'grid'}
-    <GridView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
+    <GridView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
   {:else if layout === 'tree'}
-    <TreeView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
+    <TreeView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
   {:else if layout === 'list'}
     <ListView
-      items={finalItemsForViews}
+      items={itemsForViews}
       {onItemClick}
       {onShowContextMenu}
       {highlightedIndex}

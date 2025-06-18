@@ -17,6 +17,12 @@ async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> 
     log(`ItemStore: Lazy-loading children for "${item.name}"...`)
     const children = await window.api.getChildren(item.id)
     item.children = children ?? []
+    // Cache the newly loaded children so they can be individually updated later.
+    for (const child of item.children) {
+      if (!itemCache.has(child.id)) {
+        itemCache.set(child.id, child)
+      }
+    }
   }
   return item
 }
@@ -29,7 +35,7 @@ async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> 
  * @param itemId The ID of the item to retrieve.
  * @returns A promise that resolves to the fully loaded LibraryItem, or null if not found.
  */
-export async function getLoadedItem(itemId: string): Promise<LibraryItem | null> {
+export async function getLoadedItem(itemId:string): Promise<LibraryItem | null> {
   // 1. Check cache first for an already processed item.
   if (itemCache.has(itemId)) {
     const cachedItem = itemCache.get(itemId)!
@@ -80,15 +86,23 @@ export function primeCacheWithRoot(root: MediaFolder): void {
  * @param updatedItem The new version of the item.
  */
 export function updateCachedItem(updatedItem: LibraryItem): void {
-  // We only update if the item is already in the cache.
-  if (itemCache.has(updatedItem.id)) {
-    const cachedItem = itemCache.get(updatedItem.id)!
-    // Preserve the children array from the cached version, as the updatedItem
-    // from the metadata editor might not have it.
-    const children = cachedItem.type === 'folder' ? cachedItem.children : undefined
+  const cachedItem = itemCache.get(updatedItem.id)
+
+  if (cachedItem) {
+    // Item exists, merge properties. `updatedItem` is the source of truth.
     Object.assign(cachedItem, updatedItem)
-    if (children && cachedItem.type === 'folder') {
-      cachedItem.children = children
+  } else {
+    // Item doesn't exist, add it to the cache. We clone it to prevent
+    // any mutations of the object passed from the UI state.
+    itemCache.set(updatedItem.id, JSON.parse(JSON.stringify(updatedItem)))
+  }
+
+  // If the updated item is a folder and has children, we must also
+  // recursively update/add those children to the cache to ensure consistency.
+  // This is crucial for deep updates like fetching all episode titles for a season.
+  if (updatedItem.type === 'folder' && Array.isArray(updatedItem.children)) {
+    for (const child of updatedItem.children) {
+      updateCachedItem(child)
     }
   }
 }
