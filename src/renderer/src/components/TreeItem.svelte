@@ -19,6 +19,12 @@
 
   let isExpanded = $state(false)
 
+  const displayTitle = $derived(
+    item.type === 'file' && item.episodeNumber != null
+      ? `${item.episodeNumber}. ${item.title ?? item.name}`
+      : item.title ?? item.name
+  )
+
   async function handleItemClick() {
     if (item.type === 'file') {
       itemclick(item)
@@ -39,6 +45,16 @@
         if (loadedItem) {
           Object.assign(item, loadedItem)
         }
+      }
+      // If it's a season folder that hasn't had its episode data fetched yet,
+      // trigger the detail fetch. This is a fire-and-forget call. The UI
+      // will update reactively when the `library-item-updated` event is received.
+      if (
+        typeof (item as MediaFolder).seasonNumber !== 'undefined' &&
+        !(item as MediaFolder).tmdbEpisodeDataFetched
+      ) {
+        // We don't need to await this. It runs in the background.
+        window.api.getItemDetails(item.id)
       }
     }
 
@@ -78,8 +94,8 @@
       </div>
     </div>
 
-    <div class="name" title={item.title ?? item.name}>
-      {item.title ?? item.name}
+    <div class="name" title={displayTitle}>
+      {displayTitle}
     </div>
   </button>
 
