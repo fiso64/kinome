@@ -89,6 +89,7 @@ declare global {
     genres?: string[]
     tags?: Record<string, string>
     virtualTags?: Record<string, string>
+    watched?: boolean
     episodeNumber?: number
     _v?: number // Cache-busting version number
     staticScore: number

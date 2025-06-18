@@ -244,24 +244,58 @@
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
       updateCachedItem(updatedItem)
 
-      let itemInTree: LibraryItem | null = null
-      for (const folder of viewStack) {
-        itemInTree = findItemInTree(folder, updatedItem.id)
-        if (itemInTree) break
-      }
-      if (itemInTree) Object.assign(itemInTree, updatedItem)
+      let wasHandledInView = false
 
-      if (selectedItemForDetailView?.id === updatedItem.id) {
-        Object.assign(selectedItemForDetailView, updatedItem)
+      // --- Case 1: A detail view is active. Check for updates there first. ---
+      if (selectedItemForDetailView) {
+        // A) Is the updated item the main subject of the detail view?
+        if (selectedItemForDetailView.id === updatedItem.id) {
+          selectedItemForDetailView = { ...selectedItemForDetailView, ...updatedItem }
+          wasHandledInView = true
+        }
+        // B) Is the updated item a CHILD of the detail view item?
+        else if (selectedItemForDetailView.type === 'folder') {
+          const childIndex = selectedItemForDetailView.children.findIndex(
+            (c) => c.id === updatedItem.id
+          )
+          if (childIndex !== -1) {
+            // Recreate the children array to trigger reactivity for the MediaView inside ItemDetail.
+            selectedItemForDetailView.children = [
+              ...selectedItemForDetailView.children.slice(0, childIndex),
+              updatedItem,
+              ...selectedItemForDetailView.children.slice(childIndex + 1)
+            ]
+            wasHandledInView = true
+          }
+        }
       }
-      // Update item if it's in the current search results
+
+      // --- Case 2: Update the main grid/list view if not handled by detail view. ---
+      if (!wasHandledInView && currentFolder) {
+        const parent = findParentOfItem(currentFolder, updatedItem.id)
+        if (parent) {
+          const itemIndex = parent.children.findIndex((child) => child.id === updatedItem.id)
+          if (itemIndex !== -1) {
+            parent.children = [
+              ...parent.children.slice(0, itemIndex),
+              updatedItem,
+              ...parent.children.slice(itemIndex + 1)
+            ]
+          }
+        }
+      }
+
+      // --- Case 3: Update search results list, if active. ---
       const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
       if (indexInSearch > -1) {
         const itemInSearch = searchResults[indexInSearch]
-        // Only update fields that exist on SearchIndexEntry
-        itemInSearch.title = updatedItem.title ?? updatedItem.name
-        itemInSearch.posterPath = updatedItem.posterPath
-        itemInSearch._v = updatedItem._v
+        // Update all relevant fields for the search result entry
+        Object.assign(itemInSearch, {
+          title: updatedItem.title ?? updatedItem.name,
+          posterPath: updatedItem.posterPath,
+          _v: updatedItem._v,
+          watched: 'watched' in updatedItem ? updatedItem.watched : undefined
+        })
         searchResults = [...searchResults]
       }
     })
@@ -343,6 +377,20 @@
     return null
   }
 
+  function findParentOfItem(node: MediaFolder, id: string): MediaFolder | null {
+    if (!node || !node.children) return null
+    for (const child of node.children) {
+      if (child.id === id) {
+        return node
+      }
+      if (child.type === 'folder') {
+        const found = findParentOfItem(child, id)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
   function drillDown(childFolder: MediaFolder) {
     const parent = selectedItemForDetailView
     if (!parent) return
@@ -401,16 +449,10 @@
       type: 'file',
       watched: item.watched
     }
-    const success = await window.api.playFile(plainFile)
-    if (success) {
-      const root = viewStack[0]
-      if (root) {
-        const itemInTree = findItemInTree(root, item.id)
-        if (itemInTree && itemInTree.type === 'file') {
-          itemInTree.watched = true
-        }
-      }
-    }
+    // Call the main process to play the file and update the DB.
+    // The main process will now broadcast the 'library-item-updated' event
+    // via the proxy, which will be caught by the listener.
+    await window.api.playFile(plainFile)
   }
 
   async function handleRevealItem(item: LibraryItem) {
@@ -967,6 +1009,7 @@
                 suggestions={allAutocompleteSuggestions}
                 highlightedIndex={highlightedSearchItemIndex}
                 isPreSorted={true}
+                grayOutWatched={false}
               />
             {:else if !isPerformingSearch}
               <p class="status-text">No results found.</p>

@@ -7,12 +7,14 @@
     item,
     itemclick,
     showContextMenu,
-    level = 0
+    level = 0,
+    grayOutWatched
   }: {
     item: LibraryItem
     itemclick: (item: LibraryItem) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent) => void
     level: number
+    grayOutWatched: boolean
   } = $props()
 
   let isExpanded = $state(false)
@@ -55,7 +57,7 @@
   <button
     type="button"
     class="tree-item"
-    class:watched={item.type === 'file' && item.watched}
+    class:watched={grayOutWatched && item.type === 'file' && item.watched}
     onclick={handleItemClick}
     oncontextmenu={(e) => showContextMenu(item, e)}
   >
@@ -84,7 +86,7 @@
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
       {#each item.children as child (child.id)}
-        <TreeItem item={child} {itemclick} {showContextMenu} level={level + 1} />
+        <TreeItem item={child} {itemclick} {showContextMenu} level={level + 1} {grayOutWatched} />
       {/each}
     </div>
   {/if}

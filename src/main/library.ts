@@ -865,7 +865,6 @@ export function setupLibraryIpc(): void {
     if (itemInDb && itemInDb.type === 'file') {
       itemInDb.watched = true
       await writeDb(db) // Persist the change
-      console.log('Database updated with watched state for item:', file.id)
     } else {
       console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
       // We can still try to play it, so we don't return false here.

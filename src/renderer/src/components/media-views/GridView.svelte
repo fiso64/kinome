@@ -4,7 +4,8 @@
   let {
     items,
     onItemClick,
-    onShowContextMenu
+    onShowContextMenu,
+    grayOutWatched
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -13,6 +14,7 @@
       event: MouseEvent,
       options?: { layout?: string }
     ) => void
+    grayOutWatched: boolean
   } = $props()
 </script>
 
@@ -23,7 +25,7 @@
       <button
         type="button"
         class="grid-item"
-        class:watched={'watched' in item && item.watched}
+        class:watched={grayOutWatched && 'watched' in item && item.watched}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'grid' })}
       >

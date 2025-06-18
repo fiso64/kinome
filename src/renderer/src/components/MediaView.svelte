@@ -24,7 +24,8 @@
     searchQuery,
     suggestions,
     highlightedIndex,
-    isPreSorted = false
+    isPreSorted = false,
+    grayOutWatched = true
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -39,6 +40,7 @@
     suggestions?: AutocompleteSuggestions
     highlightedIndex?: number | null
     isPreSorted?: boolean
+    grayOutWatched?: boolean
   } = $props()
 
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
@@ -171,19 +173,32 @@
   oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
 >
   {#if layout === 'grid'}
-    <GridView items={finalItemsForViews} {onItemClick} {onShowContextMenu} />
+    <GridView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
   {:else if layout === 'tree'}
-    <TreeView items={finalItemsForViews} {onItemClick} {onShowContextMenu} />
+    <TreeView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
   {:else if layout === 'list'}
-    <ListView items={finalItemsForViews} {onItemClick} {onShowContextMenu} {highlightedIndex} />
+    <ListView
+      items={finalItemsForViews}
+      {onItemClick}
+      {onShowContextMenu}
+      {highlightedIndex}
+      {grayOutWatched}
+    />
   {:else if layout === 'tabs'}
-    <TabsView folders={foldersForTabsOrSections} {onItemClick} {onShowContextMenu} {suggestions} />
+    <TabsView
+      folders={foldersForTabsOrSections}
+      {onItemClick}
+      {onShowContextMenu}
+      {suggestions}
+      {grayOutWatched}
+    />
   {:else if layout === 'sections'}
     <SectionsView
       folders={foldersForTabsOrSections}
       {onItemClick}
       {onShowContextMenu}
       {suggestions}
+      {grayOutWatched}
     />
   {/if}
 </div>

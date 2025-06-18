@@ -6,7 +6,8 @@
   let {
     items,
     onItemClick,
-    onShowContextMenu
+    onShowContextMenu,
+    grayOutWatched
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -15,6 +16,7 @@
       event: MouseEvent,
       options?: { layout?: string }
     ) => void
+    grayOutWatched: boolean
   } = $props()
 </script>
 
@@ -26,6 +28,7 @@
         itemclick={onItemClick as (item: LibraryItem) => void}
         showContextMenu={(treeItem, event) =>
           onShowContextMenu(treeItem, event, { layout: 'tree' })}
+        {grayOutWatched}
       />
     {/each}
   {:else}

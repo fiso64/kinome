@@ -5,7 +5,8 @@
     items,
     onItemClick,
     onShowContextMenu,
-    highlightedIndex
+    highlightedIndex,
+    grayOutWatched
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -15,6 +16,7 @@
       options?: { layout?: string }
     ) => void
     highlightedIndex?: number | null
+    grayOutWatched: boolean
   } = $props()
 
   let listElement: HTMLDivElement | undefined = $state()
@@ -41,7 +43,7 @@
       <button
         type="button"
         class="list-item"
-        class:watched={'watched' in item && item.watched}
+        class:watched={grayOutWatched && 'watched' in item && item.watched}
         class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}

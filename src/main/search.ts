@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron'
 import Fuse from 'fuse.js'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
 import { itemMatchesAllTags } from '../shared/filter'
@@ -67,6 +68,7 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
     genres: genres,
     tags: tags,
     virtualTags: virtualTags,
+    watched: item.type === 'file' ? item.watched : undefined,
     episodeNumber: item.type === 'file' ? item.episodeNumber : undefined,
     _v: item._v,
     staticScore: calculateStaticScore(item, parent)
@@ -151,13 +153,20 @@ function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boo
 
   const item = target as LibraryItem
 
+  // --- Broadcast the change to all renderer windows ---
+  // This ensures any change to an item in the main process
+  // is immediately reflected in the UI.
+  const plainItem = JSON.parse(JSON.stringify(item))
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('library-item-updated', plainItem)
+  })
+
   // Update the item itself in the search index.
   updateIndexForItem(item)
 
   // If a folder's poster path changes, its children's scores might be affected.
   // We need to trigger an update for them too.
   if (item.type === 'folder' && prop === 'posterPath' && item.children) {
-    console.log(`[Search Index] Parent poster changed for "${item.name}", re-indexing children.`)
     item.children.forEach((child) => {
       updateIndexForItem(child)
     })
