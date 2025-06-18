@@ -324,21 +324,31 @@ function processTvShowStructure(showFolder: MediaFolder): void {
   // Heuristics 2 & 3 for subfolders
   if (subFolders.length > 0) {
     log(`TV Structure: Found ${subFolders.length} subfolders. Analyzing folder names.`)
-    let allParsedSuccessfully = true
-    // Heuristic 2: "Patterned Subfolders" Rule
+
+    const seasonPattern = /\b(?:Season\s*|S)(\d{1,2})\b/i
+    const parsedFolders: { folder: MediaFolder; season: number }[] = []
+
+    // First pass: try to parse all folders.
     for (const folder of subFolders) {
-      const seasonMatch = folder.name.match(/season\s*(\d{1,2})/i)
+      const seasonMatch = folder.name.match(seasonPattern)
       if (seasonMatch) {
-        folder.seasonNumber = parseInt(seasonMatch[1])
-      } else {
-        allParsedSuccessfully = false
-        break
+        parsedFolders.push({ folder, season: parseInt(seasonMatch[1]) })
       }
     }
 
-    if (!allParsedSuccessfully) {
-      log('TV Structure: Season folder name parsing failed, falling back to alphabetical sort.')
-      // Heuristic 3: "Alphabetical Subfolders" Rule
+    // Heuristic 2: "Patterned Subfolders" Rule.
+    // If we found at least one folder that looks like a season.
+    if (parsedFolders.length > 0) {
+      log(
+        `TV Structure: Found ${parsedFolders.length} patterned season folders. Entering "Patterned" mode.`
+      )
+      // Only assign season numbers to folders that matched.
+      for (const { folder, season } of parsedFolders) {
+        folder.seasonNumber = season
+      }
+    } else {
+      log('TV Structure: No season folder name patterns matched, falling back to alphabetical sort.')
+      // Heuristic 3: "Alphabetical Subfolders" Rule (Final Fallback)
       subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       subFolders.forEach((folder, index) => {
         // Assign season number starting from 1
