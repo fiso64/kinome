@@ -729,13 +729,12 @@ export function setupLibraryIpc(): void {
       await writeDb(newDb)
       console.log('Initial scan, DB write, and index build complete.')
 
-      // 4. Start background metadata fetching without blocking.
-      fetchMetadataForLibrary(db!, focusedWindow, settings.tmdbApiKey).catch((err) =>
-        console.error('Background metadata fetch failed during initial scan:', err)
-      )
+      // 4. Do NOT start background metadata fetching. The renderer will prompt the user
+      // and trigger it via a separate IPC call.
 
-      // 5. Return the initial structure immediately to the UI.
-      return db!.root ? createShallowClonableCopy(db!.root) : null
+      // 5. Return a DEEP, de-proxied copy of the root for the initial settings modal.
+      // This ensures the tree view in the modal has the full folder structure.
+      return db!.root ? JSON.parse(JSON.stringify(db!.root)) : null
     } catch (error) {
       console.error('Failed to scan directory:', error)
       return null
@@ -891,6 +890,36 @@ export function setupLibraryIpc(): void {
 
     return true // Indicate that the attempt to play was processed.
   })
+
+  ipcMain.handle(
+    'apply-initial-folder-settings',
+    async (_, settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]) => {
+      const focusedWindow = BrowserWindow.getFocusedWindow()
+      if (!focusedWindow || !db || !db.root) return
+
+      try {
+        setBulkUpdateStatus(true)
+        for (const setting of settings) {
+          const item = findItemById(setting.id, db.root)
+          if (item && item.type === 'folder') {
+            item.retrieve_children_metadata = setting.retrieve
+            item.children_type_hint = setting.hint
+          }
+        }
+        setBulkUpdateStatus(false)
+        await writeDb(db)
+        console.log('Applied initial folder settings and saved to DB.')
+
+        // Now trigger the metadata fetch
+        const appSettings = await readSettings()
+        fetchMetadataForLibrary(db, focusedWindow, appSettings.tmdbApiKey).catch((err) =>
+          console.error('Background metadata fetch failed after applying initial settings:', err)
+        )
+      } catch (error) {
+        console.error('Failed to apply initial folder settings:', error)
+      }
+    }
+  )
 
   ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 

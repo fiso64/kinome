@@ -34,6 +34,9 @@ const api = {
     ipcRenderer.invoke('get-item-by-id', itemId),
   getChildren: (parentId: string): Promise<LibraryItem[] | null> =>
     ipcRenderer.invoke('get-children', parentId),
+  applyInitialFolderSettings: (
+    settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
+  ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
 
   // Manual Match
   manualSearch: (query: string, type: 'movie' | 'tv', year?: string): Promise<any[]> =>

@@ -13,6 +13,7 @@
   import RenameModal from './components/RenameModal.svelte'
   import FilterBar from './components/FilterBar.svelte'
   import ListView from './components/media-views/ListView.svelte'
+  import InitialFolderSettingsModal from './components/InitialFolderSettingsModal.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import {
     getLoadedItem,
@@ -33,6 +34,7 @@
     | { type: 'manualSearch'; item: LibraryItem; initialTab?: 'match' | 'artwork' }
     | { type: 'properties'; item: LibraryItem }
     | { type: 'rename'; item: LibraryItem }
+    | { type: 'initialFolderSettings'; root: MediaFolder }
 
   let viewStack: MediaFolder[] = $state([])
   let lastDetailItem: LibraryItem | null = $state(null)
@@ -415,12 +417,11 @@
     selectedItemForDetailView = null
     lastDetailItem = null
     clearItemCache()
+    viewStack = [] // Clear the view stack to show the welcome/loading screen
     const newRoot = await window.api.scanLibrary()
     if (newRoot) {
-      const loadedRoot = await getLoadedItem(newRoot.id)
-      if (loadedRoot) viewStack = [loadedRoot as MediaFolder]
-    } else if (!currentFolder) {
-      viewStack = []
+      primeCacheWithRoot(newRoot)
+      activeModal = { type: 'initialFolderSettings', root: newRoot }
     }
     isScanning = false
   }
@@ -462,6 +463,19 @@
       return
     }
     window.api.revealInExplorer(item.path)
+  }
+
+  async function handleApplyInitialSettings(
+    settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
+  ) {
+    await window.api.applyInitialFolderSettings(settings)
+    // After applying, load and display the root of the library.
+    const root = await window.api.getLibraryRoot()
+    if (root) {
+      primeCacheWithRoot(root)
+      const loadedRoot = await getLoadedItem(root.id)
+      if (loadedRoot) viewStack = [loadedRoot as MediaFolder]
+    }
   }
 
   async function handleDeleteItem(item: LibraryItem) {
@@ -787,6 +801,16 @@
       item={activeModal.item}
       onClose={() => (activeModal = null)}
       onNeedRefresh={handleRefresh}
+    />
+  {:else if activeModal.type === 'initialFolderSettings'}
+    <InitialFolderSettingsModal
+      root={activeModal.root}
+      onApply={handleApplyInitialSettings}
+      onClose={() => {
+        // If user closes without applying, we still need to show the (un-fetched) library
+        handleApplyInitialSettings([])
+        activeModal = null
+      }}
     />
   {/if}
 {/if}
