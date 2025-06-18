@@ -153,7 +153,7 @@
     const processedItems = (isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)).map(
       (item) => {
         const episodeNumber = 'episodeNumber' in item ? item.episodeNumber : undefined
-        if (episodeNumber != null) {
+        if (item.mediaType === 'episode' && episodeNumber != null) {
           const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')
           // Create a new object to prevent mutation and ensure reactivity
           return { ...item, title: `${episodeNumber}. ${baseTitle}` }

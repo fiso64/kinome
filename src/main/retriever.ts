@@ -338,7 +338,7 @@ export async function fetchItemDetails(
       item.tmdbSeasons = details.seasons // Cache the full season data
 
       const seasonFolders = item.children.filter(
-        (c) => c.type === 'folder' && typeof c.seasonNumber !== 'undefined'
+        (c) => c.type === 'folder' && c.mediaType === 'season'
       ) as MediaFolder[]
 
       if (seasonFolders.length > 0) {
@@ -449,6 +449,7 @@ export async function fetchAndApplyEpisodeData(
       if (tmdbEpisode) {
         localEpisode.title = tmdbEpisode.name
         localEpisode.overview = tmdbEpisode.overview
+        localEpisode.mediaType = 'episode'
         if (tmdbEpisode.still_path) {
           const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
           const imagesDir = getImagesPath(libraryDataPath)

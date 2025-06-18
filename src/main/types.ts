@@ -12,7 +12,7 @@ export interface MediaFile {
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
-  mediaType?: 'movie' | 'tv'
+  mediaType?: 'movie' | 'tv' | 'episode'
   year?: number
   genres?: string[]
   tags?: Record<string, string>
@@ -33,7 +33,7 @@ export interface MediaFolder {
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
-  mediaType?: 'movie' | 'tv'
+  mediaType?: 'movie' | 'tv' | 'season'
   year?: number
   genres?: string[]
   tags?: Record<string, string>
@@ -71,7 +71,7 @@ export interface SearchIndexEntry {
   posterPath?: string | null
   overview?: string
   // We need all filterable properties
-  mediaType?: 'movie' | 'tv'
+  mediaType?: 'movie' | 'tv' | 'season' | 'episode'
   year?: number
   genres?: string[]
   tags?: Record<string, string>

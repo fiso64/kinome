@@ -25,7 +25,7 @@ declare global {
     backdropPath?: string | null
     logoPath?: string | null
     tmdbId?: number | null
-    mediaType?: 'movie' | 'tv'
+    mediaType?: 'movie' | 'tv' | 'episode'
     year?: number
     genres?: string[]
     tags?: Record<string, string>
@@ -49,7 +49,7 @@ declare global {
     backdropPath?: string | null
     logoPath?: string | null
     tmdbId?: number | null
-    mediaType?: 'movie' | 'tv'
+    mediaType?: 'movie' | 'tv' | 'season'
     year?: number
     genres?: string[]
     tags?: Record<string, string>
@@ -84,7 +84,7 @@ declare global {
     type: 'file' | 'folder'
     posterPath?: string | null
     overview?: string
-    mediaType?: 'movie' | 'tv'
+    mediaType?: 'movie' | 'tv' | 'season' | 'episode'
     year?: number
     genres?: string[]
     tags?: Record<string, string>

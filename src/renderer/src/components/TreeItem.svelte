@@ -20,7 +20,7 @@
   let isExpanded = $state(false)
 
   const displayTitle = $derived(
-    item.type === 'file' && item.episodeNumber != null
+    item.mediaType === 'episode' && item.episodeNumber != null
       ? `${item.episodeNumber}. ${item.title ?? item.name}`
       : item.title ?? item.name
   )
@@ -50,7 +50,7 @@
       // trigger the detail fetch. This is a fire-and-forget call. The UI
       // will update reactively when the `library-item-updated` event is received.
       if (
-        typeof (item as MediaFolder).seasonNumber !== 'undefined' &&
+        item.mediaType === 'season' &&
         !(item as MediaFolder).tmdbEpisodeDataFetched
       ) {
         // We don't need to await this. It runs in the background.

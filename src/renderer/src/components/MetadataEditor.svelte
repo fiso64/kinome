@@ -14,6 +14,11 @@
   let tags = $state(
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
+  // New state for season/episode numbers
+  let seasonNumber = $state(item.type === 'folder' ? (item as MediaFolder).seasonNumber?.toString() ?? '1' : '1')
+  let episodeNumber = $state(item.type === 'file' ? (item as MediaFile).episodeNumber?.toString() ?? '1' : '1')
+  let episodeSeasonNumber = $state(item.type === 'file' ? (item as MediaFile).seasonNumber?.toString() ?? '1' : '1')
+
 
   // --- Autocomplete Suggestions ---
   let allSuggestions = $state<{
@@ -38,6 +43,25 @@
     const parsedYear = parseInt(year, 10)
     updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
     updatedItem.mediaType = mediaType
+
+    // Handle season/episode numbers
+    if (updatedItem.type === 'folder') {
+        if (mediaType === 'season') {
+            (updatedItem as MediaFolder).seasonNumber = parseInt(seasonNumber, 10) || 1
+        } else {
+            delete (updatedItem as MediaFolder).seasonNumber
+        }
+    }
+    if (updatedItem.type === 'file') {
+        if (mediaType === 'episode') {
+            (updatedItem as MediaFile).seasonNumber = parseInt(episodeSeasonNumber, 10) || 1;
+            (updatedItem as MediaFile).episodeNumber = parseInt(episodeNumber, 10) || 1
+        } else {
+            delete (updatedItem as MediaFile).seasonNumber
+            delete (updatedItem as MediaFile).episodeNumber
+        }
+    }
+
 
     updatedItem.overview = overview
     // Convert the reactive genres array to a plain array before sending over IPC
@@ -83,11 +107,26 @@
       </div>
       <div class="form-group">
         <label for="media-type">Type</label>
-        <select id="media-type" bind:value={mediaType}>
-          <option value={undefined}>Unknown</option>
-          <option value="movie">Movie</option>
-          <option value="tv">TV Show</option>
-        </select>
+        <div class="media-type-group">
+          <select id="media-type" bind:value={mediaType}>
+            <option value={undefined}>Unknown</option>
+            <option value="movie">Movie</option>
+            <option value="tv">TV Show</option>
+            {#if item.type === 'folder'}
+              <option value="season">Season</option>
+            {/if}
+            {#if item.type === 'file'}
+              <option value="episode">Episode</option>
+            {/if}
+          </select>
+          {#if mediaType === 'season' && item.type === 'folder'}
+            <input type="number" bind:value={seasonNumber} class="number-input" placeholder="S" min="0" />
+          {/if}
+          {#if mediaType === 'episode' && item.type === 'file'}
+            <input type="number" bind:value={episodeSeasonNumber} class="number-input" placeholder="S" min="0" />
+            <input type="number" bind:value={episodeNumber} class="number-input" placeholder="E" min="1" />
+          {/if}
+        </div>
       </div>
     </div>
     <div class="form-group">
@@ -139,5 +178,19 @@
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
     margin: -0.5rem 0;
+  }
+  .media-type-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .number-input {
+    width: 60px;
+    -moz-appearance: textfield; /* Firefox */
+  }
+  .number-input::-webkit-outer-spin-button,
+  .number-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 </style>

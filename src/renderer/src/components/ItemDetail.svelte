@@ -16,7 +16,7 @@
   } = $props()
 
   const displayTitle = $derived(
-    item.type === 'file' && item.episodeNumber != null
+    item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
       ? `${item.episodeNumber}. ${item.title ?? item.name}`
       : item.title ?? item.name
   )

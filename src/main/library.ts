@@ -303,6 +303,7 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       if (parsed) {
         file.seasonNumber = parsed.season
         file.episodeNumber = parsed.episode
+        file.mediaType = 'episode'
       } else {
         allParsedSuccessfully = false
         break // If one fails, we fall back to alphabetical for all.
@@ -316,6 +317,7 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       mediaFiles.forEach((file, index) => {
         file.seasonNumber = 1
         file.episodeNumber = index + 1
+        file.mediaType = 'episode'
       })
     }
     return
@@ -345,6 +347,7 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       // Only assign season numbers to folders that matched.
       for (const { folder, season } of parsedFolders) {
         folder.seasonNumber = season
+        folder.mediaType = 'season'
       }
     } else {
       log('TV Structure: No season folder name patterns matched, falling back to alphabetical sort.')
@@ -353,6 +356,7 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       subFolders.forEach((folder, index) => {
         // Assign season number starting from 1
         folder.seasonNumber = index + 1
+        folder.mediaType = 'season'
       })
     }
   }
@@ -764,7 +768,7 @@ export function setupLibraryIpc(): void {
     // If it's a season folder, process its children to assign episode numbers locally.
     const isSeasonFolder =
       item.type === 'folder' &&
-      typeof (item as MediaFolder).seasonNumber !== 'undefined' &&
+      item.mediaType === 'season' &&
       !(item as MediaFolder).tmdbEpisodeDataFetched
     if (isSeasonFolder) {
       setBulkUpdateStatus(true)
@@ -774,6 +778,7 @@ export function setupLibraryIpc(): void {
       episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       episodeFiles.forEach((file, index) => {
         file.episodeNumber = index + 1
+        file.mediaType = 'episode'
       })
       setBulkUpdateStatus(false)
     }
