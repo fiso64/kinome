@@ -471,13 +471,111 @@ export async function fetchAndApplyEpisodeData(
 
 export async function manualSearch(
   query: string,
-  type: 'movie' | 'tv',
+  type: 'movie' | 'tv' | 'season',
   tmdbApiKey: string,
-  year?: string
+  year?: string,
+  tmdbId?: string
 ): Promise<any[]> {
-  if (!query) return []
+  // --- ID Search Logic ---
+  if (tmdbId?.trim()) {
+    console.log(`[TMDB] [ID Search] Searching for type "${type}" with ID "${tmdbId}"`)
+    const searchTypeForId = type === 'season' ? 'tv' : type
+    const detailUrl = `https://api.themoviedb.org/3/${searchTypeForId}/${tmdbId}?api_key=${tmdbApiKey}`
+
+    try {
+      const response = await fetch(detailUrl)
+      if (!response.ok) throw new Error(await response.text())
+      const details = await response.json()
+
+      if (type === 'season') {
+        if (!details.seasons || details.seasons.length === 0) {
+          console.log(`[TMDB] [ID Search] Show ID "${tmdbId}" has no season information.`)
+          return []
+        }
+        // Return seasons array formatted as search results
+        return details.seasons.map((s: any) => ({
+          id: s.id,
+          title: s.name,
+          name: s.name,
+          year: s.air_date ? new Date(s.air_date).getFullYear() : null,
+          poster_path: s.poster_path,
+          overview: s.overview,
+          season_number: s.season_number
+        }))
+      } else {
+        // Return single movie/tv result, formatted as an array of one
+        return [
+          {
+            id: details.id,
+            title: details.title || details.name,
+            year: details.release_date
+              ? new Date(details.release_date).getFullYear()
+              : details.first_air_date
+                ? new Date(details.first_air_date).getFullYear()
+                : null,
+            poster_path: details.poster_path,
+            overview: details.overview
+          }
+        ]
+      }
+    } catch (error) {
+      console.error(`Error during ID search for "${tmdbId}":`, error)
+      return []
+    }
+  }
+
+  // --- Text Search Logic ---
+  if (!query.trim()) return []
+
+  if (type === 'season') {
+    // 1. Search for the TV show first
+    const tvSearchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${tmdbApiKey}&query=${encodeURIComponent(
+      query
+    )}`
+    console.log(`[TMDB] [Season Search] Step 1: Fetching TV show from: ${tvSearchUrl}`)
+    try {
+      const tvSearchResponse = await fetch(tvSearchUrl)
+      if (!tvSearchResponse.ok) throw new Error(await tvSearchResponse.text())
+      const tvSearchResults = await tvSearchResponse.json()
+      const show = tvSearchResults.results?.[0]
+
+      if (!show) {
+        console.log(`[TMDB] [Season Search] No TV show found for query "${query}"`)
+        return []
+      }
+
+      // 2. Fetch details for that specific show to get its seasons array
+      const showDetailsUrl = `https://api.themoviedb.org/3/tv/${show.id}?api_key=${tmdbApiKey}`
+      console.log(`[TMDB] [Season Search] Step 2: Fetching show details from: ${showDetailsUrl}`)
+      const showDetailsResponse = await fetch(showDetailsUrl)
+      if (!showDetailsResponse.ok) throw new Error(await showDetailsResponse.text())
+      const showDetails = await showDetailsResponse.json()
+
+      if (!showDetails.seasons || showDetails.seasons.length === 0) {
+        console.log(`[TMDB] [Season Search] Show "${show.name}" has no season information.`)
+        return []
+      }
+
+      // 3. Return a list of seasons, formatted like other search results
+      return showDetails.seasons.map((s) => ({
+        id: s.id, // The season's unique ID
+        title: s.name, // For consistency in the search result object
+        name: s.name,
+        year: s.air_date ? new Date(s.air_date).getFullYear() : null,
+        poster_path: s.poster_path,
+        overview: s.overview,
+        season_number: s.season_number
+      }))
+    } catch (error) {
+      console.error(`Error during season search for "${query}":`, error)
+      return []
+    }
+  }
+
+  // --- Movie/TV Search Logic (existing) ---
+  const searchType = type as 'movie' | 'tv'
   const yearParam = year ? `&year=${year.trim()}` : ''
-  const searchUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${tmdbApiKey}&query=${encodeURIComponent(
+  const searchUrl = `https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(
     query
   )}${yearParam}`
   console.log(`[TMDB] Fetching from: ${searchUrl}`)

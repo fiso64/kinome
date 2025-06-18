@@ -15,9 +15,9 @@
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
   // New state for season/episode numbers
-  let seasonNumber = $state(item.type === 'folder' ? (item as MediaFolder).seasonNumber?.toString() ?? '1' : '1')
-  let episodeNumber = $state(item.type === 'file' ? (item as MediaFile).episodeNumber?.toString() ?? '1' : '1')
-  let episodeSeasonNumber = $state(item.type === 'file' ? (item as MediaFile).seasonNumber?.toString() ?? '1' : '1')
+  let seasonNumber = $state(item.type === 'folder' ? (item as MediaFolder).seasonNumber?.toString() ?? '' : '')
+  let episodeNumber = $state(item.type === 'file' ? (item as MediaFile).episodeNumber?.toString() ?? '' : '')
+  let episodeSeasonNumber = $state(item.type === 'file' ? (item as MediaFile).seasonNumber?.toString() ?? '' : '')
 
 
   // --- Autocomplete Suggestions ---
@@ -38,30 +38,35 @@
     const updatedItem: LibraryItem = JSON.parse(JSON.stringify(item))
 
     // Apply changes from the form
-    updatedItem.title = title
+    const finalTitle = title.trim()
+    updatedItem.title = finalTitle ? finalTitle : undefined
 
     const parsedYear = parseInt(year, 10)
     updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
     updatedItem.mediaType = mediaType
 
-    // Handle season/episode numbers
-    if (updatedItem.type === 'folder') {
-        if (mediaType === 'season') {
-            (updatedItem as MediaFolder).seasonNumber = parseInt(seasonNumber, 10) || 1
-        } else {
-            delete (updatedItem as MediaFolder).seasonNumber
-        }
-    }
-    if (updatedItem.type === 'file') {
-        if (mediaType === 'episode') {
-            (updatedItem as MediaFile).seasonNumber = parseInt(episodeSeasonNumber, 10) || 1;
-            (updatedItem as MediaFile).episodeNumber = parseInt(episodeNumber, 10) || 1
-        } else {
-            delete (updatedItem as MediaFile).seasonNumber
-            delete (updatedItem as MediaFile).episodeNumber
-        }
+    const parseOptionalInt = (val: string): number | undefined => {
+      const parsed = parseInt(val, 10)
+      return !isNaN(parsed) ? parsed : undefined
     }
 
+    // Handle season/episode numbers
+    if (updatedItem.type === 'folder') {
+      if (mediaType === 'season') {
+        ;(updatedItem as MediaFolder).seasonNumber = parseOptionalInt(seasonNumber)
+      } else {
+        delete (updatedItem as MediaFolder).seasonNumber
+      }
+    }
+    if (updatedItem.type === 'file') {
+      if (mediaType === 'episode') {
+        ;(updatedItem as MediaFile).seasonNumber = parseOptionalInt(episodeSeasonNumber)
+        ;(updatedItem as MediaFile).episodeNumber = parseOptionalInt(episodeNumber)
+      } else {
+        delete (updatedItem as MediaFile).seasonNumber
+        delete (updatedItem as MediaFile).episodeNumber
+      }
+    }
 
     updatedItem.overview = overview
     // Convert the reactive genres array to a plain array before sending over IPC
@@ -103,28 +108,51 @@
     <div class="form-row">
       <div class="form-group" style="flex-grow: 1;">
         <label for="title">Title</label>
-        <input type="text" id="title" bind:value={title} />
+        <input type="text" id="title" bind:value={title} placeholder={item.name} />
       </div>
       <div class="form-group">
-        <label for="media-type">Type</label>
         <div class="media-type-group">
-          <select id="media-type" bind:value={mediaType}>
-            <option value={undefined}>Unknown</option>
-            <option value="movie">Movie</option>
-            <option value="tv">TV Show</option>
-            {#if item.type === 'folder'}
-              <option value="season">Season</option>
-            {/if}
-            {#if item.type === 'file'}
-              <option value="episode">Episode</option>
-            {/if}
-          </select>
+          <div class="number-input-group">
+            <label for="media-type">Type</label>
+            <select id="media-type" bind:value={mediaType}>
+              <option value={undefined}>Unknown</option>
+              <option value="movie">Movie</option>
+              <option value="tv">TV Show</option>
+              {#if item.type === 'folder'}
+                <option value="season">Season</option>
+              {/if}
+              {#if item.type === 'file'}
+                <option value="episode">Episode</option>
+              {/if}
+            </select>
+          </div>
           {#if mediaType === 'season' && item.type === 'folder'}
-            <input type="number" bind:value={seasonNumber} class="number-input" placeholder="S" min="0" />
+            <div class="number-input-group">
+              <label for="season-number">Season</label>
+              <input id="season-number" type="number" bind:value={seasonNumber} class="number-input" min="0" />
+            </div>
           {/if}
           {#if mediaType === 'episode' && item.type === 'file'}
-            <input type="number" bind:value={episodeSeasonNumber} class="number-input" placeholder="S" min="0" />
-            <input type="number" bind:value={episodeNumber} class="number-input" placeholder="E" min="1" />
+            <div class="number-input-group">
+              <label for="episode-season-number">Season</label>
+              <input
+                id="episode-season-number"
+                type="number"
+                bind:value={episodeSeasonNumber}
+                class="number-input"
+                min="0"
+              />
+            </div>
+            <div class="number-input-group">
+              <label for="episode-number">Episode</label>
+              <input
+                id="episode-number"
+                type="number"
+                bind:value={episodeNumber}
+                class="number-input"
+                min="1"
+              />
+            </div>
           {/if}
         </div>
       </div>
@@ -155,7 +183,8 @@
   .form-row {
     display: flex;
     gap: 1rem;
-    align-items: flex-end; /* Aligns the bottom of the form elements */
+    /* This is the key: align the direct children (.form-group) to their bottom edge. */
+    align-items: flex-end;
   }
   .form-row .form-group {
     margin-bottom: 0; /* Override default margin if any */
@@ -170,6 +199,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    /* justify-content is removed to allow natural stacking.
+       The parent .form-row handles the vertical alignment of the whole group. */
   }
   label,
   h3 {
@@ -182,7 +213,18 @@
   .media-type-group {
     display: flex;
     gap: 0.5rem;
-    align-items: center;
+    align-items: flex-end; /* This correctly aligns the select and the number inputs to their bottom edge. */
+  }
+  .number-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem; /* Reduce gap to bring label closer to its input */
+  }
+  .number-input-group label {
+    font-size: 0.8rem;
+    font-weight: normal;
+    color: var(--ev-c-text-2);
+    padding-left: 2px;
   }
   .number-input {
     width: 60px;

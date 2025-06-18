@@ -120,11 +120,17 @@ declare global {
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       getItemById: (itemId: string) => Promise<LibraryItem | null>
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
+      getParent: (itemId: string) => Promise<MediaFolder | null>
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
       // Manual Match
-      manualSearch: (query: string, type: 'movie' | 'tv', year?: string) => Promise<any[]>
+      manualSearch: (
+        query: string,
+        type: 'movie' | 'tv' | 'season',
+        year?: string,
+        tmdbId?: string
+      ) => Promise<any[]>
       getTmdbImages: (
         tmdbId: number,
         mediaType: 'movie' | 'tv',

@@ -21,7 +21,8 @@
 <div class="media-grid">
   {#if items.length > 0}
     {#each items as item (item.id)}
-      {@const title = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
+      {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
+      {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
       <button
         type="button"
         class="grid-item"
@@ -33,7 +34,7 @@
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-              alt={title}
+              alt={displayTitle}
               loading="lazy"
             />
           {:else}
@@ -42,8 +43,8 @@
             </div>
           {/if}
         </div>
-        <div class="name" {title}>
-          {title}
+        <div class="name" title={displayTitle}>
+          {displayTitle}
         </div>
       </button>
     {/each}

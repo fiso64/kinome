@@ -778,6 +778,7 @@ export function setupLibraryIpc(): void {
       episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       episodeFiles.forEach((file, index) => {
         file.episodeNumber = index + 1
+        file.seasonNumber = (item as MediaFolder).seasonNumber
         file.mediaType = 'episode'
       })
       setBulkUpdateStatus(false)
@@ -972,14 +973,17 @@ export function setupLibraryIpc(): void {
     }
   })
 
-  ipcMain.handle('manual-search', async (_, query: string, type: 'movie' | 'tv', year?: string) => {
-    const { tmdbApiKey } = await readSettings()
-    if (!tmdbApiKey) {
-      console.warn('Manual search skipped: No TMDB API key.')
-      return []
+  ipcMain.handle(
+    'manual-search',
+    async (_, query: string, type: 'movie' | 'tv' | 'season', year?: string, tmdbId?: string) => {
+      const { tmdbApiKey } = await readSettings()
+      if (!tmdbApiKey) {
+        console.warn('Manual search skipped: No TMDB API key.')
+        return []
+      }
+      return manualSearch(query, type, tmdbApiKey, year, tmdbId)
     }
-    return manualSearch(query, type, tmdbApiKey, year)
-  })
+  )
 
   ipcMain.handle(
     'get-tmdb-images',
@@ -995,7 +999,7 @@ export function setupLibraryIpc(): void {
 
   ipcMain.handle(
     'apply-tmdb-result',
-    async (event, itemId: string, result: any, mediaType: 'movie' | 'tv') => {
+    async (event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
       if (!db || !db.root) return
       const item = findItemById(itemId, db.root)
       if (!item) return
@@ -1013,27 +1017,50 @@ export function setupLibraryIpc(): void {
       if (item.type === 'file') {
         item.opensAsFolder = true
       }
-      item.posterPath = undefined // Clear poster so it gets re-fetched by fetchItemDetails
+      item.posterPath = undefined // Clear poster so it gets re-fetched
 
-      // Set new core identifiers
-      item.tmdbId = result.id
-      item.mediaType = mediaType
-      item.title = result.title
-
-      // This will fetch poster, backdrop, and other details (overview, year, genres)
-      await fetchItemDetails(item, settings, libraryDataPath)
-      item._v = Date.now() // Bust cache after image updates
-
-      // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
-      const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
-      try {
-        const response = await fetch(detailUrl)
-        if (response.ok) {
-          const details = await response.json()
-          item.title = details.title || details.name
+      // Handle a season result differently
+      if (mediaType === 'season') {
+        item.mediaType = 'season'
+        item.title = result.name // Seasons have 'name'
+        item.overview = result.overview
+        if (item.type === 'folder') {
+          item.seasonNumber = result.season_number
         }
-      } catch (e) {
-        console.error('Could not re-verify title from TMDB details endpoint', e)
+        if (result.poster_path) {
+          const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
+          const imagesDir = path.join(libraryDataPath, 'images')
+          const posterFileName = `${item.id}.jpg`
+          const posterDestPath = path.join(imagesDir, posterFileName)
+          try {
+            await downloadImage(posterUrl, posterDestPath)
+            item.posterPath = posterFileName
+          } catch (e) {
+            console.error('Failed to download season poster', e)
+          }
+        }
+        // For seasons, we don't set a tmdbId on the item itself.
+      } else {
+        // --- Existing logic for Movie/TV Show ---
+        item.tmdbId = result.id
+        item.mediaType = mediaType
+        item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
+
+        // This will fetch poster, backdrop, and other details (overview, year, genres)
+        await fetchItemDetails(item, settings, libraryDataPath)
+        item._v = Date.now() // Bust cache after image updates
+
+        // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
+        const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
+        try {
+          const response = await fetch(detailUrl)
+          if (response.ok) {
+            const details = await response.json()
+            item.title = details.title || details.name
+          }
+        } catch (e) {
+          console.error('Could not re-verify title from TMDB details endpoint', e)
+        }
       }
 
       // Re-evaluate virtual tags after all other properties have been updated.
@@ -1234,5 +1261,11 @@ export function setupLibraryIpc(): void {
     // Create a shallow, clonable copy of each child.
     const clonableChildren = parent.children.map((child) => createShallowClonableCopy(child))
     return clonableChildren
+  })
+
+  ipcMain.handle('get-parent', async (_, itemId: string): Promise<MediaFolder | null> => {
+    if (!db || !db.root) return null
+    const parent = findParent(itemId, db.root)
+    return parent ? JSON.parse(JSON.stringify(parent)) : null
   })
 }

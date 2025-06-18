@@ -34,13 +34,18 @@ const api = {
     ipcRenderer.invoke('get-item-by-id', itemId),
   getChildren: (parentId: string): Promise<LibraryItem[] | null> =>
     ipcRenderer.invoke('get-children', parentId),
+  getParent: (itemId: string): Promise<MediaFolder | null> => ipcRenderer.invoke('get-parent', itemId),
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
 
   // Manual Match
-  manualSearch: (query: string, type: 'movie' | 'tv', year?: string): Promise<any[]> =>
-    ipcRenderer.invoke('manual-search', query, type, year),
+  manualSearch: (
+    query: string,
+    type: 'movie' | 'tv' | 'season',
+    year?: string,
+    tmdbId?: string
+  ): Promise<any[]> => ipcRenderer.invoke('manual-search', query, type, year, tmdbId),
   getTmdbImages: (
     tmdbId: number,
     mediaType: 'movie' | 'tv',

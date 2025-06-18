@@ -38,7 +38,8 @@
 <div class="media-list" bind:this={listElement}>
   {#if items.length > 0}
     {#each items as item, i (item.id)}
-      {@const title = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
+      {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
+      {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
       {@const overview = 'overview' in item ? item.overview : ''}
       <button
         type="button"
@@ -52,7 +53,7 @@
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-              alt={title}
+              alt={displayTitle}
               loading="lazy"
             />
           {:else}
@@ -63,7 +64,7 @@
         </div>
         <div class="info">
           <div class="title-line">
-            <h3 class="title" {title}>{title}</h3>
+            <h3 class="title" title={displayTitle}>{displayTitle}</h3>
             {#if item.year}
               <span class="year">({item.year})</span>
             {/if}

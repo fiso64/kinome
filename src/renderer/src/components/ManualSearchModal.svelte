@@ -12,11 +12,13 @@
   } = $props()
 
   type SearchResult = {
-    id: number
-    title: string
-    year: number | null
+    id: number // show or season id
+    title: string // show or season name
+    year: number | null // show year or season air date year
     poster_path: string
     overview: string
+    name?: string // a property on season objects
+    season_number?: number
   }
   type TmdbImage = { file_path: string; [key: string]: any }
 
@@ -29,9 +31,26 @@
   let applyingResultId = $state<number | null>(null)
 
   // Match tab state
-  let searchQuery = $state(item.title ?? item.name)
+  let searchQuery = $state('') // Start empty to allow for async initialization
+  let searchTmdbId = $state('')
   let searchYear = $state('')
-  let searchType: 'movie' | 'tv' = $state(item.mediaType ?? 'movie')
+
+  async function getInitialSearchType(): Promise<'movie' | 'tv' | 'season'> {
+    if (item.mediaType === 'season') return 'season'
+    if (item.mediaType === 'tv' || item.mediaType === 'episode') return 'tv'
+    if (item.mediaType === 'movie') return 'movie'
+
+    // If type is unknown, check the parent
+    const parent = await window.api.getParent(item.id)
+    if (parent?.mediaType === 'tv') {
+      return 'season'
+    }
+
+    if (item.type === 'folder') return 'tv'
+    return 'movie'
+  }
+
+  let searchType: 'movie' | 'tv' | 'season' = $state(getInitialSearchType())
   let searchResults = $state<SearchResult[]>([])
   let searchInput = $state<HTMLInputElement | undefined>(undefined)
 
@@ -42,9 +61,9 @@
   let logos = $state<TmdbImage[]>([])
 
   async function performSearch() {
-    if (!searchQuery.trim() || isSearching) return
+    if ((!searchQuery.trim() && !searchTmdbId.trim()) || isSearching) return
     isSearching = true
-    searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear)
+    searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear, searchTmdbId)
     isSearching = false
   }
 
@@ -52,7 +71,10 @@
     applyingResultId = result.id
     // De-proxy the reactive Svelte object before sending it over IPC
     const plainResult = JSON.parse(JSON.stringify(result))
-    await window.api.applyTmdbResult(item.id, plainResult, searchType)
+    // If we searched for a season, the result is a season object. The type to apply is 'season'.
+    // Otherwise, it's the type we searched for.
+    const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
+    await window.api.applyTmdbResult(item.id, plainResult, mediaTypeToApply)
     // The modal will be closed automatically when the parent receives the item update.
     applyingResultId = null
     onClose()
@@ -110,6 +132,29 @@
 
   // Keyboard shortcut and initial focus
   $effect(() => {
+    // Set initial query and type based on item and its context
+    async function setInitialState() {
+      const initialType = await getInitialSearchType()
+      searchType = initialType
+
+      if (initialType === 'season') {
+        const parent = await window.api.getParent(item.id)
+        if (parent?.tmdbId) {
+          searchTmdbId = parent.tmdbId.toString()
+          searchQuery = '' // Clear text query if we have an ID
+        } else {
+          searchQuery = parent?.title ?? parent?.name ?? (item.title ?? item.name)
+        }
+      } else if (item.tmdbId && (item.mediaType === 'movie' || item.mediaType === 'tv')) {
+        // If the item itself is a movie/tv with an id, prefill that
+        searchTmdbId = item.tmdbId.toString()
+        searchQuery = ''
+      } else {
+        searchQuery = item.title ?? item.name
+      }
+    }
+    setInitialState()
+
     // Focus the input when the modal opens and the input is rendered
     if (searchInput) {
       searchInput.focus()
@@ -150,6 +195,15 @@
           bind:value={searchQuery}
           placeholder="Enter title to search..."
           class="title-input"
+          disabled={!!searchTmdbId.trim()}
+        />
+        <span class="or-divider">OR</span>
+        <input
+          type="text"
+          bind:value={searchTmdbId}
+          placeholder="TMDB ID"
+          class="id-input"
+          disabled={!!searchQuery.trim()}
         />
         <input
           type="text"
@@ -161,8 +215,13 @@
         <select bind:value={searchType}>
           <option value="movie">Movie</option>
           <option value="tv">TV</option>
+          <option value="season">Seasons</option>
         </select>
-        <button class="primary" type="submit" disabled={isSearching || !searchQuery.trim()}>
+        <button
+          class="primary"
+          type="submit"
+          disabled={isSearching || (!searchQuery.trim() && !searchTmdbId.trim())}
+        >
           {#if isSearching}Searching...{:else}Search{/if}
         </button>
       </form>
@@ -175,7 +234,13 @@
               {/if}
             </div>
             <div class="result-info">
-              <h3>{result.title} ({result.year ?? 'N/A'})</h3>
+              <h3>
+                {#if searchType === 'season' && typeof result.season_number !== 'undefined'}
+                  {result.season_number}. {result.name ?? result.title}
+                {:else}
+                  {result.title ?? result.name} ({result.year ?? 'N/A'})
+                {/if}
+              </h3>
               <p>{result.overview}</p>
             </div>
             <div class="result-actions">
@@ -389,6 +454,7 @@
   .search-form {
     display: flex;
     gap: 1rem;
+    align-items: center;
     margin-bottom: 1.5rem;
   }
   .search-form .title-input {
@@ -397,6 +463,20 @@
   .search-form .year-input {
     flex-grow: 0;
     width: 70px;
+  }
+  .search-form .id-input {
+    flex-grow: 0;
+    width: 100px;
+  }
+  .search-form input:disabled {
+    background-color: var(--color-background);
+    color: var(--ev-c-text-3);
+    cursor: not-allowed;
+  }
+  .or-divider {
+    color: var(--ev-c-text-2);
+    font-size: 0.9rem;
+    font-weight: bold;
   }
 
   .search-results {
