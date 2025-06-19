@@ -547,13 +547,14 @@
       ) {
         drillDown(loadedItem as MediaFolder)
       } else {
-        // Default 'detail' action when drilling down
-        lastDetailItem = parent
-        // The current detail view's item becomes part of the breadcrumb trail if it's a folder
-        if (parent.type === 'folder') {
-          viewStack.push(parent)
-        }
-        selectedItemForDetailView = loadedItem
+    // Default 'detail' action when drilling down
+    lastDetailItem = parent
+    // The current detail view's item becomes part of the breadcrumb trail if it's a folder
+    if (parent.type === 'folder') {
+      viewStack.push(parent)
+    }
+    const processedItem = await window.api.getItemDetails(loadedItem.id)
+    selectedItemForDetailView = processedItem ?? loadedItem
       }
       return
     }
@@ -577,10 +578,12 @@
       return
     }
 
-    // Default action from main view: open detail view
-    lastDetailItem = null // Important: reset lastDetailItem
-    selectedItemForDetailView = loadedItem
-    detailViewSearchQuery = { text: '', tags: [] }
+// Default action from main view: open detail view
+lastDetailItem = null // Important: reset lastDetailItem
+// Pre-process the item before showing its detail page
+const processedItem = await window.api.getItemDetails(loadedItem.id)
+selectedItemForDetailView = processedItem ?? loadedItem
+detailViewSearchQuery = { text: '', tags: [] }
 
     // If click was from search results, update highlight
     if (fromSearch) {
@@ -629,25 +632,26 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
-  async function handleDetailSearchItemClick(item: SearchIndexEntry) {
-    // This click replaces the current detail view with a new one.
-    const loadedItem = await getLoadedItem(item.id)
-    if (!loadedItem) {
-      console.error('Failed to load item from store:', item.id)
-      return
-    }
-
-    // Treat this as a navigation: the current item becomes the "last" one for back-button purposes.
-    lastDetailItem = selectedItemForDetailView
-    // The viewStack logic for `lastDetailItem` expects a folder, so we only push if it is one.
-    // This is a simplification; a more robust solution might need a separate history stack.
-    if (lastDetailItem?.type === 'folder') {
-      viewStack.push(lastDetailItem as MediaFolder)
-    }
-
-    selectedItemForDetailView = loadedItem
-    detailViewSearchQuery = { text: '', tags: [] } // This will hide the dropdown.
+async function handleDetailSearchItemClick(item: SearchIndexEntry) {
+  // This click replaces the current detail view with a new one.
+  const loadedItem = await getLoadedItem(item.id)
+  if (!loadedItem) {
+    console.error('Failed to load item from store:', item.id)
+    return
   }
+
+  // Treat this as a navigation: the current item becomes the "last" one for back-button purposes.
+  lastDetailItem = selectedItemForDetailView
+  // The viewStack logic for `lastDetailItem` expects a folder, so we only push if it is one.
+  // This is a simplification; a more robust solution might need a separate history stack.
+  if (lastDetailItem?.type === 'folder') {
+    viewStack.push(lastDetailItem as MediaFolder)
+  }
+
+  const processedItem = await window.api.getItemDetails(loadedItem.id)
+  selectedItemForDetailView = processedItem ?? loadedItem
+  detailViewSearchQuery = { text: '', tags: [] } // This will hide the dropdown.
+}
 
   function handleSearchByTag(key: string, value: string): void {
     selectedItemForDetailView = null

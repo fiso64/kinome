@@ -53,25 +53,25 @@
   let previousBackdropPath = $state<string | null | undefined>(undefined)
   let previousLogoPath = $state<string | null | undefined>(undefined)
 
-  $effect(() => {
-    // This effect runs when the `item` prop changes.
-    // We kick off the details fetch here. This is a "fire-and-forget" call
-    // that tells the main process to fetch missing details (like backdrops and logos)
-    // in the background. The UI will update automatically when the `library-item-updated`
-    // event is received by App.svelte.
-    window.api.getItemDetails(item.id)
+$effect(() => {
+  // This effect runs when the `item` prop changes.
+  // The call to fetch details is now handled in App.svelte before this
+  // component is even rendered, ensuring the initial data is correct.
+  // We still kick off a "fire-and-forget" call here to allow the backend to
+  // fetch any *missing* details (like new backdrops) in the background.
+  window.api.getItemDetails(item.id)
 
-    // Reset fade-in animation flags if the image source itself has changed.
-    // This prevents a re-fade if other metadata is updated.
-    if (item.backdropPath !== previousBackdropPath) {
-      isBackdropLoaded = false
-      previousBackdropPath = item.backdropPath
-    }
-    if (item.logoPath !== previousLogoPath) {
-      isLogoLoaded = false
-      previousLogoPath = item.logoPath
-    }
-  })
+  // Reset fade-in animation flags if the image source itself has changed.
+  // This prevents a re-fade if other metadata is updated.
+  if (item.backdropPath !== previousBackdropPath) {
+    isBackdropLoaded = false
+    previousBackdropPath = item.backdropPath
+  }
+  if (item.logoPath !== previousLogoPath) {
+    isLogoLoaded = false
+    previousLogoPath = item.logoPath
+  }
+})
 </script>
 
 <!-- No more complex loading state needed here. The view renders immediately. -->
