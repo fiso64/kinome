@@ -16,8 +16,9 @@ export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
     const promises = endpoints.map((type) => {
       const url = `https://api.themoviedb.org/3/genre/${type}/list?api_key=${tmdbApiKey}`
       console.log(`[TMDB] Fetching from: ${url}`)
-      return fetch(url).then((res) => {
-        if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
+      return fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
           return res.json()
         })
         .then((data) => {
@@ -25,7 +26,7 @@ export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
             genreCache.set(genre.id, genre.name)
           }
         })
-  })
+    })
     await Promise.all(promises)
     console.log(`[TMDB] Successfully cached ${genreCache.size} unique genres.`)
   } catch (error) {
@@ -392,7 +393,9 @@ export async function fetchItemDetails(
               children: filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
             }
 
-            console.log(`[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`)
+            console.log(
+              `[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`
+            )
             await fetchAndApplyEpisodeData(
               fakeSeasonFolder,
               item.tmdbId!,
@@ -451,9 +454,7 @@ export async function fetchAndApplyEpisodeData(
     for (const localEpisode of localEpisodes) {
       if (typeof localEpisode.episodeNumber === 'undefined') continue
 
-      const tmdbEpisode = tmdbEpisodes.find(
-        (e) => e.episode_number === localEpisode.episodeNumber
-      )
+      const tmdbEpisode = tmdbEpisodes.find((e) => e.episode_number === localEpisode.episodeNumber)
 
       if (tmdbEpisode) {
         localEpisode.title = tmdbEpisode.name

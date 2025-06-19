@@ -301,10 +301,7 @@ function parseEpisodeInfo(
  * @param parentSeasonNumber A fallback season number if not present in the filename.
  * @returns `true` if a consistent pattern was found and applied, `false` otherwise.
  */
-function processAndAssignEpisodeNumbers(
-  files: MediaFile[],
-  parentSeasonNumber?: number
-): boolean {
+function processAndAssignEpisodeNumbers(files: MediaFile[], parentSeasonNumber?: number): boolean {
   if (files.length === 0) return true // Nothing to do
 
   const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
@@ -353,8 +350,7 @@ function processTvShowStructure(showFolder: MediaFolder): void {
   log(`Processing TV structure for: "${showFolder.name}"`)
   const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
   const subFolders = showFolder.children.filter(
-    (c) =>
-      c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
+    (c) => c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
   ) as MediaFolder[]
 
   // Heuristic 1: "Immediate Files" Rule
@@ -405,7 +401,9 @@ function processTvShowStructure(showFolder: MediaFolder): void {
         folder.mediaType = 'season'
       }
     } else {
-      log('TV Structure: No season folder name patterns matched, falling back to alphabetical sort.')
+      log(
+        'TV Structure: No season folder name patterns matched, falling back to alphabetical sort.'
+      )
       // Heuristic 3: "Alphabetical Subfolders" Rule (Final Fallback)
       subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       subFolders.forEach((folder, index) => {
@@ -991,6 +989,112 @@ export function setupLibraryIpc(): void {
       }
     }
   )
+
+  ipcMain.handle('clear-children-metadata', async (_, folderId: string): Promise<boolean> => {
+    if (!db || !db.root) {
+      console.error('Cannot clear metadata: database not found.')
+      return false
+    }
+    const parentFolder = findItemById(folderId, db.root)
+    if (!parentFolder || parentFolder.type !== 'folder') {
+      console.error(`Cannot clear metadata: folder with ID ${folderId} not found.`)
+      return false
+    }
+
+    log(`Starting metadata clear for children of "${parentFolder.name}"...`)
+    setBulkUpdateStatus(true)
+
+    const imagesDir = path.join(getLibraryDataPath(), 'images')
+    const modifiedItems: LibraryItem[] = []
+
+    async function resetItemMetadata(item: LibraryItem): Promise<void> {
+      // Delete associated image files
+      if (item.posterPath) {
+        try {
+          await fs.unlink(path.join(imagesDir, item.posterPath))
+        } catch (e) {
+          /* ignore if file not found */
+        }
+      }
+      if (item.backdropPath) {
+        try {
+          await fs.unlink(path.join(imagesDir, item.backdropPath))
+        } catch (e) {
+          /* ignore if file not found */
+        }
+      }
+      if (item.logoPath) {
+        try {
+          await fs.unlink(path.join(imagesDir, item.logoPath))
+        } catch (e) {
+          /* ignore if file not found */
+        }
+      }
+
+      // Reset all metadata fields to undefined.
+      // This will cause them to be re-evaluated or re-fetched later.
+      item.title = undefined
+      item.overview = undefined
+      item.posterPath = undefined
+      item.backdropPath = undefined
+      item.logoPath = undefined
+      item.tmdbId = undefined
+      item.mediaType = undefined
+      item.year = undefined
+      item.genres = undefined
+      item.tags = undefined
+      item.tmdbDetailsFetched = undefined
+      item.virtualTags = undefined // Will be re-evaluated
+      item._v = Date.now() // Bust UI cache
+
+      if (item.type === 'file') {
+        item.opensAsFolder = undefined
+        item.seasonNumber = undefined
+        item.episodeNumber = undefined
+        // We preserve 'watched' status as it's user-generated state, not fetched metadata.
+      } else {
+        // MediaFolder
+        item.seasonNumber = undefined
+        item.tmdbSeasons = undefined
+      }
+
+      modifiedItems.push(item)
+    }
+
+    async function clearChildrenRecursively(folder: MediaFolder): Promise<void> {
+      for (const child of folder.children) {
+        await resetItemMetadata(child)
+        if (child.type === 'folder') {
+          await clearChildrenRecursively(child)
+        }
+      }
+    }
+
+    try {
+      await clearChildrenRecursively(parentFolder)
+
+      // Re-apply virtual tags for all modified items
+      const currentSettings = await readSettings()
+      for (const item of modifiedItems) {
+        item.virtualTags = evaluateVirtualTagsForItem(item, currentSettings)
+      }
+
+      setBulkUpdateStatus(false) // Turn off before re-indexing
+
+      // Manually trigger re-indexing for all modified items.
+      for (const item of modifiedItems) {
+        updateIndexForItem(item)
+      }
+
+      await writeDb(db)
+      log(`Finished metadata clear for ${modifiedItems.length} items.`)
+      return true
+    } catch (error) {
+      console.error('Failed during metadata clearing process:', error)
+      setBulkUpdateStatus(false) // Ensure this is always turned off
+      return false
+    }
+  })
 
   ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 

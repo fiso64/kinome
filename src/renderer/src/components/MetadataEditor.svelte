@@ -15,10 +15,15 @@
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
   // New state for season/episode numbers
-  let seasonNumber = $state(item.type === 'folder' ? (item as MediaFolder).seasonNumber?.toString() ?? '' : '')
-  let episodeNumber = $state(item.type === 'file' ? (item as MediaFile).episodeNumber?.toString() ?? '' : '')
-  let episodeSeasonNumber = $state(item.type === 'file' ? (item as MediaFile).seasonNumber?.toString() ?? '' : '')
-
+  let seasonNumber = $state(
+    item.type === 'folder' ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : ''
+  )
+  let episodeNumber = $state(
+    item.type === 'file' ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
+  )
+  let episodeSeasonNumber = $state(
+    item.type === 'file' ? ((item as MediaFile).seasonNumber?.toString() ?? '') : ''
+  )
 
   // --- Autocomplete Suggestions ---
   let allSuggestions = $state<{
@@ -129,7 +134,13 @@
           {#if mediaType === 'season' && item.type === 'folder'}
             <div class="number-input-group">
               <label for="season-number">Season</label>
-              <input id="season-number" type="number" bind:value={seasonNumber} class="number-input" min="0" />
+              <input
+                id="season-number"
+                type="number"
+                bind:value={seasonNumber}
+                class="number-input"
+                min="0"
+              />
             </div>
           {/if}
           {#if mediaType === 'episode' && item.type === 'file'}

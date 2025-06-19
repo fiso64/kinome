@@ -35,7 +35,7 @@ async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> 
  * @param itemId The ID of the item to retrieve.
  * @returns A promise that resolves to the fully loaded LibraryItem, or null if not found.
  */
-export async function getLoadedItem(itemId:string): Promise<LibraryItem | null> {
+export async function getLoadedItem(itemId: string): Promise<LibraryItem | null> {
   // 1. Check cache first for an already processed item.
   if (itemCache.has(itemId)) {
     const cachedItem = itemCache.get(itemId)!

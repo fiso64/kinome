@@ -41,7 +41,10 @@
   {#if items.length > 0}
     {#each items as item, i (item.id)}
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
-      {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
+      {@const displayTitle =
+        'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
+          ? `${item.episodeNumber}. ${baseTitle}`
+          : baseTitle}
       {@const overview = 'overview' in item ? item.overview : ''}
       <button
         type="button"
@@ -51,19 +54,23 @@
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
-        <div class="poster" class:has-image={!!item.posterPath} class:fixed-aspect-ratio={fixedAspectRatio}>
+        <div
+          class="poster"
+          class:has-image={!!item.posterPath}
+          class:fixed-aspect-ratio={fixedAspectRatio}
+        >
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
               alt={displayTitle}
               loading="lazy"
             />
-  {:else}
-    <div class="icon">
-      {item.type === 'folder' ? '📁' : '🎬'}
-    </div>
-  {/if}
-</div>
+          {:else}
+            <div class="icon">
+              {item.type === 'folder' ? '📁' : '🎬'}
+            </div>
+          {/if}
+        </div>
         <div class="info">
           <div class="title-line">
             <h3 class="title" title={displayTitle}>{displayTitle}</h3>
@@ -116,7 +123,7 @@
     background-color: var(--color-background-mute);
     transform: translateY(-2px);
   }
-.poster {
+  .poster {
     position: relative;
     display: flex;
     align-items: center;

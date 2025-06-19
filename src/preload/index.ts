@@ -34,10 +34,13 @@ const api = {
     ipcRenderer.invoke('get-item-by-id', itemId),
   getChildren: (parentId: string): Promise<LibraryItem[] | null> =>
     ipcRenderer.invoke('get-children', parentId),
-  getParent: (itemId: string): Promise<MediaFolder | null> => ipcRenderer.invoke('get-parent', itemId),
+  getParent: (itemId: string): Promise<MediaFolder | null> =>
+    ipcRenderer.invoke('get-parent', itemId),
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
+  clearChildrenMetadata: (folderId: string): Promise<boolean> =>
+    ipcRenderer.invoke('clear-children-metadata', folderId),
 
   // Manual Match
   manualSearch: (

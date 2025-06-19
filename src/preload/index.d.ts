@@ -129,6 +129,7 @@ declare global {
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
+      clearChildrenMetadata: (folderId: string) => Promise<boolean>
       // Manual Match
       manualSearch: (
         query: string,

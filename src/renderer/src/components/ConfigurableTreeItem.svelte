@@ -39,9 +39,10 @@
         value={getSetting(item.id).hint ?? 'auto'}
         onchange={(e) =>
           updateSetting(item.id, {
-            hint: (e.currentTarget.value as 'auto' | 'movie' | 'tv') === 'auto'
-              ? undefined
-              : (e.currentTarget.value as 'movie' | 'tv')
+            hint:
+              (e.currentTarget.value as 'auto' | 'movie' | 'tv') === 'auto'
+                ? undefined
+                : (e.currentTarget.value as 'movie' | 'tv')
           })}
         onclick={(e) => e.stopPropagation()}
       >

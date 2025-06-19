@@ -34,6 +34,21 @@
     }
   }
 
+  async function handleClearMetadata() {
+    const confirmed = confirm(
+      `DANGER: This will permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.\n\nFolder-specific settings (like this one) will be preserved. This action cannot be undone.\n\nAre you sure you want to proceed?`
+    )
+    if (confirmed) {
+      const success = await window.api.clearChildrenMetadata(item.id)
+      if (success) {
+        onClose()
+        await onNeedRefresh()
+      } else {
+        alert('Failed to clear metadata. See console for details.')
+      }
+    }
+  }
+
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -92,6 +107,21 @@
         </p>
       </div>
     {/if}
+
+    <div class="danger-zone">
+      <div class="danger-zone-header">
+        <h4>Danger Zone</h4>
+      </div>
+      <div>
+        <button class="danger" onclick={handleClearMetadata}>
+          Recursively Clear Children Metadata...
+        </button>
+        <p class="help-text danger-help-text">
+          Removes all fetched data (titles, posters, tags, etc.) for every item inside this folder,
+          recursively. This is useful for forcing a complete re-fetch from scratch.
+        </p>
+      </div>
+    </div>
   </div>
 </ModalWindow>
 
@@ -130,5 +160,31 @@
   }
   label {
     font-weight: bold;
+  }
+
+  .danger-zone {
+    border: 1px solid #c50f1f;
+    border-radius: 6px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background-color: rgba(197, 15, 31, 0.1);
+  }
+  .danger-zone-header h4 {
+    color: #ff7d7d;
+    font-weight: bold;
+    margin: 0;
+  }
+  .danger-help-text {
+    margin-top: 0.5rem;
+  }
+  button.danger {
+    background-color: #c50f1f;
+    color: white;
+    align-self: flex-start;
+  }
+  button.danger:hover:not(:disabled) {
+    background-color: #a40e19;
   }
 </style>

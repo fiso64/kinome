@@ -91,7 +91,9 @@
   </div>
   <div class="tab-content">
     {#if folders.length > 0}
-      {@const calculateLayout = (folder: MediaFolder): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' => {
+      {@const calculateLayout = (
+        folder: MediaFolder
+      ): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' => {
         if (folder.layout) return folder.layout
         if (settings) {
           switch (folder.mediaType) {

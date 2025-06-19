@@ -22,7 +22,10 @@
   {#if items.length > 0}
     {#each items as item (item.id)}
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
-      {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
+      {@const displayTitle =
+        'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
+          ? `${item.episodeNumber}. ${baseTitle}`
+          : baseTitle}
       <button
         type="button"
         class="grid-item"

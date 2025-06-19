@@ -22,7 +22,7 @@
   const displayTitle = $derived(
     item.mediaType === 'episode' && item.episodeNumber != null
       ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : item.title ?? item.name
+      : (item.title ?? item.name)
   )
 
   async function handleItemClick() {
