@@ -901,6 +901,14 @@ export function setupLibraryIpc(): void {
                   settings.tmdbApiKey,
                   getLibraryDataPath()
                 )
+              } else {
+                // This is the key fix: if we can't fetch episodes because the parent show isn't
+                // ready, we must still mark this season as 'processed' to prevent an infinite
+                // loop of the renderer re-requesting details.
+                item.tmdbEpisodesFetched = true
+                log(
+                  `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
+                )
               }
             } else if (item.mediaType === 'tv') {
               log(
@@ -1237,13 +1245,12 @@ export function setupLibraryIpc(): void {
       item._v = Date.now()
 
       // Handle a season result differently
-      if (mediaType === 'season') {
+      if (mediaType === 'season' && item.type === 'folder') {
         item.mediaType = 'season'
         item.title = result.name // Seasons have 'name'
         item.overview = result.overview
-        if (item.type === 'folder') {
-          item.seasonNumber = result.season_number
-        }
+        item.seasonNumber = result.season_number
+
         if (result.poster_path) {
           const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
           const imagesDir = path.join(libraryDataPath, 'images')
@@ -1256,7 +1263,49 @@ export function setupLibraryIpc(): void {
             console.error('Failed to download season poster', e)
           }
         }
+
         // For seasons, we don't set a tmdbId on the item itself.
+        // Mark that this season's details are now "fetched" via this manual match.
+        item.tmdbDetailsFetched = true
+        // Explicitly mark that its episodes have NOT been fetched yet, so the next
+        // step will trigger.
+        item.tmdbEpisodesFetched = undefined
+
+        // --- Local Episode Number Assignment ---
+        // We must assign episode numbers to the files within this folder before we can
+        // fetch and map TMDB data to them. This mirrors the logic from get-item-details.
+        setBulkUpdateStatus(true)
+        const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, item.seasonNumber)
+
+        if (!parsedSuccessfully) {
+          log(
+            `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
+          )
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, index) => {
+            file.episodeNumber = index + 1
+            file.seasonNumber = item.seasonNumber
+            file.mediaType = 'episode'
+          })
+        }
+        setBulkUpdateStatus(false)
+        // --- End Local Episode Number Assignment ---
+
+        // Now, immediately try to fetch the episodes for this newly matched season.
+        // This makes the manual match a single, cohesive operation.
+        const showFolder = findParent(item.id, db!.root!)
+        if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
+          console.log(
+            `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
+          )
+          await fetchAndApplyEpisodeData(
+            item,
+            showFolder.tmdbId,
+            settings.tmdbApiKey,
+            libraryDataPath
+          )
+        }
       } else {
         // --- Existing logic for Movie/TV Show ---
         item.tmdbId = result.id

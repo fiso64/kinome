@@ -503,9 +503,12 @@ export async function fetchAndApplyEpisodeData(
       }
     }
 
-    // Mark episodes as fetched to prevent future redundant API calls for this season.
-    // We also set tmdbDetailsFetched because the season detail API includes the season's
-    // own metadata (name, overview, etc.), so this counts as a full detail fetch.
+    // Mark this season as processed to prevent future redundant API calls.
+    // This flag is set to true even if TMDB returned no episodes, or if no local files
+    // could be matched. This signifies that an API request was successfully completed for
+    // this season, and the app shouldn't get stuck in a re-fetching loop.
+    // The details are also marked as fetched since the season detail API includes the
+    // season's own metadata (name, overview, etc.).
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
   } catch (error) {
