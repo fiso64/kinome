@@ -249,9 +249,9 @@
   oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
 >
   {#if layout === 'grid'}
-    <GridView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
+    <GridView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} {parentItem} />
   {:else if layout === 'tree'}
-    <TreeView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} />
+    <TreeView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} {parentItem} />
   {:else if layout === 'list'}
     <ListView
       items={itemsForViews}
@@ -260,6 +260,7 @@
       {highlightedIndex}
       {grayOutWatched}
       fixedAspectRatio={listFixedAspectRatio}
+      {parentItem}
     />
   {:else if layout === 'tabs'}
     <TabsView

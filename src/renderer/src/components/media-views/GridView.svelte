@@ -1,11 +1,19 @@
 <script lang="ts">
+  import { shouldBeGreyedOut } from '../../lib/view-helpers'
   type DisplayableItem = LibraryItem | SearchIndexEntry
+  type VirtualFolder = MediaFolder & {
+    isVirtual: boolean
+    physicalParentId: string
+    groupByKey: string
+    groupByValue: string
+  }
 
   let {
     items,
     onItemClick,
     onShowContextMenu,
-    grayOutWatched
+    grayOutWatched,
+    parentItem
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -15,6 +23,7 @@
       options?: { layout?: string }
     ) => void
     grayOutWatched: boolean
+    parentItem?: MediaFolder | VirtualFolder
   } = $props()
 </script>
 
@@ -29,7 +38,7 @@
       <button
         type="button"
         class="grid-item"
-        class:watched={grayOutWatched && 'watched' in item && item.watched}
+        class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'grid' })}
       >

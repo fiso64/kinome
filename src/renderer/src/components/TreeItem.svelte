@@ -2,19 +2,22 @@
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
   import { getLoadedItem, triggerSeasonEpisodeFetch } from '../lib/item-store'
+  import { shouldBeGreyedOut } from '../lib/view-helpers'
   // Types are globally available from src/preload/index.d.ts
   let {
     item,
     itemclick,
     showContextMenu,
     level = 0,
-    grayOutWatched
+    grayOutWatched,
+    parentItem
   }: {
     item: LibraryItem
     itemclick: (item: LibraryItem) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent) => void
     level: number
     grayOutWatched: boolean
+    parentItem?: MediaFolder
   } = $props()
 
   let isExpanded = $state(false)
@@ -66,7 +69,7 @@
   <button
     type="button"
     class="tree-item"
-    class:watched={grayOutWatched && item.type === 'file' && item.watched}
+    class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
     onclick={handleItemClick}
     oncontextmenu={(e) => showContextMenu(item, e)}
   >
@@ -95,7 +98,14 @@
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
       {#each item.children as child (child.id)}
-        <TreeItem item={child} {itemclick} {showContextMenu} level={level + 1} {grayOutWatched} />
+        <TreeItem
+          item={child}
+          {itemclick}
+          {showContextMenu}
+          level={level + 1}
+          {grayOutWatched}
+          parentItem={item}
+        />
       {/each}
     </div>
   {/if}

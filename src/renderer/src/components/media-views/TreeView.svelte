@@ -2,12 +2,19 @@
   import TreeItem from '../TreeItem.svelte'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry
+  type VirtualFolder = MediaFolder & {
+    isVirtual: boolean
+    physicalParentId: string
+    groupByKey: string
+    groupByValue: string
+  }
 
   let {
     items,
     onItemClick,
     onShowContextMenu,
-    grayOutWatched
+    grayOutWatched,
+    parentItem
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -17,6 +24,7 @@
       options?: { layout?: string }
     ) => void
     grayOutWatched: boolean
+    parentItem?: MediaFolder | VirtualFolder
   } = $props()
 </script>
 
@@ -29,6 +37,7 @@
         showContextMenu={(treeItem, event) =>
           onShowContextMenu(treeItem, event, { layout: 'tree' })}
         {grayOutWatched}
+        {parentItem}
       />
     {/each}
   {:else}

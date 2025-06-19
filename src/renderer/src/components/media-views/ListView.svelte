@@ -1,5 +1,12 @@
 <script lang="ts">
+  import { shouldBeGreyedOut } from '../../lib/view-helpers'
   type DisplayableItem = LibraryItem | SearchIndexEntry
+  type VirtualFolder = MediaFolder & {
+    isVirtual: boolean
+    physicalParentId: string
+    groupByKey: string
+    groupByValue: string
+  }
 
   let {
     items,
@@ -7,7 +14,8 @@
     onShowContextMenu,
     highlightedIndex,
     grayOutWatched,
-    fixedAspectRatio = false
+    fixedAspectRatio = false,
+    parentItem
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -19,6 +27,7 @@
     highlightedIndex?: number | null
     grayOutWatched: boolean
     fixedAspectRatio?: boolean
+    parentItem?: MediaFolder | VirtualFolder
   } = $props()
 
   let listElement: HTMLDivElement | undefined = $state()
@@ -49,7 +58,7 @@
       <button
         type="button"
         class="list-item"
-        class:watched={grayOutWatched && 'watched' in item && item.watched}
+        class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
