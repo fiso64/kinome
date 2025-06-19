@@ -55,11 +55,8 @@
 
   $effect(() => {
     // This effect runs when the `item` prop changes.
-    // The call to fetch details is now handled in App.svelte before this
-    // component is even rendered, ensuring the initial data is correct.
-    // We still kick off a "fire-and-forget" call here to allow the backend to
-    // fetch any *missing* details (like new backdrops) in the background.
-    window.api.getItemDetails(item.id)
+    // Note: The main detail fetch is now handled in `App.svelte` before this component is rendered.
+    // Child content (like season episodes) is fetched on demand by child components (`TabsView`, etc.).
 
     // Reset fade-in animation flags if the image source itself has changed.
     // This prevents a re-fade if other metadata is updated.
