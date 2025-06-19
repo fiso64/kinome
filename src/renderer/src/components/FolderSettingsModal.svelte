@@ -56,17 +56,20 @@
     <div class="settings-group">
       <label class="checkbox-label">
         <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
-        <span>Fetch metadata for direct children</span>
+        <span>This folder directly contains media items (e.g., movies or TV shows)</span>
       </label>
       <p class="help-text">
-        If checked, the scanner will try to find metadata (posters, details) for files and folders
-        directly inside this one.
+        Enable this to fetch movie or TV show metadata for direct children of this folder.
       </p>
     </div>
 
-    <div class="settings-group">
+    <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
       <label for="children-type-hint">Children Type Hint</label>
-      <select id="children-type-hint" bind:value={childrenTypeHint}>
+      <select
+        id="children-type-hint"
+        bind:value={childrenTypeHint}
+        disabled={!retrieveChildrenMetadata}
+      >
         <option value="auto">Automatic Detection</option>
         <option value="movie">Movie</option>
         <option value="tv">TV Show</option>
@@ -87,6 +90,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    transition: opacity 0.2s ease-in-out;
+  }
+  .settings-group.disabled {
+    opacity: 0.5;
+    pointer-events: none;
   }
   .help-text {
     font-size: 0.9rem;
