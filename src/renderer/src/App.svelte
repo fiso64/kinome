@@ -583,6 +583,13 @@
     if (selectedItemForDetailView) {
       const parent = selectedItemForDetailView
 
+      // Special case: If we are in a detail view FOR THIS FILE, and we click it
+      // in the contents list, it must be a "play" action.
+      if (selectedItemForDetailView.id === item.id && item.type === 'file') {
+        handlePlayFile(loadedItem)
+        return
+      }
+
       // Playable file click inside detail view
       if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
         handlePlayFile(loadedItem)
