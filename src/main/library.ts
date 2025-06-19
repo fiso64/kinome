@@ -648,6 +648,45 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
   console.log('[Metadata] Finished all fetching and saved final DB.')
 }
 
+export async function reapplyVirtualTagsAfterSettingsChange() {
+  if (!db || !db.root) {
+    log('Cannot re-apply virtual tags: database not loaded.')
+    return
+  }
+  log('Re-applying virtual tags to all items due to settings change...')
+
+  setBulkUpdateStatus(true) // Prevent proxy from firing a zillion updates
+
+  const settings = await readSettings() // Read the latest settings
+  applyVirtualTagsToAllItems(db.root, settings) // Mutate the items in-memory
+
+  // After bulk mutation, it's safer and often faster to just rebuild the index.
+  buildFullSearchIndex(db.root)
+
+  setBulkUpdateStatus(false) // Turn proxy back on for future single updates.
+
+  // Although virtual tags aren't saved to disk, other item properties might
+  // have been affected by plugins or other logic in the future. It's safer to save.
+  await writeDb(db!)
+
+  // We need to notify all renderer windows that basically everything has changed.
+  // The `onLibraryItemsUpdated` handler in the renderer is built to handle this.
+  const allItems = getAllItemsAsList(db.root)
+  log(`Broadcasting update for ${allItems.length} items.`)
+  const plainItems = JSON.parse(JSON.stringify(allItems)) // deep clone for IPC
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('library-items-updated', plainItems)
+  })
+
+  // Also, autocomplete suggestions for virtual tags might have changed.
+  const newSuggestions = await getAutocompleteSuggestions()
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+  })
+
+  log('Finished re-applying virtual tags and notified renderer.')
+}
+
 export function setupLibraryIpc(): void {
   // Load the database into memory when the app is ready
   loadDbIntoMemory()

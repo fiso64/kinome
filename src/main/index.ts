@@ -3,8 +3,12 @@ console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
 import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
-import { setupLibraryIpc, getLibraryDataPath } from './library'
-import { readSettings, writeSettings } from './settings'
+import {
+  setupLibraryIpc,
+  getLibraryDataPath,
+  reapplyVirtualTagsAfterSettingsChange
+} from './library'
+import { readSettings, writeSettings, type Settings } from './settings'
 
 function createWindow(): void {
   // Create the browser window.
@@ -114,8 +118,17 @@ app.whenReady().then(() => {
     return await readSettings()
   })
 
-  ipcMain.handle('save-settings', async (_, settings) => {
-    await writeSettings(settings)
+  ipcMain.handle('save-settings', async (_, settingsToSave: Partial<Settings>) => {
+    const oldSettings = await readSettings()
+    await writeSettings(settingsToSave)
+
+    // After writing, read them back to get the fully merged new settings.
+    const newSettings = await readSettings()
+
+    // Deep compare virtual tags to see if a re-evaluation is needed.
+    if (JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettings.virtualTags)) {
+      await reapplyVirtualTagsAfterSettingsChange()
+    }
   })
   // --- End Settings IPC Handlers ---
 

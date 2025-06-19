@@ -267,7 +267,7 @@
         <p>
           Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>
         </p>
-        <p>You must manually refresh the library (F5) after saving to apply changes.</p>
+        <p>Changes will be applied to all library items automatically after saving.</p>
       </div>
     {/if}
   </div>
