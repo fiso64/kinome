@@ -1099,8 +1099,9 @@ export function setupLibraryIpc(): void {
     try {
       await clearChildrenRecursively(parentFolder)
 
-      // Also reset the flag on the parent folder itself to allow re-processing.
+      // Also reset the flag on the parent folder itself and bust its UI cache.
       parentFolder.tmdbEpisodesFetched = undefined
+      parentFolder._v = Date.now()
       modifiedItems.push(parentFolder)
 
       // Re-apply virtual tags for all modified items
@@ -1118,6 +1119,14 @@ export function setupLibraryIpc(): void {
 
       await writeDb(db)
       log(`Finished metadata clear for ${modifiedItems.length} items.`)
+
+      // Broadcast the batch update to all windows. This allows the UI to update
+      // reactively without a full library reload.
+      const plainItems = JSON.parse(JSON.stringify(modifiedItems))
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('library-items-updated', plainItems)
+      })
+
       return true
     } catch (error) {
       console.error('Failed during metadata clearing process:', error)

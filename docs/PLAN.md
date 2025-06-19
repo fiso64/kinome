@@ -87,3 +87,4 @@ The goal is to expand source support and prepare for future growth.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
 *   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.
+*   `[ ]` **(Future) Plugin System:** Implement a versatile plugin system. Create a myanimelist plugin.
