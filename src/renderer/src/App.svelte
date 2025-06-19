@@ -255,19 +255,24 @@
           selectedItemForDetailView = { ...selectedItemForDetailView, ...updatedItem }
           wasHandledInView = true
         }
-        // B) Is the updated item a CHILD of the detail view item?
+        // B) Is the updated item a descendant of the detail view item?
         else if (selectedItemForDetailView.type === 'folder') {
-          const childIndex = selectedItemForDetailView.children.findIndex(
-            (c) => c.id === updatedItem.id
-          )
-          if (childIndex !== -1) {
-            // Recreate the children array to trigger reactivity for the MediaView inside ItemDetail.
-            selectedItemForDetailView.children = [
-              ...selectedItemForDetailView.children.slice(0, childIndex),
-              updatedItem,
-              ...selectedItemForDetailView.children.slice(childIndex + 1)
-            ]
-            wasHandledInView = true
+          // Recursively find the parent of the updated item within the detail view's data structure.
+          const parentInDetailView = findParentOfItem(selectedItemForDetailView, updatedItem.id)
+          if (parentInDetailView) {
+            const childIndex = parentInDetailView.children.findIndex((c) => c.id === updatedItem.id)
+            if (childIndex !== -1) {
+              // To trigger reactivity, we need to replace the children array, not just mutate it.
+              parentInDetailView.children = [
+                ...parentInDetailView.children.slice(0, childIndex),
+                updatedItem,
+                ...parentInDetailView.children.slice(childIndex + 1)
+              ]
+              // Then, trigger a top-level update on the detail view item to ensure Svelte
+              // re-renders the component tree and picks up the deep change.
+              selectedItemForDetailView = { ...selectedItemForDetailView }
+              wasHandledInView = true
+            }
           }
         }
       }
@@ -319,8 +324,16 @@
         }
         if (itemInTree) Object.assign(itemInTree, updatedItem)
 
-        if (selectedItemForDetailView?.id === updatedItem.id) {
-          Object.assign(selectedItemForDetailView, updatedItem)
+        // Find and update item if it's the detail view subject or one of its descendants.
+        if (selectedItemForDetailView) {
+          if (selectedItemForDetailView.id === updatedItem.id) {
+            Object.assign(selectedItemForDetailView, updatedItem)
+          } else if (selectedItemForDetailView.type === 'folder') {
+            const itemInDetailTree = findItemInTree(selectedItemForDetailView, updatedItem.id)
+            if (itemInDetailTree) {
+              Object.assign(itemInDetailTree, updatedItem)
+            }
+          }
         }
         // Update item if it's in the current search results
         const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
