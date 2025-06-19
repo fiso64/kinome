@@ -18,6 +18,7 @@
   let defaultMovieFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('tree')
   let defaultTvShowFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
   let defaultSeasonFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
+  let settingsLoaded = $state(false)
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
@@ -31,6 +32,7 @@
       defaultMovieFolderLayout = settings.defaultMovieFolderLayout ?? 'tree'
       defaultTvShowFolderLayout = settings.defaultTvShowFolderLayout ?? 'list'
       defaultSeasonFolderLayout = settings.defaultSeasonFolderLayout ?? 'list'
+      settingsLoaded = true
     })
 
     window.api.getLibraryMediaSourcePath().then((path) => {
@@ -64,7 +66,11 @@
 
   // This effect provides a live preview for the poster size slider
   $effect(() => {
-    document.documentElement.style.setProperty('--grid-poster-size', `${gridPosterSize}px`)
+    // Only apply the live preview *after* the initial settings have been loaded.
+    // This prevents a flicker caused by the initial hardcoded state.
+    if (settingsLoaded) {
+      document.documentElement.style.setProperty('--grid-poster-size', `${gridPosterSize}px`)
+    }
   })
 
   function addVirtualTag() {
