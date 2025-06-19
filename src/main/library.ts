@@ -342,7 +342,7 @@ function processAndAssignEpisodeNumbers(
   return false
 }
 
-const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes']
+const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes', 'nc']
 
 /**
  * Analyzes a TV show's folder structure to assign season/episode numbers

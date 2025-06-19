@@ -143,59 +143,95 @@
 
         return { itemsForViews: [], foldersForTabsOrSections: vFolders }
       } else {
-        // Group by physical folders, and create a special "Files" group for loose files.
+        // Group by physical folders, but also create virtual folders for loose files.
         const physicalFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
           compareItems
         ) as MediaFolder[]
 
         const looseFiles = filteredItems.filter((item) => item.type === 'file') as LibraryItem[]
-
-        const allFolders: (MediaFolder | VirtualFolder)[] = [...physicalFolders]
+        const allVirtualFolders: VirtualFolder[] = []
 
         if (looseFiles.length > 0 && parentItem) {
-          // Determine the appropriate default layout for the "Files" tab based on the parent's type.
-          let childLayout: Layout = 'tree' // A safe fallback
-          if (settings) {
-            switch (parentItem.mediaType) {
-              case 'movie':
-                childLayout = settings.defaultMovieFolderLayout ?? 'tree'
-                break
-              case 'tv':
-                childLayout = settings.defaultTvShowFolderLayout ?? 'list'
-                break
-              case 'season':
-                childLayout = settings.defaultSeasonFolderLayout ?? 'list'
-                break
-              default:
-                // For generic folders, use the global default
-                childLayout = settings.defaultFolderLayout ?? 'grid'
+          const filesBySeason = new Map<number, LibraryItem[]>()
+          const unseasonedFiles: LibraryItem[] = []
+
+          // 1. Categorize all loose files
+          for (const file of looseFiles) {
+            const seasonNum = 'seasonNumber' in file ? (file as MediaFile).seasonNumber : undefined
+            if (seasonNum !== undefined && seasonNum !== null) {
+              if (!filesBySeason.has(seasonNum)) {
+                filesBySeason.set(seasonNum, [])
+              }
+              filesBySeason.get(seasonNum)!.push(file)
+            } else {
+              unseasonedFiles.push(file)
             }
           }
-          // A default layout can still be 'tabs' or 'sections', which would cause an infinite loop.
-          // We must downgrade it to a concrete view.
-          if (childLayout === 'tabs' || childLayout === 'sections') {
-            childLayout = 'tree' // 'tree' is a good, safe fallback.
+
+          // 2. Create sorted virtual folders for each season
+          const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
+          for (const seasonNum of sortedSeasonNumbers) {
+            let seasonLayout: Layout = settings?.defaultSeasonFolderLayout ?? 'list'
+            if (seasonLayout === 'tabs' || seasonLayout === 'sections') {
+              seasonLayout = 'list' // Safety downgrade
+            }
+
+            const seasonFolder: VirtualFolder = {
+              id: `virtual--${parentItem.id}--season--${seasonNum}`,
+              name: `Season ${seasonNum}`,
+              title: `Season ${seasonNum}`,
+              type: 'folder',
+              children: filesBySeason.get(seasonNum)!,
+              path: '',
+              isVirtual: true,
+              physicalParentId: parentItem.id,
+              groupByKey: 'folder',
+              groupByValue: `__season_${seasonNum}__`,
+              layout: seasonLayout,
+              mediaType: 'season',
+              seasonNumber: seasonNum
+            }
+            allVirtualFolders.push(seasonFolder)
           }
 
-          const filesFolder: VirtualFolder = {
-            id: `virtual--${parentItem.id}--files`,
-            name: 'Files',
-            title: 'Files',
-            type: 'folder',
-            children: looseFiles,
-            path: '',
-            // These properties identify it as a special virtual folder
-            isVirtual: true,
-            physicalParentId: parentItem.id,
-            groupByKey: 'folder',
-            groupByValue: '__files__',
-            layout: childLayout // Explicitly set the layout for the virtual folder
+          // 3. Create a virtual folder for any remaining "unseasoned" files
+          if (unseasonedFiles.length > 0) {
+            let filesLayout: Layout = 'tree' // Safe fallback
+            if (settings) {
+              switch (parentItem.mediaType) {
+                case 'movie':
+                  filesLayout = settings.defaultMovieFolderLayout ?? 'tree'
+                  break
+                case 'tv':
+                  filesLayout = settings.defaultTvShowFolderLayout ?? 'list'
+                  break
+                default:
+                  filesLayout = settings.defaultFolderLayout ?? 'grid'
+              }
+            }
+            if (filesLayout === 'tabs' || filesLayout === 'sections') {
+              filesLayout = 'tree' // Safety downgrade
+            }
+
+            const filesFolder: VirtualFolder = {
+              id: `virtual--${parentItem.id}--files`,
+              name: 'Files',
+              title: 'Files',
+              type: 'folder',
+              children: unseasonedFiles,
+              path: '',
+              isVirtual: true,
+              physicalParentId: parentItem.id,
+              groupByKey: 'folder',
+              groupByValue: '__files__',
+              layout: filesLayout
+            }
+            allVirtualFolders.push(filesFolder)
           }
-          // Add the "Files" folder to the beginning of the list
-          allFolders.unshift(filesFolder)
         }
 
-        return { itemsForViews: [], foldersForTabsOrSections: allFolders }
+        const finalFolders = [...allVirtualFolders, ...physicalFolders]
+        return { itemsForViews: [], foldersForTabsOrSections: finalFolders }
       }
     }
 
