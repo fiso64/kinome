@@ -75,6 +75,7 @@
     mediaTypes: [],
     genres: [],
     tagKeys: [],
+    virtualTagKeys: [],
     tagValues: {}
   })
 

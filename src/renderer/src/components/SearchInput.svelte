@@ -8,7 +8,14 @@
     special: ['mediaType', 'genre'],
     // All keys that can be used for autocompletion
     all: (suggestions: AutocompleteSuggestions) =>
-      Array.from(new Set(['year', ...SUGGESTION_KEYS.special, ...(suggestions.tagKeys ?? [])]))
+      Array.from(
+        new Set([
+          'year',
+          ...SUGGESTION_KEYS.special,
+          ...(suggestions.tagKeys ?? []),
+          ...(suggestions.virtualTagKeys ?? [])
+        ])
+      )
   }
 
   let {

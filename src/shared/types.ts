@@ -72,6 +72,7 @@ export interface AutocompleteSuggestions {
   mediaTypes: string[]
   genres: string[]
   tagKeys: string[]
+  virtualTagKeys: string[]
   tagValues: Record<string, string[]>
 }
 

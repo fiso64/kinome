@@ -81,6 +81,7 @@ declare global {
     mediaTypes: string[]
     genres: string[]
     tagKeys: string[]
+    virtualTagKeys: string[]
     tagValues: Record<string, string[]>
   }
 

@@ -532,13 +532,14 @@ function collectItemsToProcess(
 
 async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
-    return { mediaTypes: [], genres: [], tagKeys: [], tagValues: {} }
+    return { mediaTypes: [], genres: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
   }
 
   const allItems = getAllItemsAsList(db.root)
   const mediaTypes = new Set<string>()
   const genres = new Set<string>()
   const tagKeys = new Set<string>()
+  const virtualTagKeys = new Set<string>()
   const tagValues: Record<string, Set<string>> = {}
 
   for (const item of allItems) {
@@ -551,11 +552,30 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
       item.genres.forEach((genre) => genres.add(genre.trim()))
     }
 
-    // Collect tags
+    // Collect custom tags
     if (item.tags) {
       for (const [key, value] of Object.entries(item.tags)) {
         if (key) {
           tagKeys.add(key.trim())
+          if (!tagValues[key]) {
+            tagValues[key] = new Set<string>()
+          }
+          // Split comma-separated values and add them individually
+          value.split(',').forEach((v) => {
+            const trimmedV = v.trim()
+            if (trimmedV) {
+              tagValues[key].add(trimmedV)
+            }
+          })
+        }
+      }
+    }
+
+    // Collect virtual tags
+    if (item.virtualTags) {
+      for (const [key, value] of Object.entries(item.virtualTags)) {
+        if (key) {
+          virtualTagKeys.add(key.trim())
           if (!tagValues[key]) {
             tagValues[key] = new Set<string>()
           }
@@ -580,6 +600,7 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
     mediaTypes: Array.from(mediaTypes).sort(),
     genres: Array.from(genres).sort(),
     tagKeys: Array.from(tagKeys).sort(),
+    virtualTagKeys: Array.from(virtualTagKeys).sort(),
     tagValues: tagValuesAsArrays
   }
 }
