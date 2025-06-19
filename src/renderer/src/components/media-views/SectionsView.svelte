@@ -1,5 +1,6 @@
 <script lang="ts">
   import MediaView from '../MediaView.svelte'
+  import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -28,6 +29,13 @@
     grayOutWatched: boolean
     settings?: Settings | null
   } = $props()
+
+  // When the view is rendered, trigger fetches for all visible season folders.
+  $effect(() => {
+    for (const folder of folders) {
+      triggerSeasonEpisodeFetch(folder)
+    }
+  })
 
   function calculateLayout(folder: MediaFolder): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' {
     if (folder.layout) return folder.layout

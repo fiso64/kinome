@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
-  import { getLoadedItem } from '../lib/item-store'
+  import { getLoadedItem, triggerSeasonEpisodeFetch } from '../lib/item-store'
   // Types are globally available from src/preload/index.d.ts
   let {
     item,
@@ -47,15 +47,8 @@
         }
       }
       // If it's a season folder that hasn't had its episode data fetched yet,
-      // trigger the detail fetch. This is a fire-and-forget call. The UI
-      // will update reactively when the `library-item-updated` event is received.
-      if (
-        item.mediaType === 'season' &&
-        !(item as MediaFolder).tmdbEpisodeDataFetched
-      ) {
-        // We don't need to await this. It runs in the background.
-        window.api.getItemDetails(item.id)
-      }
+      // trigger the detail fetch.
+      triggerSeasonEpisodeFetch(item)
     }
 
     // Toggle expansion state

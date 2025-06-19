@@ -74,7 +74,7 @@ The goal is to implement the key features that make the app unique and powerful.
     *   `[X]` Rank results according to how closely they match the query (need a very fast rank algorithm. maybe normalize + ngram?)
     *   `[X]` Add a smaller "filter" bar inside the media grid view, which will filter only the immediate children on the current tab, similar to how the search bar works currently. The filter bar should initially be a looking glass button and expand to a small search bar when pressed.
 *   `[X]` add tighter integration with the local filesystem (e.g make it easy to reveal files in explorer and view file properties, delete). add these to the context menu after a separator. Also, make sure to use good abstractions for later, since some remote sources will not have these things (maybe each source defines the possible additional actions that are available for files and folders?). Ensure the explorer integration is cross-platform.
-*   `[ ]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it.
+*   `[ ]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
 *   `[ ]` think some more about nested folders and what to do with nested movies
 
 #### Phase 4: Expansion & Refinement

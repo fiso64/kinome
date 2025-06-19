@@ -1,5 +1,6 @@
 <script lang="ts">
   import MediaView from '../MediaView.svelte'
+  import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -35,6 +36,13 @@
     const currentFolderIds = folders.map((f) => f.id)
     if (activeTabId === null || !currentFolderIds.includes(activeTabId)) {
       activeTabId = folders[0]?.id ?? null
+    }
+
+    // When the active tab is determined (or changes), check if its
+    // corresponding folder needs episode data to be fetched.
+    const activeFolder = folders.find((f) => f.id === activeTabId)
+    if (activeFolder) {
+      triggerSeasonEpisodeFetch(activeFolder)
     }
   })
 
