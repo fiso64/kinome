@@ -26,7 +26,8 @@
     highlightedIndex,
     isPreSorted = false,
     grayOutWatched = true,
-    settings
+    settings,
+    listFixedAspectRatio = false
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -43,6 +44,7 @@
     isPreSorted?: boolean
     grayOutWatched?: boolean
     settings?: Settings | null
+    listFixedAspectRatio?: boolean
   } = $props()
 
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
@@ -257,6 +259,7 @@
       {onShowContextMenu}
       {highlightedIndex}
       {grayOutWatched}
+      fixedAspectRatio={listFixedAspectRatio}
     />
   {:else if layout === 'tabs'}
     <TabsView

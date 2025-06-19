@@ -942,6 +942,7 @@
                 onItemClick={handleDetailSearchItemClick}
                 onShowContextMenu={(item, e) => handleShowContextMenu(item, e, { layout: 'list' })}
                 highlightedIndex={highlightedDetailSearchItemIndex}
+                fixedAspectRatio={true}
               />
             {:else if !isPerformingDetailSearch}
               <div class="dropdown-status">No results found.</div>
@@ -1047,6 +1048,7 @@
                 highlightedIndex={highlightedSearchItemIndex}
                 isPreSorted={true}
                 grayOutWatched={false}
+                listFixedAspectRatio={true}
               />
             {:else if !isPerformingSearch}
               <p class="status-text">No results found.</p>

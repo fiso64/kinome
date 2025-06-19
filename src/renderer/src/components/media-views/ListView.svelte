@@ -6,7 +6,8 @@
     onItemClick,
     onShowContextMenu,
     highlightedIndex,
-    grayOutWatched
+    grayOutWatched,
+    fixedAspectRatio = false
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -17,6 +18,7 @@
     ) => void
     highlightedIndex?: number | null
     grayOutWatched: boolean
+    fixedAspectRatio?: boolean
   } = $props()
 
   let listElement: HTMLDivElement | undefined = $state()
@@ -49,19 +51,19 @@
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
-        <div class="poster">
+        <div class="poster" class:has-image={!!item.posterPath} class:fixed-aspect-ratio={fixedAspectRatio}>
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
               alt={displayTitle}
               loading="lazy"
             />
-          {:else}
-            <div class="icon">
-              {item.type === 'folder' ? '📁' : '🎬'}
-            </div>
-          {/if}
-        </div>
+  {:else}
+    <div class="icon">
+      {item.type === 'folder' ? '📁' : '🎬'}
+    </div>
+  {/if}
+</div>
         <div class="info">
           <div class="title-line">
             <h3 class="title" title={displayTitle}>{displayTitle}</h3>
@@ -114,21 +116,40 @@
     background-color: var(--color-background-mute);
     transform: translateY(-2px);
   }
-  .poster {
+.poster {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     background-color: var(--color-background);
     border-radius: 4px;
-    width: 80px;
     height: 120px;
     flex-shrink: 0;
     overflow: hidden;
+    /* Default is variable aspect, width comes from content */
+    width: auto;
   }
+
   .poster img {
-    width: 100%;
+    display: block;
     height: 100%;
+    width: auto;
+  }
+
+  /* --- Overrides --- */
+
+  /* Give placeholder a fixed 2:3 width */
+  .poster:not(.has-image) {
+    width: 80px;
+  }
+
+  /* Force fixed 2:3 aspect ratio for search results etc. */
+  .poster.fixed-aspect-ratio {
+    width: 80px;
+  }
+
+  .poster.fixed-aspect-ratio img {
+    width: 100%;
     object-fit: cover;
   }
   .icon {
