@@ -41,6 +41,8 @@ const api = {
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
   clearChildrenMetadata: (folderId: string): Promise<boolean> =>
     ipcRenderer.invoke('clear-children-metadata', folderId),
+  clearVirtualFolderMetadata: (itemIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('clear-virtual-folder-metadata', itemIds),
 
   // Manual Match
   manualSearch: (

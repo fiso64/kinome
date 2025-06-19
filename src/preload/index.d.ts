@@ -132,6 +132,7 @@ declare global {
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
       clearChildrenMetadata: (folderId: string) => Promise<boolean>
+      clearVirtualFolderMetadata: (itemIds: string[]) => Promise<boolean>
       // Manual Match
       manualSearch: (
         query: string,

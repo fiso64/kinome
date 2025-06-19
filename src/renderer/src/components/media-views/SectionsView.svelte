@@ -61,14 +61,7 @@
         <h2
           class="section-title"
           onclick={() => onItemClick(folder)}
-          oncontextmenu={(e) => {
-            if ((folder as VirtualFolder).isVirtual) {
-              e.preventDefault()
-              e.stopPropagation()
-              return
-            }
-            onShowContextMenu(folder, e, { layout: 'sections' })
-          }}
+          oncontextmenu={(e) => onShowContextMenu(folder, e, { layout: 'sections' })}
         >
           {folder.title ?? folder.name}
         </h2>

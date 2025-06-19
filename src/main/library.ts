@@ -708,6 +708,98 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
   log('Finished re-applying virtual tags and notified renderer.')
 }
 
+async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
+  // Delete associated image files
+  if (item.posterPath) {
+    try {
+      await fs.unlink(path.join(imagesDir, item.posterPath))
+    } catch (e) {
+      /* ignore if file not found */
+    }
+  }
+  if (item.backdropPath) {
+    try {
+      await fs.unlink(path.join(imagesDir, item.backdropPath))
+    } catch (e) {
+      /* ignore if file not found */
+    }
+  }
+  if (item.logoPath) {
+    try {
+      await fs.unlink(path.join(imagesDir, item.logoPath))
+    } catch (e) {
+      /* ignore if file not found */
+    }
+  }
+
+  // Reset all metadata fields to undefined.
+  // This will cause them to be re-evaluated or re-fetched later.
+  item.title = undefined
+  item.overview = undefined
+  item.posterPath = undefined
+  item.backdropPath = undefined
+  item.logoPath = undefined
+  item.tmdbId = undefined
+  item.mediaType = undefined
+  item.year = undefined
+  item.genres = undefined
+  item.tags = undefined
+  item.tmdbDetailsFetched = undefined
+  item.virtualTags = undefined // Will be re-evaluated
+  item._v = Date.now() // Bust UI cache
+
+  if (item.type === 'file') {
+    item.opensAsFolder = undefined
+    item.seasonNumber = undefined
+    item.episodeNumber = undefined
+    // We preserve 'watched' status as it's user-generated state, not fetched metadata.
+  } else {
+    // MediaFolder
+    item.seasonNumber = undefined
+    item.tmdbSeasons = undefined
+    item.tmdbEpisodesFetched = undefined
+  }
+}
+
+async function clearChildrenRecursively(
+  folder: MediaFolder,
+  imagesDir: string,
+  modifiedItems: LibraryItem[]
+): Promise<void> {
+  for (const child of folder.children) {
+    await resetItemMetadata(child, imagesDir)
+    modifiedItems.push(child)
+    if (child.type === 'folder') {
+      await clearChildrenRecursively(child, imagesDir, modifiedItems)
+    }
+  }
+}
+
+async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
+  // Re-apply virtual tags for all modified items
+  const currentSettings = await readSettings()
+  for (const item of modifiedItems) {
+    item.virtualTags = evaluateVirtualTagsForItem(item, currentSettings)
+  }
+
+  setBulkUpdateStatus(false) // Turn off before re-indexing
+
+  // Manually trigger re-indexing for all modified items.
+  for (const item of modifiedItems) {
+    updateIndexForItem(item)
+  }
+
+  await writeDb(db!)
+  log(`Finished metadata clear for ${modifiedItems.length} items.`)
+
+  // Broadcast the batch update to all windows. This allows the UI to update
+  // reactively without a full library reload.
+  const plainItems = JSON.parse(JSON.stringify(modifiedItems))
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('library-items-updated', plainItems)
+  })
+}
+
 export function setupLibraryIpc(): void {
   // Load the database into memory when the app is ready
   loadDbIntoMemory()
@@ -1090,104 +1182,17 @@ export function setupLibraryIpc(): void {
     log(`Starting metadata clear for children of "${parentFolder.name}"...`)
     setBulkUpdateStatus(true)
 
-    const imagesDir = path.join(getLibraryDataPath(), 'images')
-    const modifiedItems: LibraryItem[] = []
-
-    async function resetItemMetadata(item: LibraryItem): Promise<void> {
-      // Delete associated image files
-      if (item.posterPath) {
-        try {
-          await fs.unlink(path.join(imagesDir, item.posterPath))
-        } catch (e) {
-          /* ignore if file not found */
-        }
-      }
-      if (item.backdropPath) {
-        try {
-          await fs.unlink(path.join(imagesDir, item.backdropPath))
-        } catch (e) {
-          /* ignore if file not found */
-        }
-      }
-      if (item.logoPath) {
-        try {
-          await fs.unlink(path.join(imagesDir, item.logoPath))
-        } catch (e) {
-          /* ignore if file not found */
-        }
-      }
-
-      // Reset all metadata fields to undefined.
-      // This will cause them to be re-evaluated or re-fetched later.
-      item.title = undefined
-      item.overview = undefined
-      item.posterPath = undefined
-      item.backdropPath = undefined
-      item.logoPath = undefined
-      item.tmdbId = undefined
-      item.mediaType = undefined
-      item.year = undefined
-      item.genres = undefined
-      item.tags = undefined
-      item.tmdbDetailsFetched = undefined
-      item.virtualTags = undefined // Will be re-evaluated
-      item._v = Date.now() // Bust UI cache
-
-      if (item.type === 'file') {
-        item.opensAsFolder = undefined
-        item.seasonNumber = undefined
-        item.episodeNumber = undefined
-        // We preserve 'watched' status as it's user-generated state, not fetched metadata.
-      } else {
-        // MediaFolder
-        item.seasonNumber = undefined
-        item.tmdbSeasons = undefined
-        item.tmdbEpisodesFetched = undefined
-      }
-
-      modifiedItems.push(item)
-    }
-
-    async function clearChildrenRecursively(folder: MediaFolder): Promise<void> {
-      for (const child of folder.children) {
-        await resetItemMetadata(child)
-        if (child.type === 'folder') {
-          await clearChildrenRecursively(child)
-        }
-      }
-    }
-
     try {
-      await clearChildrenRecursively(parentFolder)
+      const imagesDir = path.join(getLibraryDataPath(), 'images')
+      const modifiedItems: LibraryItem[] = []
+      await clearChildrenRecursively(parentFolder, imagesDir, modifiedItems)
 
       // Also reset the flag on the parent folder itself and bust its UI cache.
       parentFolder.tmdbEpisodesFetched = undefined
       parentFolder._v = Date.now()
       modifiedItems.push(parentFolder)
 
-      // Re-apply virtual tags for all modified items
-      const currentSettings = await readSettings()
-      for (const item of modifiedItems) {
-        item.virtualTags = evaluateVirtualTagsForItem(item, currentSettings)
-      }
-
-      setBulkUpdateStatus(false) // Turn off before re-indexing
-
-      // Manually trigger re-indexing for all modified items.
-      for (const item of modifiedItems) {
-        updateIndexForItem(item)
-      }
-
-      await writeDb(db)
-      log(`Finished metadata clear for ${modifiedItems.length} items.`)
-
-      // Broadcast the batch update to all windows. This allows the UI to update
-      // reactively without a full library reload.
-      const plainItems = JSON.parse(JSON.stringify(modifiedItems))
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send('library-items-updated', plainItems)
-      })
-
+      await finalizeMetadataClear(modifiedItems)
       return true
     } catch (error) {
       console.error('Failed during metadata clearing process:', error)
@@ -1195,6 +1200,41 @@ export function setupLibraryIpc(): void {
       return false
     }
   })
+
+  ipcMain.handle(
+    'clear-virtual-folder-metadata',
+    async (_, itemIds: string[]): Promise<boolean> => {
+      if (!db || !db.root) return false
+      log(`Starting metadata clear for ${itemIds.length} items from virtual folder...`)
+      setBulkUpdateStatus(true)
+
+      try {
+        const imagesDir = path.join(getLibraryDataPath(), 'images')
+        const modifiedItems: LibraryItem[] = []
+
+        for (const itemId of itemIds) {
+          const item = findItemById(itemId, db.root)
+          if (!item) {
+            console.warn(`Could not find item ${itemId} to clear metadata.`)
+            continue
+          }
+
+          await resetItemMetadata(item, imagesDir)
+          modifiedItems.push(item)
+          if (item.type === 'folder') {
+            await clearChildrenRecursively(item, imagesDir, modifiedItems)
+          }
+        }
+
+        await finalizeMetadataClear(modifiedItems)
+        return true
+      } catch (error) {
+        console.error('Failed during virtual folder metadata clearing process:', error)
+        setBulkUpdateStatus(false)
+        return false
+      }
+    }
+  )
 
   ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 

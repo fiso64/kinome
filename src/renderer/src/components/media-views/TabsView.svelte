@@ -83,14 +83,7 @@
         class="tab"
         class:active={activeTabId === folder.id}
         onclick={() => (activeTabId = folder.id)}
-        oncontextmenu={(e) => {
-          if ((folder as VirtualFolder).isVirtual) {
-            e.preventDefault()
-            e.stopPropagation()
-            return
-          }
-          onShowContextMenu(folder, e, { layout: 'tabs' })
-        }}
+        oncontextmenu={(e) => onShowContextMenu(folder, e, { layout: 'tabs' })}
       >
         {folder.title ?? folder.name}
       </button>

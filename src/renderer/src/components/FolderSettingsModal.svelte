@@ -12,6 +12,8 @@
     onNeedRefresh: () => Promise<void>
   } = $props()
 
+  const isVirtual = $derived((item as any).isVirtual === true)
+
   let retrieveChildrenMetadata = $state(item.retrieve_children_metadata ?? false)
   let childrenTypeHint = $state(item.children_type_hint ?? 'auto')
   let processTvChildren = $state(item.process_tv_children ?? true)
@@ -36,9 +38,12 @@
   }
 
   async function handleClearMetadata() {
+    const message = isVirtual
+      ? `DANGER: This will permanently delete all fetched metadata (titles, posters, tags, etc.) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
+      : `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Metadata Clearing',
-      message: `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`,
+      message: message,
       detail: 'This action cannot be undone.',
       confirmText: 'Clear Metadata',
       cancelText: 'Cancel',
@@ -46,19 +51,27 @@
     })
 
     if (confirmed) {
-      // 1. Save current settings for the folder first by calling the existing update IPC.
-      const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
-      updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
-      updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
-      updatedItem.process_tv_children = processTvChildren === true ? undefined : false
-      await window.api.updateItem(updatedItem)
-
-      // 2. Now, call the separate IPC to clear the metadata for all of its children.
-      const success = await window.api.clearChildrenMetadata(item.id)
-      if (success) {
-        onClose()
+      if (isVirtual) {
+        const childIds = item.children.map((c) => c.id)
+        const success = await window.api.clearVirtualFolderMetadata(childIds)
+        if (success) {
+          onClose()
+        }
       } else {
-        // The main process will show an error dialog if it fails.
+        // 1. Save current settings for the folder first by calling the existing update IPC.
+        const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
+        updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
+        updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
+        updatedItem.process_tv_children = processTvChildren === true ? undefined : false
+        await window.api.updateItem(updatedItem)
+
+        // 2. Now, call the separate IPC to clear the metadata for all of its children.
+        const success = await window.api.clearChildrenMetadata(item.id)
+        if (success) {
+          onClose()
+        } else {
+          // The main process will show an error dialog if it fails.
+        }
       }
     }
   }
@@ -80,46 +93,56 @@
   })
 </script>
 
-<ModalWindow title="Folder Settings" {onClose} onSave={handleSave}>
+<ModalWindow
+  title="Folder Settings"
+  {onClose}
+  onSave={isVirtual ? undefined : handleSave}
+  saveText={isVirtual ? undefined : 'Save & Close'}
+  cancelText={isVirtual ? 'Close' : 'Cancel'}
+>
   <div class="content">
-    <p class="help-text">Configure retriever settings for "{item.title ?? item.name}".</p>
+    <p class="help-text">Configure settings for "{item.title ?? item.name}".</p>
 
-    <div class="settings-group">
-      <label class="checkbox-label">
-        <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
-        <span>This folder directly contains media items (e.g., movies or TV shows)</span>
-      </label>
-      <p class="help-text">
-        Enable this to fetch movie or TV show metadata for direct children of this folder.
-      </p>
-    </div>
-
-    <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
-      <label for="children-type-hint">Children Type Hint</label>
-      <select
-        id="children-type-hint"
-        bind:value={childrenTypeHint}
-        disabled={!retrieveChildrenMetadata}
-      >
-        <option value="auto">Automatic Detection</option>
-        <option value="movie">Movie</option>
-        <option value="tv">TV Show</option>
-      </select>
-      <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
-    </div>
-
-    {#if item.mediaType === 'tv'}
+    {#if !isVirtual}
       <div class="settings-group">
         <label class="checkbox-label">
-          <input type="checkbox" bind:checked={processTvChildren} />
-          <span>Enable TV show processing (seasons & episodes)</span>
+          <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
+          <span>This folder directly contains media items (e.g., movies or TV shows)</span>
         </label>
         <p class="help-text">
-          If enabled, the app will analyze file/folder names to identify seasons and episodes, and
-          fetch their specific metadata. Disable this for folders that contain TV shows but should
-          be treated as simple folders.
+          Enable this to fetch movie or TV show metadata for direct children of this folder.
         </p>
       </div>
+
+      <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
+        <label for="children-type-hint">Children Type Hint</label>
+        <select
+          id="children-type-hint"
+          bind:value={childrenTypeHint}
+          disabled={!retrieveChildrenMetadata}
+        >
+          <option value="auto">Automatic Detection</option>
+          <option value="movie">Movie</option>
+          <option value="tv">TV Show</option>
+        </select>
+        <p class="help-text">
+          Improves matching accuracy by telling the retriever what to look for.
+        </p>
+      </div>
+
+      {#if item.mediaType === 'tv'}
+        <div class="settings-group">
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={processTvChildren} />
+            <span>Enable TV show processing (seasons & episodes)</span>
+          </label>
+          <p class="help-text">
+            If enabled, the app will analyze file/folder names to identify seasons and episodes, and
+            fetch their specific metadata. Disable this for folders that contain TV shows but should
+            be treated as simple folders.
+          </p>
+        </div>
+      {/if}
     {/if}
 
     <div class="danger-zone">
@@ -128,11 +151,11 @@
       </div>
       <div>
         <button class="danger" onclick={handleClearMetadata}>
-          Recursively Clear Children Metadata...
+          Clear All Children Metadata...
         </button>
         <p class="help-text danger-help-text">
-          Removes all fetched data (titles, posters, tags, etc.) for every item inside this folder,
-          recursively. This is useful for forcing a complete re-fetch from scratch.
+          Removes all fetched data (titles, posters, tags, etc.) for every item inside this folder.
+          This is useful for forcing a complete re-fetch from scratch.
         </p>
       </div>
     </div>

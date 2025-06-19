@@ -31,6 +31,8 @@
     onShowProperties: () => void
   } = $props()
 
+  const isVirtual = $derived((item as any).isVirtual === true)
+
   let menuElement = $state<HTMLDivElement>()
   let submenuElement = $state<HTMLDivElement>()
   let submenuVisible = $state(false)
@@ -176,65 +178,94 @@
     onmousedown={(e) => e.stopPropagation()}
     oncontextmenu={(e) => e.stopPropagation()}
   >
-    {#if isTreeView && item.type === 'folder'}
+    {#if !isVirtual}
+      {#if isTreeView && item.type === 'folder'}
+        <button
+          class="context-menu-item"
+          onclick={handleOpen}
+          onmouseenter={() => (submenuVisible = false)}
+        >
+          Open
+        </button>
+      {/if}
       <button
         class="context-menu-item"
-        onclick={handleOpen}
+        onclick={handleEdit}
         onmouseenter={() => (submenuVisible = false)}
       >
-        Open
+        <span class="icon">✏️</span>
+        <span>Edit Metadata</span>
+      </button>
+      <button
+        class="context-menu-item"
+        onclick={handleManualSearch}
+        onmouseenter={() => (submenuVisible = false)}
+      >
+        <span class="icon">🔍</span>
+        <span>Manual Search...</span>
+      </button>
+      <button
+        class="context-menu-item"
+        onclick={handleArtwork}
+        onmouseenter={() => (submenuVisible = false)}
+      >
+        <span class="icon">🖼️</span>
+        <span>Artwork...</span>
       </button>
     {/if}
-    <button
-      class="context-menu-item"
-      onclick={handleEdit}
-      onmouseenter={() => (submenuVisible = false)}
-    >
-      <span class="icon">✏️</span>
-      <span>Edit Metadata</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleManualSearch}
-      onmouseenter={() => (submenuVisible = false)}
-    >
-      <span class="icon">🔍</span>
-      <span>Manual Search...</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleArtwork}
-      onmouseenter={() => (submenuVisible = false)}
-    >
-      <span class="icon">🖼️</span>
-      <span>Artwork...</span>
-    </button>
+
     {#if item.type === 'folder'}
-      <button
-        class="context-menu-item"
-        onclick={handleLayout}
-        onmouseenter={() => (submenuVisible = false)}
-      >
-        <span class="icon">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-            ></rect>
-            <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-            ></rect>
-            <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-            ></rect>
-            <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-            ></rect>
-          </svg>
-        </span>
-        <span>Set View...</span>
-      </button>
+      {#if !isVirtual}
+        <button
+          class="context-menu-item"
+          onclick={handleLayout}
+          onmouseenter={() => (submenuVisible = false)}
+        >
+          <span class="icon">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                x="2"
+                y="2"
+                width="5"
+                height="5"
+                rx="1"
+                stroke="currentColor"
+                stroke-width="1.5"></rect>
+              <rect
+                x="9"
+                y="2"
+                width="5"
+                height="5"
+                rx="1"
+                stroke="currentColor"
+                stroke-width="1.5"></rect>
+              <rect
+                x="2"
+                y="9"
+                width="5"
+                height="5"
+                rx="1"
+                stroke="currentColor"
+                stroke-width="1.5"></rect>
+              <rect
+                x="9"
+                y="9"
+                width="5"
+                height="5"
+                rx="1"
+                stroke="currentColor"
+                stroke-width="1.5"></rect>
+            </svg>
+          </span>
+          <span>Set View...</span>
+        </button>
+      {/if}
       <button
         class="context-menu-item"
         onclick={handleFolderSettings}
@@ -244,7 +275,7 @@
         <span>Folder Settings...</span>
       </button>
     {/if}
-    {#if item.path}
+    {#if !isVirtual && item.path}
       <div class="separator" onmouseenter={() => (submenuVisible = false)}></div>
       <div
         class="submenu-container"
