@@ -14,7 +14,9 @@
   import FilterBar from './components/FilterBar.svelte'
   import ListView from './components/media-views/ListView.svelte'
   import InitialFolderSettingsModal from './components/InitialFolderSettingsModal.svelte'
+  import Dialog from './components/Dialog.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
+  import { dialogStore } from './lib/dialog-store'
   import {
     getLoadedItem,
     updateCachedItem,
@@ -95,6 +97,16 @@
   let contextMenuLayout = $state<string | undefined>(undefined)
   let isContextMenuVisible = $state(false)
 
+  // --- Global Dialog State ---
+  let activeDialogs = $state<any[]>([])
+  $effect(() => {
+    const unsubscribe = dialogStore.subscribe((dialogs) => {
+      activeDialogs = dialogs
+    })
+    return unsubscribe
+  })
+  // ---
+
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
   const canGoBack = $derived(
     selectedItemForDetailView !== null || viewStack.length > 1 || isGlobalSearchActive
@@ -127,7 +139,25 @@
     const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((s) => {
       allAutocompleteSuggestions = s
     })
-    return () => unlistenSuggestions()
+
+    const unlistenErrors = window.api.onShowErrorDialog((options) => {
+      try {
+        dialogStore.showError(options)
+      } catch (e) {
+        console.error(
+          'FATAL: Custom error dialog system failed to show. Falling back to native alert.',
+          e
+        )
+        console.error('Original Error Message:', options)
+        // This is the last-resort fallback. It's ugly, but it guarantees the user sees the error.
+        alert(`[ERROR] ${options.title}\n\n${options.message}\n\n${options.detail ?? ''}`)
+      }
+    })
+
+    return () => {
+      unlistenSuggestions()
+      unlistenErrors()
+    }
   })
 
   // This effect is reactive and will update the CSS variable whenever the settings change
@@ -497,9 +527,15 @@
       return
     }
 
-    const confirmed = confirm(
-      `Are you sure you want to move "${item.title ?? item.name}" to the trash?\n\nThis action cannot be undone from within the app.`
-    )
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Deletion',
+      message: `Are you sure you want to move "${item.title ?? item.name}" to the trash?`,
+      detail: 'This action cannot be undone from within the app.',
+      confirmText: 'Move to Trash',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+
     if (!confirmed) {
       return
     }
@@ -899,6 +935,17 @@
         handleShowProperties(contextMenuItem)
       }
     }}
+  />
+{/if}
+
+{#if activeDialogs.length > 0}
+  {@const dialog = activeDialogs[0]}
+  <Dialog
+    title={dialog.title}
+    message={dialog.message}
+    detail={dialog.detail}
+    buttons={dialog.buttons}
+    onClose={(value) => dialogStore.close(value)}
   />
 {/if}
 

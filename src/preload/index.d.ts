@@ -158,8 +158,6 @@ declare global {
       trashItem: (path: string) => Promise<boolean>
       renameItem: (oldPath: string, newName: string) => Promise<boolean>
       getItemProperties: (path: string) => Promise<any | null>
-      // Dialogs
-      showConfirmationDialog: (options: any) => Promise<{ response: number; [key: string]: any }>
       // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void
@@ -170,6 +168,9 @@ declare global {
       onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void) => () => void
       onAutocompleteSuggestionsUpdated: (
         callback: (suggestions: AutocompleteSuggestions) => void
+      ) => () => void
+      onShowErrorDialog: (
+        callback: (options: { title: string; message: string; detail?: string }) => void
       ) => () => void
     }
   }

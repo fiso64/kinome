@@ -145,11 +145,7 @@ app.whenReady().then(() => {
   })
   // --- End Window Control IPC Handlers ---
 
-  ipcMain.handle('show-confirmation-dialog', async (event, options) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    if (!window) return { response: 1 } // Default to cancel if window not found
-    return await dialog.showMessageBox(window, options)
-  })
+
 
   createWindow()
 

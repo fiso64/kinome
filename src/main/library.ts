@@ -950,10 +950,10 @@ export function setupLibraryIpc(): void {
 
     if (!db || !db.root || !playerCommand) {
       console.error('Cannot play file: database or player command not configured.')
-      dialog.showErrorBox(
-        'Configuration Error',
-        'Player command is not configured. Please set it in Settings.'
-      )
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Configuration Error',
+        message: 'Player command is not configured. Please set it in Settings.'
+      })
       return false
     }
 
@@ -975,10 +975,11 @@ export function setupLibraryIpc(): void {
     exec(command, (error) => {
       if (error) {
         console.error(`Failed to execute player command: ${error.message}`)
-        dialog.showErrorBox(
-          'Player Error',
-          `Failed to launch player. Please check your command in Settings.\n\nCommand: ${command}\n\nError: ${error.message}`
-        )
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Player Error',
+          message: 'Failed to launch the external player.',
+          detail: `Please check your player command in Settings.\n\nCommand: ${command}\nError: ${error.message}`
+        })
       }
     })
 
@@ -1416,7 +1417,10 @@ export function setupLibraryIpc(): void {
         window?.webContents.send('library-item-updated', plainItem)
       } catch (err) {
         console.error(`Failed to set image for ${itemId}:`, err)
-        dialog.showErrorBox('Image Error', `Failed to set image. Check logs for details.`)
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Image Error',
+          message: 'Failed to set the selected image. See logs for more details.'
+        })
       }
     }
   )
@@ -1452,10 +1456,11 @@ export function setupLibraryIpc(): void {
       return true
     } catch (error) {
       console.error(`Failed to trash item at ${itemPath}:`, error)
-      dialog.showErrorBox(
-        'Deletion Error',
-        `Failed to move item to trash. Check logs or file permissions.\n\nError: ${(error as Error).message}`
-      )
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Deletion Error',
+        message: 'Failed to move item to trash. Check file permissions or see logs for details.',
+        detail: (error as Error).message
+      })
       return false
     }
   })
@@ -1475,10 +1480,11 @@ export function setupLibraryIpc(): void {
       return true
     } catch (error) {
       console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
-      dialog.showErrorBox(
-        'Rename Error',
-        `Failed to rename item. Check logs or file permissions.\n\nError: ${(error as Error).message}`
-      )
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Rename Error',
+        message: 'Failed to rename item. Check file permissions or see logs for details.',
+        detail: (error as Error).message
+      })
       return false
     }
   })

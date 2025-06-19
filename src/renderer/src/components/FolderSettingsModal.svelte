@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './ModalWindow.svelte'
+  import { dialogStore } from '../lib/dialog-store'
 
   let {
     item,
@@ -35,18 +36,16 @@
   }
 
   async function handleClearMetadata() {
-    const result = await window.api.showConfirmationDialog({
-      type: 'warning',
-      buttons: ['Cancel', 'Clear Metadata'],
-      defaultId: 0, // 'Cancel' is the default
-      cancelId: 0,
+    const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Metadata Clearing',
       message: `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`,
-      detail: 'This action cannot be undone.'
+      detail: 'This action cannot be undone.',
+      confirmText: 'Clear Metadata',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
     })
 
-    // result.response will be the index of the button clicked. 1 is "Clear Metadata".
-    if (result.response === 1) {
+    if (confirmed) {
       // 1. Save current settings for the folder first by calling the existing update IPC.
       const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
       updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
@@ -59,7 +58,7 @@
       if (success) {
         onClose()
       } else {
-        alert('Failed to clear metadata. See console for details.')
+        // The main process will show an error dialog if it fails.
       }
     }
   }
