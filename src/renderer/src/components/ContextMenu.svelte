@@ -309,6 +309,7 @@
     width: max-content;
     overflow: visible; /* Allow submenu to overflow */
     padding: 0.25rem;
+    animation: fadeIn 0.15s ease-out;
   }
 
   .context-menu-item {
