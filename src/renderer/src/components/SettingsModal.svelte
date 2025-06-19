@@ -13,7 +13,6 @@
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
   let defaultFolderLayout = $state<'grid' | 'list' | 'tree'>('grid')
-  let showDetailMediaSection = $state(true)
   let gridPosterSize = $state(200)
   let originalGridPosterSize = 200
   let defaultMovieFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('tree')
@@ -27,7 +26,6 @@
       useLogos = settings.useLogos ?? true
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
       defaultFolderLayout = settings.defaultFolderLayout ?? 'grid'
-      showDetailMediaSection = settings.showDetailMediaSection ?? true
       gridPosterSize = settings.gridPosterSize ?? 200
       originalGridPosterSize = settings.gridPosterSize ?? 200
       defaultMovieFolderLayout = settings.defaultMovieFolderLayout ?? 'tree'
@@ -94,7 +92,6 @@
       useLogos,
       virtualTags: tagsToSave,
       defaultFolderLayout,
-      showDetailMediaSection,
       gridPosterSize,
       defaultMovieFolderLayout,
       defaultTvShowFolderLayout,
@@ -179,16 +176,6 @@
         </select>
         <p class="help-text">
           The default view used for folders that do not have a specific layout set.
-        </p>
-      </div>
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showDetailMediaSection} />
-          <span>Show "Media" section in detail view</span>
-        </label>
-        <p class="help-text">
-          For folders with sub-items that have posters, a "Media" section is shown on the detail
-          page. Disable this to hide it.
         </p>
       </div>
       <div class="form-group">

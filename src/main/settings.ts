@@ -8,7 +8,6 @@ export interface Settings {
   useLogos?: boolean
   virtualTags?: { name: string; expression: string }[]
   defaultFolderLayout?: 'grid' | 'list' | 'tree'
-  showDetailMediaSection?: boolean
   gridPosterSize?: number
   defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
@@ -28,7 +27,6 @@ async function readRawSettings(): Promise<Settings> {
     useLogos: true,
     virtualTags: [],
     defaultFolderLayout: 'grid',
-    showDetailMediaSection: true,
     gridPosterSize: 200,
     defaultMovieFolderLayout: 'tree',
     defaultTvShowFolderLayout: 'list',

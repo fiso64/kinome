@@ -45,35 +45,7 @@
     })()
   )
 
-  function findMediaDescendants(node: LibraryItem): LibraryItem[] {
-    if (node.type !== 'folder') {
-      return []
-    }
-    const mediaItems: LibraryItem[] = []
-    function recurse(items: LibraryItem[]) {
-      // Guard against lazy-loaded children which can be null.
-      if (!Array.isArray(items)) return
-
-      for (const currentItem of items) {
-        // If the item itself has a poster, add it and DO NOT recurse further down this branch.
-        if (currentItem.posterPath) {
-          mediaItems.push(currentItem)
-        } else if (currentItem.type === 'folder') {
-          // If it's a folder without a poster, look inside for items that might have one.
-          recurse(currentItem.children)
-        }
-      }
-    }
-    recurse(node.children)
-    return mediaItems
-  }
-
-  const mediaDescendants = $derived(findMediaDescendants(item))
-  const showRegularContents = $derived(
-    item.type === 'folder' &&
-      item.children.length > 0 &&
-      (!(settings.showDetailMediaSection ?? true) || !item.children.every((child) => child.posterPath))
-  )
+  const showRegularContents = $derived(item.type === 'folder' && item.children.length > 0)
 
   // These values help manage the individual image fade-in animations.
   let isBackdropLoaded = $state(false)
@@ -178,7 +150,9 @@
 
     {#if showRegularContents && item.type === 'folder'}
       <div class="children-section">
-        <h2 class="section-title">Contents</h2>
+        {#if contentsLayout !== 'tabs' && contentsLayout !== 'sections'}
+          <h2 class="section-title">Contents</h2>
+        {/if}
         <MediaView
           parentItem={item}
           items={item.children}
@@ -198,20 +172,6 @@
           items={fileAsChild}
           {onItemClick}
           layout="tree"
-          onShowContextMenu={showContextMenu}
-          {settings}
-        />
-      </div>
-    {/if}
-
-    {#if (settings.showDetailMediaSection ?? true) && mediaDescendants.length > 0 && !isSpecialFile}
-      <div class="children-section">
-        <h2 class="section-title">Media</h2>
-        <MediaView
-          parentItem={item}
-          items={mediaDescendants}
-          {onItemClick}
-          layout={'grid'}
           onShowContextMenu={showContextMenu}
           {settings}
         />

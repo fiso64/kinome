@@ -7,7 +7,6 @@ declare global {
     useLogos?: boolean
     virtualTags?: { name: string; expression: string }[]
     defaultFolderLayout?: 'grid' | 'list' | 'tree'
-    showDetailMediaSection?: boolean
     gridPosterSize?: number
     defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
