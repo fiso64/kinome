@@ -22,7 +22,6 @@
   let isDragging = $state(false)
   let position = $state({ x: 0, y: 0 })
   let dragStartPos = $state({ mouseX: 0, mouseY: 0, elementX: 0, elementY: 0 })
-  let modalElement: HTMLDivElement
 
   function handleDragStart(event: MouseEvent) {
     // Don't drag if a button in the header is clicked
@@ -56,38 +55,39 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <div class="modal-backdrop" onmousedown={(e) => e.target === e.currentTarget && onClose()}>
-  <div
-    bind:this={modalElement}
-    class="modal-window"
-    style="transform: translate({position.x}px, {position.y}px); max-width: {maxWidth};"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="modal-title"
-  >
-    <header class="modal-header" onmousedown={handleDragStart} class:dragging={isDragging}>
-      <h2 id="modal-title">{title}</h2>
-      <div class="header-extra">
-        {#if header}
-          {@render header()}
-        {/if}
+  <div class="modal-positioner" style="transform: translate({position.x}px, {position.y}px);">
+    <div
+      class="modal-window"
+      style="max-width: {maxWidth};"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
+      <header class="modal-header" onmousedown={handleDragStart} class:dragging={isDragging}>
+        <h2 id="modal-title">{title}</h2>
+        <div class="header-extra">
+          {#if header}
+            {@render header()}
+          {/if}
+        </div>
+        <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
+      </header>
+
+      <div class="modal-body">
+        {@render children()}
       </div>
-      <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
-    </header>
 
-    <div class="modal-body">
-      {@render children()}
+      {#if onSave || cancelText}
+        <footer class="modal-actions">
+          {#if cancelText}
+            <button class="secondary" onclick={onClose}>{cancelText}</button>
+          {/if}
+          {#if onSave}
+            <button class="primary" onclick={onSave}>{saveText}</button>
+          {/if}
+        </footer>
+      {/if}
     </div>
-
-    {#if onSave || cancelText}
-      <footer class="modal-actions">
-        {#if cancelText}
-          <button class="secondary" onclick={onClose}>{cancelText}</button>
-        {/if}
-        {#if onSave}
-          <button class="primary" onclick={onSave}>{saveText}</button>
-        {/if}
-      </footer>
-    {/if}
   </div>
 </div>
 
@@ -105,8 +105,10 @@
     padding-top: 10vh; /* Give some space from the top */
     z-index: 100;
   }
+  .modal-positioner {
+    /* This is a simple wrapper for positioning */
+  }
   .modal-window {
-    position: relative;
     background-color: var(--color-background-soft);
     border-radius: 8px;
     width: 90%;
@@ -114,8 +116,20 @@
     flex-direction: column;
     max-height: 90vh;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    /* The transform is set inline */
+    animation: modal-pop-in 0.1s ease-out;
   }
+
+  @keyframes modal-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
   .modal-header {
     display: flex;
     align-items: center;
