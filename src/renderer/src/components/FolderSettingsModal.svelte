@@ -50,7 +50,6 @@
       const success = await window.api.clearChildrenMetadata(item.id)
       if (success) {
         onClose()
-        // await onNeedRefresh()
       } else {
         alert('Failed to clear metadata. See console for details.')
       }
