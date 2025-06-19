@@ -26,6 +26,7 @@ import {
   cacheGenreLists,
   fetchAndApplyMetadata,
   fetchItemDetails,
+  applyTvShowData,
   fetchAndApplyEpisodeData,
   refetchPoster,
   manualSearch,
@@ -814,12 +815,12 @@ export function setupLibraryIpc(): void {
     }
 
     // --- TV Show Structure Processing ---
-    // If it's a TV show root that hasn't had its details fetched yet, process its structure to assign season/episode numbers locally first.
+    // If it's a TV show root that hasn't had its episodes fetched yet, process its structure to assign season/episode numbers locally first.
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
       (item as MediaFolder).process_tv_children !== false &&
-      !item.tmdbDetailsFetched
+      !(item as MediaFolder).tmdbEpisodesFetched
     ) {
       setBulkUpdateStatus(true)
       processTvShowStructure(item as MediaFolder)
@@ -828,7 +829,9 @@ export function setupLibraryIpc(): void {
 
     // If it's a season folder that needs details, process its children to assign episode numbers locally.
     const isSeasonNeedingDetails =
-      item.type === 'folder' && item.mediaType === 'season' && !item.tmdbDetailsFetched
+      item.type === 'folder' &&
+      item.mediaType === 'season' &&
+      !(item as MediaFolder).tmdbEpisodesFetched
     if (isSeasonNeedingDetails) {
       const showFolder = findParent(item.id, db!.root!)
       // Only process if the parent TV show allows it.
@@ -866,34 +869,48 @@ export function setupLibraryIpc(): void {
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
     // --- Fire-and-Forget Background Fetch ---
-    // If details are missing, start a background fetch but DO NOT wait for it.
-    // This now covers both standard items and season folders needing episode data.
-    if (!item.tmdbDetailsFetched) {
+    // Determine if any fetching is needed.
+    const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
+    const needsEpisodeFetch =
+      item.type === 'folder' &&
+      (item.mediaType === 'tv' || item.mediaType === 'season') &&
+      !item.tmdbEpisodesFetched
+
+    if (needsDetailsFetch || needsEpisodeFetch) {
       ;(async () => {
         setBulkUpdateStatus(true)
         try {
           const settings = await readSettings()
           if (!settings.tmdbApiKey) return
 
-          const isSeason = item.type === 'folder' && item.mediaType === 'season'
-          // A season needs its parent show's ID to fetch episode data.
-          if (isSeason) {
-            const showFolder = findParent(item.id, db!.root!)
-            if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-              log(`[Details] Starting background episode fetch for season "${item.name}"`)
-              await fetchAndApplyEpisodeData(
-                item as MediaFolder,
-                showFolder.tmdbId,
-                settings.tmdbApiKey,
-                getLibraryDataPath()
-              )
-            }
-          } else if (item.tmdbId) {
-            // Fetch standard details for a movie or TV show root.
-            log(`[Details] Starting background fetch for "${item.name}" (${item.id})`)
+          // --- Case 1: The item's own details are missing. Fetch them. ---
+          // The `fetchItemDetails` function will subsequently call `applyTvShowData` if needed.
+          if (needsDetailsFetch) {
+            log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
             await fetchItemDetails(item, settings, getLibraryDataPath())
           }
-          item._v = Date.now()
+          // --- Case 2: The item's details are present, but its children's are not. ---
+          else if (needsEpisodeFetch && item.type === 'folder') {
+            if (item.mediaType === 'season') {
+              const showFolder = findParent(item.id, db!.root!)
+              if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
+                log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+                await fetchAndApplyEpisodeData(
+                  item,
+                  showFolder.tmdbId,
+                  settings.tmdbApiKey,
+                  getLibraryDataPath()
+                )
+              }
+            } else if (item.mediaType === 'tv') {
+              log(
+                `[Details] TV show episode data missing. Processing children for "${item.name}"`
+              )
+              await applyTvShowData(item, settings, getLibraryDataPath())
+            }
+          }
+
+          item._v = Date.now() // Bust UI cache
         } catch (err) {
           // Catch errors within the fire-and-forget block to prevent unhandled rejections.
           console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
@@ -1056,6 +1073,7 @@ export function setupLibraryIpc(): void {
         // MediaFolder
         item.seasonNumber = undefined
         item.tmdbSeasons = undefined
+        item.tmdbEpisodesFetched = undefined
       }
 
       modifiedItems.push(item)
@@ -1072,6 +1090,10 @@ export function setupLibraryIpc(): void {
 
     try {
       await clearChildrenRecursively(parentFolder)
+
+      // Also reset the flag on the parent folder itself to allow re-processing.
+      parentFolder.tmdbEpisodesFetched = undefined
+      modifiedItems.push(parentFolder)
 
       // Re-apply virtual tags for all modified items
       const currentSettings = await readSettings()
@@ -1194,10 +1216,12 @@ export function setupLibraryIpc(): void {
       // old, incorrect season and episode data that might be cached on its children.
       if (item.type === 'folder' && mediaType === 'tv') {
         item.tmdbSeasons = undefined // Clear cached season list from TMDB
+        item.tmdbEpisodesFetched = undefined // Allow re-processing of show structure
         for (const season of item.children) {
           if (season.type === 'folder' && season.mediaType === 'season') {
             // Reset the flag to allow lazy-loading to trigger again.
             season.tmdbDetailsFetched = false
+            season.tmdbEpisodesFetched = undefined // Allow re-processing of season
             // Clear out the old, incorrect episode posters and bust their cache.
             for (const episode of season.children) {
               if (episode.type === 'file' && episode.mediaType === 'episode') {

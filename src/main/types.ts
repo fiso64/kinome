@@ -49,6 +49,7 @@ export interface MediaFolder {
   // TV Show specific settings
   process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
   tmdbDetailsFetched?: boolean
+  tmdbEpisodesFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   // TV Show properties

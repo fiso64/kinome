@@ -345,20 +345,44 @@ export async function fetchItemDetails(
       (item as MediaFolder).process_tv_children !== false &&
       details.seasons
     ) {
-      console.log(`[TMDB] Found ${details.seasons.length} seasons for "${item.name}".`)
       item.tmdbSeasons = details.seasons // Cache the full season data
+      await applyTvShowData(item, settings, libraryDataPath)
+    }
+  } catch (error) {
+    console.error(`Error fetching full details for "${item.name}":`, error)
+  }
+}
 
-      const seasonFolders = item.children.filter(
-        (c) => c.type === 'folder' && c.mediaType === 'season'
-      ) as MediaFolder[]
+/**
+ * Processes the children of a TV show folder (seasons, episodes) using
+ * the pre-cached `tmdbSeasons` data on the item.
+ * This function does NOT fetch the show's own details, only its children's.
+ */
+export async function applyTvShowData(
+  item: MediaFolder,
+  settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
+  libraryDataPath: string
+): Promise<void> {
+  const imagesDir = getImagesPath(libraryDataPath)
 
-      if (seasonFolders.length > 0) {
-        // Scenario A: Map TMDB season data to local season folders
-        for (const seasonFolder of seasonFolders) {
-          const tmdbSeason = details.seasons.find(
-            (s) => s.season_number === seasonFolder.seasonNumber
-          )
-          if (tmdbSeason) {
+  if (
+    item.type === 'folder' &&
+    item.mediaType === 'tv' &&
+    item.process_tv_children !== false &&
+    item.tmdbSeasons
+  ) {
+    console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
+    const tmdbSeasons = item.tmdbSeasons
+
+    const seasonFolders = item.children.filter(
+      (c) => c.type === 'folder' && c.mediaType === 'season'
+    ) as MediaFolder[]
+
+    if (seasonFolders.length > 0) {
+      // Scenario A: Map TMDB season data to local season folders
+      for (const seasonFolder of seasonFolders) {
+        const tmdbSeason = tmdbSeasons.find((s) => s.season_number === seasonFolder.seasonNumber)
+        if (tmdbSeason) {
             seasonFolder.title = tmdbSeason.name
             seasonFolder.overview = tmdbSeason.overview
             if (tmdbSeason.poster_path) {
@@ -403,12 +427,14 @@ export async function fetchItemDetails(
               libraryDataPath
             )
           }
+          // The show is in file mode and we've attempted to fetch all episodes.
+          // Mark it as processed.
+          item.tmdbEpisodesFetched = true
         }
       }
+      // If we've reached this point, we have processed the seasons/episodes.
+      item.tmdbEpisodesFetched = true
     }
-  } catch (error) {
-    console.error(`Error fetching full details for "${item.name}":`, error)
-  }
 }
 
 /**
@@ -477,7 +503,10 @@ export async function fetchAndApplyEpisodeData(
       }
     }
 
-    // Mark details as fetched to prevent future redundant API calls for this season.
+    // Mark episodes as fetched to prevent future redundant API calls for this season.
+    // We also set tmdbDetailsFetched because the season detail API includes the season's
+    // own metadata (name, overview, etc.), so this counts as a full detail fetch.
+    seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
   } catch (error) {
     console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
