@@ -16,6 +16,9 @@
 
   // Use an effect to reset active index when suggestions change
   $effect(() => {
+    // By reading `suggestions` here, we create a dependency.
+    // This effect will now re-run whenever the suggestions array changes.
+    void suggestions
     activeIndex = 0
   })
 
