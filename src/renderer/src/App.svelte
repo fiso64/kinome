@@ -348,6 +348,21 @@
         })
         searchResults = [...searchResults]
       }
+
+      // --- Case 4: Update the item in an active modal. ---
+      if (
+        (activeModal?.type === 'manualSearch' ||
+          activeModal?.type === 'metadataEditor' ||
+          activeModal?.type === 'properties' ||
+          activeModal?.type === 'rename') &&
+        activeModal.item.id === updatedItem.id
+      ) {
+        // Re-create the modal object to ensure reactivity, passing the updated item.
+        activeModal = {
+          ...activeModal,
+          item: { ...activeModal.item, ...updatedItem }
+        }
+      }
     })
     return () => unlisten()
   })
@@ -387,6 +402,19 @@
           itemInSearch.posterPath = updatedItem.posterPath
           itemInSearch._v = updatedItem._v
         }
+
+        // Also check if the updated item is being displayed in a modal
+        if (
+          (activeModal?.type === 'manualSearch' ||
+            activeModal?.type === 'metadataEditor' ||
+            activeModal?.type === 'properties' ||
+            activeModal?.type === 'rename') &&
+          activeModal.item.id === updatedItem.id
+        ) {
+          // The item object in the modal is a copy, so we need to update it.
+          // We will trigger a top-level update after the loop.
+          Object.assign(activeModal.item, updatedItem)
+        }
       }
 
       // Trigger reactivity after all items in the batch are processed
@@ -394,6 +422,9 @@
       searchResults = [...searchResults]
       if (selectedItemForDetailView) {
         selectedItemForDetailView = { ...selectedItemForDetailView }
+      }
+      if (activeModal) {
+        activeModal = { ...activeModal }
       }
     })
     return () => unlisten()
