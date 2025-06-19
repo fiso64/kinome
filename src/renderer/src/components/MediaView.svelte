@@ -25,7 +25,8 @@
     suggestions,
     highlightedIndex,
     isPreSorted = false,
-    grayOutWatched = true
+    grayOutWatched = true,
+    settings
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -41,6 +42,7 @@
     highlightedIndex?: number | null
     isPreSorted?: boolean
     grayOutWatched?: boolean
+    settings?: Settings | null
   } = $props()
 
   const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
@@ -179,6 +181,7 @@
       {onShowContextMenu}
       {suggestions}
       {grayOutWatched}
+      {settings}
     />
   {:else if layout === 'sections'}
     <SectionsView
@@ -187,6 +190,7 @@
       {onShowContextMenu}
       {suggestions}
       {grayOutWatched}
+      {settings}
     />
   {/if}
 </div>

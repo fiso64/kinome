@@ -1053,6 +1053,7 @@
                 layout={currentFolder.layout ?? settings?.defaultFolderLayout ?? 'grid'}
                 onShowContextMenu={handleShowContextMenu}
                 suggestions={allAutocompleteSuggestions}
+                {settings}
               />
             </div>
           </div>
