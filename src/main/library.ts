@@ -710,6 +710,8 @@ export function setupLibraryIpc(): void {
             year: oldItem.year,
             genres: oldItem.genres,
             tags: oldItem.tags,
+            tmdbDetailsFetched:
+              oldItem.type === 'file' ? oldItem.tmdbDetailsFetched : oldItem.tmdbDetailsFetched,
             _v: oldItem._v,
             ...oldFolderProps,
             watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
@@ -814,24 +816,22 @@ export function setupLibraryIpc(): void {
     }
 
     // --- TV Show Structure Processing ---
-    // If it's a TV show root, process its structure to assign season/episode numbers locally first.
+    // If it's a TV show root that hasn't had its details fetched yet, process its structure to assign season/episode numbers locally first.
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
       (item as MediaFolder).process_tv_children !== false &&
-      !item.tmdbSeasons
+      !item.tmdbDetailsFetched
     ) {
       setBulkUpdateStatus(true)
       processTvShowStructure(item as MediaFolder)
       setBulkUpdateStatus(false)
     }
 
-    // If it's a season folder, process its children to assign episode numbers locally.
-    const isSeasonFolder =
-      item.type === 'folder' &&
-      item.mediaType === 'season' &&
-      !(item as MediaFolder).tmdbEpisodeDataFetched
-    if (isSeasonFolder) {
+    // If it's a season folder that needs details, process its children to assign episode numbers locally.
+    const isSeasonNeedingDetails =
+      item.type === 'folder' && item.mediaType === 'season' && !item.tmdbDetailsFetched
+    if (isSeasonNeedingDetails) {
       const showFolder = findParent(item.id, db!.root!)
       // Only process if the parent TV show allows it.
       if (showFolder?.process_tv_children !== false) {
@@ -867,38 +867,19 @@ export function setupLibraryIpc(): void {
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
-    // Combine checks. For TV, we also want to fetch if `tmdbSeasons` is missing,
-    // but ONLY if TV processing is enabled for this folder.
-    const detailsAlreadyFetched =
-      typeof item.backdropPath !== 'undefined' &&
-      typeof item.logoPath !== 'undefined' &&
-      !(
-        item.type === 'folder' &&
-        item.mediaType === 'tv' &&
-        (item as MediaFolder).process_tv_children !== false &&
-        typeof (item as MediaFolder).tmdbSeasons === 'undefined'
-      )
-
     // --- Fire-and-Forget Background Fetch ---
-    // If details are missing, start a background fetch but DO NOT wait for it to complete.
-    // Also fetch if it's a season folder that needs its episode data.
-    if (!detailsAlreadyFetched || isSeasonFolder) {
-      // Use an IIFE (Immediately Invoked Function Expression) to run the async logic
-      // without blocking the main handler's return.
+    // If details are missing, start a background fetch but DO NOT wait for it.
+    // This now covers both standard items and season folders needing episode data.
+    if (!item.tmdbDetailsFetched) {
       ;(async () => {
         setBulkUpdateStatus(true)
         try {
           const settings = await readSettings()
-          if (!settings.tmdbApiKey) {
-            return
-          }
-          // Allow fetch to proceed if it's a season folder, which gets its tmdbId from its parent.
-          if (!item.tmdbId && !isSeasonFolder) {
-            return
-          }
+          if (!settings.tmdbApiKey) return
 
-          if (isSeasonFolder) {
-            // Lazy-load episode data for a season folder.
+          const isSeason = item.type === 'folder' && item.mediaType === 'season'
+          // A season needs its parent show's ID to fetch episode data.
+          if (isSeason) {
             const showFolder = findParent(item.id, db!.root!)
             if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
               log(`[Details] Starting background episode fetch for season "${item.name}"`)
@@ -908,10 +889,9 @@ export function setupLibraryIpc(): void {
                 settings.tmdbApiKey,
                 getLibraryDataPath()
               )
-              ;(item as MediaFolder).tmdbEpisodeDataFetched = true
             }
-          } else {
-            // Fetch standard details (or TV show root details).
+          } else if (item.tmdbId) {
+            // Fetch standard details for a movie or TV show root.
             log(`[Details] Starting background fetch for "${item.name}" (${item.id})`)
             await fetchItemDetails(item, settings, getLibraryDataPath())
           }
@@ -1103,6 +1083,7 @@ export function setupLibraryIpc(): void {
         item.opensAsFolder = true
       }
       item.posterPath = undefined // Clear poster so it gets re-fetched
+      item.tmdbDetailsFetched = undefined // Clear the details flag to force a refetch
 
       // --- Invalidate TV Show specific data ---
       // If we are applying a new TV match to a folder, we need to clear out any
@@ -1112,7 +1093,7 @@ export function setupLibraryIpc(): void {
         for (const season of item.children) {
           if (season.type === 'folder' && season.mediaType === 'season') {
             // Reset the flag to allow lazy-loading to trigger again.
-            season.tmdbEpisodeDataFetched = false
+            season.tmdbDetailsFetched = false
             // Clear out the old, incorrect episode posters and bust their cache.
             for (const episode of season.children) {
               if (episode.type === 'file' && episode.mediaType === 'episode') {
@@ -1261,6 +1242,8 @@ export function setupLibraryIpc(): void {
       const item = findItemById(itemId, db.root)
       if (!item) return
 
+      // Explicitly set the path to `null` to prevent future automatic fetching.
+      // This is a user action to permanently remove an unwanted image.
       if (imageType === 'poster') item.posterPath = null
       else if (imageType === 'backdrop') item.backdropPath = null
       else if (imageType === 'logo') item.logoPath = null

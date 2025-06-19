@@ -255,6 +255,7 @@ export async function fetchItemDetails(
     const details = await response.json()
 
     // --- Poster ---
+    // Explicitly check if undefined (null means user has permanently removed the image).
     if (typeof item.posterPath === 'undefined') {
       if (details.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
@@ -332,6 +333,10 @@ export async function fetchItemDetails(
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
 
+    // Mark details as fetched to prevent future redundant calls.
+    // This is the last step in a successful fetch.
+    item.tmdbDetailsFetched = true
+
     // --- TV Show Specific Logic ---
     if (
       item.type === 'folder' &&
@@ -395,7 +400,6 @@ export async function fetchItemDetails(
               libraryDataPath
             )
           }
-          ;(item as MediaFolder).tmdbEpisodeDataFetched = true // Mark that we've attempted to fetch episode data.
         }
       }
     }
@@ -471,6 +475,9 @@ export async function fetchAndApplyEpisodeData(
         }
       }
     }
+
+    // Mark details as fetched to prevent future redundant API calls for this season.
+    seasonFolder.tmdbDetailsFetched = true
   } catch (error) {
     console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   }
