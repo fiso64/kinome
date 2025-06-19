@@ -143,11 +143,59 @@
 
         return { itemsForViews: [], foldersForTabsOrSections: vFolders }
       } else {
-        // Group by physical folders.
-        const sortedFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
+        // Group by physical folders, and create a special "Files" group for loose files.
+        const physicalFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
           compareItems
         ) as MediaFolder[]
-        return { itemsForViews: [], foldersForTabsOrSections: sortedFolders }
+
+        const looseFiles = filteredItems.filter((item) => item.type === 'file') as LibraryItem[]
+
+        const allFolders: (MediaFolder | VirtualFolder)[] = [...physicalFolders]
+
+        if (looseFiles.length > 0 && parentItem) {
+          // Determine the appropriate default layout for the "Files" tab based on the parent's type.
+          let childLayout: Layout = 'tree' // A safe fallback
+          if (settings) {
+            switch (parentItem.mediaType) {
+              case 'movie':
+                childLayout = settings.defaultMovieFolderLayout ?? 'tree'
+                break
+              case 'tv':
+                childLayout = settings.defaultTvShowFolderLayout ?? 'list'
+                break
+              case 'season':
+                childLayout = settings.defaultSeasonFolderLayout ?? 'list'
+                break
+              default:
+                // For generic folders, use the global default
+                childLayout = settings.defaultFolderLayout ?? 'grid'
+            }
+          }
+          // A default layout can still be 'tabs' or 'sections', which would cause an infinite loop.
+          // We must downgrade it to a concrete view.
+          if (childLayout === 'tabs' || childLayout === 'sections') {
+            childLayout = 'tree' // 'tree' is a good, safe fallback.
+          }
+
+          const filesFolder: VirtualFolder = {
+            id: `virtual--${parentItem.id}--files`,
+            name: 'Files',
+            title: 'Files',
+            type: 'folder',
+            children: looseFiles,
+            path: '',
+            // These properties identify it as a special virtual folder
+            isVirtual: true,
+            physicalParentId: parentItem.id,
+            groupByKey: 'folder',
+            groupByValue: '__files__',
+            layout: childLayout // Explicitly set the layout for the virtual folder
+          }
+          // Add the "Files" folder to the beginning of the list
+          allFolders.unshift(filesFolder)
+        }
+
+        return { itemsForViews: [], foldersForTabsOrSections: allFolders }
       }
     }
 
