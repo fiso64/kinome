@@ -158,6 +158,8 @@ declare global {
       trashItem: (path: string) => Promise<boolean>
       renameItem: (oldPath: string, newName: string) => Promise<boolean>
       getItemProperties: (path: string) => Promise<any | null>
+      // Dialogs
+      showConfirmationDialog: (options: any) => Promise<{ response: number; [key: string]: any }>
       // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void

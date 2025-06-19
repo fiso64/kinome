@@ -1,6 +1,6 @@
 console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
 
-import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc, getLibraryDataPath } from './library'
@@ -144,6 +144,12 @@ app.whenReady().then(() => {
     return window?.isMaximized() ?? false
   })
   // --- End Window Control IPC Handlers ---
+
+  ipcMain.handle('show-confirmation-dialog', async (event, options) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return { response: 1 } // Default to cancel if window not found
+    return await dialog.showMessageBox(window, options)
+  })
 
   createWindow()
 

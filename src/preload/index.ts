@@ -74,6 +74,10 @@ const api = {
   getItemProperties: (path: string): Promise<any | null> =>
     ipcRenderer.invoke('get-item-properties', path),
 
+  // Dialogs
+  showConfirmationDialog: (options: any): Promise<any> =>
+    ipcRenderer.invoke('show-confirmation-dialog', options),
+
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('get-settings'),
   getLibraryMediaSourcePath: (): Promise<string | null> =>

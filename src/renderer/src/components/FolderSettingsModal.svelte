@@ -35,10 +35,18 @@
   }
 
   async function handleClearMetadata() {
-    const confirmed = confirm(
-      `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.\n\nThis action cannot be undone.\n\nAre you sure you want to proceed?`
-    )
-    if (confirmed) {
+    const result = await window.api.showConfirmationDialog({
+      type: 'warning',
+      buttons: ['Cancel', 'Clear Metadata'],
+      defaultId: 0, // 'Cancel' is the default
+      cancelId: 0,
+      title: 'Confirm Metadata Clearing',
+      message: `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`,
+      detail: 'This action cannot be undone.'
+    })
+
+    // result.response will be the index of the button clicked. 1 is "Clear Metadata".
+    if (result.response === 1) {
       // 1. Save current settings for the folder first by calling the existing update IPC.
       const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
       updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
