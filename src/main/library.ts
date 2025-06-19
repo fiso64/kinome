@@ -694,7 +694,8 @@ export function setupLibraryIpc(): void {
                   retrieve_children_metadata: oldItem.retrieve_children_metadata,
                   children_type_hint: oldItem.children_type_hint,
                   groupBy: oldItem.groupBy,
-                  virtualFolderSettings: oldItem.virtualFolderSettings
+                  virtualFolderSettings: oldItem.virtualFolderSettings,
+                  process_tv_children: (oldItem as MediaFolder).process_tv_children
                 }
               : {}
 
@@ -814,7 +815,12 @@ export function setupLibraryIpc(): void {
 
     // --- TV Show Structure Processing ---
     // If it's a TV show root, process its structure to assign season/episode numbers locally first.
-    if (item.type === 'folder' && item.mediaType === 'tv' && !item.tmdbSeasons) {
+    if (
+      item.type === 'folder' &&
+      item.mediaType === 'tv' &&
+      (item as MediaFolder).process_tv_children !== false &&
+      !item.tmdbSeasons
+    ) {
       setBulkUpdateStatus(true)
       processTvShowStructure(item as MediaFolder)
       setBulkUpdateStatus(false)
@@ -826,42 +832,52 @@ export function setupLibraryIpc(): void {
       item.mediaType === 'season' &&
       !(item as MediaFolder).tmdbEpisodeDataFetched
     if (isSeasonFolder) {
-      setBulkUpdateStatus(true)
-      const episodeFiles = (item as MediaFolder).children.filter(
-        (c) => c.type === 'file'
-      ) as MediaFile[]
+      const showFolder = findParent(item.id, db!.root!)
+      // Only process if the parent TV show allows it.
+      if (showFolder?.process_tv_children !== false) {
+        setBulkUpdateStatus(true)
+        const episodeFiles = (item as MediaFolder).children.filter(
+          (c) => c.type === 'file'
+        ) as MediaFile[]
 
-      // Use the new advanced parser, passing the parent folder's season number.
-      const parsedSuccessfully = processAndAssignEpisodeNumbers(
-        episodeFiles,
-        (item as MediaFolder).seasonNumber
-      )
-
-      if (!parsedSuccessfully) {
-        log(
-          `TV Structure: High-confidence parsing failed for season folder "${item.name}", falling back to alphabetical sort.`
+        // Use the new advanced parser, passing the parent folder's season number.
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(
+          episodeFiles,
+          (item as MediaFolder).seasonNumber
         )
-        // Alphabetical Fallback
-        episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-        episodeFiles.forEach((file, index) => {
-          file.episodeNumber = index + 1
-          // Use the parent folder's season number.
-          file.seasonNumber = (item as MediaFolder).seasonNumber
-          file.mediaType = 'episode'
-        })
+
+        if (!parsedSuccessfully) {
+          log(
+            `TV Structure: High-confidence parsing failed for season folder "${item.name}", falling back to alphabetical sort.`
+          )
+          // Alphabetical Fallback
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, index) => {
+            file.episodeNumber = index + 1
+            // Use the parent folder's season number.
+            file.seasonNumber = (item as MediaFolder).seasonNumber
+            file.mediaType = 'episode'
+          })
+        }
+        setBulkUpdateStatus(false)
       }
-      setBulkUpdateStatus(false)
     }
     // --- End TV Show Structure Processing ---
 
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
-    // Combine checks. For TV, we also want to fetch if `tmdbSeasons` is missing.
+    // Combine checks. For TV, we also want to fetch if `tmdbSeasons` is missing,
+    // but ONLY if TV processing is enabled for this folder.
     const detailsAlreadyFetched =
       typeof item.backdropPath !== 'undefined' &&
       typeof item.logoPath !== 'undefined' &&
-      (item.mediaType !== 'tv' || typeof (item as MediaFolder).tmdbSeasons !== 'undefined')
+      !(
+        item.type === 'folder' &&
+        item.mediaType === 'tv' &&
+        (item as MediaFolder).process_tv_children !== false &&
+        typeof (item as MediaFolder).tmdbSeasons === 'undefined'
+      )
 
     // --- Fire-and-Forget Background Fetch ---
     // If details are missing, start a background fetch but DO NOT wait for it to complete.
@@ -883,9 +899,9 @@ export function setupLibraryIpc(): void {
 
           if (isSeasonFolder) {
             // Lazy-load episode data for a season folder.
-            log(`[Details] Starting background episode fetch for season "${item.name}"`)
             const showFolder = findParent(item.id, db!.root!)
-            if (showFolder && showFolder.tmdbId) {
+            if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
+              log(`[Details] Starting background episode fetch for season "${item.name}"`)
               await fetchAndApplyEpisodeData(
                 item as MediaFolder,
                 showFolder.tmdbId,

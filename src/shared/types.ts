@@ -48,6 +48,8 @@ export interface MediaFolder {
   // Retriever settings
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
+  // TV Show specific settings
+  process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   // TV Show properties

@@ -333,7 +333,12 @@ export async function fetchItemDetails(
     }
 
     // --- TV Show Specific Logic ---
-    if (item.type === 'folder' && item.mediaType === 'tv' && details.seasons) {
+    if (
+      item.type === 'folder' &&
+      item.mediaType === 'tv' &&
+      (item as MediaFolder).process_tv_children !== false &&
+      details.seasons
+    ) {
       console.log(`[TMDB] Found ${details.seasons.length} seasons for "${item.name}".`)
       item.tmdbSeasons = details.seasons // Cache the full season data
 

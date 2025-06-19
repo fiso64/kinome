@@ -13,6 +13,7 @@
 
   let retrieveChildrenMetadata = $state(item.retrieve_children_metadata ?? false)
   let childrenTypeHint = $state(item.children_type_hint ?? 'auto')
+  let processTvChildren = $state(item.process_tv_children ?? true)
 
   async function handleSave() {
     const wasEnabled = item.retrieve_children_metadata ?? false
@@ -22,6 +23,7 @@
     // Apply the changes
     updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
     updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
+    updatedItem.process_tv_children = processTvChildren === true ? undefined : false
 
     await window.api.updateItem(updatedItem)
     onClose()
@@ -76,6 +78,20 @@
       </select>
       <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
     </div>
+
+    {#if item.mediaType === 'tv'}
+      <div class="settings-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={processTvChildren} />
+          <span>Enable TV show processing (seasons & episodes)</span>
+        </label>
+        <p class="help-text">
+          If enabled, the app will analyze file/folder names to identify seasons and episodes, and
+          fetch their specific metadata. Disable this for folders that contain TV shows but should
+          be treated as simple folders.
+        </p>
+      </div>
+    {/if}
   </div>
 </ModalWindow>
 
