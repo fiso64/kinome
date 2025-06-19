@@ -137,20 +137,18 @@
       const initialType = await getInitialSearchType()
       searchType = initialType
 
+      // 1. Always prefill the title as the default.
+      searchQuery = item.title ?? item.name
+      // Ensure ID field is empty by default.
+      searchTmdbId = ''
+
+      // 2. Special case for seasons: if parent has TMDB ID, use it and clear the title.
       if (initialType === 'season') {
         const parent = await window.api.getParent(item.id)
         if (parent?.tmdbId) {
           searchTmdbId = parent.tmdbId.toString()
-          searchQuery = '' // Clear text query if we have an ID
-        } else {
-          searchQuery = parent?.title ?? parent?.name ?? (item.title ?? item.name)
+          searchQuery = '' // Clear text query because we are searching by ID
         }
-      } else if (item.tmdbId && (item.mediaType === 'movie' || item.mediaType === 'tv')) {
-        // If the item itself is a movie/tv with an id, prefill that
-        searchTmdbId = item.tmdbId.toString()
-        searchQuery = ''
-      } else {
-        searchQuery = item.title ?? item.name
       }
     }
     setInitialState()
