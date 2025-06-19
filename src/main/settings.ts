@@ -10,6 +10,9 @@ export interface Settings {
   defaultFolderLayout?: 'grid' | 'list' | 'tree'
   showDetailMediaSection?: boolean
   gridPosterSize?: number
+  defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  defaultSeasonFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -26,7 +29,10 @@ async function readRawSettings(): Promise<Settings> {
     virtualTags: [],
     defaultFolderLayout: 'grid',
     showDetailMediaSection: true,
-    gridPosterSize: 200
+    gridPosterSize: 200,
+    defaultMovieFolderLayout: 'tree',
+    defaultTvShowFolderLayout: 'list',
+    defaultSeasonFolderLayout: 'list'
   }
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')

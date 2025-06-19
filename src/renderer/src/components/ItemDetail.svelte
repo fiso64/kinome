@@ -28,6 +28,21 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
+  const contentsLayout = $derived(() => {
+    if (item.layout) return item.layout
+
+    switch (item.mediaType) {
+      case 'movie':
+        return settings.defaultMovieFolderLayout ?? 'tree'
+      case 'tv':
+        return settings.defaultTvShowFolderLayout ?? 'list'
+      case 'season':
+        return settings.defaultSeasonFolderLayout ?? 'list'
+      default:
+        return 'tree' // fallback for other folder types
+    }
+  })
+
   function findMediaDescendants(node: LibraryItem): LibraryItem[] {
     if (node.type !== 'folder') {
       return []
@@ -166,7 +181,7 @@
           parentItem={item}
           items={item.children}
           {onItemClick}
-          layout={item.layout ?? 'tree'}
+          layout={contentsLayout}
           onShowContextMenu={showContextMenu}
         />
       </div>

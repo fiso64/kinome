@@ -9,6 +9,9 @@ declare global {
     defaultFolderLayout?: 'grid' | 'list' | 'tree'
     showDetailMediaSection?: boolean
     gridPosterSize?: number
+    defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    defaultSeasonFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   }
 
   interface MediaFile {

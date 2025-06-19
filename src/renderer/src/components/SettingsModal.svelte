@@ -16,6 +16,9 @@
   let showDetailMediaSection = $state(true)
   let gridPosterSize = $state(200)
   let originalGridPosterSize = 200
+  let defaultMovieFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('tree')
+  let defaultTvShowFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
+  let defaultSeasonFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
@@ -27,6 +30,9 @@
       showDetailMediaSection = settings.showDetailMediaSection ?? true
       gridPosterSize = settings.gridPosterSize ?? 200
       originalGridPosterSize = settings.gridPosterSize ?? 200
+      defaultMovieFolderLayout = settings.defaultMovieFolderLayout ?? 'tree'
+      defaultTvShowFolderLayout = settings.defaultTvShowFolderLayout ?? 'list'
+      defaultSeasonFolderLayout = settings.defaultSeasonFolderLayout ?? 'list'
     })
 
     window.api.getLibraryMediaSourcePath().then((path) => {
@@ -89,7 +95,10 @@
       virtualTags: tagsToSave,
       defaultFolderLayout,
       showDetailMediaSection,
-      gridPosterSize
+      gridPosterSize,
+      defaultMovieFolderLayout,
+      defaultTvShowFolderLayout,
+      defaultSeasonFolderLayout
     })
     close()
   }
@@ -196,6 +205,45 @@
           <span>{gridPosterSize}px</span>
         </div>
         <p class="help-text">Controls the base width of posters in the grid view.</p>
+      </div>
+      <div class="form-group">
+        <label for="default-movie-layout">Default Movie Contents Layout</label>
+        <select id="default-movie-layout" bind:value={defaultMovieFolderLayout}>
+          <option value="grid">Grid</option>
+          <option value="list">List</option>
+          <option value="tree">Tree</option>
+          <option value="tabs">Tabs</option>
+          <option value="sections">Sections</option>
+        </select>
+        <p class="help-text">
+          The default view for the contents of a movie folder on its detail page.
+        </p>
+      </div>
+      <div class="form-group">
+        <label for="default-tv-layout">Default TV Show Contents Layout</label>
+        <select id="default-tv-layout" bind:value={defaultTvShowFolderLayout}>
+          <option value="grid">Grid</option>
+          <option value="list">List</option>
+          <option value="tree">Tree</option>
+          <option value="tabs">Tabs</option>
+          <option value="sections">Sections</option>
+        </select>
+        <p class="help-text">
+          The default view for the contents of a TV show folder on its detail page.
+        </p>
+      </div>
+      <div class="form-group">
+        <label for="default-season-layout">Default Season Contents Layout</label>
+        <select id="default-season-layout" bind:value={defaultSeasonFolderLayout}>
+          <option value="grid">Grid</option>
+          <option value="list">List</option>
+          <option value="tree">Tree</option>
+          <option value="tabs">Tabs</option>
+          <option value="sections">Sections</option>
+        </select>
+        <p class="help-text">
+          The default view for the contents of a season folder on its detail page.
+        </p>
       </div>
     {:else if activeTab === 'virtualTags'}
       <div class="virtual-tags-list">
