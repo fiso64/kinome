@@ -1088,6 +1088,29 @@ export function setupLibraryIpc(): void {
       }
       item.posterPath = undefined // Clear poster so it gets re-fetched
 
+      // --- Invalidate TV Show specific data ---
+      // If we are applying a new TV match to a folder, we need to clear out any
+      // old, incorrect season and episode data that might be cached on its children.
+      if (item.type === 'folder' && mediaType === 'tv') {
+        item.tmdbSeasons = undefined // Clear cached season list from TMDB
+        for (const season of item.children) {
+          if (season.type === 'folder' && season.mediaType === 'season') {
+            // Reset the flag to allow lazy-loading to trigger again.
+            season.tmdbEpisodeDataFetched = false
+            // Clear out the old, incorrect episode posters and bust their cache.
+            for (const episode of season.children) {
+              if (episode.type === 'file' && episode.mediaType === 'episode') {
+                episode.posterPath = undefined
+                episode._v = Date.now()
+              }
+            }
+          }
+        }
+      }
+
+      // Bust cache for the main item itself immediately after clearing old data.
+      item._v = Date.now()
+
       // Handle a season result differently
       if (mediaType === 'season') {
         item.mediaType = 'season'

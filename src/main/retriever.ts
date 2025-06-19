@@ -458,6 +458,8 @@ export async function fetchAndApplyEpisodeData(
           try {
             await downloadImage(posterUrl, posterDestPath)
             localEpisode.posterPath = posterFileName
+            // Bust the cache for the new image. This is the critical fix.
+            localEpisode._v = Date.now()
           } catch {
             // ignore download error
           }
