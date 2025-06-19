@@ -121,7 +121,7 @@ export function clearItemCache(): void {
  * @param item The item to check.
  */
 export function triggerSeasonEpisodeFetch(item: LibraryItem): void {
-  if (item.type === 'folder' && item.mediaType === 'season' && !item.tmdbDetailsFetched) {
+  if (item.type === 'folder' && item.mediaType === 'season' && !item.tmdbEpisodesFetched) {
     // This is a fire-and-forget call. The UI will update reactively
     // when the library-item-updated event is received.
     window.api.getItemDetails(item.id)
