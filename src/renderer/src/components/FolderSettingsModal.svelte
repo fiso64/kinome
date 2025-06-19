@@ -36,13 +36,21 @@
 
   async function handleClearMetadata() {
     const confirmed = confirm(
-      `DANGER: This will permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.\n\nFolder-specific settings (like this one) will be preserved. This action cannot be undone.\n\nAre you sure you want to proceed?`
+      `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.\n\nThis action cannot be undone.\n\nAre you sure you want to proceed?`
     )
     if (confirmed) {
+      // 1. Save current settings for the folder first by calling the existing update IPC.
+      const updatedItem: MediaFolder = JSON.parse(JSON.stringify(item))
+      updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
+      updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
+      updatedItem.process_tv_children = processTvChildren === true ? undefined : false
+      await window.api.updateItem(updatedItem)
+
+      // 2. Now, call the separate IPC to clear the metadata for all of its children.
       const success = await window.api.clearChildrenMetadata(item.id)
       if (success) {
         onClose()
-        await onNeedRefresh()
+        // await onNeedRefresh()
       } else {
         alert('Failed to clear metadata. See console for details.')
       }
