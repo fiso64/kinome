@@ -259,24 +259,87 @@ function findParent(id: string, node: MediaFolder): MediaFolder | null {
  * Parses season and episode numbers from a filename.
  * @returns An object with season and episode, or null.
  */
-function parseSeasonEpisode(name: string): { season: number; episode: number } | null {
-  // Only use high-confidence SxxExx patterns to avoid false positives from things like
-  // video resolutions (e.g., 1920x1080).
-  const patterns = [
-    // Handles "S01 E01" or "S01.E01" as whole words.
-    /\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i,
-    // Handles "S01E01" possibly inside another word, e.g. "MyShowS01E01.mkv"
-    /S(\d{1,2})E(\d{1,3})/i
-  ]
-
-  for (const pattern of patterns) {
+/**
+ * Parses season and episode numbers from a filename using several patterns.
+ * @returns An object with season (optional), episode, and pattern, or null.
+ */
+function parseEpisodeInfo(
+  name: string
+): { season?: number; episode: number; pattern: 'sxxexx' | 'episode_xx' | 'exx' } | null {
+  // 1. SxxExx pattern (highest precedence)
+  const sxxexxPatterns = [/\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i, /S(\d{1,2})E(\d{1,3})/i]
+  for (const pattern of sxxexxPatterns) {
     const match = name.match(pattern)
     if (match) {
-      return { season: parseInt(match[1]), episode: parseInt(match[2]) }
+      return { season: parseInt(match[1]), episode: parseInt(match[2]), pattern: 'sxxexx' }
     }
   }
 
+  // 2. "Episode XX" pattern
+  const episodeXXPattern = /\bEpisode\s*(\d{1,2})\b/i
+  const episodeMatch = name.match(episodeXXPattern)
+  if (episodeMatch) {
+    return { episode: parseInt(episodeMatch[1]), pattern: 'episode_xx' }
+  }
+
+  // 3. "E_XX" pattern (stricter, to avoid matching other things)
+  const exxPattern = /\bE(\d{2})\b/i
+  const exxMatch = name.match(exxPattern)
+  if (exxMatch) {
+    return { episode: parseInt(exxMatch[1]), pattern: 'exx' }
+  }
+
   return null
+}
+
+/**
+ * Tries to assign episode numbers to a list of files based on a consistent naming pattern.
+ * A pattern is considered successful if it matches all files, or if it matches at least 3
+ * files and has no more than 2 mismatches.
+ * This function MUTATES the file objects in the passed array.
+ * @param files The array of MediaFile objects to process.
+ * @param parentSeasonNumber A fallback season number if not present in the filename.
+ * @returns `true` if a consistent pattern was found and applied, `false` otherwise.
+ */
+function processAndAssignEpisodeNumbers(
+  files: MediaFile[],
+  parentSeasonNumber?: number
+): boolean {
+  if (files.length === 0) return true // Nothing to do
+
+  const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
+
+  // First, get all parsing results for all files to avoid re-parsing.
+  const allParsedInfo = files.map((file) => ({ file, parsed: parseEpisodeInfo(file.name) }))
+
+  for (const currentPattern of patterns) {
+    const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
+    const mismatches = allParsedInfo.length - matches.length
+
+    // Condition: up to 2 mismatches are allowed, but only if there are at least 3 matches.
+    // Also succeeds if there are 0 mismatches (all files match).
+    if (mismatches === 0 || (mismatches <= 2 && matches.length >= 3)) {
+      // Success! This is our pattern.
+      log(
+        `TV Structure: Applying pattern "${currentPattern}". Matches: ${matches.length}, Mismatches: ${mismatches}`
+      )
+
+      // Apply the found numbers only to the files that matched the pattern.
+      matches.forEach(({ file, parsed }) => {
+        if (parsed) {
+          file.mediaType = 'episode'
+          file.episodeNumber = parsed.episode
+          // For SxxExx, use the parsed season number. For others, use the parent folder's season number.
+          file.seasonNumber = parsed.season ?? parentSeasonNumber
+        }
+      })
+      // Files that didn't match the pattern will simply not have episode/season numbers assigned.
+      return true
+    }
+  }
+
+  // If no pattern met the criteria
+  return false
 }
 
 const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes']
@@ -297,21 +360,13 @@ function processTvShowStructure(showFolder: MediaFolder): void {
   // Heuristic 1: "Immediate Files" Rule
   if (mediaFiles.length > 0) {
     log(`TV Structure: Found ${mediaFiles.length} immediate files. Entering "File Mode".`)
-    let allParsedSuccessfully = true
-    for (const file of mediaFiles) {
-      const parsed = parseSeasonEpisode(file.name)
-      if (parsed) {
-        file.seasonNumber = parsed.season
-        file.episodeNumber = parsed.episode
-        file.mediaType = 'episode'
-      } else {
-        allParsedSuccessfully = false
-        break // If one fails, we fall back to alphabetical for all.
-      }
-    }
+    // Use the new advanced parser, assuming Season 1 for files in the root.
+    const parsedSuccessfully = processAndAssignEpisodeNumbers(mediaFiles, 1)
 
-    if (!allParsedSuccessfully) {
-      log('TV Structure: SxxExx parsing failed, falling back to alphabetical sort for Season 1.')
+    if (!parsedSuccessfully) {
+      log(
+        'TV Structure: High-confidence parsing failed, falling back to alphabetical sort for Season 1.'
+      )
       // Alphabetical Fallback
       mediaFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       mediaFiles.forEach((file, index) => {
@@ -775,12 +830,26 @@ export function setupLibraryIpc(): void {
       const episodeFiles = (item as MediaFolder).children.filter(
         (c) => c.type === 'file'
       ) as MediaFile[]
-      episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-      episodeFiles.forEach((file, index) => {
-        file.episodeNumber = index + 1
-        file.seasonNumber = (item as MediaFolder).seasonNumber
-        file.mediaType = 'episode'
-      })
+
+      // Use the new advanced parser, passing the parent folder's season number.
+      const parsedSuccessfully = processAndAssignEpisodeNumbers(
+        episodeFiles,
+        (item as MediaFolder).seasonNumber
+      )
+
+      if (!parsedSuccessfully) {
+        log(
+          `TV Structure: High-confidence parsing failed for season folder "${item.name}", falling back to alphabetical sort.`
+        )
+        // Alphabetical Fallback
+        episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+        episodeFiles.forEach((file, index) => {
+          file.episodeNumber = index + 1
+          // Use the parent folder's season number.
+          file.seasonNumber = (item as MediaFolder).seasonNumber
+          file.mediaType = 'episode'
+        })
+      }
       setBulkUpdateStatus(false)
     }
     // --- End TV Show Structure Processing ---
