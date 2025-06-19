@@ -48,15 +48,38 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
+      // If the event is for a key we don't care about, do nothing.
+      if (event.key !== 'Escape' && event.key !== 'Enter') {
+        return
+      }
+
+      // If the user is typing in a textarea, only let Escape work.
+      if ((event.target as HTMLElement).tagName === 'TEXTAREA' && event.key === 'Enter') {
+        return
+      }
+
+      // This is the key fix: stop the event from reaching other listeners (like other modals).
+      event.preventDefault()
+      event.stopPropagation()
+
       if (event.key === 'Escape') {
-        event.preventDefault()
-        // Find a "cancel" button (usually value: false) or default to the last button
         const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
-        onClose(cancelButton.value)
+        if (cancelButton) {
+          onClose(cancelButton.value)
+        }
+      } else if (event.key === 'Enter') {
+        // Find the primary or danger button first, then fall back to the first button as a last resort.
+        const confirmButton =
+          buttons.find((b) => b.class === 'primary' || b.class === 'danger') ?? buttons[0]
+        if (confirmButton) {
+          onClose(confirmButton.value)
+        }
       }
     }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
+
+    // Use capture: true to ensure this listener runs before others.
+    window.addEventListener('keydown', handleKeydown, { capture: true })
+    return () => window.removeEventListener('keydown', handleKeydown, { capture: true })
   })
 </script>
 
