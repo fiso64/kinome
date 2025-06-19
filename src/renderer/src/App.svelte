@@ -310,15 +310,27 @@
 
       // --- Case 2: Update the main grid/list view if not handled by detail view. ---
       if (!wasHandledInView && currentFolder) {
-        const parent = findParentOfItem(currentFolder, updatedItem.id)
-        if (parent) {
-          const itemIndex = parent.children.findIndex((child) => child.id === updatedItem.id)
-          if (itemIndex !== -1) {
-            parent.children = [
-              ...parent.children.slice(0, itemIndex),
-              updatedItem,
-              ...parent.children.slice(itemIndex + 1)
-            ]
+        // A) Is the updated item the folder being viewed itself? (e.g., layout change)
+        if (currentFolder.id === updatedItem.id) {
+          // To trigger reactivity, we must replace the item in the viewStack array.
+          viewStack[viewStack.length - 1] = updatedItem as MediaFolder
+          viewStack = [...viewStack]
+        }
+        // B) Is the updated item a child of the current view?
+        else {
+          const parent = findParentOfItem(currentFolder, updatedItem.id)
+          if (parent) {
+            const itemIndex = parent.children.findIndex((child) => child.id === updatedItem.id)
+            if (itemIndex !== -1) {
+              // Replace the children array to trigger reactivity.
+              parent.children = [
+                ...parent.children.slice(0, itemIndex),
+                updatedItem,
+                ...parent.children.slice(itemIndex + 1)
+              ]
+              // Also trigger reactivity on the top-level view stack.
+              viewStack = [...viewStack]
+            }
           }
         }
       }
