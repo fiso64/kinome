@@ -673,10 +673,19 @@ export async function getTmdbImages(
       return { posters: [], backdrops: [], logos: [] }
     }
     const images = await response.json()
+    // Helper to remove duplicates by file_path, as the TMDB API can sometimes
+    // return the same image for different language fallbacks.
+    const deduplicateByFilePath = (arr: any[]): any[] => {
+      if (!Array.isArray(arr)) {
+        return []
+      }
+      return Array.from(new Map(arr.map((item) => [item.file_path, item])).values())
+    }
+
     return {
-      posters: images.posters || [],
-      backdrops: images.backdrops || [],
-      logos: images.logos || []
+      posters: deduplicateByFilePath(images.posters),
+      backdrops: deduplicateByFilePath(images.backdrops),
+      logos: deduplicateByFilePath(images.logos)
     }
   } catch (error) {
     console.error(`Error fetching images for "${tmdbId}":`, error)
