@@ -28,22 +28,9 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
-  const contentsLayout = $derived(
-    (() => {
-      if (item.layout) return item.layout
+  import { resolveViewSettings } from '../../../shared/settings-helpers'
 
-      switch (item.mediaType) {
-        case 'movie':
-          return settings.defaultMovieViewSettings.layout ?? 'tree'
-        case 'tv':
-          return settings.defaultTvShowViewSettings.layout ?? 'list'
-        case 'season':
-          return settings.defaultSeasonViewSettings.layout ?? 'list'
-        default:
-          return 'tree' // fallback for other folder types
-      }
-    })()
-  )
+  const contentsLayout = $derived(resolveViewSettings(item as MediaFolder, settings).layout)
 
   const showRegularContents = $derived(item.type === 'folder' && item.children.length > 0)
 

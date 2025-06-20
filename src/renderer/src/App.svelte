@@ -15,6 +15,7 @@
   import Dialog from './components/Dialog.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import { dialogStore } from './lib/dialog-store'
+  import { resolveViewSettings } from '../../shared/settings-helpers'
   import {
     getLoadedItem,
     updateCachedItem,
@@ -26,22 +27,7 @@
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
   }
 
-  function getDefaultLayoutForDetailView(
-    item: MediaFolder,
-    currentSettings: Settings | null
-  ): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' {
-    if (currentSettings) {
-      switch (item.mediaType) {
-        case 'movie':
-          return currentSettings.defaultMovieViewSettings.layout
-        case 'tv':
-          return currentSettings.defaultTvShowViewSettings.layout
-        case 'season':
-          return currentSettings.defaultSeasonViewSettings.layout
-      }
-    }
-    return 'tree' // Global fallback for detail view
-  }
+
 
   type ActiveModal =
     | { type: 'settings' }
@@ -131,22 +117,7 @@
     selectedItemForDetailView !== null || viewStack.length > 1 || isGlobalSearchActive
   )
 
-  const currentFolderClickAction = $derived(() => {
-    if (currentFolder?.childrenClickAction) return currentFolder.childrenClickAction
-    if (settings) {
-      switch (currentFolder?.mediaType) {
-        case 'movie':
-          return settings.defaultMovieViewSettings.clickAction
-        case 'tv':
-          return settings.defaultTvShowViewSettings.clickAction
-        case 'season':
-          return settings.defaultSeasonViewSettings.clickAction
-        default:
-          return settings.defaultViewSettings.clickAction
-      }
-    }
-    return 'detail'
-  })
+  const currentFolderClickAction = $derived(resolveViewSettings(currentFolder, settings).clickAction)
 
   const folderToConfigureLayout = $derived(
     selectedItemForDetailView?.type === 'folder'
@@ -898,16 +869,12 @@
 
   function openLayoutSelector() {
     if (folderToConfigureLayout) {
-      const isMainViewContext = !selectedItemForDetailView
-      const defaultLayout = isMainViewContext
-        ? settings?.defaultFolderLayout ?? 'grid'
-        : getDefaultLayoutForDetailView(folderToConfigureLayout, settings)
-
+      const resolvedSettings = resolveViewSettings(folderToConfigureLayout, settings)
       activeModal = {
         type: 'itemSettings',
         item: folderToConfigureLayout,
         initialTab: 'view',
-        defaultLayout
+        defaultLayout: resolvedSettings.layout
       }
     }
   }
@@ -1005,49 +972,34 @@
     }}
     onEditMetadata={() => {
       if (contextMenuItem) {
-        const itemToConfigure = contextMenuItem as MediaFolder // Cast is safe
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem,
           initialTab: 'metadata',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
-        const itemToConfigure = contextMenuItem as MediaFolder
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
         activeModal = {
           type: 'itemSettings',
-          item: itemToConfigure,
+          item: contextMenuItem as MediaFolder,
           initialTab: 'view',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
-        const itemToConfigure = contextMenuItem as MediaFolder
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
         activeModal = {
           type: 'itemSettings',
-          item: itemToConfigure,
+          item: contextMenuItem as MediaFolder,
           initialTab: 'folder',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}

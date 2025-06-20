@@ -5,6 +5,7 @@
   import SectionsView from './media-views/SectionsView.svelte'
   import ListView from './media-views/ListView.svelte'
   import { filterItems } from '../../../shared/filter'
+  import { resolveViewSettings } from '../../../shared/settings-helpers'
 
   type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -48,51 +49,19 @@
   } = $props()
 
   const { layout, groupBy, gridPosterSize } = $derived.by(() => {
-    let effectiveLayout: Layout = layoutProp ?? 'grid'
-    let effectiveGroupBy: string = 'folder'
-    let effectiveGridPosterSize: number | null | undefined = undefined
+    // Resolve settings using the centralized helper function.
+    const resolved = resolveViewSettings(parentItem, settings)
 
-    if (parentItem?.layout) {
-      effectiveLayout = parentItem.layout
-      effectiveGroupBy = parentItem.groupBy ?? 'folder'
-    } else if (settings) {
-      let viewSettings: ViewSettings
-      switch (parentItem?.mediaType) {
-        case 'movie':
-          viewSettings = settings.defaultMovieViewSettings
-          break
-        case 'tv':
-          viewSettings = settings.defaultTvShowViewSettings
-          break
-        case 'season':
-          viewSettings = settings.defaultSeasonViewSettings
-          break
-        default:
-          viewSettings = settings.defaultViewSettings
-      }
-      effectiveLayout = viewSettings.layout
-      effectiveGroupBy = viewSettings.groupBy
-    }
-
-    // layoutProp is an override from parent.
+    // The `layoutProp` is a special, one-off override from a parent component (e.g., search results view).
+    // It should take precedence over all other resolved layout settings.
     if (layoutProp) {
-      effectiveLayout = layoutProp
-    }
-
-    // --- Grid Poster Size Calculation ---
-    // Specificity order:
-    // 1. Folder-specific setting
-    // 2. Global default setting
-    if (parentItem?.gridPosterSize != null) {
-      effectiveGridPosterSize = parentItem.gridPosterSize
-    } else if (settings?.gridPosterSize) {
-      effectiveGridPosterSize = settings.gridPosterSize
+      resolved.layout = layoutProp
     }
 
     return {
-      layout: effectiveLayout,
-      groupBy: effectiveGroupBy,
-      gridPosterSize: effectiveGridPosterSize
+      layout: resolved.layout,
+      groupBy: resolved.groupBy,
+      gridPosterSize: resolved.gridPosterSize
     }
   })
 
