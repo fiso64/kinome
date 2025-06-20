@@ -24,7 +24,7 @@ type LayoutSpecificSettings = GridSettings | GroupingSettings
  * This drives the data-driven settings resolution logic.
  */
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
-  grid: { gridPosterSize: 200 },
+  grid: { gridPosterSize: 250 },
   tabs: { groupBy: 'folder' },
   sections: { groupBy: 'folder' }
 } as const

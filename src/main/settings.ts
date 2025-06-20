@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
 import type { Settings } from '../shared/types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
 
 const SETTINGS_FILE_NAME = 'settings.json'
 
@@ -15,16 +16,12 @@ async function readRawSettings(): Promise<Settings> {
     tmdbApiKey: '',
     useLogos: true,
     virtualTags: [],
-    // New structured defaults
-    defaultLayoutSettings: {
-      grid: { gridPosterSize: 200 },
-      tabs: { groupBy: 'folder' },
-      sections: { groupBy: 'folder' }
-    },
+    // New structured defaults are based on the single source of truth
+    defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
     // Type-specific overrides start as empty objects
-    defaultViewSettings: { layout: 'grid', clickAction: 'detail' },
+    defaultViewSettings: { layout: 'grid' },
     defaultMovieViewSettings: { layout: 'tree' },
-    defaultTvShowViewSettings: { layout: 'list' },
+    defaultTvShowViewSettings: { layout: 'tabs' },
     defaultSeasonViewSettings: { layout: 'list' }
   }
 
@@ -32,23 +29,7 @@ async function readRawSettings(): Promise<Settings> {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')
     const saved = JSON.parse(data)
 
-    // --- Migration from legacy format ---
-    if (saved.gridPosterSize && !saved.defaultLayoutSettings) {
-      saved.defaultLayoutSettings = {
-        grid: { gridPosterSize: saved.gridPosterSize },
-        tabs: { groupBy: 'folder' },
-        sections: { groupBy: 'folder' }
-      }
-      delete saved.gridPosterSize
-    }
-    // Migrate old `groupBy` from `defaultViewSettings` to the new `defaultLayoutSettings`
-    if (saved.defaultViewSettings?.groupBy && saved.defaultLayoutSettings) {
-      saved.defaultLayoutSettings.tabs.groupBy = saved.defaultViewSettings.groupBy
-      saved.defaultLayoutSettings.sections.groupBy = saved.defaultViewSettings.groupBy
-      delete saved.defaultViewSettings.groupBy
-    }
-
-    // --- Deep merge the new structure ---
+    // Deep merge the saved settings over the defaults.
     const merged: Settings = {
       ...defaultSettings,
       ...saved,
@@ -74,15 +55,6 @@ async function readRawSettings(): Promise<Settings> {
         ...saved.defaultSeasonViewSettings
       }
     }
-
-    // Clean up legacy properties if they exist
-    delete (merged as any).gridPosterSize
-    delete (merged as any).defaultFolderLayout
-    delete (merged as any).defaultMovieFolderLayout
-    delete (merged as any).defaultTvShowFolderLayout
-    delete (merged as any).defaultSeasonFolderLayout
-    if (merged.defaultViewSettings) delete (merged.defaultViewSettings as any).groupBy
-
     return merged
   } catch {
     // File doesn't exist or is corrupt, return defaults.

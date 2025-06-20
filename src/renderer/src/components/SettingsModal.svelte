@@ -34,7 +34,7 @@ let {
   let settingsLoaded = $state(false)
 
   function formatLayoutString(viewSettings: ViewSettings | null): string {
-    if (!viewSettings) return 'Loading...'
+    if (!viewSettings?.layout) return 'Not set'
 
     const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
     if (viewSettings.layout === 'tabs' || viewSettings.layout === 'sections') {

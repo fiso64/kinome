@@ -23,13 +23,16 @@ export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null
 ): ResolvedViewSettings {
-  // If settings aren't loaded, provide a safe, hardcoded default.
+  // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
+    const fallbackSpecifics = Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG).reduce(
+      (acc, val) => ({ ...acc, ...val }),
+      {}
+    )
     return {
       layout: item?.layout ?? 'grid',
       clickAction: item?.clickAction ?? 'detail',
-      groupBy: item?.groupBy ?? 'folder',
-      gridPosterSize: item?.gridPosterSize ?? 200
+      ...fallbackSpecifics
     }
   }
 
