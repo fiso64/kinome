@@ -1,6 +1,6 @@
 <script lang="ts">
-  import GenreInput from '../GenreInput.svelte'
-  import TagInput from '../TagInput.svelte'
+  import GenreInput from '../../../ui/GenreInput.svelte'
+  import TagInput from '../../../ui/TagInput.svelte'
 
   let {
     item,

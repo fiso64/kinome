@@ -1,6 +1,6 @@
 <script lang="ts">
-  import ModalWindow from '../ModalWindow.svelte'
-  import ViewConfigurator from '../shared/ViewConfigurator.svelte'
+  import ModalWindow from './_base/ModalWindow.svelte'
+  import ViewConfigurator from '../ui/ViewConfigurator.svelte'
 
   let {
     initialSettings,

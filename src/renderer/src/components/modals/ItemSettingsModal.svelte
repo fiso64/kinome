@@ -1,9 +1,9 @@
 <script lang="ts">
-import ModalWindow from '../ModalWindow.svelte'
-import MetadataTab from './MetadataTab.svelte'
-import ViewTab from './ViewTab.svelte'
-import FolderTab from './FolderTab.svelte'
-import FileTab from './FileTab.svelte'
+import ModalWindow from './_base/ModalWindow.svelte'
+import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
+import ViewTab from './_parts/item-settings/ViewTab.svelte'
+import FolderTab from './_parts/item-settings/FolderTab.svelte'
+import FileTab from './_parts/item-settings/FileTab.svelte'
 import { dialogStore } from '../../lib/dialog-store'
 
   type VirtualFolderProps = {

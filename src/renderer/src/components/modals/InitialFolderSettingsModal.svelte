@@ -1,6 +1,6 @@
 <script lang="ts">
-  import ModalWindow from './ModalWindow.svelte'
-  import ConfigurableTreeItem from './ConfigurableTreeItem.svelte'
+  import ModalWindow from './_base/ModalWindow.svelte'
+  import ConfigurableTreeItem from './_parts/ConfigurableTreeItem.svelte'
 
   type ItemSettings = { retrieve: boolean; hint?: 'movie' | 'tv' }
 

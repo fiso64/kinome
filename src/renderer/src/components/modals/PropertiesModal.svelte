@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ModalWindow from './ModalWindow.svelte'
+  import ModalWindow from './_base/ModalWindow.svelte'
 
   type ItemProperties = {
     name: string

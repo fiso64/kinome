@@ -1,11 +1,11 @@
 <script lang="ts">
-  import GridView from './media-views/GridView.svelte'
-  import TreeView from './media-views/TreeView.svelte'
-  import TabsView from './media-views/TabsView.svelte'
-  import SectionsView from './media-views/SectionsView.svelte'
-  import ListView from './media-views/ListView.svelte'
-  import { filterItems } from '../../../shared/filter'
-  import { resolveViewSettings } from '../../../shared/settings-helpers'
+  import GridView from '../views/GridView.svelte'
+  import TreeView from '../views/TreeView.svelte'
+  import TabsView from '../views/TabsView.svelte'
+  import SectionsView from '../views/SectionsView.svelte'
+  import ListView from '../views/ListView.svelte'
+  import { filterItems } from '../../../../shared/filter'
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
 
   type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry

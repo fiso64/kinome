@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TreeItem from '../TreeItem.svelte'
+  import TreeItem from '../ui/TreeItem.svelte'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {

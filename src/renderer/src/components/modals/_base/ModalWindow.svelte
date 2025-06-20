@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { registerModalKeyHandler } from '../lib/modal-keyboard-manager'
+  import { registerModalKeyHandler } from '../../../lib/modal-keyboard-manager'
 
   let {
     title,

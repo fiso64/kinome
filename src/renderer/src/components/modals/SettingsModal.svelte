@@ -1,9 +1,9 @@
 <script lang="ts">
-import ModalWindow from './ModalWindow.svelte'
-import AutocompleteMenu from './AutocompleteMenu.svelte'
-import DefaultViewSettingsModal from './settings/DefaultViewSettingsModal.svelte'
-import DefaultLayoutSettingsModal from './settings/DefaultLayoutSettingsModal.svelte'
-import { DEFAULT_LAYOUTS_CONFIG } from '../../../shared/types'
+import ModalWindow from './_base/ModalWindow.svelte'
+import AutocompleteMenu from '../ui/AutocompleteMenu.svelte'
+import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
+import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
+import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
 let {

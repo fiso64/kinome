@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MediaView from '../MediaView.svelte'
+  import MediaView from '../core/MediaView.svelte'
   import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
 
   type VirtualFolder = MediaFolder & {

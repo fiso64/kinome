@@ -28,7 +28,7 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
-  import { resolveViewSettings } from '../../../shared/settings-helpers'
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
 
   const contentsLayout = $derived(resolveViewSettings(item as MediaFolder, settings).layout)
 

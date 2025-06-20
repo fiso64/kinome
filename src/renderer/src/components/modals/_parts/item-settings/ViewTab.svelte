@@ -1,7 +1,7 @@
 <script lang="ts">
-  import ViewConfigurator from '../shared/ViewConfigurator.svelte'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { ALL_VIEW_OVERRIDE_KEYS } from '../../../../shared/types'
+  import ViewConfigurator from '../../../ui/ViewConfigurator.svelte'
+  import { resolveViewSettings } from '../../../../../../shared/settings-helpers'
+  import { ALL_VIEW_OVERRIDE_KEYS } from '../../../../../../shared/types'
 
   type VirtualFolderProps = {
     isVirtual?: boolean

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
-  import { getLoadedItem, triggerSeasonEpisodeFetch } from '../lib/item-store'
-  import { shouldBeGreyedOut } from '../lib/view-helpers'
+  import { getLoadedItem, triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  import { shouldBeGreyedOut } from '../../lib/view-helpers'
   // Types are globally available from src/preload/index.d.ts
   let {
     item,
