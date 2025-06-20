@@ -1,11 +1,15 @@
 <script lang="ts">
   import ModalWindow from './ModalWindow.svelte'
   import AutocompleteMenu from './AutocompleteMenu.svelte'
+  import DefaultViewSettingsModal from './settings/DefaultViewSettingsModal.svelte'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
 
+  type ActiveViewSettingsModal = 'general' | 'movie' | 'tv' | 'season' | null
+
   let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
+  let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
 
   // --- Form State ---
   let playerCommand = $state('')
@@ -13,13 +17,36 @@
   let useLogos = $state(true)
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
-  let defaultFolderLayout = $state<'grid' | 'list' | 'tree'>('grid')
   let gridPosterSize = $state(200)
   let originalGridPosterSize = 200
-  let defaultMovieFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('tree')
-  let defaultTvShowFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
-  let defaultSeasonFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
+
+  // New structured view settings state
+  let defaultViewSettings: ViewSettings | null = $state(null)
+  let defaultMovieViewSettings: ViewSettings | null = $state(null)
+  let defaultTvShowViewSettings: ViewSettings | null = $state(null)
+  let defaultSeasonViewSettings: ViewSettings | null = $state(null)
+
   let settingsLoaded = $state(false)
+
+  function formatLayoutString(viewSettings: ViewSettings | null): string {
+    if (!viewSettings) return 'Loading...'
+
+    const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
+    if (viewSettings.layout === 'tabs' || viewSettings.layout === 'sections') {
+      const groupByKey = viewSettings.groupBy
+      if (!groupByKey || groupByKey === 'folder') return layout
+
+      let displayKey = groupByKey
+      if (groupByKey.startsWith('tags.')) {
+        displayKey = groupByKey.substring(5)
+      } else if (groupByKey.startsWith('vt.')) {
+        displayKey = groupByKey.substring(3)
+      }
+      const formattedKey = displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
+      return `${layout} by ${formattedKey}`
+    }
+    return layout
+  }
 
   let suggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
@@ -28,6 +55,16 @@
     virtualTagKeys: [],
     tagValues: {}
   })
+
+  const groupByKeys = $derived([
+    'folder',
+    'mediaType',
+    'genre',
+    'year',
+    ...(suggestions?.virtualTagKeys?.map((vt) => `vt.${vt}`) ?? []),
+    ...(suggestions?.tagKeys.map((k) => `tags.${k}`) ?? [])
+  ])
+
   const VIRTUAL_TAG_CONTEXT_KEYS = [
     'title',
     'name',
@@ -66,12 +103,15 @@
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
-      defaultFolderLayout = settings.defaultFolderLayout ?? 'grid'
       gridPosterSize = settings.gridPosterSize ?? 200
       originalGridPosterSize = settings.gridPosterSize ?? 200
-      defaultMovieFolderLayout = settings.defaultMovieFolderLayout ?? 'tree'
-      defaultTvShowFolderLayout = settings.defaultTvShowFolderLayout ?? 'list'
-      defaultSeasonFolderLayout = settings.defaultSeasonFolderLayout ?? 'list'
+
+      // Set new view settings
+      defaultViewSettings = settings.defaultViewSettings
+      defaultMovieViewSettings = settings.defaultMovieViewSettings
+      defaultTvShowViewSettings = settings.defaultTvShowViewSettings
+      defaultSeasonViewSettings = settings.defaultSeasonViewSettings
+
       settingsLoaded = true
     })
 
@@ -83,6 +123,9 @@
 
     const TABS = ['general', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
+      // Don't interfere if a sub-modal is open
+      if (activeViewSettingsModal) return
+
       if (event.ctrlKey && event.key === 'Tab') {
         event.preventDefault()
         const currentIndex = TABS.indexOf(activeTab)
@@ -201,11 +244,18 @@
       tmdbApiKey,
       useLogos,
       virtualTags: tagsToSave,
-      defaultFolderLayout,
       gridPosterSize,
-      defaultMovieFolderLayout,
-      defaultTvShowFolderLayout,
-      defaultSeasonFolderLayout
+      // Convert reactive state objects to plain objects before sending over IPC
+      defaultViewSettings: defaultViewSettings ? { ...defaultViewSettings } : undefined,
+      defaultMovieViewSettings: defaultMovieViewSettings
+        ? { ...defaultMovieViewSettings }
+        : undefined,
+      defaultTvShowViewSettings: defaultTvShowViewSettings
+        ? { ...defaultTvShowViewSettings }
+        : undefined,
+      defaultSeasonViewSettings: defaultSeasonViewSettings
+        ? { ...defaultSeasonViewSettings }
+        : undefined
     })
     close()
   }
@@ -215,6 +265,47 @@
     libraryPath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
   }
 </script>
+
+{#if activeViewSettingsModal}
+  {#if activeViewSettingsModal === 'general' && defaultViewSettings}
+    <DefaultViewSettingsModal
+      title="Default Folder View"
+      initialSettings={defaultViewSettings}
+      groupByKeys={groupByKeys}
+      availableLayouts={['grid', 'list', 'tree']}
+      showClickAction={false}
+      onClose={() => (activeViewSettingsModal = null)}
+      onSave={(newSettings) => (defaultViewSettings = newSettings)}
+    />
+  {/if}
+  {#if activeViewSettingsModal === 'movie' && defaultMovieViewSettings}
+    <DefaultViewSettingsModal
+      title="Default Movie Contents View"
+      initialSettings={defaultMovieViewSettings}
+      {groupByKeys}
+      onClose={() => (activeViewSettingsModal = null)}
+      onSave={(newSettings) => (defaultMovieViewSettings = newSettings)}
+    />
+  {/if}
+  {#if activeViewSettingsModal === 'tv' && defaultTvShowViewSettings}
+    <DefaultViewSettingsModal
+      title="Default TV Show Contents View"
+      initialSettings={defaultTvShowViewSettings}
+      {groupByKeys}
+      onClose={() => (activeViewSettingsModal = null)}
+      onSave={(newSettings) => (defaultTvShowViewSettings = newSettings)}
+    />
+  {/if}
+  {#if activeViewSettingsModal === 'season' && defaultSeasonViewSettings}
+    <DefaultViewSettingsModal
+      title="Default Season Contents View"
+      initialSettings={defaultSeasonViewSettings}
+      {groupByKeys}
+      onClose={() => (activeViewSettingsModal = null)}
+      onSave={(newSettings) => (defaultSeasonViewSettings = newSettings)}
+    />
+  {/if}
+{/if}
 
 <ModalWindow title="Settings" onClose={handleCancel} onSave={handleSave}>
   {#snippet header()}
@@ -278,17 +369,6 @@
         </p>
       </div>
       <div class="form-group">
-        <label for="default-layout">Default Folder Layout</label>
-        <select id="default-layout" bind:value={defaultFolderLayout}>
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-          <option value="tree">Tree</option>
-        </select>
-        <p class="help-text">
-          The default view used for folders that do not have a specific layout set.
-        </p>
-      </div>
-      <div class="form-group">
         <label for="poster-size">Grid Poster Size</label>
         <div class="slider-container">
           <input
@@ -304,43 +384,44 @@
         <p class="help-text">Controls the base width of posters in the grid view.</p>
       </div>
       <div class="form-group">
-        <label for="default-movie-layout">Default Movie Contents Layout</label>
-        <select id="default-movie-layout" bind:value={defaultMovieFolderLayout}>
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-          <option value="tree">Tree</option>
-          <option value="tabs">Tabs</option>
-          <option value="sections">Sections</option>
-        </select>
+        <label>Default Folder View</label>
+        <p class="help-text">
+          The default view used for folders that do not have a specific layout set.
+        </p>
+        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'general')}>
+          <span>{formatLayoutString(defaultViewSettings)}</span>
+          <button class="secondary" tabindex="-1">Configure...</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Default Movie Contents View</label>
         <p class="help-text">
           The default view for the contents of a movie folder on its detail page.
         </p>
+        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'movie')}>
+          <span>{formatLayoutString(defaultMovieViewSettings)}</span>
+          <button class="secondary" tabindex="-1">Configure...</button>
+        </div>
       </div>
       <div class="form-group">
-        <label for="default-tv-layout">Default TV Show Contents Layout</label>
-        <select id="default-tv-layout" bind:value={defaultTvShowFolderLayout}>
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-          <option value="tree">Tree</option>
-          <option value="tabs">Tabs</option>
-          <option value="sections">Sections</option>
-        </select>
+        <label>Default TV Show Contents View</label>
         <p class="help-text">
           The default view for the contents of a TV show folder on its detail page.
         </p>
+        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'tv')}>
+          <span>{formatLayoutString(defaultTvShowViewSettings)}</span>
+          <button class="secondary" tabindex="-1">Configure...</button>
+        </div>
       </div>
       <div class="form-group">
-        <label for="default-season-layout">Default Season Contents Layout</label>
-        <select id="default-season-layout" bind:value={defaultSeasonFolderLayout}>
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-          <option value="tree">Tree</option>
-          <option value="tabs">Tabs</option>
-          <option value="sections">Sections</option>
-        </select>
+        <label>Default Season Contents View</label>
         <p class="help-text">
           The default view for the contents of a season folder on its detail page.
         </p>
+        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'season')}>
+          <span>{formatLayoutString(defaultSeasonViewSettings)}</span>
+          <button class="secondary" tabindex="-1">Configure...</button>
+        </div>
       </div>
     {:else if activeTab === 'virtualTags'}
     <p><b>This feature is a work in progress and is currently slow.</b></p>
@@ -538,5 +619,26 @@
   }
   .slider-container input[type='range'] {
     flex-grow: 1;
+  }
+  .view-config-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--color-background);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--color-background-mute);
+    cursor: pointer;
+    transition: border-color 0.2s;
+    margin-top: 0.5rem;
+  }
+  .view-config-row:hover {
+    border-color: var(--ev-c-gray-2);
+  }
+  .view-config-row span {
+    font-weight: 600;
+  }
+  .view-config-row button {
+    pointer-events: none;
   }
 </style>

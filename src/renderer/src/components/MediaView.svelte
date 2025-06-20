@@ -47,7 +47,39 @@
     listFixedAspectRatio?: boolean
   } = $props()
 
-  const layout = $derived(layoutProp ?? parentItem?.layout ?? 'grid')
+  const { layout, groupBy } = $derived.by(() => {
+    let effectiveLayout: Layout = layoutProp ?? 'grid'
+    let effectiveGroupBy: string = 'folder'
+
+    if (parentItem?.layout) {
+      effectiveLayout = parentItem.layout
+      effectiveGroupBy = parentItem.groupBy ?? 'folder'
+    } else if (settings) {
+      let viewSettings: ViewSettings
+      switch (parentItem?.mediaType) {
+        case 'movie':
+          viewSettings = settings.defaultMovieViewSettings
+          break
+        case 'tv':
+          viewSettings = settings.defaultTvShowViewSettings
+          break
+        case 'season':
+          viewSettings = settings.defaultSeasonViewSettings
+          break
+        default:
+          viewSettings = settings.defaultViewSettings
+      }
+      effectiveLayout = viewSettings.layout
+      effectiveGroupBy = viewSettings.groupBy
+    }
+
+    // layoutProp is an override from parent.
+    if (layoutProp) {
+      effectiveLayout = layoutProp
+    }
+
+    return { layout: effectiveLayout, groupBy: effectiveGroupBy }
+  })
 
   // --- Helpers for data processing ---
 
@@ -114,9 +146,9 @@
 
     // 2. Handle grouping for tabs/sections.
     if (layout === 'tabs' || layout === 'sections') {
-      if (parentItem?.groupBy && parentItem.groupBy !== 'folder') {
+      if (groupBy && groupBy !== 'folder') {
         // Group by metadata (create virtual folders).
-        const groupByKey = parentItem.groupBy
+        const groupByKey = groupBy
         const groups: Record<string, DisplayableItem[]> = {}
         for (const item of filteredItems) {
           const values = getValuesForKey(item, groupByKey)

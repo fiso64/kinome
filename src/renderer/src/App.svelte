@@ -33,11 +33,11 @@
     if (currentSettings) {
       switch (item.mediaType) {
         case 'movie':
-          return currentSettings.defaultMovieFolderLayout ?? 'tree'
+          return currentSettings.defaultMovieViewSettings.layout
         case 'tv':
-          return currentSettings.defaultTvShowFolderLayout ?? 'list'
+          return currentSettings.defaultTvShowViewSettings.layout
         case 'season':
-          return currentSettings.defaultSeasonFolderLayout ?? 'list'
+          return currentSettings.defaultSeasonViewSettings.layout
       }
     }
     return 'tree' // Global fallback for detail view
@@ -130,6 +130,23 @@
   const canGoBack = $derived(
     selectedItemForDetailView !== null || viewStack.length > 1 || isGlobalSearchActive
   )
+
+  const currentFolderClickAction = $derived(() => {
+    if (currentFolder?.childrenClickAction) return currentFolder.childrenClickAction
+    if (settings) {
+      switch (currentFolder?.mediaType) {
+        case 'movie':
+          return settings.defaultMovieViewSettings.clickAction
+        case 'tv':
+          return settings.defaultTvShowViewSettings.clickAction
+        case 'season':
+          return settings.defaultSeasonViewSettings.clickAction
+        default:
+          return settings.defaultViewSettings.clickAction
+      }
+    }
+    return 'detail'
+  })
 
   const folderToConfigureLayout = $derived(
     selectedItemForDetailView?.type === 'folder'
@@ -703,7 +720,7 @@
     }
 
     // Main view folder navigation
-    if (loadedItem.type === 'folder' && currentFolder?.childrenClickAction === 'navigate') {
+    if (loadedItem.type === 'folder' && currentFolderClickAction === 'navigate') {
       handleNavigateFolder(loadedItem as MediaFolder)
       return
     }
@@ -1249,20 +1266,19 @@
 
         <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
         {#if currentFolder}
-          <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
-            <div class="folder-content-wrapper">
-              <MediaView
-                parentItem={currentFolder}
-                items={currentFolder.children}
-                searchQuery={filterQuery}
-                onItemClick={handleItemClick}
-                layout={currentFolder.layout ?? settings?.defaultFolderLayout ?? 'grid'}
-                onShowContextMenu={handleShowContextMenu}
-                suggestions={allAutocompleteSuggestions}
-                {settings}
-              />
-            </div>
+        <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
+          <div class="folder-content-wrapper">
+            <MediaView
+              parentItem={currentFolder}
+              items={currentFolder.children}
+              searchQuery={filterQuery}
+              onItemClick={handleItemClick}
+              onShowContextMenu={handleShowContextMenu}
+              suggestions={allAutocompleteSuggestions}
+              {settings}
+            />
           </div>
+        </div>
         {/if}
       </div>
 

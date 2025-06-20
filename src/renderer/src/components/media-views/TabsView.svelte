@@ -182,30 +182,12 @@
   </div>
   <div class="tab-content">
     {#if folders.length > 0}
-      {@const calculateLayout = (
-        folder: MediaFolder
-      ): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' => {
-        if (folder.layout) return folder.layout
-        if (settings) {
-          switch (folder.mediaType) {
-            case 'movie':
-              return settings.defaultMovieFolderLayout ?? 'tree'
-            case 'tv':
-              return settings.defaultTvShowFolderLayout ?? 'list'
-            case 'season':
-              return settings.defaultSeasonFolderLayout ?? 'list'
-          }
-          if (settings.defaultFolderLayout) return settings.defaultFolderLayout
-        }
-        return 'grid'
-      }}
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
           <MediaView
             parentItem={folder}
             items={folder.children}
             {onItemClick}
-            layout={calculateLayout(folder)}
             {onShowContextMenu}
             {suggestions}
             {grayOutWatched}

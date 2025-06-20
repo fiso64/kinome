@@ -1,16 +1,22 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 declare global {
+  interface ViewSettings {
+    layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    clickAction: 'detail' | 'navigate'
+    groupBy: string
+  }
+
   interface Settings {
     playerCommand: string
     tmdbApiKey: string
     useLogos?: boolean
     virtualTags?: { name: string; expression: string }[]
-    defaultFolderLayout?: 'grid' | 'list' | 'tree'
     gridPosterSize?: number
-    defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    defaultSeasonFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    defaultViewSettings: ViewSettings
+    defaultMovieViewSettings: ViewSettings
+    defaultTvShowViewSettings: ViewSettings
+    defaultSeasonViewSettings: ViewSettings
   }
 
   interface MediaFile {

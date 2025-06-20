@@ -2,16 +2,22 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
 
+export interface ViewSettings {
+  layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  clickAction: 'detail' | 'navigate'
+  groupBy: string
+}
+
 export interface Settings {
   playerCommand: string
   tmdbApiKey: string
   useLogos?: boolean
   virtualTags?: { name: string; expression: string }[]
-  defaultFolderLayout?: 'grid' | 'list' | 'tree'
   gridPosterSize?: number
-  defaultMovieFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-  defaultTvShowFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-  defaultSeasonFolderLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  defaultViewSettings: ViewSettings
+  defaultMovieViewSettings: ViewSettings
+  defaultTvShowViewSettings: ViewSettings
+  defaultSeasonViewSettings: ViewSettings
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
@@ -26,15 +32,43 @@ async function readRawSettings(): Promise<Settings> {
     tmdbApiKey: '',
     useLogos: true,
     virtualTags: [],
-    defaultFolderLayout: 'grid',
     gridPosterSize: 200,
-    defaultMovieFolderLayout: 'tree',
-    defaultTvShowFolderLayout: 'list',
-    defaultSeasonFolderLayout: 'list'
+    defaultViewSettings: { layout: 'grid', clickAction: 'detail', groupBy: 'folder' },
+    defaultMovieViewSettings: { layout: 'tree', clickAction: 'detail', groupBy: 'folder' },
+    defaultTvShowViewSettings: { layout: 'list', clickAction: 'detail', groupBy: 'folder' },
+    defaultSeasonViewSettings: { layout: 'list', clickAction: 'detail', groupBy: 'folder' }
   }
+
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')
-    return { ...defaultSettings, ...JSON.parse(data) }
+    const saved = JSON.parse(data)
+
+    // Deep merge the view settings to ensure all properties exist
+    const merged: Settings = {
+      ...defaultSettings,
+      ...saved,
+      defaultViewSettings: { ...defaultSettings.defaultViewSettings, ...saved.defaultViewSettings },
+      defaultMovieViewSettings: {
+        ...defaultSettings.defaultMovieViewSettings,
+        ...saved.defaultMovieViewSettings
+      },
+      defaultTvShowViewSettings: {
+        ...defaultSettings.defaultTvShowViewSettings,
+        ...saved.defaultTvShowViewSettings
+      },
+      defaultSeasonViewSettings: {
+        ...defaultSettings.defaultSeasonViewSettings,
+        ...saved.defaultSeasonViewSettings
+      }
+    }
+
+    // Clean up legacy properties if they exist
+    delete (merged as any).defaultFolderLayout
+    delete (merged as any).defaultMovieFolderLayout
+    delete (merged as any).defaultTvShowFolderLayout
+    delete (merged as any).defaultSeasonFolderLayout
+
+    return merged
   } catch {
     // File doesn't exist or is corrupt, return defaults.
     return defaultSettings

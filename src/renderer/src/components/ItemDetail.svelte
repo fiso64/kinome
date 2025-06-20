@@ -34,11 +34,11 @@
 
       switch (item.mediaType) {
         case 'movie':
-          return settings.defaultMovieFolderLayout ?? 'tree'
+          return settings.defaultMovieViewSettings.layout ?? 'tree'
         case 'tv':
-          return settings.defaultTvShowFolderLayout ?? 'list'
+          return settings.defaultTvShowViewSettings.layout ?? 'list'
         case 'season':
-          return settings.defaultSeasonFolderLayout ?? 'list'
+          return settings.defaultSeasonViewSettings.layout ?? 'list'
         default:
           return 'tree' // fallback for other folder types
       }
