@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './ModalWindow.svelte'
+  import AutocompleteMenu from './AutocompleteMenu.svelte'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
@@ -20,6 +21,30 @@
   let defaultSeasonFolderLayout = $state<'grid' | 'list' | 'tree' | 'tabs' | 'sections'>('list')
   let settingsLoaded = $state(false)
 
+  let suggestions = $state<AutocompleteSuggestions>({
+    mediaTypes: [],
+    genres: [],
+    tagKeys: [],
+    virtualTagKeys: [],
+    tagValues: {}
+  })
+  const VIRTUAL_TAG_CONTEXT_KEYS = ['tags', 'genres', 'year', 'title', 'name', 'mediaType', 'path']
+
+  // Autocomplete state
+  let activeTextarea = $state<HTMLTextAreaElement | null>(null)
+  let activeTagId = $state<string | null>(null)
+  let autocompleteState = $state<{
+    show: boolean
+    suggestions: string[]
+    position: { top: number; left: number }
+    onSelect: (suggestion: string) => void
+  }>({
+    show: false,
+    suggestions: [],
+    position: { top: 0, left: 0 },
+    onSelect: () => {}
+  })
+
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
@@ -38,6 +63,8 @@
     window.api.getLibraryMediaSourcePath().then((path) => {
       libraryPath = path ?? 'Not set'
     })
+
+    window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
 
     const TABS = ['general', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -80,6 +107,68 @@
 
   function removeVirtualTag(id: string) {
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
+  }
+
+  function handleExpressionInput() {
+    if (!activeTextarea) return
+
+    const textarea = activeTextarea
+    const text = textarea.value
+    const cursorPos = textarea.selectionStart
+
+    let wordStart = cursorPos
+    while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
+      wordStart--
+    }
+    const currentWord = text.substring(wordStart, cursorPos)
+
+    let potentialSuggestions: string[] = []
+
+    const tagsMatch = currentWord.match(/^tags\.(\w*)$/)
+    if (tagsMatch) {
+      const partialKey = tagsMatch[1]
+      potentialSuggestions = (suggestions.tagKeys ?? [])
+        .filter((key) => key.toLowerCase().startsWith(partialKey.toLowerCase()))
+        .map((key) => `tags.${key}`) // Suggest the full path
+    } else {
+      potentialSuggestions = VIRTUAL_TAG_CONTEXT_KEYS.filter((key) =>
+        key.toLowerCase().startsWith(currentWord.toLowerCase())
+      )
+    }
+
+    if (potentialSuggestions.length > 0 && currentWord.length > 0) {
+      autocompleteState.suggestions = potentialSuggestions
+      autocompleteState.show = true
+
+      const rect = textarea.getBoundingClientRect()
+      const modalWindow = textarea.closest('.modal-window')
+      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
+
+      autocompleteState.position = {
+        top: rect.bottom - modalRect.top + 4,
+        left: rect.left - modalRect.left
+      }
+      autocompleteState.onSelect = (suggestion: string) => {
+        const before = text.substring(0, wordStart)
+        const after = text.substring(cursorPos)
+        const newText = `${before}${suggestion}${after}`
+
+        const tag = virtualTags.find((t) => t.id === activeTagId)
+        if (tag) {
+          tag.expression = newText
+          virtualTags = virtualTags // trigger reactivity
+
+          const newCursorPos = (before + suggestion).length
+          queueMicrotask(() => {
+            textarea.focus()
+            textarea.setSelectionRange(newCursorPos, newCursorPos)
+          })
+        }
+        autocompleteState.show = false
+      }
+    } else {
+      autocompleteState.show = false
+    }
   }
 
   function handleCancel() {
@@ -249,6 +338,12 @@
                 placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
                 class="tag-expression"
                 rows="2"
+                onfocus={(e) => {
+                  activeTextarea = e.currentTarget
+                  activeTagId = tag.id
+                }}
+                oninput={handleExpressionInput}
+                onblur={() => (autocompleteState.show = false)}
               ></textarea>
             </div>
             <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
@@ -258,6 +353,14 @@
         {/each}
       </div>
       <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
+      {#if autocompleteState.show && activeTextarea}
+        <AutocompleteMenu
+          suggestions={autocompleteState.suggestions}
+          position={autocompleteState.position}
+          onSelect={autocompleteState.onSelect}
+          onClose={() => (autocompleteState.show = false)}
+        />
+      {/if}
       <div class="help-text">
         <p>
           Create tags based on existing data using JavaScript. Your expression can access:
