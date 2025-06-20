@@ -293,6 +293,31 @@
   // Set up a listener for real-time metadata updates from the main process.
   $effect(() => {
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+      if (updatedItem.isHidden) {
+        // The item was just hidden. We need to remove it from all visible lists.
+        if (selectedItemForDetailView?.id === updatedItem.id) {
+          goBack()
+        }
+
+        const parentInStack = findParentOfItem(currentFolder, updatedItem.id)
+        if (parentInStack) {
+          parentInStack.children = parentInStack.children.filter((c) => c.id !== updatedItem.id)
+          viewStack = [...viewStack]
+        }
+
+        if (selectedItemForDetailView?.type === 'folder') {
+          const parentInDetail = findParentOfItem(selectedItemForDetailView, updatedItem.id)
+          if (parentInDetail) {
+            parentInDetail.children = parentInDetail.children.filter((c) => c.id !== updatedItem.id)
+            selectedItemForDetailView = { ...selectedItemForDetailView }
+          }
+        }
+
+        searchResults = searchResults.filter((r) => r.id !== updatedItem.id)
+        detailViewSearchResults = detailViewSearchResults.filter((r) => r.id !== updatedItem.id)
+        return // Stop further processing for the hidden item.
+      }
+
       updateCachedItem(updatedItem)
 
       let wasHandledInView = false

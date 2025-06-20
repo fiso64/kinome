@@ -34,6 +34,9 @@
 
   let activeTab = $state(initialTab)
 
+  // --- Hide State ---
+  let isHidden = $state(item.isHidden ?? false)
+
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
@@ -132,12 +135,16 @@
         updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
         updatedItem.process_tv_children = processTvChildren === true ? undefined : false
       }
+
+      updatedItem.isHidden = isHidden
+
       return updatedItem
     }
   }
 
   async function handleSave() {
     const itemToUpdate = await buildUpdatedItem()
+    let needsRefresh = false
     if (itemToUpdate) {
       const wasEnabled = item.type === 'folder' ? item.retrieve_children_metadata ?? false : false
       await window.api.updateItem(itemToUpdate)
@@ -146,10 +153,18 @@
         itemToUpdate.retrieve_children_metadata &&
         !wasEnabled
       ) {
-        onNeedRefresh()
+        needsRefresh = true
       }
     }
+
+    // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
+    // will handle removing it from the view. The modal should always close.
     onClose()
+
+    // Trigger refresh after closing the modal for a better user experience.
+    if (needsRefresh) {
+      await onNeedRefresh()
+    }
   }
 
   async function handleClearMetadata() {
@@ -174,6 +189,21 @@
         if (itemToUpdate) await window.api.updateItem(itemToUpdate)
         if (await window.api.clearChildrenMetadata(item.id)) onClose()
       }
+    }
+  }
+
+  async function handleHide() {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Hide',
+      message: `Are you sure you want to hide "${item.title ?? item.name}"?`,
+      detail: 'This is not a deletion. It can be unhidden from its parent folder\'s settings.',
+      confirmText: 'Hide Item',
+      cancelText: 'Cancel'
+    })
+
+    if (confirmed) {
+      isHidden = true
+      await handleSave()
     }
   }
 
@@ -242,6 +272,8 @@
         bind:childrenTypeHint
         bind:processTvChildren
         onClearMetadata={handleClearMetadata}
+        onHideItem={handleHide}
+        {onNeedRefresh}
       />
     {/if}
   </div>

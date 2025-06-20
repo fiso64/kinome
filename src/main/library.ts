@@ -155,13 +155,15 @@ function createShallowClonableCopy(item: LibraryItem): LibraryItem {
   const plainItem = JSON.parse(JSON.stringify(item))
 
   if (plainItem.type === 'folder') {
-    plainItem.children = plainItem.children.map((child: LibraryItem) => {
-      if (child.type === 'folder') {
-        // Mark nested children as not loaded
-        child.children = null as any
-      }
-      return child
-    })
+    plainItem.children = plainItem.children
+      .filter((child: LibraryItem) => !child.isHidden) // Filter out hidden items
+      .map((child: LibraryItem) => {
+        if (child.type === 'folder') {
+          // Mark nested children as not loaded
+          child.children = null as any
+        }
+        return child
+      })
   }
 
   return plainItem
@@ -524,6 +526,10 @@ function collectItemsToProcess(
   // Process children of the current folder if the flag is set.
   if (folder.retrieve_children_metadata) {
     for (const child of folder.children) {
+      // **THE FIX**: Do not process items that are marked as hidden.
+      if (child.isHidden) {
+        continue
+      }
       if (typeof child.tmdbId === 'undefined') {
         newItems.push({ item: child, hint: folder.children_type_hint })
       } else if (child.tmdbId && !child.posterPath) {
@@ -532,9 +538,9 @@ function collectItemsToProcess(
     }
   }
 
-  // Always recurse into subfolders to check their flags.
+  // Always recurse into subfolders to check their flags, but skip hidden folders.
   for (const child of folder.children) {
-    if (child.type === 'folder') {
+    if (child.type === 'folder' && !child.isHidden) {
       collectItemsToProcess(child, newItems, itemsMissingPosters)
     }
   }
@@ -756,6 +762,7 @@ async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
   item.tags = undefined
   item.tmdbDetailsFetched = undefined
   item.virtualTags = undefined // Will be re-evaluated
+  item.isHidden = undefined
   item._v = Date.now() // Bust UI cache
 
   if (item.type === 'file') {
@@ -876,7 +883,8 @@ export function setupLibraryIpc(): void {
               oldItem.type === 'file' ? oldItem.tmdbDetailsFetched : oldItem.tmdbDetailsFetched,
             _v: oldItem._v,
             ...oldFolderProps,
-            watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined
+            watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined,
+            isHidden: oldItem.isHidden
           })
         }
 
@@ -962,7 +970,21 @@ export function setupLibraryIpc(): void {
 
       // 5. Return a DEEP, de-proxied copy of the root for the initial settings modal.
       // This ensures the tree view in the modal has the full folder structure.
-      return db!.root ? JSON.parse(JSON.stringify(db!.root)) : null
+      if (db!.root) {
+        const deepCopy = JSON.parse(JSON.stringify(db!.root))
+        // We still don't want hidden items to show up in the initial setup.
+        function filterHiddenRecursively(folder: MediaFolder) {
+          folder.children = folder.children.filter((child) => !child.isHidden)
+          folder.children.forEach((child) => {
+            if (child.type === 'folder') {
+              filterHiddenRecursively(child)
+            }
+          })
+        }
+        filterHiddenRecursively(deepCopy)
+        return deepCopy
+      }
+      return null
     } catch (error) {
       console.error('Failed to scan directory:', error)
       return null
@@ -1109,7 +1131,14 @@ export function setupLibraryIpc(): void {
 
     // --- Immediate Return ---
     // Return a deep copy to avoid issues with proxies and non-clonable objects over IPC.
-    return item ? JSON.parse(JSON.stringify(item)) : null
+    if (item) {
+      const deepCopy = JSON.parse(JSON.stringify(item))
+      if (deepCopy.type === 'folder' && Array.isArray(deepCopy.children)) {
+        deepCopy.children = deepCopy.children.filter((child: LibraryItem) => !child.isHidden)
+      }
+      return deepCopy
+    }
+    return null
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
@@ -1665,5 +1694,14 @@ export function setupLibraryIpc(): void {
     if (!db || !db.root) return null
     const parent = findParent(itemId, db.root)
     return parent ? JSON.parse(JSON.stringify(parent)) : null
+  })
+
+  ipcMain.handle('get-hidden-children', async (_, parentId: string): Promise<LibraryItem[]> => {
+    if (!db || !db.root) return []
+    const parent = findItemById(parentId, db.root)
+    if (!parent || parent.type !== 'folder') return []
+
+    const hiddenChildren = parent.children.filter((child) => child.isHidden)
+    return JSON.parse(JSON.stringify(hiddenChildren)) // Return deep copy
   })
 }

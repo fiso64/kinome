@@ -18,6 +18,7 @@ declare global {
     name: string
     path: string
     type: 'file'
+    isHidden?: boolean
     watched?: boolean
     opensAsFolder?: boolean
     // TMDB metadata
@@ -44,6 +45,7 @@ declare global {
     name: string
     path: string
     type: 'folder'
+    isHidden?: boolean
     children: LibraryItem[]
     // TMDB metadata
     title?: string
@@ -127,6 +129,7 @@ declare global {
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       getItemById: (itemId: string) => Promise<LibraryItem | null>
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
+      getHiddenChildren: (parentId: string) => Promise<LibraryItem[]>
       getParent: (itemId: string) => Promise<MediaFolder | null>
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]

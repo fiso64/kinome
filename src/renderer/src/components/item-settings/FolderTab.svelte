@@ -4,16 +4,39 @@
     retrieveChildrenMetadata = $bindable(),
     childrenTypeHint = $bindable(),
     processTvChildren = $bindable(),
-    onClearMetadata
+    onClearMetadata,
+    onHideItem,
+    onNeedRefresh
   }: {
     item: MediaFolder
     retrieveChildrenMetadata: boolean
     childrenTypeHint: 'auto' | 'movie' | 'tv'
     processTvChildren: boolean
     onClearMetadata: () => Promise<void>
+    onHideItem: () => Promise<void>
+    onNeedRefresh: () => Promise<void>
   } = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
+
+  let hiddenChildren = $state<LibraryItem[]>([])
+
+  async function fetchHiddenChildren() {
+    hiddenChildren = await window.api.getHiddenChildren(item.id)
+  }
+
+  async function handleUnhide(child: LibraryItem) {
+    const itemToUpdate = { ...JSON.parse(JSON.stringify(child)), isHidden: false }
+    await window.api.updateItem(itemToUpdate)
+    await fetchHiddenChildren() // Refresh the list
+    await onNeedRefresh() // Refresh the main view to show the unhidden item
+  }
+
+  $effect(() => {
+    if (!isVirtual) {
+      fetchHiddenChildren()
+    }
+  })
 </script>
 
 <div class="content">
@@ -68,7 +91,33 @@
         This is useful for forcing a complete re-fetch from scratch.
       </p>
     </div>
+    {#if !isVirtual}
+      <div>
+        <button class="danger" onclick={onHideItem}> Hide This Item... </button>
+        <p class="help-text danger-help-text">
+          Hides this item from all library views and searches. It can be unhidden from its parent
+          folder's settings.
+        </p>
+      </div>
+    {/if}
   </div>
+
+  {#if hiddenChildren.length > 0}
+    <div class="settings-group">
+      <h4>Hidden Items in this Folder</h4>
+      <p class="help-text">
+        The following direct children are hidden. Unhiding them will make them visible again.
+      </p>
+      <ul class="hidden-items-list">
+        {#each hiddenChildren as child (child.id)}
+          <li class="hidden-item">
+            <span>{child.type === 'folder' ? '📁' : '📄'} {child.name}</span>
+            <button class="secondary" onclick={() => handleUnhide(child)}>Unhide</button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -132,5 +181,31 @@
   }
   button.danger:hover:not(:disabled) {
     background-color: #a40e19;
+  }
+
+  .hidden-items-list {
+    background-color: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 6px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .hidden-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 4px;
+  }
+  .hidden-item:hover {
+    background-color: var(--color-background-soft);
+  }
+  .hidden-item span {
+    word-break: break-all;
+    padding-right: 1rem;
   }
 </style>

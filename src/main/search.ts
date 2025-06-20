@@ -107,7 +107,10 @@ export function updateIndexForItem(item: LibraryItem) {
   itemMap.set(item.id, item)
 
   // --- Exclusion Rules ---
-  if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
+  if (
+    (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
+    item.isHidden
+  ) {
     _removeItemFromIndex(item.id)
     // Also remove all its descendants from the index.
     function removeChildren(folder: MediaFolder) {
@@ -118,7 +121,7 @@ export function updateIndexForItem(item: LibraryItem) {
         }
       })
     }
-    if (item.children) removeChildren(item)
+    if (item.type === 'folder' && item.children) removeChildren(item)
     return
   }
 
@@ -240,7 +243,10 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
 
   function traverse(item: LibraryItem, parent?: MediaFolder) {
     // Exclusion rule
-    if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
+    if (
+      (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
+      item.isHidden
+    ) {
       return // Don't index this folder or its children
     }
 

@@ -34,6 +34,8 @@ const api = {
     ipcRenderer.invoke('get-item-by-id', itemId),
   getChildren: (parentId: string): Promise<LibraryItem[] | null> =>
     ipcRenderer.invoke('get-children', parentId),
+  getHiddenChildren: (parentId: string): Promise<LibraryItem[]> =>
+    ipcRenderer.invoke('get-hidden-children', parentId),
   getParent: (itemId: string): Promise<MediaFolder | null> =>
     ipcRenderer.invoke('get-parent', itemId),
   applyInitialFolderSettings: (

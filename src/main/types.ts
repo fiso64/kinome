@@ -3,6 +3,7 @@ export interface MediaFile {
   name: string
   path: string // Full path to the file
   type: 'file'
+  isHidden?: boolean
   watched?: boolean
   opensAsFolder?: boolean
   // TMDB metadata
@@ -26,6 +27,7 @@ export interface MediaFolder {
   name: string
   path: string // Full path to the folder
   type: 'folder'
+  isHidden?: boolean
   children: LibraryItem[]
   // TMDB metadata
   title?: string
