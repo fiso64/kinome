@@ -1,13 +1,7 @@
 <script lang="ts">
   import ModalWindow from '../ModalWindow.svelte'
   import ViewConfigurator from '../shared/ViewConfigurator.svelte'
-
-  type ViewSettings = {
-    layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    clickAction: 'detail' | 'navigate'
-    groupBy: string
-    gridPosterSize?: number | null
-  }
+  import type { StoredViewSettings } from '../../../../shared/types'
 
   let {
     title,
@@ -20,9 +14,9 @@
     settings
   }: {
     title: string
-    initialSettings: ViewSettings
+    initialSettings: StoredViewSettings
     onClose: () => void
-    onSave: (newSettings: ViewSettings) => void
+    onSave: (newSettings: StoredViewSettings) => void
     groupByKeys: string[]
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
@@ -35,12 +29,21 @@
   let gridPosterSize = $state(initialSettings.gridPosterSize)
 
   function handleSave() {
-    onSave({
+    const newSettings: StoredViewSettings = {
       layout: selectedLayout,
       clickAction: selectedClickAction,
       groupBy: selectedGroupBy,
       gridPosterSize: gridPosterSize
-    })
+    }
+    // Remove undefined/null keys to keep stored settings clean
+    Object.keys(newSettings).forEach(
+      (key) =>
+        (newSettings[key as keyof StoredViewSettings] === undefined ||
+          newSettings[key as keyof StoredViewSettings] === null) &&
+        delete newSettings[key as keyof StoredViewSettings]
+    )
+
+    onSave(newSettings)
     onClose()
   }
 </script>

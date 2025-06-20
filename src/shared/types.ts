@@ -1,20 +1,72 @@
-export interface ViewSettings {
+// --- Layout-Specific Settings Definitions ---
+
+/**
+ * Defines the shape of settings specific to the 'grid' layout.
+ */
+export interface GridSettings {
+  gridPosterSize: number
+}
+
+/**
+ * Defines the shape of settings specific to 'tabs' or 'sections' layouts.
+ */
+export interface GroupingSettings {
+  groupBy: string
+}
+
+/**
+ * A union of all possible layout-specific setting objects.
+ */
+type LayoutSpecificSettings = GridSettings | GroupingSettings
+
+/**
+ * The single source of truth for layout-specific properties and their ultimate default values.
+ * This drives the data-driven settings resolution logic.
+ */
+export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
+  grid: { gridPosterSize: 200 },
+  tabs: { groupBy: 'folder' },
+  sections: { groupBy: 'folder' }
+} as const
+
+// --- View Settings Type Definitions ---
+
+/**
+ * Defines the core properties common to all views.
+ */
+export interface BaseViewSettings {
   layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   clickAction: 'detail' | 'navigate'
-  groupBy: string
-  gridPosterSize?: number | null
 }
+
+/**
+ * Represents how view settings are stored in `settings.json` or on a `MediaFolder`.
+ * It's a partial object containing only the user-defined *overrides*.
+ */
+export type StoredViewSettings = Partial<BaseViewSettings & GridSettings & GroupingSettings>
+
+/**
+ * Represents the final, computed settings object after the full cascade has been applied.
+ * It's a complete object ready for the UI to consume.
+ */
+export type ResolvedViewSettings = BaseViewSettings & Partial<LayoutSpecificSettings>
 
 export interface Settings {
   playerCommand: string
   tmdbApiKey: string
   useLogos?: boolean
   virtualTags?: { name: string; expression: string }[]
-  gridPosterSize?: number
-  defaultViewSettings: ViewSettings
-  defaultMovieViewSettings: ViewSettings
-  defaultTvShowViewSettings: ViewSettings
-  defaultSeasonViewSettings: ViewSettings
+  // Global defaults for layout-specific properties
+  defaultLayoutSettings: {
+    grid: GridSettings
+    tabs: GroupingSettings
+    sections: GroupingSettings
+  }
+  // Type-specific overrides
+  defaultViewSettings: StoredViewSettings // The base default
+  defaultMovieViewSettings: StoredViewSettings
+  defaultTvShowViewSettings: StoredViewSettings
+  defaultSeasonViewSettings: StoredViewSettings
 }
 
 export interface MediaFile {
@@ -47,7 +99,7 @@ export interface MediaFile {
   _v?: number // Cache-busting version number
 }
 
-export interface MediaFolder {
+export interface MediaFolder extends StoredViewSettings {
   // --- Core Properties (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
   name: string
@@ -56,10 +108,6 @@ export interface MediaFolder {
   children: LibraryItem[]
 
   // --- View & Behavior Settings (Preserved) ---
-  layout?: 'grid' | 'tree' | 'tabs' | 'sections'
-  gridPosterSize?: number | null
-  childrenClickAction?: 'detail' | 'navigate'
-  groupBy?: string
   virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
@@ -148,10 +196,13 @@ export const METADATA_KEYS = [
 ] as const
 
 export const VIEW_SETTINGS_KEYS = [
+  // Base view settings
   'layout',
+  'clickAction',
+  // Layout-specific settings
   'gridPosterSize',
-  'childrenClickAction',
   'groupBy',
+  // Other view-related settings
   'virtualFolderSettings'
 ] as const
 

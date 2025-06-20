@@ -1,4 +1,11 @@
-import type { MediaFolder, Settings, ViewSettings } from './types'
+import type {
+  MediaFolder,
+  Settings,
+  ResolvedViewSettings,
+  StoredViewSettings,
+  BaseViewSettings
+} from './types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
 
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.
@@ -10,59 +17,63 @@ type ResolvableItem = (MediaFolder & { isVirtual?: boolean }) | undefined | null
  *
  * @param item The folder item whose view settings need to be resolved.
  * @param settings The global application settings object.
- * @returns A complete ViewSettings object with the final computed values.
+ * @returns A complete, resolved view settings object ready for the UI.
  */
 export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null
-): ViewSettings & { gridPosterSize: number | undefined | null } {
+): ResolvedViewSettings {
   // If settings aren't loaded, provide a safe, hardcoded default.
   if (!settings) {
-    const layout = item?.layout ?? 'grid'
-    const clickAction = item?.childrenClickAction ?? 'detail'
-    const groupBy = item?.groupBy ?? 'folder'
-    const gridPosterSize = item?.gridPosterSize ?? 200
-    return { layout, clickAction, groupBy, gridPosterSize }
-  }
-
-  // 1. Start with the most general global defaults.
-  let resolved: ViewSettings = { ...settings.defaultViewSettings }
-  // gridPosterSize is handled separately to ensure correct inheritance.
-  let resolvedGridPosterSize = settings.gridPosterSize
-
-  // 2. Layer on type-specific defaults if the item has a mediaType.
-  if (item?.mediaType) {
-    let typeDefaults: ViewSettings | undefined
-    switch (item.mediaType) {
-      case 'movie':
-        typeDefaults = settings.defaultMovieViewSettings
-        break
-      case 'tv':
-        typeDefaults = settings.defaultTvShowViewSettings
-        break
-      case 'season':
-        typeDefaults = settings.defaultSeasonViewSettings
-        break
-    }
-    if (typeDefaults) {
-      resolved = { ...resolved, ...typeDefaults }
-      // Only override gridPosterSize if it's explicitly set on the type-specific settings.
-      if (typeDefaults.gridPosterSize != null) {
-        resolvedGridPosterSize = typeDefaults.gridPosterSize
-      }
+    return {
+      layout: item?.layout ?? 'grid',
+      clickAction: item?.clickAction ?? 'detail',
+      groupBy: item?.groupBy ?? 'folder',
+      gridPosterSize: item?.gridPosterSize ?? 200
     }
   }
 
-  // 3. Layer on the most specific settings from the item itself.
-  // This works for both physical and virtual folders.
-  if (item?.type === 'folder') {
-    const { layout, childrenClickAction, groupBy, gridPosterSize } = item
-    if (layout) resolved.layout = layout
-    if (childrenClickAction) resolved.clickAction = childrenClickAction
-    if (groupBy) resolved.groupBy = groupBy
-    if (gridPosterSize != null) resolvedGridPosterSize = gridPosterSize
+  // 1. Determine the hierarchy of settings to check, from most to least specific.
+  const typeDefaultKey = item?.mediaType
+    ? (`default${
+        item.mediaType.charAt(0).toUpperCase() + item.mediaType.slice(1)
+      }ViewSettings` as keyof Settings)
+    : null
+  const typeDefaultSettings = typeDefaultKey ? (settings[typeDefaultKey] as StoredViewSettings) : {}
+
+  const settingsCascade: StoredViewSettings[] = [
+    item ?? {}, // Item-specific overrides
+    typeDefaultSettings, // Type-specific overrides
+    settings.defaultViewSettings // Global base defaults
+  ].filter(Boolean)
+
+  // 2. Resolve the base properties (`layout` and `clickAction`).
+  const resolvedBase: BaseViewSettings = {
+    layout: settingsCascade.find((s) => s.layout)?.layout ?? 'grid',
+    clickAction: settingsCascade.find((s) => s.clickAction)?.clickAction ?? 'detail'
   }
 
-  // Combine the resolved parts.
-  return { ...resolved, gridPosterSize: resolvedGridPosterSize }
+  // 3. Get the list of layout-specific keys for the now-resolved layout.
+  const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
+  const specificKeys = Object.keys(layoutConfig)
+  const resolvedSpecific: Record<string, any> = {}
+
+  // 4. For each layout-specific key, resolve its value using the cascade.
+  for (const key of specificKeys) {
+    // Find the first settings object in the cascade that defines this key.
+    const winningLayer = settingsCascade.find((s: any) => s[key] != null)
+
+    if (winningLayer) {
+      resolvedSpecific[key] = (winningLayer as any)[key]
+    } else {
+      // If no override is found, use the global default from `defaultLayoutSettings`.
+      resolvedSpecific[key] = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
+    }
+  }
+
+  // 5. Combine and return the final, complete settings object.
+  return {
+    ...resolvedBase,
+    ...resolvedSpecific
+  }
 }

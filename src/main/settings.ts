@@ -15,21 +15,51 @@ async function readRawSettings(): Promise<Settings> {
     tmdbApiKey: '',
     useLogos: true,
     virtualTags: [],
-    gridPosterSize: 200,
-    defaultViewSettings: { layout: 'grid', clickAction: 'detail', groupBy: 'folder' },
-    defaultMovieViewSettings: { layout: 'tree', clickAction: 'detail', groupBy: 'folder' },
-    defaultTvShowViewSettings: { layout: 'list', clickAction: 'detail', groupBy: 'folder' },
-    defaultSeasonViewSettings: { layout: 'list', clickAction: 'detail', groupBy: 'folder' }
+    // New structured defaults
+    defaultLayoutSettings: {
+      grid: { gridPosterSize: 200 },
+      tabs: { groupBy: 'folder' },
+      sections: { groupBy: 'folder' }
+    },
+    // Type-specific overrides start as empty objects
+    defaultViewSettings: { layout: 'grid', clickAction: 'detail' },
+    defaultMovieViewSettings: { layout: 'tree' },
+    defaultTvShowViewSettings: { layout: 'list' },
+    defaultSeasonViewSettings: { layout: 'list' }
   }
 
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')
     const saved = JSON.parse(data)
 
-    // Deep merge the view settings to ensure all properties exist
+    // --- Migration from legacy format ---
+    if (saved.gridPosterSize && !saved.defaultLayoutSettings) {
+      saved.defaultLayoutSettings = {
+        grid: { gridPosterSize: saved.gridPosterSize },
+        tabs: { groupBy: 'folder' },
+        sections: { groupBy: 'folder' }
+      }
+      delete saved.gridPosterSize
+    }
+    // Migrate old `groupBy` from `defaultViewSettings` to the new `defaultLayoutSettings`
+    if (saved.defaultViewSettings?.groupBy && saved.defaultLayoutSettings) {
+      saved.defaultLayoutSettings.tabs.groupBy = saved.defaultViewSettings.groupBy
+      saved.defaultLayoutSettings.sections.groupBy = saved.defaultViewSettings.groupBy
+      delete saved.defaultViewSettings.groupBy
+    }
+
+    // --- Deep merge the new structure ---
     const merged: Settings = {
       ...defaultSettings,
       ...saved,
+      defaultLayoutSettings: {
+        grid: { ...defaultSettings.defaultLayoutSettings.grid, ...saved.defaultLayoutSettings?.grid },
+        tabs: { ...defaultSettings.defaultLayoutSettings.tabs, ...saved.defaultLayoutSettings?.tabs },
+        sections: {
+          ...defaultSettings.defaultLayoutSettings.sections,
+          ...saved.defaultLayoutSettings?.sections
+        }
+      },
       defaultViewSettings: { ...defaultSettings.defaultViewSettings, ...saved.defaultViewSettings },
       defaultMovieViewSettings: {
         ...defaultSettings.defaultMovieViewSettings,
@@ -46,10 +76,12 @@ async function readRawSettings(): Promise<Settings> {
     }
 
     // Clean up legacy properties if they exist
+    delete (merged as any).gridPosterSize
     delete (merged as any).defaultFolderLayout
     delete (merged as any).defaultMovieFolderLayout
     delete (merged as any).defaultTvShowFolderLayout
     delete (merged as any).defaultSeasonFolderLayout
+    if (merged.defaultViewSettings) delete (merged.defaultViewSettings as any).groupBy
 
     return merged
   } catch {

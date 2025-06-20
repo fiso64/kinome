@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../../../shared/types'
+
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
     { value: 'list', label: 'List', description: 'A detailed list with posters and info.' },
@@ -32,7 +34,6 @@
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
-    settings,
     configMode = false,
     initialConfigLayout = 'grid'
   }: {
@@ -43,7 +44,6 @@
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string
     gridPosterSize?: number | null
-    settings: any | null // Can be partial settings object
     configMode?: boolean
     initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   } = $props()
@@ -55,25 +55,16 @@
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
 
   // --- Grid Poster Size ---
-  const globalDefaultSize = $derived(settings?.gridPosterSize ?? 200)
+  const globalDefaultGridSize = $derived(
+    LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize ?? 200
+  )
+  const effectiveGridSize = $derived(gridPosterSize ?? globalDefaultGridSize)
+  const isGridSizeOverridden = $derived(gridPosterSize != null)
 
-  // This is a derived value representing the current effective size for the slider.
-  // It will automatically update if the parent prop or global default changes.
-  const localSize = $derived(gridPosterSize ?? globalDefaultSize)
-
-  // This is also derived directly from the prop.
-  const isOverridden = $derived(gridPosterSize != null)
-
-  // When the user moves the slider, it sets the override by updating the bound prop.
-  function handleSliderInput(e: Event) {
-    const value = parseInt((e.target as HTMLInputElement).value, 10)
-    gridPosterSize = value
-  }
-
-  // The reset button removes the override by setting the bound prop to null.
-  function handleReset() {
-    gridPosterSize = null
-  }
+  // --- Group By ---
+  const globalDefaultGroupBy = $derived(LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy ?? 'folder')
+  const effectiveGroupBy = $derived(selectedGroupBy ?? globalDefaultGroupBy)
+  const isGroupByOverridden = $derived(selectedGroupBy != null && selectedGroupBy !== 'folder')
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -102,54 +93,65 @@
   {:else}
     <h3>Configure Defaults For</h3>
     <div class="layout-options horizontal">
-      {#each filteredLayouts as layout}
-        <label class="layout-option horizontal-item">
-          <input
-            type="radio"
-            name="config-layout"
-            value={layout.value}
-            onchange={() => (activeConfigLayout = layout.value)}
-            checked={activeConfigLayout === layout.value}
-          />
-          <span>{layout.label}</span>
-        </label>
+      {#each layouts as layout}
+        {#if Object.keys(LAYOUT_SPECIFIC_SETTINGS_CONFIG).includes(layout.value)}
+          <label class="layout-option horizontal-item">
+            <input
+              type="radio"
+              name="config-layout"
+              value={layout.value}
+              onchange={() => (activeConfigLayout = layout.value as any)}
+              checked={activeConfigLayout === layout.value}
+            />
+            <span>{layout.label}</span>
+          </label>
+        {/if}
       {/each}
     </div>
     <p class="help-text">Set default values for when this layout is used.</p>
   {/if}
 
+  <!-- Grid-specific settings -->
   {#if layoutToShowOptionsFor === 'grid'}
     <div class="divider"></div>
     <div class="heading-with-action">
       <h3>Grid Poster Size</h3>
-      {#if isOverridden}
-        <button class="link-button" onclick={handleReset}>Reset to default</button>
+      {#if isGridSizeOverridden && !configMode}
+        <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
       {/if}
     </div>
     <p class="help-text">
-      Controls the base width of posters in this grid view. The current default is
-      {globalDefaultSize}px.
+      Controls the base width of posters in the grid view. The global default is
+      {globalDefaultGridSize}px.
     </p>
     <div class="form-group">
       <div class="slider-container">
         <input
           type="range"
-          value={localSize}
-          oninput={handleSliderInput}
+          value={effectiveGridSize}
+          oninput={(e) => (gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
           min="50"
           max="500"
           step="10"
         />
-        <span>{localSize}px</span>
+        <span>{effectiveGridSize}px</span>
       </div>
     </div>
   {/if}
 
-  {#if !configMode && (layoutToShowOptionsFor === 'tabs' || layoutToShowOptionsFor === 'sections')}
+  <!-- Tabs/Sections-specific settings -->
+  {#if layoutToShowOptionsFor === 'tabs' || layoutToShowOptionsFor === 'sections'}
     <div class="divider"></div>
-    <h3>Group By</h3>
+    <div class="heading-with-action">
+      <h3>Group By</h3>
+      {#if isGroupByOverridden && !configMode}
+        <button class="link-button" onclick={() => (selectedGroupBy = 'folder')}>Reset to default</button>
+      {/if}
+    </div>
     <p class="help-text">
-      Choose a metadata field to group the contents of this folder into {layoutToShowOptionsFor}.
+      Choose a metadata field to group contents into {layoutToShowOptionsFor}. The global default is "{formatKey(
+        globalDefaultGroupBy
+      )}".
     </p>
     <div class="form-group">
       <select bind:value={selectedGroupBy}>

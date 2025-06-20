@@ -70,7 +70,7 @@ import { dialogStore } from '../../lib/dialog-store'
 
   // --- View State (for folders) ---
   let selectedLayout = $state(_isFolder ? item.layout ?? defaultLayout : 'grid')
-  let selectedClickAction = $state(_isFolder ? item.childrenClickAction ?? 'detail' : 'detail')
+  let selectedClickAction = $state(_isFolder ? item.clickAction ?? 'detail' : 'detail')
   let selectedGroupBy = $state(_isFolder ? item.groupBy ?? 'folder' : 'folder')
   let gridPosterSize = $state(_isFolder ? (item as MediaFolder).gridPosterSize : undefined)
 
@@ -96,7 +96,7 @@ import { dialogStore } from '../../lib/dialog-store'
 
       settings.layout = selectedLayout
       settings.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
-      settings.childrenClickAction = selectedClickAction
+      settings.clickAction = selectedClickAction
       updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
       return updatedParent
     } else {
@@ -135,7 +135,7 @@ import { dialogStore } from '../../lib/dialog-store'
         updatedItem.layout = selectedLayout
         updatedItem.gridPosterSize = gridPosterSize
         updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
-        updatedItem.childrenClickAction = selectedClickAction
+        updatedItem.clickAction = selectedClickAction
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
         updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
         updatedItem.process_tv_children = processTvChildren === true ? undefined : false

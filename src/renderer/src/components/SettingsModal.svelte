@@ -23,14 +23,13 @@ let {
   let useLogos = $state(true)
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
-  let gridPosterSize = $state(200)
-  let originalGridPosterSize = 200
 
   // New structured view settings state
-  let defaultViewSettings: ViewSettings | null = $state(null)
-  let defaultMovieViewSettings: ViewSettings | null = $state(null)
-  let defaultTvShowViewSettings: ViewSettings | null = $state(null)
-  let defaultSeasonViewSettings: ViewSettings | null = $state(null)
+  let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
+  let defaultViewSettings = $state<StoredViewSettings | null>(null)
+  let defaultMovieViewSettings = $state<StoredViewSettings | null>(null)
+  let defaultTvShowViewSettings = $state<StoredViewSettings | null>(null)
+  let defaultSeasonViewSettings = $state<StoredViewSettings | null>(null)
 
   let settingsLoaded = $state(false)
 
@@ -109,10 +108,9 @@ let {
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
-      gridPosterSize = settings.gridPosterSize ?? 200
-      originalGridPosterSize = settings.gridPosterSize ?? 200
 
       // Set new view settings
+      defaultLayoutSettings = JSON.parse(JSON.stringify(settings.defaultLayoutSettings))
       defaultViewSettings = settings.defaultViewSettings
       defaultMovieViewSettings = settings.defaultMovieViewSettings
       defaultTvShowViewSettings = settings.defaultTvShowViewSettings
@@ -147,14 +145,7 @@ let {
     }
   })
 
-  // This effect provides a live preview for the poster size slider
-  $effect(() => {
-    // Only apply the live preview *after* the initial settings have been loaded.
-    // This prevents a flicker caused by the initial hardcoded state.
-    if (settingsLoaded) {
-      document.documentElement.style.setProperty('--grid-poster-size', `${gridPosterSize}px`)
-    }
-  })
+  
 
   function addVirtualTag() {
     virtualTags.push({ id: crypto.randomUUID(), name: '', expression: '' })
@@ -228,8 +219,6 @@ let {
   }
 
   function handleCancel() {
-    // Revert the live preview to its original value before closing the modal
-    document.documentElement.style.setProperty('--grid-poster-size', `${originalGridPosterSize}px`)
     close()
   }
 
@@ -242,8 +231,10 @@ let {
       tmdbApiKey,
       useLogos,
       virtualTags: tagsToSave,
-      gridPosterSize,
-      // Convert reactive state objects to plain objects before sending over IPC
+      // New structured settings
+      defaultLayoutSettings: defaultLayoutSettings
+        ? JSON.parse(JSON.stringify(defaultLayoutSettings))
+        : undefined,
       defaultViewSettings: defaultViewSettings ? { ...defaultViewSettings } : undefined,
       defaultMovieViewSettings: defaultMovieViewSettings
         ? { ...defaultMovieViewSettings }
@@ -311,13 +302,10 @@ let {
 
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
-    initialSettings={{ gridPosterSize }}
-    {settings}
+    initialSettings={defaultLayoutSettings}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(newSettings) => {
-      if (newSettings.gridPosterSize !== undefined) {
-        gridPosterSize = newSettings.gridPosterSize
-      }
+      defaultLayoutSettings = newSettings
     }}
   />
 {/if}
@@ -386,10 +374,11 @@ let {
       <div class="form-group">
         <label>Default Layout Values</label>
         <p class="help-text">
-          Configure default values for specific layouts, like poster size for the Grid view.
+          Configure global default values for specific layouts (e.g., poster size for Grid,
+          group-by for Tabs).
         </p>
         <div class="view-config-row" onclick={() => (activeLayoutSettingsModal = true)}>
-          <span>Grid: {gridPosterSize}px</span>
+          <span>Global Defaults</span>
           <button class="secondary" tabindex="-1">Configure...</button>
         </div>
       </div>
