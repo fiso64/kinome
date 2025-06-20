@@ -444,28 +444,24 @@ async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
   }
 }
 
-async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFolder> {
+async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFolder | null> {
   const name = path.basename(dirPath)
-  const relativePath = path.relative(rootPath, dirPath)
-  const root: MediaFolder = {
-    id: generateId(relativePath || '.'), // Use dot for root itself
-    name: name || path.basename(rootPath), // Use root basename if name is empty
-    path: dirPath,
-    type: 'folder',
-    children: []
-  }
+  const children: LibraryItem[] = []
 
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name)
     const entryRelativePath = path.relative(rootPath, entryPath)
+
     if (entry.isDirectory()) {
       const subFolder = await scanDirectory(entryPath, rootPath)
-      root.children.push(subFolder)
+      if (subFolder) {
+        children.push(subFolder)
+      }
     } else if (entry.isFile()) {
       // Simple filter for common video files
       if (/\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)) {
-        root.children.push({
+        children.push({
           id: generateId(entryRelativePath),
           name: entry.name,
           path: entryPath,
@@ -474,7 +470,21 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
       }
     }
   }
-  return root
+
+  // If there are no children (no video files or non-empty subfolders), return null.
+  if (children.length === 0) {
+    return null
+  }
+
+  const relativePath = path.relative(rootPath, dirPath)
+  const folder: MediaFolder = {
+    id: generateId(relativePath || '.'), // Use dot for root itself
+    name: name || path.basename(rootPath), // Use root basename if name is empty
+    path: dirPath,
+    type: 'folder',
+    children
+  }
+  return folder
 }
 
 // Helper to process tasks with a limit on concurrent executions.
@@ -834,7 +844,8 @@ export function setupLibraryIpc(): void {
       const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
 
       // This function merges old metadata and verifies image paths for all items.
-      async function processItem(item: LibraryItem) {
+      async function processItem(item: LibraryItem | null) {
+        if (!item) return // Handle null items from scanner
         const oldItem = oldItemsMap.get(item.id)
         if (oldItem) {
           const oldFolderProps =
@@ -883,7 +894,9 @@ export function setupLibraryIpc(): void {
 
       // Apply virtual tags. These changes will also be detected by the proxy.
       const currentSettings = await readSettings()
-      applyVirtualTagsToAllItems(db.root, currentSettings)
+      if (db.root) {
+        applyVirtualTagsToAllItems(db.root, currentSettings)
+      }
 
       // Rebuild the search index now that all data is merged and updated.
       buildFullSearchIndex(db.root)
@@ -935,7 +948,9 @@ export function setupLibraryIpc(): void {
 
       // 2. Apply virtual tags before creating the proxy.
       const settings = await readSettings()
-      applyVirtualTagsToAllItems(rootNode, settings)
+      if (rootNode) {
+        applyVirtualTagsToAllItems(rootNode, settings)
+      }
       setBulkUpdateStatus(false) // Turn off before metadata fetch starts.
 
       // 3. This will create the proxy, update the global `db`, and build the search index.
