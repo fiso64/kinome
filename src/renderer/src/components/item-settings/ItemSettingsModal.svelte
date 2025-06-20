@@ -28,7 +28,8 @@
     defaultLayout: 'grid' | 'tree'
   } = $props()
 
-  const isFolder = $derived(item.type === 'folder')
+  const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
+  const isFolder = $derived(item.type === 'folder') // Reactive derived value for the template
   const isVirtual = $derived(item.isVirtual === true)
 
   let activeTab = $state(initialTab)
@@ -52,26 +53,24 @@
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
   let seasonNumber = $state(
-    isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : ''
+    _isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : ''
   )
   let episodeNumber = $state(
-    !isFolder ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
+    !_isFolder ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
   )
   let episodeSeasonNumber = $state(
-    !isFolder ? ((item as MediaFile).seasonNumber?.toString() ?? '') : ''
+    !_isFolder ? ((item as MediaFile).seasonNumber?.toString() ?? '') : ''
   )
 
   // --- View State (for folders) ---
-  let selectedLayout = $state(isFolder ? item.layout ?? defaultLayout : 'grid')
-  let selectedClickAction = $state(isFolder ? item.childrenClickAction ?? 'detail' : 'detail')
-  let selectedGroupBy = $state(isFolder ? item.groupBy ?? 'folder' : 'folder')
+  let selectedLayout = $state(_isFolder ? item.layout ?? defaultLayout : 'grid')
+  let selectedClickAction = $state(_isFolder ? item.childrenClickAction ?? 'detail' : 'detail')
+  let selectedGroupBy = $state(_isFolder ? item.groupBy ?? 'folder' : 'folder')
 
   // --- Folder Settings State ---
-  let retrieveChildrenMetadata = $state(isFolder ? item.retrieve_children_metadata ?? false : false)
-  let childrenTypeHint = $state(
-    isFolder ? (item.children_type_hint ?? 'auto') : 'auto'
-  )
-  let processTvChildren = $state(isFolder ? item.process_tv_children ?? true : true)
+  let retrieveChildrenMetadata = $state(_isFolder ? item.retrieve_children_metadata ?? false : false)
+  let childrenTypeHint = $state(_isFolder ? item.children_type_hint ?? 'auto' : 'auto')
+  let processTvChildren = $state(_isFolder ? item.process_tv_children ?? true : true)
 
   // --- Actions ---
   async function buildUpdatedItem(): Promise<LibraryItem | null> {
