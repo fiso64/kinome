@@ -1,8 +1,9 @@
 <script lang="ts">
-  import ModalWindow from './ModalWindow.svelte'
-  import AutocompleteMenu from './AutocompleteMenu.svelte'
-  import DefaultViewSettingsModal from './settings/DefaultViewSettingsModal.svelte'
-  import DefaultLayoutSettingsModal from './settings/DefaultLayoutSettingsModal.svelte'
+import ModalWindow from './ModalWindow.svelte'
+import AutocompleteMenu from './AutocompleteMenu.svelte'
+import DefaultViewSettingsModal from './settings/DefaultViewSettingsModal.svelte'
+import DefaultLayoutSettingsModal from './settings/DefaultLayoutSettingsModal.svelte'
+import { DEFAULT_LAYOUTS_CONFIG } from '../../../shared/types'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
 let {
@@ -242,13 +243,13 @@ async function handleSave(): Promise<void> {
 
 {#if activeViewSettingsModal && defaultLayouts}
     {@const typeKey = activeViewSettingsModal}
-    {@const titles = { _default: 'Default Folder View', movie: 'Default Movie Contents View', tv: 'Default TV Show Contents View', season: 'Default Season Contents View' }}
+    {@const config = DEFAULT_LAYOUTS_CONFIG[typeKey]}
     <DefaultViewSettingsModal
-      title={titles[typeKey]}
+      title={config.label}
       initialSettings={defaultLayouts[typeKey]}
       groupByKeys={groupByKeys}
-      availableLayouts={typeKey === '_default' ? ['grid', 'list', 'tree'] : undefined}
-      showClickAction={typeKey === '_default' ? false : true}
+      availableLayouts={config.availableLayouts}
+      showClickAction={config.showClickAction}
       {settings}
       onClose={() => (activeViewSettingsModal = null)}
       onSave={(newSettings) => {
@@ -341,18 +342,12 @@ async function handleSave(): Promise<void> {
       </div>
 
       {#if defaultLayouts}
-        {@const layoutConfig = [
-          { key: '_default', label: 'Default Folder View', help: 'The default view used for folders that do not have a specific layout set.' },
-          { key: 'movie', label: 'Default Movie Contents View', help: 'The default view for the contents of a movie folder on its detail page.' },
-          { key: 'tv', label: 'Default TV Show Contents View', help: 'The default view for the contents of a TV show folder on its detail page.' },
-          { key: 'season', label: 'Default Season Contents View', help: 'The default view for the contents of a season folder on its detail page.' },
-        ]}
-        {#each layoutConfig as config (config.key)}
+        {#each Object.entries(DEFAULT_LAYOUTS_CONFIG) as [key, config] (key)}
           <div class="form-group">
             <label>{config.label}</label>
             <p class="help-text">{config.help}</p>
-            <div class="view-config-row" onclick={() => (activeViewSettingsModal = config.key as any)}>
-              <span>{formatLayoutString(defaultLayouts[config.key])}</span>
+            <div class="view-config-row" onclick={() => (activeViewSettingsModal = key as any)}>
+              <span>{formatLayoutString(defaultLayouts[key])}</span>
               <button class="secondary" tabindex="-1">Configure...</button>
             </div>
           </div>

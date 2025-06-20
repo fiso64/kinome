@@ -1,8 +1,8 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
-import type { Settings } from '../shared/types'
-import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
+import type { DefaultLayoutKey, Settings, StoredViewSettings } from '../shared/types'
+import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
 
 const SETTINGS_FILE_NAME = 'settings.json'
 
@@ -45,6 +45,17 @@ async function readRawSettings(): Promise<Settings> {
     }
     // --- END MIGRATION LOGIC ---
 
+    // Dynamically merge default layouts from the config
+    const mergedLayouts = (
+      Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]
+    ).reduce(
+      (acc, key) => {
+        acc[key] = { ...defaultSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
+        return acc
+      },
+      {} as { [K in DefaultLayoutKey]: StoredViewSettings }
+    )
+
     // Deep merge the saved settings over the defaults.
     const merged: Settings = {
       ...defaultSettings,
@@ -57,12 +68,7 @@ async function readRawSettings(): Promise<Settings> {
           ...saved.defaultLayoutSettings?.sections
         }
       },
-      defaultLayouts: {
-        _default: { ...defaultSettings.defaultLayouts._default, ...saved.defaultLayouts?._default },
-        movie: { ...defaultSettings.defaultLayouts.movie, ...saved.defaultLayouts?.movie },
-        tv: { ...defaultSettings.defaultLayouts.tv, ...saved.defaultLayouts?.tv },
-        season: { ...defaultSettings.defaultLayouts.season, ...saved.defaultLayouts?.season }
-      }
+      defaultLayouts: mergedLayouts
     }
     return merged
   } catch {

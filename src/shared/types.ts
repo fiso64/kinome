@@ -70,7 +70,42 @@ export type StoredViewSettings = Partial<BaseViewSettings & GridSettings & Group
  */
 export type ResolvedViewSettings = BaseViewSettings & Partial<LayoutSpecificSettings>
 
-export type MediaTypeForDefaults = 'movie' | 'tv' | 'season'
+/**
+ * A single source of truth for the configurations of different default layout types.
+ * This drives the UI in the settings modal and the default values in the main process.
+ */
+export const DEFAULT_LAYOUTS_CONFIG = {
+  _default: {
+    label: 'Default Folder View',
+    help: 'The default view used for folders that do not have a specific layout set.',
+    availableLayouts: ['grid', 'list', 'tree'] as ('grid' | 'list' | 'tree')[],
+    showClickAction: false
+  },
+  movie: {
+    label: 'Default Movie Contents View',
+    help: 'The default view for the contents of a movie folder on its detail page.',
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    showClickAction: true
+  },
+  tv: {
+    label: 'Default TV Show Contents View',
+    help: 'The default view for the contents of a TV show folder on its detail page.',
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    showClickAction: true
+  },
+  season: {
+    label: 'Default Season Contents View',
+    help: 'The default view for the contents of a season folder on its detail page.',
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    showClickAction: true
+  }
+} as const
+
+/**
+ * A type representing the keys of the default layout configuration object.
+ * e.g., '_default' | 'movie' | 'tv' | 'season'
+ */
+export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 
 export interface Settings {
   playerCommand: string
@@ -83,12 +118,9 @@ export interface Settings {
     tabs: GroupingSettings
     sections: GroupingSettings
   }
-  // Type-specific layout defaults
+  // Type-specific layout defaults, now typed from our config keys
   defaultLayouts: {
-    _default: StoredViewSettings
-    movie: StoredViewSettings
-    tv: StoredViewSettings
-    season: StoredViewSettings
+    [K in DefaultLayoutKey]: StoredViewSettings
   }
 }
 
