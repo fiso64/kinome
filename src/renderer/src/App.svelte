@@ -4,10 +4,8 @@
   import SearchInput from './components/SearchInput.svelte'
   import WindowControls from './components/WindowControls.svelte'
   import ItemDetail from './components/ItemDetail.svelte'
-  import LayoutSelector from './components/LayoutSelector.svelte'
   import ContextMenu from './components/ContextMenu.svelte'
-  import MetadataEditor from './components/MetadataEditor.svelte'
-  import FolderSettingsModal from './components/FolderSettingsModal.svelte'
+  import ItemSettingsModal from './components/item-settings/ItemSettingsModal.svelte'
   import ManualSearchModal from './components/ManualSearchModal.svelte'
   import PropertiesModal from './components/PropertiesModal.svelte'
   import RenameModal from './components/RenameModal.svelte'
@@ -30,9 +28,12 @@
 
   type ActiveModal =
     | { type: 'settings' }
-    | { type: 'layoutSelector'; item: MediaFolder; defaultLayout: 'grid' | 'tree' }
-    | { type: 'metadataEditor'; item: LibraryItem }
-    | { type: 'folderSettings'; item: MediaFolder }
+    | {
+        type: 'itemSettings'
+        item: LibraryItem
+        initialTab: 'metadata' | 'view' | 'folder'
+        defaultLayout: 'grid' | 'tree'
+      }
     | { type: 'manualSearch'; item: LibraryItem; initialTab?: 'match' | 'artwork' }
     | { type: 'properties'; item: LibraryItem }
     | { type: 'rename'; item: LibraryItem }
@@ -352,7 +353,7 @@
       // --- Case 4: Update the item in an active modal. ---
       if (
         (activeModal?.type === 'manualSearch' ||
-          activeModal?.type === 'metadataEditor' ||
+          activeModal?.type === 'itemSettings' ||
           activeModal?.type === 'properties' ||
           activeModal?.type === 'rename') &&
         activeModal.item.id === updatedItem.id
@@ -406,7 +407,7 @@
         // Also check if the updated item is being displayed in a modal
         if (
           (activeModal?.type === 'manualSearch' ||
-            activeModal?.type === 'metadataEditor' ||
+            activeModal?.type === 'itemSettings' ||
             activeModal?.type === 'properties' ||
             activeModal?.type === 'rename') &&
           activeModal.item.id === updatedItem.id
@@ -830,8 +831,9 @@
     if (folderToConfigureLayout) {
       const isDetailViewContext = selectedItemForDetailView?.id === folderToConfigureLayout.id
       activeModal = {
-        type: 'layoutSelector',
+        type: 'itemSettings',
         item: folderToConfigureLayout,
+        initialTab: 'view',
         defaultLayout: isDetailViewContext ? 'tree' : 'grid'
       }
     }
@@ -877,18 +879,12 @@
       }}
       scanLibrary={handleScan}
     />
-  {:else if activeModal.type === 'layoutSelector'}
-    <LayoutSelector
+  {:else if activeModal.type === 'itemSettings'}
+    <ItemSettingsModal
       item={activeModal.item}
-      {groupByKeys}
-      onClose={() => (activeModal = null)}
+      initialTab={activeModal.initialTab}
       defaultLayout={activeModal.defaultLayout}
-    />
-  {:else if activeModal.type === 'metadataEditor'}
-    <MetadataEditor item={activeModal.item} onClose={() => (activeModal = null)} />
-  {:else if activeModal.type === 'folderSettings'}
-    <FolderSettingsModal
-      item={activeModal.item}
+      {groupByKeys}
       onClose={() => (activeModal = null)}
       onNeedRefresh={handleRefresh}
     />
@@ -935,7 +931,14 @@
     }}
     onEditMetadata={() => {
       if (contextMenuItem) {
-        activeModal = { type: 'metadataEditor', item: contextMenuItem }
+        const isDetailViewContext =
+          selectedItemForDetailView && selectedItemForDetailView.id === contextMenuItem.id
+        activeModal = {
+          type: 'itemSettings',
+          item: contextMenuItem,
+          initialTab: 'metadata',
+          defaultLayout: isDetailViewContext ? 'tree' : 'grid'
+        }
       }
     }}
     onSetLayout={() => {
@@ -945,15 +948,23 @@
           selectedItemForDetailView && selectedItemForDetailView.id === itemToConfigure.id
 
         activeModal = {
-          type: 'layoutSelector',
+          type: 'itemSettings',
           item: itemToConfigure,
+          initialTab: 'view',
           defaultLayout: isDetailViewContext ? 'tree' : 'grid'
         }
       }
     }}
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
-        activeModal = { type: 'folderSettings', item: contextMenuItem }
+        const isDetailViewContext =
+          selectedItemForDetailView && selectedItemForDetailView.id === contextMenuItem.id
+        activeModal = {
+          type: 'itemSettings',
+          item: contextMenuItem,
+          initialTab: 'folder',
+          defaultLayout: isDetailViewContext ? 'tree' : 'grid'
+        }
       }
     }}
     onManualSearch={() => {

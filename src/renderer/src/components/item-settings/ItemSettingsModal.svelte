@@ -1,0 +1,275 @@
+<script lang="ts">
+  import ModalWindow from '../ModalWindow.svelte'
+  import MetadataTab from './MetadataTab.svelte'
+  import ViewTab from './ViewTab.svelte'
+  import FolderTab from './FolderTab.svelte'
+  import { dialogStore } from '../../lib/dialog-store'
+
+  type VirtualFolderProps = {
+    isVirtual?: boolean
+    physicalParentId?: string
+    groupByKey?: string
+    groupByValue?: string
+  }
+
+  let {
+    item,
+    onClose,
+    onNeedRefresh,
+    initialTab = 'metadata',
+    groupByKeys,
+    defaultLayout
+  }: {
+    item: LibraryItem & VirtualFolderProps
+    onClose: () => void
+    onNeedRefresh: () => Promise<void>
+    initialTab?: 'metadata' | 'view' | 'folder'
+    groupByKeys: string[]
+    defaultLayout: 'grid' | 'tree'
+  } = $props()
+
+  const isFolder = $derived(item.type === 'folder')
+  const isVirtual = $derived(item.isVirtual === true)
+
+  let activeTab = $state(initialTab)
+
+  // --- Shared Autocomplete Suggestions ---
+  let suggestions = $state<AutocompleteSuggestions>({
+    mediaTypes: [],
+    genres: [],
+    tagKeys: [],
+    virtualTagKeys: [],
+    tagValues: {}
+  })
+
+  // --- Metadata State ---
+  let title = $state(item.title ?? item.name)
+  let year = $state(item.year?.toString() ?? '')
+  let mediaType = $state(item.mediaType)
+  let overview = $state(item.overview ?? '')
+  let genres = $state<string[]>(JSON.parse(JSON.stringify(item.genres ?? [])))
+  let tags = $state(
+    Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
+  )
+  let seasonNumber = $state(
+    isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : ''
+  )
+  let episodeNumber = $state(
+    !isFolder ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
+  )
+  let episodeSeasonNumber = $state(
+    !isFolder ? ((item as MediaFile).seasonNumber?.toString() ?? '') : ''
+  )
+
+  // --- View State (for folders) ---
+  let selectedLayout = $state(isFolder ? item.layout ?? defaultLayout : 'grid')
+  let selectedClickAction = $state(isFolder ? item.childrenClickAction ?? 'detail' : 'detail')
+  let selectedGroupBy = $state(isFolder ? item.groupBy ?? 'folder' : 'folder')
+
+  // --- Folder Settings State ---
+  let retrieveChildrenMetadata = $state(isFolder ? item.retrieve_children_metadata ?? false : false)
+  let childrenTypeHint = $state(
+    isFolder ? (item.children_type_hint ?? 'auto') : 'auto'
+  )
+  let processTvChildren = $state(isFolder ? item.process_tv_children ?? true : true)
+
+  // --- Actions ---
+  async function buildUpdatedItem(): Promise<LibraryItem | null> {
+    if (isVirtual && item.physicalParentId) {
+      // --- Editing a Virtual Folder ---
+      const physicalParent = await window.api.getItemById(item.physicalParentId)
+      if (!physicalParent || physicalParent.type !== 'folder') return null
+
+      const updatedParent: MediaFolder = JSON.parse(JSON.stringify(physicalParent))
+      if (!updatedParent.virtualFolderSettings) updatedParent.virtualFolderSettings = {}
+      if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
+        updatedParent.virtualFolderSettings[item.groupByKey!] = {}
+      }
+      const settings =
+        updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
+
+      settings.layout = selectedLayout
+      settings.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
+      settings.childrenClickAction = selectedClickAction
+      updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
+      return updatedParent
+    } else {
+      // --- Editing a Physical Item ---
+      const updatedItem: LibraryItem = JSON.parse(JSON.stringify(item))
+
+      // Apply metadata changes
+      updatedItem.title = title.trim() ? title.trim() : undefined
+      const parsedYear = parseInt(year, 10)
+      updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
+      updatedItem.mediaType = mediaType
+      updatedItem.overview = overview
+      updatedItem.genres = [...genres]
+      updatedItem.tags = tags.reduce((acc, tag) => {
+        if (tag.key) acc[tag.key] = tag.value
+        return acc
+      }, {})
+
+      const parseOptionalInt = (val: string) => (!isNaN(parseInt(val)) ? parseInt(val) : undefined)
+      if (updatedItem.type === 'folder') {
+        if (mediaType === 'season')
+          (updatedItem as MediaFolder).seasonNumber = parseOptionalInt(seasonNumber)
+        else delete (updatedItem as MediaFolder).seasonNumber
+      } else {
+        if (mediaType === 'episode') {
+          ;(updatedItem as MediaFile).seasonNumber = parseOptionalInt(episodeSeasonNumber)
+          ;(updatedItem as MediaFile).episodeNumber = parseOptionalInt(episodeNumber)
+        } else {
+          delete (updatedItem as MediaFile).seasonNumber
+          delete (updatedItem as MediaFile).episodeNumber
+        }
+      }
+
+      // Apply view and folder changes if it's a folder
+      if (updatedItem.type === 'folder') {
+        updatedItem.layout = selectedLayout
+        updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
+        updatedItem.childrenClickAction = selectedClickAction
+        updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
+        updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
+        updatedItem.process_tv_children = processTvChildren === true ? undefined : false
+      }
+      return updatedItem
+    }
+  }
+
+  async function handleSave() {
+    const itemToUpdate = await buildUpdatedItem()
+    if (itemToUpdate) {
+      const wasEnabled = item.type === 'folder' ? item.retrieve_children_metadata ?? false : false
+      await window.api.updateItem(itemToUpdate)
+      if (
+        itemToUpdate.type === 'folder' &&
+        itemToUpdate.retrieve_children_metadata &&
+        !wasEnabled
+      ) {
+        onNeedRefresh()
+      }
+    }
+    onClose()
+  }
+
+  async function handleClearMetadata() {
+    const message = isVirtual
+      ? `DANGER: This will permanently delete all fetched metadata (titles, posters, tags, etc.) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
+      : `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Metadata Clearing',
+      message: message,
+      detail: 'This action cannot be undone.',
+      confirmText: 'Clear Metadata',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+
+    if (confirmed) {
+      if (isVirtual) {
+        const childIds = item.children.map((c) => c.id)
+        if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
+      } else {
+        const itemToUpdate = await buildUpdatedItem()
+        if (itemToUpdate) await window.api.updateItem(itemToUpdate)
+        if (await window.api.clearChildrenMetadata(item.id)) onClose()
+      }
+    }
+  }
+
+  $effect(() => {
+    window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
+
+    const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+      else if (event.key === 'Enter') {
+        const target = event.target as HTMLElement
+        if (target.tagName !== 'BUTTON' && target.tagName !== 'TEXTAREA') {
+          event.preventDefault()
+          handleSave()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeydown)
+    return () => window.removeEventListener('keydown', handleKeydown)
+  })
+</script>
+
+<ModalWindow title={item.title ?? item.name} {onClose} onSave={handleSave} maxWidth="700px">
+  {#snippet header()}
+    <div class="tabs">
+      <button class:active={activeTab === 'metadata'} onclick={() => (activeTab = 'metadata')}>
+        Metadata
+      </button>
+      {#if isFolder}
+        <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>
+          View
+        </button>
+        <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
+          Settings
+        </button>
+      {/if}
+    </div>
+  {/snippet}
+
+  <div class="scroll-area">
+    {#if activeTab === 'metadata'}
+      <MetadataTab
+        {item}
+        bind:title
+        bind:year
+        bind:mediaType
+        bind:overview
+        bind:genres
+        bind:tags
+        bind:seasonNumber
+        bind:episodeNumber
+        bind:episodeSeasonNumber
+        {suggestions}
+      />
+    {:else if activeTab === 'view' && isFolder}
+      <ViewTab
+        item={item as MediaFolder}
+        {groupByKeys}
+        bind:selectedLayout
+        bind:selectedClickAction
+        bind:selectedGroupBy
+      />
+    {:else if activeTab === 'folder' && isFolder}
+      <FolderTab
+        item={item as MediaFolder}
+        bind:retrieveChildrenMetadata
+        bind:childrenTypeHint
+        bind:processTvChildren
+        onClearMetadata={handleClearMetadata}
+      />
+    {/if}
+  </div>
+</ModalWindow>
+
+<style>
+  .tabs {
+    display: flex;
+  }
+  .tabs button {
+    padding: 0.8rem 1.2rem;
+    background: none;
+    color: var(--ev-c-text-2);
+    font-size: 1rem;
+    font-weight: 600;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+  }
+  .tabs button:hover:not(:disabled) {
+    color: var(--ev-c-text-1);
+    background: none;
+  }
+  .tabs button.active {
+    color: var(--ev-c-text-1);
+    border-bottom-color: var(--ev-c-white-soft);
+  }
+  .scroll-area {
+    /* This can be used if content overflows */
+  }
+</style>

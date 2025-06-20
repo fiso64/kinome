@@ -147,16 +147,21 @@
   .modal-header h2 {
     font-size: 1.2rem;
     font-weight: bold;
-    flex-shrink: 0;
+    flex-grow: 1; /* Allow title to take up space */
+    min-width: 0; /* CRUCIAL: Allows flex item to shrink below its content size */
+    white-space: nowrap;
+    overflow: hidden;
+    /* Apply a fade-out effect instead of an ellipsis for a cleaner look */
+    mask-image: linear-gradient(to left, transparent, black 2rem);
+    -webkit-mask-image: linear-gradient(to left, transparent, black 2rem);
   }
   .header-extra {
-    flex-grow: 1;
     display: flex;
     justify-content: flex-end;
+    flex-shrink: 0; /* Prevent the tabs container from shrinking */
     -webkit-app-region: no-drag; /* Allow clicking elements in the slot */
   }
   .close-btn {
-    margin-left: auto;
     background: none;
     color: var(--ev-c-text-2);
     font-size: 2rem;
