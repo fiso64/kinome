@@ -940,7 +940,7 @@
   <ContextMenu
     item={contextMenuItem}
     position={contextMenuPosition}
-    isTreeView={contextMenuLayout === 'tree'}
+    layout={contextMenuLayout}
     onClose={() => {
       contextMenuItem = null
       isContextMenuVisible = false

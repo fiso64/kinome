@@ -1,35 +1,35 @@
 <script lang="ts">
-  let {
-    item,
-    position,
-    isTreeView,
-    onClose,
-    onOpen,
-    onEditMetadata,
-    onSetLayout,
-    onOpenFolderSettings,
-    onManualSearch,
-    onEditArtwork,
-    onRevealInExplorer,
-    onDeleteItem,
-    onRenameItem,
-    onShowProperties
-  }: {
-    item: LibraryItem
-    position: { top: number; left: number }
-    isTreeView: boolean
-    onClose: () => void
-    onOpen: () => void
-    onEditMetadata: () => void
-    onSetLayout: () => void
-    onOpenFolderSettings: () => void
-    onManualSearch: () => void
-    onEditArtwork: () => void
-    onRevealInExplorer: () => void
-    onDeleteItem: () => void
-    onRenameItem: () => void
-    onShowProperties: () => void
-  } = $props()
+let {
+  item,
+  position,
+  layout,
+  onClose,
+  onOpen,
+  onEditMetadata,
+  onSetLayout,
+  onOpenFolderSettings,
+  onManualSearch,
+  onEditArtwork,
+  onRevealInExplorer,
+  onDeleteItem,
+  onRenameItem,
+  onShowProperties
+}: {
+  item: LibraryItem
+  position: { top: number; left: number }
+  layout?: string
+  onClose: () => void
+  onOpen: () => void
+  onEditMetadata: () => void
+  onSetLayout: () => void
+  onOpenFolderSettings: () => void
+  onManualSearch: () => void
+  onEditArtwork: () => void
+  onRevealInExplorer: () => void
+  onDeleteItem: () => void
+  onRenameItem: () => void
+  onShowProperties: () => void
+} = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
 
@@ -179,7 +179,7 @@
     oncontextmenu={(e) => e.stopPropagation()}
   >
     {#if !isVirtual}
-      {#if isTreeView && item.type === 'folder'}
+      {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
         <button
           class="context-menu-item"
           onclick={handleOpen}
