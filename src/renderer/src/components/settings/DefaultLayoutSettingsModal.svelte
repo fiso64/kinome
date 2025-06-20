@@ -22,22 +22,6 @@
     onSave({ gridPosterSize: localGridPosterSize })
     onClose()
   }
-
-  $effect(() => {
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-      } else if (event.key === 'Enter') {
-        const target = event.target as HTMLElement
-        if (target.tagName !== 'BUTTON') {
-          event.preventDefault()
-          handleSave()
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
-  })
 </script>
 
 <ModalWindow title="Default Layout Values" {onClose} onSave={handleSave} maxWidth="700px" zIndex={101}>

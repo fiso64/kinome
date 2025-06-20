@@ -214,19 +214,6 @@ import { dialogStore } from '../../lib/dialog-store'
 
   $effect(() => {
     window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
-
-    const handleKeydown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-      else if (event.key === 'Enter') {
-        const target = event.target as HTMLElement
-        if (target.tagName !== 'BUTTON' && target.tagName !== 'TEXTAREA') {
-          event.preventDefault()
-          handleSave()
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
   })
 </script>
 

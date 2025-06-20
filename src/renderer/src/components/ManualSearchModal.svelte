@@ -157,12 +157,6 @@
     if (searchInput) {
       searchInput.focus()
     }
-
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
   })
 </script>
 

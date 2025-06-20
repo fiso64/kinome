@@ -24,16 +24,6 @@
     isSaving = false
     onClose()
   }
-
-  $effect(() => {
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
-  })
 </script>
 
 <ModalWindow

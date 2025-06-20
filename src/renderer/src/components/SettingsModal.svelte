@@ -126,7 +126,7 @@
     const TABS = ['general', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
       // Don't interfere if a sub-modal is open
-      if (activeViewSettingsModal) return
+      if (activeViewSettingsModal || activeLayoutSettingsModal) return
 
       if (event.ctrlKey && event.key === 'Tab') {
         event.preventDefault()
@@ -135,14 +135,6 @@
           ? (currentIndex - 1 + TABS.length) % TABS.length
           : (currentIndex + 1) % TABS.length
         activeTab = TABS[nextIndex]
-        return
-      }
-
-      if (event.key === 'Escape') {
-        handleCancel()
-      } else if (event.key === 'Enter' && (event.target as HTMLElement).tagName !== 'BUTTON') {
-        event.preventDefault()
-        handleSave()
       }
     }
     window.addEventListener('keydown', handleKeydown)

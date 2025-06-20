@@ -85,7 +85,7 @@
       <h4>Danger Zone</h4>
     </div>
     <div>
-      <button class="danger" onclick={onClearMetadata}> Clear All Children Metadata... </button>
+      <button class="danger" onclick={onClearMetadata}> Clear All Children Metadata </button>
       <p class="help-text danger-help-text">
         Removes all fetched data (titles, posters, tags, etc.) for every item inside this folder.
         This is useful for forcing a complete re-fetch from scratch.
@@ -93,7 +93,7 @@
     </div>
     {#if !isVirtual}
       <div>
-        <button class="danger" onclick={onHideItem}> Hide This Item... </button>
+        <button class="danger" onclick={onHideItem}> Hide This Item </button>
         <p class="help-text danger-help-text">
           Hides this item from all library views and searches. It can be unhidden from its parent
           folder's settings.

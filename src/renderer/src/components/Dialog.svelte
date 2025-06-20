@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { registerModalKeyHandler } from '../lib/modal-keyboard-manager'
   import type { DialogButton } from '../lib/dialog-store'
 
   let {
@@ -48,17 +49,16 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      // If the event is for a key we don't care about, do nothing.
       if (event.key !== 'Escape' && event.key !== 'Enter') {
         return
       }
 
-      // If the user is typing in a textarea, only let Escape work.
       if ((event.target as HTMLElement).tagName === 'TEXTAREA' && event.key === 'Enter') {
         return
       }
 
-      // This is the key fix: stop the event from reaching other listeners (like other modals).
+      // The manager ensures this handler is only called if it's the top modal.
+      // We still prevent default to stop browser actions for Enter/Escape.
       event.preventDefault()
       event.stopPropagation()
 
@@ -68,7 +68,6 @@
           onClose(cancelButton.value)
         }
       } else if (event.key === 'Enter') {
-        // Find the primary or danger button first, then fall back to the first button as a last resort.
         const confirmButton =
           buttons.find((b) => b.class === 'primary' || b.class === 'danger') ?? buttons[0]
         if (confirmButton) {
@@ -77,9 +76,8 @@
       }
     }
 
-    // Use capture: true to ensure this listener runs before others.
-    window.addEventListener('keydown', handleKeydown, { capture: true })
-    return () => window.removeEventListener('keydown', handleKeydown, { capture: true })
+    const unregister = registerModalKeyHandler(handleKeydown)
+    return () => unregister()
   })
 </script>
 

@@ -59,16 +59,6 @@
     }
     fetchProperties()
   })
-
-  $effect(() => {
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => window.removeEventListener('keydown', handleKeydown)
-  })
 </script>
 
 <ModalWindow title="Properties" {onClose} saveText="OK" onSave={onClose} cancelText={null}>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { registerModalKeyHandler } from '../lib/modal-keyboard-manager'
+
   let {
     title,
     onClose,
@@ -24,6 +26,37 @@
   let isDragging = $state(false)
   let position = $state({ x: 0, y: 0 })
   let dragStartPos = $state({ mouseX: 0, mouseY: 0, elementX: 0, elementY: 0 })
+
+  $effect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+
+      // Allow newlines in textareas when Enter is pressed.
+      if (event.key === 'Enter' && target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      // This is the key: stop the event from being processed by any other listeners.
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (event.key === 'Escape') {
+        onClose()
+      } else if (onSave && event.key === 'Enter') {
+        // Do not trigger save if a button is the active element,
+        // allowing the button's own click handler to manage the action.
+        if (target.tagName !== 'BUTTON') {
+          onSave()
+        }
+      }
+    }
+
+    const unregister = registerModalKeyHandler(handleKeydown)
+
+    return () => {
+      unregister()
+    }
+  })
 
   function handleDragStart(event: MouseEvent) {
     // Don't drag if a button in the header is clicked
