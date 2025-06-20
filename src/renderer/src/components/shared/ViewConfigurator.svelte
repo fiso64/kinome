@@ -124,8 +124,13 @@
         <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
       {/if}
     </div>
-    <p class="help-text">Controls the base width of posters in the grid view. The current default is
-      {defaultGridSize}px.</p>
+    <p class="help-text">
+      {#if configMode}
+        Controls the default base width of posters in the grid view.
+      {:else}
+        Controls the base width of posters in the grid view. The current default is {defaultGridSize}px.
+      {/if}
+    </p>
     <div class="form-group">
       <div class="slider-container">
         <input
@@ -151,9 +156,13 @@
       {/if}
     </div>
     <p class="help-text">
-      Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default is "{formatKey(
-        defaultGroupBy
-      )}".
+      {#if configMode}
+        Choose the default metadata field to group contents into {layoutToShowOptionsFor}.
+      {:else}
+        Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default is "{formatKey(
+          defaultGroupBy
+        )}".
+      {/if}
     </p>
     <div class="form-group">
       <select bind:value={selectedGroupBy}>

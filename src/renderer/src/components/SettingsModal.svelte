@@ -303,6 +303,7 @@ let {
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
     initialSettings={defaultLayoutSettings}
+    {groupByKeys}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(newSettings) => {
       defaultLayoutSettings = newSettings

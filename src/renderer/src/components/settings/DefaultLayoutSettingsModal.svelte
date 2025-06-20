@@ -5,11 +5,13 @@
   let {
     initialSettings,
     onClose,
-    onSave
+    onSave,
+    groupByKeys
   }: {
     initialSettings: Settings['defaultLayoutSettings'] | null
     onClose: () => void
     onSave: (newSettings: Settings['defaultLayoutSettings']) => void
+    groupByKeys: string[]
   } = $props()
 
   let localSettings = $state(JSON.parse(JSON.stringify(initialSettings)))
@@ -46,7 +48,7 @@
       configMode={true}
       bind:gridPosterSize={localSettings.grid.gridPosterSize}
       bind:selectedGroupBy={sharedGroupBy}
-      groupByKeys={['folder']}
+      {groupByKeys}
     />
   {/if}
 </ModalWindow>
