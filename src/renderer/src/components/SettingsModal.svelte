@@ -28,7 +28,22 @@
     virtualTagKeys: [],
     tagValues: {}
   })
-  const VIRTUAL_TAG_CONTEXT_KEYS = ['tags', 'genres', 'year', 'title', 'name', 'mediaType', 'path']
+  const VIRTUAL_TAG_CONTEXT_KEYS = [
+    'title',
+    'name',
+    'year',
+    'mediaType',
+    'genres',
+    'tags',
+    'path',
+    'watched',
+    'seasonNumber',
+    'episodeNumber',
+    'overview',
+    'posterPath',
+    'backdropPath',
+    'tmdbId'
+  ]
 
   // Autocomplete state
   let activeTextarea = $state<HTMLTextAreaElement | null>(null)
@@ -363,9 +378,10 @@
       {/if}
       <div class="help-text">
         <p>
-          Create tags based on existing data using JavaScript. Your expression can access:
+          Create tags based on existing data using JavaScript. Your expression can access most
+          properties of a library item, such as:
           <br />
-          <code>tags, genres, year, title, name, mediaType, path</code>
+          <code>title, name, year, mediaType, genres, tags, path, watched, seasonNumber, etc.</code>
         </p>
         <p>
           Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>

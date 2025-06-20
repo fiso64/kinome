@@ -1,10 +1,14 @@
 import type { LibraryItem } from '../shared/types'
 import type { Settings } from './settings'
 
-// These are the properties from a LibraryItem that will be available
-// as global variables inside the user's JS expression.
-const CONTEXT_KEYS = ['tags', 'genres', 'year', 'title', 'name', 'mediaType', 'path'] as const
-type ContextKey = (typeof CONTEXT_KEYS)[number]
+// Blacklist properties that are unsafe, unnecessary, or could cause
+// performance issues/circular dependencies in user expressions.
+const BLACKLISTED_CONTEXT_KEYS = new Set([
+  'children', // Large array, could cause performance issues.
+  'tmdbSeasons', // Large raw object from API.
+  'virtualTags', // Prevents recursive evaluation.
+  'virtualFolderSettings' // Internal setting.
+])
 
 /**
  * Evaluates all virtual tags defined in settings for a given library item.
@@ -21,17 +25,20 @@ export function evaluateVirtualTagsForItem(
     return evaluatedTags
   }
 
-  // Prepare the context values from the item, providing safe defaults.
-  const contextValues = CONTEXT_KEYS.map((key) => {
-    const value = (item as Record<ContextKey, unknown>)[key]
-    if (key === 'genres' && typeof value === 'undefined') {
-      return []
+  // Dynamically create the context from the item's properties, excluding blacklisted ones.
+  const context: Record<string, unknown> = {}
+  for (const key in item) {
+    if (Object.prototype.hasOwnProperty.call(item, key) && !BLACKLISTED_CONTEXT_KEYS.has(key)) {
+      context[key] = (item as any)[key]
     }
-    if (key === 'tags' && typeof value === 'undefined') {
-      return {}
-    }
-    return value
-  })
+  }
+
+  // Provide safe defaults for potentially missing complex types.
+  if (!context.tags) context.tags = {}
+  if (!context.genres) context.genres = []
+
+  const contextKeys = Object.keys(context)
+  const contextValues = Object.values(context)
 
   for (const virtualTag of settings.virtualTags) {
     if (!virtualTag.name || !virtualTag.expression) {
@@ -41,7 +48,7 @@ export function evaluateVirtualTagsForItem(
     try {
       // Create a function with a controlled scope. The user's code can only
       // access the variables we explicitly pass into the context.
-      const func = new Function(...CONTEXT_KEYS, "'use strict'; return " + virtualTag.expression)
+      const func = new Function(...contextKeys, "'use strict'; return " + virtualTag.expression)
 
       const result = func(...contextValues)
 
