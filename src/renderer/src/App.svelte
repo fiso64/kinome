@@ -733,6 +733,12 @@
   function goBack(): void {
     if (!canGoBack) return
 
+    // If a detail view's search dropdown is active, just close it first.
+    if (selectedItemForDetailView && isDetailSearchActive) {
+      detailViewSearchQuery = { text: '', tags: [] }
+      return
+    }
+
     if (isGlobalSearchActive && !selectedItemForDetailView) {
       globalSearchQuery = { text: '', tags: [] }
       return
@@ -792,6 +798,12 @@
     const autocompleteMenu = document.querySelector('.autocomplete-menu')
     if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
       return // Let autocomplete handle its own keyboard events
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      goBack()
+      return
     }
 
     const isDetailContext = !!selectedItemForDetailView
