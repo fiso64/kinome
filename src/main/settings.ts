@@ -1,24 +1,7 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
-
-export interface ViewSettings {
-  layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-  clickAction: 'detail' | 'navigate'
-  groupBy: string
-}
-
-export interface Settings {
-  playerCommand: string
-  tmdbApiKey: string
-  useLogos?: boolean
-  virtualTags?: { name: string; expression: string }[]
-  gridPosterSize?: number
-  defaultViewSettings: ViewSettings
-  defaultMovieViewSettings: ViewSettings
-  defaultTvShowViewSettings: ViewSettings
-  defaultSeasonViewSettings: ViewSettings
-}
+import type { Settings } from '../shared/types'
 
 const SETTINGS_FILE_NAME = 'settings.json'
 

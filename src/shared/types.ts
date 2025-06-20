@@ -1,3 +1,21 @@
+export interface ViewSettings {
+  layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  clickAction: 'detail' | 'navigate'
+  groupBy: string
+}
+
+export interface Settings {
+  playerCommand: string
+  tmdbApiKey: string
+  useLogos?: boolean
+  virtualTags?: { name: string; expression: string }[]
+  gridPosterSize?: number
+  defaultViewSettings: ViewSettings
+  defaultMovieViewSettings: ViewSettings
+  defaultTvShowViewSettings: ViewSettings
+  defaultSeasonViewSettings: ViewSettings
+}
+
 export interface MediaFile {
   id: string // Stable ID (e.g., hash of relative path)
   name: string

@@ -2,8 +2,8 @@ console.log(`[${new Date().toISOString()}] [Preload] Preload script execution st
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { Settings } from '../main/settings'
 import type {
+  Settings,
   MediaFile,
   MediaFolder,
   LibraryItem,

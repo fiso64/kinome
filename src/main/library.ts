@@ -20,7 +20,8 @@ import type {
   MediaFolder,
   LibraryItem,
   MediaFile,
-  AutocompleteSuggestions
+  AutocompleteSuggestions,
+  Settings
 } from '../shared/types'
 import {
   cacheGenreLists,
@@ -33,7 +34,7 @@ import {
   getTmdbImages,
   downloadImage
 } from './retriever'
-import { readSettings, type Settings } from './settings'
+import { readSettings } from './settings'
 
 const LIBRARY_DATA_DIR_NAME = 'library'
 const DATABASE_FILE_NAME = 'database.json'

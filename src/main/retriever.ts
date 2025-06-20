@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem } from '../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder } from '../shared/types'
 
 const genreCache = new Map<number, string>()
 
@@ -231,7 +231,7 @@ export async function refetchPoster(
   }
 }
 
-import type { Settings } from './settings'
+import type { Settings } from '../shared/types'
 
 export async function fetchItemDetails(
   item: LibraryItem,

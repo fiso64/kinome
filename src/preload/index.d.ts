@@ -1,115 +1,24 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type {
+  Settings as _Settings,
+  ViewSettings as _ViewSettings,
+  MediaFile as _MediaFile,
+  MediaFolder as _MediaFolder,
+  LibraryItem as _LibraryItem,
+  AutocompleteSuggestions as _AutocompleteSuggestions,
+  SearchIndexEntry as _SearchIndexEntry
+} from '../../shared/types'
 
 declare global {
-  interface ViewSettings {
-    layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    clickAction: 'detail' | 'navigate'
-    groupBy: string
-  }
-
-  interface Settings {
-    playerCommand: string
-    tmdbApiKey: string
-    useLogos?: boolean
-    virtualTags?: { name: string; expression: string }[]
-    gridPosterSize?: number
-    defaultViewSettings: ViewSettings
-    defaultMovieViewSettings: ViewSettings
-    defaultTvShowViewSettings: ViewSettings
-    defaultSeasonViewSettings: ViewSettings
-  }
-
-  interface MediaFile {
-    id: string
-    name: string
-    path: string
-    type: 'file'
-    isHidden?: boolean
-    watched?: boolean
-    opensAsFolder?: boolean
-    // TMDB metadata
-    title?: string
-    overview?: string
-    posterPath?: string | null // e.g. 'xxxx.jpg'
-    backdropPath?: string | null
-    logoPath?: string | null
-    tmdbId?: number | null
-    mediaType?: 'movie' | 'tv' | 'episode'
-    year?: number
-    genres?: string[]
-    tags?: Record<string, string>
-    tmdbDetailsFetched?: boolean
-    virtualTags?: Record<string, string>
-    _v?: number // Cache-busting version number
-    // TV Show properties
-    seasonNumber?: number
-    episodeNumber?: number
-  }
-
-  interface MediaFolder {
-    id: string
-    name: string
-    path: string
-    type: 'folder'
-    isHidden?: boolean
-    children: LibraryItem[]
-    // TMDB metadata
-    title?: string
-    overview?: string
-    posterPath?: string | null // e.g. 'xxxx.jpg'
-    backdropPath?: string | null
-    logoPath?: string | null
-    tmdbId?: number | null
-    mediaType?: 'movie' | 'tv' | 'season'
-    year?: number
-    genres?: string[]
-    tags?: Record<string, string>
-    layout?: 'grid' | 'tree' | 'tabs' | 'sections'
-    gridPosterSize?: number | null
-    childrenClickAction?: 'detail' | 'navigate'
-    // View grouping
-    groupBy?: string
-    virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>
-    // Retriever settings
-    retrieve_children_metadata?: boolean
-    children_type_hint?: 'movie' | 'tv'
-    // TV Show specific settings
-    process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
-    tmdbDetailsFetched?: boolean
-    tmdbEpisodesFetched?: boolean
-    virtualTags?: Record<string, string>
-    _v?: number // Cache-busting version number
-    // TV Show properties
-    seasonNumber?: number // For season folders
-    tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
-  }
-
-  type LibraryItem = MediaFile | MediaFolder
-
-  interface AutocompleteSuggestions {
-    mediaTypes: string[]
-    genres: string[]
-    tagKeys: string[]
-    virtualTagKeys: string[]
-    tagValues: Record<string, string[]>
-  }
-
-  interface SearchIndexEntry {
-    id: string
-    title: string
-    type: 'file' | 'folder'
-    posterPath?: string | null
-    overview?: string
-    mediaType?: 'movie' | 'tv' | 'season' | 'episode'
-    year?: number
-    genres?: string[]
-    tags?: Record<string, string>
-    virtualTags?: Record<string, string>
-    watched?: boolean
-    episodeNumber?: number
-    _v?: number // Cache-busting version number
-    staticScore: number
-  }
+  // Expose shared types to the global scope for Svelte components.
+  // The `_` prefix is used to avoid name clashes within this file.
+  type ViewSettings = _ViewSettings
+  type Settings = _Settings
+  type MediaFile = _MediaFile
+  type MediaFolder = _MediaFolder
+  type LibraryItem = _LibraryItem
+  type AutocompleteSuggestions = _AutocompleteSuggestions
+  type SearchIndexEntry = _SearchIndexEntry
 
   interface Window {
     electron: ElectronAPI

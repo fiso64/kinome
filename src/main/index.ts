@@ -1,6 +1,6 @@
 console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
 
-import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
@@ -8,7 +8,8 @@ import {
   getLibraryDataPath,
   reapplyVirtualTagsAfterSettingsChange
 } from './library'
-import { readSettings, writeSettings, type Settings } from './settings'
+import { readSettings, writeSettings } from './settings'
+import type { Settings } from '../shared/types'
 
 function createWindow(): void {
   // Create the browser window.
