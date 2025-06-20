@@ -35,17 +35,21 @@
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
     configMode = false,
-    initialConfigLayout = 'grid'
+    initialConfigLayout = 'grid',
+    inheritedGridPosterSize,
+    inheritedGroupBy
   }: {
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
     groupByKeys?: string[]
     selectedLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction?: 'detail' | 'navigate'
-    selectedGroupBy?: string
+    selectedGroupBy?: string | null
     gridPosterSize?: number | null
     configMode?: boolean
     initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    inheritedGridPosterSize?: number | null
+    inheritedGroupBy?: string | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
@@ -55,16 +59,16 @@
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
 
   // --- Grid Poster Size ---
-  const globalDefaultGridSize = $derived(
-    LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize ?? 200
+  const defaultGridSize = $derived(
+    inheritedGridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
-  const effectiveGridSize = $derived(gridPosterSize ?? globalDefaultGridSize)
+  const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
   const isGridSizeOverridden = $derived(gridPosterSize != null)
 
   // --- Group By ---
-  const globalDefaultGroupBy = $derived(LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy ?? 'folder')
-  const effectiveGroupBy = $derived(selectedGroupBy ?? globalDefaultGroupBy)
-  const isGroupByOverridden = $derived(selectedGroupBy != null && selectedGroupBy !== 'folder')
+  const defaultGroupBy = $derived(inheritedGroupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy)
+  const effectiveGroupBy = $derived(selectedGroupBy ?? defaultGroupBy)
+  const isGroupByOverridden = $derived(selectedGroupBy != null)
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -120,10 +124,8 @@
         <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
       {/if}
     </div>
-    <p class="help-text">
-      Controls the base width of posters in the grid view. The global default is
-      {globalDefaultGridSize}px.
-    </p>
+    <p class="help-text">Controls the base width of posters in the grid view. The current default is
+      {defaultGridSize}px.</p>
     <div class="form-group">
       <div class="slider-container">
         <input
@@ -145,12 +147,12 @@
     <div class="heading-with-action">
       <h3>Group By</h3>
       {#if isGroupByOverridden && !configMode}
-        <button class="link-button" onclick={() => (selectedGroupBy = 'folder')}>Reset to default</button>
+        <button class="link-button" onclick={() => (selectedGroupBy = null)}>Reset to default</button>
       {/if}
     </div>
     <p class="help-text">
-      Choose a metadata field to group contents into {layoutToShowOptionsFor}. The global default is "{formatKey(
-        globalDefaultGroupBy
+      Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default is "{formatKey(
+        defaultGroupBy
       )}".
     </p>
     <div class="form-group">

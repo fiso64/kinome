@@ -2,6 +2,7 @@
   import ModalWindow from '../ModalWindow.svelte'
   import ViewConfigurator from '../shared/ViewConfigurator.svelte'
   import type { StoredViewSettings } from '../../../../shared/types'
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
 
   let {
     title,
@@ -22,6 +23,10 @@
     showClickAction?: boolean
     settings: Settings | null
   } = $props()
+
+  // For a type-default, the "inherited" settings are the global defaults.
+  // We resolve them by passing a null item.
+  const inheritedSettings = $derived(resolveViewSettings(null, settings))
 
   let selectedLayout = $state(initialSettings.layout)
   let selectedClickAction = $state(initialSettings.clickAction)
@@ -57,6 +62,7 @@
     {groupByKeys}
     {availableLayouts}
     {showClickAction}
-    {settings}
+    inheritedGridPosterSize={inheritedSettings.gridPosterSize}
+    inheritedGroupBy={inheritedSettings.groupBy}
   />
 </ModalWindow>

@@ -29,6 +29,25 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   sections: { groupBy: 'folder' }
 } as const
 
+// --- Generated Helper Constants ---
+
+// This function computes all unique keys from the layout-specific settings config.
+function getAllLayoutSpecificKeys(): string[] {
+  const allKeys = (
+    Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG) as { [key: string]: any }[]
+  ).flatMap((config) => Object.keys(config))
+  return [...new Set(allKeys)]
+}
+
+/**
+ * A data-driven constant holding all possible keys that can be overridden on a per-item basis for view settings.
+ */
+export const ALL_VIEW_OVERRIDE_KEYS: readonly string[] = [
+  'layout',
+  'clickAction',
+  ...getAllLayoutSpecificKeys()
+]
+
 // --- View Settings Type Definitions ---
 
 /**
