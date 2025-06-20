@@ -24,6 +24,12 @@ import type {
   Settings
 } from '../shared/types'
 import {
+  FOLDER_BEHAVIOR_SETTINGS_KEYS,
+  METADATA_KEYS,
+  RESETTABLE_METADATA_KEYS,
+  VIEW_SETTINGS_KEYS
+} from '../shared/types'
+import {
   cacheGenreLists,
   fetchAndApplyMetadata,
   fetchItemDetails,
@@ -726,7 +732,7 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
 }
 
 async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
-  // Delete associated image files
+  // Delete associated image files first, as their paths are part of the metadata being reset.
   if (item.posterPath) {
     try {
       await fs.unlink(path.join(imagesDir, item.posterPath))
@@ -749,34 +755,19 @@ async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
     }
   }
 
-  // Reset all metadata fields to undefined.
-  // This will cause them to be re-evaluated or re-fetched later.
-  item.title = undefined
-  item.overview = undefined
-  item.posterPath = undefined
-  item.backdropPath = undefined
-  item.logoPath = undefined
-  item.tmdbId = undefined
-  item.mediaType = undefined
-  item.year = undefined
-  item.genres = undefined
-  item.tags = undefined
-  item.tmdbDetailsFetched = undefined
-  item.virtualTags = undefined // Will be re-evaluated
-  item.isHidden = undefined
-  item._v = Date.now() // Bust UI cache
-
-  if (item.type === 'file') {
-    item.opensAsFolder = undefined
-    item.seasonNumber = undefined
-    item.episodeNumber = undefined
-    // We preserve 'watched' status as it's user-generated state, not fetched metadata.
-  } else {
-    // MediaFolder
-    item.seasonNumber = undefined
-    item.tmdbSeasons = undefined
-    item.tmdbEpisodesFetched = undefined
+  // Loop through the centrally-defined list of resettable keys and set them to undefined.
+  // This approach is more maintainable than a hardcoded list of assignments.
+  // We cast `item` to `any` here to allow dynamic key assignment.
+  for (const key of RESETTABLE_METADATA_KEYS) {
+    // Only attempt to delete the key if it exists on the item. This prevents
+    // us from adding properties to an object that shouldn't have them (e.g. `episodeNumber` on a folder).
+    if (key in item) {
+      ;(item as any)[key] = undefined
+    }
   }
+
+  // Bust the UI cache to reflect the changes.
+  item._v = Date.now()
 }
 
 async function clearChildrenRecursively(
@@ -856,38 +847,26 @@ export function setupLibraryIpc(): void {
         if (!item) return // Handle null items from scanner
         const oldItem = oldItemsMap.get(item.id)
         if (oldItem) {
-          const oldFolderProps =
-            oldItem.type === 'folder'
-              ? {
-                  layout: oldItem.layout,
-                  gridPosterSize: (oldItem as MediaFolder).gridPosterSize,
-                  childrenClickAction: oldItem.childrenClickAction,
-                  retrieve_children_metadata: oldItem.retrieve_children_metadata,
-                  children_type_hint: oldItem.children_type_hint,
-                  groupBy: oldItem.groupBy,
-                  virtualFolderSettings: oldItem.virtualFolderSettings,
-                  process_tv_children: (oldItem as MediaFolder).process_tv_children
-                }
-              : {}
+          // A helper to copy properties from a list of keys.
+          const copyProperties = (keys: readonly string[]) => {
+            for (const key of keys) {
+              if (Object.prototype.hasOwnProperty.call(oldItem, key)) {
+                ;(item as any)[key] = (oldItem as any)[key]
+              }
+            }
+          }
 
-          Object.assign(item, {
-            title: oldItem.title,
-            overview: oldItem.overview,
-            posterPath: oldItem.posterPath,
-            backdropPath: oldItem.backdropPath,
-            logoPath: oldItem.logoPath,
-            tmdbId: oldItem.tmdbId,
-            mediaType: oldItem.mediaType,
-            year: oldItem.year,
-            genres: oldItem.genres,
-            tags: oldItem.tags,
-            tmdbDetailsFetched:
-              oldItem.type === 'file' ? oldItem.tmdbDetailsFetched : oldItem.tmdbDetailsFetched,
-            _v: oldItem._v,
-            ...oldFolderProps,
-            watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined,
-            isHidden: oldItem.isHidden
-          })
+          // Copy all metadata and settings using the centralized key definitions.
+          copyProperties(METADATA_KEYS)
+          copyProperties(VIEW_SETTINGS_KEYS)
+          copyProperties(FOLDER_BEHAVIOR_SETTINGS_KEYS)
+
+          // Copy other preserved properties not covered by the main groups.
+          item.isHidden = oldItem.isHidden
+          item._v = oldItem._v
+          if (item.type === 'file' && oldItem.type === 'file') {
+            item.watched = oldItem.watched
+          }
         }
 
         await verifyImagePaths(item, imagesDir)

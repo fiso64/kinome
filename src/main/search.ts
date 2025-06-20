@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import Fuse from 'fuse.js'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
+import { SEARCH_INDEX_PROPERTIES } from '../shared/types'
 import { itemMatchesAllTags } from '../shared/filter'
 
 const SEARCH_RESULT_LIMIT = 50
@@ -51,28 +52,26 @@ function calculateStaticScore(item: LibraryItem, parent?: LibraryItem): number {
  * @returns A new, plain search index entry.
  */
 function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): SearchIndexEntry {
-  // Use JSON stringify/parse to create a deep, "de-proxied" copy of nested objects.
-  // This is acceptable here because it only runs during index creation, not on every search.
-  const genres = item.genres ? JSON.parse(JSON.stringify(item.genres)) : undefined
-  const tags = item.tags ? JSON.parse(JSON.stringify(item.tags)) : undefined
-  const virtualTags = item.virtualTags ? JSON.parse(JSON.stringify(item.virtualTags)) : undefined
+  const entry: Partial<SearchIndexEntry> = {}
 
-  return {
-    id: item.id,
-    title: item.title ?? item.name,
-    type: item.type,
-    posterPath: item.posterPath,
-    overview: item.overview,
-    mediaType: item.mediaType,
-    year: item.year,
-    genres: genres,
-    tags: tags,
-    virtualTags: virtualTags,
-    watched: item.type === 'file' ? item.watched : undefined,
-    episodeNumber: item.type === 'file' ? item.episodeNumber : undefined,
-    _v: item._v,
-    staticScore: calculateStaticScore(item, parent)
+  // Copy all relevant properties from the item to the search entry.
+  for (const key of SEARCH_INDEX_PROPERTIES) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      const value = (item as any)[key]
+      // Deep clone arrays/objects to ensure the index is free of proxies.
+      if (typeof value === 'object' && value !== null) {
+        ;(entry as any)[key] = JSON.parse(JSON.stringify(value))
+      } else {
+        ;(entry as any)[key] = value
+      }
+    }
   }
+
+  // Handle special cases and computed properties.
+  entry.title = item.title ?? item.name
+  entry.staticScore = calculateStaticScore(item, parent)
+
+  return entry as SearchIndexEntry
 }
 
 /**
