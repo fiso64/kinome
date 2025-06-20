@@ -472,37 +472,40 @@ export async function fetchAndApplyEpisodeData(
 
     if (!tmdbEpisodes || tmdbEpisodes.length === 0) {
       console.log(`[TMDB] No episode data found for season ${seasonNumber}.`)
-      return
-    }
+    } else {
+      const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
 
-    const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+      for (const localEpisode of localEpisodes) {
+        if (typeof localEpisode.episodeNumber === 'undefined') continue
 
-    for (const localEpisode of localEpisodes) {
-      if (typeof localEpisode.episodeNumber === 'undefined') continue
+        const tmdbEpisode = tmdbEpisodes.find(
+          (e) => e.episode_number === localEpisode.episodeNumber
+        )
 
-      const tmdbEpisode = tmdbEpisodes.find((e) => e.episode_number === localEpisode.episodeNumber)
-
-      if (tmdbEpisode) {
-        localEpisode.title = tmdbEpisode.name
-        localEpisode.overview = tmdbEpisode.overview
-        localEpisode.mediaType = 'episode'
-        if (tmdbEpisode.still_path) {
-          const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
-          const imagesDir = getImagesPath(libraryDataPath)
-          const posterFileName = `${localEpisode.id}.jpg`
-          const posterDestPath = path.join(imagesDir, posterFileName)
-          try {
-            await downloadImage(posterUrl, posterDestPath)
-            localEpisode.posterPath = posterFileName
-            // Bust the cache for the new image. This is the critical fix.
-            localEpisode._v = Date.now()
-          } catch {
-            // ignore download error
+        if (tmdbEpisode) {
+          localEpisode.title = tmdbEpisode.name
+          localEpisode.overview = tmdbEpisode.overview
+          localEpisode.mediaType = 'episode'
+          if (tmdbEpisode.still_path) {
+            const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+            const imagesDir = getImagesPath(libraryDataPath)
+            const posterFileName = `${localEpisode.id}.jpg`
+            const posterDestPath = path.join(imagesDir, posterFileName)
+            try {
+              await downloadImage(posterUrl, posterDestPath)
+              localEpisode.posterPath = posterFileName
+              // Bust the cache for the new image. This is the critical fix.
+              localEpisode._v = Date.now()
+            } catch {
+              // ignore download error
+            }
           }
         }
       }
     }
-
+  } catch (error) {
+    console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
+  } finally {
     // Mark this season as processed to prevent future redundant API calls.
     // This flag is set to true even if TMDB returned no episodes, or if no local files
     // could be matched. This signifies that an API request was successfully completed for
@@ -511,8 +514,6 @@ export async function fetchAndApplyEpisodeData(
     // season's own metadata (name, overview, etc.).
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
-  } catch (error) {
-    console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   }
 }
 
