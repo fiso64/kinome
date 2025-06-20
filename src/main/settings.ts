@@ -16,18 +16,34 @@ async function readRawSettings(): Promise<Settings> {
     tmdbApiKey: '',
     useLogos: true,
     virtualTags: [],
-    // New structured defaults are based on the single source of truth
     defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
-    // Type-specific overrides start as empty objects
-    defaultViewSettings: { layout: 'grid' },
-    defaultMovieViewSettings: { layout: 'tree' },
-    defaultTvShowViewSettings: { layout: 'tabs' },
-    defaultSeasonViewSettings: { layout: 'list' }
+    defaultLayouts: {
+      _default: { layout: 'grid' },
+      movie: { layout: 'tree' },
+      tv: { layout: 'tabs' },
+      season: { layout: 'list' }
+    }
   }
 
   try {
     const data = await fs.readFile(getSettingsPath(), 'utf-8')
     const saved = JSON.parse(data)
+
+    // --- MIGRATION LOGIC from old format ---
+    if (saved.defaultViewSettings) {
+      console.log('[Settings] Migrating old view settings to new format.')
+      saved.defaultLayouts = {
+        _default: saved.defaultViewSettings,
+        movie: saved.defaultMovieViewSettings,
+        tv: saved.defaultTvShowViewSettings,
+        season: saved.defaultSeasonViewSettings
+      }
+      delete saved.defaultViewSettings
+      delete saved.defaultMovieViewSettings
+      delete saved.defaultTvShowViewSettings
+      delete saved.defaultSeasonViewSettings
+    }
+    // --- END MIGRATION LOGIC ---
 
     // Deep merge the saved settings over the defaults.
     const merged: Settings = {
@@ -41,18 +57,11 @@ async function readRawSettings(): Promise<Settings> {
           ...saved.defaultLayoutSettings?.sections
         }
       },
-      defaultViewSettings: { ...defaultSettings.defaultViewSettings, ...saved.defaultViewSettings },
-      defaultMovieViewSettings: {
-        ...defaultSettings.defaultMovieViewSettings,
-        ...saved.defaultMovieViewSettings
-      },
-      defaultTvShowViewSettings: {
-        ...defaultSettings.defaultTvShowViewSettings,
-        ...saved.defaultTvShowViewSettings
-      },
-      defaultSeasonViewSettings: {
-        ...defaultSettings.defaultSeasonViewSettings,
-        ...saved.defaultSeasonViewSettings
+      defaultLayouts: {
+        _default: { ...defaultSettings.defaultLayouts._default, ...saved.defaultLayouts?._default },
+        movie: { ...defaultSettings.defaultLayouts.movie, ...saved.defaultLayouts?.movie },
+        tv: { ...defaultSettings.defaultLayouts.tv, ...saved.defaultLayouts?.tv },
+        season: { ...defaultSettings.defaultLayouts.season, ...saved.defaultLayouts?.season }
       }
     }
     return merged

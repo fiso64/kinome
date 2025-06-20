@@ -37,17 +37,16 @@ export function resolveViewSettings(
   }
 
   // 1. Determine the hierarchy of settings to check, from most to least specific.
-  const typeDefaultKey = item?.mediaType
-    ? (`default${
-        item.mediaType.charAt(0).toUpperCase() + item.mediaType.slice(1)
-      }ViewSettings` as keyof Settings)
-    : null
-  const typeDefaultSettings = typeDefaultKey ? (settings[typeDefaultKey] as StoredViewSettings) : {}
+  const mediaTypeKey = item?.mediaType
+  const typeDefaultSettings =
+    mediaTypeKey && mediaTypeKey in settings.defaultLayouts
+      ? (settings.defaultLayouts as any)[mediaTypeKey]
+      : {}
 
   const settingsCascade: StoredViewSettings[] = [
     item ?? {}, // Item-specific overrides
     typeDefaultSettings, // Type-specific overrides
-    settings.defaultViewSettings // Global base defaults
+    settings.defaultLayouts._default // Global base defaults
   ].filter(Boolean)
 
   // 2. Resolve the base properties (`layout` and `clickAction`).

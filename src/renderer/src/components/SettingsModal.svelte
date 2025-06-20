@@ -11,7 +11,7 @@ let {
   settings
 }: { close: () => void; scanLibrary: () => Promise<void>; settings: Settings | null } = $props()
 
-  type ActiveViewSettingsModal = 'general' | 'movie' | 'tv' | 'season' | null
+  type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
   let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
@@ -24,12 +24,9 @@ let {
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
-  // New structured view settings state
-  let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
-  let defaultViewSettings = $state<StoredViewSettings | null>(null)
-  let defaultMovieViewSettings = $state<StoredViewSettings | null>(null)
-  let defaultTvShowViewSettings = $state<StoredViewSettings | null>(null)
-  let defaultSeasonViewSettings = $state<StoredViewSettings | null>(null)
+// New structured view settings state
+let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
+let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let settingsLoaded = $state(false)
 
@@ -102,7 +99,7 @@ let {
     onSelect: () => {}
   })
 
-  $effect(() => {
+$effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
@@ -111,10 +108,7 @@ let {
 
       // Set new view settings
       defaultLayoutSettings = JSON.parse(JSON.stringify(settings.defaultLayoutSettings))
-      defaultViewSettings = settings.defaultViewSettings
-      defaultMovieViewSettings = settings.defaultMovieViewSettings
-      defaultTvShowViewSettings = settings.defaultTvShowViewSettings
-      defaultSeasonViewSettings = settings.defaultSeasonViewSettings
+      defaultLayouts = JSON.parse(JSON.stringify(settings.defaultLayouts))
 
       settingsLoaded = true
     })
@@ -222,7 +216,7 @@ let {
     close()
   }
 
-  async function handleSave(): Promise<void> {
+async function handleSave(): Promise<void> {
     const tagsToSave = virtualTags
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
@@ -235,16 +229,7 @@ let {
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
         : undefined,
-      defaultViewSettings: defaultViewSettings ? { ...defaultViewSettings } : undefined,
-      defaultMovieViewSettings: defaultMovieViewSettings
-        ? { ...defaultMovieViewSettings }
-        : undefined,
-      defaultTvShowViewSettings: defaultTvShowViewSettings
-        ? { ...defaultTvShowViewSettings }
-        : undefined,
-      defaultSeasonViewSettings: defaultSeasonViewSettings
-        ? { ...defaultSeasonViewSettings }
-        : undefined
+      defaultLayouts: defaultLayouts ? JSON.parse(JSON.stringify(defaultLayouts)) : undefined
     })
     close()
   }
@@ -255,49 +240,21 @@ let {
   }
 </script>
 
-{#if activeViewSettingsModal}
-{#if activeViewSettingsModal === 'general' && defaultViewSettings}
+{#if activeViewSettingsModal && defaultLayouts}
+    {@const typeKey = activeViewSettingsModal}
+    {@const titles = { _default: 'Default Folder View', movie: 'Default Movie Contents View', tv: 'Default TV Show Contents View', season: 'Default Season Contents View' }}
     <DefaultViewSettingsModal
-      title="Default Folder View"
-      initialSettings={defaultViewSettings}
+      title={titles[typeKey]}
+      initialSettings={defaultLayouts[typeKey]}
       groupByKeys={groupByKeys}
-      availableLayouts={['grid', 'list', 'tree']}
-      showClickAction={false}
+      availableLayouts={typeKey === '_default' ? ['grid', 'list', 'tree'] : undefined}
+      showClickAction={typeKey === '_default' ? false : true}
       {settings}
       onClose={() => (activeViewSettingsModal = null)}
-      onSave={(newSettings) => (defaultViewSettings = newSettings)}
+      onSave={(newSettings) => {
+        if (defaultLayouts) defaultLayouts[typeKey] = newSettings
+      }}
     />
-  {/if}
-  {#if activeViewSettingsModal === 'movie' && defaultMovieViewSettings}
-    <DefaultViewSettingsModal
-      title="Default Movie Contents View"
-      initialSettings={defaultMovieViewSettings}
-      {groupByKeys}
-      {settings}
-      onClose={() => (activeViewSettingsModal = null)}
-      onSave={(newSettings) => (defaultMovieViewSettings = newSettings)}
-    />
-  {/if}
-  {#if activeViewSettingsModal === 'tv' && defaultTvShowViewSettings}
-    <DefaultViewSettingsModal
-      title="Default TV Show Contents View"
-      initialSettings={defaultTvShowViewSettings}
-      {groupByKeys}
-      {settings}
-      onClose={() => (activeViewSettingsModal = null)}
-      onSave={(newSettings) => (defaultTvShowViewSettings = newSettings)}
-    />
-  {/if}
-  {#if activeViewSettingsModal === 'season' && defaultSeasonViewSettings}
-    <DefaultViewSettingsModal
-      title="Default Season Contents View"
-      initialSettings={defaultSeasonViewSettings}
-      {groupByKeys}
-      {settings}
-      onClose={() => (activeViewSettingsModal = null)}
-      onSave={(newSettings) => (defaultSeasonViewSettings = newSettings)}
-    />
-  {/if}
 {/if}
 
 {#if activeLayoutSettingsModal}
@@ -361,15 +318,14 @@ let {
         </div>
         <p class="help-text">Changing the folder will start a full re-scan of the new location.</p>
       </div>
-    {:else if activeTab === 'view'}
+{:else if activeTab === 'view'}
       <div class="form-group">
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={useLogos} />
           <span>Show and fetch logos for movies and shows</span>
         </label>
         <p class="help-text">
-          When enabled, the app will try to download high-quality logos (e.g., a movie's title
-          treatment) to display on detail pages.
+          When enabled, a high-quality logo will be displayed on detail pages if available.
         </p>
       </div>
       <div class="form-group">
@@ -383,46 +339,25 @@ let {
           <button class="secondary" tabindex="-1">Configure...</button>
         </div>
       </div>
-      <div class="form-group">
-        <label>Default Folder View</label>
-        <p class="help-text">
-          The default view used for folders that do not have a specific layout set.
-        </p>
-        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'general')}>
-          <span>{formatLayoutString(defaultViewSettings)}</span>
-          <button class="secondary" tabindex="-1">Configure...</button>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Default Movie Contents View</label>
-        <p class="help-text">
-          The default view for the contents of a movie folder on its detail page.
-        </p>
-        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'movie')}>
-          <span>{formatLayoutString(defaultMovieViewSettings)}</span>
-          <button class="secondary" tabindex="-1">Configure...</button>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Default TV Show Contents View</label>
-        <p class="help-text">
-          The default view for the contents of a TV show folder on its detail page.
-        </p>
-        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'tv')}>
-          <span>{formatLayoutString(defaultTvShowViewSettings)}</span>
-          <button class="secondary" tabindex="-1">Configure...</button>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Default Season Contents View</label>
-        <p class="help-text">
-          The default view for the contents of a season folder on its detail page.
-        </p>
-        <div class="view-config-row" onclick={() => (activeViewSettingsModal = 'season')}>
-          <span>{formatLayoutString(defaultSeasonViewSettings)}</span>
-          <button class="secondary" tabindex="-1">Configure...</button>
-        </div>
-      </div>
+
+      {#if defaultLayouts}
+        {@const layoutConfig = [
+          { key: '_default', label: 'Default Folder View', help: 'The default view used for folders that do not have a specific layout set.' },
+          { key: 'movie', label: 'Default Movie Contents View', help: 'The default view for the contents of a movie folder on its detail page.' },
+          { key: 'tv', label: 'Default TV Show Contents View', help: 'The default view for the contents of a TV show folder on its detail page.' },
+          { key: 'season', label: 'Default Season Contents View', help: 'The default view for the contents of a season folder on its detail page.' },
+        ]}
+        {#each layoutConfig as config (config.key)}
+          <div class="form-group">
+            <label>{config.label}</label>
+            <p class="help-text">{config.help}</p>
+            <div class="view-config-row" onclick={() => (activeViewSettingsModal = config.key as any)}>
+              <span>{formatLayoutString(defaultLayouts[config.key])}</span>
+              <button class="secondary" tabindex="-1">Configure...</button>
+            </div>
+          </div>
+        {/each}
+      {/if}
     {:else if activeTab === 'virtualTags'}
     <p><b>This feature is a work in progress and is currently slow.</b></p>
     <div class="help-text">

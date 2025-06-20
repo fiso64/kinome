@@ -70,6 +70,8 @@ export type StoredViewSettings = Partial<BaseViewSettings & GridSettings & Group
  */
 export type ResolvedViewSettings = BaseViewSettings & Partial<LayoutSpecificSettings>
 
+export type MediaTypeForDefaults = 'movie' | 'tv' | 'season'
+
 export interface Settings {
   playerCommand: string
   tmdbApiKey: string
@@ -81,11 +83,13 @@ export interface Settings {
     tabs: GroupingSettings
     sections: GroupingSettings
   }
-  // Type-specific overrides
-  defaultViewSettings: StoredViewSettings // The base default
-  defaultMovieViewSettings: StoredViewSettings
-  defaultTvShowViewSettings: StoredViewSettings
-  defaultSeasonViewSettings: StoredViewSettings
+  // Type-specific layout defaults
+  defaultLayouts: {
+    _default: StoredViewSettings
+    movie: StoredViewSettings
+    tv: StoredViewSettings
+    season: StoredViewSettings
+  }
 }
 
 export interface MediaFile {
