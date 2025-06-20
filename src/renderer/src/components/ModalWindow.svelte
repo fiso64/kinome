@@ -29,14 +29,21 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
+      // Only handle Escape and Enter. Let all other keys (like letters, numbers, arrows)
+      // pass through to the input fields.
+      if (event.key !== 'Escape' && event.key !== 'Enter') {
+        return
+      }
+
       const target = event.target as HTMLElement
 
-      // Allow newlines in textareas when Enter is pressed.
+      // Special case: allow Enter to create newlines in textareas.
       if (event.key === 'Enter' && target.tagName === 'TEXTAREA') {
         return
       }
 
-      // This is the key: stop the event from being processed by any other listeners.
+      // Now that we're certain we want to handle the key, prevent default.
+      // This stops 'Enter' from submitting a form, for example.
       event.preventDefault()
       event.stopPropagation()
 

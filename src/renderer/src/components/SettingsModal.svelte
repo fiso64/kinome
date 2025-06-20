@@ -613,14 +613,6 @@
     color: #e81123;
     background: none;
   }
-  .slider-container {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-  .slider-container input[type='range'] {
-    flex-grow: 1;
-  }
   .view-config-row {
     display: flex;
     justify-content: space-between;
