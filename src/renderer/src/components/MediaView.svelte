@@ -93,7 +93,15 @@
       return 1
     }
 
-    // Fallback to alphabetical name sort
+    // Primary sort: files before folders
+    if (a.type === 'file' && b.type === 'folder') {
+      return -1
+    }
+    if (a.type === 'folder' && b.type === 'file') {
+      return 1
+    }
+
+    // If types are the same, fallback to alphabetical name sort
     const aName = a.title ?? ('name' in a ? (a as LibraryItem).name : '')
     const bName = b.title ?? ('name' in b ? (b as LibraryItem).name : '')
     return aName.localeCompare(bName, undefined, { numeric: true })
