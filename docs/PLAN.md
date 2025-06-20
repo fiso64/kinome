@@ -78,7 +78,7 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[ ]` think some more about nested folders and what to do with nested movies
 
 #### Phase 4: Expansion & Refinement
-
+1
 The goal is to expand source support and prepare for future growth.
 
 *   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter.
