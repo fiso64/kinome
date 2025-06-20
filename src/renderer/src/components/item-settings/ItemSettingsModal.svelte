@@ -19,7 +19,8 @@ import { dialogStore } from '../../lib/dialog-store'
     onNeedRefresh,
     initialTab = 'metadata',
     groupByKeys,
-    defaultLayout
+    defaultLayout,
+    settings
   }: {
     item: LibraryItem & VirtualFolderProps
     onClose: () => void
@@ -27,6 +28,7 @@ import { dialogStore } from '../../lib/dialog-store'
     initialTab?: 'metadata' | 'view' | 'folder' | 'settings'
     groupByKeys: string[]
     defaultLayout: 'grid' | 'tree'
+    settings: Settings | null
   } = $props()
 
   const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
@@ -70,6 +72,7 @@ import { dialogStore } from '../../lib/dialog-store'
   let selectedLayout = $state(_isFolder ? item.layout ?? defaultLayout : 'grid')
   let selectedClickAction = $state(_isFolder ? item.childrenClickAction ?? 'detail' : 'detail')
   let selectedGroupBy = $state(_isFolder ? item.groupBy ?? 'folder' : 'folder')
+  let gridPosterSize = $state(_isFolder ? (item as MediaFolder).gridPosterSize : undefined)
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(_isFolder ? item.retrieve_children_metadata ?? false : false)
@@ -130,6 +133,7 @@ import { dialogStore } from '../../lib/dialog-store'
       // Apply view and folder changes if it's a folder
       if (updatedItem.type === 'folder') {
         updatedItem.layout = selectedLayout
+        updatedItem.gridPosterSize = gridPosterSize
         updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
         updatedItem.childrenClickAction = selectedClickAction
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
@@ -266,9 +270,11 @@ import { dialogStore } from '../../lib/dialog-store'
       <ViewTab
         item={item as MediaFolder}
         {groupByKeys}
+        {settings}
         bind:selectedLayout
         bind:selectedClickAction
         bind:selectedGroupBy
+        bind:gridPosterSize
       />
     {:else if activeTab === 'folder' && isFolder}
       <FolderTab

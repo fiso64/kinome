@@ -44,6 +44,7 @@ export interface MediaFolder {
   genres?: string[]
   tags?: Record<string, string>
   layout?: 'grid' | 'tree' | 'tabs' | 'sections'
+  gridPosterSize?: number | null
   childrenClickAction?: 'detail' | 'navigate'
   // View grouping
   groupBy?: string

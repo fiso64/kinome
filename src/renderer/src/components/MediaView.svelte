@@ -47,9 +47,10 @@
     listFixedAspectRatio?: boolean
   } = $props()
 
-  const { layout, groupBy } = $derived.by(() => {
+  const { layout, groupBy, gridPosterSize } = $derived.by(() => {
     let effectiveLayout: Layout = layoutProp ?? 'grid'
     let effectiveGroupBy: string = 'folder'
+    let effectiveGridPosterSize: number | null | undefined = undefined
 
     if (parentItem?.layout) {
       effectiveLayout = parentItem.layout
@@ -78,7 +79,21 @@
       effectiveLayout = layoutProp
     }
 
-    return { layout: effectiveLayout, groupBy: effectiveGroupBy }
+    // --- Grid Poster Size Calculation ---
+    // Specificity order:
+    // 1. Folder-specific setting
+    // 2. Global default setting
+    if (parentItem?.gridPosterSize != null) {
+      effectiveGridPosterSize = parentItem.gridPosterSize
+    } else if (settings?.gridPosterSize) {
+      effectiveGridPosterSize = settings.gridPosterSize
+    }
+
+    return {
+      layout: effectiveLayout,
+      groupBy: effectiveGroupBy,
+      gridPosterSize: effectiveGridPosterSize
+    }
   })
 
   // --- Helpers for data processing ---
@@ -289,7 +304,14 @@
   oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
 >
   {#if layout === 'grid'}
-    <GridView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} {parentItem} />
+    <GridView
+      items={itemsForViews}
+      {onItemClick}
+      {onShowContextMenu}
+      {grayOutWatched}
+      {parentItem}
+      {gridPosterSize}
+    />
   {:else if layout === 'tree'}
     <TreeView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} {parentItem} />
   {:else if layout === 'list'}

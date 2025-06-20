@@ -13,13 +13,17 @@
     groupByKeys,
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
-    selectedGroupBy = $bindable()
+    selectedGroupBy = $bindable(),
+    gridPosterSize = $bindable(),
+    settings
   }: {
     item: MediaFolder & VirtualFolderProps
     groupByKeys: string[]
     selectedLayout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
+    gridPosterSize?: number | null
+    settings: Settings | null
   } = $props()
 </script>
 
@@ -27,5 +31,7 @@
   bind:selectedLayout
   bind:selectedClickAction
   bind:selectedGroupBy
+  bind:gridPosterSize
   {groupByKeys}
+  {settings}
 />

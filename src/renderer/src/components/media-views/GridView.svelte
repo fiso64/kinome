@@ -13,7 +13,8 @@
     onItemClick,
     onShowContextMenu,
     grayOutWatched,
-    parentItem
+    parentItem,
+    gridPosterSize
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -24,10 +25,14 @@
     ) => void
     grayOutWatched: boolean
     parentItem?: MediaFolder | VirtualFolder
+    gridPosterSize?: number | null
   } = $props()
 </script>
 
-<div class="media-grid">
+<div
+  class="media-grid"
+  style={gridPosterSize ? `--local-grid-poster-size: ${gridPosterSize}px` : ''}
+>
   {#if items.length > 0}
     {#each items as item (item.id)}
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
@@ -72,7 +77,11 @@
   }
   .media-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--grid-poster-size, 200px), 1fr));
+    /* Use the local variable if it exists, otherwise fall back to the global one. */
+    grid-template-columns: repeat(
+      auto-fill,
+      minmax(var(--local-grid-poster-size, var(--grid-poster-size)), 1fr)
+    );
     gap: 1.8rem;
     padding: 1.5rem;
     width: 100%;

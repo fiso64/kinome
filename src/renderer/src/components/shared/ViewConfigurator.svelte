@@ -30,7 +30,9 @@
     groupByKeys,
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
-    selectedGroupBy = $bindable()
+    selectedGroupBy = $bindable(),
+    gridPosterSize = $bindable(),
+    settings
   }: {
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
@@ -38,9 +40,32 @@
     selectedLayout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
+    gridPosterSize?: number | null
+    settings: Settings | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
+
+  // --- Grid Poster Size ---
+  const globalDefaultSize = $derived(settings?.gridPosterSize ?? 200)
+
+  // This is a derived value representing the current effective size for the slider.
+  // It will automatically update if the parent prop or global default changes.
+  const localSize = $derived(gridPosterSize ?? globalDefaultSize)
+
+  // This is also derived directly from the prop.
+  const isOverridden = $derived(gridPosterSize != null)
+
+  // When the user moves the slider, it sets the override by updating the bound prop.
+  function handleSliderInput(e: Event) {
+    const value = parseInt((e.target as HTMLInputElement).value, 10)
+    gridPosterSize = value
+  }
+
+  // The reset button removes the override by setting the bound prop to null.
+  function handleReset() {
+    gridPosterSize = null
+  }
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -55,17 +80,36 @@
 </script>
 
 <div class="content">
-  <div class="layout-options">
+  <h3>View As</h3>
+  <div class="layout-options horizontal">
     {#each filteredLayouts as layout}
-      <label class="layout-option">
+      <label class="layout-option horizontal-item">
         <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
-        <div class="option-details">
-          <div class="option-label">{layout.label}</div>
-          <div class="option-description">{layout.description}</div>
-        </div>
+        <span>{layout.label}</span>
       </label>
     {/each}
   </div>
+  <p class="help-text">{layouts.find((l) => l.value === selectedLayout)?.description}</p>
+
+  {#if selectedLayout === 'grid'}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h3>Grid Poster Size</h3>
+      {#if isOverridden}
+        <button class="link-button" onclick={handleReset}>Reset to default</button>
+      {/if}
+    </div>
+    <p class="help-text">
+      Controls the base width of posters in this grid view. The current default is
+      {globalDefaultSize}px.
+    </p>
+    <div class="form-group">
+      <div class="slider-container">
+        <input type="range" value={localSize} oninput={handleSliderInput} min="50" max="500" step="10" />
+        <span>{localSize}px</span>
+      </div>
+    </div>
+  {/if}
 
   {#if selectedLayout === 'tabs' || selectedLayout === 'sections'}
     <div class="divider"></div>
@@ -88,9 +132,9 @@
     <p class="help-text">
       Choose what happens when clicking a child item. This does not apply to Tree view.
     </p>
-    <div class="layout-options">
+    <div class="layout-options vertical">
       {#each clickActions as action}
-        <label class="layout-option">
+        <label class="layout-option vertical-item">
           <input
             type="radio"
             name="click-action"
@@ -122,49 +166,123 @@
   .help-text {
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
+    margin-top: -0.75rem; /* Reduce space after a heading */
   }
 
   .layout-options {
     display: flex;
-    flex-direction: column;
     gap: 1rem;
+  }
+  .layout-options.vertical {
+    flex-direction: column;
+  }
+  .layout-options.horizontal {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.5rem;
+    background: var(--color-background);
+    border-radius: 6px;
+    padding: 0.5rem;
+    border: 1px solid var(--color-background-mute);
+    padding-bottom: 0.5rem;
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .layout-options.horizontal::-webkit-scrollbar {
+    display: none;
   }
 
   .layout-option {
+    cursor: pointer;
+    transition:
+      border-color 0.2s,
+      background-color 0.2s;
+  }
+
+  /* Vertical Layout Items (for Click Action) */
+  .vertical-item {
     display: flex;
     align-items: flex-start;
     gap: 1rem;
     padding: 1rem;
     border: 1px solid var(--color-background-mute);
     border-radius: 6px;
-    cursor: pointer;
-    transition:
-      border-color 0.2s,
-      background-color 0.2s;
   }
-  .layout-option:hover {
+  .vertical-item:hover {
     background-color: var(--color-background);
   }
-
-  .layout-option input[type='radio'] {
+  .vertical-item input[type='radio'] {
     margin-top: 0.2rem;
     width: 1rem;
     height: 1rem;
   }
-
   .option-label {
     font-weight: bold;
   }
-
   .option-description {
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
   }
+
+  /* Horizontal Layout Items (for View As) */
+  .horizontal-item {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .horizontal-item:hover {
+    background-color: var(--color-background-soft);
+  }
+  .horizontal-item input[type='radio'] {
+    position: absolute;
+    opacity: 0;
+  }
+  .horizontal-item span {
+    font-weight: 600;
+  }
+  .horizontal-item:has(input:checked) {
+    background-color: var(--ev-c-gray-2);
+  }
+  .horizontal-item:has(input:checked) span {
+    color: var(--ev-c-text-1);
+  }
+
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
-    margin: 0.5rem 0;
+    margin-top: -0.5rem;
+  }
+  .heading-with-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .heading-with-action h3 {
+    margin: 0;
   }
   h3 {
     font-weight: bold;
+    margin-bottom: -0.75rem;
+  }
+
+  /* Slider specific styles */
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .slider-container input[type='range'] {
+    flex-grow: 1;
+  }
+  .link-button {
+    background: none;
+    border: none;
+    color: var(--ev-c-text-2);
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0;
+  }
+  .link-button:hover {
+    color: var(--ev-c-text-1);
   }
 </style>

@@ -859,6 +859,7 @@ export function setupLibraryIpc(): void {
             oldItem.type === 'folder'
               ? {
                   layout: oldItem.layout,
+                  gridPosterSize: (oldItem as MediaFolder).gridPosterSize,
                   childrenClickAction: oldItem.childrenClickAction,
                   retrieve_children_metadata: oldItem.retrieve_children_metadata,
                   children_type_hint: oldItem.children_type_hint,

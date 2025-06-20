@@ -196,14 +196,12 @@
     }
   })
 
-  // This effect is reactive and will update the CSS variable whenever the settings change
+  // This effect is reactive and will update the global default CSS variable whenever the settings change
   $effect(() => {
-    if (settings?.gridPosterSize) {
-      document.documentElement.style.setProperty(
-        '--grid-poster-size',
-        `${settings.gridPosterSize}px`
-      )
-    }
+    document.documentElement.style.setProperty(
+      '--grid-poster-size',
+      `${settings?.gridPosterSize ?? 200}px`
+    )
   })
 
   $effect(() => {
@@ -960,6 +958,7 @@
       initialTab={activeModal.initialTab}
       defaultLayout={activeModal.defaultLayout}
       {groupByKeys}
+      {settings}
       onClose={() => (activeModal = null)}
       onNeedRefresh={handleRefresh}
     />
