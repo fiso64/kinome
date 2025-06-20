@@ -2,6 +2,7 @@
   import ModalWindow from './ModalWindow.svelte'
   import AutocompleteMenu from './AutocompleteMenu.svelte'
   import DefaultViewSettingsModal from './settings/DefaultViewSettingsModal.svelte'
+  import DefaultLayoutSettingsModal from './settings/DefaultLayoutSettingsModal.svelte'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
@@ -10,6 +11,7 @@
 
   let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
+  let activeLayoutSettingsModal = $state(false)
 
   // --- Form State ---
   let playerCommand = $state('')
@@ -307,6 +309,18 @@
   {/if}
 {/if}
 
+{#if activeLayoutSettingsModal}
+  <DefaultLayoutSettingsModal
+    initialSettings={{ gridPosterSize }}
+    onClose={() => (activeLayoutSettingsModal = false)}
+    onSave={(newSettings) => {
+      if (newSettings.gridPosterSize !== undefined) {
+        gridPosterSize = newSettings.gridPosterSize
+      }
+    }}
+  />
+{/if}
+
 <ModalWindow title="Settings" onClose={handleCancel} onSave={handleSave}>
   {#snippet header()}
     <div class="tabs">
@@ -369,19 +383,14 @@
         </p>
       </div>
       <div class="form-group">
-        <label for="poster-size">Grid Poster Size</label>
-        <div class="slider-container">
-          <input
-            type="range"
-            id="poster-size"
-            bind:value={gridPosterSize}
-            min="50"
-            max="500"
-            step="10"
-          />
-          <span>{gridPosterSize}px</span>
+        <label>Default Layout Values</label>
+        <p class="help-text">
+          Configure default values for specific layouts, like poster size for the Grid view.
+        </p>
+        <div class="view-config-row" onclick={() => (activeLayoutSettingsModal = true)}>
+          <span>Grid: {gridPosterSize}px</span>
+          <button class="secondary" tabindex="-1">Configure...</button>
         </div>
-        <p class="help-text">Controls the base width of posters in the grid view.</p>
       </div>
       <div class="form-group">
         <label>Default Folder View</label>

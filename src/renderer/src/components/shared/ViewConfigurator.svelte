@@ -32,19 +32,27 @@
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
-    settings
+    settings,
+    configMode = false,
+    initialConfigLayout = 'grid'
   }: {
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
-    groupByKeys: string[]
-    selectedLayout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    selectedClickAction: 'detail' | 'navigate'
-    selectedGroupBy: string
+    groupByKeys?: string[]
+    selectedLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    selectedClickAction?: 'detail' | 'navigate'
+    selectedGroupBy?: string
     gridPosterSize?: number | null
-    settings: Settings | null
+    settings: any | null // Can be partial settings object
+    configMode?: boolean
+    initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
+
+  // --- State for different modes ---
+  let activeConfigLayout = $state(initialConfigLayout)
+  const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
 
   // --- Grid Poster Size ---
   const globalDefaultSize = $derived(settings?.gridPosterSize ?? 200)
@@ -80,18 +88,37 @@
 </script>
 
 <div class="content">
-  <h3>View As</h3>
-  <div class="layout-options horizontal">
-    {#each filteredLayouts as layout}
-      <label class="layout-option horizontal-item">
-        <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
-        <span>{layout.label}</span>
-      </label>
-    {/each}
-  </div>
-  <p class="help-text">{layouts.find((l) => l.value === selectedLayout)?.description}</p>
+  {#if !configMode}
+    <h3>View As</h3>
+    <div class="layout-options horizontal">
+      {#each filteredLayouts as layout}
+        <label class="layout-option horizontal-item">
+          <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
+          <span>{layout.label}</span>
+        </label>
+      {/each}
+    </div>
+    <p class="help-text">{layouts.find((l) => l.value === selectedLayout)?.description}</p>
+  {:else}
+    <h3>Configure Defaults For</h3>
+    <div class="layout-options horizontal">
+      {#each filteredLayouts as layout}
+        <label class="layout-option horizontal-item">
+          <input
+            type="radio"
+            name="config-layout"
+            value={layout.value}
+            onchange={() => (activeConfigLayout = layout.value)}
+            checked={activeConfigLayout === layout.value}
+          />
+          <span>{layout.label}</span>
+        </label>
+      {/each}
+    </div>
+    <p class="help-text">Set default values for when this layout is used.</p>
+  {/if}
 
-  {#if selectedLayout === 'grid'}
+  {#if layoutToShowOptionsFor === 'grid'}
     <div class="divider"></div>
     <div class="heading-with-action">
       <h3>Grid Poster Size</h3>
@@ -105,28 +132,37 @@
     </p>
     <div class="form-group">
       <div class="slider-container">
-        <input type="range" value={localSize} oninput={handleSliderInput} min="50" max="500" step="10" />
+        <input
+          type="range"
+          value={localSize}
+          oninput={handleSliderInput}
+          min="50"
+          max="500"
+          step="10"
+        />
         <span>{localSize}px</span>
       </div>
     </div>
   {/if}
 
-  {#if selectedLayout === 'tabs' || selectedLayout === 'sections'}
+  {#if !configMode && (layoutToShowOptionsFor === 'tabs' || layoutToShowOptionsFor === 'sections')}
     <div class="divider"></div>
     <h3>Group By</h3>
     <p class="help-text">
-      Choose a metadata field to group the contents of this folder into {selectedLayout}.
+      Choose a metadata field to group the contents of this folder into {layoutToShowOptionsFor}.
     </p>
     <div class="form-group">
       <select bind:value={selectedGroupBy}>
-        {#each groupByKeys as key (key)}
-          <option value={key}>{formatKey(key)}</option>
-        {/each}
+        {#if groupByKeys}
+          {#each groupByKeys as key (key)}
+            <option value={key}>{formatKey(key)}</option>
+          {/each}
+        {/if}
       </select>
     </div>
   {/if}
 
-  {#if showClickAction}
+  {#if !configMode && showClickAction}
     <div class="divider"></div>
     <h3>On Click...</h3>
     <p class="help-text">
