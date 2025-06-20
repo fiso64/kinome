@@ -5,7 +5,11 @@
   import DefaultLayoutSettingsModal from './settings/DefaultLayoutSettingsModal.svelte'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
-  let { close, scanLibrary }: { close: () => void; scanLibrary: () => Promise<void> } = $props()
+let {
+  close,
+  scanLibrary,
+  settings
+}: { close: () => void; scanLibrary: () => Promise<void>; settings: Settings | null } = $props()
 
   type ActiveViewSettingsModal = 'general' | 'movie' | 'tv' | 'season' | null
 
@@ -261,13 +265,14 @@
 </script>
 
 {#if activeViewSettingsModal}
-  {#if activeViewSettingsModal === 'general' && defaultViewSettings}
+{#if activeViewSettingsModal === 'general' && defaultViewSettings}
     <DefaultViewSettingsModal
       title="Default Folder View"
       initialSettings={defaultViewSettings}
       groupByKeys={groupByKeys}
       availableLayouts={['grid', 'list', 'tree']}
       showClickAction={false}
+      {settings}
       onClose={() => (activeViewSettingsModal = null)}
       onSave={(newSettings) => (defaultViewSettings = newSettings)}
     />
@@ -277,6 +282,7 @@
       title="Default Movie Contents View"
       initialSettings={defaultMovieViewSettings}
       {groupByKeys}
+      {settings}
       onClose={() => (activeViewSettingsModal = null)}
       onSave={(newSettings) => (defaultMovieViewSettings = newSettings)}
     />
@@ -286,6 +292,7 @@
       title="Default TV Show Contents View"
       initialSettings={defaultTvShowViewSettings}
       {groupByKeys}
+      {settings}
       onClose={() => (activeViewSettingsModal = null)}
       onSave={(newSettings) => (defaultTvShowViewSettings = newSettings)}
     />
@@ -295,6 +302,7 @@
       title="Default Season Contents View"
       initialSettings={defaultSeasonViewSettings}
       {groupByKeys}
+      {settings}
       onClose={() => (activeViewSettingsModal = null)}
       onSave={(newSettings) => (defaultSeasonViewSettings = newSettings)}
     />
@@ -304,6 +312,7 @@
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
     initialSettings={{ gridPosterSize }}
+    {settings}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(newSettings) => {
       if (newSettings.gridPosterSize !== undefined) {

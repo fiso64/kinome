@@ -2,6 +2,7 @@ export interface ViewSettings {
   layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
   clickAction: 'detail' | 'navigate'
   groupBy: string
+  gridPosterSize?: number | null
 }
 
 export interface Settings {

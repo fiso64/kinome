@@ -26,12 +26,9 @@ export function resolveViewSettings(
   }
 
   // 1. Start with the most general global defaults.
-  let resolved = {
-    ...settings.defaultViewSettings,
-    gridPosterSize: settings.gridPosterSize
-  }
-
-  console.log("defaults: ", resolved)
+  let resolved: ViewSettings = { ...settings.defaultViewSettings }
+  // gridPosterSize is handled separately to ensure correct inheritance.
+  let resolvedGridPosterSize = settings.gridPosterSize
 
   // 2. Layer on type-specific defaults if the item has a mediaType.
   if (item?.mediaType) {
@@ -49,10 +46,12 @@ export function resolveViewSettings(
     }
     if (typeDefaults) {
       resolved = { ...resolved, ...typeDefaults }
+      // Only override gridPosterSize if it's explicitly set on the type-specific settings.
+      if (typeDefaults.gridPosterSize != null) {
+        resolvedGridPosterSize = typeDefaults.gridPosterSize
+      }
     }
   }
-
-  console.log("defaults 2: ", resolved)
 
   // 3. Layer on the most specific settings from the item itself.
   // This works for both physical and virtual folders.
@@ -61,8 +60,9 @@ export function resolveViewSettings(
     if (layout) resolved.layout = layout
     if (childrenClickAction) resolved.clickAction = childrenClickAction
     if (groupBy) resolved.groupBy = groupBy
-    if (gridPosterSize != null) resolved.gridPosterSize = gridPosterSize
+    if (gridPosterSize != null) resolvedGridPosterSize = gridPosterSize
   }
 
-  return resolved
+  // Combine the resolved parts.
+  return { ...resolved, gridPosterSize: resolvedGridPosterSize }
 }

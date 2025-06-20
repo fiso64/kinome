@@ -910,6 +910,7 @@
 {#if activeModal}
   {#if activeModal.type === 'settings'}
     <SettingsModal
+      {settings}
       close={() => {
         const wasSettings = activeModal?.type === 'settings'
         activeModal = null

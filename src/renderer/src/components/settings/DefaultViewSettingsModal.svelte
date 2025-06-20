@@ -6,6 +6,7 @@
     layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     clickAction: 'detail' | 'navigate'
     groupBy: string
+    gridPosterSize?: number | null
   }
 
   let {
@@ -15,7 +16,8 @@
     onSave,
     groupByKeys,
     availableLayouts,
-    showClickAction
+    showClickAction,
+    settings
   }: {
     title: string
     initialSettings: ViewSettings
@@ -24,17 +26,20 @@
     groupByKeys: string[]
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
+    settings: Settings | null
   } = $props()
 
   let selectedLayout = $state(initialSettings.layout)
   let selectedClickAction = $state(initialSettings.clickAction)
   let selectedGroupBy = $state(initialSettings.groupBy)
+  let gridPosterSize = $state(initialSettings.gridPosterSize)
 
   function handleSave() {
     onSave({
       layout: selectedLayout,
       clickAction: selectedClickAction,
-      groupBy: selectedGroupBy
+      groupBy: selectedGroupBy,
+      gridPosterSize: gridPosterSize
     })
     onClose()
   }
@@ -45,8 +50,10 @@
     bind:selectedLayout
     bind:selectedClickAction
     bind:selectedGroupBy
+    bind:gridPosterSize
     {groupByKeys}
     {availableLayouts}
     {showClickAction}
+    {settings}
   />
 </ModalWindow>

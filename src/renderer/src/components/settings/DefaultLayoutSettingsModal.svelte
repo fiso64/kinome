@@ -6,15 +6,17 @@
     gridPosterSize?: number
   }
 
-  let {
-    initialSettings,
-    onClose,
-    onSave
-  }: {
-    initialSettings: LayoutSettings
-    onClose: () => void
-    onSave: (newSettings: LayoutSettings) => void
-  } = $props()
+let {
+  initialSettings,
+  onClose,
+  onSave,
+  settings
+}: {
+  initialSettings: LayoutSettings
+  onClose: () => void
+  onSave: (newSettings: LayoutSettings) => void
+  settings: Settings | null
+} = $props()
 
   let localGridPosterSize = $state(initialSettings.gridPosterSize)
 
