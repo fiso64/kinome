@@ -1,9 +1,10 @@
 <script lang="ts">
-  import ModalWindow from '../ModalWindow.svelte'
-  import MetadataTab from './MetadataTab.svelte'
-  import ViewTab from './ViewTab.svelte'
-  import FolderTab from './FolderTab.svelte'
-  import { dialogStore } from '../../lib/dialog-store'
+import ModalWindow from '../ModalWindow.svelte'
+import MetadataTab from './MetadataTab.svelte'
+import ViewTab from './ViewTab.svelte'
+import FolderTab from './FolderTab.svelte'
+import FileTab from './FileTab.svelte'
+import { dialogStore } from '../../lib/dialog-store'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -23,7 +24,7 @@
     item: LibraryItem & VirtualFolderProps
     onClose: () => void
     onNeedRefresh: () => Promise<void>
-    initialTab?: 'metadata' | 'view' | 'folder'
+    initialTab?: 'metadata' | 'view' | 'folder' | 'settings'
     groupByKeys: string[]
     defaultLayout: 'grid' | 'tree'
   } = $props()
@@ -238,6 +239,10 @@
         <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
           Settings
         </button>
+      {:else}
+        <button class:active={activeTab === 'settings'} onclick={() => (activeTab = 'settings')}>
+          Settings
+        </button>
       {/if}
     </div>
   {/snippet}
@@ -275,6 +280,8 @@
         onHideItem={handleHide}
         {onNeedRefresh}
       />
+    {:else if activeTab === 'settings' && !isFolder}
+      <FileTab onHideItem={handleHide} />
     {/if}
   </div>
 </ModalWindow>

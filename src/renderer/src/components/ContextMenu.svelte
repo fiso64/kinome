@@ -8,6 +8,7 @@ let {
   onEditMetadata,
   onSetLayout,
   onOpenFolderSettings,
+  onOpenFileSettings,
   onManualSearch,
   onEditArtwork,
   onRevealInExplorer,
@@ -23,6 +24,7 @@ let {
   onEditMetadata: () => void
   onSetLayout: () => void
   onOpenFolderSettings: () => void
+  onOpenFileSettings: () => void
   onManualSearch: () => void
   onEditArtwork: () => void
   onRevealInExplorer: () => void
@@ -113,6 +115,11 @@ let {
   function handleFolderSettings() {
     onOpenFolderSettings()
     onClose() // Also close the menu
+  }
+
+  function handleOpenFileSettings() {
+    onOpenFileSettings()
+    onClose()
   }
 
   function handleManualSearch() {
@@ -273,6 +280,16 @@ let {
       >
         <span class="icon">⚙️</span>
         <span>Folder Settings...</span>
+      </button>
+    {/if}
+    {#if item.type === 'file'}
+      <button
+        class="context-menu-item"
+        onclick={handleOpenFileSettings}
+        onmouseenter={() => (submenuVisible = false)}
+      >
+        <span class="icon">⚙️</span>
+        <span>File Settings...</span>
       </button>
     {/if}
     {#if !isVirtual && item.path}

@@ -48,7 +48,7 @@
     | {
         type: 'itemSettings'
         item: LibraryItem
-        initialTab: 'metadata' | 'view' | 'folder'
+        initialTab: 'metadata' | 'view' | 'folder' | 'settings'
         defaultLayout: 'grid' | 'tree'
       }
     | { type: 'manualSearch'; item: LibraryItem; initialTab?: 'match' | 'artwork' }
@@ -1020,6 +1020,16 @@
           item: itemToConfigure,
           initialTab: 'folder',
           defaultLayout
+        }
+      }
+    }}
+    onOpenFileSettings={() => {
+      if (contextMenuItem) {
+        activeModal = {
+          type: 'itemSettings',
+          item: contextMenuItem,
+          initialTab: 'settings',
+          defaultLayout: 'grid'
         }
       }
     }}
