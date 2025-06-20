@@ -81,9 +81,13 @@ The goal is to implement the key features that make the app unique and powerful.
 
 The goal is to expand source support and prepare for future growth.
 
-*   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter. (ipc diffing?)
+*   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter.
+    *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
+    *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
 *   `[ ]` Polish UI as much as possible
-*   `[ ]` **Add Rclone Source:** Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
+*   `[ ]` **Add network/remote library functionality** 
+    *   `[ ]` Consider whether it is feasable to have a source like rclone which only supports file operations (not a custom server). Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
+    *   `[ ]` Maybe turn the main process into a server (with a distributable binary) that can be run and connected to on a remote.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
 *   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.

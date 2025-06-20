@@ -343,6 +343,11 @@
         </p>
       </div>
     {:else if activeTab === 'virtualTags'}
+    <p><b>This feature is a work in progress and is currently slow.</b></p>
+    <div class="help-text">
+        <p>
+            Large numbers of virtual tag definitions or a large library can significantly impact startup and reload performance.</p>
+      </div>
       <div class="virtual-tags-list">
         {#each virtualTags as tag (tag.id)}
           <div class="virtual-tag-item">
