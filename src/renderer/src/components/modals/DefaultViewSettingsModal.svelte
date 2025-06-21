@@ -2,9 +2,8 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
   import type { StoredViewSettings } from '../../../../shared/types'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-
   let {
+    typeKey,
     title,
     initialSettings,
     onClose,
@@ -14,6 +13,7 @@
     showClickAction,
     settings
   }: {
+    typeKey: '_default' | 'movie' | 'tv' | 'season'
     title: string
     initialSettings: StoredViewSettings
     onClose: () => void
@@ -23,10 +23,6 @@
     showClickAction?: boolean
     settings: Settings | null
   } = $props()
-
-  // For a type-default, the "inherited" settings are the global defaults.
-  // We resolve them by passing a null item.
-  const inheritedSettings = $derived(resolveViewSettings(null, settings))
 
   let selectedLayout = $state(initialSettings.layout)
   let selectedClickAction = $state(initialSettings.clickAction)
@@ -56,17 +52,16 @@
 </script>
 
 <ModalWindow {title} {onClose} onSave={handleSave} maxWidth="700px" zIndex={101}>
-<ViewConfigurator
-  bind:selectedLayout
-  bind:selectedClickAction
-  bind:selectedGroupBy
-  bind:gridPosterSize
-  bind:listDescriptionRows
-  {groupByKeys}
-  {availableLayouts}
-  {showClickAction}
-  inheritedGridPosterSize={inheritedSettings.gridPosterSize}
-  inheritedGroupBy={inheritedSettings.groupBy}
-  inheritedListDescriptionRows={inheritedSettings.listDescriptionRows}
-/>
+  <ViewConfigurator
+    {typeKey}
+    {settings}
+    bind:selectedLayout
+    bind:selectedClickAction
+    bind:selectedGroupBy
+    bind:gridPosterSize
+    bind:listDescriptionRows
+    {groupByKeys}
+    {availableLayouts}
+    {showClickAction}
+  />
 </ModalWindow>

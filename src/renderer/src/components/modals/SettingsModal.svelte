@@ -245,6 +245,7 @@ async function handleSave(): Promise<void> {
     {@const typeKey = activeViewSettingsModal}
     {@const config = DEFAULT_LAYOUTS_CONFIG[typeKey]}
     <DefaultViewSettingsModal
+      {typeKey}
       title={config.label}
       initialSettings={defaultLayouts[typeKey]}
       groupByKeys={groupByKeys}

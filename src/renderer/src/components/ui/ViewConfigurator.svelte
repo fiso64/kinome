@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../../../shared/types'
+  import type { DefaultLayoutKey, ResolvedViewSettings } from '../../../../shared/types'
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
@@ -27,57 +29,83 @@
   ]
 
   let {
+    // Context props
+    item,
+    typeKey,
+    settings,
+    // Config props
     availableLayouts = ['grid', 'list', 'tree', 'tabs', 'sections'],
     showClickAction = true,
     groupByKeys,
+    configMode = false,
+    initialConfigLayout = 'grid',
+    // Bindings
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
-    listDescriptionRows = $bindable(),
-    configMode = false,
-    initialConfigLayout = 'grid',
-    inheritedGridPosterSize,
-    inheritedGroupBy,
-    inheritedListDescriptionRows
+    listDescriptionRows = $bindable()
   }: {
+    // Context props
+    item?: MediaFolder
+    typeKey?: DefaultLayoutKey
+    settings: Settings | null
+    // Config props
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
     groupByKeys?: string[]
+    configMode?: boolean
+    initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    // Bindings
     selectedLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
-    configMode?: boolean
-    initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
-    inheritedGridPosterSize?: number | null
-    inheritedGroupBy?: string | null
-    inheritedListDescriptionRows?: number | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
-
-  // --- State for different modes ---
   let activeConfigLayout = $state(initialConfigLayout)
+
+  const inheritedSettingsByLayout = $derived.by(() => {
+    const map = new Map<string, ResolvedViewSettings>()
+    // For item settings, there's no layer to ignore. For type-defaults, we ignore that type's layer.
+    const layersToIgnore = typeKey ? new Set([typeKey]) : new Set()
+
+    for (const layout of availableLayouts ?? []) {
+      // Create a dummy item that has the base properties of the real item or type,
+      // plus the layout we want to resolve for. This forces the resolver to calculate
+      // the specific properties for that layout (e.g., listDescriptionRows for 'list').
+      const dummyItem = { ...(item ?? {}), type: 'folder', mediaType: typeKey, layout }
+      map.set(layout, resolveViewSettings(dummyItem, settings, layersToIgnore))
+    }
+    return map
+  })
+
+  // This is now the currently selected layout, whether in config mode or item mode.
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
 
   // --- Grid Poster Size ---
   const defaultGridSize = $derived(
-    inheritedGridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
+    inheritedSettingsByLayout.get('grid')?.gridPosterSize ??
+      LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
   const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
   const isGridSizeOverridden = $derived(gridPosterSize != null)
 
   // --- List Description Rows ---
   const defaultDescriptionRows = $derived(
-    inheritedListDescriptionRows ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
+    inheritedSettingsByLayout.get('list')?.listDescriptionRows ??
+      LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
   const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
   const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
 
   // --- Group By ---
-  const defaultGroupBy = $derived(inheritedGroupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy)
+  const defaultGroupBy = $derived(
+    inheritedSettingsByLayout.get(layoutToShowOptionsFor)?.groupBy ??
+      LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
+  )
   const effectiveGroupBy = $derived(selectedGroupBy ?? defaultGroupBy)
   const isGroupByOverridden = $derived(selectedGroupBy != null)
 
@@ -132,7 +160,8 @@
     <div class="heading-with-action">
       <h3>Grid Poster Size</h3>
       {#if isGridSizeOverridden && !configMode}
-        <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
+        <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button
+        >
       {/if}
     </div>
     <p class="help-text">
@@ -163,16 +192,17 @@
     <div class="heading-with-action">
       <h3>Group By</h3>
       {#if isGroupByOverridden && !configMode}
-        <button class="link-button" onclick={() => (selectedGroupBy = null)}>Reset to default</button>
+        <button class="link-button" onclick={() => (selectedGroupBy = null)}
+          >Reset to default</button
+        >
       {/if}
     </div>
     <p class="help-text">
       {#if configMode}
         Choose the default metadata field to group contents into {layoutToShowOptionsFor}.
       {:else}
-        Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default is "{formatKey(
-          defaultGroupBy
-        )}".
+        Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default
+        is "{formatKey(defaultGroupBy)}".
       {/if}
     </p>
     <div class="form-group">
@@ -210,7 +240,8 @@
         <input
           type="range"
           value={effectiveDescriptionRows}
-          oninput={(e) => (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
+          oninput={(e) =>
+            (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
           min="0"
           max="10"
           step="1"

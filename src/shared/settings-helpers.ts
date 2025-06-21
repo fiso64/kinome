@@ -3,7 +3,8 @@ import type {
   Settings,
   ResolvedViewSettings,
   StoredViewSettings,
-  BaseViewSettings
+  BaseViewSettings,
+  DefaultLayoutKey
 } from './types'
 import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
 
@@ -17,11 +18,13 @@ type ResolvableItem = (MediaFolder & { isVirtual?: boolean }) | undefined | null
  *
  * @param item The folder item whose view settings need to be resolved.
  * @param settings The global application settings object.
+ * @param ignoreLayers A set of default layout keys to ignore during resolution. This is used by settings modals to correctly calculate their "inherited" values from the level above them.
  * @returns A complete, resolved view settings object ready for the UI.
  */
 export function resolveViewSettings(
   item: ResolvableItem,
-  settings: Settings | null
+  settings: Settings | null,
+  ignoreLayers: Set<DefaultLayoutKey> = new Set()
 ): ResolvedViewSettings {
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
@@ -37,17 +40,27 @@ export function resolveViewSettings(
   }
 
   // 1. Determine the hierarchy of settings to check, from most to least specific.
-  const mediaTypeKey = item?.mediaType
-  const typeDefaultSettings =
-    mediaTypeKey && mediaTypeKey in settings.defaultLayouts
-      ? (settings.defaultLayouts as any)[mediaTypeKey]
-      : {}
+  const settingsCascade: StoredViewSettings[] = []
 
-  const settingsCascade: StoredViewSettings[] = [
-    item ?? {}, // Item-specific overrides
-    typeDefaultSettings, // Type-specific overrides
-    settings.defaultLayouts._default // Global base defaults
-  ].filter(Boolean)
+  // Add item-specific layer if it exists
+  if (item) {
+    settingsCascade.push(item)
+  }
+
+  // Add type-specific default layer if applicable and not ignored
+  const mediaTypeKey = item?.mediaType
+  if (
+    mediaTypeKey &&
+    mediaTypeKey in settings.defaultLayouts &&
+    !ignoreLayers.has(mediaTypeKey as DefaultLayoutKey)
+  ) {
+    settingsCascade.push((settings.defaultLayouts as any)[mediaTypeKey])
+  }
+
+  // Add global default layer if not ignored
+  if (!ignoreLayers.has('_default')) {
+    settingsCascade.push(settings.defaultLayouts._default)
+  }
 
   // 2. Resolve the base properties (`layout` and `clickAction`).
   const resolvedBase: BaseViewSettings = {
