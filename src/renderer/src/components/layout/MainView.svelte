@@ -100,14 +100,14 @@
     </div>
 
     {#if selectedItemForDetailView && settings}
-      <ItemDetail
-        item={selectedItemForDetailView}
-        onItemClick={(item) => dispatch('itemClick', { item })}
-        onSearchByTag={({ key, value }) => dispatch('searchByTag', { key, value })}
-        showContextMenu={(item, event, options) =>
-          dispatch('showContextMenu', { item, event, options })}
-        {settings}
-      />
+    <ItemDetail
+      item={selectedItemForDetailView}
+      onItemClick={(item) => dispatch('itemClick', { item })}
+      onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
+      showContextMenu={(item, event, options) =>
+        dispatch('showContextMenu', { item, event, options })}
+      {settings}
+    />
     {/if}
   {/if}
 </div>
