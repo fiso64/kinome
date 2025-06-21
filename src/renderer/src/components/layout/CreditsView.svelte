@@ -1,23 +1,25 @@
 <script lang="ts">
-  type Person = {
+  type MoviePerson = {
     id: number
     name: string
     profile_path: string | null
     roles: string[]
-    numImportantRoles: number // How many important roles they have
+    numImportantRoles: number
   }
 
-  let { credits }: { credits: { cast: any[]; crew: any[] } } = $props()
+  let { item, credits }: { item: LibraryItem; credits: { cast: any[]; crew: any[] } } = $props()
 
-  const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
+  const isTv = $derived(item.mediaType === 'tv')
 
-  const processedCredits = $derived.by(() => {
-    if (!credits) return []
+  // This logic is now only for movies, which have a different credits structure.
+  const IMPORTANT_JOBS_FOR_MOVIE = ['Director', 'Screenplay', 'Writer']
 
-    const people = new Map<number, Person>()
+  const processedMovieCredits = $derived.by(() => {
+    if (isTv || !credits) return []
 
-    // Helper to add a person or update their roles and importance score
-    function addOrUpdatePerson(personData: any, role: string, importance: number) {
+    const people = new Map<number, MoviePerson>()
+
+    function addOrUpdatePerson(personData: any, role: string, isImportantCrew: boolean) {
       if (!people.has(personData.id)) {
         people.set(personData.id, {
           id: personData.id,
@@ -29,39 +31,34 @@
       }
       const person = people.get(personData.id)!
       person.roles.push(role)
-
-      // An importance of 100 is for actors, which we don't count as an "important job".
-      if (importance < 100) {
+      if (isImportantCrew) {
         person.numImportantRoles++
       }
     }
 
-    // Process crew for important jobs
+    // Process crew
     credits.crew.forEach((crewMember) => {
-      const jobIndex = IMPORTANT_JOBS.indexOf(crewMember.job)
-      if (jobIndex !== -1) {
-        addOrUpdatePerson(crewMember, crewMember.job, jobIndex)
+      if (IMPORTANT_JOBS_FOR_MOVIE.includes(crewMember.job)) {
+        addOrUpdatePerson(crewMember, crewMember.job, true)
       }
     })
 
-    // Process cast members
+    // Process cast
     for (const castMember of credits.cast) {
-      addOrUpdatePerson(castMember, castMember.character, 100)
+      addOrUpdatePerson(castMember, castMember.character, false)
     }
 
-    // Sort by number of important roles (desc), then image availability
+    // Sort by num important roles, then by having an image
     return Array.from(people.values()).sort((a, b) => {
-      // 1. Primary: number of important roles (descending)
       if (a.numImportantRoles !== b.numImportantRoles) {
         return b.numImportantRoles - a.numImportantRoles
       }
-
-      // 2. Secondary: people with images come first
       const aHasImage = !!a.profile_path
       const bHasImage = !!b.profile_path
       if (aHasImage !== bHasImage) {
         return aHasImage ? -1 : 1
       }
+      return 0
     })
   })
 
@@ -73,49 +70,74 @@
   }
 </script>
 
-<div class="credits-view-container">
-  <h2 class="section-title">Cast & Crew</h2>
-  <div class="credits-list" onwheel={horizontalScroll}>
-    {#each processedCredits as person (person.id)}
-      <div
-        class="credit-item"
-        data-name={person.name}
-        data-roles={person.roles.join(' \u2022 ')}
-      >
-        <div class="credit-poster">
-          {#if person.profile_path}
-            <img
-              src="https://image.tmdb.org/t/p/w185{person.profile_path}"
-              alt={person.name}
-              loading="lazy"
-            />
-          {:else}
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              class="icon"
-            >
-              <path
-                d="M12 2.5a5.5 5.5 0 0 1 3.096 10.047 9.005 9.005 0 0 1 5.9 8.181.75.75 0 0 1-1.498.07 7.5 7.5 0 0 0-14.992 0 .75.75 0 0 1-1.5-.07 9.005 9.005 0 0 1 5.9-8.181A5.5 5.5 0 0 1 12 2.5ZM8 8a4 4 0 1 0 8 0 4 4 0 0 0-8 0Z"
-              ></path>
-            </svg>
-          {/if}
-        </div>
-        <!-- Static content, visible by default -->
-        <div class="credit-info static">
-          <div class="person-name">{person.name}</div>
-          <div class="person-roles">{person.roles.join(', ')}</div>
-        </div>
-        <!-- Pop-up content, hidden by default and revealed on hover -->
-        <div class="credit-info popup">
-          <div class="person-name">{person.name}</div>
-          <div class="person-roles">{person.roles.join(' • ')}</div>
-        </div>
-      </div>
-    {/each}
+{#snippet personTemplate(person, roles, popupRoles)}
+  <div class="credit-item" data-name={person.name} data-roles={popupRoles}>
+    <div class="credit-poster">
+      {#if person.profile_path}
+        <img
+          src="https://image.tmdb.org/t/p/w185{person.profile_path}"
+          alt={person.name}
+          loading="lazy"
+        />
+      {:else}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          class="icon"
+        >
+          <path
+            d="M12 2.5a5.5 5.5 0 0 1 3.096 10.047 9.005 9.005 0 0 1 5.9 8.181.75.75 0 0 1-1.498.07 7.5 7.5 0 0 0-14.992 0 .75.75 0 0 1-1.5-.07 9.005 9.005 0 0 1 5.9-8.181A5.5 5.5 0 0 1 12 2.5ZM8 8a4 4 0 1 0 8 0 4 4 0 0 0-8 0Z"
+          ></path>
+        </svg>
+      {/if}
+    </div>
+    <div class="credit-info static">
+      <div class="person-name">{person.name}</div>
+      <div class="person-roles">{roles}</div>
+    </div>
+    <div class="credit-info popup">
+      <div class="person-name">{person.name}</div>
+      <div class="person-roles">{popupRoles}</div>
+    </div>
   </div>
-</div>
+{/snippet}
+
+{#if isTv}
+  <div class="credits-view-container">
+    {#if credits.cast?.length > 0}
+      <h2 class="section-title">Cast</h2>
+      <div class="credits-list" onwheel={horizontalScroll}>
+        {#each credits.cast as person (person.id)}
+          {@const roles = person.character}
+          {@const popupRoles = roles.replace(/ \/ /g, ' • ')}
+          {@render personTemplate(person, roles, popupRoles)}
+        {/each}
+      </div>
+    {/if}
+    {#if credits.crew?.length > 0}
+      <h2 class="section-title">Crew</h2>
+      <div class="credits-list" onwheel={horizontalScroll}>
+        {#each credits.crew as person (person.id)}
+          {@const roles = person.job}
+          {@const popupRoles = roles.replace(/ \/ /g, ' • ')}
+          {@render personTemplate(person, roles, popupRoles)}
+        {/each}
+      </div>
+    {/if}
+  </div>
+{:else}
+  <div class="credits-view-container">
+    <h2 class="section-title">Cast & Crew</h2>
+    <div class="credits-list" onwheel={horizontalScroll}>
+      {#each processedMovieCredits as person (person.id)}
+        {@const roles = person.roles.join(', ')}
+        {@const popupRoles = person.roles.join(' • ')}
+        {@render personTemplate(person, roles, popupRoles)}
+      {/each}
+    </div>
+  </div>
+{/if}
 
 <style>
   .credits-view-container {

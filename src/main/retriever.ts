@@ -260,25 +260,106 @@ export async function fetchAndApplyCredits(
     const credits = await response.json()
 
     if (isTv) {
-      // Normalize the 'aggregate_credits' response to match the simpler 'credits' structure.
-      // This allows the renderer to use the same logic for both movies and TV shows.
-      const normalizedCast = (credits.cast ?? []).map((person: any) => ({
-        ...person,
-        // Combine all roles into a single 'character' string
-        character: person.roles?.map((r: any) => r.character).join(' / ') || ''
-      }))
+      // Step 1: Unify roles and determine importance scores.
+      const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
+      const people = new Map<
+        number,
+        {
+          personData: any
+          actingScore: number
+          crewScore: number
+          characters: string[]
+          jobs: string[]
+        }
+      >()
 
-      const normalizedCrew = (credits.crew ?? []).flatMap((person: any) =>
-        // Create a separate entry for each job a person has
-        person.jobs.map((jobInfo: any) => ({
-          ...person,
-          job: jobInfo.job,
-          // Remove the 'jobs' array to keep the structure clean and consistent
-          jobs: undefined
-        }))
-      )
+      // Helper to initialize or retrieve a person from the map.
+      const ensurePerson = (personId: number, initialData: any) => {
+        if (!people.has(personId)) {
+          people.set(personId, {
+            personData: initialData,
+            actingScore: Infinity,
+            crewScore: Infinity,
+            characters: [],
+            jobs: []
+          })
+        }
+        return people.get(personId)!
+      }
 
-      item.tmdbCredits = { cast: normalizedCast, crew: normalizedCrew }
+      // Process cast members to get their best acting score.
+      ;(credits.cast ?? []).forEach((castMember: any) => {
+        const p = ensurePerson(castMember.id, castMember)
+        p.actingScore = Math.min(p.actingScore, castMember.order)
+        p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+        p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
+      })
+
+      // Process crew members to get their best crew score.
+      ;(credits.crew ?? []).forEach((crewMember: any) => {
+        let bestJobIndex = Infinity
+        const importantJobsForPerson: string[] = []
+
+        ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
+          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+          if (index !== -1) {
+            bestJobIndex = Math.min(bestJobIndex, index)
+            importantJobsForPerson.push(jobInfo.job)
+          }
+        })
+
+        // Only add crew if they have an important job.
+        if (bestJobIndex !== Infinity) {
+          const p = ensurePerson(crewMember.id, crewMember)
+          p.crewScore = Math.min(p.crewScore, bestJobIndex)
+          p.jobs.push(...importantJobsForPerson)
+          p.personData = { ...p.personData, ...crewMember }
+        }
+      })
+
+      // Step 2: Determine primary role ("The Cranston Rule") and categorize.
+      const finalCast: any[] = []
+      const finalCrew: any[] = []
+
+      people.forEach((p) => {
+        const isPrimarilyActor = p.actingScore <= 15 || p.actingScore < p.crewScore
+
+        if (isPrimarilyActor) {
+          finalCast.push({
+            ...p.personData,
+            // Synthesize a character string from all their acting roles.
+            character: [...new Set(p.characters)].join(' / '),
+            // Use the best acting score for sorting.
+            order: p.actingScore
+          })
+        } else {
+          finalCrew.push({
+            ...p.personData,
+            // Synthesize a job string from all their important crew roles.
+            job: [...new Set(p.jobs)].join(' / '),
+            // Use the best crew score for sorting.
+            order: p.crewScore
+          })
+        }
+      })
+
+      // Step 3: Sort the final lists for display.
+      finalCast.sort((a, b) => a.order - b.order)
+      finalCrew.sort((a, b) => {
+        // Primary sort: by job importance (lower is better)
+        if (a.order !== b.order) {
+          return a.order - b.order
+        }
+        // Secondary sort: people with images first
+        const aHasImage = !!a.profile_path
+        const bHasImage = !!b.profile_path
+        if (aHasImage !== bHasImage) {
+          return aHasImage ? -1 : 1
+        }
+        return 0
+      })
+
+      item.tmdbCredits = { cast: finalCast, crew: finalCrew }
     } else {
       // For movies, the 'credits' endpoint structure is already what we need.
       item.tmdbCredits = {

@@ -166,7 +166,7 @@
     {/if}
 
     {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-      <CreditsView credits={item.tmdbCredits} />
+      <CreditsView {item} credits={item.tmdbCredits} />
     {/if}
   </div>
 </div>
