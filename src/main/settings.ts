@@ -5,6 +5,8 @@ import type { DefaultLayoutKey, Settings, StoredViewSettings } from '../shared/t
 import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
 
 const SETTINGS_FILE_NAME = 'settings.json'
+const DEFAULT_API_KEY_B64 = 'ZDRjNDk4OWQwZmI4Njc1MmY1ZDc1MzczZjExZGIwNmU='
+const DEFAULT_API_KEY = Buffer.from(DEFAULT_API_KEY_B64, 'base64').toString('utf-8')
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), SETTINGS_FILE_NAME)
@@ -89,12 +91,7 @@ async function readRawSettings(): Promise<Settings> {
 export async function readSettings(): Promise<Settings> {
   const settings = await readRawSettings()
   if (!settings.tmdbApiKey) {
-    try {
-      const DEFAULT_API_KEY_B64 = 'ZDRjNDk4OWQwZmI4Njc1MmY1ZDc1MzczZjExZGIwNmU='
-      settings.tmdbApiKey = Buffer.from(DEFAULT_API_KEY_B64, 'base64').toString('utf-8')
-    } catch (e) {
-      console.error('[Settings] Failed to decode default API key.', e)
-    }
+    settings.tmdbApiKey = DEFAULT_API_KEY
   }
   return settings
 }
@@ -103,8 +100,16 @@ export async function writeSettings(settings: Partial<Settings>): Promise<void> 
   const settingsPath = getSettingsPath()
   try {
     const currentSettings = await readRawSettings()
-    const newSettings = { ...currentSettings, ...settings }
-    await fs.writeFile(settingsPath, JSON.stringify(newSettings, null, 2))
+    // Create a mutable copy with a partial type to allow for property deletion.
+    const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }
+
+    // If the API key is the default one, remove it before saving
+    // so it doesn't get written to the file.
+    if (settingsToSave.tmdbApiKey === DEFAULT_API_KEY) {
+      delete settingsToSave.tmdbApiKey
+    }
+
+    await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
     console.log(`Settings successfully saved to ${settingsPath}`)
   } catch (error) {
     console.error(`Failed to write settings to ${settingsPath}:`, error)
