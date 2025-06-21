@@ -48,7 +48,15 @@ let {
     if (key && value) {
       query.tags.push({ key, value })
       query.tags = query.tags // Trigger reactivity
-      query.text = ''
+
+      // Find the tag pattern at the end of the text and remove it, preserving what came before.
+      const genericTagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+      if (genericTagMatch) {
+        query.text = query.text.substring(0, genericTagMatch.index).trim()
+      } else {
+        // Fallback if the text somehow doesn't match the pattern that triggered `addPill`.
+        query.text = ''
+      }
     }
   }
 
@@ -96,12 +104,8 @@ let {
     if (autocomplete.suggestions.length > 0) {
       const searchBox = element?.closest('.search-box')
       if (searchBox && textMirror && element) {
-        let prefix = ''
-        const match = valueMatch || keyMatch
-        if (match) {
-          // The prefix is the text inside the input before the start of the current tag.
-          prefix = element.value.substring(0, match.index!)
-        }
+        // The prefix is the text inside the input up to the current cursor position.
+        const prefix = element.value.substring(0, element.selectionStart ?? 0)
         textMirror.textContent = prefix
 
         const inputRect = element.getBoundingClientRect()
@@ -144,8 +148,23 @@ let {
 
   function handleAutocompleteSelect(suggestion: string) {
     if (autocomplete.type === 'key') {
-      query.text = `:${suggestion}:`
-      handleInput()
+      const keyMatch = query.text.match(/:([a-zA-Z0-9_.-]*)$/)
+      if (keyMatch) {
+        const textBefore = query.text.substring(0, keyMatch.index)
+        query.text = `${textBefore}:${suggestion}:`
+      } else {
+        // This fallback is probably not needed, but good to have
+        query.text = `:${suggestion}:`
+      }
+      // Defer handleInput until after the DOM has updated with the new text.
+      // This ensures the menu position is calculated based on the new cursor position.
+      queueMicrotask(() => {
+        if (element) {
+          // Manually move the cursor to the end of the input.
+          element.selectionStart = element.selectionEnd = query.text.length
+        }
+        handleInput()
+      })
     } else if (autocomplete.type === 'value') {
       addPill(autocomplete.activeKey, suggestion)
       autocomplete.show = false
