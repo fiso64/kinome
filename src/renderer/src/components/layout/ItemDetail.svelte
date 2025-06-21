@@ -215,7 +215,7 @@
                 <div class="credits-popout">
                   <div class="tab-content-wrapper">
                     {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-                      <CreditsView {item} credits={item.tmdbCredits} />
+                      <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
                     {:else if !item.tmdbCreditsFetched}
                       <div class="loading-credits">Loading...</div>
                     {:else}
@@ -277,7 +277,7 @@
         {#if isCreditsExpanded}
           <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
             {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-              <CreditsView {item} credits={item.tmdbCredits} />
+              <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
             {:else if !item.tmdbCreditsFetched}
               <div class="loading-credits">Loading...</div>
             {/if}

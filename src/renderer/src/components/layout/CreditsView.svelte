@@ -7,7 +7,15 @@
     numImportantRoles: number
   }
 
-  let { item, credits }: { item: LibraryItem; credits: { cast: any[]; crew: any[] } } = $props()
+  let {
+    item,
+    credits,
+    onSearchByTag
+  }: {
+    item: LibraryItem
+    credits: { cast: any[]; crew: any[] }
+    onSearchByTag: (key: string, value: string) => void
+  } = $props()
 
   const isTv = $derived(item.mediaType === 'tv')
 
@@ -71,7 +79,13 @@
 </script>
 
 {#snippet personTemplate(person, roles, popupRoles)}
-  <div class="credit-item" data-name={person.name} data-roles={popupRoles}>
+  <button
+    type="button"
+    class="credit-item"
+    data-name={person.name}
+    data-roles={popupRoles}
+    onclick={() => onSearchByTag('person', person.name)}
+  >
     <div class="credit-poster">
       {#if person.profile_path}
         <img
@@ -100,7 +114,7 @@
       <div class="person-name">{person.name}</div>
       <div class="person-roles">{popupRoles}</div>
     </div>
-  </div>
+  </button>
 {/snippet}
 
 {#if isTv}
@@ -165,6 +179,15 @@
     display: none;
   }
   .credit-item {
+    /* Reset button styles */
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    /* Original styles */
     display: flex;
     flex-direction: column;
     width: 100px;
@@ -174,6 +197,7 @@
   }
   .credit-item:hover {
     z-index: 10;
+    background: none;
   }
   .credit-poster {
     width: 100%;
