@@ -1,5 +1,7 @@
 import { writable, get } from 'svelte/store'
 
+const SUGGESTION_LIMIT = 50
+
 export interface AutocompleteState {
   show: boolean
   suggestions: string[]
@@ -65,7 +67,8 @@ export function autocomplete(
   function updateSuggestions() {
     const text = node.value
     const cursorPos = node.selectionStart ?? 0
-    const suggestions = config.getSuggestions(text, cursorPos)
+    const rawSuggestions = config.getSuggestions(text, cursorPos)
+    const suggestions = rawSuggestions.slice(0, SUGGESTION_LIMIT)
 
     if (suggestions.length > 0) {
       if (!textMirror) {
