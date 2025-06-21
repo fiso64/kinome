@@ -78,29 +78,36 @@
       <button
         type="button"
         class="list-item"
+        class:single-line={listDescriptionRows === 0}
         style:height={fixedAspectRatio ? 'auto' : itemHeightRem}
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
-        <div
-          class="poster"
-          class:has-image={!!item.posterPath}
-          class:fixed-aspect-ratio={fixedAspectRatio || !item.posterPath}
-        >
-          {#if item.posterPath}
-            <img
-              src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-              alt={displayTitle}
-              loading="lazy"
-            />
-          {:else}
-            <div class="icon">
-              {item.type === 'folder' ? '📁' : '🎬'}
-            </div>
-          {/if}
-        </div>
+        {#if !item.posterPath && listDescriptionRows === 0}
+          <div class="icon-only">
+            {item.type === 'folder' ? '📁' : '🎬'}
+          </div>
+        {:else}
+          <div
+            class="poster"
+            class:has-image={!!item.posterPath}
+            class:fixed-aspect-ratio={fixedAspectRatio || !item.posterPath}
+          >
+            {#if item.posterPath}
+              <img
+                src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+                alt={displayTitle}
+                loading="lazy"
+              />
+            {:else}
+              <div class="icon">
+                {item.type === 'folder' ? '📁' : '🎬'}
+              </div>
+            {/if}
+          </div>
+        {/if}
         <div class="info">
           <div class="title-line">
             <h3 class="title" title={displayTitle}>{displayTitle}</h3>
@@ -149,6 +156,9 @@
         background-color 0.2s ease,
         transform 0.2s ease;
       align-items: flex-start; /* Align children (poster, info) to the top */
+    }
+    .list-item.single-line {
+      align-items: center;
     }
     .list-item:hover {
       background-color: var(--color-background-mute);
@@ -201,6 +211,13 @@
     /* --- Icon Specific Styles --- */
     .icon {
       font-size: 2.5rem; /* Fallback font size */
+    }
+    .icon-only {
+      font-size: 1.2rem; /* Match title font size */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
     /* Only apply container query scaling to icons inside the fixed-ratio box */
     .poster.fixed-aspect-ratio .icon {
