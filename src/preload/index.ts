@@ -45,6 +45,7 @@ const api = {
     ipcRenderer.invoke('clear-children-metadata', folderId),
   clearVirtualFolderMetadata: (itemIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('clear-virtual-folder-metadata', itemIds),
+  fetchCredits: (itemId: string): Promise<void> => ipcRenderer.invoke('fetch-credits', itemId),
 
   // Manual Match
   manualSearch: (

@@ -52,6 +52,7 @@ declare global {
       ) => Promise<void>
       clearChildrenMetadata: (folderId: string) => Promise<boolean>
       clearVirtualFolderMetadata: (itemIds: string[]) => Promise<boolean>
+      fetchCredits: (itemId: string) => Promise<void>
       // Manual Match
       manualSearch: (
         query: string,

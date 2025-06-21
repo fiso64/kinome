@@ -1132,45 +1132,6 @@ export function setupLibraryIpc(): void {
       })()
     }
 
-    // --- Fetch #2: Credits (Cast & Crew) ---
-    // This is a lower-priority fetch that runs independently.
-    const needsCreditsFetch =
-      !item.tmdbCreditsFetched &&
-      item.tmdbId &&
-      (item.mediaType === 'movie' || item.mediaType === 'tv')
-
-    if (needsCreditsFetch) {
-      ;(async () => {
-        try {
-          const settings = await readSettings()
-          if (!settings.tmdbApiKey || settings.creditsDisplay === 'hidden') {
-            // If the setting is 'hidden', we don't fetch credits.
-            // Mark as fetched to prevent re-tries on subsequent detail views.
-            if (settings.creditsDisplay === 'hidden') {
-              item.tmdbCreditsFetched = true
-              await writeDb(db!)
-            }
-            return
-          }
-
-          await fetchAndApplyCredits(item, settings.tmdbApiKey)
-
-          item._v = Date.now() // Bust UI cache
-
-          await writeDb(db!) // Save updated credits
-
-          // Notify renderers that credits are now available for this item.
-          const plainItem = JSON.parse(JSON.stringify(item))
-          BrowserWindow.getAllWindows().forEach((window) => {
-            window.webContents.send('library-item-updated', plainItem)
-          })
-          log(`[Details] Credits fetch complete for "${item.name}"`)
-        } catch (err) {
-          console.error(`[Details] Background credits fetch for item ${itemId} failed:`, err)
-        }
-      })()
-    }
-
     // --- Immediate Return ---
     // Return a deep copy to avoid issues with proxies and non-clonable objects over IPC.
     if (item) {
@@ -1181,6 +1142,50 @@ export function setupLibraryIpc(): void {
       return deepCopy
     }
     return null
+  })
+
+  ipcMain.handle('fetch-credits', async (_, itemId: string): Promise<void> => {
+    if (!db || !db.root) return
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`[Credits] Cannot fetch, item ${itemId} not found.`)
+      return
+    }
+
+    const needsCreditsFetch =
+      !item.tmdbCreditsFetched &&
+      item.tmdbId &&
+      (item.mediaType === 'movie' || item.mediaType === 'tv')
+
+    if (!needsCreditsFetch) {
+      log(`[Credits] Fetch not needed for "${item.name}".`)
+      return
+    }
+
+    try {
+      const settings = await readSettings()
+      // This check is slightly redundant as the renderer should not call this
+      // if the setting is 'hidden', but it's a good safeguard.
+      if (!settings.tmdbApiKey || settings.creditsDisplay === 'hidden') {
+        if (settings.creditsDisplay === 'hidden') {
+          item.tmdbCreditsFetched = true
+          await writeDb(db)
+        }
+        return
+      }
+
+      await fetchAndApplyCredits(item, settings.tmdbApiKey)
+      item._v = Date.now()
+      await writeDb(db)
+
+      const plainItem = JSON.parse(JSON.stringify(item))
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('library-item-updated', plainItem)
+      })
+      log(`[Credits] Fetch complete for "${item.name}"`)
+    } catch (err) {
+      console.error(`[Credits] Background fetch for item ${itemId} failed:`, err)
+    }
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {

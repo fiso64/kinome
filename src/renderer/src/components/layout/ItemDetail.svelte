@@ -17,7 +17,61 @@
     settings: Settings
   } = $props()
 
+  let activeInfoTab: 'overview' | 'credits' = $state('overview')
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
+  let lastSeenItemId = $state(item.id)
+  let overviewContainerElement = $state<HTMLDivElement>()
+
+  $effect(() => {
+    // If we switch to a new item (i.e., the ID has changed), reset the tab to overview.
+    // This prevents the tab from resetting on a simple data update for the same item.
+    if (item.id !== lastSeenItemId) {
+      activeInfoTab = 'overview'
+      lastSeenItemId = item.id
+    }
+  })
+
+  $effect(() => {
+    // On-demand fetching for credits
+    if (settings?.creditsDisplay === 'tab') {
+      if (activeInfoTab === 'credits' && !item.tmdbCreditsFetched) {
+        window.api.fetchCredits(item.id)
+      }
+    } else {
+      // Logic for 'shown'/'collapsed'
+      if (isCreditsExpanded && !item.tmdbCreditsFetched) {
+        window.api.fetchCredits(item.id)
+      }
+    }
+  })
+
+  $effect(() => {
+    if (activeInfoTab !== 'credits') {
+      return
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      // Don't close if clicking on the popout container itself.
+      if (overviewContainerElement && !overviewContainerElement.contains(event.target as Node)) {
+        // Also, don't close if clicking on another modal or context menu on top.
+        const targetElement = event.target as HTMLElement
+        if (targetElement.closest('.modal-window, .context-menu, .dialog-window')) {
+          return
+        }
+        activeInfoTab = 'overview'
+      }
+    }
+
+    // Add listener on the next tick to avoid it firing from the same click that opened it.
+    queueMicrotask(() => {
+      window.addEventListener('mousedown', handleClickOutside)
+    })
+
+    // Cleanup function to remove the listener.
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside)
+    }
+  })
 
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
@@ -129,7 +183,50 @@
             {/if}
           </div>
         </div>
-        {#if item.overview}
+        {#if settings?.creditsDisplay === 'tab'}
+          <div class="overview-container" bind:this={overviewContainerElement}>
+            <div class="info-tabs">
+              <button
+                class:active={activeInfoTab === 'overview'}
+                onclick={() => (activeInfoTab = 'overview')}
+              >
+                <h2 class="section-title">Overview</h2>
+              </button>
+              <button
+                class:active={activeInfoTab === 'credits'}
+                onclick={() => (activeInfoTab = 'credits')}
+              >
+                <h2 class="section-title">Cast & Crew</h2>
+              </button>
+            </div>
+
+            <div class="content-holder">
+              <!-- Overview is always present to maintain content height -->
+              <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
+                {#if item.overview}
+                  <p class="overview">{item.overview}</p>
+                {:else}
+                  <p class="overview no-overview">No overview available.</p>
+                {/if}
+              </div>
+
+              <!-- Credits "pop out" on top of the overview area -->
+              {#if activeInfoTab === 'credits'}
+                <div class="credits-popout">
+                  <div class="tab-content-wrapper">
+                    {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+                      <CreditsView {item} credits={item.tmdbCredits} />
+                    {:else if !item.tmdbCreditsFetched}
+                      <div class="loading-credits">Loading...</div>
+                    {:else}
+                      <p class="overview no-overview">No credits available for this item.</p>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else if item.overview}
           <div class="overview-container">
             <h2 class="section-title">Overview</h2>
             <p class="overview">{item.overview}</p>
@@ -168,7 +265,7 @@
       </div>
     {/if}
 
-    {#if settings?.creditsDisplay !== 'hidden' && item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+    {#if settings?.creditsDisplay !== 'hidden' && settings?.creditsDisplay !== 'tab'}
       <div class="collapsible-section">
         <button
           class="section-title-button"
@@ -179,7 +276,11 @@
         </button>
         {#if isCreditsExpanded}
           <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
-            <CreditsView {item} credits={item.tmdbCredits} />
+            {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+              <CreditsView {item} credits={item.tmdbCredits} />
+            {:else if !item.tmdbCreditsFetched}
+              <div class="loading-credits">Loading...</div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -307,6 +408,7 @@
     display: flex;
     flex-direction: column;
     gap: 2rem;
+    min-width: 0; /* Prevent wide content from breaking the grid layout */
   }
 
   .title-and-meta {
@@ -391,7 +493,7 @@
   .overview-container {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    position: relative; /* Anchor for the popout */
   }
 
   .overview {
@@ -450,5 +552,83 @@
   .collapsible-content {
     overflow: hidden;
     padding-top: 1.5rem;
+  }
+
+  .loading-credits {
+    color: var(--ev-c-text-2);
+  }
+
+  .info-tabs {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--color-background-mute);
+    margin-bottom: 0.75rem; /* This creates the gap between tabs and content */
+    flex-shrink: 0; /* Prevent tabs from shrinking */
+  }
+
+  .info-tabs button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    transition: opacity 0.2s ease;
+  }
+
+  .info-tabs button:not(.active) {
+    opacity: 0.4;
+  }
+
+  .info-tabs button:not(.active):hover {
+    opacity: 1;
+  }
+
+  .info-tabs button .section-title {
+    border-bottom: none;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0;
+  }
+
+  .content-holder {
+    /* No longer needs to be a positioning context */
+    flex-grow: 1;
+  }
+
+  .overview-content {
+    transition: opacity 0.2s ease-in-out;
+  }
+  .overview-content.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .credits-popout {
+    /* Position relative to the .overview-container */
+    position: absolute;
+    /* Start right after the tabs */
+    top: 47px; /* Height of tabs + gap */
+    left: -1rem; /* Align with parent padding */
+    right: -1rem; /* Align with parent padding */
+    max-height: 50vh; /* Set a maximum height, but allow it to be smaller */
+
+    background-color: var(--color-background-soft);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    padding: 1rem;
+    overflow-y: hidden;
+    animation: fadeIn 0.2s ease-in-out;
+    scrollbar-gutter: stable; /* Prevent scrollbar from causing layout shift */
+    z-index: 10; /* Ensure it's on top */
+  }
+
+  .tab-content-wrapper {
+    padding-top: 0.25rem;
+  }
+
+  .no-overview {
+    color: var(--ev-c-text-2);
+    font-style: italic;
   }
 </style>

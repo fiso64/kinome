@@ -334,8 +334,9 @@
       <div class="form-group">
         <label for="credits-display">Cast & Crew Section</label>
         <select id="credits-display" bind:value={creditsDisplay}>
-          <option value="shown">Show Expanded</option>
-          <option value="collapsed">Show Collapsed</option>
+            <option value="shown">Show Expanded</option>
+            <option value="collapsed">Show Collapsed</option>
+            <option value="tab">Show as Tab</option>
           <option value="hidden">Do Not Show or Fetch</option>
         </select>
         <p class="help-text">Controls the default visibility of the credits section.</p>
