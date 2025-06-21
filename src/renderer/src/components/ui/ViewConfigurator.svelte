@@ -163,7 +163,7 @@
   {#if layoutToShowOptionsFor === 'grid'}
     <div class="divider"></div>
     <div class="heading-with-action">
-      <h3>Grid Poster Size</h3>
+      <h4>Grid Poster Size</h4>
       {#if isGridSizeOverridden && !configMode}
         <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button
         >
@@ -195,7 +195,7 @@
   {#if layoutToShowOptionsFor === 'tabs' || layoutToShowOptionsFor === 'sections'}
     <div class="divider"></div>
     <div class="heading-with-action">
-      <h3>Group By</h3>
+      <h4>Group By</h4>
       {#if isGroupByOverridden && !configMode}
         <button class="link-button" onclick={() => (selectedGroupBy = null)}
           >Reset to default</button
@@ -225,7 +225,7 @@
   {#if layoutToShowOptionsFor === 'list'}
     <div class="divider"></div>
     <div class="heading-with-action">
-      <h3>Description Rows</h3>
+      <h4>Description Rows</h4>
       {#if isDescriptionRowsOverridden && !configMode}
         <button class="link-button" onclick={() => (listDescriptionRows = null)}
           >Reset to default</button
@@ -386,11 +386,14 @@
     justify-content: space-between;
     align-items: baseline;
   }
-  .heading-with-action h3 {
+  .heading-with-action h4 {
     margin: 0;
   }
-  h3 {
+  h3,
+  h4 {
     font-weight: bold;
+  }
+  h3 {
     margin-bottom: -0.75rem;
   }
 
