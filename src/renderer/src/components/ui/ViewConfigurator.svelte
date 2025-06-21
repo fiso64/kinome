@@ -356,13 +356,16 @@
   .inherited-value-text-inline {
     font-size: 0.8rem; /* Match link-button */
     color: var(--ev-c-text-2);
-    font-style: italic;
     white-space: nowrap;
   }
   .inherited-value-text-inline strong {
-    font-style: normal;
     font-weight: 600;
-    color: var(--ev-c-text-1);
+    background: none;
+    border: none;
+    color: var(--ev-c-text-2);
+    text-decoration: underline;
+    font-size: 0.8rem;
+    padding: 0;
   }
 
   .layout-options {
