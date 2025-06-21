@@ -69,7 +69,11 @@
   <h2 class="section-title">Cast & Crew</h2>
   <div class="credits-list" onwheel={horizontalScroll}>
     {#each processedCredits as person (person.id)}
-      <div class="credit-item">
+      <div
+        class="credit-item"
+        data-name={person.name}
+        data-roles={person.roles.join(' \u2022 ')}
+      >
         <div class="credit-poster">
           {#if person.profile_path}
             <img
@@ -90,9 +94,15 @@
             </svg>
           {/if}
         </div>
-        <div class="credit-info">
+        <!-- Static content, visible by default -->
+        <div class="credit-info static">
           <div class="person-name">{person.name}</div>
           <div class="person-roles">{person.roles.join(', ')}</div>
+        </div>
+        <!-- Pop-up content, hidden by default and revealed on hover -->
+        <div class="credit-info popup">
+          <div class="person-name">{person.name}</div>
+          <div class="person-roles">{person.roles.join(' • ')}</div>
         </div>
       </div>
     {/each}
@@ -116,24 +126,26 @@
   .credits-list {
     display: flex;
     overflow-x: auto;
+    overflow-y: visible; /* Fix #1: Allow vertical overflow to show pop-up */
     gap: 1.5rem;
-    padding: 0.5rem 0 1.5rem 0; /* Padding for scrollbar and breathing room */
-    -ms-overflow-style: none; /* for Internet Explorer, Edge */
-    scrollbar-width: none; /* for Firefox */
+    padding: 0.5rem;
+    padding-bottom: 1.5rem;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
   .credits-list::-webkit-scrollbar {
-    display: none; /* for Chrome, Safari, and Opera */
+    display: none;
   }
   .credit-item {
     display: flex;
     flex-direction: column;
-    width: 140px;
+    width: 100px;
     flex-shrink: 0;
     gap: 0.5rem;
-    transition: transform 0.2s ease-out;
+    position: relative;
   }
   .credit-item:hover {
-    transform: scale(1.05);
+    z-index: 10;
   }
   .credit-poster {
     width: 100%;
@@ -145,6 +157,10 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease-out;
+  }
+  .credit-item:hover .credit-poster {
+    transform: scale(1.05);
   }
   .credit-poster img {
     width: 100%;
@@ -156,22 +172,40 @@
     height: 50%;
     color: var(--ev-c-gray-1);
   }
+
   .credit-info {
     padding: 0 0.25rem;
-    min-height: 3.5em; /* Reserve space for at least two lines of roles */
-    position: relative;
-    transition: all 0.2s ease-out;
   }
-  .credit-item:hover .credit-info {
+  .credit-info.static {
+    min-height: 3.5em;
+    width: 100%;
+    transition: opacity 0.1s ease-out;
+  }
+  .credit-item:hover .credit-info.static {
+    opacity: 0;
+  }
+  .credit-info.popup {
     position: absolute;
-    bottom: -0.5rem; /* Pop out from bottom */
-    left: -0.75rem;
-    right: -0.75rem;
+    top: calc(100px * 3 / 2 + 0.5rem);
+    left: 50%;
+    width: 180px;
+
     background: var(--color-background);
     padding: 0.75rem;
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-    z-index: 10;
+
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.95);
+    pointer-events: none;
+    transition:
+      transform 0.2s ease-out,
+      opacity 0.2s ease-out;
+  }
+  .credit-item:hover .credit-info.popup {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
   }
 
   .person-name {
@@ -182,19 +216,40 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* Style both static and popup roles */
   .person-roles {
     font-size: 0.8rem;
     color: var(--ev-c-text-2);
     line-height: 1.4;
+    white-space: normal; /* Allow wrapping */
+  }
+
+  /* Only clamp lines on the static version */
+  .credit-info.static .person-roles {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: normal; /* Allow wrapping */
   }
-  .credit-item:hover .person-roles {
-    -webkit-line-clamp: unset; /* Remove line clamp on hover */
-    max-height: none;
+
+  /* Adjust popup positioning for first and last items to prevent clipping at container edges */
+  .credit-item:first-child .credit-info.popup {
+    /* For the first item, align popup to the left */
+    left: 0;
+    transform: translate(0, -10px) scale(0.95);
+  }
+  .credit-item:first-child:hover .credit-info.popup {
+    transform: translate(0, 0) scale(1);
+  }
+  .credit-item:last-child .credit-info.popup {
+    /* For the last item, align popup to the right */
+    left: auto;
+    right: 0;
+    transform: translate(0, -10px) scale(0.95);
+  }
+  .credit-item:last-child:hover .credit-info.popup {
+    transform: translate(0, 0) scale(1);
   }
 </style>
