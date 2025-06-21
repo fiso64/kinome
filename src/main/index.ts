@@ -5,9 +5,9 @@ import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   setupLibraryIpc,
-  getLibraryDataPath,
   reapplyVirtualTagsAfterSettingsChange
 } from './library'
+import { getLibraryDataPath } from './paths'
 import { readSettings, writeSettings } from './settings'
 import type { Settings } from '../shared/types'
 

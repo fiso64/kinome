@@ -3,13 +3,30 @@ import path from 'path'
 import fs from 'fs/promises'
 import type { DefaultLayoutKey, Settings, StoredViewSettings } from '../shared/types'
 import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
+import { getLibraryDataPath } from './paths'
 
-const SETTINGS_FILE_NAME = 'settings.json'
+const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
+const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
 const DEFAULT_API_KEY_B64 = 'ZDRjNDk4OWQwZmI4Njc1MmY1ZDc1MzczZjExZGIwNmU='
 const DEFAULT_API_KEY = Buffer.from(DEFAULT_API_KEY_B64, 'base64').toString('utf-8')
 
-function getSettingsPath(): string {
-  return path.join(app.getPath('userData'), SETTINGS_FILE_NAME)
+function getGlobalSettingsPath(): string {
+  return path.join(app.getPath('userData'), GLOBAL_SETTINGS_FILE_NAME)
+}
+
+function getLibrarySettingsPath(): string {
+  const libraryPath = getLibraryDataPath()
+  return path.join(libraryPath, LIBRARY_SETTINGS_FILE_NAME)
+}
+
+// Helper to read a single settings file and return its content or null
+async function readSettingsFile(filePath: string): Promise<Partial<Settings> | null> {
+  try {
+    const data = await fs.readFile(filePath, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return null
+  }
 }
 
 async function readRawSettings(): Promise<Settings> {
@@ -28,64 +45,68 @@ async function readRawSettings(): Promise<Settings> {
     }
   }
 
-  try {
-    const data = await fs.readFile(getSettingsPath(), 'utf-8')
-    const saved = JSON.parse(data)
+  // --- Start with defaults ---
+  let finalSettings = defaultSettings
 
-    // --- MIGRATION LOGIC from old format ---
-    if (saved.defaultViewSettings) {
-      console.log('[Settings] Migrating old view settings to new format.')
-      saved.defaultLayouts = {
-        _default: saved.defaultViewSettings,
-        movie: saved.defaultMovieViewSettings,
-        tv: saved.defaultTvShowViewSettings,
-        season: saved.defaultSeasonViewSettings
-      }
-      delete saved.defaultViewSettings
-      delete saved.defaultMovieViewSettings
-      delete saved.defaultTvShowViewSettings
-      delete saved.defaultSeasonViewSettings
+  // --- Read and merge settings files ---
+  const librarySettings = await readSettingsFile(getLibrarySettingsPath())
+  const globalSettings = await readSettingsFile(getGlobalSettingsPath())
+
+  // --- MIGRATION LOGIC: Only apply to global settings file ---
+  if (globalSettings?.defaultViewSettings) {
+    console.log('[Settings] Migrating old view settings from settings.json to new format.')
+    globalSettings.defaultLayouts = {
+      _default: (globalSettings as any).defaultViewSettings,
+      movie: (globalSettings as any).defaultMovieViewSettings,
+      tv: (globalSettings as any).defaultTvShowViewSettings,
+      season: (globalSettings as any).defaultSeasonViewSettings
     }
-    // --- END MIGRATION LOGIC ---
+    delete (globalSettings as any).defaultViewSettings
+    delete (globalSettings as any).defaultMovieViewSettings
+    delete (globalSettings as any).defaultTvShowViewSettings
+    delete (globalSettings as any).defaultSeasonViewSettings
+  }
 
-    // Dynamically merge default layouts from the config
+  // --- Deep merge settings: default -> library -> global ---
+  const settingsToMerge = [librarySettings, globalSettings].filter(
+    (s): s is Partial<Settings> => s !== null
+  )
+
+  for (const saved of settingsToMerge) {
     const mergedLayouts = (Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]).reduce(
       (acc, key) => {
-        acc[key] = { ...defaultSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
+        acc[key] = { ...finalSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
         return acc
       },
-      {} as { [K in DefaultLayoutKey]: StoredViewSettings }
+      finalSettings.defaultLayouts
     )
 
-    // Deep merge the saved settings over the defaults.
-    const merged: Settings = {
-      ...defaultSettings,
+    finalSettings = {
+      ...finalSettings,
       ...saved,
       defaultLayoutSettings: {
         grid: {
-          ...defaultSettings.defaultLayoutSettings.grid,
+          ...finalSettings.defaultLayoutSettings.grid,
           ...saved.defaultLayoutSettings?.grid
         },
         list: {
-          ...defaultSettings.defaultLayoutSettings.list,
+          ...finalSettings.defaultLayoutSettings.list,
           ...saved.defaultLayoutSettings?.list
         },
         tabs: {
-          ...defaultSettings.defaultLayoutSettings.tabs,
+          ...finalSettings.defaultLayoutSettings.tabs,
           ...saved.defaultLayoutSettings?.tabs
         },
         sections: {
-          ...defaultSettings.defaultLayoutSettings.sections,
+          ...finalSettings.defaultLayoutSettings.sections,
           ...saved.defaultLayoutSettings?.sections
         }
       },
       defaultLayouts: mergedLayouts
     }
-    return merged
-  } catch {
-    // File doesn't exist or is corrupt, return defaults.
-    return defaultSettings
   }
+
+  return finalSettings
 }
 
 export async function readSettings(): Promise<Settings> {
@@ -97,8 +118,11 @@ export async function readSettings(): Promise<Settings> {
 }
 
 export async function writeSettings(settings: Partial<Settings>): Promise<void> {
-  const settingsPath = getSettingsPath()
+  const settingsPath = getLibrarySettingsPath()
   try {
+    // Ensure library data directory exists before writing
+    await fs.mkdir(getLibraryDataPath(), { recursive: true })
+
     const currentSettings = await readRawSettings()
     // Create a mutable copy with a partial type to allow for property deletion.
     const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }

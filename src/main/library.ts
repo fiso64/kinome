@@ -42,8 +42,8 @@ import {
   downloadImage
 } from './retriever'
 import { readSettings } from './settings'
+import { getLibraryDataPath } from './paths'
 
-const LIBRARY_DATA_DIR_NAME = 'library'
 const DATABASE_FILE_NAME = 'database.json'
 const DB_VERSION = 1
 
@@ -96,10 +96,6 @@ async function loadDbIntoMemory(): Promise<void> {
   }
 }
 // --- End In-Memory Database Cache ---
-
-export function getLibraryDataPath(): string {
-  return path.join(app.getPath('userData'), LIBRARY_DATA_DIR_NAME)
-}
 
 function getDbPath(): string {
   return path.join(getLibraryDataPath(), DATABASE_FILE_NAME)
