@@ -27,8 +27,7 @@
     highlightedIndex,
     isPreSorted = false,
     grayOutWatched = true,
-    settings,
-    listFixedAspectRatio = false
+    settings
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -45,10 +44,9 @@
     isPreSorted?: boolean
     grayOutWatched?: boolean
     settings?: Settings | null
-    listFixedAspectRatio?: boolean
   } = $props()
 
-  const { layout, groupBy, gridPosterSize } = $derived.by(() => {
+  const { layout, groupBy, gridPosterSize, listDescriptionRows } = $derived.by(() => {
     // Resolve settings using the centralized helper function.
     const resolved = resolveViewSettings(parentItem, settings)
 
@@ -61,7 +59,8 @@
     return {
       layout: resolved.layout,
       groupBy: resolved.groupBy,
-      gridPosterSize: resolved.gridPosterSize
+      gridPosterSize: resolved.gridPosterSize,
+      listDescriptionRows: resolved.listDescriptionRows
     }
   })
 
@@ -290,8 +289,8 @@
       {onShowContextMenu}
       {highlightedIndex}
       {grayOutWatched}
-      fixedAspectRatio={listFixedAspectRatio}
       {parentItem}
+      {listDescriptionRows}
     />
   {:else if layout === 'tabs'}
     <TabsView

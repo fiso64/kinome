@@ -8,6 +8,13 @@ export interface GridSettings {
 }
 
 /**
+ * Defines the shape of settings specific to the 'list' layout.
+ */
+export interface ListSettings {
+  listDescriptionRows: number
+}
+
+/**
  * Defines the shape of settings specific to 'tabs' or 'sections' layouts.
  */
 export interface GroupingSettings {
@@ -17,7 +24,7 @@ export interface GroupingSettings {
 /**
  * A union of all possible layout-specific setting objects.
  */
-type LayoutSpecificSettings = GridSettings | GroupingSettings
+type LayoutSpecificSettings = GridSettings | GroupingSettings | ListSettings
 
 /**
  * The single source of truth for layout-specific properties and their ultimate default values.
@@ -25,6 +32,7 @@ type LayoutSpecificSettings = GridSettings | GroupingSettings
  */
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   grid: { gridPosterSize: 250 },
+  list: { listDescriptionRows: 3 },
   tabs: { groupBy: 'folder' },
   sections: { groupBy: 'folder' }
 } as const
@@ -62,7 +70,9 @@ export interface BaseViewSettings {
  * Represents how view settings are stored in `settings.json` or on a `MediaFolder`.
  * It's a partial object containing only the user-defined *overrides*.
  */
-export type StoredViewSettings = Partial<BaseViewSettings & GridSettings & GroupingSettings>
+export type StoredViewSettings = Partial<
+  BaseViewSettings & GridSettings & GroupingSettings & ListSettings
+>
 
 /**
  * Represents the final, computed settings object after the full cascade has been applied.
@@ -115,6 +125,7 @@ export interface Settings {
   // Global defaults for layout-specific properties
   defaultLayoutSettings: {
     grid: GridSettings
+    list: ListSettings
     tabs: GroupingSettings
     sections: GroupingSettings
   }

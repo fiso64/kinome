@@ -34,10 +34,12 @@
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
+    listDescriptionRows = $bindable(),
     configMode = false,
     initialConfigLayout = 'grid',
     inheritedGridPosterSize,
-    inheritedGroupBy
+    inheritedGroupBy,
+    inheritedListDescriptionRows
   }: {
     availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
@@ -46,10 +48,12 @@
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
     gridPosterSize?: number | null
+    listDescriptionRows?: number | null
     configMode?: boolean
     initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
     inheritedGridPosterSize?: number | null
     inheritedGroupBy?: string | null
+    inheritedListDescriptionRows?: number | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
@@ -64,6 +68,13 @@
   )
   const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
   const isGridSizeOverridden = $derived(gridPosterSize != null)
+
+  // --- List Description Rows ---
+  const defaultDescriptionRows = $derived(
+    inheritedListDescriptionRows ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
+  )
+  const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
+  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
 
   // --- Group By ---
   const defaultGroupBy = $derived(inheritedGroupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy)
@@ -172,6 +183,40 @@
           {/each}
         {/if}
       </select>
+    </div>
+  {/if}
+
+  <!-- List-specific settings -->
+  {#if layoutToShowOptionsFor === 'list'}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h3>Description Rows</h3>
+      {#if isDescriptionRowsOverridden && !configMode}
+        <button class="link-button" onclick={() => (listDescriptionRows = null)}
+          >Reset to default</button
+        >
+      {/if}
+    </div>
+    <p class="help-text">
+      {#if configMode}
+        Controls the default number of lines shown for the description in List view (0 to hide).
+      {:else}
+        Controls the number of lines shown for the description in List view. The current default is
+        {defaultDescriptionRows}.
+      {/if}
+    </p>
+    <div class="form-group">
+      <div class="slider-container">
+        <input
+          type="range"
+          value={effectiveDescriptionRows}
+          oninput={(e) => (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
+          min="0"
+          max="10"
+          step="1"
+        />
+        <span>{effectiveDescriptionRows}</span>
+      </div>
     </div>
   {/if}
 

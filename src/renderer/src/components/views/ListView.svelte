@@ -14,8 +14,8 @@
     onShowContextMenu,
     highlightedIndex,
     grayOutWatched,
-    fixedAspectRatio = false,
-    parentItem
+    parentItem,
+    listDescriptionRows
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -26,9 +26,27 @@
     ) => void
     highlightedIndex?: number | null
     grayOutWatched: boolean
-    fixedAspectRatio?: boolean
     parentItem?: MediaFolder | VirtualFolder
+    listDescriptionRows?: number | null
   } = $props()
+
+  const itemHeightRem = $derived.by(() => {
+    // If setting is not defined, let height be auto.
+    if (listDescriptionRows == null) return 'auto'
+
+    // Constants based on CSS (in rem units)
+    const PADDING_V = 1.5 // 0.75rem top + 0.75rem bottom
+    const TITLE_LINE_HEIGHT = 1.92 // 1.2rem font-size * 1.6 body line-height
+    const INFO_GAP = 0.5
+    const DESC_LINE_HEIGHT = 1.35 // 0.9rem font-size * 1.5 line-height
+
+    const descriptionHeight = listDescriptionRows * DESC_LINE_HEIGHT
+    // The gap is only present if there are description rows to be separated from the title.
+    const gapHeight = listDescriptionRows > 0 ? INFO_GAP : 0
+
+    const totalHeight = PADDING_V + TITLE_LINE_HEIGHT + gapHeight + descriptionHeight
+    return `${totalHeight}rem`
+  })
 
   let listElement: HTMLDivElement | undefined = $state()
 
@@ -58,16 +76,13 @@
       <button
         type="button"
         class="list-item"
+        style:height={itemHeightRem}
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
-        <div
-          class="poster"
-          class:has-image={!!item.posterPath}
-          class:fixed-aspect-ratio={fixedAspectRatio}
-        >
+        <div class="poster" class:has-image={!!item.posterPath}>
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
@@ -87,8 +102,8 @@
               <span class="year">({item.year})</span>
             {/if}
           </div>
-          {#if overview}
-            <p class="overview">{overview}</p>
+          {#if overview && listDescriptionRows > 0}
+            <p class="overview" style="--description-rows: {listDescriptionRows}">{overview}</p>
           {/if}
         </div>
       </button>
@@ -139,34 +154,23 @@
     justify-content: center;
     background-color: var(--color-background);
     border-radius: 4px;
-    height: 120px;
     flex-shrink: 0;
     overflow: hidden;
-    /* Default is variable aspect, width comes from content */
+    /* Height comes from the parent flex item. */
+    align-self: stretch;
+    /* Fallback width for placeholders, etc. */
+    width: 80px;
+  }
+
+  .poster.has-image {
+    /* If there is an image, its dimensions will define the width. */
     width: auto;
   }
 
   .poster img {
     display: block;
     height: 100%;
-    width: auto;
-  }
-
-  /* --- Overrides --- */
-
-  /* Give placeholder a fixed 2:3 width */
-  .poster:not(.has-image) {
-    width: 80px;
-  }
-
-  /* Force fixed 2:3 aspect ratio for search results etc. */
-  .poster.fixed-aspect-ratio {
-    width: 80px;
-  }
-
-  .poster.fixed-aspect-ratio img {
-    width: 100%;
-    object-fit: cover;
+    width: auto; /* Width is calculated to maintain aspect ratio */
   }
   .icon {
     font-size: 2.5rem;
@@ -198,12 +202,15 @@
   .overview {
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
+    line-height: 1.5;
+    /* The max-height is the robust way to ensure the container size is correct. */
+    /* It's calculated based on the line-height (1.5) and the current font-size (em). */
+    max-height: calc(var(--description-rows, 3) * 1.5em);
+    /* The display: -webkit-box properties are for text-truncation with an ellipsis. */
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: var(--description-rows, 3);
     -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.5;
   }
   .list-item.watched {
     opacity: 0.6;

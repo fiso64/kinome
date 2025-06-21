@@ -73,6 +73,9 @@ import { dialogStore } from '../../lib/dialog-store'
   let selectedClickAction = $state(_isFolder ? item.clickAction ?? 'detail' : 'detail')
   let selectedGroupBy = $state(_isFolder ? item.groupBy ?? 'folder' : 'folder')
   let gridPosterSize = $state(_isFolder ? (item as MediaFolder).gridPosterSize : undefined)
+  let listDescriptionRows = $state(
+    _isFolder ? (item as MediaFolder).listDescriptionRows : undefined
+  )
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(_isFolder ? item.retrieve_children_metadata ?? false : false)
@@ -134,6 +137,7 @@ import { dialogStore } from '../../lib/dialog-store'
       if (updatedItem.type === 'folder') {
         updatedItem.layout = selectedLayout
         updatedItem.gridPosterSize = gridPosterSize
+        updatedItem.listDescriptionRows = listDescriptionRows
         updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
         updatedItem.clickAction = selectedClickAction
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
@@ -262,6 +266,7 @@ import { dialogStore } from '../../lib/dialog-store'
         bind:selectedClickAction
         bind:selectedGroupBy
         bind:gridPosterSize
+        bind:listDescriptionRows
       />
     {:else if activeTab === 'folder' && isFolder}
       <FolderTab

@@ -17,6 +17,7 @@
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
+    listDescriptionRows = $bindable(),
     settings
   }: {
     item: MediaFolder & VirtualFolderProps
@@ -25,6 +26,7 @@
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
     gridPosterSize?: number | null
+    listDescriptionRows?: number | null
     settings: Settings | null
   } = $props()
 
@@ -45,7 +47,9 @@
   bind:selectedClickAction
   bind:selectedGroupBy
   bind:gridPosterSize
+  bind:listDescriptionRows
   {groupByKeys}
   inheritedGridPosterSize={inheritedSettings.gridPosterSize}
   inheritedGroupBy={inheritedSettings.groupBy}
+  inheritedListDescriptionRows={inheritedSettings.listDescriptionRows}
 />

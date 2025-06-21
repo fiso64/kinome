@@ -193,7 +193,6 @@
               onItemClick={(item) => dispatch('detailSearchItemClick', { item })}
               onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
               highlightedIndex={highlightedDetailSearchItemIndex}
-              fixedAspectRatio={true}
             />
           {:else if !isPerformingDetailSearch}
             <div class="dropdown-status">No results found.</div>
