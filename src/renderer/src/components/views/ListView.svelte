@@ -15,7 +15,8 @@
     highlightedIndex,
     grayOutWatched,
     parentItem,
-    listDescriptionRows
+    listDescriptionRows,
+    fixedAspectRatio = false
   }: {
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
@@ -28,6 +29,7 @@
     grayOutWatched: boolean
     parentItem?: MediaFolder | VirtualFolder
     listDescriptionRows?: number | null
+    fixedAspectRatio?: boolean
   } = $props()
 
   const itemHeightRem = $derived.by(() => {
@@ -76,13 +78,13 @@
       <button
         type="button"
         class="list-item"
-        style:height={itemHeightRem}
+        style:height={fixedAspectRatio ? 'auto' : itemHeightRem}
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
-        <div class="poster" class:has-image={!!item.posterPath}>
+        <div class="poster" class:has-image={!!item.posterPath} class:fixed-aspect-ratio={fixedAspectRatio}>
           {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
@@ -142,6 +144,7 @@
     transition:
       background-color 0.2s ease,
       transform 0.2s ease;
+    align-items: flex-start; /* Align children (poster, info) to the top */
   }
   .list-item:hover {
     background-color: var(--color-background-mute);
@@ -162,15 +165,31 @@
     width: 80px;
   }
 
-  .poster.has-image {
-    /* If there is an image, its dimensions will define the width. */
+  .poster.has-image:not(.fixed-aspect-ratio) {
+    /* If there is an image AND we are NOT in fixed mode, width is auto. */
     width: auto;
   }
 
   .poster img {
     display: block;
     height: 100%;
-    width: auto; /* Width is calculated to maintain aspect ratio */
+    width: 100%;
+    object-fit: contain; /* Default behavior: fit entirely, maintain aspect ratio */
+  }
+
+  .poster.has-image:not(.fixed-aspect-ratio) img {
+    width: auto; /* Let height dictate width to maintain aspect ratio */
+  }
+
+  .poster.fixed-aspect-ratio {
+    /* When fixed, center it vertically and force a 2:3 aspect ratio */
+    width: 80px;
+    aspect-ratio: 2 / 3;
+    align-self: center;
+  }
+
+  .poster.fixed-aspect-ratio img {
+    object-fit: cover;
   }
   .icon {
     font-size: 2.5rem;

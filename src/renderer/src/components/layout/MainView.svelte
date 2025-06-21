@@ -72,6 +72,7 @@
               isPreSorted={true}
               grayOutWatched={false}
               settings={null}
+              listFixedAspectRatio={true}
             />
           {:else if !isPerformingSearch}
             <p class="status-text">No results found.</p>

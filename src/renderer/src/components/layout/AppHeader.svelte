@@ -197,6 +197,7 @@
               isPreSorted={true}
               grayOutWatched={false}
               settings={null}
+              listFixedAspectRatio={true}
             />
           {:else if !isPerformingDetailSearch}
             <div class="dropdown-status">No results found.</div>

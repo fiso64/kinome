@@ -27,7 +27,8 @@
     highlightedIndex,
     isPreSorted = false,
     grayOutWatched = true,
-    settings
+    settings,
+    listFixedAspectRatio = false
   }: {
     parentItem?: MediaFolder | VirtualFolder
     items: DisplayableItem[]
@@ -44,6 +45,7 @@
     isPreSorted?: boolean
     grayOutWatched?: boolean
     settings?: Settings | null
+    listFixedAspectRatio?: boolean
   } = $props()
 
   const { layout, groupBy, gridPosterSize, listDescriptionRows } = $derived.by(() => {
@@ -291,6 +293,7 @@
       {grayOutWatched}
       {parentItem}
       {listDescriptionRows}
+      fixedAspectRatio={listFixedAspectRatio}
     />
   {:else if layout === 'tabs'}
     <TabsView
