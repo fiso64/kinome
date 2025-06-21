@@ -424,7 +424,8 @@ export async function applyTvShowData(
             fakeSeasonFolder,
             item.tmdbId!,
             settings.tmdbApiKey!,
-            libraryDataPath
+            libraryDataPath,
+            item.tmdbSeasons
           )
         }
         // The show is in file mode and we've attempted to fetch all episodes.
@@ -449,13 +450,23 @@ export async function fetchAndApplyEpisodeData(
   seasonFolder: MediaFolder,
   showTmdbId: number,
   tmdbApiKey: string,
-  libraryDataPath: string
+  libraryDataPath: string,
+  tmdbSeasons: any[]
 ): Promise<void> {
   // If the folder passed doesn't have a season number, it's the TV show root
   // in "File Mode", and we are fetching details for season 1. For actual season
   // folders, `seasonFolder.seasonNumber` will be defined from the earlier
   // local file analysis step.
   const seasonNumber = seasonFolder.seasonNumber ?? 1
+
+  // Check if the season number actually exists for the show on TMDB.
+  const seasonExists = tmdbSeasons.some((s) => s.season_number === seasonNumber)
+  if (!seasonExists) {
+    console.log(`[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist on TMDB.`)
+    seasonFolder.tmdbEpisodesFetched = true
+    seasonFolder.tmdbDetailsFetched = true
+    return
+  }
 
   const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
   console.log(

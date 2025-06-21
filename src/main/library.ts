@@ -1064,13 +1064,34 @@ export function setupLibraryIpc(): void {
             if (item.mediaType === 'season') {
               const showFolder = findParent(item.id, db!.root!)
               if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-                log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-                await fetchAndApplyEpisodeData(
-                  item,
-                  showFolder.tmdbId,
-                  settings.tmdbApiKey,
-                  getLibraryDataPath()
-                )
+                // To fetch episodes, we need the parent's `tmdbSeasons` list.
+                // If the parent's details haven't been fetched, do that first.
+                if (!showFolder.tmdbDetailsFetched) {
+                  log(
+                    `[Details] Parent show "${showFolder.name}" details missing, fetching them first.`
+                  )
+                  await fetchItemDetails(showFolder, settings, getLibraryDataPath())
+                }
+
+                // After attempting to fetch, check if the seasons array is available.
+                if (showFolder.tmdbSeasons) {
+                  log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+                  await fetchAndApplyEpisodeData(
+                    item,
+                    showFolder.tmdbId,
+                    settings.tmdbApiKey,
+                    getLibraryDataPath(),
+                    showFolder.tmdbSeasons
+                  )
+                } else {
+                  // This is the key fix: if we can't fetch episodes because the parent show isn't
+                  // ready, we must still mark this season as 'processed' to prevent an infinite
+                  // loop of the renderer re-requesting details.
+                  item.tmdbEpisodesFetched = true
+                  log(
+                    `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
+                  )
+                }
               } else {
                 // This is the key fix: if we can't fetch episodes because the parent show isn't
                 // ready, we must still mark this season as 'processed' to prevent an infinite
@@ -1430,12 +1451,20 @@ export function setupLibraryIpc(): void {
         const showFolder = findParent(item.id, db!.root!)
         if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
           console.log(`[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`)
-          await fetchAndApplyEpisodeData(
-            item,
-            showFolder.tmdbId,
-            settings.tmdbApiKey,
-            libraryDataPath
-          )
+          // We need the parent show's details to get the list of seasons.
+          if (!showFolder.tmdbDetailsFetched) {
+            await fetchItemDetails(showFolder, settings, libraryDataPath)
+          }
+
+          if (showFolder.tmdbSeasons) {
+            await fetchAndApplyEpisodeData(
+              item,
+              showFolder.tmdbId,
+              settings.tmdbApiKey,
+              libraryDataPath,
+              showFolder.tmdbSeasons
+            )
+          }
         }
       } else {
         // --- Existing logic for Movie/TV Show ---
