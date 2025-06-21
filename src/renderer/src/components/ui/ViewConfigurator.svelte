@@ -76,7 +76,12 @@
       // Create a dummy item that has the base properties of the real item or type,
       // plus the layout we want to resolve for. This forces the resolver to calculate
       // the specific properties for that layout (e.g., listDescriptionRows for 'list').
-      const dummyItem = { ...(item ?? {}), type: 'folder', mediaType: typeKey, layout }
+      const dummyItem = {
+        ...(item ?? {}),
+        type: 'folder',
+        mediaType: item?.mediaType ?? typeKey,
+        layout
+      }
       map.set(layout, resolveViewSettings(dummyItem, settings, layersToIgnore))
     }
     return map
