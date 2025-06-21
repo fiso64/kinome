@@ -4,9 +4,7 @@
     name: string
     profile_path: string | null
     roles: string[]
-    importance: number // The MOST important role they have (lower is better)
     numImportantRoles: number // How many important roles they have
-    originalOrder: number // To preserve TMDB's sorting for actors
   }
 
   let { credits }: { credits: { cast: any[]; crew: any[] } } = $props()
@@ -18,60 +16,52 @@
 
     const people = new Map<number, Person>()
 
-    // Helper to add a person or update their roles and importance
-    function addOrUpdatePerson(personData: any, role: string, importance: number, order: number) {
+    // Helper to add a person or update their roles and importance score
+    function addOrUpdatePerson(personData: any, role: string, importance: number) {
       if (!people.has(personData.id)) {
         people.set(personData.id, {
           id: personData.id,
           name: personData.name,
           profile_path: personData.profile_path,
           roles: [],
-          importance: Infinity,
-          numImportantRoles: 0,
-          originalOrder: Infinity
+          numImportantRoles: 0
         })
       }
       const person = people.get(personData.id)!
       person.roles.push(role)
 
-      // An importance of 100 is for actors, which we don't count as an "important job" for this purpose.
+      // An importance of 100 is for actors, which we don't count as an "important job".
       if (importance < 100) {
         person.numImportantRoles++
       }
-
-      // Update importance only if the new role is more important (lower number)
-      if (importance < person.importance) {
-        person.importance = importance
-        person.originalOrder = order
-      }
     }
 
-    // Process crew for important jobs first
-    credits.crew.forEach((crewMember, index) => {
+    // Process crew for important jobs
+    credits.crew.forEach((crewMember) => {
       const jobIndex = IMPORTANT_JOBS.indexOf(crewMember.job)
       if (jobIndex !== -1) {
-        // Importance is based on the order in IMPORTANT_JOBS.
-        // The original order is just the index in the crew array.
-        addOrUpdatePerson(crewMember, crewMember.job, jobIndex, index)
+        addOrUpdatePerson(crewMember, crewMember.job, jobIndex)
       }
     })
 
     // Process cast members
     for (const castMember of credits.cast) {
-      // Give all cast members an importance of 100.
-      // Their `originalOrder` comes from TMDB's `order` property.
-      addOrUpdatePerson(castMember, castMember.character, 100, castMember.order)
+      addOrUpdatePerson(castMember, castMember.character, 100)
     }
 
-    // Sort by number of important roles (desc), then importance (asc), then original TMDB order (asc)
+    // Sort by number of important roles (desc), then image availability
     return Array.from(people.values()).sort((a, b) => {
+      // 1. Primary: number of important roles (descending)
       if (a.numImportantRoles !== b.numImportantRoles) {
-        return b.numImportantRoles - a.numImportantRoles // Higher count first
+        return b.numImportantRoles - a.numImportantRoles
       }
-      if (a.importance !== b.importance) {
-        return a.importance - b.importance
+
+      // 2. Secondary: people with images come first
+      const aHasImage = !!a.profile_path
+      const bHasImage = !!b.profile_path
+      if (aHasImage !== bHasImage) {
+        return aHasImage ? -1 : 1
       }
-      return a.originalOrder - b.originalOrder
     })
   })
 
