@@ -22,12 +22,24 @@
   let lastSeenItemId = $state(item.id)
   let overviewContainerElement = $state<HTMLDivElement>()
 
+  const showOverviewTab = $derived(!!item.overview)
+  const showCreditsSection = $derived(
+    (item.tmdbId && !item.tmdbCreditsFetched) ||
+      (item.tmdbCreditsFetched &&
+        item.tmdbCredits &&
+        (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
+  )
+
   $effect(() => {
     // If we switch to a new item (i.e., the ID has changed), reset the tab to overview.
     // This prevents the tab from resetting on a simple data update for the same item.
     if (item.id !== lastSeenItemId) {
       activeInfoTab = 'overview'
       lastSeenItemId = item.id
+    }
+    // If the overview tab is not visible but is selected, switch to credits.
+    if (!showOverviewTab && activeInfoTab === 'overview') {
+      activeInfoTab = 'credits'
     }
   })
 
@@ -185,20 +197,26 @@
         </div>
         {#if settings?.creditsDisplay === 'tab'}
           <div class="overview-container" bind:this={overviewContainerElement}>
-            <div class="info-tabs">
-              <button
-                class:active={activeInfoTab === 'overview'}
-                onclick={() => (activeInfoTab = 'overview')}
-              >
-                <h2 class="section-title">Overview</h2>
-              </button>
-              <button
-                class:active={activeInfoTab === 'credits'}
-                onclick={() => (activeInfoTab = 'credits')}
-              >
-                <h2 class="section-title">Cast & Crew</h2>
-              </button>
-            </div>
+            {#if showOverviewTab || showCreditsSection}
+              <div class="info-tabs">
+                {#if showOverviewTab}
+                  <button
+                    class:active={activeInfoTab === 'overview'}
+                    onclick={() => (activeInfoTab = 'overview')}
+                  >
+                    <h2 class="section-title">Overview</h2>
+                  </button>
+                {/if}
+                {#if showCreditsSection}
+                  <button
+                    class:active={activeInfoTab === 'credits'}
+                    onclick={() => (activeInfoTab = 'credits')}
+                  >
+                    <h2 class="section-title">Cast & Crew</h2>
+                  </button>
+                {/if}
+              </div>
+            {/if}
 
             <div class="content-holder">
               <!-- Overview is always present to maintain content height -->
@@ -266,24 +284,26 @@
     {/if}
 
     {#if settings?.creditsDisplay !== 'hidden' && settings?.creditsDisplay !== 'tab'}
-      <div class="collapsible-section">
-        <button
-          class="section-title-button"
-          onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
-        >
-          <h2 class="section-title">Cast & Crew</h2>
-          <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
-        </button>
-        {#if isCreditsExpanded}
-          <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
-            {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-              <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-            {:else if !item.tmdbCreditsFetched}
-              <div class="loading-credits">Loading...</div>
-            {/if}
-          </div>
-        {/if}
-      </div>
+      {#if showCreditsSection}
+        <div class="collapsible-section">
+          <button
+            class="section-title-button"
+            onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
+          >
+            <h2 class="section-title">Cast & Crew</h2>
+            <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
+          </button>
+          {#if isCreditsExpanded}
+            <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
+              {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+                <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
+              {:else if !item.tmdbCreditsFetched}
+                <div class="loading-credits">Loading...</div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
