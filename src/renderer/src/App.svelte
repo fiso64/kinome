@@ -47,6 +47,12 @@
   const isGlobalSearchActive = $derived(
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
   )
+  const isTypingGlobalTag = $derived(
+    // These regexes check if the user is in the middle of typing a tag.
+    // e.g., ":key" or ":key:value"
+    /:([a-zA-Z0-9_.-]*)$/.test(globalSearchQuery.text) ||
+      /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(globalSearchQuery.text)
+  )
   let searchResults = $state<SearchIndexEntry[]>([])
   let highlightedGlobalSearchItemIndex = $state<number | null>(null)
   let isPerformingSearch = $state(false)
@@ -54,6 +60,10 @@
   let detailViewSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
   const isDetailSearchActive = $derived(
     detailViewSearchQuery.text.trim() !== '' || detailViewSearchQuery.tags.length > 0
+  )
+  const isTypingDetailTag = $derived(
+    /:([a-zA-Z0-9_.-]*)$/.test(detailViewSearchQuery.text) ||
+      /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(detailViewSearchQuery.text)
   )
   let detailViewSearchResults = $state<SearchIndexEntry[]>([])
   let highlightedDetailSearchItemIndex = $state<number | null>(null)
@@ -195,7 +205,8 @@
   // --- Global Search Effect (No Debounce) ---
   $effect(() => {
     const query = globalSearchQuery
-    if (isGlobalSearchActive) {
+    // Only perform search if the view is active AND the user is not in the middle of typing a tag.
+    if (isGlobalSearchActive && !isTypingGlobalTag) {
       isPerformingSearch = true
       selectedItemForDetailView = null
       const plainQuery = JSON.parse(JSON.stringify(query))
@@ -204,7 +215,8 @@
         isPerformingSearch = false
         highlightedGlobalSearchItemIndex = results.length > 0 ? 0 : null
       })
-    } else {
+    } else if (!isGlobalSearchActive) {
+      // Clear results if the search becomes inactive
       searchResults = []
       isPerformingSearch = false
       highlightedGlobalSearchItemIndex = null
@@ -214,7 +226,7 @@
   // --- Detail View Search Effect ---
   $effect(() => {
     const query = detailViewSearchQuery
-    if (selectedItemForDetailView && isDetailSearchActive) {
+    if (selectedItemForDetailView && isDetailSearchActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
       const plainQuery = JSON.parse(JSON.stringify(query))
       window.api.performSearch(plainQuery).then((results) => {
@@ -222,7 +234,7 @@
         isPerformingDetailSearch = false
         highlightedDetailSearchItemIndex = results.length > 0 ? 0 : null
       })
-    } else {
+    } else if (!isDetailSearchActive) {
       detailViewSearchResults = []
       isPerformingDetailSearch = false
       highlightedDetailSearchItemIndex = null

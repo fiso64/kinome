@@ -18,7 +18,7 @@
       )
   }
 
-  let {
+let {
     query = $bindable({ text: '', tags: [] }),
     suggestions,
     element = $bindable()
@@ -27,6 +27,8 @@
     suggestions: AutocompleteSuggestions
     element?: HTMLInputElement
   } = $props()
+
+  let textMirror: HTMLSpanElement | undefined = $state()
 
   let autocomplete = $state<{
     show: boolean
@@ -56,16 +58,12 @@
   }
 
   function handleInput() {
-    // A pill has been completed with a space
-    const tagMatch = query.text.match(/:([a-zA-Z0-9_]+):([^:]+?)\s$/)
-    if (tagMatch) {
-      addPill(tagMatch[1], tagMatch[2].trim())
-      return
-    }
+    // A pill is now committed on Enter, not on space. See handleKeyDown.
 
     // --- Autocomplete logic ---
-    const keyMatch = query.text.match(/:([a-zA-Z0-9_]*)$/)
-    const valueMatch = query.text.match(/:([a-zA-Z0-9_]+):([^:]*)$/)
+    // The regexes now support '.' and '-' in tag keys for virtual/custom tags.
+    const keyMatch = query.text.match(/:([a-zA-Z0-9_.-]*)$/)
+    const valueMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
 
     if (valueMatch) {
       const key = valueMatch[1]
@@ -97,9 +95,23 @@
 
     if (autocomplete.suggestions.length > 0) {
       const searchBox = element?.closest('.search-box')
-      if (searchBox) {
-        const rect = searchBox.getBoundingClientRect()
-        autocomplete.position = { top: rect.height + 4, left: 0 }
+      if (searchBox && textMirror && element) {
+        let prefix = ''
+        const match = valueMatch || keyMatch
+        if (match) {
+          // The prefix is the text inside the input before the start of the current tag.
+          prefix = element.value.substring(0, match.index!)
+        }
+        textMirror.textContent = prefix
+
+        const inputRect = element.getBoundingClientRect()
+        const mirrorRect = textMirror.getBoundingClientRect()
+        const searchBoxRect = searchBox.getBoundingClientRect()
+
+        // The menu's left position is the input's left offset plus the width of the mirrored prefix text.
+        const leftPos = inputRect.left - searchBoxRect.left + mirrorRect.width
+
+        autocomplete.position = { top: searchBoxRect.height + 4, left: leftPos }
         autocomplete.show = true
       }
     } else {
@@ -111,6 +123,22 @@
     if (e.key === 'Backspace' && query.text === '' && query.tags.length > 0) {
       query.tags.pop()
       query.tags = query.tags // Trigger reactivity
+      return // Prevent other actions on backspace
+    }
+
+    if (e.key === 'Enter') {
+      // Don't commit if autocomplete is visible and handling it
+      if (autocomplete.show) return
+
+      // Regex to match a completed tag like ':key:value' at the end of the text.
+      // It allows dots and hyphens in the key.
+      const tagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+
+      // Only commit if there is a non-empty value part
+      if (tagMatch && tagMatch[2].trim() !== '') {
+        e.preventDefault()
+        addPill(tagMatch[1], tagMatch[2].trim())
+      }
     }
   }
 
@@ -127,6 +155,9 @@
 </script>
 
 <div class="search-input-wrapper">
+  <!-- This span is for measurement. It's invisible. -->
+  <span class="text-mirror" bind:this={textMirror}></span>
+
   <div class="search-box" onclick={() => element?.focus()}>
     {#each query.tags as tag, i (i)}
       <div class="pill">
@@ -169,6 +200,18 @@
     position: relative;
     width: 100%;
     /* min/max width is now handled by the parent grid container in App.svelte */
+  }
+
+  .text-mirror {
+    position: absolute;
+    visibility: hidden;
+    height: 0;
+    /* Match font properties of the input */
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    white-space: pre; /* to respect spaces */
+    pointer-events: none;
   }
 
   .search-box {
