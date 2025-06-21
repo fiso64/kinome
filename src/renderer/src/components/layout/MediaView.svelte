@@ -283,7 +283,13 @@
       {gridPosterSize}
     />
   {:else if layout === 'tree'}
-    <TreeView items={itemsForViews} {onItemClick} {onShowContextMenu} {grayOutWatched} {parentItem} />
+    <TreeView
+      items={itemsForViews}
+      {onItemClick}
+      {onShowContextMenu}
+      {grayOutWatched}
+      {parentItem}
+    />
   {:else if layout === 'list'}
     <ListView
       items={itemsForViews}

@@ -46,9 +46,7 @@ async function readRawSettings(): Promise<Settings> {
     // --- END MIGRATION LOGIC ---
 
     // Dynamically merge default layouts from the config
-    const mergedLayouts = (
-      Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]
-    ).reduce(
+    const mergedLayouts = (Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]).reduce(
       (acc, key) => {
         acc[key] = { ...defaultSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
         return acc
@@ -61,9 +59,18 @@ async function readRawSettings(): Promise<Settings> {
       ...defaultSettings,
       ...saved,
       defaultLayoutSettings: {
-        grid: { ...defaultSettings.defaultLayoutSettings.grid, ...saved.defaultLayoutSettings?.grid },
-        list: { ...defaultSettings.defaultLayoutSettings.list, ...saved.defaultLayoutSettings?.list },
-        tabs: { ...defaultSettings.defaultLayoutSettings.tabs, ...saved.defaultLayoutSettings?.tabs },
+        grid: {
+          ...defaultSettings.defaultLayoutSettings.grid,
+          ...saved.defaultLayoutSettings?.grid
+        },
+        list: {
+          ...defaultSettings.defaultLayoutSettings.list,
+          ...saved.defaultLayoutSettings?.list
+        },
+        tabs: {
+          ...defaultSettings.defaultLayoutSettings.tabs,
+          ...saved.defaultLayoutSettings?.tabs
+        },
         sections: {
           ...defaultSettings.defaultLayoutSettings.sections,
           ...saved.defaultLayoutSettings?.sections

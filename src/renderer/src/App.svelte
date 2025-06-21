@@ -107,7 +107,9 @@
   const isDetailViewActive = $derived(selectedItemForDetailView !== null)
   const canGoBack = $derived(isDetailViewActive || viewStack.length > 1 || isGlobalSearchActive)
 
-  const currentFolderClickAction = $derived(resolveViewSettings(currentFolder, settings).clickAction)
+  const currentFolderClickAction = $derived(
+    resolveViewSettings(currentFolder, settings).clickAction
+  )
 
   const folderToConfigureLayout = $derived(
     selectedItemForDetailView?.type === 'folder'
@@ -918,7 +920,7 @@
     suggestions={allAutocompleteSuggestions}
     isPerformingGlobalSearch={isPerformingSearch}
     globalSearchResults={searchResults}
-    isPerformingDetailSearch={isPerformingDetailSearch}
+    {isPerformingDetailSearch}
     detailSearchResults={detailViewSearchResults}
     {isDetailSearchActive}
     bind:globalSearchQuery
@@ -938,8 +940,8 @@
     {isScanning}
     {currentFolder}
     {isGlobalSearchActive}
-    searchResults={searchResults}
-    isPerformingSearch={isPerformingSearch}
+    {searchResults}
+    {isPerformingSearch}
     highlightedSearchItemIndex={highlightedGlobalSearchItemIndex}
     {selectedItemForDetailView}
     {filterQuery}

@@ -67,7 +67,7 @@
               layout="list"
               onShowContextMenu={(item, e, options) =>
                 dispatch('showContextMenu', { item, event: e, options })}
-              suggestions={suggestions}
+              {suggestions}
               highlightedIndex={highlightedSearchItemIndex}
               isPreSorted={true}
               grayOutWatched={false}
@@ -91,7 +91,7 @@
               onItemClick={(item) => dispatch('itemClick', { item })}
               onShowContextMenu={(item, e, options) =>
                 dispatch('showContextMenu', { item, event: e, options })}
-              suggestions={suggestions}
+              {suggestions}
               {settings}
             />
           </div>

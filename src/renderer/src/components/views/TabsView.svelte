@@ -135,13 +135,13 @@
     class:can-scroll-left={canScrollLeft}
     class:can-scroll-right={canScrollRight}
   >
-<button
+    <button
       class="scroll-button left"
       class:visible={canScrollLeft}
       onclick={() => scrollTabs('left')}
       aria-label="Scroll left"
     >
-<svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
+      <svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
         ><path
           d="M8.5 15L1.5 8L8.5 1"
           stroke="currentColor"
@@ -151,7 +151,12 @@
         /></svg
       >
     </button>
-<div class="tab-list" class:overflowing={isOverflowing} bind:this={tabListElement} onwheel={handleWheel}>
+    <div
+      class="tab-list"
+      class:overflowing={isOverflowing}
+      bind:this={tabListElement}
+      onwheel={handleWheel}
+    >
       {#each folders as folder (folder.id)}
         <button
           class="tab"
@@ -163,13 +168,13 @@
         </button>
       {/each}
     </div>
-<button
+    <button
       class="scroll-button right"
       class:visible={canScrollRight}
       onclick={() => scrollTabs('right')}
       aria-label="Scroll right"
     >
-<svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
+      <svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
         ><path
           d="M1.5 1L8.5 8L1.5 15"
           stroke="currentColor"
@@ -220,22 +225,22 @@
     flex-shrink: 0;
   }
 
-.tab-list {
-  display: flex;
-  justify-content: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 1rem 1.5rem;
-  margin: 0 1rem;
-  gap: 1rem;
-  -ms-overflow-style: none; /* for Internet Explorer, Edge */
-  scrollbar-width: none; /* for Firefox */
-  /* scroll-behavior: smooth is removed to fix jittery wheel scroll */
-  flex-grow: 1;
-}
-.tab-list.overflowing {
-  justify-content: flex-start;
-}
+  .tab-list {
+    display: flex;
+    justify-content: center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 1rem 1.5rem;
+    margin: 0 1rem;
+    gap: 1rem;
+    -ms-overflow-style: none; /* for Internet Explorer, Edge */
+    scrollbar-width: none; /* for Firefox */
+    /* scroll-behavior: smooth is removed to fix jittery wheel scroll */
+    flex-grow: 1;
+  }
+  .tab-list.overflowing {
+    justify-content: flex-start;
+  }
   .tab-list::-webkit-scrollbar {
     display: none; /* for Chrome, Safari, and Opera */
   }
@@ -265,32 +270,32 @@
     border-color: var(--ev-c-gray-1);
   }
 
-.scroll-button {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
-  background-color: rgba(30, 30, 30, 0.9);
-  backdrop-filter: blur(2px);
-  color: var(--ev-c-text-2);
-  border: 1px solid var(--color-background-mute);
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  line-height: 1;
-  padding: 0;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease,
-    color 0.2s ease;
-}
+  .scroll-button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    background-color: rgba(30, 30, 30, 0.9);
+    backdrop-filter: blur(2px);
+    color: var(--ev-c-text-2);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    line-height: 1;
+    padding: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.2s ease,
+      visibility 0.2s ease,
+      color 0.2s ease;
+  }
   .scroll-button.left {
     left: 1rem;
   }
@@ -301,10 +306,10 @@
     opacity: 1;
     visibility: visible;
   }
-.scroll-button:hover {
-  background-color: var(--ev-c-gray-2);
-  color: var(--ev-c-text-1);
-}
+  .scroll-button:hover {
+    background-color: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
+  }
 
   .tabs-view-header::before,
   .tabs-view-header::after {

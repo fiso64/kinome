@@ -96,14 +96,16 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-<div class="modal-backdrop" style="z-index: {zIndex};" onmousedown={(e) => e.target === e.currentTarget && onClose()}>
-<div class="modal-positioner" style="transform: translate({position.x}px, {position.y}px); max-width: {maxWidth};">
-    <div
-      class="modal-window"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-    >
+<div
+  class="modal-backdrop"
+  style="z-index: {zIndex};"
+  onmousedown={(e) => e.target === e.currentTarget && onClose()}
+>
+  <div
+    class="modal-positioner"
+    style="transform: translate({position.x}px, {position.y}px); max-width: {maxWidth};"
+  >
+    <div class="modal-window" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <header class="modal-header" onmousedown={handleDragStart} class:dragging={isDragging}>
         <h2 id="modal-title">{title}</h2>
         <div class="header-extra">

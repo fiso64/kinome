@@ -1,10 +1,10 @@
 <script lang="ts">
-import ModalWindow from './_base/ModalWindow.svelte'
-import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
-import ViewTab from './_parts/item-settings/ViewTab.svelte'
-import FolderTab from './_parts/item-settings/FolderTab.svelte'
-import FileTab from './_parts/item-settings/FileTab.svelte'
-import { dialogStore } from '../../lib/dialog-store'
+  import ModalWindow from './_base/ModalWindow.svelte'
+  import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
+  import ViewTab from './_parts/item-settings/ViewTab.svelte'
+  import FolderTab from './_parts/item-settings/FolderTab.svelte'
+  import FileTab from './_parts/item-settings/FileTab.svelte'
+  import { dialogStore } from '../../lib/dialog-store'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -58,9 +58,7 @@ import { dialogStore } from '../../lib/dialog-store'
   let tags = $state(
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
-  let seasonNumber = $state(
-    _isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : ''
-  )
+  let seasonNumber = $state(_isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : '')
   let episodeNumber = $state(
     !_isFolder ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
   )
@@ -69,18 +67,20 @@ import { dialogStore } from '../../lib/dialog-store'
   )
 
   // --- View State (for folders) ---
-  let selectedLayout = $state(_isFolder ? item.layout ?? defaultLayout : 'grid')
-  let selectedClickAction = $state(_isFolder ? item.clickAction ?? 'detail' : 'detail')
-  let selectedGroupBy = $state(_isFolder ? item.groupBy ?? 'folder' : 'folder')
+  let selectedLayout = $state(_isFolder ? (item.layout ?? defaultLayout) : 'grid')
+  let selectedClickAction = $state(_isFolder ? (item.clickAction ?? 'detail') : 'detail')
+  let selectedGroupBy = $state(_isFolder ? (item.groupBy ?? 'folder') : 'folder')
   let gridPosterSize = $state(_isFolder ? (item as MediaFolder).gridPosterSize : undefined)
   let listDescriptionRows = $state(
     _isFolder ? (item as MediaFolder).listDescriptionRows : undefined
   )
 
   // --- Folder Settings State ---
-  let retrieveChildrenMetadata = $state(_isFolder ? item.retrieve_children_metadata ?? false : false)
-  let childrenTypeHint = $state(_isFolder ? item.children_type_hint ?? 'auto' : 'auto')
-  let processTvChildren = $state(_isFolder ? item.process_tv_children ?? true : true)
+  let retrieveChildrenMetadata = $state(
+    _isFolder ? (item.retrieve_children_metadata ?? false) : false
+  )
+  let childrenTypeHint = $state(_isFolder ? (item.children_type_hint ?? 'auto') : 'auto')
+  let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
 
   // --- Actions ---
   async function buildUpdatedItem(): Promise<LibraryItem | null> {
@@ -155,7 +155,7 @@ import { dialogStore } from '../../lib/dialog-store'
     const itemToUpdate = await buildUpdatedItem()
     let needsRefresh = false
     if (itemToUpdate) {
-      const wasEnabled = item.type === 'folder' ? item.retrieve_children_metadata ?? false : false
+      const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
       await window.api.updateItem(itemToUpdate)
       if (
         itemToUpdate.type === 'folder' &&
@@ -205,7 +205,7 @@ import { dialogStore } from '../../lib/dialog-store'
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Hide',
       message: `Are you sure you want to hide "${item.title ?? item.name}"?`,
-      detail: 'This is not a deletion. It can be unhidden from its parent folder\'s settings.',
+      detail: "This is not a deletion. It can be unhidden from its parent folder's settings.",
       confirmText: 'Hide Item',
       cancelText: 'Cancel'
     })

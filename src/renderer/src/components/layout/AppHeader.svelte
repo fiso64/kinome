@@ -172,15 +172,11 @@
       {#if isDetailViewActive}
         <SearchInput
           bind:query={detailViewSearchQuery}
-          suggestions={suggestions}
+          {suggestions}
           bind:element={searchInputEl}
         />
       {:else}
-        <SearchInput
-          bind:query={globalSearchQuery}
-          suggestions={suggestions}
-          bind:element={searchInputEl}
-        />
+        <SearchInput bind:query={globalSearchQuery} {suggestions} bind:element={searchInputEl} />
       {/if}
 
       {#if isDetailViewActive && (isDetailSearchActive || isPerformingDetailSearch)}
@@ -241,8 +237,7 @@
           </svg>
         </button>
         <button
-          onclick={(e) =>
-            dispatch('showContextMenu', { item: folderToConfigureLayout!, event: e })}
+          onclick={(e) => dispatch('showContextMenu', { item: folderToConfigureLayout!, event: e })}
           title="More options..."
           class="more-options-button"
         >
@@ -265,10 +260,8 @@
           >
         </button>
       {/if}
-      <button
-        onclick={() => dispatch('openSettings')}
-        title="Settings"
-        class="settings-button">⚙️</button
+      <button onclick={() => dispatch('openSettings')} title="Settings" class="settings-button"
+        >⚙️</button
       >
     </div>
   </div>

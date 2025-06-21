@@ -159,8 +159,6 @@ app.whenReady().then(() => {
   })
   // --- End Window Control IPC Handlers ---
 
-
-
   createWindow()
 
   app.on('activate', function () {

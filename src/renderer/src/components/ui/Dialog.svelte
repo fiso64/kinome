@@ -112,8 +112,12 @@
 
     <footer class="dialog-actions">
       {#each buttons as button (button.label)}
-        <button class="dialog-button" class:primary={button.class === 'primary'} class:danger={button.class === 'danger'} class:secondary={button.class === 'secondary'} onclick={() => onClose(button.value)}
-          >{button.label}</button
+        <button
+          class="dialog-button"
+          class:primary={button.class === 'primary'}
+          class:danger={button.class === 'danger'}
+          class:secondary={button.class === 'secondary'}
+          onclick={() => onClose(button.value)}>{button.label}</button
         >
       {/each}
     </footer>

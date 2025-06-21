@@ -1081,9 +1081,7 @@ export function setupLibraryIpc(): void {
                 )
               }
             } else if (item.mediaType === 'tv') {
-              log(
-                `[Details] TV show episode data missing. Processing children for "${item.name}"`
-              )
+              log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
               await applyTvShowData(item, settings, getLibraryDataPath())
             }
           }
@@ -1431,9 +1429,7 @@ export function setupLibraryIpc(): void {
         // This makes the manual match a single, cohesive operation.
         const showFolder = findParent(item.id, db!.root!)
         if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
-          console.log(
-            `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
-          )
+          console.log(`[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`)
           await fetchAndApplyEpisodeData(
             item,
             showFolder.tmdbId,

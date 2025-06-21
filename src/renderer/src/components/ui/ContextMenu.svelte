@@ -1,37 +1,37 @@
 <script lang="ts">
-let {
-  item,
-  position,
-  layout,
-  onClose,
-  onOpen,
-  onEditMetadata,
-  onSetLayout,
-  onOpenFolderSettings,
-  onOpenFileSettings,
-  onManualSearch,
-  onEditArtwork,
-  onRevealInExplorer,
-  onDeleteItem,
-  onRenameItem,
-  onShowProperties
-}: {
-  item: LibraryItem
-  position: { top: number; left: number }
-  layout?: string
-  onClose: () => void
-  onOpen: () => void
-  onEditMetadata: () => void
-  onSetLayout: () => void
-  onOpenFolderSettings: () => void
-  onOpenFileSettings: () => void
-  onManualSearch: () => void
-  onEditArtwork: () => void
-  onRevealInExplorer: () => void
-  onDeleteItem: () => void
-  onRenameItem: () => void
-  onShowProperties: () => void
-} = $props()
+  let {
+    item,
+    position,
+    layout,
+    onClose,
+    onOpen,
+    onEditMetadata,
+    onSetLayout,
+    onOpenFolderSettings,
+    onOpenFileSettings,
+    onManualSearch,
+    onEditArtwork,
+    onRevealInExplorer,
+    onDeleteItem,
+    onRenameItem,
+    onShowProperties
+  }: {
+    item: LibraryItem
+    position: { top: number; left: number }
+    layout?: string
+    onClose: () => void
+    onOpen: () => void
+    onEditMetadata: () => void
+    onSetLayout: () => void
+    onOpenFolderSettings: () => void
+    onOpenFileSettings: () => void
+    onManualSearch: () => void
+    onEditArtwork: () => void
+    onRevealInExplorer: () => void
+    onDeleteItem: () => void
+    onRenameItem: () => void
+    onShowProperties: () => void
+  } = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
 
@@ -236,38 +236,14 @@ let {
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
-              <rect
-                x="2"
-                y="2"
-                width="5"
-                height="5"
-                rx="1"
-                stroke="currentColor"
-                stroke-width="1.5"></rect>
-              <rect
-                x="9"
-                y="2"
-                width="5"
-                height="5"
-                rx="1"
-                stroke="currentColor"
-                stroke-width="1.5"></rect>
-              <rect
-                x="2"
-                y="9"
-                width="5"
-                height="5"
-                rx="1"
-                stroke="currentColor"
-                stroke-width="1.5"></rect>
-              <rect
-                x="9"
-                y="9"
-                width="5"
-                height="5"
-                rx="1"
-                stroke="currentColor"
-                stroke-width="1.5"></rect>
+              <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
+              <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+              ></rect>
             </svg>
           </span>
           <span>Set View...</span>

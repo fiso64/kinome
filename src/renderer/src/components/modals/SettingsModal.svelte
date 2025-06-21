@@ -1,16 +1,16 @@
 <script lang="ts">
-import ModalWindow from './_base/ModalWindow.svelte'
-import AutocompleteMenu from '../ui/AutocompleteMenu.svelte'
-import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
-import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
-import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
+  import ModalWindow from './_base/ModalWindow.svelte'
+  import AutocompleteMenu from '../ui/AutocompleteMenu.svelte'
+  import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
+  import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
+  import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
-let {
-  close,
-  scanLibrary,
-  settings
-}: { close: () => void; scanLibrary: () => Promise<void>; settings: Settings | null } = $props()
+  let {
+    close,
+    scanLibrary,
+    settings
+  }: { close: () => void; scanLibrary: () => Promise<void>; settings: Settings | null } = $props()
 
   type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
@@ -25,9 +25,9 @@ let {
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
-// New structured view settings state
-let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
-let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
+  // New structured view settings state
+  let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
+  let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let settingsLoaded = $state(false)
 
@@ -100,7 +100,7 @@ let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
     onSelect: () => {}
   })
 
-$effect(() => {
+  $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
@@ -139,8 +139,6 @@ $effect(() => {
       window.removeEventListener('keydown', handleKeydown)
     }
   })
-
-  
 
   function addVirtualTag() {
     virtualTags.push({ id: crypto.randomUUID(), name: '', expression: '' })
@@ -217,7 +215,7 @@ $effect(() => {
     close()
   }
 
-async function handleSave(): Promise<void> {
+  async function handleSave(): Promise<void> {
     const tagsToSave = virtualTags
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
@@ -242,21 +240,21 @@ async function handleSave(): Promise<void> {
 </script>
 
 {#if activeViewSettingsModal && defaultLayouts}
-    {@const typeKey = activeViewSettingsModal}
-    {@const config = DEFAULT_LAYOUTS_CONFIG[typeKey]}
-    <DefaultViewSettingsModal
-      {typeKey}
-      title={config.label}
-      initialSettings={defaultLayouts[typeKey]}
-      groupByKeys={groupByKeys}
-      availableLayouts={config.availableLayouts}
-      showClickAction={config.showClickAction}
-      {settings}
-      onClose={() => (activeViewSettingsModal = null)}
-      onSave={(newSettings) => {
-        if (defaultLayouts) defaultLayouts[typeKey] = newSettings
-      }}
-    />
+  {@const typeKey = activeViewSettingsModal}
+  {@const config = DEFAULT_LAYOUTS_CONFIG[typeKey]}
+  <DefaultViewSettingsModal
+    {typeKey}
+    title={config.label}
+    initialSettings={defaultLayouts[typeKey]}
+    {groupByKeys}
+    availableLayouts={config.availableLayouts}
+    showClickAction={config.showClickAction}
+    {settings}
+    onClose={() => (activeViewSettingsModal = null)}
+    onSave={(newSettings) => {
+      if (defaultLayouts) defaultLayouts[typeKey] = newSettings
+    }}
+  />
 {/if}
 
 {#if activeLayoutSettingsModal}
@@ -320,7 +318,7 @@ async function handleSave(): Promise<void> {
         </div>
         <p class="help-text">Changing the folder will start a full re-scan of the new location.</p>
       </div>
-{:else if activeTab === 'view'}
+    {:else if activeTab === 'view'}
       <div class="form-group">
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={useLogos} />
@@ -333,8 +331,8 @@ async function handleSave(): Promise<void> {
       <div class="form-group">
         <label>Default Layout Values</label>
         <p class="help-text">
-          Configure global default values for specific layouts (e.g., poster size for Grid,
-          group-by for Tabs).
+          Configure global default values for specific layouts (e.g., poster size for Grid, group-by
+          for Tabs).
         </p>
         <div class="view-config-row" onclick={() => (activeLayoutSettingsModal = true)}>
           <span>Global Defaults</span>
@@ -355,10 +353,12 @@ async function handleSave(): Promise<void> {
         {/each}
       {/if}
     {:else if activeTab === 'virtualTags'}
-    <p><b>This feature is a work in progress and is currently slow.</b></p>
-    <div class="help-text">
+      <p><b>This feature is a work in progress and is currently slow.</b></p>
+      <div class="help-text">
         <p>
-            Large numbers of virtual tag definitions or a large library can significantly impact startup and reload performance.</p>
+          Large numbers of virtual tag definitions or a large library can significantly impact
+          startup and reload performance.
+        </p>
       </div>
       <div class="virtual-tags-list">
         {#each virtualTags as tag (tag.id)}

@@ -94,19 +94,37 @@ export const DEFAULT_LAYOUTS_CONFIG = {
   movie: {
     label: 'Default Movie Contents View',
     help: 'The default view for the contents of a movie folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+      | 'grid'
+      | 'list'
+      | 'tree'
+      | 'tabs'
+      | 'sections'
+    )[],
     showClickAction: true
   },
   tv: {
     label: 'Default TV Show Contents View',
     help: 'The default view for the contents of a TV show folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+      | 'grid'
+      | 'list'
+      | 'tree'
+      | 'tabs'
+      | 'sections'
+    )[],
     showClickAction: true
   },
   season: {
     label: 'Default Season Contents View',
     help: 'The default view for the contents of a season folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[],
+    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+      | 'grid'
+      | 'list'
+      | 'tree'
+      | 'tabs'
+      | 'sections'
+    )[],
     showClickAction: true
   }
 } as const

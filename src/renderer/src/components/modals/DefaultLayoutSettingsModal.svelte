@@ -44,12 +44,12 @@
   zIndex={101}
 >
   {#if localSettings}
-  <ViewConfigurator
-    configMode={true}
-    bind:gridPosterSize={localSettings.grid.gridPosterSize}
-    bind:listDescriptionRows={localSettings.list.listDescriptionRows}
-    bind:selectedGroupBy={sharedGroupBy}
-    {groupByKeys}
-  />
+    <ViewConfigurator
+      configMode={true}
+      bind:gridPosterSize={localSettings.grid.gridPosterSize}
+      bind:listDescriptionRows={localSettings.list.listDescriptionRows}
+      bind:selectedGroupBy={sharedGroupBy}
+      {groupByKeys}
+    />
   {/if}
 </ModalWindow>
