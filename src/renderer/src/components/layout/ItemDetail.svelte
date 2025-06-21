@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import CreditsView from './CreditsView.svelte'
+  import { slide } from 'svelte/transition'
 
   let {
     item,
@@ -15,6 +16,8 @@
     onSearchByTag: (key: string, value: string) => void
     settings: Settings
   } = $props()
+
+  let isCreditsExpanded = $state(false)
 
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
@@ -166,7 +169,17 @@
     {/if}
 
     {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-      <CreditsView {item} credits={item.tmdbCredits} />
+      <div class="collapsible-section">
+        <button class="section-title-button" onclick={() => (isCreditsExpanded = !isCreditsExpanded)}>
+          <h2 class="section-title">Cast & Crew</h2>
+          <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
+        </button>
+        {#if isCreditsExpanded}
+          <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
+            <CreditsView {item} credits={item.tmdbCredits} />
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
 </div>
@@ -397,5 +410,42 @@
     border-bottom: 1px solid var(--color-background-mute);
     padding-bottom: 0.5rem;
     margin-bottom: 0.5rem;
+  }
+
+  .collapsible-section {
+    grid-column: 1 / -1; /* Span full width of the parent grid */
+  }
+
+  .section-title-button {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .section-title-button:hover .section-title {
+    color: var(--ev-c-white-soft);
+  }
+
+  .section-title-button .section-title {
+    margin: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .section-title-button .chevron {
+    font-size: 1.5rem;
+    color: var(--ev-c-text-2);
+  }
+
+  .collapsible-content {
+    overflow: hidden;
+    padding-top: 1.5rem;
   }
 </style>

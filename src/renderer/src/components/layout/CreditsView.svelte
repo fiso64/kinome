@@ -128,7 +128,6 @@
   </div>
 {:else}
   <div class="credits-view-container">
-    <h2 class="section-title">Cast & Crew</h2>
     <div class="credits-list" onwheel={horizontalScroll}>
       {#each processedMovieCredits as person (person.id)}
         {@const roles = person.roles.join(', ')}
@@ -144,7 +143,6 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    grid-column: 1 / -1; /* Span full width of the parent grid */
   }
   .section-title {
     font-size: 1.5rem;
