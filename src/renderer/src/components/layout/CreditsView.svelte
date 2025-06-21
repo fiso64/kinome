@@ -4,7 +4,8 @@
     name: string
     profile_path: string | null
     roles: string[]
-    importance: number // Lower is more important
+    importance: number // The MOST important role they have (lower is better)
+    numImportantRoles: number // How many important roles they have
     originalOrder: number // To preserve TMDB's sorting for actors
   }
 
@@ -25,13 +26,20 @@
           name: personData.name,
           profile_path: personData.profile_path,
           roles: [],
-          importance: Infinity, // Default to least important
+          importance: Infinity,
+          numImportantRoles: 0,
           originalOrder: Infinity
         })
       }
       const person = people.get(personData.id)!
       person.roles.push(role)
-      // Update importance only if the new role is more important
+
+      // An importance of 100 is for actors, which we don't count as an "important job" for this purpose.
+      if (importance < 100) {
+        person.numImportantRoles++
+      }
+
+      // Update importance only if the new role is more important (lower number)
       if (importance < person.importance) {
         person.importance = importance
         person.originalOrder = order
@@ -55,8 +63,11 @@
       addOrUpdatePerson(castMember, castMember.character, 100, castMember.order)
     }
 
-    // Sort by importance (Director etc. first), then by original TMDB order
+    // Sort by number of important roles (desc), then importance (asc), then original TMDB order (asc)
     return Array.from(people.values()).sort((a, b) => {
+      if (a.numImportantRoles !== b.numImportantRoles) {
+        return b.numImportantRoles - a.numImportantRoles // Higher count first
+      }
       if (a.importance !== b.importance) {
         return a.importance - b.importance
       }

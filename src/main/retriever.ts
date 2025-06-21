@@ -247,7 +247,9 @@ export async function fetchAndApplyCredits(
     return
   }
 
-  const creditsUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}/credits?api_key=${tmdbApiKey}`
+  const isTv = item.mediaType === 'tv'
+  const endpoint = isTv ? 'aggregate_credits' : 'credits'
+  const creditsUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}/${endpoint}?api_key=${tmdbApiKey}`
   console.log(`[TMDB] Fetching credits for "${item.title ?? item.name}" from ${creditsUrl}`)
 
   try {
@@ -257,10 +259,32 @@ export async function fetchAndApplyCredits(
     }
     const credits = await response.json()
 
-    // We can do some pre-processing here if needed, but for now just store it.
-    item.tmdbCredits = {
-      cast: credits.cast ?? [],
-      crew: credits.crew ?? []
+    if (isTv) {
+      // Normalize the 'aggregate_credits' response to match the simpler 'credits' structure.
+      // This allows the renderer to use the same logic for both movies and TV shows.
+      const normalizedCast = (credits.cast ?? []).map((person: any) => ({
+        ...person,
+        // Combine all roles into a single 'character' string
+        character: person.roles?.map((r: any) => r.character).join(' / ') || ''
+      }))
+
+      const normalizedCrew = (credits.crew ?? []).flatMap((person: any) =>
+        // Create a separate entry for each job a person has
+        person.jobs.map((jobInfo: any) => ({
+          ...person,
+          job: jobInfo.job,
+          // Remove the 'jobs' array to keep the structure clean and consistent
+          jobs: undefined
+        }))
+      )
+
+      item.tmdbCredits = { cast: normalizedCast, crew: normalizedCrew }
+    } else {
+      // For movies, the 'credits' endpoint structure is already what we need.
+      item.tmdbCredits = {
+        cast: credits.cast ?? [],
+        crew: credits.crew ?? []
+      }
     }
   } catch (error) {
     console.error(`Error fetching credits for "${item.name}":`, error)
