@@ -80,6 +80,7 @@ declare global {
       trashItem: (path: string) => Promise<boolean>
       renameItem: (oldPath: string, newName: string) => Promise<boolean>
       getItemProperties: (path: string) => Promise<any | null>
+      selectLibraryDirectory: () => Promise<string | null>
       // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void

@@ -41,7 +41,7 @@ import {
   getTmdbImages,
   downloadImage
 } from './retriever'
-import { readSettings } from './settings'
+import { readSettings, writeLibrarySettings } from './settings'
 import { getLibraryDataPath } from './paths'
 
 const DATABASE_FILE_NAME = 'database.json'
@@ -130,7 +130,8 @@ async function writeDb(updatedDb: Database): Promise<void> {
     return value
   }
 
-  // Persist the data. JSON.stringify reads through proxies just fine.
+  // Persist the data. Paths are already relative, so no conversion needed.
+  // JSON.stringify reads through proxies just fine.
   await fs.writeFile(dbPath, JSON.stringify(updatedDb, replacer, 2))
 
   // If we were given a new object (not our current proxy), we must wrap it
@@ -181,6 +182,8 @@ async function _finalizeItemUpdate(
     `[Library] Finalized update for ${itemsArray.length} item(s). Suggestions updated: ${!!options.updateSuggestions}`
   )
 }
+
+
 
 function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
@@ -496,7 +499,7 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name)
-    const entryRelativePath = path.relative(rootPath, entryPath)
+    const entryRelativePath = path.relative(rootPath, entryPath).replace(/\\/g, '/')
 
     if (entry.isDirectory()) {
       const subFolder = await scanDirectory(entryPath, rootPath)
@@ -509,7 +512,7 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
         children.push({
           id: generateId(entryRelativePath),
           name: entry.name,
-          path: entryPath,
+          path: entryRelativePath,
           type: 'file'
         })
       }
@@ -521,11 +524,11 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
     return null
   }
 
-  const relativePath = path.relative(rootPath, dirPath)
+  const relativePath = path.relative(rootPath, dirPath).replace(/\\/g, '/')
   const folder: MediaFolder = {
     id: generateId(relativePath || '.'), // Use dot for root itself
     name: name || path.basename(rootPath), // Use root basename if name is empty
-    path: dirPath,
+    path: relativePath || '.', // Store relative path, using '.' for the root itself
     type: 'folder',
     children
   }
@@ -869,23 +872,26 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('get-library-media-source-path', async () => {
-    return db?.mediaSourcePath ?? null
+    const settings = await readSettings()
+    return settings.mediaSourcePath ?? null
   })
 
   ipcMain.handle('refresh-library', async () => {
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
+    const { mediaSourcePath } = await readSettings()
 
-    if (!db || !db.mediaSourcePath) {
+    if (!db || !mediaSourcePath) {
       console.log('Cannot refresh, no library configured.')
       return null
     }
 
-    console.log(`Refreshing library from: ${db.mediaSourcePath}`)
+    console.log(`Refreshing library from: ${mediaSourcePath}`)
     try {
       setBulkUpdateStatus(true)
       const imagesDir = path.join(getLibraryDataPath(), 'images')
-      const newRoot = await scanDirectory(db.mediaSourcePath, db.mediaSourcePath)
+      const newRoot = await scanDirectory(mediaSourcePath, mediaSourcePath)
+
       const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
 
       // This function merges old metadata and verifies image paths for all items.
@@ -971,31 +977,34 @@ export function setupLibraryIpc(): void {
     console.log(`Starting scan of: ${mediaSourcePath}`)
 
     try {
-      // 1. Scan directory structure first.
+      // 1. Save the new media source path to settings. This is now the source of truth.
+      await writeLibrarySettings({ mediaSourcePath })
+
+      // 2. Scan directory structure. This returns a tree with relative paths, which is what we want now.
       const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
 
       setBulkUpdateStatus(true)
       const newDb: Database = {
         version: DB_VERSION,
-        mediaSourcePath,
         root: rootNode
       }
 
-      // 2. Apply virtual tags before creating the proxy.
+      // 3. Apply virtual tags before creating the proxy.
       const settings = await readSettings()
       if (rootNode) {
         applyVirtualTagsToAllItems(rootNode, settings)
       }
       setBulkUpdateStatus(false) // Turn off before metadata fetch starts.
 
-      // 3. This will create the proxy, update the global `db`, and build the search index.
+      // 4. This will create the proxy, update the global `db` (with absolute paths),
+      // build the search index, and write to disk (with relative paths).
       await writeDb(newDb)
       console.log('Initial scan, DB write, and index build complete.')
 
-      // 4. Do NOT start background metadata fetching. The renderer will prompt the user
+      // 5. Do NOT start background metadata fetching. The renderer will prompt the user
       // and trigger it via a separate IPC call.
 
-      // 5. Return a DEEP, de-proxied copy of the root for the initial settings modal.
+      // 6. Return a DEEP, de-proxied copy of the root for the initial settings modal.
       // This ensures the tree view in the modal has the full folder structure.
       if (db!.root) {
         const deepCopy = JSON.parse(JSON.stringify(db!.root))
@@ -1249,9 +1258,22 @@ export function setupLibraryIpc(): void {
       // We can still try to play it, so we don't return false here.
     }
 
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) {
+      console.error('Cannot play file: media source path is not configured.')
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Configuration Error',
+        message: 'Media source path is not configured. Please check your library settings.'
+      })
+      return false
+    }
+
+    // Construct absolute path
+    const absolutePath = path.join(mediaSourcePath, file.path)
+
     // Launch the external player
     // The path is always quoted to handle spaces correctly.
-    const command = playerCommand.replace('{PATH}', `"${file.path}"`)
+    const command = playerCommand.replace('{PATH}', `"${absolutePath}"`)
 
     console.log(`Executing: ${command}`)
     exec(command, (error) => {
@@ -1674,16 +1696,23 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.on('reveal-in-explorer', (_, itemPath: string) => {
-    shell.showItemInFolder(itemPath)
+  ipcMain.on('reveal-in-explorer', async (_, relativePath: string) => {
+    const { mediaSourcePath } = await readSettings()
+    if (mediaSourcePath) {
+      const absolutePath = path.join(mediaSourcePath, relativePath)
+      shell.showItemInFolder(absolutePath)
+    }
   })
 
-  ipcMain.handle('trash-item', async (_, itemPath: string): Promise<boolean> => {
+  ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) return false
+    const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
-      await shell.trashItem(itemPath)
+      await shell.trashItem(absolutePath)
       return true
     } catch (error) {
-      console.error(`Failed to trash item at ${itemPath}:`, error)
+      console.error(`Failed to trash item at ${absolutePath}:`, error)
       BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
         title: 'Deletion Error',
         message: 'Failed to move item to trash. Check file permissions or see logs for details.',
@@ -1701,35 +1730,44 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.handle('rename-item', async (_, oldPath: string, newName: string): Promise<boolean> => {
-    const newPath = path.join(path.dirname(oldPath), newName)
-    try {
-      await fs.rename(oldPath, newPath)
-      return true
-    } catch (error) {
-      console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
-      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
-        title: 'Rename Error',
-        message: 'Failed to rename item. Check file permissions or see logs for details.',
-        detail: (error as Error).message
-      })
-      return false
+  ipcMain.handle(
+    'rename-item',
+    async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
+      const { mediaSourcePath } = await readSettings()
+      if (!mediaSourcePath) return false
+      const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
+      const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
+      try {
+        await fs.rename(oldAbsolutePath, newAbsolutePath)
+        return true
+      } catch (error) {
+        console.error(`Failed to rename from ${oldAbsolutePath} to ${newAbsolutePath}:`, error)
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Rename Error',
+          message: 'Failed to rename item. Check file permissions or see logs for details.',
+          detail: (error as Error).message
+        })
+        return false
+      }
     }
-  })
+  )
 
-  ipcMain.handle('get-item-properties', async (_, itemPath: string) => {
+  ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) return null
+    const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
-      const stats = await fs.stat(itemPath)
+      const stats = await fs.stat(absolutePath)
       const baseProperties = {
-        name: path.basename(itemPath),
-        path: itemPath,
+        name: path.basename(absolutePath),
+        path: absolutePath,
         type: stats.isDirectory() ? 'Folder' : ('File' as 'File' | 'Folder'),
         created: stats.birthtime.toISOString(),
         modified: stats.mtime.toISOString()
       }
 
       if (stats.isDirectory()) {
-        const contentStats = await getDirectoryContentStats(itemPath)
+        const contentStats = await getDirectoryContentStats(absolutePath)
         return {
           ...baseProperties,
           size: contentStats.totalSize,
@@ -1739,7 +1777,7 @@ export function setupLibraryIpc(): void {
         return { ...baseProperties, size: stats.size }
       }
     } catch (error) {
-      console.error(`Failed to get properties for ${itemPath}:`, error)
+      console.error(`Failed to get properties for ${absolutePath}:`, error)
       return null
     }
   })

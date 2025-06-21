@@ -29,6 +29,7 @@
 
   const dispatch = createEventDispatcher<{
     scanLibrary: void
+    openLibrary: void
     itemClick: { item: LibraryItem | SearchIndexEntry }
     showContextMenu: {
       item: LibraryItem | SearchIndexEntry
@@ -45,8 +46,13 @@
   {:else if !currentFolder && !isGlobalSearchActive}
     <div class="welcome-screen">
       <h2>Welcome to Media Browser</h2>
-      <p>To get started, scan a folder containing your media.</p>
-      <button onclick={() => dispatch('scanLibrary')}>Select Media Folder</button>
+      <p>To get started, scan a new folder containing your media, or open an existing library.</p>
+      <div class="welcome-buttons">
+        <button class="primary" onclick={() => dispatch('scanLibrary')}>Scan New Media Folder</button>
+        <button class="secondary" onclick={() => dispatch('openLibrary')}
+          >Open Existing Library</button
+        >
+      </div>
     </div>
   {:else}
     <div class="main-view-container" class:hidden={selectedItemForDetailView}>
@@ -177,6 +183,11 @@
     text-align: center;
   }
 
+  .welcome-screen .welcome-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
   .welcome-screen button {
     flex-shrink: 0;
   }

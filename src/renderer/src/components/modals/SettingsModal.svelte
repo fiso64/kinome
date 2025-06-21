@@ -22,8 +22,9 @@
   let playerCommand = $state('')
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
-  let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden'>('collapsed')
-  let libraryPath = $state('')
+  let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
+  let libraryDataLocation = $state('') // The path to the library data directory
+  let mediaSourcePath = $state('') // The path to the user's media files
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
   // New structured view settings state
@@ -91,8 +92,9 @@
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
-      creditsDisplay = settings.creditsDisplay ?? 'collapsed'
+      creditsDisplay = settings.creditsDisplay ?? 'tab'
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
+      libraryDataLocation = settings.libraryLocation
 
       // Set new view settings
       defaultLayoutSettings = JSON.parse(JSON.stringify(settings.defaultLayoutSettings))
@@ -102,7 +104,7 @@
     })
 
     window.api.getLibraryMediaSourcePath().then((path) => {
-      libraryPath = path ?? 'Not set'
+      mediaSourcePath = path ?? 'Not set'
     })
 
     window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
@@ -190,6 +192,8 @@
   }
 
   async function handleSave(): Promise<void> {
+    const wasLibLocationChanged = libraryDataLocation !== settings?.libraryLocation
+
     const tagsToSave = virtualTags
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
@@ -199,18 +203,31 @@
       useLogos,
       creditsDisplay,
       virtualTags: tagsToSave,
+      libraryLocation: libraryDataLocation,
       // New structured settings
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
         : undefined,
       defaultLayouts: defaultLayouts ? JSON.parse(JSON.stringify(defaultLayouts)) : undefined
     })
-    close()
+
+    if (wasLibLocationChanged) {
+      window.location.reload()
+    } else {
+      close()
+    }
   }
 
   async function handleChangeLibrary() {
     await scanLibrary()
-    libraryPath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
+    mediaSourcePath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
+  }
+
+  async function handleChangeLibraryDataLocation() {
+    const path = await window.api.selectLibraryDirectory()
+    if (path) {
+      libraryDataLocation = path
+    }
   }
 </script>
 
@@ -280,18 +297,34 @@
       </div>
     {:else if activeTab === 'library'}
       <div class="form-group">
-        <label for="source-type">Source Type</label>
+        <label for="source-type">Media Source Type</label>
         <select id="source-type" disabled>
           <option>Local Path</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Current Path</label>
+        <label>Media Source Path</label>
         <div class="path-display-container">
-          <div class="path-display">{libraryPath}</div>
+          <div class="path-display">{mediaSourcePath}</div>
           <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
         </div>
-        <p class="help-text">Changing the folder will start a full re-scan of the new location.</p>
+        <p class="help-text">
+          The folder containing your media files. Changing this will start a full re-scan of the
+          new location.
+        </p>
+      </div>
+      <div class="form-group">
+        <label>Library Data Location</label>
+        <div class="path-display-container">
+          <div class="path-display">
+            {libraryDataLocation || 'Default (next to application data)'}
+          </div>
+          <button class="secondary" onclick={handleChangeLibraryDataLocation}>Browse...</button>
+        </div>
+        <p class="help-text">
+          The folder where all metadata, images, and database files are stored. Changing this
+          requires an app restart to take effect (will happen automatically on save. TODO: it doesn't seem to restart).
+        </p>
       </div>
     {:else if activeTab === 'view'}
       <div class="form-group">

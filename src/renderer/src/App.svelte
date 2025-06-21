@@ -698,6 +698,15 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
+  async function handleOpenLibrary(): Promise<void> {
+    const path = await window.api.selectLibraryDirectory()
+    if (path) {
+      await window.api.saveSettings({ libraryLocation: path })
+      // Reload the entire application to apply the new library path
+      window.location.reload()
+    }
+  }
+
   async function handleDetailSearchItemClick(item: SearchIndexEntry) {
     const loadedItem = await getLoadedItem(item.id)
     if (!loadedItem) {
@@ -981,6 +990,7 @@
     suggestions={allAutocompleteSuggestions}
     {settings}
     on:scanLibrary={handleScan}
+    on:openLibrary={handleOpenLibrary}
     on:itemClick={(e) => handleItemClick(e.detail.item)}
     on:showContextMenu={(e) =>
       handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}

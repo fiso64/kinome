@@ -151,6 +151,8 @@ export interface Settings {
   useLogos?: boolean
   creditsDisplay?: 'shown' | 'collapsed' | 'hidden' | 'tab'
   virtualTags?: { name: string; expression: string }[]
+  libraryLocation: string // The path to the library data directory.
+  mediaSourcePath?: string
   // Global defaults for layout-specific properties
   defaultLayoutSettings: {
     grid: GridSettings
@@ -238,7 +240,6 @@ export type LibraryItem = MediaFile | MediaFolder
 
 export interface Database {
   version: number
-  mediaSourcePath: string | null
   root: MediaFolder | null
 }
 

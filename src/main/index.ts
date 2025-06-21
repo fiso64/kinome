@@ -1,14 +1,21 @@
-console.log(`[${new Date().toISOString()}] [Main] Main process entry point.`)
+// This MUST be the first import to ensure the library path is set before
+// any other module that depends on it is loaded.
+import './startup'
 
-import { app, shell, BrowserWindow, ipcMain, protocol } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   setupLibraryIpc,
   reapplyVirtualTagsAfterSettingsChange
 } from './library'
-import { getLibraryDataPath } from './paths'
-import { readSettings, writeSettings } from './settings'
+import { getLibraryDataPath, setLibraryDataPath } from './paths'
+import {
+  readSettings,
+  writeLibrarySettings,
+  writeGlobalSettings,
+  readGlobalSettings
+} from './settings'
 import type { Settings } from '../shared/types'
 
 function createWindow(): void {
@@ -62,21 +69,11 @@ app.whenReady().then(() => {
   console.log(`[${new Date().toISOString()}] [Main] App is ready.`)
 
   protocol.registerFileProtocol('media-browser-asset', (request, callback) => {
-    // The URL from the renderer now includes a cache-busting query parameter
-    // (e.g., "media-browser-asset://images/someid.jpg?v=12345").
-    // We need to strip this query string to find the actual file on disk.
-
-    // 1. Remove the protocol prefix.
     let pathString = request.url.substring('media-browser-asset://'.length)
-
-    // 2. Find the '?' that indicates the start of the query string.
     const queryIndex = pathString.indexOf('?')
     if (queryIndex !== -1) {
-      // 3. If a query string exists, slice the string to remove it.
       pathString = pathString.substring(0, queryIndex)
     }
-
-    // 4. Decode the path and resolve it to an absolute file path.
     const relativePath = decodeURIComponent(pathString)
     const absolutePath = resolvePath(getLibraryDataPath(), relativePath)
     callback({ path: absolutePath })
@@ -89,11 +86,8 @@ app.whenReady().then(() => {
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
-    // We replaced optimizer.watchWindowShortcuts(window) with this custom implementation
-    // to force the dev tools to open docked to the right.
     if (is.dev) {
       window.webContents.on('before-input-event', (event, input) => {
-        // F12 to open/close DevTools
         if (input.key === 'F12') {
           if (window.webContents.isDevToolsOpened()) {
             window.webContents.closeDevTools()
@@ -102,8 +96,6 @@ app.whenReady().then(() => {
           }
           event.preventDefault()
         }
-
-        // Ctrl+R or Cmd+R to reload
         if (input.control && input.key.toLowerCase() === 'r') {
           window.webContents.reload()
           event.preventDefault()
@@ -121,15 +113,33 @@ app.whenReady().then(() => {
 
   ipcMain.handle('save-settings', async (_, settingsToSave: Partial<Settings>) => {
     const oldSettings = await readSettings()
-    await writeSettings(settingsToSave)
+    const { libraryLocation, ...otherSettings } = settingsToSave
 
-    // After writing, read them back to get the fully merged new settings.
+    if (libraryLocation !== undefined && libraryLocation !== oldSettings.libraryLocation) {
+      await writeGlobalSettings({ libraryLocation })
+      setLibraryDataPath(libraryLocation)
+    }
+
+    if (Object.keys(otherSettings).length > 0) {
+      await writeLibrarySettings(otherSettings)
+    }
+
     const newSettings = await readSettings()
 
-    // Deep compare virtual tags to see if a re-evaluation is needed.
     if (JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettings.virtualTags)) {
       await reapplyVirtualTagsAfterSettingsChange()
     }
+  })
+
+  ipcMain.handle('select-library-directory', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return null
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openDirectory'],
+      title: 'Select Library Data Folder'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
   })
   // --- End Settings IPC Handlers ---
 
@@ -162,8 +172,6 @@ app.whenReady().then(() => {
   createWindow()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })

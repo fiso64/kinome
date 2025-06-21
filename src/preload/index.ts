@@ -78,6 +78,8 @@ const api = {
     ipcRenderer.invoke('rename-item', oldPath, newName),
   getItemProperties: (path: string): Promise<any | null> =>
     ipcRenderer.invoke('get-item-properties', path),
+  selectLibraryDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke('select-library-directory'),
 
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('get-settings'),
