@@ -665,7 +665,12 @@
     }
 
     if (isGlobalSearchActive && !selectedItemForDetailView) {
-      globalSearchQuery = { text: '', tags: [] }
+      if (lastDetailItem) {
+        // We came from a detail page. Restore it.
+        selectedItemForDetailView = lastDetailItem
+        lastDetailItem = null
+      }
+      globalSearchQuery = { text: '', tags: [] } // In all cases, clear search
       return
     }
 
@@ -711,6 +716,7 @@
   }
 
   function handleSearchByTag(key: string, value: string): void {
+    lastDetailItem = selectedItemForDetailView
     selectedItemForDetailView = null
     globalSearchQuery = { text: '', tags: [{ key, value }] }
   }
