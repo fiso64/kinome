@@ -4,7 +4,9 @@ import type {
   ResolvedViewSettings,
   StoredViewSettings,
   BaseViewSettings,
-  DefaultLayoutKey
+  DefaultLayoutKey,
+  ResolutionInfo,
+  ResolutionSource
 } from './types'
 import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
 
@@ -25,26 +27,31 @@ export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null,
   ignoreLayers: Set<DefaultLayoutKey> = new Set()
-): ResolvedViewSettings {
+): ResolutionInfo {
+  const fallbackSpecifics = Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG).reduce(
+    (acc, val) => ({ ...acc, ...val }),
+    {}
+  )
+
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
-    const fallbackSpecifics = Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG).reduce(
-      (acc, val) => ({ ...acc, ...val }),
-      {}
-    )
-    return {
-      layout: item?.layout ?? 'grid',
-      clickAction: item?.clickAction ?? 'detail',
-      ...fallbackSpecifics
+    const fallbackResolution: ResolutionInfo = {
+      settings: {
+        layout: item?.layout ?? 'grid',
+        clickAction: item?.clickAction ?? 'detail',
+        ...fallbackSpecifics
+      },
+      sources: {}
     }
+    return fallbackResolution
   }
 
   // 1. Determine the hierarchy of settings to check, from most to least specific.
-  const settingsCascade: StoredViewSettings[] = []
+  const cascadeLayers: { settings: StoredViewSettings; sourceInfo: ResolutionSource }[] = []
 
   // Add item-specific layer if it exists
   if (item) {
-    settingsCascade.push(item)
+    cascadeLayers.push({ settings: item, sourceInfo: { source: 'item' } })
   }
 
   // Add type-specific default layer if applicable and not ignored
@@ -54,19 +61,32 @@ export function resolveViewSettings(
     mediaTypeKey in settings.defaultLayouts &&
     !ignoreLayers.has(mediaTypeKey as DefaultLayoutKey)
   ) {
-    settingsCascade.push((settings.defaultLayouts as any)[mediaTypeKey])
+    cascadeLayers.push({
+      settings: (settings.defaultLayouts as any)[mediaTypeKey],
+      sourceInfo: { source: 'type', sourceKey: mediaTypeKey as DefaultLayoutKey }
+    })
   }
 
   // Add global default layer if not ignored
   if (!ignoreLayers.has('_default')) {
-    settingsCascade.push(settings.defaultLayouts._default)
+    cascadeLayers.push({
+      settings: settings.defaultLayouts._default,
+      sourceInfo: { source: 'global', sourceKey: '_default' }
+    })
   }
 
+  const resolvedSources: ResolutionInfo['sources'] = {}
+
   // 2. Resolve the base properties (`layout` and `clickAction`).
+  const layoutLayer = cascadeLayers.find((layer) => layer.settings.layout)
+  const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
+
   const resolvedBase: BaseViewSettings = {
-    layout: settingsCascade.find((s) => s.layout)?.layout ?? 'grid',
-    clickAction: settingsCascade.find((s) => s.clickAction)?.clickAction ?? 'detail'
+    layout: layoutLayer?.settings.layout ?? 'grid',
+    clickAction: clickActionLayer?.settings.clickAction ?? 'detail'
   }
+  if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
+  if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
 
   // 3. Get the list of layout-specific keys for the now-resolved layout.
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
@@ -76,19 +96,24 @@ export function resolveViewSettings(
   // 4. For each layout-specific key, resolve its value using the cascade.
   for (const key of specificKeys) {
     // Find the first settings object in the cascade that defines this key.
-    const winningLayer = settingsCascade.find((s: any) => s[key] != null)
+    const winningLayer = cascadeLayers.find((layer: any) => layer.settings[key] != null)
 
     if (winningLayer) {
-      resolvedSpecific[key] = (winningLayer as any)[key]
+      resolvedSpecific[key] = (winningLayer.settings as any)[key]
+      resolvedSources[key as keyof ResolvedViewSettings] = winningLayer.sourceInfo
     } else {
       // If no override is found, use the global default from `defaultLayoutSettings`.
       resolvedSpecific[key] = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
+      resolvedSources[key as keyof ResolvedViewSettings] = { source: 'global', sourceKey: '_default' }
     }
   }
 
   // 5. Combine and return the final, complete settings object.
   return {
-    ...resolvedBase,
-    ...resolvedSpecific
+    settings: {
+      ...resolvedBase,
+      ...resolvedSpecific
+    },
+    sources: resolvedSources
   }
 }

@@ -30,7 +30,9 @@
 
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
 
-  const contentsLayout = $derived(resolveViewSettings(item as MediaFolder, settings).layout)
+  const contentsLayout = $derived(
+    resolveViewSettings(item as MediaFolder, settings).settings.layout
+  )
 
   const showRegularContents = $derived(item.type === 'folder' && item.children.length > 0)
 

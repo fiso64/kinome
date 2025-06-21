@@ -1,7 +1,15 @@
 <script lang="ts">
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, ALL_VIEW_OVERRIDE_KEYS } from '../../../../shared/types'
-  import type { DefaultLayoutKey, ResolvedViewSettings } from '../../../../shared/types'
+  import {
+    LAYOUT_SPECIFIC_SETTINGS_CONFIG,
+    ALL_VIEW_OVERRIDE_KEYS,
+    DEFAULT_LAYOUTS_CONFIG
+  } from '../../../../shared/types'
+  import type {
+    DefaultLayoutKey,
+    ResolutionSource,
+    ResolutionInfo
+  } from '../../../../shared/types'
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
@@ -67,8 +75,8 @@
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
   let activeConfigLayout = $state(initialConfigLayout)
 
-  const inheritedSettingsByLayout = $derived.by(() => {
-    const map = new Map<string, ResolvedViewSettings>()
+  const inheritedInfoByLayout = $derived.by(() => {
+    const map = new Map<string, ResolutionInfo>()
 
     for (const layout of availableLayouts ?? []) {
       let baseItemForResolving: any
@@ -110,25 +118,27 @@
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
 
   // --- Grid Poster Size ---
+  const defaultGridResolution = $derived(inheritedInfoByLayout.get('grid'))
   const defaultGridSize = $derived(
-    inheritedSettingsByLayout.get('grid')?.gridPosterSize ??
+    defaultGridResolution?.settings.gridPosterSize ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
   const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
   const isGridSizeOverridden = $derived(gridPosterSize != null)
 
   // --- List Description Rows ---
+  const defaultDescriptionResolution = $derived(inheritedInfoByLayout.get('list'))
   const defaultDescriptionRows = $derived(
-    inheritedSettingsByLayout.get('list')?.listDescriptionRows ??
+    defaultDescriptionResolution?.settings.listDescriptionRows ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
   const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
   const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
 
   // --- Group By ---
+  const defaultGroupByResolution = $derived(inheritedInfoByLayout.get(layoutToShowOptionsFor))
   const defaultGroupBy = $derived(
-    inheritedSettingsByLayout.get(layoutToShowOptionsFor)?.groupBy ??
-      LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
+    defaultGroupByResolution?.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
   )
   const effectiveGroupBy = $derived(selectedGroupBy ?? defaultGroupBy)
   const isGroupByOverridden = $derived(selectedGroupBy != null)
@@ -142,6 +152,22 @@
       displayKey = key.substring(3)
     }
     return displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
+  }
+
+  function formatSource(sourceInfo: ResolutionSource | undefined): string {
+    if (!sourceInfo) return ''
+    switch (sourceInfo.source) {
+      case 'item':
+        return 'Item' // Should not happen for defaults, but for safety
+      case 'global':
+        return 'Global Default'
+      case 'type':
+        if (sourceInfo.sourceKey && DEFAULT_LAYOUTS_CONFIG[sourceInfo.sourceKey]) {
+          const label = DEFAULT_LAYOUTS_CONFIG[sourceInfo.sourceKey].label.replace(' View', '')
+          return `${label}`
+        }
+        return 'Type Default'
+    }
   }
 </script>
 
@@ -183,17 +209,21 @@
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Grid Poster Size</h4>
-      {#if isGridSizeOverridden && !configMode}
-        <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button
-        >
+      {#if !configMode}
+        {#if isGridSizeOverridden}
+          <button class="link-button" onclick={() => (gridPosterSize = null)}
+            >Reset to default</button
+          >
+        {:else}
+          <span class="inherited-value-text-inline">
+            Using default from <strong
+              >{formatSource(defaultGridResolution?.sources.gridPosterSize)}</strong>
+          </span>
+        {/if}
       {/if}
     </div>
     <p class="help-text">
-      {#if configMode}
-        Controls the default base width of posters in the grid view.
-      {:else}
-        Controls the base width of posters in the grid view. The current default is {defaultGridSize}px.
-      {/if}
+      Controls the {configMode ? 'default ' : ''}base width of posters in the grid view.
     </p>
     <div class="form-group">
       <div class="slider-container">
@@ -215,19 +245,21 @@
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Group By</h4>
-      {#if isGroupByOverridden && !configMode}
-        <button class="link-button" onclick={() => (selectedGroupBy = null)}
-          >Reset to default</button
-        >
+      {#if !configMode}
+        {#if isGroupByOverridden}
+          <button class="link-button" onclick={() => (selectedGroupBy = null)}
+            >Reset to default</button
+          >
+        {:else}
+          <span class="inherited-value-text-inline">
+            Using default from <strong
+              >{formatSource(defaultGroupByResolution?.sources.groupBy)}</strong>
+          </span>
+        {/if}
       {/if}
     </div>
     <p class="help-text">
-      {#if configMode}
-        Choose the default metadata field to group contents into {layoutToShowOptionsFor}.
-      {:else}
-        Choose a metadata field to group contents into {layoutToShowOptionsFor}. The current default
-        is "{formatKey(defaultGroupBy)}".
-      {/if}
+      Choose the {configMode ? 'default ' : ''}metadata field to group contents into {layoutToShowOptionsFor}.
     </p>
     <div class="form-group">
       <select bind:value={selectedGroupBy}>
@@ -245,19 +277,22 @@
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Description Rows</h4>
-      {#if isDescriptionRowsOverridden && !configMode}
-        <button class="link-button" onclick={() => (listDescriptionRows = null)}
-          >Reset to default</button
-        >
+      {#if !configMode}
+        {#if isDescriptionRowsOverridden}
+          <button class="link-button" onclick={() => (listDescriptionRows = null)}
+            >Reset to default</button
+          >
+        {:else}
+          <span class="inherited-value-text-inline">
+            Using default from <strong
+              >{formatSource(defaultDescriptionResolution?.sources.listDescriptionRows)}</strong>
+          </span>
+        {/if}
       {/if}
     </div>
     <p class="help-text">
-      {#if configMode}
-        Controls the default number of lines shown for the description in List view (0 to hide).
-      {:else}
-        Controls the number of lines shown for the description in List view. The current default is
-        {defaultDescriptionRows}.
-      {/if}
+      Controls the {configMode ? 'default ' : ''}number of lines shown for the description in List
+      view (0 to hide).
     </p>
     <div class="form-group">
       <div class="slider-container">
@@ -316,6 +351,18 @@
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
     margin-top: -0.75rem; /* Reduce space after a heading */
+  }
+
+  .inherited-value-text-inline {
+    font-size: 0.8rem; /* Match link-button */
+    color: var(--ev-c-text-2);
+    font-style: italic;
+    white-space: nowrap;
+  }
+  .inherited-value-text-inline strong {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--ev-c-text-1);
   }
 
   .layout-options {

@@ -80,6 +80,16 @@ export type StoredViewSettings = Partial<
  */
 export type ResolvedViewSettings = BaseViewSettings & Partial<LayoutSpecificSettings>
 
+export type ResolutionSource = {
+  source: 'item' | 'type' | 'global'
+  sourceKey?: DefaultLayoutKey
+}
+
+export interface ResolutionInfo {
+  settings: ResolvedViewSettings
+  sources: { [K in keyof ResolvedViewSettings]?: ResolutionSource }
+}
+
 /**
  * A single source of truth for the configurations of different default layout types.
  * This drives the UI in the settings modal and the default values in the main process.

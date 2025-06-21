@@ -50,7 +50,7 @@
 
   const { layout, groupBy, gridPosterSize, listDescriptionRows } = $derived.by(() => {
     // Resolve settings using the centralized helper function.
-    const resolved = resolveViewSettings(parentItem, settings)
+    const resolved = resolveViewSettings(parentItem, settings).settings
 
     // The `layoutProp` is a special, one-off override from a parent component (e.g., search results view).
     // It should take precedence over all other resolved layout settings.

@@ -108,7 +108,7 @@
   const canGoBack = $derived(isDetailViewActive || viewStack.length > 1 || isGlobalSearchActive)
 
   const currentFolderClickAction = $derived(
-    resolveViewSettings(currentFolder, settings).clickAction
+    resolveViewSettings(currentFolder, settings).settings.clickAction
   )
 
   const folderToConfigureLayout = $derived(
@@ -721,7 +721,7 @@
 
   function openLayoutSelector() {
     if (folderToConfigureLayout) {
-      const resolvedSettings = resolveViewSettings(folderToConfigureLayout, settings)
+      const resolvedSettings = resolveViewSettings(folderToConfigureLayout, settings).settings
       activeModal = {
         type: 'itemSettings',
         item: folderToConfigureLayout,
@@ -822,6 +822,7 @@
     onEditMetadata={() => {
       if (contextMenuItem) {
         const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
+          .settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem,
@@ -833,6 +834,7 @@
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
         const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
+          .settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem as MediaFolder,
@@ -844,6 +846,7 @@
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
         const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
+          .settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem as MediaFolder,
