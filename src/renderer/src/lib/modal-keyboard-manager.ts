@@ -15,9 +15,9 @@ function globalKeydownListener(event: KeyboardEvent) {
 
 // This check is to prevent errors during SSR or in non-browser environments.
 if (typeof window !== 'undefined') {
-  // Use `capture: true` to ensure this listener intercepts the event
-  // before it bubbles up to any other potential listeners on the window.
-  window.addEventListener('keydown', globalKeydownListener, { capture: true })
+  // Listen during the bubbling phase (default) so that child elements' keydown
+  // handlers (e.g., in TagInput) can run and call preventDefault() first.
+  window.addEventListener('keydown', globalKeydownListener)
 }
 
 /**

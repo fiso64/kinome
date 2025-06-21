@@ -556,12 +556,13 @@ function collectItemsToProcess(
 
 async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
-    return { mediaTypes: [], genres: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
+    return { mediaTypes: [], genres: [], persons: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
   }
 
   const allItems = getAllItemsAsList(db.root)
   const mediaTypes = new Set<string>()
   const genres = new Set<string>()
+  const persons = new Set<string>()
   const tagKeys = new Set<string>()
   const virtualTagKeys = new Set<string>()
   const tagValues: Record<string, Set<string>> = {}
@@ -574,6 +575,12 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
     // Collect genres
     if (item.genres) {
       item.genres.forEach((genre) => genres.add(genre.trim()))
+    }
+
+    // Collect persons from credits
+    if (item.tmdbCredits) {
+      ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
+      ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
     }
 
     // Collect custom tags
@@ -623,6 +630,7 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   return {
     mediaTypes: Array.from(mediaTypes).sort(),
     genres: Array.from(genres).sort(),
+    persons: Array.from(persons).sort(),
     tagKeys: Array.from(tagKeys).sort(),
     virtualTagKeys: Array.from(virtualTagKeys).sort(),
     tagValues: tagValuesAsArrays

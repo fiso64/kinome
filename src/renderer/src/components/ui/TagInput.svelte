@@ -78,7 +78,7 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault()
       addTagFromInput()
     } else if (e.key === 'Backspace' && currentInput === '' && tags.length > 0) {
@@ -123,9 +123,13 @@
     bind:value={currentInput}
     oninput={handleInput}
     onfocus={handleInput}
-    onblur={() => (autocomplete.show = false)}
+    onblur={() => {
+      addTagFromInput()
+      autocomplete.show = false
+    }}
     onkeydown={handleKeyDown}
     placeholder={tags.length === 0 ? 'e.g., favorite:true' : ''}
+    data-enter-pill="true"
   />
 </div>
 

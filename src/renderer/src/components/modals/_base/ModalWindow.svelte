@@ -29,32 +29,29 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      // Only handle Escape and Enter. Let all other keys (like letters, numbers, arrows)
-      // pass through to the input fields.
-      if (event.key !== 'Escape' && event.key !== 'Enter') {
+      // If a child component already handled the event, do nothing.
+      if (event.defaultPrevented) {
         return
       }
-
-      const target = event.target as HTMLElement
-
-      // Special case: allow Enter to create newlines in textareas.
-      if (event.key === 'Enter' && target.tagName === 'TEXTAREA') {
-        return
-      }
-
-      // Now that we're certain we want to handle the key, prevent default.
-      // This stops 'Enter' from submitting a form, for example.
-      event.preventDefault()
-      event.stopPropagation()
 
       if (event.key === 'Escape') {
+        // Escape should always close the modal.
+        event.preventDefault()
         onClose()
       } else if (onSave && event.key === 'Enter') {
-        // Do not trigger save if a button is the active element,
-        // allowing the button's own click handler to manage the action.
-        if (target.tagName !== 'BUTTON') {
-          onSave()
+        const target = event.target as HTMLElement
+        // Do not save the modal if 'Enter' is pressed in a textarea, a button,
+        // or an input specifically marked to handle Enter differently (e.g., to create a pill).
+        if (
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'BUTTON' ||
+          target.hasAttribute('data-enter-pill')
+        ) {
+          return
         }
+        // For all other cases (like simple text inputs), 'Enter' saves the modal.
+        event.preventDefault()
+        onSave()
       }
     }
 

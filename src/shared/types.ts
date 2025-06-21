@@ -245,6 +245,7 @@ export interface Database {
 export interface AutocompleteSuggestions {
   mediaTypes: string[]
   genres: string[]
+  persons: string[]
   tagKeys: string[]
   virtualTagKeys: string[]
   tagValues: Record<string, string[]>
@@ -257,6 +258,7 @@ export interface SearchIndexEntry {
   posterPath?: string | null
   overview?: string
   // We need all filterable properties
+  persons?: string[]
   mediaType?: 'movie' | 'tv' | 'season' | 'episode'
   year?: number
   genres?: string[]

@@ -33,6 +33,9 @@ function itemMatchesTags(item: DisplayableItem, tags: { key: string; value: stri
       case 'year':
         tagMatch = item.year?.toString() === tag.value
         break
+      case 'person':
+        tagMatch = item.persons?.some((p) => p.toLowerCase() === tagValue) ?? false
+        break
       default:
         // Check virtual tags first
         if (item.virtualTags && Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)) {

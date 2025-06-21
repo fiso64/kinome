@@ -69,6 +69,17 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
 
   // Handle special cases and computed properties.
   entry.title = item.title ?? item.name
+
+  // Extract person names from credits
+  if ('tmdbCredits' in item && item.tmdbCredits) {
+    const personNames = new Set<string>()
+    ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && personNames.add(p.name))
+    ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && personNames.add(p.name))
+    if (personNames.size > 0) {
+      entry.persons = Array.from(personNames)
+    }
+  }
+
   entry.staticScore = calculateStaticScore(item, parent)
 
   return entry as SearchIndexEntry

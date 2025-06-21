@@ -5,7 +5,7 @@
   // This constant centralizes the "special" keys that have their own suggestion lists.
   const SUGGESTION_KEYS = {
     // Keys that have dedicated suggestion arrays (not from user-defined tags)
-    special: ['mediaType', 'genre'],
+    special: ['mediaType', 'genre', 'person'],
     // All keys that can be used for autocompletion
     all: (suggestions: AutocompleteSuggestions) =>
       Array.from(
@@ -73,7 +73,8 @@
       // This map provides a clean, data-driven way to get suggestion sources.
       const sourceMap: Record<string, string[]> = {
         mediaType: suggestions.mediaTypes ?? [],
-        genre: suggestions.genres ?? []
+        genre: suggestions.genres ?? [],
+        person: suggestions.persons ?? []
       }
       const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
 

@@ -113,7 +113,7 @@
       updatedItem.mediaType = mediaType
       updatedItem.overview = overview
       updatedItem.genres = [...genres]
-      updatedItem.tags = tags.reduce((acc, tag) => {
+      updatedItem.tags = tags.reduce((acc: Record<string, string>, tag) => {
         if (tag.key) acc[tag.key] = tag.value
         return acc
       }, {})

@@ -91,9 +91,13 @@
     bind:value={currentGenreInput}
     oninput={handleInput}
     onfocus={handleInput}
-    onblur={() => (showAutocomplete = false)}
+    onblur={() => {
+      addGenreFromInput()
+      showAutocomplete = false
+    }}
     onkeydown={handleKeyDown}
     placeholder={genres.length === 0 ? 'e.g., Action, Sci-Fi' : ''}
+    data-enter-pill="true"
   />
 </div>
 
