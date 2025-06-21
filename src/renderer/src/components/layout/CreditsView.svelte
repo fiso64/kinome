@@ -5,55 +5,62 @@
     profile_path: string | null
     roles: string[]
     importance: number // Lower is more important
+    originalOrder: number // To preserve TMDB's sorting for actors
   }
 
   let { credits }: { credits: { cast: any[]; crew: any[] } } = $props()
 
-  const IMPORTANT_JOBS = ['Director', 'Screenplay', 'Writer']
+  const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
 
   const processedCredits = $derived.by(() => {
     if (!credits) return []
 
     const people = new Map<number, Person>()
 
-    // Helper to add a person or update their roles
-    function addOrUpdatePerson(personData: any, role: string, importance: number) {
+    // Helper to add a person or update their roles and importance
+    function addOrUpdatePerson(personData: any, role: string, importance: number, order: number) {
       if (!people.has(personData.id)) {
         people.set(personData.id, {
           id: personData.id,
           name: personData.name,
           profile_path: personData.profile_path,
           roles: [],
-          importance: Infinity // Default to least important
+          importance: Infinity, // Default to least important
+          originalOrder: Infinity
         })
       }
       const person = people.get(personData.id)!
       person.roles.push(role)
       // Update importance only if the new role is more important
-      person.importance = Math.min(person.importance, importance)
-    }
-
-    // Process crew
-    for (const crewMember of credits.crew) {
-      const jobIndex = IMPORTANT_JOBS.indexOf(crewMember.job)
-      if (jobIndex !== -1) {
-        // Importance based on order in IMPORTANT_JOBS array
-        addOrUpdatePerson(crewMember, crewMember.job, jobIndex)
+      if (importance < person.importance) {
+        person.importance = importance
+        person.originalOrder = order
       }
     }
 
-    // Process cast
+    // Process crew for important jobs first
+    credits.crew.forEach((crewMember, index) => {
+      const jobIndex = IMPORTANT_JOBS.indexOf(crewMember.job)
+      if (jobIndex !== -1) {
+        // Importance is based on the order in IMPORTANT_JOBS.
+        // The original order is just the index in the crew array.
+        addOrUpdatePerson(crewMember, crewMember.job, jobIndex, index)
+      }
+    })
+
+    // Process cast members
     for (const castMember of credits.cast) {
-      // All cast members have an importance of 100
-      addOrUpdatePerson(castMember, castMember.character, 100)
+      // Give all cast members an importance of 100.
+      // Their `originalOrder` comes from TMDB's `order` property.
+      addOrUpdatePerson(castMember, castMember.character, 100, castMember.order)
     }
 
-    // Sort by importance, then by name for tie-breaking
+    // Sort by importance (Director etc. first), then by original TMDB order
     return Array.from(people.values()).sort((a, b) => {
       if (a.importance !== b.importance) {
         return a.importance - b.importance
       }
-      return a.name.localeCompare(b.name)
+      return a.originalOrder - b.originalOrder
     })
   })
 
@@ -129,7 +136,7 @@
     overflow-y: visible; /* Fix #1: Allow vertical overflow to show pop-up */
     gap: 1.5rem;
     padding: 0.5rem;
-    padding-bottom: 1.5rem;
+    padding-bottom: 5rem;
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
