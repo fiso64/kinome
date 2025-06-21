@@ -738,6 +738,13 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
 
   await writeDb(db)
   console.log('[Metadata] Finished all fetching and saved final DB.')
+
+  // After all items are processed, regenerate suggestions which now include new people/genres.
+  const newSuggestions = await getAutocompleteSuggestions()
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+  })
+  console.log('[Metadata] Autocomplete suggestions have been updated and broadcasted.')
 }
 
 export async function reapplyVirtualTagsAfterSettingsChange() {

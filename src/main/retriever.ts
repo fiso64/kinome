@@ -152,25 +152,28 @@ export async function fetchAndApplyMetadata(
     )?.[0]
 
     if (result) {
+      // Step 1: Populate item with data from the search result.
       item.tmdbId = result.id
       item.mediaType = result.media_type ?? endpoint // Fallback to our guessed endpoint type
+
+      // TODO: Check if/how/when data gets truncated for TMDB search results vs detail results.
+      // For now, we are trusting the search result data to be sufficient for library browsing.
       item.title = result.title || result.name // 'title' for movie, 'name' for tv
       item.overview = result.overview
       if (item.type === 'file') {
         item.opensAsFolder = true
       }
-
       const date = result.release_date || result.first_air_date
       if (date) {
         item.year = new Date(date).getFullYear()
       }
-
       if (result.genre_ids && Array.isArray(result.genre_ids) && genreCache.size > 0) {
         item.genres = result.genre_ids
           .map((id: number) => genreCache.get(id))
           .filter((name): name is string => !!name)
       }
 
+      // Download the poster from the search result.
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
         const imagesDir = getImagesPath(libraryDataPath)
@@ -181,8 +184,14 @@ export async function fetchAndApplyMetadata(
           item.posterPath = posterFileName
         } catch {
           console.error(`Failed to download or save poster for item: ${item.name}`)
-          // Do not set item.posterPath if download fails
         }
+      }
+
+      // Make a dedicated request for credits.
+      // This is done during the scan so that cast & crew are immediately
+      // available in the search index for filtering.
+      if (item.mediaType === 'movie' || item.mediaType === 'tv') {
+        await fetchAndApplyCredits(item, tmdbApiKey)
       }
     } else {
       console.log(`No TMDB result found for "${query}" with endpoint "${endpoint}"`)
@@ -231,6 +240,132 @@ export async function refetchPoster(
   }
 }
 
+/**
+ * Processes a raw TMDB credits object and attaches a structured `tmdbCredits` object to the item.
+ * It handles both the simple format for movies and the complex "aggregate_credits" format for TV shows.
+ * @param item The library item to which credits will be applied.
+ * @param creditsData The raw credits object from the TMDB API.
+ */
+function applyCreditsToItem(item: LibraryItem, creditsData: any) {
+  const isTv = item.mediaType === 'tv'
+  // aggregate_credits (from the dedicated endpoint) has a `roles` array on cast members.
+  // The simple `credits` (from append_to_response) does not. This is our differentiator.
+  const isAggregated = isTv && creditsData.cast?.[0]?.roles
+
+  if (!isAggregated) {
+    // Simple case for movies or non-aggregated TV credits from `append_to_response`.
+    item.tmdbCredits = {
+      cast: creditsData.cast ?? [],
+      crew: creditsData.crew ?? []
+    }
+    return
+  }
+
+  // --- Start of complex TV aggregate credits logic ---
+  // This logic is specifically for the data from the /tv/{id}/aggregate_credits endpoint.
+
+  // Step 1: Unify roles and determine importance scores.
+  const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
+  const people = new Map<
+    number,
+    {
+      personData: any
+      actingScore: number
+      crewScore: number
+      characters: string[]
+      jobs: string[]
+    }
+  >()
+
+  // Helper to initialize or retrieve a person from the map.
+  const ensurePerson = (personId: number, initialData: any) => {
+    if (!people.has(personId)) {
+      people.set(personId, {
+        personData: initialData,
+        actingScore: Infinity,
+        crewScore: Infinity,
+        characters: [],
+        jobs: []
+      })
+    }
+    return people.get(personId)!
+  }
+
+  // Process cast members to get their best acting score.
+  ;(creditsData.cast ?? []).forEach((castMember: any) => {
+    const p = ensurePerson(castMember.id, castMember)
+    p.actingScore = Math.min(p.actingScore, castMember.order)
+    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
+  })
+
+  // Process crew members to get their best crew score.
+  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
+    let bestJobIndex = Infinity
+    const importantJobsForPerson: string[] = []
+
+    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
+      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+      if (index !== -1) {
+        bestJobIndex = Math.min(bestJobIndex, index)
+        importantJobsForPerson.push(jobInfo.job)
+      }
+    })
+
+    // Only add crew if they have an important job.
+    if (bestJobIndex !== Infinity) {
+      const p = ensurePerson(crewMember.id, crewMember)
+      p.crewScore = Math.min(p.crewScore, bestJobIndex)
+      p.jobs.push(...importantJobsForPerson)
+      p.personData = { ...p.personData, ...crewMember }
+    }
+  })
+
+  // Step 2: Determine primary role ("The Cranston Rule") and categorize.
+  const finalCast: any[] = []
+  const finalCrew: any[] = []
+
+  people.forEach((p) => {
+    const isPrimarilyActor = p.actingScore <= 15 || p.actingScore < p.crewScore
+
+    if (isPrimarilyActor) {
+      finalCast.push({
+        ...p.personData,
+        // Synthesize a character string from all their acting roles.
+        character: [...new Set(p.characters)].join(' / '),
+        // Use the best acting score for sorting.
+        order: p.actingScore
+      })
+    } else {
+      finalCrew.push({
+        ...p.personData,
+        // Synthesize a job string from all their important crew roles.
+        job: [...new Set(p.jobs)].join(' / '),
+        // Use the best crew score for sorting.
+        order: p.crewScore
+      })
+    }
+  })
+
+  // Step 3: Sort the final lists for display.
+  finalCast.sort((a, b) => a.order - b.order)
+  finalCrew.sort((a, b) => {
+    // Primary sort: by job importance (lower is better)
+    if (a.order !== b.order) {
+      return a.order - b.order
+    }
+    // Secondary sort: people with images first
+    const aHasImage = !!a.profile_path
+    const bHasImage = !!b.profile_path
+    if (aHasImage !== bHasImage) {
+      return aHasImage ? -1 : 1
+    }
+    return 0
+  })
+
+  item.tmdbCredits = { cast: finalCast, crew: finalCrew }
+}
+
 import type { Settings } from '../shared/types'
 
 export async function fetchAndApplyCredits(
@@ -258,115 +393,7 @@ export async function fetchAndApplyCredits(
       throw new Error(`TMDB credits fetch failed: ${response.statusText}`)
     }
     const credits = await response.json()
-
-    if (isTv) {
-      // Step 1: Unify roles and determine importance scores.
-      const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
-      const people = new Map<
-        number,
-        {
-          personData: any
-          actingScore: number
-          crewScore: number
-          characters: string[]
-          jobs: string[]
-        }
-      >()
-
-      // Helper to initialize or retrieve a person from the map.
-      const ensurePerson = (personId: number, initialData: any) => {
-        if (!people.has(personId)) {
-          people.set(personId, {
-            personData: initialData,
-            actingScore: Infinity,
-            crewScore: Infinity,
-            characters: [],
-            jobs: []
-          })
-        }
-        return people.get(personId)!
-      }
-
-      // Process cast members to get their best acting score.
-      ;(credits.cast ?? []).forEach((castMember: any) => {
-        const p = ensurePerson(castMember.id, castMember)
-        p.actingScore = Math.min(p.actingScore, castMember.order)
-        p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-        p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-      })
-
-      // Process crew members to get their best crew score.
-      ;(credits.crew ?? []).forEach((crewMember: any) => {
-        let bestJobIndex = Infinity
-        const importantJobsForPerson: string[] = []
-
-        ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
-          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-          if (index !== -1) {
-            bestJobIndex = Math.min(bestJobIndex, index)
-            importantJobsForPerson.push(jobInfo.job)
-          }
-        })
-
-        // Only add crew if they have an important job.
-        if (bestJobIndex !== Infinity) {
-          const p = ensurePerson(crewMember.id, crewMember)
-          p.crewScore = Math.min(p.crewScore, bestJobIndex)
-          p.jobs.push(...importantJobsForPerson)
-          p.personData = { ...p.personData, ...crewMember }
-        }
-      })
-
-      // Step 2: Determine primary role ("The Cranston Rule") and categorize.
-      const finalCast: any[] = []
-      const finalCrew: any[] = []
-
-      people.forEach((p) => {
-        const isPrimarilyActor = p.actingScore <= 15 || p.actingScore < p.crewScore
-
-        if (isPrimarilyActor) {
-          finalCast.push({
-            ...p.personData,
-            // Synthesize a character string from all their acting roles.
-            character: [...new Set(p.characters)].join(' / '),
-            // Use the best acting score for sorting.
-            order: p.actingScore
-          })
-        } else {
-          finalCrew.push({
-            ...p.personData,
-            // Synthesize a job string from all their important crew roles.
-            job: [...new Set(p.jobs)].join(' / '),
-            // Use the best crew score for sorting.
-            order: p.crewScore
-          })
-        }
-      })
-
-      // Step 3: Sort the final lists for display.
-      finalCast.sort((a, b) => a.order - b.order)
-      finalCrew.sort((a, b) => {
-        // Primary sort: by job importance (lower is better)
-        if (a.order !== b.order) {
-          return a.order - b.order
-        }
-        // Secondary sort: people with images first
-        const aHasImage = !!a.profile_path
-        const bHasImage = !!b.profile_path
-        if (aHasImage !== bHasImage) {
-          return aHasImage ? -1 : 1
-        }
-        return 0
-      })
-
-      item.tmdbCredits = { cast: finalCast, crew: finalCrew }
-    } else {
-      // For movies, the 'credits' endpoint structure is already what we need.
-      item.tmdbCredits = {
-        cast: credits.cast ?? [],
-        crew: credits.crew ?? []
-      }
-    }
+    applyCreditsToItem(item, credits)
   } catch (error) {
     console.error(`Error fetching credits for "${item.name}":`, error)
     // Don't mark as fetched on error, so it can be retried.
