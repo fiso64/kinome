@@ -218,7 +218,8 @@
     position: absolute;
     top: calc(100px * 3 / 2 + 0.5rem);
     left: 50%;
-    width: 180px;
+    width: max-content; /* Let content define width */
+    max-width: 350px; /* But not ridiculously wide */
 
     background: var(--color-background);
     padding: 0.75rem;
@@ -255,8 +256,9 @@
     white-space: normal; /* Allow wrapping */
   }
 
-  /* Only clamp lines on the static version */
-  .credit-info.static .person-roles {
+  /* Clamp lines on both static and popup versions */
+  .credit-info.static .person-roles,
+  .credit-info.popup .person-roles {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
