@@ -1,6 +1,6 @@
 <script lang="ts">
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../../../shared/types'
+  import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, ALL_VIEW_OVERRIDE_KEYS } from '../../../../shared/types'
   import type { DefaultLayoutKey, ResolvedViewSettings } from '../../../../shared/types'
 
   const layouts = [
@@ -69,15 +69,34 @@
 
   const inheritedSettingsByLayout = $derived.by(() => {
     const map = new Map<string, ResolvedViewSettings>()
-    // For item settings, there's no layer to ignore. For type-defaults, we ignore that type's layer.
-    const layersToIgnore = typeKey ? new Set([typeKey]) : new Set()
 
     for (const layout of availableLayouts ?? []) {
+      let baseItemForResolving: any
+      const layersToIgnore = new Set<DefaultLayoutKey>()
+
+      if (item) {
+        // We are editing a specific item. To get its "inherited" default, we
+        // create a copy of the item but without any of its view-related overrides.
+        baseItemForResolving = { ...item }
+        for (const key of ALL_VIEW_OVERRIDE_KEYS) {
+          delete baseItemForResolving[key]
+        }
+      } else if (typeKey) {
+        // We are editing a type-level default. The "inherited" default is from
+        // the global layer. We achieve this by telling the resolver to ignore
+        // the current type's layer.
+        baseItemForResolving = {} // Not needed, but good for clarity.
+        layersToIgnore.add(typeKey)
+      } else {
+        // Config mode. We are resolving against the base defaults.
+        baseItemForResolving = {}
+      }
+
       // Create a dummy item that has the base properties of the real item or type,
       // plus the layout we want to resolve for. This forces the resolver to calculate
       // the specific properties for that layout (e.g., listDescriptionRows for 'list').
       const dummyItem = {
-        ...(item ?? {}),
+        ...baseItemForResolving,
         type: 'folder',
         mediaType: item?.mediaType ?? typeKey,
         layout
