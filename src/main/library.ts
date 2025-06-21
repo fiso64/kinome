@@ -1143,7 +1143,15 @@ export function setupLibraryIpc(): void {
       ;(async () => {
         try {
           const settings = await readSettings()
-          if (!settings.tmdbApiKey) return
+          if (!settings.tmdbApiKey || settings.creditsDisplay === 'hidden') {
+            // If the setting is 'hidden', we don't fetch credits.
+            // Mark as fetched to prevent re-tries on subsequent detail views.
+            if (settings.creditsDisplay === 'hidden') {
+              item.tmdbCreditsFetched = true
+              await writeDb(db!)
+            }
+            return
+          }
 
           await fetchAndApplyCredits(item, settings.tmdbApiKey)
 

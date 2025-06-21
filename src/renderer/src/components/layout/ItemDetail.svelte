@@ -17,7 +17,7 @@
     settings: Settings
   } = $props()
 
-  let isCreditsExpanded = $state(false)
+  let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
 
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
@@ -168,9 +168,12 @@
       </div>
     {/if}
 
-    {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+    {#if settings?.creditsDisplay !== 'hidden' && item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
       <div class="collapsible-section">
-        <button class="section-title-button" onclick={() => (isCreditsExpanded = !isCreditsExpanded)}>
+        <button
+          class="section-title-button"
+          onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
+        >
           <h2 class="section-title">Cast & Crew</h2>
           <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
         </button>

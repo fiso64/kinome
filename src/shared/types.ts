@@ -149,6 +149,7 @@ export interface Settings {
   playerCommand: string
   tmdbApiKey: string
   useLogos?: boolean
+  creditsDisplay?: 'shown' | 'collapsed' | 'hidden'
   virtualTags?: { name: string; expression: string }[]
   // Global defaults for layout-specific properties
   defaultLayoutSettings: {

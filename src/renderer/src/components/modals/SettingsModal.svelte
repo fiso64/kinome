@@ -22,6 +22,7 @@
   let playerCommand = $state('')
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
+  let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden'>('collapsed')
   let libraryPath = $state('')
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
@@ -105,6 +106,7 @@
       playerCommand = settings.playerCommand ?? ''
       tmdbApiKey = settings.tmdbApiKey ?? ''
       useLogos = settings.useLogos ?? true
+      creditsDisplay = settings.creditsDisplay ?? 'collapsed'
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
 
       // Set new view settings
@@ -223,6 +225,7 @@
       playerCommand,
       tmdbApiKey,
       useLogos,
+      creditsDisplay,
       virtualTags: tagsToSave,
       // New structured settings
       defaultLayoutSettings: defaultLayoutSettings
@@ -327,6 +330,15 @@
         <p class="help-text">
           When enabled, a high-quality logo will be displayed on detail pages if available.
         </p>
+      </div>
+      <div class="form-group">
+        <label for="credits-display">Cast & Crew Section</label>
+        <select id="credits-display" bind:value={creditsDisplay}>
+          <option value="shown">Show Expanded</option>
+          <option value="collapsed">Show Collapsed</option>
+          <option value="hidden">Do Not Show or Fetch</option>
+        </select>
+        <p class="help-text">Controls the default visibility of the credits section.</p>
       </div>
       <div class="form-group">
         <label>Default Layout Values</label>

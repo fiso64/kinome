@@ -15,6 +15,7 @@ async function readRawSettings(): Promise<Settings> {
     playerCommand: 'mpv {PATH}',
     tmdbApiKey: '',
     useLogos: true,
+    creditsDisplay: 'collapsed',
     virtualTags: [],
     defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
     defaultLayouts: {
