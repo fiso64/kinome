@@ -1,59 +1,26 @@
 <script lang="ts">
+  import { autocompleteState } from '../../lib/autocomplete-manager'
+
   let {
     suggestions,
     position,
     onSelect,
-    onClose
+    onClose,
+    activeIndex
   }: {
     suggestions: string[]
     position: { top: number; left: number }
     onSelect: (suggestion: string) => void
     onClose: () => void
+    activeIndex: number
   } = $props()
 
-  let activeIndex = $state(0)
   let menuElement: HTMLDivElement
 
-  // Use an effect to reset active index when suggestions change
   $effect(() => {
-    // By reading `suggestions` here, we create a dependency.
-    // This effect will now re-run whenever the suggestions array changes.
-    void suggestions
-    activeIndex = 0
-  })
-
-  $effect(() => {
-    const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        event.stopPropagation()
-        activeIndex = (activeIndex + 1) % suggestions.length
-        menuElement
-          .querySelector('.active')
-          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        event.stopPropagation()
-        activeIndex = (activeIndex - 1 + suggestions.length) % suggestions.length
-        menuElement
-          .querySelector('.active')
-          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-      } else if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault()
-        event.stopPropagation()
-        onSelect(suggestions[activeIndex])
-      } else if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-      }
-    }
-
-    // Use capture to preempt default behaviors like Tab
-    window.addEventListener('keydown', handleKeydown, { capture: true })
-
-    return () => {
-      window.removeEventListener('keydown', handleKeydown, { capture: true })
+    // When the active index changes, scroll the active item into view.
+    if (menuElement) {
+      menuElement.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     }
   })
 </script>
@@ -69,7 +36,7 @@
       class="suggestion-item"
       class:active={i === activeIndex}
       onclick={() => onSelect(suggestion)}
-      onmouseenter={() => (activeIndex = i)}
+      onmouseenter={() => autocompleteState.update((s) => ({ ...s, activeIndex: i }))}
     >
       {suggestion}
     </button>
@@ -78,7 +45,7 @@
 
 <style>
   .autocomplete-menu {
-    position: absolute;
+    position: fixed;
     background-color: var(--ev-c-black-soft);
     border: 1px solid var(--ev-c-black-mute);
     border-radius: 6px;

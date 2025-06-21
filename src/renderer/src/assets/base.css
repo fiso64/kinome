@@ -170,3 +170,12 @@ img {
   -webkit-user-drag: none;
   user-select: none;
 }
+
+/* For autocomplete caret positioning */
+.autocomplete-text-mirror {
+  position: absolute;
+  visibility: hidden;
+  height: 0;
+  white-space: pre;
+  pointer-events: none;
+}

@@ -1,21 +1,17 @@
 <script lang="ts">
-  import AutocompleteMenu from './AutocompleteMenu.svelte'
+  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
 
   let { genres = $bindable(), suggestions }: { genres: string[]; suggestions: string[] } = $props()
 
   let currentGenreInput = $state('')
   let genreInputElement: HTMLInputElement
-  let showAutocomplete = $state(false)
-  let autocompleteSuggestions = $state<string[]>([])
-  let autocompletePosition = $state({ top: 0, left: 0 })
 
-  function addGenreFromInput() {
-    const newGenre = currentGenreInput.trim()
-    if (newGenre && !genres.includes(newGenre)) {
-      genres = [...genres, newGenre]
+  function addGenre(newGenre: string) {
+    const trimmed = newGenre.trim()
+    if (trimmed && !genres.includes(trimmed)) {
+      genres = [...genres, trimmed]
     }
     currentGenreInput = ''
-    handleInput()
   }
 
   function removeGenre(index: number) {
@@ -26,46 +22,24 @@
   function handleKeyDown(event: KeyboardEvent) {
     if (event.key === 'Enter' || event.key === ',') {
       event.preventDefault()
-      addGenreFromInput()
+      addGenre(currentGenreInput)
     } else if (event.key === 'Backspace' && currentGenreInput === '' && genres.length > 0) {
       event.preventDefault()
-      genres.pop()
-      genres = genres
+      removeGenre(genres.length - 1)
     }
   }
 
-  function handleInput() {
-    const currentTerm = currentGenreInput.trim()
-    const filtered = suggestions.filter((s) =>
-      s.toLowerCase().startsWith(currentTerm.toLowerCase())
-    )
-
-    if (filtered.length > 0) {
-      autocompleteSuggestions = filtered
-      const inputRect = genreInputElement.getBoundingClientRect()
-      // The menu is now positioned relative to the transformed modal window
-      const modalWindow = genreInputElement.closest('.modal-window')
-      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
-
-      autocompletePosition = {
-        top: inputRect.bottom - modalRect.top + 4,
-        left: inputRect.left - modalRect.left
-      }
-      showAutocomplete = true
-    } else {
-      showAutocomplete = false
-    }
-  }
-
-  function handleAutocompleteSelect(suggestion: string) {
-    if (!genres.includes(suggestion)) {
-      genres = [...genres, suggestion]
-    }
-    currentGenreInput = ''
-    queueMicrotask(() => {
-      genreInputElement.focus()
-      handleInput()
-    })
+  const autocompleteConfig: AutocompleteConfig = {
+    getSuggestions: (text) => {
+      const currentTerm = text.trim()
+      if (!currentTerm) return suggestions // Show all on focus
+      return suggestions.filter((s) => s.toLowerCase().startsWith(currentTerm.toLowerCase()))
+    },
+    onSelect: (suggestion, node) => {
+      addGenre(suggestion)
+      queueMicrotask(() => node.focus())
+    },
+    triggerOnFocus: true
   }
 </script>
 
@@ -77,7 +51,7 @@
         type="button"
         class="remove-pill"
         onclick={(e) => {
-          e.stopPropagation() // prevent container click
+          e.stopPropagation()
           removeGenre(i)
         }}>&times;</button
       >
@@ -89,26 +63,13 @@
     class="pills-input-field"
     bind:this={genreInputElement}
     bind:value={currentGenreInput}
-    oninput={handleInput}
-    onfocus={handleInput}
-    onblur={() => {
-      addGenreFromInput()
-      showAutocomplete = false
-    }}
+    use:autocomplete={autocompleteConfig}
     onkeydown={handleKeyDown}
+    onblur={() => addGenre(currentGenreInput)}
     placeholder={genres.length === 0 ? 'e.g., Action, Sci-Fi' : ''}
     data-enter-pill="true"
   />
 </div>
-
-{#if showAutocomplete}
-  <AutocompleteMenu
-    suggestions={autocompleteSuggestions}
-    position={autocompletePosition}
-    onSelect={handleAutocompleteSelect}
-    onClose={() => (showAutocomplete = false)}
-  />
-{/if}
 
 <style>
   /* --- Pills Input --- */

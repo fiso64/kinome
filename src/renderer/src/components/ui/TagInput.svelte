@@ -1,6 +1,5 @@
 <script lang="ts">
-  import AutocompleteMenu from './AutocompleteMenu.svelte'
-  // Types are globally available
+  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
 
   type Tag = { id: string; key: string; value: string }
 
@@ -10,77 +9,24 @@
   let currentInput = $state('')
   let inputElement: HTMLInputElement
 
-  let autocomplete = $state<{
-    show: boolean
-    suggestions: string[]
-    position: { top: number; left: number }
-    type: 'key' | 'value'
-    activeKey: string
-  }>({
-    show: false,
-    suggestions: [],
-    position: { top: 0, left: 0 },
-    type: 'key',
-    activeKey: ''
-  })
-
-  function addTagFromInput() {
-    const [key, ...valueParts] = currentInput.split(':')
-    const value = valueParts.join(':').trim()
-    if (key.trim() && value) {
-      tags = [...tags, { id: crypto.randomUUID(), key: key.trim(), value }]
+  function addTag(key: string, value: string) {
+    const trimmedKey = key.trim()
+    const trimmedValue = value.trim()
+    if (trimmedKey && trimmedValue) {
+      tags = [...tags, { id: crypto.randomUUID(), key: trimmedKey, value: trimmedValue }]
     }
     currentInput = ''
-    handleInput()
   }
 
   function removeTag(id: string) {
     tags = tags.filter((t) => t.id !== id)
   }
 
-  function handleInput() {
-    const colonIndex = currentInput.indexOf(':')
-
-    if (colonIndex === -1) {
-      // Key context
-      const key = currentInput.trim()
-      const allKeys = suggestions.tagKeys
-      autocomplete.suggestions = allKeys.filter((s) =>
-        s.toLowerCase().startsWith(key.toLowerCase())
-      )
-      autocomplete.type = 'key'
-    } else {
-      // Value context
-      const key = currentInput.substring(0, colonIndex).trim()
-      const value = currentInput.substring(colonIndex + 1).trimStart()
-      const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
-
-      autocomplete.suggestions = source.filter((s) =>
-        s.toLowerCase().startsWith(value.toLowerCase())
-      )
-      autocomplete.type = 'value'
-      autocomplete.activeKey = key
-    }
-
-    if (autocomplete.suggestions.length > 0) {
-      const inputRect = inputElement.getBoundingClientRect()
-      const modalWindow = inputElement.closest('.modal-window')
-      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
-
-      autocomplete.position = {
-        top: inputRect.bottom - modalRect.top + 4,
-        left: inputRect.left - modalRect.left
-      }
-      autocomplete.show = true
-    } else {
-      autocomplete.show = false
-    }
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault()
-      addTagFromInput()
+      const [key, ...valueParts] = currentInput.split(':')
+      addTag(key, valueParts.join(':'))
     } else if (e.key === 'Backspace' && currentInput === '' && tags.length > 0) {
       e.preventDefault()
       const lastTag = tags[tags.length - 1]
@@ -89,15 +35,39 @@
     }
   }
 
-  function handleAutocompleteSelect(suggestion: string) {
-    if (autocomplete.type === 'key') {
-      currentInput = `${suggestion}:`
-      handleInput()
-    } else if (autocomplete.type === 'value') {
-      currentInput = `${autocomplete.activeKey}:${suggestion}`
-      addTagFromInput()
-    }
-    inputElement.focus()
+  const autocompleteConfig: AutocompleteConfig = {
+    getSuggestions: (text) => {
+      const colonIndex = text.indexOf(':')
+
+      if (colonIndex === -1) {
+        // Key context
+        const key = text.trim()
+        const allKeys = suggestions.tagKeys ?? []
+        if (!key) return allKeys
+        return allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
+      } else {
+        // Value context
+        const key = text.substring(0, colonIndex).trim()
+        const value = text.substring(colonIndex + 1).trimStart()
+        const source = key === 'genre' ? suggestions.genres : suggestions.tagValues[key] ?? []
+        return source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
+      }
+    },
+    onSelect: (suggestion, node) => {
+      const text = node.value
+      const colonIndex = text.indexOf(':')
+
+      if (colonIndex === -1) {
+        // Key selected
+        currentInput = `${suggestion}:`
+      } else {
+        // Value selected
+        const key = text.substring(0, colonIndex).trim()
+        addTag(key, suggestion)
+      }
+      queueMicrotask(() => node.focus())
+    },
+    triggerOnFocus: true
   }
 </script>
 
@@ -110,7 +80,7 @@
         type="button"
         class="remove-pill"
         onclick={(e) => {
-          e.stopPropagation() // prevent container click
+          e.stopPropagation()
           removeTag(tag.id)
         }}>&times;</button
       >
@@ -121,26 +91,16 @@
     class="pills-input-field"
     bind:this={inputElement}
     bind:value={currentInput}
-    oninput={handleInput}
-    onfocus={handleInput}
-    onblur={() => {
-      addTagFromInput()
-      autocomplete.show = false
-    }}
+    use:autocomplete={autocompleteConfig}
     onkeydown={handleKeyDown}
+    onblur={() => {
+      const [key, ...valueParts] = currentInput.split(':')
+      addTag(key, valueParts.join(':'))
+    }}
     placeholder={tags.length === 0 ? 'e.g., favorite:true' : ''}
     data-enter-pill="true"
   />
 </div>
-
-{#if autocomplete.show}
-  <AutocompleteMenu
-    suggestions={autocomplete.suggestions}
-    position={autocomplete.position}
-    onSelect={handleAutocompleteSelect}
-    onClose={() => (autocomplete.show = false)}
-  />
-{/if}
 
 <style>
   /* --- Pills Input --- */

@@ -1,12 +1,13 @@
 <script lang="ts">
-  import AutocompleteMenu from './AutocompleteMenu.svelte'
-  // Types are available globally
+  import {
+    autocomplete,
+    type AutocompleteConfig,
+    autocompleteState
+  } from '../../lib/autocomplete-manager'
 
   // This constant centralizes the "special" keys that have their own suggestion lists.
   const SUGGESTION_KEYS = {
-    // Keys that have dedicated suggestion arrays (not from user-defined tags)
     special: ['mediaType', 'genre', 'person'],
-    // All keys that can be used for autocompletion
     all: (suggestions: AutocompleteSuggestions) =>
       Array.from(
         new Set([
@@ -18,7 +19,7 @@
       )
   }
 
-let {
+  let {
     query = $bindable({ text: '', tags: [] }),
     suggestions,
     element = $bindable()
@@ -28,33 +29,15 @@ let {
     element?: HTMLInputElement
   } = $props()
 
-  let textMirror: HTMLSpanElement | undefined = $state()
-
-  let autocomplete = $state<{
-    show: boolean
-    suggestions: string[]
-    position: { top: number; left: number }
-    type: 'key' | 'value' | null
-    activeKey: string
-  }>({
-    show: false,
-    suggestions: [],
-    position: { top: 0, left: 0 },
-    type: null,
-    activeKey: ''
-  })
-
   function addPill(key: string, value: string) {
     if (key && value) {
       query.tags.push({ key, value })
       query.tags = query.tags // Trigger reactivity
 
-      // Find the tag pattern at the end of the text and remove it, preserving what came before.
       const genericTagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
       if (genericTagMatch) {
         query.text = query.text.substring(0, genericTagMatch.index).trim()
       } else {
-        // Fallback if the text somehow doesn't match the pattern that triggered `addPill`.
         query.text = ''
       }
     }
@@ -62,83 +45,17 @@ let {
 
   function removePill(index: number) {
     query.tags.splice(index, 1)
-    query.tags = query.tags // Trigger reactivity
-  }
-
-  function handleInput() {
-    // A pill is now committed on Enter, not on space. See handleKeyDown.
-
-    // --- Autocomplete logic ---
-    // The regexes now support '.' and '-' in tag keys for virtual/custom tags.
-    const keyMatch = query.text.match(/:([a-zA-Z0-9_.-]*)$/)
-    const valueMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
-
-    if (valueMatch) {
-      const key = valueMatch[1]
-      const value = valueMatch[2]
-      // This map provides a clean, data-driven way to get suggestion sources.
-      const sourceMap: Record<string, string[]> = {
-        mediaType: suggestions.mediaTypes ?? [],
-        genre: suggestions.genres ?? [],
-        person: suggestions.persons ?? []
-      }
-      const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
-
-      autocomplete.suggestions = source.filter((s) =>
-        s.toLowerCase().startsWith(value.toLowerCase())
-      )
-      autocomplete.type = 'value'
-      autocomplete.activeKey = key
-    } else if (keyMatch) {
-      const key = keyMatch[1]
-      // Use the centralized constant to get all possible suggestion keys.
-      const allKeys = SUGGESTION_KEYS.all(suggestions)
-      autocomplete.suggestions = allKeys.filter((s) =>
-        s.toLowerCase().startsWith(key.toLowerCase())
-      )
-      autocomplete.type = 'key'
-    } else {
-      autocomplete.suggestions = []
-    }
-
-    if (autocomplete.suggestions.length > 0) {
-      const searchBox = element?.closest('.search-box')
-      if (searchBox && textMirror && element) {
-        // The prefix is the text inside the input up to the current cursor position.
-        const prefix = element.value.substring(0, element.selectionStart ?? 0)
-        textMirror.textContent = prefix
-
-        const inputRect = element.getBoundingClientRect()
-        const mirrorRect = textMirror.getBoundingClientRect()
-        const searchBoxRect = searchBox.getBoundingClientRect()
-
-        // The menu's left position is the input's left offset plus the width of the mirrored prefix text.
-        const leftPos = inputRect.left - searchBoxRect.left + mirrorRect.width
-
-        autocomplete.position = { top: searchBoxRect.height + 4, left: leftPos }
-        autocomplete.show = true
-      }
-    } else {
-      autocomplete.show = false
-    }
+    query.tags = query.tags
   }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Backspace' && query.text === '' && query.tags.length > 0) {
-      query.tags.pop()
-      query.tags = query.tags // Trigger reactivity
-      return // Prevent other actions on backspace
+      removePill(query.tags.length - 1)
+      return
     }
 
     if (e.key === 'Enter') {
-      // Don't commit if autocomplete is visible and handling it
-      if (autocomplete.show) return
-
-      // Regex to match a completed tag like ':key:value' at the end of the text.
-      // It allows dots and hyphens in the key.
       const tagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
-
-      // Only commit if there is a non-empty value part
       if (tagMatch && tagMatch[2].trim() !== '') {
         e.preventDefault()
         addPill(tagMatch[1], tagMatch[2].trim())
@@ -146,37 +63,55 @@ let {
     }
   }
 
-  function handleAutocompleteSelect(suggestion: string) {
-    if (autocomplete.type === 'key') {
-      const keyMatch = query.text.match(/:([a-zA-Z0-9_.-]*)$/)
-      if (keyMatch) {
-        const textBefore = query.text.substring(0, keyMatch.index)
-        query.text = `${textBefore}:${suggestion}:`
-      } else {
-        // This fallback is probably not needed, but good to have
-        query.text = `:${suggestion}:`
-      }
-      // Defer handleInput until after the DOM has updated with the new text.
-      // This ensures the menu position is calculated based on the new cursor position.
-      queueMicrotask(() => {
-        if (element) {
-          // Manually move the cursor to the end of the input.
-          element.selectionStart = element.selectionEnd = query.text.length
+  const autocompleteConfig: AutocompleteConfig = {
+    getSuggestions: (text, cursorPos) => {
+      const textUpToCursor = text.substring(0, cursorPos)
+      const keyMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]*)$/)
+      const valueMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+
+      if (valueMatch) {
+        const key = valueMatch[1]
+        const value = valueMatch[2]
+        const sourceMap: Record<string, string[]> = {
+          mediaType: suggestions.mediaTypes ?? [],
+          genre: suggestions.genres ?? [],
+          person: suggestions.persons ?? []
         }
-        handleInput()
-      })
-    } else if (autocomplete.type === 'value') {
-      addPill(autocomplete.activeKey, suggestion)
-      autocomplete.show = false
+        const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
+        return source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
+      } else if (keyMatch) {
+        const key = keyMatch[1]
+        const allKeys = SUGGESTION_KEYS.all(suggestions)
+        return allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
+      }
+      return []
+    },
+    onSelect: (suggestion, node) => {
+      const textUpToCursor = node.value.substring(0, node.selectionStart ?? 0)
+      const keyMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]*)$/)
+      const valueMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+
+      if (valueMatch) {
+        // Value selected
+        addPill(valueMatch[1], suggestion)
+        // Hide menu after pill is added, as the text is now gone.
+        autocompleteState.update((s) => ({ ...s, show: false }))
+      } else if (keyMatch) {
+        // Key selected
+        const textBefore = node.value.substring(0, keyMatch.index)
+        const textAfter = node.value.substring(node.selectionStart ?? 0)
+        query.text = `${textBefore}:${suggestion}:${textAfter}`
+        queueMicrotask(() => {
+          const newCursorPos = (textBefore + `:${suggestion}:`).length
+          node.focus()
+          node.setSelectionRange(newCursorPos, newCursorPos)
+        })
+      }
     }
-    element?.focus()
   }
 </script>
 
 <div class="search-input-wrapper">
-  <!-- This span is for measurement. It's invisible. -->
-  <span class="text-mirror" bind:this={textMirror}></span>
-
   <div class="search-box" onclick={() => element?.focus()}>
     {#each query.tags as tag, i (i)}
       <div class="pill">
@@ -194,24 +129,13 @@ let {
     <input
       bind:this={element}
       bind:value={query.text}
-      oninput={handleInput}
-      onfocus={handleInput}
+      use:autocomplete={autocompleteConfig}
       onkeydown={handleKeyDown}
-      onblur={() => (autocomplete.show = false)}
       placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
       class="search-input-field"
       aria-label="Search current folder"
     />
   </div>
-
-  {#if autocomplete.show}
-    <AutocompleteMenu
-      suggestions={autocomplete.suggestions}
-      position={autocomplete.position}
-      onSelect={handleAutocompleteSelect}
-      onClose={() => (autocomplete.show = false)}
-    />
-  {/if}
 </div>
 
 <style>
@@ -219,18 +143,6 @@ let {
     position: relative;
     width: 100%;
     /* min/max width is now handled by the parent grid container in App.svelte */
-  }
-
-  .text-mirror {
-    position: absolute;
-    visibility: hidden;
-    height: 0;
-    /* Match font properties of the input */
-    font-family: inherit;
-    font-size: 1rem;
-    font-weight: 600;
-    white-space: pre; /* to respect spaces */
-    pointer-events: none;
   }
 
   .search-box {

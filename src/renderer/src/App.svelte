@@ -12,6 +12,8 @@
   import Dialog from './components/ui/Dialog.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import { dialogStore } from './lib/dialog-store'
+  import { autocompleteState } from './lib/autocomplete-manager'
+  import AutocompleteMenu from './components/ui/AutocompleteMenu.svelte'
   import { resolveViewSettings } from '../../shared/settings-helpers'
   import {
     getLoadedItem,
@@ -918,6 +920,16 @@
     detail={dialog.detail}
     buttons={dialog.buttons}
     onClose={(value) => dialogStore.close(value)}
+  />
+{/if}
+
+{#if $autocompleteState.show}
+  <AutocompleteMenu
+    suggestions={$autocompleteState.suggestions}
+    position={$autocompleteState.position}
+    onSelect={$autocompleteState.onSelect}
+    onClose={() => autocompleteState.update((s) => ({ ...s, show: false }))}
+    activeIndex={$autocompleteState.activeIndex}
   />
 {/if}
 

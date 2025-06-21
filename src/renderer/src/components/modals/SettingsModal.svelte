@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
-  import AutocompleteMenu from '../ui/AutocompleteMenu.svelte'
+  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
@@ -86,21 +86,6 @@
     'tmdbId'
   ]
 
-  // Autocomplete state
-  let activeTextarea = $state<HTMLTextAreaElement | null>(null)
-  let activeTagId = $state<string | null>(null)
-  let autocompleteState = $state<{
-    show: boolean
-    suggestions: string[]
-    position: { top: number; left: number }
-    onSelect: (suggestion: string) => void
-  }>({
-    show: false,
-    suggestions: [],
-    position: { top: 0, left: 0 },
-    onSelect: () => {}
-  })
-
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
@@ -151,65 +136,52 @@
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
   }
 
-  function handleExpressionInput() {
-    if (!activeTextarea) return
-
-    const textarea = activeTextarea
-    const text = textarea.value
-    const cursorPos = textarea.selectionStart
-
-    let wordStart = cursorPos
-    while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
-      wordStart--
-    }
-    const currentWord = text.substring(wordStart, cursorPos)
-
-    let potentialSuggestions: string[] = []
-
-    const tagsMatch = currentWord.match(/^tags\.(\w*)$/)
-    if (tagsMatch) {
-      const partialKey = tagsMatch[1]
-      potentialSuggestions = (suggestions.tagKeys ?? [])
-        .filter((key) => key.toLowerCase().startsWith(partialKey.toLowerCase()))
-        .map((key) => `tags.${key}`) // Suggest the full path
-    } else {
-      potentialSuggestions = VIRTUAL_TAG_CONTEXT_KEYS.filter((key) =>
-        key.toLowerCase().startsWith(currentWord.toLowerCase())
-      )
-    }
-
-    if (potentialSuggestions.length > 0 && currentWord.length > 0) {
-      autocompleteState.suggestions = potentialSuggestions
-      autocompleteState.show = true
-
-      const rect = textarea.getBoundingClientRect()
-      const modalWindow = textarea.closest('.modal-window')
-      const modalRect = modalWindow?.getBoundingClientRect() ?? { top: 0, left: 0 }
-
-      autocompleteState.position = {
-        top: rect.bottom - modalRect.top + 4,
-        left: rect.left - modalRect.left
+  const autocompleteConfig: AutocompleteConfig = {
+    getSuggestions: (text, cursorPos) => {
+      let wordStart = cursorPos
+      while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
+        wordStart--
       }
-      autocompleteState.onSelect = (suggestion: string) => {
-        const before = text.substring(0, wordStart)
-        const after = text.substring(cursorPos)
-        const newText = `${before}${suggestion}${after}`
+      const currentWord = text.substring(wordStart, cursorPos)
 
-        const tag = virtualTags.find((t) => t.id === activeTagId)
-        if (tag) {
-          tag.expression = newText
-          virtualTags = virtualTags // trigger reactivity
+      if (!currentWord) return []
 
+      const tagsMatch = currentWord.match(/^tags\.(\w*)$/)
+      if (tagsMatch) {
+        const partialKey = tagsMatch[1]
+        return (suggestions.tagKeys ?? [])
+          .filter((key) => key.toLowerCase().startsWith(partialKey.toLowerCase()))
+          .map((key) => `tags.${key}`)
+      } else {
+        return VIRTUAL_TAG_CONTEXT_KEYS.filter((key) =>
+          key.toLowerCase().startsWith(currentWord.toLowerCase())
+        )
+      }
+    },
+    onSelect: (suggestion, node) => {
+      const text = node.value
+      const cursorPos = node.selectionStart ?? 0
+
+      let wordStart = cursorPos
+      while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
+        wordStart--
+      }
+      const before = text.substring(0, wordStart)
+      const after = text.substring(cursorPos)
+
+      const activeTextarea = node as HTMLTextAreaElement
+      const tagId = activeTextarea.dataset.tagId
+      const tag = virtualTags.find((t) => t.id === tagId)
+      if (tag) {
+        tag.expression = `${before}${suggestion}${after}`
+        virtualTags = [...virtualTags]
+
+        queueMicrotask(() => {
           const newCursorPos = (before + suggestion).length
-          queueMicrotask(() => {
-            textarea.focus()
-            textarea.setSelectionRange(newCursorPos, newCursorPos)
-          })
-        }
-        autocompleteState.show = false
+          activeTextarea.focus()
+          activeTextarea.setSelectionRange(newCursorPos, newCursorPos)
+        })
       }
-    } else {
-      autocompleteState.show = false
     }
   }
 
@@ -383,12 +355,8 @@
                 placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
                 class="tag-expression"
                 rows="2"
-                onfocus={(e) => {
-                  activeTextarea = e.currentTarget
-                  activeTagId = tag.id
-                }}
-                oninput={handleExpressionInput}
-                onblur={() => (autocompleteState.show = false)}
+                use:autocomplete={autocompleteConfig}
+                data-tag-id={tag.id}
               ></textarea>
             </div>
             <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
@@ -398,14 +366,6 @@
         {/each}
       </div>
       <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
-      {#if autocompleteState.show && activeTextarea}
-        <AutocompleteMenu
-          suggestions={autocompleteState.suggestions}
-          position={autocompleteState.position}
-          onSelect={autocompleteState.onSelect}
-          onClose={() => (autocompleteState.show = false)}
-        />
-      {/if}
       <div class="help-text">
         <p>
           Create tags based on existing data using JavaScript. Your expression can access most
