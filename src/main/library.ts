@@ -33,6 +33,7 @@ import {
   cacheGenreLists,
   fetchAndApplyMetadata,
   fetchItemDetails,
+  fetchAndApplyCredits,
   applyTvShowData,
   fetchAndApplyEpisodeData,
   refetchPoster,
@@ -1038,8 +1039,10 @@ export function setupLibraryIpc(): void {
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
-    // --- Fire-and-Forget Background Fetch ---
-    // Determine if any fetching is needed.
+    // --- Fire-and-Forget Background Fetches ---
+
+    // -- Fetch #1: Core Details (Backdrop, Logo, Genres, Episodes etc.) ---
+    // This is the highest priority fetch.
     const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
     const needsEpisodeFetch =
       item.type === 'folder' &&
@@ -1125,6 +1128,37 @@ export function setupLibraryIpc(): void {
             window.webContents.send('library-item-updated', plainItem)
           })
           log(`[Details] Background processing complete for "${item.name}"`)
+        }
+      })()
+    }
+
+    // --- Fetch #2: Credits (Cast & Crew) ---
+    // This is a lower-priority fetch that runs independently.
+    const needsCreditsFetch =
+      !item.tmdbCreditsFetched &&
+      item.tmdbId &&
+      (item.mediaType === 'movie' || item.mediaType === 'tv')
+
+    if (needsCreditsFetch) {
+      ;(async () => {
+        try {
+          const settings = await readSettings()
+          if (!settings.tmdbApiKey) return
+
+          await fetchAndApplyCredits(item, settings.tmdbApiKey)
+
+          item._v = Date.now() // Bust UI cache
+
+          await writeDb(db!) // Save updated credits
+
+          // Notify renderers that credits are now available for this item.
+          const plainItem = JSON.parse(JSON.stringify(item))
+          BrowserWindow.getAllWindows().forEach((window) => {
+            window.webContents.send('library-item-updated', plainItem)
+          })
+          log(`[Details] Credits fetch complete for "${item.name}"`)
+        } catch (err) {
+          console.error(`[Details] Background credits fetch for item ${itemId} failed:`, err)
         }
       })()
     }
@@ -1372,6 +1406,8 @@ export function setupLibraryIpc(): void {
       }
       item.posterPath = undefined // Clear poster so it gets re-fetched
       item.tmdbDetailsFetched = undefined // Clear the details flag to force a refetch
+      item.tmdbCreditsFetched = undefined // Clear the credits flag to force a refetch
+      item.tmdbCredits = undefined // Clear old credits
 
       // --- Invalidate TV Show specific data ---
       // If we are applying a new TV match to a folder, we need to clear out any

@@ -185,10 +185,12 @@ export interface MediaFile {
   seasonNumber?: number
   episodeNumber?: number
   opensAsFolder?: boolean // This behavior is tied to having metadata, so it's reset
+  tmdbCredits?: { cast: any[]; crew: any[] }
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
   tmdbDetailsFetched?: boolean
+  tmdbCreditsFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
 }
@@ -223,10 +225,12 @@ export interface MediaFolder extends StoredViewSettings {
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
   tmdbDetailsFetched?: boolean
+  tmdbCreditsFetched?: boolean
   tmdbEpisodesFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
+  tmdbCredits?: { cast: any[]; crew: any[] }
 }
 
 export type LibraryItem = MediaFile | MediaFolder
@@ -318,7 +322,9 @@ export const RESETTABLE_METADATA_KEYS = [
   'tmdbDetailsFetched',
   'tmdbEpisodesFetched',
   'tmdbSeasons',
-  'virtualTags' // Derived from metadata, so must be reset
+  'virtualTags', // Derived from metadata, so must be reset
+  'tmdbCredits',
+  'tmdbCreditsFetched'
 ] as const
 
 /**

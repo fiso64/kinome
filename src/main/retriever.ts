@@ -233,6 +233,44 @@ export async function refetchPoster(
 
 import type { Settings } from '../shared/types'
 
+export async function fetchAndApplyCredits(
+  item: LibraryItem,
+  tmdbApiKey: string
+): Promise<void> {
+  if (
+    !item.tmdbId ||
+    !item.mediaType ||
+    (item.mediaType !== 'movie' && item.mediaType !== 'tv')
+  ) {
+    console.log(`Skipping credits fetch for "${item.name}", not a movie or tv show.`)
+    item.tmdbCreditsFetched = true // Mark as "processed" to avoid retries
+    return
+  }
+
+  const creditsUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}/credits?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Fetching credits for "${item.title ?? item.name}" from ${creditsUrl}`)
+
+  try {
+    const response = await fetch(creditsUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB credits fetch failed: ${response.statusText}`)
+    }
+    const credits = await response.json()
+
+    // We can do some pre-processing here if needed, but for now just store it.
+    item.tmdbCredits = {
+      cast: credits.cast ?? [],
+      crew: credits.crew ?? []
+    }
+  } catch (error) {
+    console.error(`Error fetching credits for "${item.name}":`, error)
+    // Don't mark as fetched on error, so it can be retried.
+    return
+  }
+
+  item.tmdbCreditsFetched = true
+}
+
 export async function fetchItemDetails(
   item: LibraryItem,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
