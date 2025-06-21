@@ -147,6 +147,45 @@ async function writeDb(updatedDb: Database): Promise<void> {
   // If `db === updatedDb`, then `db` is already the correct proxy and no-op is needed.
 }
 
+/**
+ * A centralized helper to finalize an item update. It saves the database,
+ * broadcasts the changes to all renderer windows, and can optionally
+ * update global autocomplete suggestions.
+ * @param items The item or array of items that were updated.
+ * @param options.updateSuggestions If true, regenerates and broadcasts autocomplete suggestions.
+ */
+async function _finalizeItemUpdate(
+  items: LibraryItem | LibraryItem[],
+  options: { updateSuggestions?: boolean } = {}
+): Promise<void> {
+  // 1. Persist all changes to the database
+  if (!db) return
+  await writeDb(db)
+
+  const itemsArray = Array.isArray(items) ? items : [items]
+
+  // 2. Broadcast each updated item to all renderer windows.
+  // We send them individually to leverage the more detailed update logic
+  // in the renderer's `onLibraryItemUpdated` handler.
+  for (const item of itemsArray) {
+    const plainItem = JSON.parse(JSON.stringify(item))
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('library-item-updated', plainItem)
+    })
+  }
+
+  // 3. Conditionally update and broadcast global data like suggestions.
+  if (options.updateSuggestions) {
+    const newSuggestions = await getAutocompleteSuggestions()
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+    })
+  }
+  log(
+    `[Library] Finalized update for ${itemsArray.length} item(s). Suggestions updated: ${!!options.updateSuggestions}`
+  )
+}
+
 function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
@@ -807,15 +846,10 @@ async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
     updateIndexForItem(item)
   }
 
-  await writeDb(db!)
   log(`Finished metadata clear for ${modifiedItems.length} items.`)
-
-  // Broadcast the batch update to all windows. This allows the UI to update
-  // reactively without a full library reload.
-  const plainItems = JSON.parse(JSON.stringify(modifiedItems))
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send('library-items-updated', plainItems)
-  })
+  // Use the centralized helper to save, notify, and update suggestions.
+  // Clearing metadata definitely warrants an update to suggestions.
+  await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
 }
 
 export function setupLibraryIpc(): void {
@@ -1128,13 +1162,9 @@ export function setupLibraryIpc(): void {
           // Manually trigger a single, incremental re-index now that the fetch is complete.
           updateIndexForItem(item)
 
-          await writeDb(db!) // Save the updated database
+          // Use the centralized helper. Fetching details can update genres, so update suggestions.
+          await _finalizeItemUpdate(item, { updateSuggestions: true })
 
-          // Notify all renderer windows that the item has been updated.
-          const plainItem = JSON.parse(JSON.stringify(item))
-          BrowserWindow.getAllWindows().forEach((window) => {
-            window.webContents.send('library-item-updated', plainItem)
-          })
           log(`[Details] Background processing complete for "${item.name}"`)
         }
       })()
@@ -1184,14 +1214,10 @@ export function setupLibraryIpc(): void {
 
       await fetchAndApplyCredits(item, settings.tmdbApiKey)
       item._v = Date.now()
-      await writeDb(db)
 
-      const newSuggestions = await getAutocompleteSuggestions()
-      const plainItem = JSON.parse(JSON.stringify(item))
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send('library-item-updated', plainItem)
-        window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
-      })
+      // Use the centralized helper to save, notify, and update suggestions.
+      await _finalizeItemUpdate(item, { updateSuggestions: true })
+
       log(`[Credits] Fetch complete for "${item.name}"`)
     } catch (err) {
       console.error(`[Credits] Background fetch for item ${itemId} failed:`, err)
@@ -1368,16 +1394,10 @@ export function setupLibraryIpc(): void {
       // Manually trigger a single, incremental update for the item now.
       updateIndexForItem(itemInDb)
 
-      await writeDb(db)
+      // Use the centralized helper to save, notify, and update suggestions.
+      await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
+
       console.log(`Updated item ${updatedItem.id} in database.`)
-
-      const newSuggestions = await getAutocompleteSuggestions()
-
-      const plainItem = JSON.parse(JSON.stringify(itemInDb))
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send('library-item-updated', plainItem)
-        window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
-      })
     } else {
       console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
     }
@@ -1551,10 +1571,8 @@ export function setupLibraryIpc(): void {
       // Re-evaluate virtual tags after all other properties have been updated.
       item.virtualTags = evaluateVirtualTagsForItem(item, settings)
 
-      await writeDb(db)
-
-      const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
+      // Use the centralized helper to save, notify, and update suggestions.
+      await _finalizeItemUpdate(item, { updateSuggestions: true })
     }
   )
 
@@ -1620,10 +1638,9 @@ export function setupLibraryIpc(): void {
         else if (imageType === 'logo') item.logoPath = fileName
 
         item._v = Date.now() // Bust cache
-        await writeDb(db)
-        const plainItem = JSON.parse(JSON.stringify(item))
-        const window = BrowserWindow.fromWebContents(event.sender)
-        window?.webContents.send('library-item-updated', plainItem)
+
+        // Use the centralized helper. No need to update suggestions for an image change.
+        await _finalizeItemUpdate(item, { updateSuggestions: false })
       } catch (err) {
         console.error(`Failed to set image for ${itemId}:`, err)
         BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
@@ -1648,10 +1665,9 @@ export function setupLibraryIpc(): void {
       else if (imageType === 'logo') item.logoPath = null
 
       item._v = Date.now() // Bust cache
-      await writeDb(db)
-      const plainItem = JSON.parse(JSON.stringify(item))
-      const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', plainItem)
+
+      // Use the centralized helper. No need to update suggestions for an image change.
+      await _finalizeItemUpdate(item, { updateSuggestions: false })
     }
   )
 
