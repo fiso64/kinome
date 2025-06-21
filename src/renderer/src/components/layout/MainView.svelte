@@ -71,6 +71,7 @@
               highlightedIndex={highlightedSearchItemIndex}
               isPreSorted={true}
               grayOutWatched={false}
+              settings={null}
             />
           {:else if !isPerformingSearch}
             <p class="status-text">No results found.</p>

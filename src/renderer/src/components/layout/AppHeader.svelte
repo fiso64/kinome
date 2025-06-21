@@ -1,7 +1,7 @@
 <script lang="ts">
   import WindowControls from './WindowControls.svelte'
   import SearchInput from '../ui/SearchInput.svelte'
-  import ListView from '../views/ListView.svelte'
+  import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'
 
   let {
@@ -188,11 +188,15 @@
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
             <div class="dropdown-status">Searching...</div>
           {:else if detailSearchResults.length > 0}
-            <ListView
+            <MediaView
               items={detailSearchResults}
+              layout="list"
               onItemClick={(item) => dispatch('detailSearchItemClick', { item })}
               onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
               highlightedIndex={highlightedDetailSearchItemIndex}
+              isPreSorted={true}
+              grayOutWatched={false}
+              settings={null}
             />
           {:else if !isPerformingDetailSearch}
             <div class="dropdown-status">No results found.</div>
