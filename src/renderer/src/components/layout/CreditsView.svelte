@@ -159,7 +159,7 @@
     overflow-y: visible; /* Fix #1: Allow vertical overflow to show pop-up */
     gap: 1.5rem;
     padding: 0.5rem;
-    padding-bottom: 5rem;
+    padding-bottom: 1.5rem;
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
