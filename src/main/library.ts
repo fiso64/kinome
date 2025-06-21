@@ -1186,9 +1186,11 @@ export function setupLibraryIpc(): void {
       item._v = Date.now()
       await writeDb(db)
 
+      const newSuggestions = await getAutocompleteSuggestions()
       const plainItem = JSON.parse(JSON.stringify(item))
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send('library-item-updated', plainItem)
+        window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
       })
       log(`[Credits] Fetch complete for "${item.name}"`)
     } catch (err) {
