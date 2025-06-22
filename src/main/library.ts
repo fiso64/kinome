@@ -1025,11 +1025,13 @@ async function clearChildrenRecursively(
 }
 
 /**
- * A maintainable helper to mark an item and its ancestors as user-edited.
+ * A helper to mark an item and its ancestors as user-edited.
  * This protects them from being pruned if they go missing from the filesystem.
- * This is now the single point of truth for what constitutes a "valuable" user edit.
+ * Only "valuable" user edit channels should call this channel.
  * Some user actions like play-file (which sets watched state) are user actions that result in the
  * db getting modified, but are on their own not sufficiently "valuable" to prevent pruning.
+ * Any "valuable" user edit calling this should have a channel name prefixed with user-, like user-update-item
+ * and user-set-image.
  */
 function markAsUserEdited(itemId: string, dbRoot: MediaFolder | null) {
   if (!dbRoot) return
@@ -1632,7 +1634,9 @@ export function setupLibraryIpc(): void {
 		await _updateItem(updatedItem)
 	})
 
-	ipcMain.handle('update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+    // handle to update item without marking as user-edited. Currently unused in the code.
+    // rename to 'update-item' before use.
+	ipcMain.handle('___update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
 		await _updateItem(updatedItem)
 	})
 
@@ -1661,7 +1665,7 @@ export function setupLibraryIpc(): void {
 	)
 
 	ipcMain.handle(
-		'apply-tmdb-result',
+		'user-apply-tmdb-result',
 		async (event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
 			if (!db || !db.root) return
 			markAsUserEdited(itemId, db.root)
@@ -1833,7 +1837,7 @@ export function setupLibraryIpc(): void {
 	})
 
 	ipcMain.handle(
-		'set-image',
+		'user-set-image',
 		async (
 			event,
 			itemId: string,

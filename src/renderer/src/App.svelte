@@ -186,7 +186,11 @@
     // Hide filter bar when navigating to detail view or global search, and restore it when returning.
     if (selectedItemForDetailView || isGlobalSearchActive) {
       if (isFilterBarVisible) {
-        wasFilterBarVisible = true
+        const isFilterQueryEmpty = filterQuery.text.trim() === '' && filterQuery.tags.length === 0
+        // Only remember to restore the filter bar if it had content.
+        if (!isFilterQueryEmpty) {
+          wasFilterBarVisible = true
+        }
         isFilterBarVisible = false
       }
     } else {

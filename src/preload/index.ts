@@ -29,7 +29,6 @@ const api = {
 		ipcRenderer.invoke('get-item-details', itemId),
 	userUpdateItem: (item: LibraryItem): Promise<void> =>
 		ipcRenderer.invoke('user-update-item', item),
-	updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
 	getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
 		ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
@@ -63,13 +62,13 @@ const api = {
   ): Promise<{ posters: any[]; backdrops: any[]; logos: any[] }> =>
     ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
   applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
-    ipcRenderer.invoke('apply-tmdb-result', itemId, result, mediaType),
+    ipcRenderer.invoke('user-apply-tmdb-result', itemId, result, mediaType),
   selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
   setImage: (
     itemId: string,
     imageType: 'poster' | 'backdrop' | 'logo',
     source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
-  ): Promise<void> => ipcRenderer.invoke('set-image', itemId, imageType, source),
+  ): Promise<void> => ipcRenderer.invoke('user-set-image', itemId, imageType, source),
   removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void> =>
     ipcRenderer.invoke('remove-image', itemId, imageType),
 
