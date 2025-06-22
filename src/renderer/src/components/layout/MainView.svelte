@@ -1,10 +1,12 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import ItemDetail from './ItemDetail.svelte'
+  import HomeView from './HomeView.svelte'
   import { createEventDispatcher } from 'svelte'
 
   let {
     isScanning,
+    continueWatchingItems,
     currentFolder,
     isGlobalSearchActive,
     searchResults,
@@ -30,9 +32,10 @@
   const dispatch = createEventDispatcher<{
     scanLibrary: void
     openLibrary: void
-    itemClick: { item: LibraryItem | SearchIndexEntry }
-    showContextMenu: {
-      item: LibraryItem | SearchIndexEntry
+      itemClick: { item: LibraryItem | SearchIndexEntry }
+      dismissContinueWatching: { showId: string }
+      showContextMenu: {
+        item: LibraryItem | SearchIndexEntry
       event: MouseEvent
       options?: { layout?: string }
     }
@@ -49,8 +52,10 @@
           children: [],
           ...settings.searchResultView
         } as MediaFolder)
-      : undefined
+          : undefined
   )
+
+  const isRoot = $derived(!isGlobalSearchActive && currentFolder?.path === '.')
 </script>
 
 <div class="content">
@@ -102,20 +107,34 @@
       </div>
 
       <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
-      {#if currentFolder}
+            {#if currentFolder}
         <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
-          <div class="folder-content-wrapper">
-            <MediaView
+          {#if isRoot}
+            <HomeView
+              {continueWatchingItems}
               parentItem={currentFolder}
-              items={currentFolder.children}
-              searchQuery={filterQuery}
               onItemClick={(item) => dispatch('itemClick', { item })}
               onShowContextMenu={(item, e, options) =>
                 dispatch('showContextMenu', { item, event: e, options })}
+              on:dismissContinueWatching={(e) =>
+                dispatch('dismissContinueWatching', { showId: e.detail.showId })}
               {suggestions}
               {settings}
             />
-          </div>
+          {:else}
+            <div class="folder-content-wrapper">
+              <MediaView
+                parentItem={currentFolder}
+                items={currentFolder.children}
+                searchQuery={filterQuery}
+                onItemClick={(item) => dispatch('itemClick', { item })}
+                onShowContextMenu={(item, e, options) =>
+                  dispatch('showContextMenu', { item, event: e, options })}
+                {suggestions}
+                {settings}
+              />
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

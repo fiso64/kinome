@@ -253,6 +253,7 @@ export interface MediaFolder extends StoredViewSettings {
   _v?: number // Cache-busting version number
   tmdbSeasons?: any[] | null // For the TV show root, caches the seasons array from TMDB
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
+  continueWatchingDismissed?: boolean
 }
 
 export type LibraryItem = MediaFile | MediaFolder

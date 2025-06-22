@@ -44,6 +44,7 @@
   let lastDetailItem: LibraryItem | null = $state(null)
   let isScanning = $state(true)
   let isRefreshing = $state(false)
+  let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
 
   // --- Search & Filter State ---
   let globalSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
@@ -139,6 +140,7 @@
       isScanning = false
     })
 
+    window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
     window.api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
     window.api.getSettings().then((s) => (settings = s))
 
@@ -335,6 +337,10 @@
   $effect(() => {
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
       handleItemUpdates([updatedItem])
+      // If an episode was marked as watched/unwatched, refresh the continue watching list.
+      if (updatedItem.type === 'file' && 'watched' in updatedItem) {
+        window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+      }
     })
     return () => unlisten()
   })
@@ -488,6 +494,11 @@
       return
     }
     window.api.revealInExplorer(item.path)
+  }
+
+  function handleDismissContinueWatching(showId: string) {
+    window.api.setContinueWatchingDismissed(showId)
+    continueWatchingItems = continueWatchingItems.filter((cw) => cw.show.id !== showId)
   }
 
   async function handleApplyInitialSettings(
@@ -1044,6 +1055,7 @@
 
   <MainView
     {isScanning}
+    {continueWatchingItems}
     {currentFolder}
     {isGlobalSearchActive}
     {searchResults}
@@ -1059,6 +1071,7 @@
     on:showContextMenu={(e) =>
       handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
     on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+    on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
   />
 
   {#if isFilterBarVisible}

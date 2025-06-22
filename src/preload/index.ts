@@ -39,6 +39,10 @@ const api = {
     ipcRenderer.invoke('get-hidden-children', parentId),
   getParent: (itemId: string): Promise<MediaFolder | null> =>
     ipcRenderer.invoke('get-parent', itemId),
+  getContinueWatchingItems: (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> =>
+    ipcRenderer.invoke('get-continue-watching-items'),
+  setContinueWatchingDismissed: (showId: string): Promise<void> =>
+    ipcRenderer.invoke('set-continue-watching-dismissed', showId),
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),

@@ -1432,7 +1432,20 @@ export function setupLibraryIpc(): void {
     const itemInDb = findItemById(file.id, db.root)
     if (itemInDb && itemInDb.type === 'file') {
       itemInDb.watched = true
-      await writeDb(db) // Persist the change
+      // if playing an episode, un-dismiss the show
+      let parent = findParent(itemInDb.id, db.root)
+      let show: MediaFolder | null = null
+      while (parent) {
+        if (parent.mediaType === 'tv') {
+          show = parent
+          break
+        }
+        parent = findParent(parent.id, db.root)
+      }
+      if (show?.continueWatchingDismissed) {
+        show.continueWatchingDismissed = false
+      }
+      await _finalizeItemUpdate(itemInDb)
     } else {
       console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
       // We can still try to play it, so we don't return false here.
@@ -1818,7 +1831,17 @@ export function setupLibraryIpc(): void {
         node.watched = false
         modifiedItems.push(node)
       }
-      if (node.type === 'folder' && node.children) {
+      if (node.type === 'folder') {
+        if (node.continueWatchingDismissed) {
+          node.continueWatchingDismissed = false
+          modifiedItems.push(node)
+        }
+        if (node.children) {
+          for (const child of node.children) {
+            setUnwatchedRecursively(child)
+          }
+        }
+      } else if (node.children) {
         for (const child of node.children) {
           setUnwatchedRecursively(child)
         }
@@ -2094,4 +2117,103 @@ export function setupLibraryIpc(): void {
     const hiddenChildren = parent.children.filter((child) => child.isHidden)
     return JSON.parse(JSON.stringify(hiddenChildren)) // Return deep copy
   })
+
+  ipcMain.handle('set-continue-watching-dismissed', async (_, showId: string) => {
+    if (!db || !db.root) return
+    const show = findItemById(showId, db.root)
+    if (show && show.type === 'folder') {
+      show.continueWatchingDismissed = true
+      await _finalizeItemUpdate(show, { updateSuggestions: false })
+    }
+  })
+
+  ipcMain.handle(
+    'get-continue-watching-items',
+    async (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> => {
+      if (!db?.root) return []
+
+      const allItems = getAllItemsAsList(db.root)
+      const parentMap = new Map<string, string>()
+      function buildParentMap(node: MediaFolder) {
+        if (!node.children) return
+        for (const child of node.children) {
+          parentMap.set(child.id, node.id)
+          if (child.type === 'folder') {
+            buildParentMap(child)
+          }
+        }
+      }
+      buildParentMap(db.root)
+
+      const shows = new Map<string, MediaFolder>()
+      const episodesByShow = new Map<string, MediaFile[]>()
+
+      for (const item of allItems) {
+        if (item.type === 'folder' && item.mediaType === 'tv') {
+          shows.set(item.id, item)
+          episodesByShow.set(item.id, [])
+        }
+      }
+
+      for (const item of allItems) {
+        if (item.type === 'file' && item.mediaType === 'episode') {
+          let currentParentId = parentMap.get(item.id)
+          let showId: string | null = null
+          while (currentParentId) {
+            const parent = findItemById(currentParentId, db.root)
+            if (parent?.type === 'folder' && parent.mediaType === 'tv') {
+              showId = parent.id
+              break
+            }
+            currentParentId = parentMap.get(currentParentId)
+          }
+
+          if (showId && episodesByShow.has(showId)) {
+            episodesByShow.get(showId)!.push(item as MediaFile)
+          }
+        }
+      }
+
+      const getComparableEpisodeNumber = (ep: MediaFile) =>
+        (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+      const continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[] = []
+
+      for (const [showId, show] of shows.entries()) {
+        if (show.continueWatchingDismissed) continue
+
+        const episodes = episodesByShow.get(showId)!
+        if (episodes.length === 0) continue
+
+        const watchedEpisodes = episodes.filter((ep) => ep.watched)
+        if (watchedEpisodes.length === 0) continue
+
+        const allEpisodesSorted = [...episodes].sort(
+          (a, b) => getComparableEpisodeNumber(a) - getComparableEpisodeNumber(b)
+        )
+
+        const maxWatchedEpisode = watchedEpisodes.reduce((max, ep) =>
+          getComparableEpisodeNumber(ep) > getComparableEpisodeNumber(max) ? ep : max
+        )
+
+        let nextUnwatchedEpisode: MediaFile | undefined
+        for (const episode of allEpisodesSorted) {
+          if (getComparableEpisodeNumber(episode) > getComparableEpisodeNumber(maxWatchedEpisode)) {
+            if (!episode.watched) {
+              nextUnwatchedEpisode = episode
+              break
+            }
+          }
+        }
+
+        if (nextUnwatchedEpisode) {
+          continueWatchingItems.push({
+            show: createShallowClonableCopy(show) as MediaFolder,
+            nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
+          })
+        }
+      }
+      return continueWatchingItems
+    }
+  )
 }

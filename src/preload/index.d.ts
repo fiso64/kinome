@@ -48,6 +48,10 @@ declare global {
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
       getHiddenChildren: (parentId: string) => Promise<LibraryItem[]>
       getParent: (itemId: string) => Promise<MediaFolder | null>
+      getContinueWatchingItems: () => Promise<
+        { show: MediaFolder; nextEpisode: MediaFile }[]
+      >
+      setContinueWatchingDismissed: (showId: string) => Promise<void>
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
