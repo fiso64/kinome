@@ -70,6 +70,7 @@
     type="button"
     class="tree-item"
     class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+    class:missing={item.isMissing}
     onclick={handleItemClick}
     oncontextmenu={(e) => showContextMenu(item, e)}
   >
@@ -91,6 +92,7 @@
     </div>
 
     <div class="name" title={displayTitle}>
+      {#if item.isMissing}<span class="missing-icon">⚠️</span>{/if}
       {displayTitle}
     </div>
   </button>
@@ -169,6 +171,23 @@
   }
   .tree-item.watched:hover {
     opacity: 1;
+  }
+  .tree-item.missing {
+    opacity: 0.6;
+  }
+  .tree-item.missing .icon {
+    filter: grayscale(1);
+  }
+  .tree-item.missing .name {
+    font-style: italic;
+  }
+  .tree-item.missing:hover {
+    opacity: 0.8;
+  }
+  .missing-icon {
+    display: inline-block;
+    margin-right: 0.5rem;
+    font-size: 1rem;
   }
   .children {
     overflow: hidden;

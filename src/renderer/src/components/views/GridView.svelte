@@ -44,6 +44,7 @@
         type="button"
         class="grid-item"
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+        class:missing={item.isMissing}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'grid' })}
       >
@@ -57,6 +58,11 @@
           {:else}
             <div class="icon">
               {item.type === 'folder' ? '📁' : '🎬'}
+            </div>
+          {/if}
+          {#if item.isMissing}
+            <div class="missing-overlay">
+              <span class="missing-icon">⚠️</span>
             </div>
           {/if}
         </div>
@@ -145,5 +151,26 @@
   }
   .grid-item.watched:hover {
     opacity: 1;
+  }
+  .grid-item.missing .poster {
+    filter: grayscale(1);
+  }
+  .grid-item.missing .name {
+    font-style: italic;
+    opacity: 0.7;
+  }
+  .missing-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 20, 20, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+  }
+  .missing-icon {
+    font-size: 3rem;
+    opacity: 0.8;
+    filter: drop-shadow(0 0 5px black);
   }
 </style>

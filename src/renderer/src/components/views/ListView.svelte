@@ -82,6 +82,7 @@
         style:height={itemHeightRem}
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
+        class:missing={item.isMissing}
         onclick={() => onItemClick(item)}
         oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
       >
@@ -110,7 +111,10 @@
         {/if}
         <div class="info">
           <div class="title-line">
-            <h3 class="title" title={displayTitle}>{displayTitle}</h3>
+            <h3 class="title" title={displayTitle}>
+              {#if item.isMissing}<span class="missing-icon">⚠️</span>{/if}
+              {displayTitle}
+            </h3>
             {#if item.year}
               <span class="year">({item.year})</span>
             {/if}
@@ -272,5 +276,22 @@
     background-color: var(--ev-c-gray-2);
     border-color: var(--ev-c-gray-1);
     transform: translateY(-2px) scale(1.01);
+  }
+  .list-item.missing {
+    opacity: 0.6;
+  }
+  .list-item.missing .poster {
+    filter: grayscale(1);
+  }
+  .list-item.missing .title {
+    font-style: italic;
+  }
+  .list-item.missing:hover {
+    opacity: 0.8;
+  }
+  .missing-icon {
+    display: inline-block;
+    margin-right: 0.5rem;
+    font-size: 1rem;
   }
 </style>

@@ -130,8 +130,13 @@
   })
 </script>
 
-<!-- No more complex loading state needed here. The view renders immediately. -->
 <div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
+  {#if item.isMissing}
+  <div class="missing-banner">
+      <span class="icon">⚠️</span>
+      <span>File or folder missing from disk.</span>
+    </div>
+  {/if}
   <div class="backdrop-container">
     {#if item.backdropPath}
       <img
@@ -650,5 +655,21 @@
   .no-overview {
     color: var(--ev-c-text-2);
     font-style: italic;
+  }
+
+  .missing-banner {
+    position: sticky; /* Sticks to the top of the scrollable container */
+    top: 0;
+    background-color: #c50f1f;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    text-align: center;
+    z-index: 6; /* Above backdrop and content, below header */
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.3);
   }
 </style>

@@ -275,13 +275,17 @@
         onmouseenter={() => (submenuVisible = true)}
         onmouseleave={() => (submenuVisible = false)}
       >
-        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+        <button
+          class="context-menu-item has-submenu"
+          onclick={(e) => e.preventDefault()}
+          disabled={item.isMissing}
+        >
           <span class="icon">📄</span>
           <span>File</span>
           <span class="submenu-arrow">▸</span>
         </button>
 
-        {#if submenuVisible}
+        {#if submenuVisible && !item.isMissing}
           <div
             bind:this={submenuElement}
             class="context-menu submenu"

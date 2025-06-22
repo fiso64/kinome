@@ -192,6 +192,8 @@ export interface MediaFile {
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
+  isMissing?: boolean
+  isUserEdited?: boolean
   tmdbDetailsFetched?: boolean
   tmdbCreditsFetched?: boolean
   virtualTags?: Record<string, string>
@@ -227,6 +229,8 @@ export interface MediaFolder extends StoredViewSettings {
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
+  isMissing?: boolean
+  isUserEdited?: boolean
   tmdbDetailsFetched?: boolean
   tmdbCreditsFetched?: boolean
   tmdbEpisodesFetched?: boolean
@@ -268,6 +272,7 @@ export interface SearchIndexEntry {
   watched?: boolean
   episodeNumber?: number
   // We need properties for UI interaction
+  isMissing?: boolean
   _v?: number // Cache-busting version number
   // Score for ranking
   staticScore: number
@@ -347,5 +352,6 @@ export const SEARCH_INDEX_PROPERTIES = [
   'virtualTags',
   'watched',
   'episodeNumber',
+  'isMissing',
   '_v'
 ] as const

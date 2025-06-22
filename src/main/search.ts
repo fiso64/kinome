@@ -120,6 +120,7 @@ export function updateIndexForItem(item: LibraryItem) {
   if (
     (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
     item.isHidden
+    // Note: Missing items are deliberately not excluded
   ) {
     _removeItemFromIndex(item.id)
     // Also remove all its descendants from the index.
@@ -256,6 +257,7 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
     if (
       (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
       item.isHidden
+      // Note: Missing items are deliberately not excluded
     ) {
       return // Don't index this folder or its children
     }

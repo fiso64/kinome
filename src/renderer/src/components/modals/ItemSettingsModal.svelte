@@ -151,17 +151,17 @@
     }
   }
 
-  async function handleSave() {
-    const itemToUpdate = await buildUpdatedItem()
-    let needsRefresh = false
-    if (itemToUpdate) {
-      const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
-      await window.api.updateItem(itemToUpdate)
-      if (
-        itemToUpdate.type === 'folder' &&
-        itemToUpdate.retrieve_children_metadata &&
-        !wasEnabled
-      ) {
+	async function handleSave() {
+		const itemToUpdate = await buildUpdatedItem()
+		let needsRefresh = false
+		if (itemToUpdate) {
+			const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
+			await window.api.userUpdateItem(itemToUpdate)
+			if (
+				itemToUpdate.type === 'folder' &&
+				itemToUpdate.retrieve_children_metadata &&
+				!wasEnabled
+			) {
         needsRefresh = true
       }
     }
@@ -190,14 +190,15 @@
     })
 
     if (confirmed) {
-      if (isVirtual) {
-        const childIds = item.children.map((c) => c.id)
-        if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
-      } else {
-        const itemToUpdate = await buildUpdatedItem()
-        if (itemToUpdate) await window.api.updateItem(itemToUpdate)
-        if (await window.api.clearChildrenMetadata(item.id)) onClose()
-      }
+			if (isVirtual) {
+				const childIds = item.children.map((c) => c.id)
+				if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
+			} else {
+				const itemToUpdate = await buildUpdatedItem()
+				// We need to save any pending changes before clearing
+				if (itemToUpdate) await window.api.userUpdateItem(itemToUpdate)
+				if (await window.api.clearChildrenMetadata(item.id)) onClose()
+			}
     }
   }
 

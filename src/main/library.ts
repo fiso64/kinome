@@ -183,8 +183,6 @@ async function _finalizeItemUpdate(
   )
 }
 
-
-
 function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
@@ -292,6 +290,7 @@ function getAllItemsAsMap(
 }
 
 function findParent(id: string, node: MediaFolder): MediaFolder | null {
+  if (!node || !node.children) return null
   for (const child of node.children) {
     if (child.id === id) {
       return node
@@ -302,6 +301,104 @@ function findParent(id: string, node: MediaFolder): MediaFolder | null {
     }
   }
   return null
+}
+
+async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
+  const nodeAbsolutePath = path.join(mediaSourcePath, node.path)
+  let diskChildEntries: fs.Dirent[]
+
+  try {
+    await fs.access(nodeAbsolutePath)
+    node.isMissing = undefined
+    diskChildEntries = await fs.readdir(nodeAbsolutePath, { withFileTypes: true })
+  } catch (e) {
+    // Folder is missing. Mark it and all descendants.
+    node.isMissing = true
+    const markAllChildrenMissing = (folder: MediaFolder) => {
+      if (!folder.children) return
+      folder.children.forEach((child) => {
+        child.isMissing = true
+        if (child.type === 'folder') markAllChildrenMissing(child)
+      })
+    }
+    markAllChildrenMissing(node)
+    return
+  }
+
+  const dbChildrenMap = new Map(node.children.map((child) => [child.name, child]))
+  const diskChildrenNames = new Set(diskChildEntries.map((e) => e.name))
+
+  // Add new items from disk to the DB node.
+  for (const entry of diskChildEntries) {
+    if (!dbChildrenMap.has(entry.name)) {
+      const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
+      if (entry.isDirectory() || isVideoFile) {
+        const childRelativePath = path.join(node.path, entry.name).replace(/\\/g, '/')
+        const newChild: LibraryItem = {
+          id: generateId(childRelativePath),
+          name: entry.name,
+          path: childRelativePath,
+          type: entry.isDirectory() ? 'folder' : 'file',
+          ...(entry.isDirectory() && { children: [] })
+        } as any
+        node.children.push(newChild)
+      }
+    }
+  }
+
+  // Sync all children (old and new).
+  for (const child of node.children) {
+    if (diskChildrenNames.has(child.name)) {
+      child.isMissing = undefined
+      if (child.type === 'folder') {
+        await syncWithDisk(child, mediaSourcePath)
+      }
+    } else {
+      child.isMissing = true
+      if (child.type === 'folder') {
+        const markDescendantsMissing = (folder: MediaFolder) => {
+          if (!folder.children) return
+          folder.children.forEach((c) => {
+            c.isMissing = true
+            if (c.type === 'folder') markDescendantsMissing(c)
+          })
+        }
+        markDescendantsMissing(child)
+      }
+    }
+  }
+}
+
+/**
+ * Recursively removes items from the tree that are marked as `isMissing`
+ * but have NOT been marked as `isUserEdited`.
+ * @param node The folder to start pruning from.
+ */
+function pruneUntouchedMissingItems(node: MediaFolder) {
+  if (!node.children) return
+
+  // If the parent folder itself is missing, we do not prune its children.
+  // This preserves the record of what it contained for the user to see.
+  if (node.isMissing) {
+    for (const child of node.children) {
+      if (child.type === 'folder') {
+        pruneUntouchedMissingItems(child)
+      }
+    }
+    return
+  }
+
+  // The parent folder exists, so we can safely prune its missing children if they are not user-edited.
+  node.children = node.children.filter((child) => {
+    return !(child.isMissing && !child.isUserEdited)
+  })
+
+  // Recurse for the remaining children that are folders.
+  for (const child of node.children) {
+    if (child.type === 'folder') {
+      pruneUntouchedMissingItems(child)
+    }
+  }
 }
 
 /**
@@ -572,8 +669,8 @@ function collectItemsToProcess(
   // Process children of the current folder if the flag is set.
   if (folder.retrieve_children_metadata) {
     for (const child of folder.children) {
-      // **THE FIX**: Do not process items that are marked as hidden.
-      if (child.isHidden) {
+      // **THE FIX**: Do not process items that are marked as hidden or missing.
+      if (child.isHidden || child.isMissing) {
         continue
       }
       if (typeof child.tmdbId === 'undefined') {
@@ -594,7 +691,14 @@ function collectItemsToProcess(
 
 async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
-    return { mediaTypes: [], genres: [], persons: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
+    return {
+      mediaTypes: [],
+      genres: [],
+      persons: [],
+      tagKeys: [],
+      virtualTagKeys: [],
+      tagValues: {}
+    }
   }
 
   const allItems = getAllItemsAsList(db.root)
@@ -838,6 +942,26 @@ async function clearChildrenRecursively(
   }
 }
 
+/**
+ * A maintainable helper to mark an item and its ancestors as user-edited.
+ * This protects them from being pruned if they go missing from the filesystem.
+ * This is now the single point of truth for what constitutes a "valuable" user edit.
+ * Some user actions like play-file (which sets watched state) are user actions that result in the
+ * db getting modified, but are on their own not sufficiently "valuable" to prevent pruning.
+ */
+function markAsUserEdited(itemId: string, dbRoot: MediaFolder | null) {
+  if (!dbRoot) return
+  const item = findItemById(itemId, dbRoot)
+  if (item) {
+    item.isUserEdited = true
+    let parent = findParent(item.id, dbRoot)
+    while (parent) {
+      parent.isUserEdited = true
+      parent = findParent(parent.id, dbRoot)
+    }
+  }
+}
+
 async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
   // Re-apply virtual tags for all modified items
   const currentSettings = await readSettings()
@@ -859,29 +983,29 @@ async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
 }
 
 export function setupLibraryIpc(): void {
-  // Load the database into memory when the app is ready
-  loadDbIntoMemory()
+	// Load the database into memory when the app is ready
+	loadDbIntoMemory()
 
-  ipcMain.handle('get-library-root', async () => {
-    if (!db) {
-      await loadDbIntoMemory()
-    }
-    // This now correctly returns only the root with its immediate children,
-    // enforcing a lazy-loading pattern on the frontend from the start.
-    return db?.root ? createShallowClonableCopy(db.root) : null
-  })
+	ipcMain.handle('get-library-root', async () => {
+		if (!db) {
+			await loadDbIntoMemory()
+		}
+		// This now correctly returns only the root with its immediate children,
+		// enforcing a lazy-loading pattern on the frontend from the start.
+		return db?.root ? createShallowClonableCopy(db.root) : null
+	})
 
-  ipcMain.handle('get-library-media-source-path', async () => {
+	ipcMain.handle('get-library-media-source-path', async () => {
     const settings = await readSettings()
     return settings.mediaSourcePath ?? null
-  })
+	})
 
-  ipcMain.handle('refresh-library', async () => {
-    const focusedWindow = BrowserWindow.getFocusedWindow()
+	ipcMain.handle('refresh-library', async () => {
+		const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
     const { mediaSourcePath } = await readSettings()
 
-    if (!db || !mediaSourcePath) {
+    if (!db || !db.root || !mediaSourcePath) {
       console.log('Cannot refresh, no library configured.')
       return null
     }
@@ -889,62 +1013,24 @@ export function setupLibraryIpc(): void {
     console.log(`Refreshing library from: ${mediaSourcePath}`)
     try {
       setBulkUpdateStatus(true)
+
+      // Start the recursive sync process. This modifies the existing `db.root` in place.
+      await syncWithDisk(db.root, mediaSourcePath)
+
+      // After syncing, prune items that are missing and have not been manually edited.
+      pruneUntouchedMissingItems(db.root)
+
       const imagesDir = path.join(getLibraryDataPath(), 'images')
-      const newRoot = await scanDirectory(mediaSourcePath, mediaSourcePath)
+      await verifyImagePaths(db.root, imagesDir)
 
-      const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
-
-      // This function merges old metadata and verifies image paths for all items.
-      async function processItem(item: LibraryItem | null) {
-        if (!item) return // Handle null items from scanner
-        const oldItem = oldItemsMap.get(item.id)
-        if (oldItem) {
-          // A helper to copy properties from a list of keys.
-          const copyProperties = (keys: readonly string[]) => {
-            for (const key of keys) {
-              if (Object.prototype.hasOwnProperty.call(oldItem, key)) {
-                ;(item as any)[key] = (oldItem as any)[key]
-              }
-            }
-          }
-
-          // Copy all metadata and settings using the centralized key definitions.
-          copyProperties(METADATA_KEYS)
-          copyProperties(VIEW_SETTINGS_KEYS)
-          copyProperties(FOLDER_BEHAVIOR_SETTINGS_KEYS)
-
-          // Copy other preserved properties not covered by the main groups.
-          item.isHidden = oldItem.isHidden
-          item._v = oldItem._v
-          if (item.type === 'file' && oldItem.type === 'file') {
-            item.watched = oldItem.watched
-          }
-        }
-
-        await verifyImagePaths(item, imagesDir)
-
-        if (item.type === 'folder') {
-          await Promise.all(item.children.map(processItem))
-        }
-      }
-
-      await processItem(newRoot)
-
-      // Directly set the new root on our proxied DB. The proxy will detect this change.
-      db.root = newRoot
-
-      // Apply virtual tags. These changes will also be detected by the proxy.
       const currentSettings = await readSettings()
-      if (db.root) {
-        applyVirtualTagsToAllItems(db.root, currentSettings)
-      }
+      applyVirtualTagsToAllItems(db.root, currentSettings)
 
-      // Rebuild the search index now that all data is merged and updated.
       buildFullSearchIndex(db.root)
-      setBulkUpdateStatus(false)
+      setBulkUpdateStatus(false) // Re-enable single-item updates from here
 
       await writeDb(db)
-      console.log('Library refresh and search index rebuild complete. Database updated.')
+      console.log('Library refresh and sync complete. Database updated.')
 
       const settings = await readSettings()
       fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
@@ -954,7 +1040,7 @@ export function setupLibraryIpc(): void {
       return db.root ? createShallowClonableCopy(db.root) : null
     } catch (error) {
       console.error('Failed to refresh library:', error)
-      // On error, we can send a deep copy of the old root as a fallback.
+      setBulkUpdateStatus(false) // Ensure bulk status is reset on error
       return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
     }
   })
@@ -1025,10 +1111,10 @@ export function setupLibraryIpc(): void {
       console.error('Failed to scan directory:', error)
       return null
     }
-  })
+	})
 
-  ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
-    if (!db || !db.root) {
+	ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {
+		if (!db || !db.root) {
       console.error('Cannot get item details: database not found.')
       return null
     }
@@ -1192,10 +1278,10 @@ export function setupLibraryIpc(): void {
       return deepCopy
     }
     return null
-  })
+	})
 
-  ipcMain.handle('fetch-credits', async (_, itemId: string): Promise<void> => {
-    if (!db || !db.root) return
+	ipcMain.handle('fetch-credits', async (_, itemId: string): Promise<void> => {
+		if (!db || !db.root) return
     const item = findItemById(itemId, db.root)
     if (!item) {
       console.error(`[Credits] Cannot fetch, item ${itemId} not found.`)
@@ -1234,10 +1320,10 @@ export function setupLibraryIpc(): void {
     } catch (err) {
       console.error(`[Credits] Background fetch for item ${itemId} failed:`, err)
     }
-  })
+	})
 
-  ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
-    const { playerCommand } = await readSettings()
+	ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
+		const { playerCommand } = await readSettings()
 
     if (!db || !db.root || !playerCommand) {
       console.error('Cannot play file: database or player command not configured.')
@@ -1318,10 +1404,10 @@ export function setupLibraryIpc(): void {
         console.error('Failed to apply initial folder settings:', error)
       }
     }
-  )
+	)
 
-  ipcMain.handle('clear-children-metadata', async (_, folderId: string): Promise<boolean> => {
-    if (!db || !db.root) {
+	ipcMain.handle('clear-children-metadata', async (_, folderId: string): Promise<boolean> => {
+		if (!db || !db.root) {
       console.error('Cannot clear metadata: database not found.')
       return false
     }
@@ -1386,77 +1472,89 @@ export function setupLibraryIpc(): void {
         return false
       }
     }
-  )
+	)
 
-  ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
+	ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 
-  ipcMain.handle('update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
-    if (!db || !db.root) {
-      console.error('Cannot update item: database not found in memory.')
-      return
-    }
+	async function _updateItem(updatedItem: LibraryItem): Promise<void> {
+		if (!db || !db.root) {
+			console.error('Cannot update item: database not found in memory.')
+			return
+		}
 
-    const itemInDb = findItemById(updatedItem.id, db.root)
-    if (itemInDb) {
-      setBulkUpdateStatus(true)
-      // Defensively apply updates. We create a copy of the incoming item
-      // and delete the properties we do not want to overwrite in the database.
-      // This prevents structural properties like `children` from being overwritten
-      // with `null` if the `updatedItem` object comes from a lazy-loaded part of the renderer.
-      const safeUpdates = { ...updatedItem }
-      delete (safeUpdates as Partial<MediaFolder>).children
-      delete (safeUpdates as Partial<LibraryItem>).id
-      delete (safeUpdates as Partial<LibraryItem>).path
-      delete (safeUpdates as Partial<LibraryItem>).type
+		const itemInDb = findItemById(updatedItem.id, db.root)
+		if (itemInDb) {
+			setBulkUpdateStatus(true)
+			// Defensively apply updates. We create a copy of the incoming item
+			// and delete the properties we do not want to overwrite in the database.
+			// This prevents structural properties like `children` from being overwritten
+			// with `null` if the `updatedItem` object comes from a lazy-loaded part of the renderer.
+			const safeUpdates = { ...updatedItem }
+			delete (safeUpdates as Partial<MediaFolder>).children
+			delete (safeUpdates as Partial<LibraryItem>).id
+			delete (safeUpdates as Partial<LibraryItem>).path
+			delete (safeUpdates as Partial<LibraryItem>).type
 
-      Object.assign(itemInDb, safeUpdates)
+			Object.assign(itemInDb, safeUpdates)
 
-      const settings = await readSettings()
-      itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
-      setBulkUpdateStatus(false)
+			const settings = await readSettings()
+			itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
+			setBulkUpdateStatus(false)
 
-      // The proxy was suppressed during the bulk update.
-      // Manually trigger a single, incremental update for the item now.
-      updateIndexForItem(itemInDb)
+			// The proxy was suppressed during the bulk update.
+			// Manually trigger a single, incremental update for the item now.
+			updateIndexForItem(itemInDb)
 
-      // Use the centralized helper to save, notify, and update suggestions.
-      await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
+			// Use the centralized helper to save, notify, and update suggestions.
+			await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
 
-      console.log(`Updated item ${updatedItem.id} in database.`)
-    } else {
-      console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
-    }
-  })
+			console.log(`Updated item ${updatedItem.id} in database.`)
+		} else {
+			console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
+		}
+	}
 
-  ipcMain.handle(
-    'manual-search',
-    async (_, query: string, type: 'movie' | 'tv' | 'season', year?: string, tmdbId?: string) => {
+	ipcMain.handle('user-update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+		if (!db?.root) return
+        log(`Marking item as user-edited: "${updatedItem.title ?? updatedItem.name}" (ID: ${updatedItem.id})`)
+		markAsUserEdited(updatedItem.id, db.root)
+		await _updateItem(updatedItem)
+	})
+
+	ipcMain.handle('update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+		await _updateItem(updatedItem)
+	})
+
+	ipcMain.handle(
+		'manual-search',
+		async (_, query: string, type: 'movie' | 'tv' | 'season', year?: string, tmdbId?: string) => {
       const { tmdbApiKey } = await readSettings()
       if (!tmdbApiKey) {
         console.warn('Manual search skipped: No TMDB API key.')
         return []
       }
       return manualSearch(query, type, tmdbApiKey, year, tmdbId)
-    }
-  )
+		}
+	)
 
-  ipcMain.handle(
-    'get-tmdb-images',
-    async (_, tmdbId: number, mediaType: 'movie' | 'tv', language: string) => {
+	ipcMain.handle(
+		'get-tmdb-images',
+		async (_, tmdbId: number, mediaType: 'movie' | 'tv', language: string) => {
       const { tmdbApiKey } = await readSettings()
       if (!tmdbApiKey) {
         console.warn('Image fetch skipped: No TMDB API key.')
         return { posters: [], backdrops: [] }
       }
       return getTmdbImages(tmdbId, mediaType, tmdbApiKey, language)
-    }
-  )
+		}
+	)
 
-  ipcMain.handle(
-    'apply-tmdb-result',
-    async (event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
-      if (!db || !db.root) return
-      const item = findItemById(itemId, db.root)
+	ipcMain.handle(
+		'apply-tmdb-result',
+		async (event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
+			if (!db || !db.root) return
+			markAsUserEdited(itemId, db.root)
+			const item = findItemById(itemId, db.root)
       if (!item) return
 
       const settings = await readSettings()
@@ -1598,11 +1696,11 @@ export function setupLibraryIpc(): void {
 
       // Use the centralized helper to save, notify, and update suggestions.
       await _finalizeItemUpdate(item, { updateSuggestions: true })
-    }
-  )
+		}
+	)
 
-  ipcMain.handle('select-local-image', async (): Promise<string | null> => {
-    const focusedWindow = BrowserWindow.getFocusedWindow()
+	ipcMain.handle('select-local-image', async (): Promise<string | null> => {
+		const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
 
     const result = await dialog.showOpenDialog(focusedWindow, {
@@ -1615,18 +1713,19 @@ export function setupLibraryIpc(): void {
       return null
     }
     return result.filePaths[0]
-  })
+	})
 
-  ipcMain.handle(
-    'set-image',
-    async (
-      event,
-      itemId: string,
-      imageType: 'poster' | 'backdrop' | 'logo',
-      source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
-    ) => {
-      if (!db || !db.root) return
-      const item = findItemById(itemId, db.root)
+	ipcMain.handle(
+		'set-image',
+		async (
+			event,
+			itemId: string,
+			imageType: 'poster' | 'backdrop' | 'logo',
+			source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+		) => {
+			if (!db || !db.root) return
+			markAsUserEdited(itemId, db.root)
+			const item = findItemById(itemId, db.root)
       if (!item) return
 
       const libraryDataPath = getLibraryDataPath()
@@ -1673,12 +1772,12 @@ export function setupLibraryIpc(): void {
           message: 'Failed to set the selected image. See logs for more details.'
         })
       }
-    }
-  )
+		}
+	)
 
-  ipcMain.handle(
-    'remove-image',
-    async (event, itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
+	ipcMain.handle(
+		'remove-image',
+		async (event, itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
       if (!db || !db.root) return
       const item = findItemById(itemId, db.root)
       if (!item) return
@@ -1693,19 +1792,19 @@ export function setupLibraryIpc(): void {
 
       // Use the centralized helper. No need to update suggestions for an image change.
       await _finalizeItemUpdate(item, { updateSuggestions: false })
-    }
-  )
+		}
+	)
 
-  ipcMain.on('reveal-in-explorer', async (_, relativePath: string) => {
+	ipcMain.handle('reveal-in-explorer', async (_, relativePath: string) => {
     const { mediaSourcePath } = await readSettings()
     if (mediaSourcePath) {
       const absolutePath = path.join(mediaSourcePath, relativePath)
       shell.showItemInFolder(absolutePath)
-    }
-  })
+		}
+	})
 
-  ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
-    const { mediaSourcePath } = await readSettings()
+	ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
+		const { mediaSourcePath } = await readSettings()
     if (!mediaSourcePath) return false
     const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
@@ -1719,41 +1818,38 @@ export function setupLibraryIpc(): void {
         detail: (error as Error).message
       })
       return false
-    }
-  })
+		}
+	})
 
-  ipcMain.handle(
-    'perform-search',
-    async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
+	ipcMain.handle(
+		'perform-search',
+		async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
       // Calls the lean, fast search function for the UI.
       return performSearch(query)
-    }
-  )
+		}
+	)
 
-  ipcMain.handle(
-    'rename-item',
-    async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
-      const { mediaSourcePath } = await readSettings()
-      if (!mediaSourcePath) return false
-      const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
-      const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
-      try {
-        await fs.rename(oldAbsolutePath, newAbsolutePath)
-        return true
-      } catch (error) {
-        console.error(`Failed to rename from ${oldAbsolutePath} to ${newAbsolutePath}:`, error)
-        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
-          title: 'Rename Error',
-          message: 'Failed to rename item. Check file permissions or see logs for details.',
-          detail: (error as Error).message
-        })
-        return false
-      }
-    }
-  )
+	ipcMain.handle('rename-item', async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
+		const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) return false
+    const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
+    const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
+    try {
+      await fs.rename(oldAbsolutePath, newAbsolutePath)
+      return true
+    } catch (error) {
+      console.error(`Failed to rename from ${oldAbsolutePath} to ${newAbsolutePath}:`, error)
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Rename Error',
+        message: 'Failed to rename item. Check file permissions or see logs for details.',
+        detail: (error as Error).message
+      })
+      return false
+		}
+	})
 
-  ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
-    const { mediaSourcePath } = await readSettings()
+	ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
+		const { mediaSourcePath } = await readSettings()
     if (!mediaSourcePath) return null
     const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
@@ -1779,19 +1875,19 @@ export function setupLibraryIpc(): void {
     } catch (error) {
       console.error(`Failed to get properties for ${absolutePath}:`, error)
       return null
-    }
-  })
+		}
+	})
 
-  ipcMain.handle(
-    'debug-perform-search',
-    async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
+	ipcMain.handle(
+		'debug-perform-search',
+		async (_, query: { text: string; tags: { key: string; value: string }[] }) => {
       // Calls the verbose search function for the debug console.
       return debugPerformSearch(query)
-    }
-  )
+		}
+	)
 
-  ipcMain.handle('get-item-by-id', async (_, itemId: string): Promise<LibraryItem | null> => {
-    if (!db || !db.root) {
+	ipcMain.handle('get-item-by-id', async (_, itemId: string): Promise<LibraryItem | null> => {
+		if (!db || !db.root) {
       return null
     }
     const item = findItemById(itemId, db.root)
@@ -1799,27 +1895,27 @@ export function setupLibraryIpc(): void {
     // lazy-loading contract on the frontend. Any folder sent will have
     // its deeper children marked as not-loaded (`null`).
     return item ? createShallowClonableCopy(item) : null
-  })
+	})
 
-  ipcMain.handle('get-children', async (_, parentId: string): Promise<LibraryItem[] | null> => {
-    if (!db || !db.root) return null
+	ipcMain.handle('get-children', async (_, parentId: string): Promise<LibraryItem[] | null> => {
+		if (!db || !db.root) return null
 
-    const parent = findItemById(parentId, db.root)
-    if (!parent || parent.type !== 'folder') return null
+		const parent = findItemById(parentId, db.root)
+		if (!parent || parent.type !== 'folder') return null
 
-    // Create a shallow, clonable copy of each child.
-    const clonableChildren = parent.children.map((child) => createShallowClonableCopy(child))
-    return clonableChildren
-  })
+		// Create a shallow, clonable copy of each child.
+		const clonableChildren = parent.children.map((child) => createShallowClonableCopy(child))
+		return clonableChildren
+	})
 
-  ipcMain.handle('get-parent', async (_, itemId: string): Promise<MediaFolder | null> => {
-    if (!db || !db.root) return null
+	ipcMain.handle('get-parent', async (_, itemId: string): Promise<MediaFolder | null> => {
+		if (!db || !db.root) return null
     const parent = findParent(itemId, db.root)
-    return parent ? JSON.parse(JSON.stringify(parent)) : null
-  })
+		return parent ? JSON.parse(JSON.stringify(parent)) : null
+	})
 
-  ipcMain.handle('get-hidden-children', async (_, parentId: string): Promise<LibraryItem[]> => {
-    if (!db || !db.root) return []
+	ipcMain.handle('get-hidden-children', async (_, parentId: string): Promise<LibraryItem[]> => {
+		if (!db || !db.root) return []
     const parent = findItemById(parentId, db.root)
     if (!parent || parent.type !== 'folder') return []
 
