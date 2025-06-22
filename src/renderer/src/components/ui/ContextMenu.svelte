@@ -15,7 +15,9 @@
     onRevealInExplorer,
     onDeleteItem,
     onRenameItem,
-    onShowProperties
+    onShowProperties,
+    onClearMetadata,
+    onHideItem
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -33,6 +35,8 @@
     onDeleteItem: () => void
     onRenameItem: () => void
     onShowProperties: () => void
+    onClearMetadata: () => void
+    onHideItem: () => void
   } = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
@@ -131,6 +135,16 @@
 
   function handleArtwork() {
     onEditArtwork()
+    onClose()
+  }
+
+  function handleClearMetadata() {
+    onClearMetadata()
+    onClose()
+  }
+
+  function handleHideItem() {
+    onHideItem()
     onClose()
   }
 
@@ -295,10 +309,21 @@
           style="top: {submenuTop}px;"
           onclick={(e) => e.stopPropagation()}
         >
-          <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
-            <span class="icon">👁️</span>
-            <span>Mark as Unwatched</span>
-          </button>
+      <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
+        <span class="icon">👁️</span>
+        <span>Mark as Unwatched</span>
+      </button>
+      {#if !isVirtual}
+        <div class="separator"></div>
+        <button class="context-menu-item danger" onclick={handleClearMetadata}>
+          <span class="icon">🔥</span>
+          <span>Clear Metadata...</span>
+        </button>
+        <button class="context-menu-item danger" onclick={handleHideItem}>
+          <span class="icon">🚫</span>
+          <span>Hide Item...</span>
+        </button>
+      {/if}
         </div>
       {/if}
     </div>

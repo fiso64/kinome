@@ -4,7 +4,6 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
-  import { dialogStore } from '../../lib/dialog-store'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -36,9 +35,6 @@
   const isVirtual = $derived(item.isVirtual === true)
 
   let activeTab = $state(initialTab)
-
-  // --- Hide State ---
-  let isHidden = $state(item.isHidden ?? false)
 
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
@@ -151,7 +147,9 @@
         updatedItem.process_tv_children = processTvChildren === true ? undefined : false
       }
 
-      updatedItem.isHidden = isHidden
+      // Hiding/unhiding is handled elsewhere (context menu / parent folder settings).
+      // We just preserve the current state.
+      updatedItem.isHidden = item.isHidden
 
       return updatedItem
     }
@@ -179,49 +177,6 @@
     // Trigger refresh after closing the modal for a better user experience.
     if (needsRefresh) {
       await onNeedRefresh()
-    }
-  }
-
-  async function handleClearMetadata() {
-    const isFolder = item.type === 'folder'
-    const message = isVirtual
-      ? `DANGER: This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
-      : `DANGER: This will save any changes made in this window and then permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
-
-    const confirmed = await dialogStore.showConfirmation({
-      title: 'Confirm Metadata Clearing',
-      message: message,
-      detail: 'This action cannot be undone.',
-      confirmText: 'Clear Metadata',
-      cancelText: 'Cancel',
-      confirmClass: 'danger'
-    })
-
-    if (confirmed) {
-      if (isVirtual) {
-        const childIds = item.children.map((c) => c.id)
-        if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
-      } else {
-        const itemToUpdate = await buildUpdatedItem()
-        // We need to save any pending changes before clearing
-        if (itemToUpdate) await window.api.userUpdateItem(itemToUpdate)
-        if (await window.api.clearItemMetadata(item.id)) onClose()
-      }
-    }
-  }
-
-  async function handleHide() {
-    const confirmed = await dialogStore.showConfirmation({
-      title: 'Confirm Hide',
-      message: `Are you sure you want to hide "${item.title ?? item.name}"?`,
-      detail: "This is not a deletion. It can be unhidden from its parent folder's settings.",
-      confirmText: 'Hide Item',
-      cancelText: 'Cancel'
-    })
-
-    if (confirmed) {
-      isHidden = true
-      await handleSave()
     }
   }
 
@@ -283,12 +238,10 @@
         bind:retrieveChildrenMetadata
         bind:childrenTypeHint
         bind:processTvChildren
-        onClearMetadata={handleClearMetadata}
-        onHideItem={handleHide}
         {onNeedRefresh}
       />
     {:else if activeTab === 'settings' && !isFolder}
-      <FileTab onHideItem={handleHide} onClearMetadata={handleClearMetadata} />
+      <FileTab />
     {/if}
   </div>
 </ModalWindow>

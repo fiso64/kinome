@@ -626,6 +626,49 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
+  async function handleClearItemMetadata(item: LibraryItem) {
+    const isFolder = item.type === 'folder'
+    const isVirtual = (item as any).isVirtual === true
+    const message = isVirtual
+      ? `This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
+      : `This will permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
+
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Metadata Clearing',
+      message,
+      detail: 'This action cannot be undone.',
+      confirmText: 'Clear Metadata',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+
+    if (!confirmed) return
+
+    if (isVirtual && item.type === 'folder') {
+      const childIds = item.children.map((c) => c.id)
+      await window.api.clearVirtualFolderMetadata(childIds)
+    } else {
+      await window.api.clearItemMetadata(item.id)
+    }
+    // The onLibraryItemUpdated/onLibraryItemsUpdated listeners will handle UI updates.
+  }
+
+  async function handleHideItemFromContext(item: LibraryItem) {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Hide',
+      message: `Are you sure you want to hide "${item.title ?? item.name}"?`,
+      detail: "This is not a deletion. It can be unhidden from its parent folder's settings.",
+      confirmText: 'Hide Item',
+      cancelText: 'Cancel'
+    })
+
+    if (confirmed) {
+      const itemToUpdate = { ...JSON.parse(JSON.stringify(item)), isHidden: true }
+      await window.api.userUpdateItem(itemToUpdate)
+      // The onLibraryItemUpdated listener will handle UI updates.
+    }
+  }
+
   async function handleOpenLibrary(): Promise<void> {
     const path = await window.api.selectLibraryDirectory()
     if (path) {
@@ -861,6 +904,16 @@
     onShowProperties={() => {
       if (contextMenuItem) {
         handleShowProperties(contextMenuItem)
+      }
+    }}
+    onClearMetadata={() => {
+      if (contextMenuItem) {
+        handleClearItemMetadata(contextMenuItem)
+      }
+    }}
+    onHideItem={() => {
+      if (contextMenuItem) {
+        handleHideItemFromContext(contextMenuItem)
       }
     }}
   />

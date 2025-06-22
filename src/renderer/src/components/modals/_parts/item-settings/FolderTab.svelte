@@ -4,16 +4,12 @@
     retrieveChildrenMetadata = $bindable(),
     childrenTypeHint = $bindable(),
     processTvChildren = $bindable(),
-    onClearMetadata,
-    onHideItem,
     onNeedRefresh
   }: {
     item: MediaFolder
     retrieveChildrenMetadata: boolean
     childrenTypeHint: 'auto' | 'movie' | 'tv'
     processTvChildren: boolean
-    onClearMetadata: () => Promise<void>
-    onHideItem: () => Promise<void>
     onNeedRefresh: () => Promise<void>
   } = $props()
 
@@ -80,28 +76,6 @@
     {/if}
   {/if}
 
-  <div class="danger-zone">
-    <div class="danger-zone-header">
-      <h4>Danger Zone</h4>
-    </div>
-    <div>
-      <button class="danger" onclick={onClearMetadata}> Clear Metadata </button>
-      <p class="help-text danger-help-text">
-        Removes all metadata (including custom titles, posters, and tags) for this folder and all of
-        its children recursively.
-      </p>
-    </div>
-    {#if !isVirtual}
-      <div>
-        <button class="danger" onclick={onHideItem}> Hide This Item </button>
-        <p class="help-text danger-help-text">
-          Hides this item from all library views and searches. It can be unhidden from its parent
-          folder's settings.
-        </p>
-      </div>
-    {/if}
-  </div>
-
   {#if hiddenChildren.length > 0}
     <div class="settings-group">
       <h4>Hidden Items in this Folder</h4>
@@ -155,32 +129,6 @@
   }
   label {
     font-weight: bold;
-  }
-
-  .danger-zone {
-    border: 1px solid #c50f1f;
-    border-radius: 6px;
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    background-color: rgba(197, 15, 31, 0.1);
-  }
-  .danger-zone-header h4 {
-    color: #ff7d7d;
-    font-weight: bold;
-    margin: 0;
-  }
-  .danger-help-text {
-    margin-top: 0.5rem;
-  }
-  button.danger {
-    background-color: #c50f1f;
-    color: white;
-    align-self: flex-start;
-  }
-  button.danger:hover:not(:disabled) {
-    background-color: #a40e19;
   }
 
   .hidden-items-list {
