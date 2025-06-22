@@ -32,14 +32,23 @@
   }
 </script>
 
-<div class="cw-item" class:horizontal={layout === 'horizontal'}>
+<div
+  class="cw-item"
+  class:horizontal={layout === 'horizontal'}
+  class:vertical={layout === 'vertical'}
+  role={layout === 'horizontal' ? 'button' : undefined}
+  tabindex={layout === 'horizontal' ? 0 : undefined}
+  aria-label={layout === 'horizontal' ? 'Play next episode' : undefined}
+  onclick={layout === 'horizontal' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
+  onkeydown={layout === 'horizontal' ? (e) => handleItemKeydown(e, item.nextEpisode) : null}
+>
   <div
     class="cw-poster"
-    role="button"
-    tabindex="0"
+    role={layout === 'vertical' ? 'button' : undefined}
+    tabindex={layout === 'vertical' ? 0 : undefined}
     aria-label="Play next episode"
-    onclick={() => dispatch('itemClick', { item: item.nextEpisode })}
-    onkeydown={(e) => handleItemKeydown(e, item.nextEpisode)}
+    onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
+    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, item.nextEpisode) : null}
   >
     <img
       src="media-browser-asset://images/{item.nextEpisode.posterPath ?? item.show.posterPath}{item
@@ -55,11 +64,11 @@
   </div>
   <div
     class="cw-info"
-    role="button"
-    tabindex="0"
-    aria-label="Go to show details"
-    onclick={() => dispatch('itemClick', { item: item.show })}
-    onkeydown={(e) => handleItemKeydown(e, item.show)}
+    role={layout === 'vertical' ? 'button' : undefined}
+    tabindex={layout === 'vertical' ? 0 : undefined}
+    aria-label={layout === 'vertical' ? 'Go to show details' : undefined}
+    onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.show }) : null}
+    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, item.show) : null}
   >
     {#if layout !== 'horizontal'}
       <div class="cw-show-title" title={item.show.title ?? item.show.name}>
@@ -119,8 +128,10 @@
     z-index: 2; /* Ensure hovered item's popup is on top of adjacent items */
   }
 
-  .cw-poster,
-  .cw-info {
+  /* Cursors are now conditional based on which element is interactive */
+  .cw-item[role='button'],
+  .cw-poster[role='button'],
+  .cw-info[role='button'] {
     cursor: pointer;
   }
 
@@ -140,7 +151,7 @@
   .cw-item.horizontal .cw-info {
     border-radius: 6px;
   }
-  .cw-info:hover {
+  .cw-item:not(.horizontal) .cw-info:hover {
     background-color: var(--ev-c-gray-3);
   }
 
@@ -184,7 +195,8 @@
     opacity: 0;
     transition: opacity 0.3s ease;
   }
-  .cw-poster:hover .cw-poster-overlay {
+  .cw-item.vertical .cw-poster:hover .cw-poster-overlay,
+  .cw-item.horizontal:hover .cw-poster-overlay {
     opacity: 1;
   }
   .play-icon {
