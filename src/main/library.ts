@@ -1820,6 +1820,40 @@ export function setupLibraryIpc(): void {
 		}
 	)
 
+	ipcMain.handle('mark-as-unwatched', async (_, itemId: string): Promise<void> => {
+    if (!db || !db.root) return
+
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot mark as unwatched: item ${itemId} not found.`)
+      return
+    }
+
+    const modifiedItems: LibraryItem[] = []
+    function setUnwatchedRecursively(node: LibraryItem) {
+      if ('watched' in node && node.watched) {
+        node.watched = false
+        modifiedItems.push(node)
+      }
+      if (node.type === 'folder' && node.children) {
+        for (const child of node.children) {
+          setUnwatchedRecursively(child)
+        }
+      }
+    }
+
+    setBulkUpdateStatus(true)
+    setUnwatchedRecursively(item)
+    setBulkUpdateStatus(false)
+
+    if (modifiedItems.length > 0) {
+      for (const modifiedItem of modifiedItems) {
+        updateIndexForItem(modifiedItem)
+      }
+      await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
+    }
+  })
+
 	ipcMain.handle('select-local-image', async (): Promise<string | null> => {
 		const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null

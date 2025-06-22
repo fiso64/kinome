@@ -63,6 +63,8 @@ const api = {
     ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
   applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
     ipcRenderer.invoke('user-apply-tmdb-result', itemId, result, mediaType),
+  markAsUnwatched: (itemId: string): Promise<void> =>
+    ipcRenderer.invoke('mark-as-unwatched', itemId),
   selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
   setImage: (
     itemId: string,

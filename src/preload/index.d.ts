@@ -67,6 +67,7 @@ declare global {
         language: string
       ) => Promise<{ posters: any[]; backdrops: any[]; logos: any[] }>
       applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv') => Promise<void>
+      markAsUnwatched: (itemId: string) => Promise<void>
       selectLocalImage: () => Promise<string | null>
       setImage: (
         itemId: string,

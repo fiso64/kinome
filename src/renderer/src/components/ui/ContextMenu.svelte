@@ -11,6 +11,7 @@
     onOpenFileSettings,
     onManualSearch,
     onEditArtwork,
+    onMarkAsUnwatched,
     onRevealInExplorer,
     onDeleteItem,
     onRenameItem,
@@ -27,6 +28,7 @@
     onOpenFileSettings: () => void
     onManualSearch: () => void
     onEditArtwork: () => void
+    onMarkAsUnwatched: () => void
     onRevealInExplorer: () => void
     onDeleteItem: () => void
     onRenameItem: () => void
@@ -37,7 +39,7 @@
 
   let menuElement = $state<HTMLDivElement>()
   let submenuElement = $state<HTMLDivElement>()
-  let submenuVisible = $state(false)
+  let activeSubmenu = $state<string | null>(null)
   let submenuOnLeft = $state(false)
   let submenuTop = $state(0) // For vertical adjustment
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
@@ -66,7 +68,7 @@
 
   // This effect checks if the submenu would go off-screen and flips its position if needed.
   $effect(() => {
-    if (submenuVisible && menuElement && submenuElement) {
+    if (activeSubmenu && menuElement && submenuElement) {
       const mainRect = menuElement.getBoundingClientRect()
       const subRect = submenuElement.getBoundingClientRect()
       const parentRect = submenuElement.parentElement!.getBoundingClientRect()
@@ -132,6 +134,11 @@
     onClose()
   }
 
+  function handleMarkAsUnwatched() {
+    onMarkAsUnwatched()
+    onClose()
+  }
+
   function handleReveal() {
     onRevealInExplorer()
     onClose()
@@ -178,57 +185,57 @@
     onClose()
   }}
 >
-  <div
-    bind:this={menuElement}
-    class="context-menu"
-    {style}
-    onmousedown={(e) => e.stopPropagation()}
-    oncontextmenu={(e) => e.stopPropagation()}
-  >
-    {#if !isVirtual}
-      {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
-        <button
-          class="context-menu-item"
-          onclick={handleOpen}
-          onmouseenter={() => (submenuVisible = false)}
-        >
-          Open
-        </button>
-      {/if}
+<div
+  bind:this={menuElement}
+  class="context-menu"
+  {style}
+  onmousedown={(e) => e.stopPropagation()}
+  oncontextmenu={(e) => e.stopPropagation()}
+>
+  {#if !isVirtual}
+    {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
       <button
         class="context-menu-item"
-        onclick={handleEdit}
-        onmouseenter={() => (submenuVisible = false)}
+        onclick={handleOpen}
+        onmouseenter={() => (activeSubmenu = null)}
       >
-        <span class="icon">✏️</span>
-        <span>Edit Metadata</span>
-      </button>
-      <button
-        class="context-menu-item"
-        onclick={handleManualSearch}
-        onmouseenter={() => (submenuVisible = false)}
-      >
-        <span class="icon">🔍</span>
-        <span>Manual Search...</span>
-      </button>
-      <button
-        class="context-menu-item"
-        onclick={handleArtwork}
-        onmouseenter={() => (submenuVisible = false)}
-      >
-        <span class="icon">🖼️</span>
-        <span>Artwork...</span>
+        Open
       </button>
     {/if}
+    <button
+      class="context-menu-item"
+      onclick={handleEdit}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon">✏️</span>
+      <span>Edit Metadata</span>
+    </button>
+    <button
+      class="context-menu-item"
+      onclick={handleManualSearch}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon">🔍</span>
+      <span>Manual Search...</span>
+    </button>
+    <button
+      class="context-menu-item"
+      onclick={handleArtwork}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon">🖼️</span>
+      <span>Artwork...</span>
+    </button>
+  {/if}
 
-    {#if item.type === 'folder'}
-      {#if !isVirtual}
-        <button
-          class="context-menu-item"
-          onclick={handleLayout}
-          onmouseenter={() => (submenuVisible = false)}
-        >
-          <span class="icon">
+  {#if item.type === 'folder'}
+    {#if !isVirtual}
+      <button
+        class="context-menu-item"
+        onclick={handleLayout}
+        onmouseenter={() => (activeSubmenu = null)}
+      >
+        <span class="icon">
             <svg
               width="16"
               height="16"
@@ -252,7 +259,7 @@
       <button
         class="context-menu-item"
         onclick={handleFolderSettings}
-        onmouseenter={() => (submenuVisible = false)}
+        onmouseenter={() => (activeSubmenu = null)}
       >
         <span class="icon">⚙️</span>
         <span>Folder Settings...</span>
@@ -262,18 +269,46 @@
       <button
         class="context-menu-item"
         onclick={handleOpenFileSettings}
-        onmouseenter={() => (submenuVisible = false)}
+        onmouseenter={() => (activeSubmenu = null)}
       >
         <span class="icon">⚙️</span>
         <span>File Settings...</span>
       </button>
     {/if}
+
+    <div
+      class="submenu-container"
+      onmouseenter={() => (activeSubmenu = 'actions')}
+      onmouseleave={() => (activeSubmenu = null)}
+    >
+      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+        <span class="icon">⚡️</span>
+        <span>Actions</span>
+        <span class="submenu-arrow">▸</span>
+      </button>
+
+      {#if activeSubmenu === 'actions'}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu"
+          class:on-left={submenuOnLeft}
+          style="top: {submenuTop}px;"
+          onclick={(e) => e.stopPropagation()}
+        >
+          <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
+            <span class="icon">👁️</span>
+            <span>Mark as Unwatched</span>
+          </button>
+        </div>
+      {/if}
+    </div>
+
     {#if !isVirtual && item.path}
-      <div class="separator" onmouseenter={() => (submenuVisible = false)}></div>
+      <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
       <div
         class="submenu-container"
-        onmouseenter={() => (submenuVisible = true)}
-        onmouseleave={() => (submenuVisible = false)}
+        onmouseenter={() => (activeSubmenu = 'file')}
+        onmouseleave={() => (activeSubmenu = null)}
       >
         <button
           class="context-menu-item has-submenu"
@@ -285,7 +320,7 @@
           <span class="submenu-arrow">▸</span>
         </button>
 
-        {#if submenuVisible && !item.isMissing}
+        {#if activeSubmenu === 'file' && !item.isMissing}
           <div
             bind:this={submenuElement}
             class="context-menu submenu"

@@ -513,6 +513,10 @@
     activeModal = { type: 'properties', item }
   }
 
+  async function handleMarkAsUnwatched(item: LibraryItem) {
+    await window.api.markAsUnwatched(item.id)
+  }
+
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
@@ -841,6 +845,11 @@
     onRenameItem={() => {
       if (contextMenuItem) {
         handleRenameItem(contextMenuItem)
+      }
+    }}
+    onMarkAsUnwatched={() => {
+      if (contextMenuItem) {
+        handleMarkAsUnwatched(contextMenuItem)
       }
     }}
     onShowProperties={() => {
