@@ -32,6 +32,10 @@
   const dispatch = createEventDispatcher<{
     dismissContinueWatching: { showId: string }
   }>()
+
+  // NOTE: The Continue Watching section below uses native horizontal scrolling.
+  // We are deliberately not intercepting the vertical mouse wheel to scroll horizontally,
+  // as it can feel jarring and interfere with page scrolling. A visible scrollbar is used instead.
 </script>
 
 <div class="home-view-container">

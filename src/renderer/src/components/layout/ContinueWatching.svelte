@@ -24,20 +24,13 @@
     }
   }
 
-  function horizontalScroll(event: WheelEvent) {
-    if (event.deltaY === 0) return
-    event.preventDefault()
-    const element = event.currentTarget as HTMLElement
-    element.scrollLeft += event.deltaY
-  }
-
   function handleDismiss(event: MouseEvent, showId: string) {
     event.stopPropagation()
     dispatch('dismiss', { showId })
   }
 </script>
 
-<div class="continue-watching-list" onwheel={horizontalScroll}>
+<div class="continue-watching-list">
   {#each items as { show, nextEpisode } (show.id)}
     <div
       class="cw-item"
@@ -66,8 +59,12 @@
           ).padStart(2, '0')}
           - {nextEpisode.title ?? nextEpisode.name}
         </div>
-        <p class="cw-overview">{nextEpisode.overview}</p>
       </div>
+      {#if nextEpisode.overview}
+        <div class="cw-overview-popup">
+          <p class="cw-overview">{nextEpisode.overview}</p>
+        </div>
+      {/if}
       <button
         class="dismiss-button"
         title="Dismiss"
@@ -81,21 +78,32 @@
   .continue-watching-list {
     display: flex;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible; /* Allow popups to be visible outside the list's initial bounds */
     gap: 1.5rem;
-    padding: 0.5rem 1.5rem 1.5rem 1.5rem;
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+    /* Increase bottom padding to make space for the popup to appear without being clipped */
+    padding: 0.5rem 1.5rem 8rem 1.5rem;
+    align-items: flex-start; /* Prevents items from stretching to match hovered item's height */
+    /* Add negative bottom margin to pull the following content back up, counteracting the padding */
+    margin-bottom: -6.5rem;
   }
   .continue-watching-list::-webkit-scrollbar {
-    display: none;
+    height: 8px;
+  }
+  .continue-watching-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .continue-watching-list::-webkit-scrollbar-thumb {
+    background-color: var(--ev-c-gray-3);
+    border-radius: 4px;
+  }
+  .continue-watching-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ev-c-gray-2);
   }
 
   .cw-item {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
     width: 320px;
     flex-shrink: 0;
     background: var(--color-background-soft);
@@ -118,6 +126,7 @@
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
     border-color: var(--color-background-mute);
     background: var(--color-background-soft);
+    z-index: 2; /* Ensure hovered item's popup is on top of adjacent items */
   }
 
   .cw-poster {
@@ -157,7 +166,7 @@
   }
 
   .cw-info {
-    padding: 0 1rem 1rem;
+    padding: 0.75rem 1rem;
     overflow: hidden;
   }
   .cw-show-title {
@@ -170,21 +179,45 @@
   .cw-episode-title {
     font-size: 0.8rem;
     color: var(--ev-c-text-2);
-    margin-bottom: 0.5rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .cw-overview-popup {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    background: var(--color-background-soft);
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--ev-c-black-mute);
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+    pointer-events: none;
+    transition:
+      opacity 0.25s ease-out,
+      transform 0.25s ease-out;
+  }
+
+  .cw-item:hover .cw-overview-popup {
+    opacity: 1;
+    transform: translateY(0.75rem) scale(1);
+  }
+
   .cw-overview {
     font-size: 0.85rem;
     color: var(--ev-c-text-2);
-    line-height: 1.4;
+    line-height: 1.5;
+    margin: 0;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin: 0;
   }
 
   .dismiss-button {
