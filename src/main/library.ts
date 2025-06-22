@@ -29,7 +29,7 @@ import type {
 import { RESETTABLE_METADATA_KEYS } from '../shared/types'
 import {
   cacheGenreLists,
-  fetchAndApplyMetadata,
+  searchTmdbAndApplyMetadata,
   fetchItemDetails,
   fetchAndApplyCredits,
   applyTvShowData,
@@ -854,7 +854,7 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
       hint?: 'movie' | 'tv'
     }): Promise<void> => {
       const { item, hint } = itemWithHint
-      await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
+      await searchTmdbAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
       if (item.posterPath || item.tmdbId === null) {
         updatedItemsBatch.push(item)
       }

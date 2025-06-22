@@ -424,7 +424,6 @@
   }
 
   .poster-column {
-    position: sticky;
     top: calc(var(--header-height) + 1.5rem);
     display: flex;
     flex-direction: column;

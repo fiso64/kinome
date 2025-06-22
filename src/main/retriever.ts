@@ -92,7 +92,7 @@ export async function downloadImage(url: string, destinationPath: string): Promi
   }
 }
 
-export async function fetchAndApplyMetadata(
+export async function searchTmdbAndApplyMetadata(
   item: LibraryItem,
   tmdbApiKey: string,
   libraryDataPath: string,
@@ -698,8 +698,10 @@ export async function fetchAndApplyEpisodeData(
               // ignore download error
             }
           }
-          modifiedEpisodes.push(localEpisode)
         }
+        // The episode has been processed (it has an episode number), so it's "modified"
+        // and should be part of the update batch sent to the renderer.
+        modifiedEpisodes.push(localEpisode)
       }
     }
   } catch (error) {

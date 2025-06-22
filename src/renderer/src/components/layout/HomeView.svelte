@@ -71,7 +71,7 @@
     gap: 1.5rem;
   }
   .home-section-title {
-    font-size: 1.5rem;
+    font-size: 1.8rem;
     font-weight: bold;
     padding: 0 1.5rem;
     margin-bottom: 1rem;

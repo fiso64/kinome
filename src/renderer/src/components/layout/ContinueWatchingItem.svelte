@@ -199,6 +199,14 @@
   .cw-item.horizontal:hover .cw-poster-overlay {
     opacity: 1;
   }
+  .cw-item.horizontal:hover {
+    background-color: var(--color-background-mute);
+  }
+  .cw-item.horizontal {
+    transition: 
+        transform 0.2s ease,
+        background-color 0.2s ease;
+  }
   .play-icon {
     font-size: 3rem;
     color: rgba(255, 255, 255, 0.8);
