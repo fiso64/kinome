@@ -9,17 +9,38 @@
     activeIndex
   }: {
     suggestions: string[]
-    position: { top: number; left: number }
+    position: { top: number; left: number; inputTop: number }
     onSelect: (suggestion: string) => void
     onClose: () => void
     activeIndex: number
   } = $props()
 
   let menuElement: HTMLDivElement
+  let style = $state('visibility: hidden;')
+
+  $effect(() => {
+    if (menuElement) {
+      const menuRect = menuElement.getBoundingClientRect()
+      const windowHeight = window.innerHeight
+      const margin = 5
+
+      let top = position.top // Default to below
+
+      if (top + menuRect.height > windowHeight - margin) {
+        // It overflows below, so place it above the input
+        const topAbove = position.inputTop - menuRect.height - 4
+        // If placing it above would push it off the top of the screen, clamp it.
+        top = Math.max(margin, topAbove)
+      }
+
+      style = `top: ${top}px; left: ${position.left}px; visibility: visible;`
+    }
+  })
 
   $effect(() => {
     // When the active index changes, scroll the active item into view.
-    if (menuElement) {
+    // By reading activeIndex, we make it a reactive dependency.
+    if (menuElement && activeIndex !== null) {
       menuElement.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     }
   })
@@ -28,7 +49,7 @@
 <div
   bind:this={menuElement}
   class="autocomplete-menu"
-  style="top: {position.top}px; left: {position.left}px;"
+  style={style}
   onmousedown={(e) => e.preventDefault()}
 >
   {#each suggestions as suggestion, i (suggestion)}

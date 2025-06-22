@@ -5,7 +5,7 @@ const SUGGESTION_LIMIT = 50
 export interface AutocompleteState {
   show: boolean
   suggestions: string[]
-  position: { top: number; left: number }
+  position: { top: number; left: number; inputTop: number }
   onSelect: (suggestion: string) => void
   activeIndex: number
   targetNode: HTMLElement | null
@@ -94,7 +94,8 @@ export function autocomplete(
 
       const position = {
         top: nodeRect.bottom + 4,
-        left: caretLeft
+        left: caretLeft,
+        inputTop: nodeRect.top
       }
 
       const wrappedOnSelect = (suggestion: string) => {
