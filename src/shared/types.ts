@@ -164,6 +164,9 @@ export interface Settings {
   defaultLayouts: {
     [K in DefaultLayoutKey]: StoredViewSettings
   }
+  // View settings for special non-folder views
+  searchResultView: StoredViewSettings
+  searchPopupView: StoredViewSettings
 }
 
 export interface Person {

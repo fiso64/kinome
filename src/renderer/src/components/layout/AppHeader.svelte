@@ -23,7 +23,8 @@
     globalSearchQuery = $bindable(),
     detailViewSearchQuery = $bindable(),
     highlightedGlobalSearchItemIndex = $bindable(),
-    highlightedDetailSearchItemIndex = $bindable()
+    highlightedDetailSearchItemIndex = $bindable(),
+    settings
   }: {
     canGoBack: boolean
     isDetailViewActive: boolean
@@ -44,6 +45,7 @@
     detailViewSearchQuery: { text: string; tags: { key: string; value: string }[] }
     highlightedGlobalSearchItemIndex: number | null
     highlightedDetailSearchItemIndex: number | null
+    settings: Settings | null
   } = $props()
 
   const dispatch = createEventDispatcher<{
@@ -143,6 +145,19 @@
     searchInputEl?.focus()
     searchInputEl?.select()
   }
+
+  const searchPopupParentItem = $derived(
+    settings
+      ? ({
+          id: 'search-popup-view',
+          name: 'Search Popup',
+          type: 'folder',
+          path: '',
+          children: [],
+          ...settings.searchPopupView
+        } as MediaFolder)
+      : undefined
+  )
 </script>
 
 <header class:in-detail-view={isDetailViewActive}>
@@ -186,13 +201,13 @@
           {:else if detailSearchResults.length > 0}
             <MediaView
               items={detailSearchResults}
-              layout="list"
+              parentItem={searchPopupParentItem}
               onItemClick={(item) => dispatch('detailSearchItemClick', { item })}
               onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
               highlightedIndex={highlightedDetailSearchItemIndex}
               isPreSorted={true}
               grayOutWatched={false}
-              settings={null}
+              {settings}
               listFixedAspectRatio={true}
             />
           {:else if !isPerformingDetailSearch}

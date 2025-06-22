@@ -903,6 +903,7 @@
     on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
     on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
     on:detailSearchItemClick={(e) => handleDetailSearchItemClick(e.detail.item)}
+    {settings}
   />
 
   <MainView

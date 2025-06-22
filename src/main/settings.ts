@@ -74,7 +74,9 @@ async function readRawSettings(): Promise<Settings> {
       movie: { layout: 'tree' },
       tv: { layout: 'tabs' },
       season: { layout: 'list' }
-    }
+    },
+    searchResultView: { layout: 'list', listDescriptionRows: 5 },
+    searchPopupView: { layout: 'list', listDescriptionRows: 2 }
   }
 
   // --- Start with defaults ---

@@ -38,6 +38,19 @@
     }
     searchByTag: { key: string; value: string }
   }>()
+
+  const searchParentItem = $derived(
+    settings
+      ? ({
+          id: 'search-view',
+          name: 'Search',
+          type: 'folder',
+          path: '',
+          children: [],
+          ...settings.searchResultView
+        } as MediaFolder)
+      : undefined
+  )
 </script>
 
 <div class="content">
@@ -70,14 +83,14 @@
             <MediaView
               items={searchResults}
               onItemClick={(item) => dispatch('itemClick', { item })}
-              layout="list"
+              parentItem={searchParentItem}
               onShowContextMenu={(item, e, options) =>
                 dispatch('showContextMenu', { item, event: e, options })}
               {suggestions}
               highlightedIndex={highlightedSearchItemIndex}
               isPreSorted={true}
               grayOutWatched={false}
-              settings={null}
+              {settings}
               listFixedAspectRatio={true}
             />
           {:else if !isPerformingSearch}
