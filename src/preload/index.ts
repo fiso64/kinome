@@ -25,12 +25,12 @@ const api = {
   scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
-	getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
-		ipcRenderer.invoke('get-item-details', itemId),
-	userUpdateItem: (item: LibraryItem): Promise<void> =>
-		ipcRenderer.invoke('user-update-item', item),
-	getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
-		ipcRenderer.invoke('get-autocomplete-suggestions'),
+  getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
+    ipcRenderer.invoke('get-item-details', itemId),
+  userUpdateItem: (item: LibraryItem): Promise<void> =>
+    ipcRenderer.invoke('user-update-item', item),
+  getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
+    ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-by-id', itemId),
   getChildren: (parentId: string): Promise<LibraryItem[] | null> =>

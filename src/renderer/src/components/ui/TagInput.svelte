@@ -49,7 +49,7 @@
         // Value context
         const key = text.substring(0, colonIndex).trim()
         const value = text.substring(colonIndex + 1).trimStart()
-        const source = key === 'genre' ? suggestions.genres : suggestions.tagValues[key] ?? []
+        const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
         return source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
       }
     },

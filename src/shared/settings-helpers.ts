@@ -104,7 +104,10 @@ export function resolveViewSettings(
     } else {
       // If no override is found, use the global default from `defaultLayoutSettings`.
       resolvedSpecific[key] = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
-      resolvedSources[key as keyof ResolvedViewSettings] = { source: 'global', sourceKey: '_default' }
+      resolvedSources[key as keyof ResolvedViewSettings] = {
+        source: 'global',
+        sourceKey: '_default'
+      }
     }
   }
 

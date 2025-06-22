@@ -49,7 +49,7 @@
 <div
   bind:this={menuElement}
   class="autocomplete-menu"
-  style={style}
+  {style}
   onmousedown={(e) => e.preventDefault()}
 >
   {#each suggestions as suggestion, i (suggestion)}

@@ -185,57 +185,57 @@
     onClose()
   }}
 >
-<div
-  bind:this={menuElement}
-  class="context-menu"
-  {style}
-  onmousedown={(e) => e.stopPropagation()}
-  oncontextmenu={(e) => e.stopPropagation()}
->
-  {#if !isVirtual}
-    {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
+  <div
+    bind:this={menuElement}
+    class="context-menu"
+    {style}
+    onmousedown={(e) => e.stopPropagation()}
+    oncontextmenu={(e) => e.stopPropagation()}
+  >
+    {#if !isVirtual}
+      {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
+        <button
+          class="context-menu-item"
+          onclick={handleOpen}
+          onmouseenter={() => (activeSubmenu = null)}
+        >
+          Open
+        </button>
+      {/if}
       <button
         class="context-menu-item"
-        onclick={handleOpen}
+        onclick={handleEdit}
         onmouseenter={() => (activeSubmenu = null)}
       >
-        Open
+        <span class="icon">✏️</span>
+        <span>Edit Metadata</span>
+      </button>
+      <button
+        class="context-menu-item"
+        onclick={handleManualSearch}
+        onmouseenter={() => (activeSubmenu = null)}
+      >
+        <span class="icon">🔍</span>
+        <span>Manual Search...</span>
+      </button>
+      <button
+        class="context-menu-item"
+        onclick={handleArtwork}
+        onmouseenter={() => (activeSubmenu = null)}
+      >
+        <span class="icon">🖼️</span>
+        <span>Artwork...</span>
       </button>
     {/if}
-    <button
-      class="context-menu-item"
-      onclick={handleEdit}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">✏️</span>
-      <span>Edit Metadata</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleManualSearch}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">🔍</span>
-      <span>Manual Search...</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleArtwork}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">🖼️</span>
-      <span>Artwork...</span>
-    </button>
-  {/if}
 
-  {#if item.type === 'folder'}
-    {#if !isVirtual}
-      <button
-        class="context-menu-item"
-        onclick={handleLayout}
-        onmouseenter={() => (activeSubmenu = null)}
-      >
-        <span class="icon">
+    {#if item.type === 'folder'}
+      {#if !isVirtual}
+        <button
+          class="context-menu-item"
+          onclick={handleLayout}
+          onmouseenter={() => (activeSubmenu = null)}
+        >
+          <span class="icon">
             <svg
               width="16"
               height="16"

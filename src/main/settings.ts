@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
-import type { DefaultLayoutKey, Settings, StoredViewSettings } from '../shared/types'
+import type { DefaultLayoutKey, Settings } from '../shared/types'
 import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
 import { getLibraryDataPath } from './paths'
 
@@ -87,7 +87,7 @@ async function readRawSettings(): Promise<Settings> {
   const globalSettings = await readGlobalSettings()
 
   // --- MIGRATION LOGIC: Only apply to global settings file ---
-  if (globalSettings?.defaultViewSettings) {
+  if ((globalSettings as any)?.defaultViewSettings) {
     console.log('[Settings] Migrating old view settings from settings.json to new format.')
     globalSettings.defaultLayouts = {
       _default: (globalSettings as any).defaultViewSettings,

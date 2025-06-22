@@ -80,6 +80,7 @@ The goal is to implement the key features that make the app unique and powerful.
 
 The goal is to expand source support and prepare for future growth.
 
+*   `[ ]` Option to rescan on startup
 *   `[ ]` Split the main process into transport layer and service layer.
 *   `[ ]` Database migration: Refactor to use SQLite as the central data store.
     -  **Data Access: The Repository Pattern**

@@ -133,7 +133,7 @@
 
 <div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
   {#if item.isMissing}
-  <div class="missing-banner">
+    <div class="missing-banner">
       <span class="icon">⚠️</span>
       <span>File or folder missing from disk.</span>
     </div>

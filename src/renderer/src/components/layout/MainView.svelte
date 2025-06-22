@@ -61,7 +61,9 @@
       <h2>Welcome to Media Browser</h2>
       <p>To get started, scan a new folder containing your media, or open an existing library.</p>
       <div class="welcome-buttons">
-        <button class="primary" onclick={() => dispatch('scanLibrary')}>Scan New Media Folder</button>
+        <button class="primary" onclick={() => dispatch('scanLibrary')}
+          >Scan New Media Folder</button
+        >
         <button class="secondary" onclick={() => dispatch('openLibrary')}
           >Open Existing Library</button
         >
@@ -119,14 +121,14 @@
     </div>
 
     {#if selectedItemForDetailView && settings}
-    <ItemDetail
-      item={selectedItemForDetailView}
-      onItemClick={(item) => dispatch('itemClick', { item })}
-      onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
-      showContextMenu={(item, event, options) =>
-        dispatch('showContextMenu', { item, event, options })}
-      {settings}
-    />
+      <ItemDetail
+        item={selectedItemForDetailView}
+        onItemClick={(item) => dispatch('itemClick', { item })}
+        onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
+        showContextMenu={(item, event, options) =>
+          dispatch('showContextMenu', { item, event, options })}
+        {settings}
+      />
     {/if}
   {/if}
 </div>

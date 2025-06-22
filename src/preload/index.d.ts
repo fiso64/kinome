@@ -39,12 +39,12 @@ declare global {
       getSettings: () => Promise<Settings>
       getLibraryMediaSourcePath: () => Promise<string | null>
       saveSettings: (settings: Partial<Settings>) => Promise<void>
-			// Data
-			getItemDetails: (itemId: string) => Promise<LibraryItem | null>
-			userUpdateItem: (item: LibraryItem) => Promise<void>
-			updateItem: (item: LibraryItem) => Promise<void>
-			getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
-			getItemById: (itemId: string) => Promise<LibraryItem | null>
+      // Data
+      getItemDetails: (itemId: string) => Promise<LibraryItem | null>
+      userUpdateItem: (item: LibraryItem) => Promise<void>
+      updateItem: (item: LibraryItem) => Promise<void>
+      getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
+      getItemById: (itemId: string) => Promise<LibraryItem | null>
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
       getHiddenChildren: (parentId: string) => Promise<LibraryItem[]>
       getParent: (itemId: string) => Promise<MediaFolder | null>

@@ -363,11 +363,13 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
   })
 
   // Step 3: Sort the final lists for display.
-  finalCast.sort((a, b) => a.order - b.order)
+  finalCast.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity))
   finalCrew.sort((a, b) => {
     // Primary sort: by job importance (lower is better)
-    if (a.order !== b.order) {
-      return a.order - b.order
+    const aOrder = a.order ?? Infinity
+    const bOrder = b.order ?? Infinity
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder
     }
     // Secondary sort: people with images first
     const aHasImage = !!a.profile_path
@@ -383,15 +385,8 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
 
 import type { Settings } from '../shared/types'
 
-export async function fetchAndApplyCredits(
-  item: LibraryItem,
-  tmdbApiKey: string
-): Promise<void> {
-  if (
-    !item.tmdbId ||
-    !item.mediaType ||
-    (item.mediaType !== 'movie' && item.mediaType !== 'tv')
-  ) {
+export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string): Promise<void> {
+  if (!item.tmdbId || !item.mediaType || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) {
     console.log(`Skipping credits fetch for "${item.name}", not a movie or tv show.`)
     item.tmdbCreditsFetched = true // Mark as "processed" to avoid retries
     return

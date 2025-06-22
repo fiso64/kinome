@@ -5,17 +5,9 @@ import './startup'
 import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
-import {
-  setupLibraryIpc,
-  reapplyVirtualTagsAfterSettingsChange
-} from './library'
+import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange } from './library'
 import { getLibraryDataPath, setLibraryDataPath } from './paths'
-import {
-  readSettings,
-  writeLibrarySettings,
-  writeGlobalSettings,
-  readGlobalSettings
-} from './settings'
+import { readSettings, writeLibrarySettings, writeGlobalSettings } from './settings'
 import type { Settings } from '../shared/types'
 
 function createWindow(): void {

@@ -84,19 +84,19 @@
 
   // --- Actions ---
   async function buildUpdatedItem(): Promise<LibraryItem | null> {
-		if (isVirtual && item.physicalParentId) {
-			// --- Editing a Virtual Folder ---
-			const physicalParent = await window.api.getItemById(item.physicalParentId)
-			if (!physicalParent || physicalParent.type !== 'folder') return null
+    if (isVirtual && item.physicalParentId) {
+      // --- Editing a Virtual Folder ---
+      const physicalParent = await window.api.getItemById(item.physicalParentId)
+      if (!physicalParent || physicalParent.type !== 'folder') return null
 
-			// Clone parent but exclude children for performance
-			const { children, ...parentWithoutChildren } = physicalParent
-			const updatedParent: MediaFolder = JSON.parse(JSON.stringify(parentWithoutChildren))
+      // Clone parent but exclude children for performance
+      const { children, ...parentWithoutChildren } = physicalParent
+      const updatedParent: MediaFolder = JSON.parse(JSON.stringify(parentWithoutChildren))
 
-			if (!updatedParent.virtualFolderSettings) updatedParent.virtualFolderSettings = {}
-			if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
-				updatedParent.virtualFolderSettings[item.groupByKey!] = {}
-			}
+      if (!updatedParent.virtualFolderSettings) updatedParent.virtualFolderSettings = {}
+      if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
+        updatedParent.virtualFolderSettings[item.groupByKey!] = {}
+      }
       const settings =
         updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
 
@@ -105,14 +105,14 @@
       settings.clickAction = selectedClickAction
       updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
       return updatedParent
-		} else {
-			// --- Editing a Physical Item ---
-			// Clone the item but exclude the 'children' array to avoid a slow deep clone
-			// and a large IPC payload. The rest of the item data is small.
-			const { children, ...itemWithoutChildren } = item as MediaFolder
-			const updatedItem: LibraryItem = JSON.parse(JSON.stringify(itemWithoutChildren))
+    } else {
+      // --- Editing a Physical Item ---
+      // Clone the item but exclude the 'children' array to avoid a slow deep clone
+      // and a large IPC payload. The rest of the item data is small.
+      const { children, ...itemWithoutChildren } = item as MediaFolder
+      const updatedItem: LibraryItem = JSON.parse(JSON.stringify(itemWithoutChildren))
 
-			// Apply metadata changes
+      // Apply metadata changes
       updatedItem.title = title.trim() ? title.trim() : undefined
       const parsedYear = parseInt(year, 10)
       updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
@@ -157,17 +157,17 @@
     }
   }
 
-	async function handleSave() {
-		const itemToUpdate = await buildUpdatedItem()
-		let needsRefresh = false
-		if (itemToUpdate) {
-			const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
-			await window.api.userUpdateItem(itemToUpdate)
-			if (
-				itemToUpdate.type === 'folder' &&
-				itemToUpdate.retrieve_children_metadata &&
-				!wasEnabled
-			) {
+  async function handleSave() {
+    const itemToUpdate = await buildUpdatedItem()
+    let needsRefresh = false
+    if (itemToUpdate) {
+      const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
+      await window.api.userUpdateItem(itemToUpdate)
+      if (
+        itemToUpdate.type === 'folder' &&
+        itemToUpdate.retrieve_children_metadata &&
+        !wasEnabled
+      ) {
         needsRefresh = true
       }
     }

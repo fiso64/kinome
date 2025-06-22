@@ -5,11 +5,7 @@
     ALL_VIEW_OVERRIDE_KEYS,
     DEFAULT_LAYOUTS_CONFIG
   } from '../../../../shared/types'
-  import type {
-    DefaultLayoutKey,
-    ResolutionSource,
-    ResolutionInfo
-  } from '../../../../shared/types'
+  import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '../../../../shared/types'
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
@@ -217,7 +213,8 @@
         {:else}
           <span class="inherited-value-text-inline">
             Using default from <strong
-              >{formatSource(defaultGridResolution?.sources.gridPosterSize)}</strong>
+              >{formatSource(defaultGridResolution?.sources.gridPosterSize)}</strong
+            >
           </span>
         {/if}
       {/if}
@@ -253,7 +250,8 @@
         {:else}
           <span class="inherited-value-text-inline">
             Using default from <strong
-              >{formatSource(defaultGroupByResolution?.sources.groupBy)}</strong>
+              >{formatSource(defaultGroupByResolution?.sources.groupBy)}</strong
+            >
           </span>
         {/if}
       {/if}
@@ -285,7 +283,8 @@
         {:else}
           <span class="inherited-value-text-inline">
             Using default from <strong
-              >{formatSource(defaultDescriptionResolution?.sources.listDescriptionRows)}</strong>
+              >{formatSource(defaultDescriptionResolution?.sources.listDescriptionRows)}</strong
+            >
           </span>
         {/if}
       {/if}

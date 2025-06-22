@@ -778,8 +778,10 @@
     }}
     onEditMetadata={() => {
       if (contextMenuItem) {
-        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
-          .settings
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem,
@@ -790,8 +792,10 @@
     }}
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
-        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
-          .settings
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem as MediaFolder,
@@ -802,8 +806,10 @@
     }}
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
-        const resolvedSettings = resolveViewSettings(contextMenuItem as MediaFolder, settings)
-          .settings
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem as MediaFolder,

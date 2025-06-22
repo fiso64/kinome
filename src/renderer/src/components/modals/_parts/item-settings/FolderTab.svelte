@@ -25,12 +25,12 @@
     hiddenChildren = await window.api.getHiddenChildren(item.id)
   }
 
-	async function handleUnhide(child: LibraryItem) {
-		const itemToUpdate = { ...JSON.parse(JSON.stringify(child)), isHidden: false }
-		await window.api.userUpdateItem(itemToUpdate)
-		await fetchHiddenChildren() // Refresh the list
-		await onNeedRefresh() // Refresh the main view to show the unhidden item
-	}
+  async function handleUnhide(child: LibraryItem) {
+    const itemToUpdate = { ...JSON.parse(JSON.stringify(child)), isHidden: false }
+    await window.api.userUpdateItem(itemToUpdate)
+    await fetchHiddenChildren() // Refresh the list
+    await onNeedRefresh() // Refresh the main view to show the unhidden item
+  }
 
   $effect(() => {
     if (!isVirtual) {

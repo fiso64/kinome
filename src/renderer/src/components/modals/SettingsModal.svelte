@@ -309,8 +309,8 @@
           <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
         </div>
         <p class="help-text">
-          The folder containing your media files. Changing this will start a full re-scan of the
-          new location.
+          The folder containing your media files. Changing this will start a full re-scan of the new
+          location.
         </p>
       </div>
       <div class="form-group">
@@ -323,7 +323,8 @@
         </div>
         <p class="help-text">
           The folder where all metadata, images, and database files are stored. Changing this
-          requires an app restart to take effect (will happen automatically on save. TODO: it doesn't seem to restart).
+          requires an app restart to take effect (will happen automatically on save. TODO: it
+          doesn't seem to restart).
         </p>
       </div>
     {:else if activeTab === 'view'}
@@ -339,9 +340,9 @@
       <div class="form-group">
         <label for="credits-display">Cast & Crew Section</label>
         <select id="credits-display" bind:value={creditsDisplay}>
-            <option value="shown">Show Expanded</option>
-            <option value="collapsed">Show Collapsed</option>
-            <option value="tab">Show as Tab</option>
+          <option value="shown">Show Expanded</option>
+          <option value="collapsed">Show Collapsed</option>
+          <option value="tab">Show as Tab</option>
           <option value="hidden">Do Not Show or Fetch</option>
         </select>
         <p class="help-text">Controls the default visibility of the credits section.</p>
