@@ -166,6 +166,18 @@ export interface Settings {
   }
 }
 
+export interface Person {
+  id: number
+  name: string
+  profile_path: string | null
+  // For cast
+  character?: string
+  // For crew
+  job?: string
+  // For sorting
+  order?: number
+}
+
 export interface MediaFile {
   // --- Core & User State (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
@@ -188,7 +200,7 @@ export interface MediaFile {
   seasonNumber?: number
   episodeNumber?: number
   opensAsFolder?: boolean // This behavior is tied to having metadata, so it's reset
-  tmdbCredits?: { cast: any[]; crew: any[] }
+  tmdbCredits?: { cast: Person[]; crew: Person[] }
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
@@ -237,7 +249,7 @@ export interface MediaFolder extends StoredViewSettings {
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
-  tmdbCredits?: { cast: any[]; crew: any[] }
+  tmdbCredits?: { cast: Person[]; crew: Person[] }
 }
 
 export type LibraryItem = MediaFile | MediaFolder

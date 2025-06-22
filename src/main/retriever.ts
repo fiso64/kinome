@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem, MediaFile, MediaFolder } from '../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder, Person } from '../shared/types'
 
 const genreCache = new Map<number, string>()
 
@@ -255,8 +255,19 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
   if (!isAggregated) {
     // Simple case for movies or non-aggregated TV credits from `append_to_response`.
     item.tmdbCredits = {
-      cast: creditsData.cast ?? [],
-      crew: creditsData.crew ?? []
+      cast: (creditsData.cast ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        profile_path: p.profile_path,
+        character: p.character,
+        order: p.order
+      })),
+      crew: (creditsData.crew ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        profile_path: p.profile_path,
+        job: p.job
+      }))
     }
     return
   }
@@ -322,15 +333,17 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
   })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
-  const finalCast: any[] = []
-  const finalCrew: any[] = []
+  const finalCast: Person[] = []
+  const finalCrew: Person[] = []
 
   people.forEach((p) => {
     const isPrimarilyActor = p.actingScore <= 15 || p.actingScore < p.crewScore
 
     if (isPrimarilyActor) {
       finalCast.push({
-        ...p.personData,
+        id: p.personData.id,
+        name: p.personData.name,
+        profile_path: p.personData.profile_path,
         // Synthesize a character string from all their acting roles.
         character: [...new Set(p.characters)].join(' / '),
         // Use the best acting score for sorting.
@@ -338,7 +351,9 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
       })
     } else {
       finalCrew.push({
-        ...p.personData,
+        id: p.personData.id,
+        name: p.personData.name,
+        profile_path: p.personData.profile_path,
         // Synthesize a job string from all their important crew roles.
         job: [...new Set(p.jobs)].join(' / '),
         // Use the best crew score for sorting.
