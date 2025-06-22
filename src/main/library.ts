@@ -1775,6 +1775,19 @@ export function setupLibraryIpc(): void {
           item.tmdbId = result.id
           item.mediaType = mediaType
           item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
+
+          // If we're applying a TV show result after a metadata clear, we need to
+          // re-run the local structure analysis to identify season folders BEFORE
+          // we fetch and apply the new details.
+          if (
+            item.type === 'folder' &&
+            mediaType === 'tv' &&
+            (item as MediaFolder).process_tv_children !== false
+          ) {
+            log('[Manual Match] Re-processing local TV structure before fetching details.')
+            processTvShowStructure(item as MediaFolder)
+          }
+
           await fetchItemDetails(item, settings, libraryDataPath)
           const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
           try {
