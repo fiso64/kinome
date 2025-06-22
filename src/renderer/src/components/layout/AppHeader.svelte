@@ -301,7 +301,9 @@
     border: 1px solid var(--color-background-mute);
     border-radius: 8px;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-    max-height: 70vh;
+    /* The height is calculated to show roughly 5 items.
+       We cap this with 70vh to ensure it fits on smaller screens. */
+    max-height: min(40rem, 70vh);
     overflow-y: auto;
   }
   .search-dropdown :global(.media-list) {
