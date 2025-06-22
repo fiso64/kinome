@@ -188,19 +188,19 @@ export interface MediaFile {
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string
-  overview?: string
+  overview?: string | null
   posterPath?: string | null // e.g. 'xxxx.jpg'
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv' | 'episode'
-  year?: number
+  year?: number | null
   genres?: string[]
   tags?: Record<string, string>
   seasonNumber?: number
   episodeNumber?: number
   opensAsFolder?: boolean // This behavior is tied to having metadata, so it's reset
-  tmdbCredits?: { cast: Person[]; crew: Person[] }
+  tmdbCredits?: { cast: Person[]; crew: Person[] } | null
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
@@ -228,13 +228,13 @@ export interface MediaFolder extends StoredViewSettings {
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string
-  overview?: string
+  overview?: string | null
   posterPath?: string | null // e.g. 'xxxx.jpg'
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv' | 'season'
-  year?: number
+  year?: number | null
   genres?: string[]
   tags?: Record<string, string>
   seasonNumber?: number // For season folders
@@ -248,8 +248,8 @@ export interface MediaFolder extends StoredViewSettings {
   tmdbEpisodesFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
-  tmdbSeasons?: any[] // For the TV show root, caches the seasons array from TMDB
-  tmdbCredits?: { cast: Person[]; crew: Person[] }
+  tmdbSeasons?: any[] | null // For the TV show root, caches the seasons array from TMDB
+  tmdbCredits?: { cast: Person[]; crew: Person[] } | null
 }
 
 export type LibraryItem = MediaFile | MediaFolder
@@ -273,11 +273,11 @@ export interface SearchIndexEntry {
   title: string // This will be the primary display and search title (item.title ?? item.name)
   type: 'file' | 'folder'
   posterPath?: string | null
-  overview?: string
+  overview?: string | null
   // We need all filterable properties
   persons?: string[]
   mediaType?: 'movie' | 'tv' | 'season' | 'episode'
-  year?: number
+  year?: number | null
   genres?: string[]
   tags?: Record<string, string>
   virtualTags?: Record<string, string>

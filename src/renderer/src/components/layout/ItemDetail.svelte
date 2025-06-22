@@ -38,7 +38,8 @@
       lastSeenItemId = item.id
     }
     // If the overview tab is not visible but is selected, switch to credits.
-    if (!showOverviewTab && activeInfoTab === 'overview') {
+    // We also check tmdbDetailsFetched to avoid switching tabs during a re-fetch.
+    if (!showOverviewTab && activeInfoTab === 'overview' && item.tmdbDetailsFetched) {
       activeInfoTab = 'credits'
     }
   })

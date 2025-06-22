@@ -967,14 +967,42 @@ async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
     }
   }
 
-  // Loop through the centrally-defined list of resettable keys and set them to undefined.
-  // This approach is more maintainable than a hardcoded list of assignments.
+  // Loop through the centrally-defined list of resettable keys and set them to a value
+  // that will be propagated over IPC (i.e. not `undefined`).
   // We cast `item` to `any` here to allow dynamic key assignment.
   for (const key of RESETTABLE_METADATA_KEYS) {
     // Only attempt to delete the key if it exists on the item. This prevents
     // us from adding properties to an object that shouldn't have them (e.g. `episodeNumber` on a folder).
     if (key in item) {
-      ;(item as any)[key] = undefined
+      const itemAsAny = item as any
+      switch (key) {
+        case 'tags':
+          itemAsAny[key] = {}
+          break
+        case 'genres':
+          itemAsAny[key] = []
+          break
+        case 'tmdbDetailsFetched':
+        case 'tmdbEpisodesFetched':
+        case 'tmdbCreditsFetched':
+          itemAsAny[key] = false
+          break
+        case 'virtualTags':
+          // This one is special, it gets re-evaluated later anyway.
+          itemAsAny[key] = undefined
+          break
+        case 'posterPath':
+        case 'backdropPath':
+        case 'logoPath':
+          // Set to undefined to trigger re-fetch, null means "user explicitly removed".
+          // We already unlinked the files, so a re-fetch is desired.
+          itemAsAny[key] = undefined
+          break
+        default:
+          // All other properties (title, overview, year, tmdbId, tmdbCredits, tmdbSeasons etc.) can be safely set to null.
+          itemAsAny[key] = null
+          break
+      }
     }
   }
 
@@ -1644,26 +1672,27 @@ export function setupLibraryIpc(): void {
       const libraryDataPath = getLibraryDataPath()
       if (!settings.tmdbApiKey) return
 
-      // Clear old data that will be replaced
-      item.overview = undefined
-      item.backdropPath = undefined
-      item.logoPath = undefined
-      item.year = undefined
+      // Clear old data that will be replaced. Set to `null` or `false` so the
+      // change is propagated over IPC (JSON.stringify omits `undefined`).
+      item.overview = null
+      item.backdropPath = null
+      item.logoPath = null
+      item.year = null
       item.genres = []
       if (item.type === 'file') {
         item.opensAsFolder = true
       }
-      item.posterPath = undefined // Clear poster so it gets re-fetched
-      item.tmdbDetailsFetched = undefined // Clear the details flag to force a refetch
-      item.tmdbCreditsFetched = undefined // Clear the credits flag to force a refetch
-      item.tmdbCredits = undefined // Clear old credits
+      item.posterPath = undefined // Let this be re-fetched from details
+      item.tmdbDetailsFetched = false
+      item.tmdbCreditsFetched = false
+      item.tmdbCredits = null
 
       // --- Invalidate TV Show specific data ---
       // If we are applying a new TV match to a folder, we need to clear out any
       // old, incorrect season and episode data that might be cached on its children.
       if (item.type === 'folder' && mediaType === 'tv') {
-        item.tmdbSeasons = undefined // Clear cached season list from TMDB
-        item.tmdbEpisodesFetched = undefined // Allow re-processing of show structure
+        item.tmdbSeasons = null
+        item.tmdbEpisodesFetched = false // Allow re-processing of show structure
         for (const season of item.children) {
           if (season.type === 'folder' && season.mediaType === 'season') {
             // Reset the flag to allow lazy-loading to trigger again.
