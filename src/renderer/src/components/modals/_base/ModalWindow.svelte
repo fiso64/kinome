@@ -155,7 +155,7 @@
     width: 100%; /* It should now fill the positioner, which is correctly sized */
     display: flex;
     flex-direction: column;
-    max-height: 90vh;
+    max-height: 80vh;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     animation: modal-pop-in 0.15s ease-out;
   }
