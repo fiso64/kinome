@@ -1198,53 +1198,51 @@ export function setupLibraryIpc(): void {
     if (needsDetailsFetch || needsEpisodeFetch) {
       ;(async () => {
         setBulkUpdateStatus(true)
+        const allModifiedItems: LibraryItem[] = []
         try {
           const settings = await readSettings()
           if (!settings.tmdbApiKey) return
 
           // --- Case 1: The item's own details are missing. Fetch them. ---
-          // The `fetchItemDetails` function will subsequently call `applyTvShowData` if needed.
           if (needsDetailsFetch) {
             log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
-            await fetchItemDetails(item, settings, getLibraryDataPath())
+            const modified = await fetchItemDetails(item, settings, getLibraryDataPath())
+            allModifiedItems.push(...modified)
           }
           // --- Case 2: The item's details are present, but its children's are not. ---
           else if (needsEpisodeFetch && item.type === 'folder') {
             if (item.mediaType === 'season') {
               const showFolder = findParent(item.id, db!.root!)
               if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-                // To fetch episodes, we need the parent's `tmdbSeasons` list.
-                // If the parent's details haven't been fetched, do that first.
                 if (!showFolder.tmdbDetailsFetched) {
                   log(
                     `[Details] Parent show "${showFolder.name}" details missing, fetching them first.`
                   )
-                  await fetchItemDetails(showFolder, settings, getLibraryDataPath())
+                  const modifiedParent = await fetchItemDetails(
+                    showFolder,
+                    settings,
+                    getLibraryDataPath()
+                  )
+                  allModifiedItems.push(...modifiedParent)
                 }
 
-                // After attempting to fetch, check if the seasons array is available.
                 if (showFolder.tmdbSeasons) {
                   log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-                  await fetchAndApplyEpisodeData(
+                  const modifiedEpisodes = await fetchAndApplyEpisodeData(
                     item,
                     showFolder.tmdbId,
                     settings.tmdbApiKey,
                     getLibraryDataPath(),
                     showFolder.tmdbSeasons
                   )
+                  allModifiedItems.push(item, ...modifiedEpisodes)
                 } else {
-                  // This is the key fix: if we can't fetch episodes because the parent show isn't
-                  // ready, we must still mark this season as 'processed' to prevent an infinite
-                  // loop of the renderer re-requesting details.
                   item.tmdbEpisodesFetched = true
                   log(
                     `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
                   )
                 }
               } else {
-                // This is the key fix: if we can't fetch episodes because the parent show isn't
-                // ready, we must still mark this season as 'processed' to prevent an infinite
-                // loop of the renderer re-requesting details.
                 item.tmdbEpisodesFetched = true
                 log(
                   `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
@@ -1252,7 +1250,8 @@ export function setupLibraryIpc(): void {
               }
             } else if (item.mediaType === 'tv') {
               log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
-              await applyTvShowData(item, settings, getLibraryDataPath())
+              const modifiedChildren = await applyTvShowData(item, settings, getLibraryDataPath())
+              allModifiedItems.push(item, ...modifiedChildren)
             }
           }
 
@@ -1263,11 +1262,15 @@ export function setupLibraryIpc(): void {
         } finally {
           setBulkUpdateStatus(false) // Ensure bulk mode is always turned off.
 
-          // Manually trigger a single, incremental re-index now that the fetch is complete.
-          updateIndexForItem(item)
+          const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
+          const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
+
+          for (const modifiedItem of itemsToUpdate) {
+            updateIndexForItem(modifiedItem)
+          }
 
           // Use the centralized helper. Fetching details can update genres, so update suggestions.
-          await _finalizeItemUpdate(item, { updateSuggestions: true })
+          await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: true })
 
           log(`[Details] Background processing complete for "${item.name}"`)
         }

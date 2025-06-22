@@ -407,11 +407,12 @@ export async function fetchItemDetails(
   item: LibraryItem,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
-): Promise<void> {
+): Promise<LibraryItem[]> {
   if (!item.tmdbId || !item.mediaType) {
     console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
-    return
+    return [item]
   }
+  const modifiedItems: LibraryItem[] = [item]
 
   const imagesDir = getImagesPath(libraryDataPath)
   const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${settings.tmdbApiKey}&append_to_response=images`
@@ -516,11 +517,13 @@ export async function fetchItemDetails(
       details.seasons
     ) {
       item.tmdbSeasons = details.seasons // Cache the full season data
-      await applyTvShowData(item, settings, libraryDataPath)
+      const modifiedChildren = await applyTvShowData(item, settings, libraryDataPath)
+      modifiedItems.push(...modifiedChildren)
     }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)
   }
+  return modifiedItems
 }
 
 /**
@@ -532,8 +535,9 @@ export async function applyTvShowData(
   item: MediaFolder,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
-): Promise<void> {
+): Promise<MediaFile[]> {
   const imagesDir = getImagesPath(libraryDataPath)
+  const allModifiedEpisodes: MediaFile[] = []
 
   if (
     item.type === 'folder' &&
@@ -590,13 +594,14 @@ export async function applyTvShowData(
           console.log(
             `[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`
           )
-          await fetchAndApplyEpisodeData(
+          const modifiedInSeason = await fetchAndApplyEpisodeData(
             fakeSeasonFolder,
             item.tmdbId!,
             settings.tmdbApiKey!,
             libraryDataPath,
             item.tmdbSeasons
           )
+          allModifiedEpisodes.push(...modifiedInSeason)
         }
         // The show is in file mode and we've attempted to fetch all episodes.
         // Mark it as processed.
@@ -606,6 +611,7 @@ export async function applyTvShowData(
     // If we've reached this point, we have processed the seasons/episodes.
     item.tmdbEpisodesFetched = true
   }
+  return allModifiedEpisodes
 }
 
 /**
@@ -622,12 +628,13 @@ export async function fetchAndApplyEpisodeData(
   tmdbApiKey: string,
   libraryDataPath: string,
   tmdbSeasons: any[]
-): Promise<void> {
+): Promise<MediaFile[]> {
   // If the folder passed doesn't have a season number, it's the TV show root
   // in "File Mode", and we are fetching details for season 1. For actual season
   // folders, `seasonFolder.seasonNumber` will be defined from the earlier
   // local file analysis step.
   const seasonNumber = seasonFolder.seasonNumber ?? 1
+  const modifiedEpisodes: MediaFile[] = []
 
   // Check if the season number actually exists for the show on TMDB.
   const seasonExists = tmdbSeasons.some((s) => s.season_number === seasonNumber)
@@ -635,7 +642,7 @@ export async function fetchAndApplyEpisodeData(
     console.log(`[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist on TMDB.`)
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
-    return
+    return []
   }
 
   const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
@@ -681,6 +688,7 @@ export async function fetchAndApplyEpisodeData(
               // ignore download error
             }
           }
+          modifiedEpisodes.push(localEpisode)
         }
       }
     }
@@ -696,6 +704,7 @@ export async function fetchAndApplyEpisodeData(
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
   }
+  return modifiedEpisodes
 }
 
 export async function manualSearch(
