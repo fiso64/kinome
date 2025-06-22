@@ -75,12 +75,23 @@ The goal is to implement the key features that make the app unique and powerful.
     *   `[X]` Add a smaller "filter" bar inside the media grid view, which will filter only the immediate children on the current tab, similar to how the search bar works currently. The filter bar should initially be a looking glass button and expand to a small search bar when pressed.
 *   `[X]` add tighter integration with the local filesystem (e.g make it easy to reveal files in explorer and view file properties, delete). add these to the context menu after a separator. Also, make sure to use good abstractions for later, since some remote sources will not have these things (maybe each source defines the possible additional actions that are available for files and folders?). Ensure the explorer integration is cross-platform.
 *   `[ ]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
-*   `[ ]` think some more about nested folders and what to do with nested movies
 
 #### Phase 4: Expansion & Refinement
 
 The goal is to expand source support and prepare for future growth.
 
+*   `[ ]` Split the main process into transport layer and service layer.
+*   `[ ]` Database migration: Refactor to use SQLite as the central data store.
+    -  **Data Access: The Repository Pattern**
+        Instead of a single, massive `db` object, create a dedicated "repository" module (e.g., `src/main/repository.ts`). This module would be the *only* part of the application that knows how to talk to the database. It would expose an API like:
+        *   `getItemById(id: string): LibraryItem`
+        *   `getChildren(parentId: string): LibraryItem[]`
+        *   `updateItem(item: Partial<LibraryItem> & { id: string }): void`
+        *   `findItems(query: string): SearchResult[]`
+    -  **Change Notification: Explicit Events (Replacing the Proxy)**
+        The proxy's job is to detect changes and notify the UI. In a repository-based architecture, this becomes explicit and much more predictable.
+        *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an IPC event to the renderer with the updated data (`BrowserWindow.getAllWindows().forEach(...)`).
+        *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
 *   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
@@ -90,5 +101,4 @@ The goal is to expand source support and prepare for future growth.
     *   `[ ]` Maybe turn the main process into a server (with a distributable binary) that can be run and connected to on a remote.
 *   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
-*   `[ ]` **(Future) Database Migration:** If performance with the `database.json` becomes an issue for very large libraries, plan and execute the migration to an SQLite-based database module. Thanks to the abstraction in Phase 1, this should not require major changes to the rest of the application.
 *   `[ ]` **(Future) Plugin System:** Implement a versatile plugin system. Create a myanimelist plugin.

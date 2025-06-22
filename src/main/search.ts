@@ -187,8 +187,8 @@ function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boo
   }
 }
 
-// A WeakMap caches proxies, preventing re-proxying of the same object and
-// handling circular references gracefully.
+// A WeakMap caches proxies for any object, preventing re-proxying and handling
+// garbage collection of old DBs gracefully.
 const proxyCache = new WeakMap()
 
 /**
@@ -196,13 +196,29 @@ const proxyCache = new WeakMap()
  * @param isBulkUpdate A function that returns the current bulk update status.
  */
 function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
-  return {
+  // This handler is created once per DB proxy session and is reused for all
+  // nested objects, which is crucial for performance.
+  const handler: ProxyHandler<any> = {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver)
-      // If the retrieved value is an object (and not null), wrap it in a proxy too.
+
+      // During bulk updates, we want raw performance and don't need change tracking.
+      // By returning the raw value, we prevent the creation of nested proxies,
+      // which dramatically speeds up full-tree traversals.
+      if (isBulkUpdate()) {
+        return value
+      }
+
+      // If the retrieved value is an object (and not null), wrap it in a proxy.
       if (value && typeof value === 'object') {
-        // Pass the same handler down to nested objects.
-        return new Proxy(value, createProxyHandler(isBulkUpdate))
+        // Return a cached proxy if one exists for this object.
+        if (proxyCache.has(value)) {
+          return proxyCache.get(value)
+        }
+        // Otherwise, create a new proxy with the *same* handler, cache it, and return it.
+        const newProxy = new Proxy(value, handler)
+        proxyCache.set(value, newProxy)
+        return newProxy
       }
       return value
     },
@@ -218,6 +234,7 @@ function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
       return success
     }
   }
+  return handler
 }
 
 /**
@@ -227,13 +244,20 @@ function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
  * @returns A new Proxy that wraps the database.
  */
 export function createDbProxy(db: Database, isBulkUpdate: () => boolean): Database {
-  // Use a WeakMap to cache the top-level proxy as well.
+  // The WeakMap is not cleared here. When a new DB is loaded, the old `db` object
+  // becomes garbage-collectible. The WeakMap will automatically drop the entries
+  // for the old `db` and all its children, preventing memory leaks.
   if (proxyCache.has(db)) {
     return proxyCache.get(db)
   }
+
+  // Create the single, reusable handler for this proxy session.
   const handler = createProxyHandler(isBulkUpdate)
   const proxy = new Proxy(db, handler)
+
+  // Cache the root proxy.
   proxyCache.set(db, proxy)
+
   return proxy
 }
 
@@ -247,7 +271,9 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
   searchIndex = []
   itemMap.clear()
   parentMap.clear()
-  console.log(`[${new Date().toISOString()}] [Search] Full search index build initiated.`)
+  console.log(
+    `[${new Date().toISOString()}] [Search] Index build initiated. Cleared searchIndex (now ${searchIndex.length}), itemMap (now ${itemMap.size}).`
+  )
   if (!root) {
     return
   }

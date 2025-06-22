@@ -1006,41 +1006,64 @@ export function setupLibraryIpc(): void {
     return settings.mediaSourcePath ?? null
 	})
 
-	ipcMain.handle('refresh-library', async () => {
-		const focusedWindow = BrowserWindow.getFocusedWindow()
+  ipcMain.handle('refresh-library', async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
     const { mediaSourcePath } = await readSettings()
 
     if (!db || !db.root || !mediaSourcePath) {
-      console.log('Cannot refresh, no library configured.')
+      log('Cannot refresh, no library configured.')
       return null
     }
 
-    console.log(`Refreshing library from: ${mediaSourcePath}`)
+    const refreshId = crypto.randomBytes(4).toString('hex')
+    log(`[Refresh ${refreshId}] Starting refresh from: ${mediaSourcePath}`)
+    const t0 = performance.now()
+
     try {
       setBulkUpdateStatus(true)
 
       // Start the recursive sync process. This modifies the existing `db.root` in place.
       await syncWithDisk(db.root, mediaSourcePath)
+      const t1 = performance.now()
+      log(`[Refresh ${refreshId}] syncWithDisk took ${(t1 - t0).toFixed(2)}ms`)
 
       // After syncing, prune items that are missing and have not been manually edited.
       pruneUntouchedMissingItems(db.root)
+      const t2 = performance.now()
+      log(`[Refresh ${refreshId}] pruneUntouchedMissingItems took ${(t2 - t1).toFixed(2)}ms`)
 
       const imagesDir = path.join(getLibraryDataPath(), 'images')
       await verifyImagePaths(db.root, imagesDir)
+      const t3 = performance.now()
+      log(`[Refresh ${refreshId}] verifyImagePaths took ${(t3 - t2).toFixed(2)}ms`)
 
       const currentSettings = await readSettings()
       applyVirtualTagsToAllItems(db.root, currentSettings)
+      const t4 = performance.now()
+      log(`[Refresh ${refreshId}] applyVirtualTagsToAllItems took ${(t4 - t3).toFixed(2)}ms`)
 
       buildFullSearchIndex(db.root)
+      const t5 = performance.now()
+      log(`[Refresh ${refreshId}] buildFullSearchIndex took ${(t5 - t4).toFixed(2)}ms`)
+
       setBulkUpdateStatus(false) // Re-enable single-item updates from here
 
       await writeDb(db)
-      console.log('Library refresh and sync complete. Database updated.')
+      const t6 = performance.now()
+      log(`[Refresh ${refreshId}] writeDb took ${(t6 - t5).toFixed(2)}ms`)
+      log(`[Refresh ${refreshId}] Library refresh and sync complete.`)
 
       const settings = await readSettings()
       fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
         console.error('Background metadata fetch failed during refresh:', err)
+      )
+      const t7 = performance.now()
+      log(`[Refresh ${refreshId}] Total time before returning: ${(t7 - t0).toFixed(2)}ms`)
+
+      const memoryUsage = process.memoryUsage()
+      log(
+        `[Refresh ${refreshId}] Memory: RSS=${(memoryUsage.rss / 1024 / 1024).toFixed(2)}MB, HeapTotal=${(memoryUsage.heapTotal / 1024 / 1024).toFixed(2)}MB, HeapUsed=${(memoryUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`
       )
 
       return db.root ? createShallowClonableCopy(db.root) : null
