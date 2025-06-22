@@ -315,10 +315,51 @@ async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise
 
   try {
     await fs.access(nodeAbsolutePath)
-    node.isMissing = undefined
     diskChildEntries = await fs.readdir(nodeAbsolutePath, { withFileTypes: true })
+
+    // If an .ignore file exists, handle it based on user edits.
+    if (diskChildEntries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
+      log(`Ignoring directory due to .ignore file: ${nodeAbsolutePath}`)
+
+      if (node.isUserEdited) {
+        // If user-edited, hide it but preserve it in the DB.
+        const hideRecursively = (item: LibraryItem) => {
+          item.isHidden = true
+          item.isMissing = undefined // Ensure it's not marked as missing
+          if (item.type === 'folder') {
+            item.children.forEach(hideRecursively)
+          }
+        }
+        hideRecursively(node)
+      } else {
+        // If not user-edited, treat it as missing so it gets pruned.
+        node.isMissing = true
+        const markAllChildrenMissing = (folder: MediaFolder) => {
+          if (!folder.children) return
+          folder.children.forEach((child) => {
+            child.isMissing = true
+            if (child.type === 'folder') markAllChildrenMissing(child)
+          })
+        }
+        markAllChildrenMissing(node)
+      }
+      return // Stop processing this branch
+    }
+
+    // No .ignore file, proceed with normal sync.
+    // Un-hide the node and its children if they were previously hidden by an .ignore file.
+    if (node.isHidden) {
+      const unhideRecursively = (item: LibraryItem) => {
+        item.isHidden = undefined
+        if (item.type === 'folder') {
+          item.children.forEach(unhideRecursively)
+        }
+      }
+      unhideRecursively(node)
+    }
+    node.isMissing = undefined
   } catch (e) {
-    // Folder is missing. Mark it and all descendants.
+    // Folder is genuinely missing from disk.
     node.isMissing = true
     const markAllChildrenMissing = (folder: MediaFolder) => {
       if (!folder.children) return
@@ -600,6 +641,13 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
   const children: LibraryItem[] = []
 
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
+
+  // Check if an .ignore file exists in the directory.
+  if (entries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
+    log(`Ignoring directory due to .ignore file: ${dirPath}`)
+    return null
+  }
+
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name)
     const entryRelativePath = path.relative(rootPath, entryPath).replace(/\\/g, '/')
