@@ -15,6 +15,7 @@
   import { autocompleteState } from './lib/autocomplete-manager'
   import AutocompleteMenu from './components/ui/AutocompleteMenu.svelte'
   import { resolveViewSettings } from '../../shared/settings-helpers'
+  import { isTypingTag as isTypingTagHelper } from './lib/view-helpers'
   import {
     getLoadedItem,
     updateCachedItem,
@@ -49,12 +50,7 @@
   const isGlobalSearchActive = $derived(
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
   )
-  const isTypingGlobalTag = $derived(
-    // These regexes check if the user is in the middle of typing a tag.
-    // e.g., ":key" or ":key:value"
-    /:([a-zA-Z0-9_.-]*)$/.test(globalSearchQuery.text) ||
-      /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(globalSearchQuery.text)
-  )
+  const isTypingGlobalTag = $derived(isTypingTagHelper(globalSearchQuery.text))
   let searchResults = $state<SearchIndexEntry[]>([])
   let highlightedGlobalSearchItemIndex = $state<number | null>(null)
   let isPerformingSearch = $state(false)
@@ -63,10 +59,7 @@
   const isDetailSearchActive = $derived(
     detailViewSearchQuery.text.trim() !== '' || detailViewSearchQuery.tags.length > 0
   )
-  const isTypingDetailTag = $derived(
-    /:([a-zA-Z0-9_.-]*)$/.test(detailViewSearchQuery.text) ||
-      /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(detailViewSearchQuery.text)
-  )
+  const isTypingDetailTag = $derived(isTypingTagHelper(detailViewSearchQuery.text))
   let detailViewSearchResults = $state<SearchIndexEntry[]>([])
   let highlightedDetailSearchItemIndex = $state<number | null>(null)
   let isPerformingDetailSearch = $state(false)

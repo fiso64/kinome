@@ -33,3 +33,16 @@ export function shouldBeGreyedOut(
   // If none of the exceptions apply, grey it out.
   return true
 }
+
+/**
+ * Checks if a search input string contains an incomplete tag,
+ * which is useful for preventing searches from firing prematurely.
+ * @param text The text from the search input.
+ * @returns `true` if the user is likely in the middle of typing a tag.
+ */
+export function isTypingTag(text: string): boolean {
+  if (!text) return false
+  // These regexes check if the user is in the middle of typing a tag.
+  // e.g., ":key" or ":key:value"
+  return /:([a-zA-Z0-9_.-]*)$/.test(text) || /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(text)
+}

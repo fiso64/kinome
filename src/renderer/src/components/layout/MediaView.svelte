@@ -6,6 +6,7 @@
   import ListView from '../views/ListView.svelte'
   import { filterItems } from '../../../../shared/filter'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
+  import { isTypingTag as isTypingTagHelper } from '../../lib/view-helpers'
 
   type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -63,6 +64,16 @@
       groupBy: resolved.groupBy,
       gridPosterSize: resolved.gridPosterSize,
       listDescriptionRows: resolved.listDescriptionRows
+    }
+  })
+
+  // --- Search Query Stability ---
+  // This prevents the view from re-filtering while the user is in the middle of typing a tag.
+  const isTypingTag = $derived(isTypingTagHelper(searchQuery?.text ?? ''))
+  let stableSearchQuery = $state(searchQuery)
+  $effect(() => {
+    if (!isTypingTag) {
+      stableSearchQuery = searchQuery
     }
   })
 
@@ -127,7 +138,7 @@
   // --- Derived State for different layouts ---
   const { itemsForViews, foldersForTabsOrSections } = $derived.by(() => {
     // 1. Filter first.
-    const filteredItems = filterItems(items, searchQuery ?? { text: '', tags: [] })
+    const filteredItems = filterItems(items, stableSearchQuery ?? { text: '', tags: [] })
 
     // 2. Handle grouping for tabs/sections.
     if (layout === 'tabs' || layout === 'sections') {
