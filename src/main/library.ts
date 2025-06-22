@@ -1672,141 +1672,133 @@ export function setupLibraryIpc(): void {
       const libraryDataPath = getLibraryDataPath()
       if (!settings.tmdbApiKey) return
 
-      // Clear old data that will be replaced. Set to `null` or `false` so the
-      // change is propagated over IPC (JSON.stringify omits `undefined`).
-      item.overview = null
-      item.backdropPath = null
-      item.logoPath = null
-      item.year = null
-      item.genres = []
-      if (item.type === 'file') {
-        item.opensAsFolder = true
-      }
-      item.posterPath = undefined // Let this be re-fetched from details
-      item.tmdbDetailsFetched = false
-      item.tmdbCreditsFetched = false
-      item.tmdbCredits = null
+      // --- Start Bulk Update ---
+      // This prevents the proxy from sending intermediate "cleared" states to the UI,
+      // which was causing the tab-switching bug.
+      setBulkUpdateStatus(true)
+      try {
+        // Clear old data that will be replaced.
+        item.overview = null
+        item.year = null
+        item.genres = []
+        if (item.type === 'file') {
+          item.opensAsFolder = true
+        }
 
-      // --- Invalidate TV Show specific data ---
-      // If we are applying a new TV match to a folder, we need to clear out any
-      // old, incorrect season and episode data that might be cached on its children.
-      if (item.type === 'folder' && mediaType === 'tv') {
-        item.tmdbSeasons = null
-        item.tmdbEpisodesFetched = false // Allow re-processing of show structure
-        for (const season of item.children) {
-          if (season.type === 'folder' && season.mediaType === 'season') {
-            // Reset the flag to allow lazy-loading to trigger again.
-            season.tmdbDetailsFetched = false
-            season.tmdbEpisodesFetched = undefined // Allow re-processing of season
-            // Clear out the old, incorrect episode posters and bust their cache.
-            for (const episode of season.children) {
-              if (episode.type === 'file' && episode.mediaType === 'episode') {
-                episode.posterPath = undefined
-                episode._v = Date.now()
+        // Set image paths to undefined to trigger re-fetch in fetchItemDetails.
+        // `null` means "user explicitly removed", `undefined` means "not yet fetched".
+        item.posterPath = undefined
+        item.backdropPath = undefined
+        item.logoPath = undefined
+
+        // Reset fetch state flags so they are re-evaluated.
+        item.tmdbDetailsFetched = false
+        item.tmdbCreditsFetched = false
+        item.tmdbCredits = null
+
+        // --- Invalidate TV Show specific data ---
+        if (item.type === 'folder' && mediaType === 'tv') {
+          item.tmdbSeasons = null
+          item.tmdbEpisodesFetched = false // Allow re-processing of show structure
+          for (const season of item.children) {
+            if (season.type === 'folder' && season.mediaType === 'season') {
+              season.tmdbDetailsFetched = false
+              season.tmdbEpisodesFetched = undefined
+              for (const episode of season.children) {
+                if (episode.type === 'file' && episode.mediaType === 'episode') {
+                  episode.posterPath = undefined
+                }
               }
             }
           }
         }
+
+        // Handle a season result differently
+        if (mediaType === 'season' && item.type === 'folder') {
+          item.mediaType = 'season'
+          item.title = result.name // Seasons have 'name'
+          item.overview = result.overview
+          item.seasonNumber = result.season_number
+
+          if (result.poster_path) {
+            const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
+            const imagesDir = path.join(libraryDataPath, 'images')
+            const posterFileName = `${item.id}.jpg`
+            const posterDestPath = path.join(imagesDir, posterFileName)
+            try {
+              await downloadImage(posterUrl, posterDestPath)
+              item.posterPath = posterFileName
+            } catch (e) {
+              console.error('Failed to download season poster', e)
+            }
+          }
+          item.tmdbDetailsFetched = true
+          item.tmdbEpisodesFetched = undefined
+
+          const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
+          const parsedSuccessfully = processAndAssignEpisodeNumbers(
+            episodeFiles,
+            item.seasonNumber
+          )
+          if (!parsedSuccessfully) {
+            log(
+              `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
+            )
+            episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+            episodeFiles.forEach((file, index) => {
+              file.episodeNumber = index + 1
+              file.seasonNumber = item.seasonNumber
+              file.mediaType = 'episode'
+            })
+          }
+
+          const showFolder = findParent(item.id, db!.root!)
+          if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
+            console.log(
+              `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
+            )
+            if (!showFolder.tmdbDetailsFetched) {
+              await fetchItemDetails(showFolder, settings, libraryDataPath)
+            }
+            if (showFolder.tmdbSeasons) {
+              await fetchAndApplyEpisodeData(
+                item,
+                showFolder.tmdbId,
+                settings.tmdbApiKey,
+                libraryDataPath,
+                showFolder.tmdbSeasons
+              )
+            }
+          }
+        } else {
+          // --- Existing logic for Movie/TV Show ---
+          item.tmdbId = result.id
+          item.mediaType = mediaType
+          item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
+          await fetchItemDetails(item, settings, libraryDataPath)
+          const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
+          try {
+            const response = await fetch(detailUrl)
+            if (response.ok) {
+              const details = await response.json()
+              item.title = details.title || details.name
+            }
+          } catch (e) {
+            console.error('Could not re-verify title from TMDB details endpoint', e)
+          }
+        }
+      } finally {
+        setBulkUpdateStatus(false) // --- End Bulk Update ---
       }
 
-      // Bust cache for the main item itself immediately after clearing old data.
+      // Bust the UI cache to reflect all the new data and images.
       item._v = Date.now()
 
-      // Handle a season result differently
-      if (mediaType === 'season' && item.type === 'folder') {
-        item.mediaType = 'season'
-        item.title = result.name // Seasons have 'name'
-        item.overview = result.overview
-        item.seasonNumber = result.season_number
-
-        if (result.poster_path) {
-          const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
-          const imagesDir = path.join(libraryDataPath, 'images')
-          const posterFileName = `${item.id}.jpg`
-          const posterDestPath = path.join(imagesDir, posterFileName)
-          try {
-            await downloadImage(posterUrl, posterDestPath)
-            item.posterPath = posterFileName
-          } catch (e) {
-            console.error('Failed to download season poster', e)
-          }
-        }
-
-        // For seasons, we don't set a tmdbId on the item itself.
-        // Mark that this season's details are now "fetched" via this manual match.
-        item.tmdbDetailsFetched = true
-        // Explicitly mark that its episodes have NOT been fetched yet, so the next
-        // step will trigger.
-        item.tmdbEpisodesFetched = undefined
-
-        // --- Local Episode Number Assignment ---
-        // We must assign episode numbers to the files within this folder before we can
-        // fetch and map TMDB data to them. This mirrors the logic from get-item-details.
-        setBulkUpdateStatus(true)
-        const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, item.seasonNumber)
-
-        if (!parsedSuccessfully) {
-          log(
-            `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
-          )
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, index) => {
-            file.episodeNumber = index + 1
-            file.seasonNumber = item.seasonNumber
-            file.mediaType = 'episode'
-          })
-        }
-        setBulkUpdateStatus(false)
-        // --- End Local Episode Number Assignment ---
-
-        // Now, immediately try to fetch the episodes for this newly matched season.
-        // This makes the manual match a single, cohesive operation.
-        const showFolder = findParent(item.id, db!.root!)
-        if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
-          console.log(`[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`)
-          // We need the parent show's details to get the list of seasons.
-          if (!showFolder.tmdbDetailsFetched) {
-            await fetchItemDetails(showFolder, settings, libraryDataPath)
-          }
-
-          if (showFolder.tmdbSeasons) {
-            await fetchAndApplyEpisodeData(
-              item,
-              showFolder.tmdbId,
-              settings.tmdbApiKey,
-              libraryDataPath,
-              showFolder.tmdbSeasons
-            )
-          }
-        }
-      } else {
-        // --- Existing logic for Movie/TV Show ---
-        item.tmdbId = result.id
-        item.mediaType = mediaType
-        item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
-
-        // This will fetch poster, backdrop, and other details (overview, year, genres)
-        await fetchItemDetails(item, settings, libraryDataPath)
-        item._v = Date.now() // Bust cache after image updates
-
-        // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
-        const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
-        try {
-          const response = await fetch(detailUrl)
-          if (response.ok) {
-            const details = await response.json()
-            item.title = details.title || details.name
-          }
-        } catch (e) {
-          console.error('Could not re-verify title from TMDB details endpoint', e)
-        }
-      }
-
       // Re-evaluate virtual tags after all other properties have been updated.
+      // This is safe to do outside the bulk update.
       item.virtualTags = evaluateVirtualTagsForItem(item, settings)
 
-      // Use the centralized helper to save, notify, and update suggestions.
+      // Use the centralized helper to save and broadcast the final, complete item.
       await _finalizeItemUpdate(item, { updateSuggestions: true })
 		}
 	)
