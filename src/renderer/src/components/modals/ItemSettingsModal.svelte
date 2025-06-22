@@ -63,12 +63,12 @@
   )
 
   // --- View State (for folders) ---
-  let selectedLayout = $state(_isFolder ? (item.layout ?? defaultLayout) : 'grid')
-  let selectedClickAction = $state(_isFolder ? (item.clickAction ?? 'detail') : 'detail')
-  let selectedGroupBy = $state(_isFolder ? (item.groupBy ?? 'folder') : 'folder')
-  let gridPosterSize = $state(_isFolder ? (item as MediaFolder).gridPosterSize : undefined)
+  let selectedLayout = $state(_isFolder ? item.layout ?? null : null)
+  let selectedClickAction = $state(_isFolder ? item.clickAction ?? null : null)
+  let selectedGroupBy = $state(_isFolder ? item.groupBy ?? null : null)
+  let gridPosterSize = $state((_isFolder ? (item as MediaFolder).gridPosterSize : null) ?? null)
   let listDescriptionRows = $state(
-    _isFolder ? (item as MediaFolder).listDescriptionRows : undefined
+    (_isFolder ? (item as MediaFolder).listDescriptionRows : null) ?? null
   )
 
   // --- Folder Settings State ---
@@ -137,11 +137,12 @@
 
       // Apply view and folder changes if it's a folder
       if (updatedItem.type === 'folder') {
-        updatedItem.layout = selectedLayout
-        updatedItem.gridPosterSize = gridPosterSize
-        updatedItem.listDescriptionRows = listDescriptionRows
-        updatedItem.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
-        updatedItem.clickAction = selectedClickAction
+        updatedItem.layout = selectedLayout ?? undefined
+        updatedItem.gridPosterSize = gridPosterSize ?? undefined
+        updatedItem.listDescriptionRows = listDescriptionRows ?? undefined
+        updatedItem.groupBy =
+          selectedGroupBy === 'folder' || selectedGroupBy === null ? undefined : selectedGroupBy
+        updatedItem.clickAction = selectedClickAction ?? undefined
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
         updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
         updatedItem.process_tv_children = processTvChildren === true ? undefined : false

@@ -71,73 +71,59 @@
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
   let activeConfigLayout = $state(initialConfigLayout)
 
-  const inheritedInfoByLayout = $derived.by(() => {
-    const map = new Map<string, ResolutionInfo>()
+  // This computes the "inherited" settings for the item/type, ignoring any local overrides.
+  const inheritedInfo = $derived.by(() => {
+    let baseItemForResolving: any
+    const layersToIgnore = new Set<DefaultLayoutKey>()
 
-    for (const layout of availableLayouts ?? []) {
-      let baseItemForResolving: any
-      const layersToIgnore = new Set<DefaultLayoutKey>()
-
-      if (item) {
-        // We are editing a specific item. To get its "inherited" default, we
-        // create a copy of the item but without any of its view-related overrides.
-        baseItemForResolving = { ...item }
-        for (const key of ALL_VIEW_OVERRIDE_KEYS) {
-          delete baseItemForResolving[key]
-        }
-      } else if (typeKey) {
-        // We are editing a type-level default. The "inherited" default is from
-        // the global layer. We achieve this by telling the resolver to ignore
-        // the current type's layer.
-        baseItemForResolving = {} // Not needed, but good for clarity.
-        layersToIgnore.add(typeKey)
-      } else {
-        // Config mode. We are resolving against the base defaults.
-        baseItemForResolving = {}
+    if (item) {
+      baseItemForResolving = { ...item }
+      for (const key of ALL_VIEW_OVERRIDE_KEYS) {
+        delete (baseItemForResolving as any)[key]
       }
-
-      // Create a dummy item that has the base properties of the real item or type,
-      // plus the layout we want to resolve for. This forces the resolver to calculate
-      // the specific properties for that layout (e.g., listDescriptionRows for 'list').
-      const dummyItem = {
-        ...baseItemForResolving,
-        type: 'folder',
-        mediaType: item?.mediaType ?? typeKey,
-        layout
-      }
-      map.set(layout, resolveViewSettings(dummyItem, settings, layersToIgnore))
+    } else if (typeKey) {
+      baseItemForResolving = {}
+      layersToIgnore.add(typeKey)
+    } else {
+      baseItemForResolving = {}
     }
-    return map
+
+    const dummyItemForResolution = {
+      ...baseItemForResolving,
+      type: 'folder', // Assume folder for view settings
+      mediaType: item?.mediaType ?? typeKey, // Use the current selected layout to resolve its specific settings correctly
+      layout: selectedLayout ?? undefined
+    }
+
+    return resolveViewSettings(dummyItemForResolution, settings, layersToIgnore)
   })
 
-  // This is now the currently selected layout, whether in config mode or item mode.
-  const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : selectedLayout)
+  const effectiveLayout = $derived(selectedLayout ?? inheritedInfo.settings.layout) // This is now the currently selected layout, whether in config mode or item mode.
 
-  // --- Grid Poster Size ---
-  const defaultGridResolution = $derived(inheritedInfoByLayout.get('grid'))
+  const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : effectiveLayout) // --- Grid Poster Size ---
+
   const defaultGridSize = $derived(
-    defaultGridResolution?.settings.gridPosterSize ??
-      LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
+    inheritedInfo.settings.gridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
   const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
-  const isGridSizeOverridden = $derived(gridPosterSize != null)
+  const isGridSizeOverridden = $derived(gridPosterSize != null) // --- List Description Rows ---
 
-  // --- List Description Rows ---
-  const defaultDescriptionResolution = $derived(inheritedInfoByLayout.get('list'))
   const defaultDescriptionRows = $derived(
-    defaultDescriptionResolution?.settings.listDescriptionRows ??
+    inheritedInfo.settings.listDescriptionRows ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
   const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
-  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
+  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null) // --- Group By ---
 
-  // --- Group By ---
-  const defaultGroupByResolution = $derived(inheritedInfoByLayout.get(layoutToShowOptionsFor))
   const defaultGroupBy = $derived(
-    defaultGroupByResolution?.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
+    inheritedInfo.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
   )
   const effectiveGroupBy = $derived(selectedGroupBy ?? defaultGroupBy)
-  const isGroupByOverridden = $derived(selectedGroupBy != null)
+  const isGroupByOverridden = $derived(selectedGroupBy != null) // --- Click Action ---
+
+  const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
+  const effectiveClickAction = $derived(selectedClickAction ?? defaultClickAction)
+  const isClickActionOverridden = $derived(selectedClickAction != null)
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -169,16 +155,28 @@
 
 <div class="content">
   {#if !configMode}
-    <h3>View As</h3>
+    <div class="heading-with-action">
+      <h3>View As</h3>
+      {#if selectedLayout !== null}
+        <button class="link-button" onclick={() => (selectedLayout = null)}>Reset to default</button
+        >
+      {/if}
+    </div>
     <div class="layout-options horizontal">
       {#each filteredLayouts as layout}
         <label class="layout-option horizontal-item">
-          <input type="radio" name="layout" bind:group={selectedLayout} value={layout.value} />
+          <input
+            type="radio"
+            name="layout"
+            value={layout.value}
+            checked={effectiveLayout === layout.value}
+            onchange={() => (selectedLayout = layout.value as any)}
+          />
           <span>{layout.label}</span>
         </label>
       {/each}
     </div>
-    <p class="help-text">{layouts.find((l) => l.value === selectedLayout)?.description}</p>
+    <p class="help-text">{layouts.find((l) => l.value === effectiveLayout)?.description}</p>
   {:else}
     <h3>Configure Defaults For</h3>
     <div class="layout-options horizontal">
@@ -212,9 +210,7 @@
           >
         {:else}
           <span class="inherited-value-text-inline">
-            Using default from <strong
-              >{formatSource(defaultGridResolution?.sources.gridPosterSize)}</strong
-            >
+            Using default from <strong>{formatSource(inheritedInfo.sources.gridPosterSize)}</strong>
           </span>
         {/if}
       {/if}
@@ -249,9 +245,7 @@
           >
         {:else}
           <span class="inherited-value-text-inline">
-            Using default from <strong
-              >{formatSource(defaultGroupByResolution?.sources.groupBy)}</strong
-            >
+            Using default from <strong>{formatSource(inheritedInfo.sources.groupBy)}</strong>
           </span>
         {/if}
       {/if}
@@ -260,7 +254,7 @@
       Choose the {configMode ? 'default ' : ''}metadata field to group contents into {layoutToShowOptionsFor}.
     </p>
     <div class="form-group">
-      <select bind:value={selectedGroupBy}>
+      <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
         {#if groupByKeys}
           {#each groupByKeys as key (key)}
             <option value={key}>{formatKey(key)}</option>
@@ -283,7 +277,7 @@
         {:else}
           <span class="inherited-value-text-inline">
             Using default from <strong
-              >{formatSource(defaultDescriptionResolution?.sources.listDescriptionRows)}</strong
+              >{formatSource(inheritedInfo.sources.listDescriptionRows)}</strong
             >
           </span>
         {/if}
@@ -311,7 +305,14 @@
 
   {#if !configMode && showClickAction}
     <div class="divider"></div>
-    <h3>On Click...</h3>
+    <div class="heading-with-action">
+      <h3>On Click...</h3>
+      {#if isClickActionOverridden}
+        <button class="link-button" onclick={() => (selectedClickAction = null)}
+          >Reset to default</button
+        >
+      {/if}
+    </div>
     <p class="help-text">
       Choose what happens when clicking a child item. This does not apply to Tree view.
     </p>
@@ -321,8 +322,9 @@
           <input
             type="radio"
             name="click-action"
-            bind:group={selectedClickAction}
             value={action.value}
+            checked={effectiveClickAction === action.value}
+            onchange={() => (selectedClickAction = action.value as any)}
           />
           <div class="option-details">
             <div class="option-label">{action.label}</div>
