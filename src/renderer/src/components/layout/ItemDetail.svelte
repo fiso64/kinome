@@ -228,13 +228,11 @@
               <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
                 {#if item.overview}
                   <p class="overview">{item.overview}</p>
-                {:else}
-                  <p class="overview no-overview">No overview available.</p>
                 {/if}
               </div>
 
               <!-- Credits "pop out" on top of the overview area -->
-              {#if activeInfoTab === 'credits'}
+              {#if activeInfoTab === 'credits' && showCreditsSection}
                 <div class="credits-popout">
                   <div class="tab-content-wrapper">
                     {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
