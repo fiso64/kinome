@@ -41,6 +41,10 @@ const api = {
     ipcRenderer.invoke('get-parent', itemId),
   getContinueWatchingItems: (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> =>
     ipcRenderer.invoke('get-continue-watching-items'),
+  getContinueWatchingForShow: (
+    showId: string
+  ): Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null> =>
+    ipcRenderer.invoke('get-continue-watching-for-show', showId),
   setContinueWatchingDismissed: (showId: string): Promise<void> =>
     ipcRenderer.invoke('set-continue-watching-dismissed', showId),
   applyInitialFolderSettings: (

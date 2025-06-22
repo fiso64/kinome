@@ -39,7 +39,7 @@
 </script>
 
 <div class="home-view-container">
-  {#if continueWatchingItems.length > 0}
+  {#if settings?.showContinueWatching && continueWatchingItems.length > 0}
     <section class="home-section">
       <h2 class="home-section-title">Continue Watching</h2>
       <ContinueWatching

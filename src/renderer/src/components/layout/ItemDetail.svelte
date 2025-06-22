@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import CreditsView from './CreditsView.svelte'
+  import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide } from 'svelte/transition'
 
   let {
@@ -21,6 +22,7 @@
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
   let lastSeenItemId = $state(item.id)
   let overviewContainerElement = $state<HTMLDivElement>()
+  let continueWatchingInfo = $state<{ show: MediaFolder; nextEpisode: MediaFile } | null>(null)
 
   const showOverviewTab = $derived(!!item.overview)
   const showCreditsSection = $derived(
@@ -114,12 +116,22 @@
   let previousLogoPath = $state<string | null | undefined>(undefined)
 
   $effect(() => {
-    // This effect runs when the `item` prop changes.
-    // Note: The main detail fetch is now handled in `App.svelte` before this component is rendered.
-    // Child content (like season episodes) is fetched on demand by child components (`TabsView`, etc.).
+    // This effect runs whenever the item prop changes.
+    // It's responsible for fetching data specific to this detail view,
+    // like the "Continue Watching" info.
 
-    // Reset fade-in animation flags if the image source itself has changed.
-    // This prevents a re-fade if other metadata is updated.
+    // Always re-evaluate "Continue Watching" when the item changes.
+    if (item.type === 'folder' && item.mediaType === 'tv') {
+      window.api.getContinueWatchingForShow(item.id).then((info) => {
+        continueWatchingInfo = info
+      })
+    } else {
+      // If it's not a TV show, there's no "Next Up", so ensure it's cleared.
+      continueWatchingInfo = null
+    }
+
+    // Also, reset fade-in animation flags if the image source has changed.
+    // This prevents a re-fade if other metadata is updated but the image is the same.
     if (item.backdropPath !== previousBackdropPath) {
       isBackdropLoaded = false
       previousBackdropPath = item.backdropPath
@@ -251,11 +263,26 @@
         {:else if item.overview}
           <div class="overview-container">
             <h2 class="section-title">Overview</h2>
-            <p class="overview">{item.overview}</p>
+              <p class="overview">{item.overview}</p>
           </div>
         {/if}
       </div>
     </div>
+
+    {#if settings.showNextUp && continueWatchingInfo}
+      <section class="hero-banner-section">
+        <h2 class="section-title">Next Up</h2>
+        <ContinueWatchingItem
+          item={continueWatchingInfo}
+          layout="horizontal"
+          on:itemClick={(e) => onItemClick(e.detail.item)}
+          on:dismiss={() => {
+            window.api.setContinueWatchingDismissed(continueWatchingInfo!.show.id)
+            continueWatchingInfo = null
+          }}
+        />
+      </section>
+    {/if}
 
     {#if showRegularContents && item.type === 'folder'}
       <div class="children-section">
@@ -525,6 +552,13 @@
     color: var(--ev-c-text-2);
   }
 
+  .hero-banner-section {
+    grid-column: 1 / -1;
+  }
+  .hero-banner-section .section-title {
+    margin-left: 0;
+    margin-right: 0;
+  }
   .children-section {
     grid-column: 1 / -1;
     margin-top: 1rem;

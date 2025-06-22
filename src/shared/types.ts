@@ -148,8 +148,10 @@ export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 export interface Settings {
   playerCommand: string
   tmdbApiKey: string
-  useLogos?: boolean
-  creditsDisplay?: 'shown' | 'collapsed' | 'hidden' | 'tab'
+  useLogos: boolean
+  creditsDisplay: 'shown' | 'collapsed' | 'hidden' | 'tab'
+  showContinueWatching: boolean
+  showNextUp: boolean
   virtualTags?: { name: string; expression: string }[]
   libraryLocation: string // The path to the library data directory.
   mediaSourcePath?: string

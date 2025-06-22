@@ -51,6 +51,9 @@ declare global {
       getContinueWatchingItems: () => Promise<
         { show: MediaFolder; nextEpisode: MediaFile }[]
       >
+      getContinueWatchingForShow: (
+        showId: string
+      ) => Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null>
       setContinueWatchingDismissed: (showId: string) => Promise<void>
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]

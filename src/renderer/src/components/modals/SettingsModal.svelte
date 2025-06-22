@@ -23,6 +23,8 @@
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
   let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
+  let showContinueWatching = $state(true)
+  let showNextUp = $state(true)
   let libraryDataLocation = $state('') // The path to the library data directory
   let mediaSourcePath = $state('') // The path to the user's media files
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
@@ -90,9 +92,11 @@
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommand = settings.playerCommand ?? ''
-      tmdbApiKey = settings.tmdbApiKey ?? ''
-      useLogos = settings.useLogos ?? true
-      creditsDisplay = settings.creditsDisplay ?? 'tab'
+      tmdbApiKey = settings.tmdbApiKey
+      useLogos = settings.useLogos
+      creditsDisplay = settings.creditsDisplay
+      showContinueWatching = settings.showContinueWatching
+      showNextUp = settings.showNextUp
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
       libraryDataLocation = settings.libraryLocation
 
@@ -202,6 +206,8 @@
       tmdbApiKey,
       useLogos,
       creditsDisplay,
+      showContinueWatching,
+      showNextUp,
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
       // New structured settings
@@ -346,6 +352,18 @@
           <option value="hidden">Do Not Show or Fetch</option>
         </select>
         <p class="help-text">Controls the default visibility of the credits section.</p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={showContinueWatching} />
+          <span>Show "Continue Watching" on Home screen</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={showNextUp} />
+          <span>Show "Next Up" in TV Show details</span>
+        </label>
       </div>
       <div class="form-group">
         <label>Default Layout Values</label>

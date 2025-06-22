@@ -2216,4 +2216,53 @@ export function setupLibraryIpc(): void {
       return continueWatchingItems
     }
   )
+
+  ipcMain.handle(
+    'get-continue-watching-for-show',
+    async (_, showId: string): Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null> => {
+      if (!db?.root) return null
+      const show = findItemById(showId, db.root)
+      if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.continueWatchingDismissed) {
+        return null
+      }
+
+      const episodes = (getAllItemsAsList(show) as LibraryItem[]).filter(
+        (item) => item.type === 'file' && item.mediaType === 'episode'
+      ) as MediaFile[]
+
+      if (episodes.length === 0) return null
+      const watchedEpisodes = episodes.filter((ep) => ep.watched)
+      if (watchedEpisodes.length === 0) return null
+
+      const getComparableEpisodeNumber = (ep: MediaFile) =>
+        (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+      const allEpisodesSorted = [...episodes].sort(
+        (a, b) => getComparableEpisodeNumber(a) - getComparableEpisodeNumber(b)
+      )
+
+      const maxWatchedEpisode = watchedEpisodes.reduce((max, ep) =>
+        getComparableEpisodeNumber(ep) > getComparableEpisodeNumber(max) ? ep : max
+      )
+
+      let nextUnwatchedEpisode: MediaFile | undefined
+      for (const episode of allEpisodesSorted) {
+        if (getComparableEpisodeNumber(episode) > getComparableEpisodeNumber(maxWatchedEpisode)) {
+          if (!episode.watched) {
+            nextUnwatchedEpisode = episode
+            break
+          }
+        }
+      }
+
+      if (nextUnwatchedEpisode) {
+        return {
+          show: createShallowClonableCopy(show) as MediaFolder,
+          nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
+        }
+      }
+
+      return null
+    }
+  )
 }
