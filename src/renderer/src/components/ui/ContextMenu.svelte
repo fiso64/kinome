@@ -17,7 +17,8 @@
     onRenameItem,
     onShowProperties,
     onClearMetadata,
-    onHideItem
+    onHideItem,
+    onDeleteItemFromDb
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -37,6 +38,7 @@
     onShowProperties: () => void
     onClearMetadata: () => void
     onHideItem: () => void
+    onDeleteItemFromDb: () => void
   } = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
@@ -145,6 +147,11 @@
 
   function handleHideItem() {
     onHideItem()
+    onClose()
+  }
+
+  function handleDeleteItemFromDb() {
+    onDeleteItemFromDb()
     onClose()
   }
 
@@ -323,6 +330,12 @@
           <span class="icon">🚫</span>
           <span>Hide Item...</span>
         </button>
+        {#if item.isMissing}
+          <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
+            <span class="icon">🗑️</span>
+            <span>Delete from Database...</span>
+          </button>
+        {/if}
       {/if}
         </div>
       {/if}

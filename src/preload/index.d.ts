@@ -80,6 +80,7 @@ declare global {
       // Filesystem
       revealInExplorer: (path: string) => void
       trashItem: (path: string) => Promise<boolean>
+      deleteItemFromDb: (itemId: string) => Promise<boolean>
       renameItem: (oldPath: string, newName: string) => Promise<boolean>
       getItemProperties: (path: string) => Promise<any | null>
       selectLibraryDirectory: () => Promise<string | null>
@@ -90,6 +91,7 @@ declare global {
       isWindowMaximized: () => Promise<boolean>
       onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
       onLibraryItemUpdated: (callback: (item: LibraryItem) => void) => () => void
+      onLibraryItemDeleted: (callback: (itemId: string) => void) => () => void
       onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void) => () => void
       onAutocompleteSuggestionsUpdated: (
         callback: (suggestions: AutocompleteSuggestions) => void

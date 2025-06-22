@@ -100,7 +100,7 @@ function _updateOrAddItemToIndex(entry: SearchIndexEntry) {
 /**
  * Removes an entry from the search index array by its ID.
  */
-function _removeItemFromIndex(itemId: string) {
+export function removeItemFromIndex(itemId: string) {
   const index = searchIndex.findIndex((i) => i.id === itemId)
   if (index !== -1) {
     searchIndex.splice(index, 1)
@@ -122,11 +122,11 @@ export function updateIndexForItem(item: LibraryItem) {
     item.isHidden
     // Note: Missing items are deliberately not excluded
   ) {
-    _removeItemFromIndex(item.id)
+    removeItemFromIndex(item.id)
     // Also remove all its descendants from the index.
     function removeChildren(folder: MediaFolder) {
       folder.children.forEach((child) => {
-        _removeItemFromIndex(child.id)
+        removeItemFromIndex(child.id)
         if (child.type === 'folder') {
           removeChildren(child)
         }
@@ -310,6 +310,22 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
   console.log(
     `[${new Date().toISOString()}] [Search] Index built with ${searchIndex.length} items in ${duration}ms.`
   )
+}
+
+/**
+ * Recursively removes an item and all its descendants from the in-memory lookup maps and search index.
+ * @param item The root item to remove.
+ */
+export function removeItemAndDescendantsFromIndex(item: LibraryItem) {
+  function unindexRecursively(currentItem: LibraryItem) {
+    itemMap.delete(currentItem.id)
+    parentMap.delete(currentItem.id)
+    removeItemFromIndex(currentItem.id)
+    if (currentItem.type === 'folder' && currentItem.children) {
+      currentItem.children.forEach(unindexRecursively)
+    }
+  }
+  unindexRecursively(item)
 }
 
 function normalizeText(text: string): string {

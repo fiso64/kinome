@@ -348,6 +348,30 @@
     return () => unlisten()
   })
 
+  // Listener for item deletion
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemDeleted((deletedItemId) => {
+      log(`Received deletion event for item ${deletedItemId}`)
+      // This logic is similar to `isHidden`, but it's a permanent removal.
+      if (selectedItemForDetailView?.id === deletedItemId) goBack()
+      const parentInStack = findParentOfItem(currentFolder, deletedItemId)
+      if (parentInStack) {
+        parentInStack.children = parentInStack.children.filter((c) => c.id !== deletedItemId)
+      }
+      if (selectedItemForDetailView?.type === 'folder') {
+        const parentInDetail = findParentOfItem(selectedItemForDetailView, deletedItemId)
+        if (parentInDetail) {
+          parentInDetail.children = parentInDetail.children.filter((c) => c.id !== deletedItemId)
+          selectedItemForDetailView = { ...selectedItemForDetailView }
+        }
+      }
+      searchResults = searchResults.filter((r) => r.id !== deletedItemId)
+      detailViewSearchResults = detailViewSearchResults.filter((r) => r.id !== deletedItemId)
+      viewStack = [...viewStack]
+    })
+    return () => unlisten()
+  })
+
   function findPathToItem(root: MediaFolder, id: string): MediaFolder[] {
     const path: MediaFolder[] = []
     function find(current: MediaFolder): boolean {
@@ -517,6 +541,30 @@
     await window.api.markAsUnwatched(item.id)
   }
 
+  async function handleDeleteItemFromDb(item: LibraryItem) {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Database Deletion',
+      message: `Are you sure you want to permanently delete the record for "${
+        item.title ?? item.name
+      }" from the database?`,
+      detail:
+        'This only affects the library database, not the file on disk. This action cannot be undone.',
+      confirmText: 'Delete Record',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+    if (confirmed) {
+      await window.api.deleteItemFromDb(item.id)
+      // The `onLibraryItemDeleted` listener will handle UI updates.
+    }
+  }
+
+  function onContextMenuDeleteItemFromDb() {
+    if (contextMenuItem) {
+      handleDeleteItemFromDb(contextMenuItem)
+    }
+  }
+
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
@@ -665,8 +713,26 @@
     if (confirmed) {
       const itemToUpdate = { ...JSON.parse(JSON.stringify(item)), isHidden: true }
       await window.api.userUpdateItem(itemToUpdate)
-      // The onLibraryItemUpdated listener will handle UI updates.
+    // The onLibraryItemUpdated listener will handle UI updates.
+  }
+
+  async function handleDeleteItemFromDb(item: LibraryItem) {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Database Deletion',
+      message: `Are you sure you want to permanently delete the record for "${
+        item.title ?? item.name
+      }" from the database?`,
+      detail:
+        'This only affects the library database, not the file on disk. This action cannot be undone.',
+      confirmText: 'Delete Record',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+    if (confirmed) {
+      await window.api.deleteItemFromDb(item.id)
+      // The `onLibraryItemDeleted` listener will handle UI updates.
     }
+  }
   }
 
   async function handleOpenLibrary(): Promise<void> {
@@ -914,6 +980,11 @@
     onHideItem={() => {
       if (contextMenuItem) {
         handleHideItemFromContext(contextMenuItem)
+      }
+    }}
+    onDeleteItemFromDb={() => {
+      if (contextMenuItem) {
+        handleDeleteItemFromDb(contextMenuItem)
       }
     }}
   />

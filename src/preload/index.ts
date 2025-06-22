@@ -77,6 +77,8 @@ const api = {
   // Filesystem
   revealInExplorer: (path: string): void => ipcRenderer.send('reveal-in-explorer', path),
   trashItem: (path: string): Promise<boolean> => ipcRenderer.invoke('trash-item', path),
+  deleteItemFromDb: (itemId: string): Promise<boolean> =>
+    ipcRenderer.invoke('delete-item-from-db', itemId),
   renameItem: (oldPath: string, newName: string): Promise<boolean> =>
     ipcRenderer.invoke('rename-item', oldPath, newName),
   getItemProperties: (path: string): Promise<any | null> =>
@@ -108,6 +110,13 @@ const api = {
     ipcRenderer.on('library-item-updated', listener)
     return () => {
       ipcRenderer.removeListener('library-item-updated', listener)
+    }
+  },
+  onLibraryItemDeleted: (callback: (itemId: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, itemId: string): void => callback(itemId)
+    ipcRenderer.on('library-item-deleted', listener)
+    return () => {
+      ipcRenderer.removeListener('library-item-deleted', listener)
     }
   },
   onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void): (() => void) => {

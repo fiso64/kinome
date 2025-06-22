@@ -14,7 +14,9 @@ import {
   buildFullSearchIndex,
   updateIndexForItem,
   performSearch,
-  debugPerformSearch
+  debugPerformSearch,
+  removeItemFromIndex,
+  removeItemAndDescendantsFromIndex
 } from './search'
 import type {
   Database,
@@ -2024,6 +2026,37 @@ export function setupLibraryIpc(): void {
       return debugPerformSearch(query)
     }
   )
+
+  ipcMain.handle('delete-item-from-db', async (_, itemId: string): Promise<boolean> => {
+    if (!db || !db.root) return false
+
+    const parent = findParent(itemId, db.root)
+    if (!parent) {
+      log(`[DB Delete] Could not find parent for item ${itemId}. Deletion failed.`)
+      return false
+    }
+
+    const itemIndex = parent.children.findIndex((c) => c.id === itemId)
+    if (itemIndex === -1) {
+      log(`[DB Delete] Item ${itemId} not found in parent's children. Deletion failed.`)
+      return false
+    }
+
+    const [itemToDelete] = parent.children.splice(itemIndex, 1)
+
+    // This recursively cleans up all in-memory indexes and maps
+    removeItemAndDescendantsFromIndex(itemToDelete)
+
+    await writeDb(db)
+
+    // Notify all windows that an item was deleted.
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('library-item-deleted', itemId)
+    })
+
+    log(`[DB Delete] Successfully deleted item ${itemToDelete.id} from database.`)
+    return true
+  })
 
   ipcMain.handle('get-item-by-id', async (_, itemId: string): Promise<LibraryItem | null> => {
     if (!db || !db.root) {
