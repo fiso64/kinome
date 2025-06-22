@@ -183,9 +183,11 @@
   }
 
   async function handleClearMetadata() {
+    const isFolder = item.type === 'folder'
     const message = isVirtual
-      ? `DANGER: This will permanently delete all fetched metadata (titles, posters, tags, etc.) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
-      : `DANGER: This will save any changes made in this window and then permanently delete all fetched metadata (titles, posters, tags, etc.) for all items inside "${item.title ?? item.name}", recursively.`
+      ? `DANGER: This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
+      : `DANGER: This will save any changes made in this window and then permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
+
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Metadata Clearing',
       message: message,
@@ -196,15 +198,15 @@
     })
 
     if (confirmed) {
-			if (isVirtual) {
-				const childIds = item.children.map((c) => c.id)
-				if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
-			} else {
-				const itemToUpdate = await buildUpdatedItem()
-				// We need to save any pending changes before clearing
-				if (itemToUpdate) await window.api.userUpdateItem(itemToUpdate)
-				if (await window.api.clearChildrenMetadata(item.id)) onClose()
-			}
+      if (isVirtual) {
+        const childIds = item.children.map((c) => c.id)
+        if (await window.api.clearVirtualFolderMetadata(childIds)) onClose()
+      } else {
+        const itemToUpdate = await buildUpdatedItem()
+        // We need to save any pending changes before clearing
+        if (itemToUpdate) await window.api.userUpdateItem(itemToUpdate)
+        if (await window.api.clearItemMetadata(item.id)) onClose()
+      }
     }
   }
 
@@ -286,7 +288,7 @@
         {onNeedRefresh}
       />
     {:else if activeTab === 'settings' && !isFolder}
-      <FileTab onHideItem={handleHide} />
+      <FileTab onHideItem={handleHide} onClearMetadata={handleClearMetadata} />
     {/if}
   </div>
 </ModalWindow>

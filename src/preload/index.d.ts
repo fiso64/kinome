@@ -51,7 +51,7 @@ declare global {
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
-      clearChildrenMetadata: (folderId: string) => Promise<boolean>
+      clearItemMetadata: (itemId: string) => Promise<boolean>
       clearVirtualFolderMetadata: (itemIds: string[]) => Promise<boolean>
       fetchCredits: (itemId: string) => Promise<void>
       // Manual Match

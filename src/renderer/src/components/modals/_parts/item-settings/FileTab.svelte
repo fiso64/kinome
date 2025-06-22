@@ -1,8 +1,10 @@
 <script lang="ts">
   let {
-    onHideItem
+    onHideItem,
+    onClearMetadata
   }: {
     onHideItem: () => Promise<void>
+    onClearMetadata: () => Promise<void>
   } = $props()
 </script>
 
@@ -10,6 +12,12 @@
   <div class="danger-zone">
     <div class="danger-zone-header">
       <h4>Danger Zone</h4>
+    </div>
+    <div>
+      <button class="danger" onclick={onClearMetadata}> Clear Metadata </button>
+      <p class="help-text danger-help-text">
+        Removes all metadata (including custom titles, posters, and tags) for this file.
+      </p>
     </div>
     <div>
       <button class="danger" onclick={onHideItem}> Hide This Item </button>

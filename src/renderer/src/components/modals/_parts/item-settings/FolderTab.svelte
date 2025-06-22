@@ -85,10 +85,10 @@
       <h4>Danger Zone</h4>
     </div>
     <div>
-      <button class="danger" onclick={onClearMetadata}> Clear All Children Metadata </button>
+      <button class="danger" onclick={onClearMetadata}> Clear Metadata </button>
       <p class="help-text danger-help-text">
-        Removes all fetched data (titles, posters, tags, etc.) for every item inside this folder.
-        This is useful for forcing a complete re-fetch from scratch.
+        Removes all metadata (including custom titles, posters, and tags) for this folder and all of
+        its children recursively.
       </p>
     </div>
     {#if !isVirtual}

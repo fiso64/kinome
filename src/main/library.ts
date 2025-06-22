@@ -1486,29 +1486,32 @@ export function setupLibraryIpc(): void {
     }
 	)
 
-	ipcMain.handle('clear-children-metadata', async (_, folderId: string): Promise<boolean> => {
-		if (!db || !db.root) {
+	ipcMain.handle('clear-item-metadata', async (_, itemId: string): Promise<boolean> => {
+    if (!db || !db.root) {
       console.error('Cannot clear metadata: database not found.')
       return false
     }
-    const parentFolder = findItemById(folderId, db.root)
-    if (!parentFolder || parentFolder.type !== 'folder') {
-      console.error(`Cannot clear metadata: folder with ID ${folderId} not found.`)
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot clear metadata: item with ID ${itemId} not found.`)
       return false
     }
 
-    log(`Starting metadata clear for children of "${parentFolder.name}"...`)
+    log(`Starting metadata clear for item "${item.name}" and its children (if any)...`)
     setBulkUpdateStatus(true)
 
     try {
       const imagesDir = path.join(getLibraryDataPath(), 'images')
       const modifiedItems: LibraryItem[] = []
-      await clearChildrenRecursively(parentFolder, imagesDir, modifiedItems)
 
-      // Also reset the flag on the parent folder itself and bust its UI cache.
-      parentFolder.tmdbEpisodesFetched = undefined
-      parentFolder._v = Date.now()
-      modifiedItems.push(parentFolder)
+      // Reset the item itself
+      await resetItemMetadata(item, imagesDir)
+      modifiedItems.push(item)
+
+      // If it's a folder, reset its children recursively
+      if (item.type === 'folder') {
+        await clearChildrenRecursively(item, imagesDir, modifiedItems)
+      }
 
       await finalizeMetadataClear(modifiedItems)
       return true
