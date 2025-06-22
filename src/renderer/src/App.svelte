@@ -257,88 +257,49 @@
     }
   })
 
-  // Set up a listener for real-time metadata updates from the main process.
-  $effect(() => {
-    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+  function handleItemUpdates(updatedItems: LibraryItem[]) {
+    for (const updatedItem of updatedItems) {
       if (updatedItem.isHidden) {
-        // The item was just hidden. We need to remove it from all visible lists.
-        if (selectedItemForDetailView?.id === updatedItem.id) {
-          goBack()
-        }
-
+        // --- Handle Hiding ---
+        if (selectedItemForDetailView?.id === updatedItem.id) goBack()
         const parentInStack = findParentOfItem(currentFolder, updatedItem.id)
         if (parentInStack) {
           parentInStack.children = parentInStack.children.filter((c) => c.id !== updatedItem.id)
-          viewStack = [...viewStack]
         }
-
         if (selectedItemForDetailView?.type === 'folder') {
           const parentInDetail = findParentOfItem(selectedItemForDetailView, updatedItem.id)
           if (parentInDetail) {
             parentInDetail.children = parentInDetail.children.filter((c) => c.id !== updatedItem.id)
-            selectedItemForDetailView = { ...selectedItemForDetailView }
           }
         }
-
         searchResults = searchResults.filter((r) => r.id !== updatedItem.id)
         detailViewSearchResults = detailViewSearchResults.filter((r) => r.id !== updatedItem.id)
-        return // Stop further processing for the hidden item.
+        continue // Skip to next item
       }
 
+      // --- Handle Updates ---
       updateCachedItem(updatedItem)
 
-      let wasHandledInView = false
-
-      // --- Case 1: A detail view is active. Check for updates there first. ---
-      if (selectedItemForDetailView) {
-        // A) Is the updated item the main subject of the detail view?
-        if (selectedItemForDetailView.id === updatedItem.id) {
-          selectedItemForDetailView = { ...selectedItemForDetailView, ...updatedItem }
-          wasHandledInView = true
-        }
-        // B) Is the updated item a descendant of the detail view item?
-        else if (selectedItemForDetailView.type === 'folder') {
-          const parentInDetailView = findParentOfItem(selectedItemForDetailView, updatedItem.id)
-          if (parentInDetailView) {
-            const childIndex = parentInDetailView.children.findIndex((c) => c.id === updatedItem.id)
-            if (childIndex !== -1) {
-              parentInDetailView.children = [
-                ...parentInDetailView.children.slice(0, childIndex),
-                updatedItem,
-                ...parentInDetailView.children.slice(childIndex + 1)
-              ]
-              selectedItemForDetailView = { ...selectedItemForDetailView }
-              wasHandledInView = true
-            }
-          }
-        }
+      // Find the item in the detail view tree and update its properties in place.
+      const itemInDetailTree =
+        selectedItemForDetailView?.type === 'folder'
+          ? findItemInTree(selectedItemForDetailView, updatedItem.id)
+          : null
+      if (selectedItemForDetailView?.id === updatedItem.id) {
+        Object.assign(selectedItemForDetailView, updatedItem)
+      } else if (itemInDetailTree) {
+        Object.assign(itemInDetailTree, updatedItem)
       }
 
-      // --- Case 2: Update the main grid/list view if not handled by detail view. ---
-      if (!wasHandledInView && currentFolder) {
-        // A) Is the updated item the folder being viewed itself? (e.g., layout change)
-        if (currentFolder.id === updatedItem.id) {
-          viewStack[viewStack.length - 1] = updatedItem as MediaFolder
-          viewStack = [...viewStack]
-        }
-        // B) Is the updated item a child of the current view?
-        else {
-          const parent = findParentOfItem(currentFolder, updatedItem.id)
-          if (parent) {
-            const itemIndex = parent.children.findIndex((child) => child.id === updatedItem.id)
-            if (itemIndex !== -1) {
-              parent.children = [
-                ...parent.children.slice(0, itemIndex),
-                updatedItem,
-                ...parent.children.slice(itemIndex + 1)
-              ]
-              viewStack = [...viewStack]
-            }
-          }
-        }
+      // Find the item in the main view stack and update its properties in place.
+      const itemInViewStack = currentFolder ? findItemInTree(currentFolder, updatedItem.id) : null
+      if (currentFolder?.id === updatedItem.id) {
+        Object.assign(currentFolder, updatedItem)
+      } else if (itemInViewStack) {
+        Object.assign(itemInViewStack, updatedItem)
       }
 
-      // --- Case 3: Update search results list, if active. ---
+      // Update search results list, if active.
       const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
       if (indexInSearch > -1) {
         const itemInSearch = searchResults[indexInSearch]
@@ -348,10 +309,9 @@
           _v: updatedItem._v,
           watched: 'watched' in updatedItem ? updatedItem.watched : undefined
         })
-        searchResults = [...searchResults]
       }
 
-      // --- Case 4: Update the item in an active modal. ---
+      // Update the item in an active modal.
       if (
         (activeModal?.type === 'manualSearch' ||
           activeModal?.type === 'itemSettings' ||
@@ -359,11 +319,25 @@
           activeModal?.type === 'rename') &&
         activeModal.item.id === updatedItem.id
       ) {
-        activeModal = {
-          ...activeModal,
-          item: { ...activeModal.item, ...updatedItem }
-        }
+        Object.assign(activeModal.item, updatedItem)
       }
+    }
+
+    // Trigger Svelte reactivity
+    viewStack = [...viewStack]
+    searchResults = [...searchResults]
+    if (selectedItemForDetailView) {
+      selectedItemForDetailView = { ...selectedItemForDetailView }
+    }
+    if (activeModal) {
+      activeModal = { ...activeModal }
+    }
+  }
+
+  // Set up a listener for real-time metadata updates from the main process.
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+      handleItemUpdates([updatedItem])
     })
     return () => unlisten()
   })
@@ -372,54 +346,7 @@
   $effect(() => {
     const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
-
-      for (const updatedItem of updatedItems) {
-        updateCachedItem(updatedItem)
-
-        let itemInTree: LibraryItem | null = null
-        for (const folder of viewStack) {
-          itemInTree = findItemInTree(folder, updatedItem.id)
-          if (itemInTree) break
-        }
-        if (itemInTree) Object.assign(itemInTree, updatedItem)
-
-        if (selectedItemForDetailView) {
-          if (selectedItemForDetailView.id === updatedItem.id) {
-            Object.assign(selectedItemForDetailView, updatedItem)
-          } else if (selectedItemForDetailView.type === 'folder') {
-            const itemInDetailTree = findItemInTree(selectedItemForDetailView, updatedItem.id)
-            if (itemInDetailTree) {
-              Object.assign(itemInDetailTree, updatedItem)
-            }
-          }
-        }
-        const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
-        if (indexInSearch > -1) {
-          const itemInSearch = searchResults[indexInSearch]
-          itemInSearch.title = updatedItem.title ?? updatedItem.name
-          itemInSearch.posterPath = updatedItem.posterPath
-          itemInSearch._v = updatedItem._v
-        }
-
-        if (
-          (activeModal?.type === 'manualSearch' ||
-            activeModal?.type === 'itemSettings' ||
-            activeModal?.type === 'properties' ||
-            activeModal?.type === 'rename') &&
-          activeModal.item.id === updatedItem.id
-        ) {
-          Object.assign(activeModal.item, updatedItem)
-        }
-      }
-
-      viewStack = [...viewStack]
-      searchResults = [...searchResults]
-      if (selectedItemForDetailView) {
-        selectedItemForDetailView = { ...selectedItemForDetailView }
-      }
-      if (activeModal) {
-        activeModal = { ...activeModal }
-      }
+      handleItemUpdates(updatedItems)
     })
     return () => unlisten()
   })

@@ -165,9 +165,15 @@ async function _finalizeItemUpdate(
   // We send them individually to leverage the more detailed update logic
   // in the renderer's `onLibraryItemUpdated` handler.
   for (const item of itemsArray) {
-    const plainItem = JSON.parse(JSON.stringify(item))
+    // Create a shallow copy, excluding children, for efficient IPC.
+    // The renderer is responsible for merging this into its existing state.
+    const { children, ...rest } = item as MediaFolder
+    // We deep-clone the rest of the properties to remove proxies,
+    // but the large `children` array is excluded.
+    const itemWithoutChildren = JSON.parse(JSON.stringify(rest))
+
     BrowserWindow.getAllWindows().forEach((window) => {
-      window.webContents.send('library-item-updated', plainItem)
+      window.webContents.send('library-item-updated', itemWithoutChildren)
     })
   }
 
