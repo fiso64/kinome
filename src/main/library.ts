@@ -1811,39 +1811,16 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
+    // --- Phase 1: Launch Player ASAP ---
     const { playerCommand } = await readSettings()
 
-    if (!db || !db.root || !playerCommand) {
-      console.error('Cannot play file: database or player command not configured.')
+    if (!playerCommand) {
+      console.error('Cannot play file: player command not configured.')
       BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
         title: 'Configuration Error',
         message: 'Player command is not configured. Please set it in Settings.'
       })
       return false
-    }
-
-    // Mark as watched in the database
-    const itemInDb = findItemById(file.id, db.root)
-    if (itemInDb && itemInDb.type === 'file') {
-      itemInDb.watched = true
-      ;(itemInDb as MediaFile).lastWatched = Date.now()
-      // if playing an episode, un-dismiss the show
-      let parent = findParent(itemInDb.id, db.root)
-      let show: MediaFolder | null = null
-      while (parent) {
-        if (parent.mediaType === 'tv') {
-          show = parent
-          break
-        }
-        parent = findParent(parent.id, db.root)
-      }
-      if (show?.continueWatchingDismissed) {
-        show.continueWatchingDismissed = false
-      }
-      await _finalizeItemUpdate(itemInDb)
-    } else {
-      console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
-      // We can still try to play it, so we don't return false here.
     }
 
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
@@ -1856,11 +1833,7 @@ export function setupLibraryIpc(): void {
       return false
     }
 
-    // Construct absolute path
     const absolutePath = path.join(mediaSourcePath, file.path)
-
-    // Launch the external player
-    // The path is always quoted to handle spaces correctly.
     const command = playerCommand.replace('{PATH}', `"${absolutePath}"`)
 
     console.log(`Executing: ${command}`)
@@ -1874,6 +1847,37 @@ export function setupLibraryIpc(): void {
         })
       }
     })
+
+    // --- Phase 2: Update Database in Background ---
+    // Fire-and-forget the update logic.
+    ;(async () => {
+      if (!db || !db.root) {
+        console.warn('DB not ready, cannot mark item as watched.')
+        return
+      }
+
+      const itemInDb = findItemById(file.id, db.root)
+      if (itemInDb && itemInDb.type === 'file') {
+        itemInDb.watched = true
+        ;(itemInDb as MediaFile).lastWatched = Date.now()
+        // if playing an episode, un-dismiss the show
+        let parent = findParent(itemInDb.id, db.root)
+        let show: MediaFolder | null = null
+        while (parent) {
+          if (parent.mediaType === 'tv') {
+            show = parent
+            break
+          }
+          parent = findParent(parent.id, db.root)
+        }
+        if (show?.continueWatchingDismissed) {
+          show.continueWatchingDismissed = false
+        }
+        await _finalizeItemUpdate(itemInDb)
+      } else {
+        console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
+      }
+    })()
 
     return true // Indicate that the attempt to play was processed.
   })
