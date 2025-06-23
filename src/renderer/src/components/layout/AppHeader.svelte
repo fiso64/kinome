@@ -206,7 +206,6 @@
               onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
               highlightedIndex={highlightedDetailSearchItemIndex}
               isPreSorted={true}
-              grayOutWatched={false}
               {settings}
               listFixedAspectRatio={true}
             />

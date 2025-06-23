@@ -15,7 +15,6 @@
     onItemClick,
     onShowContextMenu,
     suggestions,
-    grayOutWatched,
     settings
   }: {
     folders: (MediaFolder | VirtualFolder)[]
@@ -26,7 +25,6 @@
       options?: { layout?: string }
     ) => void
     suggestions?: AutocompleteSuggestions
-    grayOutWatched: boolean
     settings?: Settings | null
   } = $props()
 
@@ -189,7 +187,6 @@
             {onItemClick}
             {onShowContextMenu}
             {suggestions}
-            {grayOutWatched}
             {settings}
           />
         {/if}

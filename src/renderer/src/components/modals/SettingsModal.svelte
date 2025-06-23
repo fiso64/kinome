@@ -23,6 +23,7 @@
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
   let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
+  let grayOutWatched = $state(true)
   let showContinueWatching = $state(true)
   let showNextUp = $state(true)
   let libraryDataLocation = $state('') // The path to the library data directory
@@ -95,6 +96,7 @@
       tmdbApiKey = settings.tmdbApiKey
       useLogos = settings.useLogos
       creditsDisplay = settings.creditsDisplay
+      grayOutWatched = settings.grayOutWatched
       showContinueWatching = settings.showContinueWatching
       showNextUp = settings.showNextUp
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
@@ -206,6 +208,7 @@
       tmdbApiKey,
       useLogos,
       creditsDisplay,
+      grayOutWatched,
       showContinueWatching,
       showNextUp,
       virtualTags: tagsToSave,
@@ -352,6 +355,15 @@
           <option value="hidden">Do Not Show or Fetch</option>
         </select>
         <p class="help-text">Controls the default visibility of the credits section.</p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={grayOutWatched} />
+          <span>Grey out watched items in lists</span>
+        </label>
+        <p class="help-text">
+          Reduces the opacity of items that have been marked as watched.
+        </p>
       </div>
       <div class="form-group">
         <label class="checkbox-label">

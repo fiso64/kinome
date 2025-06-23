@@ -165,6 +165,7 @@ export interface Settings {
   tmdbApiKey: string
   useLogos: boolean
   creditsDisplay: 'shown' | 'collapsed' | 'hidden' | 'tab'
+  grayOutWatched: boolean
   showContinueWatching: boolean
   showNextUp: boolean
   virtualTags?: { name: string; expression: string }[]

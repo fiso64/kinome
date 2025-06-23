@@ -65,6 +65,7 @@ async function readRawSettings(): Promise<Settings> {
     tmdbApiKey: '',
     useLogos: true,
     creditsDisplay: 'tab',
+    grayOutWatched: true,
     showContinueWatching: true,
     showNextUp: true,
     virtualTags: [],

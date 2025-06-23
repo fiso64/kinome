@@ -28,7 +28,6 @@
     suggestions,
     highlightedIndex,
     isPreSorted = false,
-    grayOutWatched = true,
     settings,
     listFixedAspectRatio = false
   }: {
@@ -45,10 +44,11 @@
     suggestions?: AutocompleteSuggestions
     highlightedIndex?: number | null
     isPreSorted?: boolean
-    grayOutWatched?: boolean
     settings?: Settings | null
     listFixedAspectRatio?: boolean
   } = $props()
+
+  const grayOutWatched = $derived(settings?.grayOutWatched ?? true)
 
   const { layout, groupBy, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } =
     $derived.by(() => {
