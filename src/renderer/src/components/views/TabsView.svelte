@@ -34,7 +34,6 @@
   let tabListElement = $state<HTMLDivElement | undefined>()
   let canScrollLeft = $state(false)
   let canScrollRight = $state(false)
-  let isOverflowing = $derived(canScrollLeft || canScrollRight)
 
   $effect(() => {
     const currentFolderIds = folders.map((f) => f.id)
@@ -151,12 +150,7 @@
         /></svg
       >
     </button>
-    <div
-      class="tab-list"
-      class:overflowing={isOverflowing}
-      bind:this={tabListElement}
-      onwheel={handleWheel}
-    >
+    <div class="tab-list" bind:this={tabListElement} onwheel={handleWheel}>
       {#each folders as folder (folder.id)}
         <button
           class="tab"
@@ -227,7 +221,6 @@
 
   .tab-list {
     display: flex;
-    justify-content: center;
     flex-wrap: nowrap;
     overflow-x: auto;
     padding: 1rem 1.5rem;
@@ -235,12 +228,15 @@
     gap: 1rem;
     -ms-overflow-style: none; /* for Internet Explorer, Edge */
     scrollbar-width: none; /* for Firefox */
-    /* scroll-behavior: smooth is removed to fix jittery wheel scroll */
     flex-grow: 1;
   }
-  .tab-list.overflowing {
-    justify-content: flex-start;
+
+  .tab-list::before,
+  .tab-list::after {
+    content: '';
+    flex: 1;
   }
+
   .tab-list::-webkit-scrollbar {
     display: none; /* for Chrome, Safari, and Opera */
   }
