@@ -266,7 +266,7 @@
   />
 {/if}
 
-<ModalWindow title="Settings" onClose={handleCancel} onSave={handleSave} maxWidth=650px>
+<ModalWindow title="Settings" onClose={handleCancel} onSave={handleSave} maxWidth="650px">
   {#snippet header()}
     <div class="tabs">
       <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}

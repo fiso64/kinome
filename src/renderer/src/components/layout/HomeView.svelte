@@ -53,7 +53,7 @@
   <section class="home-section">
     <h2 class="home-section-title">Library</h2>
     <MediaView
-      parentItem={parentItem}
+      {parentItem}
       items={parentItem.children}
       {onItemClick}
       {onShowContextMenu}

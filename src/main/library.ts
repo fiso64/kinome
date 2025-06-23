@@ -2541,10 +2541,7 @@ export function setupLibraryIpc(): void {
 
         if (nextUnwatchedEpisode) {
           await fetchEpisodeDataForContinueWatching(show, nextUnwatchedEpisode)
-          const lastWatchedTime = Math.max(
-            0,
-            ...watchedEpisodes.map((ep) => ep.lastWatched ?? 0)
-          )
+          const lastWatchedTime = Math.max(0, ...watchedEpisodes.map((ep) => ep.lastWatched ?? 0))
           continueWatchingItems.push({
             show: createShallowClonableCopy(show) as MediaFolder,
             nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile,

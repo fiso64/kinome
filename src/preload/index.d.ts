@@ -48,9 +48,7 @@ declare global {
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
       getHiddenChildren: (parentId: string) => Promise<LibraryItem[]>
       getParent: (itemId: string) => Promise<MediaFolder | null>
-      getContinueWatchingItems: () => Promise<
-        { show: MediaFolder; nextEpisode: MediaFile }[]
-      >
+      getContinueWatchingItems: () => Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]>
       getContinueWatchingForShow: (
         showId: string
       ) => Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null>

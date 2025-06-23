@@ -94,10 +94,8 @@
       <p class="cw-overview">{item.nextEpisode.overview}</p>
     </div>
   {/if}
-  <button
-    class="dismiss-button"
-    title="Dismiss"
-    onclick={(e) => handleDismiss(e, item.show.id)}>&times;</button
+  <button class="dismiss-button" title="Dismiss" onclick={(e) => handleDismiss(e, item.show.id)}
+    >&times;</button
   >
 </div>
 
@@ -203,9 +201,9 @@
     background-color: var(--color-background-mute);
   }
   .cw-item.horizontal {
-    transition: 
-        transform 0.2s ease,
-        background-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background-color 0.2s ease;
   }
   .play-icon {
     font-size: 3rem;

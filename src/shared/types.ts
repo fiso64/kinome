@@ -31,7 +31,11 @@ export interface GroupingSettings {
 /**
  * A union of all possible layout-specific setting objects.
  */
-type LayoutSpecificSettings = GridSettings | HorizontalGridSettings | GroupingSettings | ListSettings
+type LayoutSpecificSettings =
+  | GridSettings
+  | HorizontalGridSettings
+  | GroupingSettings
+  | ListSettings
 
 /**
  * The single source of truth for layout-specific properties and their ultimate default values.

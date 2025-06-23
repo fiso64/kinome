@@ -63,9 +63,9 @@
   )
 
   // --- View State (for folders) ---
-  let selectedLayout = $state(_isFolder ? item.layout ?? null : null)
-  let selectedClickAction = $state(_isFolder ? item.clickAction ?? null : null)
-  let selectedGroupBy = $state(_isFolder ? item.groupBy ?? null : null)
+  let selectedLayout = $state(_isFolder ? (item.layout ?? null) : null)
+  let selectedClickAction = $state(_isFolder ? (item.clickAction ?? null) : null)
+  let selectedGroupBy = $state(_isFolder ? (item.groupBy ?? null) : null)
   let gridPosterSize = $state((_isFolder ? (item as MediaFolder).gridPosterSize : null) ?? null)
   let listDescriptionRows = $state(
     (_isFolder ? (item as MediaFolder).listDescriptionRows : null) ?? null

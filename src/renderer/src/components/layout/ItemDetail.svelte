@@ -263,7 +263,7 @@
         {:else if item.overview}
           <div class="overview-container">
             <h2 class="section-title">Overview</h2>
-              <p class="overview">{item.overview}</p>
+            <p class="overview">{item.overview}</p>
           </div>
         {/if}
       </div>

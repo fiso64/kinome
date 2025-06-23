@@ -726,26 +726,26 @@
     if (confirmed) {
       const itemToUpdate = { ...JSON.parse(JSON.stringify(item)), isHidden: true }
       await window.api.userUpdateItem(itemToUpdate)
-    // The onLibraryItemUpdated listener will handle UI updates.
-  }
-
-  async function handleDeleteItemFromDb(item: LibraryItem) {
-    const confirmed = await dialogStore.showConfirmation({
-      title: 'Confirm Database Deletion',
-      message: `Are you sure you want to permanently delete the record for "${
-        item.title ?? item.name
-      }" from the database?`,
-      detail:
-        'This only affects the library database, not the file on disk. This action cannot be undone.',
-      confirmText: 'Delete Record',
-      cancelText: 'Cancel',
-      confirmClass: 'danger'
-    })
-    if (confirmed) {
-      await window.api.deleteItemFromDb(item.id)
-      // The `onLibraryItemDeleted` listener will handle UI updates.
+      // The onLibraryItemUpdated listener will handle UI updates.
     }
-  }
+
+    async function handleDeleteItemFromDb(item: LibraryItem) {
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Database Deletion',
+        message: `Are you sure you want to permanently delete the record for "${
+          item.title ?? item.name
+        }" from the database?`,
+        detail:
+          'This only affects the library database, not the file on disk. This action cannot be undone.',
+        confirmText: 'Delete Record',
+        cancelText: 'Cancel',
+        confirmClass: 'danger'
+      })
+      if (confirmed) {
+        await window.api.deleteItemFromDb(item.id)
+        // The `onLibraryItemDeleted` listener will handle UI updates.
+      }
+    }
   }
 
   async function handleOpenLibrary(): Promise<void> {
@@ -882,10 +882,7 @@
       }}
     />
   {:else if activeModal.type === 'assignSeasons'}
-    <AssignSeasonsModal
-      item={activeModal.item}
-      onClose={() => (activeModal = null)}
-    />
+    <AssignSeasonsModal item={activeModal.item} onClose={() => (activeModal = null)} />
   {/if}
 {/if}
 

@@ -32,10 +32,10 @@
   const dispatch = createEventDispatcher<{
     scanLibrary: void
     openLibrary: void
-      itemClick: { item: LibraryItem | SearchIndexEntry }
-      dismissContinueWatching: { showId: string }
-      showContextMenu: {
-        item: LibraryItem | SearchIndexEntry
+    itemClick: { item: LibraryItem | SearchIndexEntry }
+    dismissContinueWatching: { showId: string }
+    showContextMenu: {
+      item: LibraryItem | SearchIndexEntry
       event: MouseEvent
       options?: { layout?: string }
     }
@@ -52,7 +52,7 @@
           children: [],
           ...settings.searchResultView
         } as MediaFolder)
-          : undefined
+      : undefined
   )
 
   const isRoot = $derived(!isGlobalSearchActive && currentFolder?.path === '.')
@@ -107,7 +107,7 @@
       </div>
 
       <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
-            {#if currentFolder}
+      {#if currentFolder}
         <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
           {#if isRoot}
             <HomeView

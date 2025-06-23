@@ -51,7 +51,12 @@
           </div>
         </label>
         <label class="layout-option vertical-item">
-          <input type="radio" name="season-strategy" value="alphabetic" bind:group={seasonStrategy} />
+          <input
+            type="radio"
+            name="season-strategy"
+            value="alphabetic"
+            bind:group={seasonStrategy}
+          />
           <div class="option-details">
             <div class="option-label">Alphabetic</div>
             <div class="option-description">Sorts all season folders alphabetically.</div>
