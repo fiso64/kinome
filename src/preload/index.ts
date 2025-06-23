@@ -55,6 +55,19 @@ const api = {
   clearVirtualFolderMetadata: (itemIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('clear-virtual-folder-metadata', itemIds),
   fetchCredits: (itemId: string): Promise<void> => ipcRenderer.invoke('fetch-credits', itemId),
+  assignSeasonsAndEpisodes: (
+    showId: string,
+    seasonStrategy: 'smart' | 'alphabetic',
+    episodeStrategy: 'smart' | 'alphabetic',
+    fetchMetadata: boolean
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      'assign-seasons-and-episodes',
+      showId,
+      seasonStrategy,
+      episodeStrategy,
+      fetchMetadata
+    ),
 
   // Manual Match
   manualSearch: (

@@ -61,6 +61,12 @@ declare global {
       clearItemMetadata: (itemId: string) => Promise<boolean>
       clearVirtualFolderMetadata: (itemIds: string[]) => Promise<boolean>
       fetchCredits: (itemId: string) => Promise<void>
+      assignSeasonsAndEpisodes: (
+        showId: string,
+        seasonStrategy: 'smart' | 'alphabetic',
+        episodeStrategy: 'smart' | 'alphabetic',
+        fetchMetadata: boolean
+      ) => Promise<void>
       // Manual Match
       manualSearch: (
         query: string,

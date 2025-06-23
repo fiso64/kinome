@@ -617,6 +617,151 @@ function processTvShowStructure(showFolder: MediaFolder): void {
   }
 }
 
+function assignEpisodesByStrategy(
+  files: MediaFile[],
+  seasonNumber: number,
+  strategy: 'smart' | 'alphabetic'
+) {
+  if (strategy === 'alphabetic') {
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    files.forEach((file, index) => {
+      file.seasonNumber = seasonNumber
+      file.episodeNumber = index + 1
+      file.mediaType = 'episode'
+    })
+    return
+  }
+
+  // smart strategy
+  const parsedSuccessfully = processAndAssignEpisodeNumbers(files, seasonNumber)
+  if (!parsedSuccessfully) {
+    log(
+      'TV Structure (Smart Fallback): High-confidence parsing failed, falling back to alphabetical.'
+    )
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    files.forEach((file, index) => {
+      file.seasonNumber = seasonNumber
+      file.episodeNumber = index + 1
+      file.mediaType = 'episode'
+    })
+  }
+}
+
+function assignSeasonsAndEpisodes(
+  showFolder: MediaFolder,
+  seasonStrategy: 'smart' | 'alphabetic',
+  episodeStrategy: 'smart' | 'alphabetic'
+) {
+  const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+  const subFolders = showFolder.children.filter(
+    (c) => c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
+  ) as MediaFolder[]
+
+  const assignEpisodeFunc = (files: MediaFile[], season: number) =>
+    assignEpisodesByStrategy(files, season, episodeStrategy)
+
+  if (mediaFiles.length > 0) {
+    assignEpisodeFunc(mediaFiles, 1)
+    return
+  }
+
+  if (subFolders.length > 0) {
+    if (seasonStrategy === 'smart') {
+      const seasonPattern = /\b(?:Season\s*|S)(\d{1,2})\b/i
+      const parsedFolders: { folder: MediaFolder; season: number }[] = []
+
+      for (const folder of subFolders) {
+        const seasonMatch = folder.name.match(seasonPattern)
+        if (seasonMatch) {
+          parsedFolders.push({ folder, season: parseInt(seasonMatch[1]) })
+        }
+      }
+
+      if (parsedFolders.length > 0) {
+        for (const { folder, season } of parsedFolders) {
+          folder.seasonNumber = season
+          folder.mediaType = 'season'
+          const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+          assignEpisodeFunc(episodeFiles, season)
+        }
+        return // Smart season assignment succeeded
+      }
+    }
+
+    // Fallback for smart or explicit alphabetic
+    subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    subFolders.forEach((folder, index) => {
+      const season = index + 1
+      folder.seasonNumber = season
+      folder.mediaType = 'season'
+      const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+      assignEpisodeFunc(episodeFiles, season)
+    })
+  }
+}
+
+async function clearTvStructureMetadata(
+  folder: MediaFolder,
+  imagesDir: string,
+  modifiedItems: Set<LibraryItem>
+): Promise<void> {
+  for (const child of folder.children) {
+    let wasModified = false // Reset properties for this child
+
+    if (child.posterPath) {
+      try {
+        await fs.unlink(path.join(imagesDir, child.posterPath))
+      } catch (e) {
+        /* ignore if file not found */
+      }
+      child.posterPath = undefined
+      wasModified = true
+    }
+
+    if (child.title) {
+      child.title = undefined
+      wasModified = true
+    }
+    if (child.overview) {
+      child.overview = undefined
+      wasModified = true
+    }
+    if (child.mediaType === 'season' || child.mediaType === 'episode') {
+      child.mediaType = undefined
+      wasModified = true
+    }
+    if ('seasonNumber' in child && child.seasonNumber !== undefined) {
+      child.seasonNumber = undefined
+      wasModified = true
+    }
+    if ('episodeNumber' in child && child.episodeNumber !== undefined) {
+      child.episodeNumber = undefined
+      wasModified = true
+    } // Reset cache flags to allow re-fetching
+
+    if ('tmdbDetailsFetched' in child && child.tmdbDetailsFetched) {
+      child.tmdbDetailsFetched = false
+      wasModified = true
+    }
+    if ('tmdbEpisodesFetched' in child && child.tmdbEpisodesFetched) {
+      child.tmdbEpisodesFetched = false
+      wasModified = true
+    }
+    if ('tmdbEpisodes' in child && child.tmdbEpisodes) {
+      child.tmdbEpisodes = undefined
+      wasModified = true
+    }
+
+    if (wasModified) {
+      modifiedItems.add(child)
+    }
+
+    if (child.type === 'folder') {
+      await clearTvStructureMetadata(child, imagesDir, modifiedItems)
+    }
+  }
+}
+
 // Checks if image files exist on disk. If not, it nullifies the path in the item object.
 async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
   if (item.posterPath) {
@@ -863,7 +1008,6 @@ async function fetchMetadataForLibrary(
   }
   const tmdbApiKey = settings.tmdbApiKey
 
-  // --- Phase 1: Single-Pass Collection & Local Analysis ---
   const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
   const itemsMissingPosters: LibraryItem[] = []
   const allTvShows: MediaFolder[] = []
@@ -871,60 +1015,69 @@ async function fetchMetadataForLibrary(
   // A single pass to collect everything needed for all subsequent steps.
   collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters, allTvShows)
 
-  // Now that we have the list of all TV shows, perform local analysis and cache invalidation.
-  if (allTvShows.length > 0) {
-    console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
-    for (const show of allTvShows) {
-      // 1. Re-analyze folder structure. This now correctly processes episodes inside season subfolders.
-      processTvShowStructure(show)
+  // --- Phase 1: Local Analysis ---
+  // This has been disabled. While automatic new season and episode detection is a nice thought,
+  // we shouldn't just indiscriminantely reassing all season and episode numbers to avoid losing
+  // modifications made by the user.
+  // Idea: Only perform local analysis for those tv shows where the old (pre-rescan) season subdirs
+  // and episode files have the numbers that would have been returned by our heuristic. If they are
+  // different, this indicates that some form of manual change has been made. Will probably require
+  // other changes in the code.
 
-      // 2. Invalidate show details cache if a new, higher season number is found locally.
-      if (show.tmdbSeasons && show.tmdbDetailsFetched) {
-        const localSeasons = show.children.filter((c) => c.mediaType === 'season')
-        const maxLocalSeason = Math.max(0, ...localSeasons.map((s) => s.seasonNumber ?? 0))
-        const maxCachedSeason = Math.max(0, ...show.tmdbSeasons.map((s) => s.season_number))
-        if (
-          maxLocalSeason > maxCachedSeason &&
-          maxLocalSeason > (show._lastSeenLocalMaxSeason ?? 0)
-        ) {
-          console.log(
-            `[Metadata] New season for "${show.name}" (new local max: ${maxLocalSeason}, last: ${show._lastSeenLocalMaxSeason}). Fetching updated season list.`
-          )
-          // This is a targeted update. It fetches the latest season list for the show
-          // and applies data to children, without marking the entire show's details
-          // for a full refresh. This preserves user-made changes to the show's metadata.
-          await refetchShowSeasons(show, settings, libraryDataPath)
-        }
-        // Always update the last seen max season, so we don't re-trigger for the same number.
-        show._lastSeenLocalMaxSeason = maxLocalSeason
-      }
+  //   // Now that we have the list of all TV shows, perform local analysis and cache invalidation.
+  //   if (allTvShows.length > 0) {
+  //     console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
+  //     for (const show of allTvShows) {
+  //       // 1. Re-analyze folder structure. This now correctly processes episodes inside season subfolders.
+  //       processTvShowStructure(show)
 
-      // 3. For each season, invalidate episode cache if new episodes are detected.
-      const seasonFolders = show.children.filter(
-        (c) => c.type === 'folder' && c.mediaType === 'season'
-      ) as MediaFolder[]
+  //       // 2. Invalidate show details cache if a new, higher season number is found locally.
+  //       if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+  //         const localSeasons = show.children.filter((c) => c.mediaType === 'season')
+  //         const maxLocalSeason = Math.max(0, ...localSeasons.map((s) => s.seasonNumber ?? 0))
+  //         const maxCachedSeason = Math.max(0, ...show.tmdbSeasons.map((s) => s.season_number))
+  //         if (
+  //           maxLocalSeason > maxCachedSeason &&
+  //           maxLocalSeason > (show._lastSeenLocalMaxSeason ?? 0)
+  //         ) {
+  //           console.log(
+  //             `[Metadata] New season for "${show.name}" (new local max: ${maxLocalSeason}, last: ${show._lastSeenLocalMaxSeason}). Fetching updated season list.`
+  //           )
+  //           // This is a targeted update. It fetches the latest season list for the show
+  //           // and applies data to children, without marking the entire show's details
+  //           // for a full refresh. This preserves user-made changes to the show's metadata.
+  //           await refetchShowSeasons(show, settings, libraryDataPath)
+  //         }
+  //         // Always update the last seen max season, so we don't re-trigger for the same number.
+  //         show._lastSeenLocalMaxSeason = maxLocalSeason
+  //       }
 
-      for (const season of seasonFolders) {
-        if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
-          const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
-          const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
-          const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+  //       // 3. For each season, invalidate episode cache if new episodes are detected.
+  //       const seasonFolders = show.children.filter(
+  //         (c) => c.type === 'folder' && c.mediaType === 'season'
+  //       ) as MediaFolder[]
 
-          if (
-            maxLocalEpisode > maxCachedEpisode &&
-            maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
-          ) {
-            console.log(
-              `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
-            )
-            season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
-          }
-          // Always update the last seen max episode, so we don't re-trigger for the same number.
-          season._lastSeenLocalMaxEpisode = maxLocalEpisode
-        }
-      }
-    }
-  }
+  //       for (const season of seasonFolders) {
+  //         if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+  //           const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
+  //           const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
+  //           const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+
+  //           if (
+  //             maxLocalEpisode > maxCachedEpisode &&
+  //             maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
+  //           ) {
+  //             console.log(
+  //               `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
+  //             )
+  //             season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
+  //           }
+  //           // Always update the last seen max episode, so we don't re-trigger for the same number.
+  //           season._lastSeenLocalMaxEpisode = maxLocalEpisode
+  //         }
+  //       }
+  //     }
+  //   }
 
   // --- Phase 2: Network Fetching ---
   if (newItemsToFetch.length === 0 && itemsMissingPosters.length === 0) {
@@ -1902,6 +2055,75 @@ export function setupLibraryIpc(): void {
       await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
     }
   })
+
+  ipcMain.handle(
+    'assign-seasons-and-episodes',
+    async (
+      _,
+      showId: string,
+      seasonStrategy: 'smart' | 'alphabetic',
+      episodeStrategy: 'smart' | 'alphabetic',
+      fetchMetadata: boolean
+    ) => {
+      if (!db?.root) return
+
+      const show = findItemById(showId, db.root)
+      if (!show || show.type !== 'folder') {
+        log(`[Assign Seasons] Could not find show with ID ${showId}`)
+        return
+      }
+
+      log(`[Assign Seasons] Starting assignment for "${show.name}"...`)
+      setBulkUpdateStatus(true)
+
+      try {
+        const modifiedItems = new Set<LibraryItem>()
+        modifiedItems.add(show) // 1. Clear old data from the show object itself and all children
+
+        log(`[Assign Seasons] Clearing old season/episode data...`)
+        show.tmdbSeasons = undefined
+        show.tmdbEpisodesFetched = undefined
+        const imagesDir = path.join(getLibraryDataPath(), 'images')
+        await clearTvStructureMetadata(show, imagesDir, modifiedItems) // 2. Assign new data
+
+        log(
+          `[Assign Seasons] Assigning new data with strategy: ${seasonStrategy}/${episodeStrategy}`
+        )
+        assignSeasonsAndEpisodes(show, seasonStrategy, episodeStrategy) // 3. Re-collect all modified items after assignment to ensure they are marked dirty
+
+        getAllItemsAsList(show, []).forEach((item) => modifiedItems.add(item))
+
+        const settings = await readSettings() // 4. Optionally fetch new metadata using the targeted season refetch logic
+
+        if (fetchMetadata || show.process_tv_children !== false) {
+          log(`[Assign Seasons] Triggering targeted season fetch for "${show.name}"...`) // This function now returns all modified items (the show and its children)
+
+          const fetchedItems = await refetchShowSeasons(show, settings, getLibraryDataPath())
+          for (const item of fetchedItems) {
+            modifiedItems.add(item)
+          }
+        } // 5. Re-apply virtual tags and update search index for all changed items
+
+        log(
+          `[Assign Seasons] Re-applying virtual tags and re-indexing for ${modifiedItems.size} items...`
+        )
+        for (const item of modifiedItems) {
+          item.virtualTags = evaluateVirtualTagsForItem(item, settings)
+          updateIndexForItem(item)
+        }
+
+        setBulkUpdateStatus(false) // 6. Finalize update (save DB, notify UI)
+
+        log(`[Assign Seasons] Finalizing update for ${modifiedItems.size} items...`)
+        await _finalizeItemUpdate(Array.from(modifiedItems), { updateSuggestions: true })
+
+        log(`[Assign Seasons] Assignment complete for "${show.name}".`)
+      } catch (error) {
+        console.error(`[Assign Seasons] Failed during assignment for show ${showId}:`, error)
+        setBulkUpdateStatus(false)
+      }
+    }
+  )
 
   ipcMain.handle('select-local-image', async (): Promise<string | null> => {
     const focusedWindow = BrowserWindow.getFocusedWindow()

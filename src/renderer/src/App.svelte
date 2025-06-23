@@ -7,6 +7,7 @@
   import ManualSearchModal from './components/modals/ManualSearchModal.svelte'
   import PropertiesModal from './components/modals/PropertiesModal.svelte'
   import RenameModal from './components/modals/RenameModal.svelte'
+  import AssignSeasonsModal from './components/modals/AssignSeasonsModal.svelte'
   import FilterBar from './components/ui/FilterBar.svelte'
   import InitialFolderSettingsModal from './components/modals/InitialFolderSettingsModal.svelte'
   import Dialog from './components/ui/Dialog.svelte'
@@ -39,6 +40,7 @@
     | { type: 'properties'; item: LibraryItem }
     | { type: 'rename'; item: LibraryItem }
     | { type: 'initialFolderSettings'; root: MediaFolder }
+    | { type: 'assignSeasons'; item: MediaFolder }
 
   let viewStack: MediaFolder[] = $state([])
   let lastDetailItem: LibraryItem | null = $state(null)
@@ -879,6 +881,11 @@
         activeModal = null
       }}
     />
+  {:else if activeModal.type === 'assignSeasons'}
+    <AssignSeasonsModal
+      item={activeModal.item}
+      onClose={() => (activeModal = null)}
+    />
   {/if}
 {/if}
 
@@ -991,6 +998,11 @@
     onHideItem={() => {
       if (contextMenuItem) {
         handleHideItemFromContext(contextMenuItem)
+      }
+    }}
+    onAssignSeasons={() => {
+      if (contextMenuItem?.type === 'folder') {
+        activeModal = { type: 'assignSeasons', item: contextMenuItem }
       }
     }}
     onDeleteItemFromDb={() => {

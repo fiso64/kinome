@@ -18,7 +18,8 @@
     onShowProperties,
     onClearMetadata,
     onHideItem,
-    onDeleteItemFromDb
+    onDeleteItemFromDb,
+    onAssignSeasons
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -39,6 +40,7 @@
     onClearMetadata: () => void
     onHideItem: () => void
     onDeleteItemFromDb: () => void
+    onAssignSeasons: () => void
   } = $props()
 
   const isVirtual = $derived((item as any).isVirtual === true)
@@ -152,6 +154,11 @@
 
   function handleDeleteItemFromDb() {
     onDeleteItemFromDb()
+    onClose()
+  }
+
+  function handleAssignSeasons() {
+    onAssignSeasons()
     onClose()
   }
 
@@ -316,27 +323,33 @@
           style="top: {submenuTop}px;"
           onclick={(e) => e.stopPropagation()}
         >
-      <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
-        <span class="icon">👁️</span>
-        <span>Mark as Unwatched</span>
-      </button>
-      {#if !isVirtual}
-        <div class="separator"></div>
-        <button class="context-menu-item danger" onclick={handleClearMetadata}>
-          <span class="icon">🔥</span>
-          <span>Clear Metadata...</span>
-        </button>
-        <button class="context-menu-item danger" onclick={handleHideItem}>
-          <span class="icon">🚫</span>
-          <span>Hide Item...</span>
-        </button>
-        {#if item.isMissing}
-          <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
-            <span class="icon">🗑️</span>
-            <span>Delete from Database...</span>
+          <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
+            <span class="icon">👁️</span>
+            <span>Mark as Unwatched</span>
           </button>
-        {/if}
-      {/if}
+          {#if item.mediaType === 'tv'}
+            <button class="context-menu-item" onclick={handleAssignSeasons}>
+              <span class="icon">🔢</span>
+              <span>Assign Seasons & Episodes...</span>
+            </button>
+          {/if}
+          {#if !isVirtual}
+            <div class="separator"></div>
+            <button class="context-menu-item danger" onclick={handleClearMetadata}>
+              <span class="icon">🔥</span>
+              <span>Clear Metadata...</span>
+            </button>
+            <button class="context-menu-item danger" onclick={handleHideItem}>
+              <span class="icon">🚫</span>
+              <span>Hide Item...</span>
+            </button>
+            {#if item.isMissing}
+              <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
+                <span class="icon">🗑️</span>
+                <span>Delete from Database...</span>
+              </button>
+            {/if}
+          {/if}
         </div>
       {/if}
     </div>

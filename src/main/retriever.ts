@@ -629,13 +629,14 @@ export async function refetchShowSeasons(
   show: MediaFolder,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
-): Promise<void> {
+): Promise<LibraryItem[]> {
   const tmdbApiKey = settings.tmdbApiKey
   if (!show.tmdbId || show.mediaType !== 'tv' || !tmdbApiKey) {
-    return
+    return []
   }
   const detailUrl = `https://api.themoviedb.org/3/tv/${show.tmdbId}?api_key=${tmdbApiKey}`
   console.log(`[TMDB] Refetching seasons for "${show.title ?? show.name}" from ${detailUrl}`)
+  const modifiedItems: LibraryItem[] = []
   try {
     const response = await fetch(detailUrl)
     if (!response.ok) {
@@ -644,13 +645,17 @@ export async function refetchShowSeasons(
     const details = await response.json()
     if (details.seasons) {
       show.tmdbSeasons = details.seasons
-      console.log(`[TMDB] Successfully updated seasons for "${show.title ?? show.name}". Applying data...`)
-      // After updating seasons, re-apply data to children to catch the new season.
-      await applyTvShowData(show, settings, libraryDataPath)
+      modifiedItems.push(show)
+      console.log(
+        `[TMDB] Successfully updated seasons for "${show.title ?? show.name}". Applying data...`
+      ) // After updating seasons, re-apply data to children to catch the new season.
+      const modifiedChildren = await applyTvShowData(show, settings, libraryDataPath)
+      modifiedItems.push(...modifiedChildren)
     }
   } catch (error) {
     console.error(`Error refetching seasons for "${show.name}":`, error)
   }
+  return modifiedItems
 }
 
 /**
