@@ -3,7 +3,7 @@
 import './startup'
 
 import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
-import { join, resolve as resolvePath } from 'path'
+import { join, resolve as resolvePath, relative, dirname } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange } from './library'
 import { getLibraryDataPath, setLibraryDataPath } from './paths'
@@ -106,6 +106,42 @@ app.whenReady().then(() => {
   ipcMain.handle('save-settings', async (_, settingsToSave: Partial<Settings>) => {
     const oldSettings = await readSettings()
     const { libraryLocation, ...otherSettings } = settingsToSave
+
+    // Handle media path relativity conversion
+    const newRelativity = otherSettings.mediaSourcePathIsRelative
+    const oldRelativity = oldSettings.mediaSourcePathIsRelative
+
+    if (
+      newRelativity !== undefined &&
+      newRelativity !== oldRelativity &&
+      oldSettings.mediaSourcePath
+    ) {
+      if (newRelativity === true) {
+        // from absolute to relative
+        const libPath = libraryLocation ?? oldSettings.libraryLocation
+        if (libPath) {
+          let relativePath = relative(dirname(libPath), oldSettings.mediaSourcePath)
+          relativePath = relativePath.replace(/\\/g, '/')
+
+          if (relativePath === '') {
+            otherSettings.mediaSourcePath = '.'
+          } else if (relativePath.startsWith('../')) {
+            otherSettings.mediaSourcePath = relativePath
+          } else {
+            otherSettings.mediaSourcePath = './' + relativePath
+          }
+        }
+      } else {
+        // from relative to absolute
+        const libPath = oldSettings.libraryLocation
+        if (libPath) {
+          otherSettings.mediaSourcePath = resolvePath(
+            dirname(libPath),
+            oldSettings.mediaSourcePath
+          )
+        }
+      }
+    }
 
     if (libraryLocation !== undefined && libraryLocation !== oldSettings.libraryLocation) {
       await writeGlobalSettings({ libraryLocation })

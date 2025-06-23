@@ -117,6 +117,22 @@ async function readDb(): Promise<Database | null> {
   }
 }
 
+async function getAbsoluteMediaSourcePath(): Promise<string | null> {
+  const settings = await readSettings()
+  if (!settings.mediaSourcePath) {
+    return null
+  }
+
+  if (settings.mediaSourcePathIsRelative) {
+    const libraryPath = getLibraryDataPath()
+    // If library path is empty (should not happen if mediaSourcePath is set), return relative path as is.
+    if (!libraryPath) return settings.mediaSourcePath
+    return path.resolve(path.dirname(libraryPath), settings.mediaSourcePath)
+  }
+
+  return settings.mediaSourcePath
+}
+
 async function writeDb(updatedDb: Database): Promise<void> {
   // This function now handles both new raw objects and our existing proxy.
   const libraryPath = getLibraryDataPath()
@@ -1387,7 +1403,7 @@ export function setupLibraryIpc(): void {
   ipcMain.handle('refresh-library', async () => {
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
-    const { mediaSourcePath } = await readSettings()
+    const mediaSourcePath = await getAbsoluteMediaSourcePath()
 
     if (!db || !db.root || !mediaSourcePath) {
       log('Cannot refresh, no library configured.')
@@ -1471,7 +1487,22 @@ export function setupLibraryIpc(): void {
 
     try {
       // 1. Save the new media source path to settings. This is now the source of truth.
-      await writeLibrarySettings({ mediaSourcePath })
+      const settings = await readSettings()
+      let pathToSave = mediaSourcePath
+      if (settings.mediaSourcePathIsRelative) {
+        const libraryPath = getLibraryDataPath()
+        let relativePath = path.relative(path.dirname(libraryPath), mediaSourcePath)
+        relativePath = relativePath.replace(/\\/g, '/')
+
+        if (relativePath === '') {
+          pathToSave = '.'
+        } else if (relativePath.startsWith('../')) {
+          pathToSave = relativePath
+        } else {
+          pathToSave = './' + relativePath
+        }
+      }
+      await writeLibrarySettings({ mediaSourcePath: pathToSave })
 
       // 2. Scan directory structure. This returns a tree with relative paths, which is what we want now.
       const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
@@ -1483,7 +1514,6 @@ export function setupLibraryIpc(): void {
       }
 
       // 3. Apply virtual tags before creating the proxy.
-      const settings = await readSettings()
       if (rootNode) {
         applyVirtualTagsToAllItems(rootNode, settings)
       }
@@ -1719,7 +1749,7 @@ export function setupLibraryIpc(): void {
       // We can still try to play it, so we don't return false here.
     }
 
-    const { mediaSourcePath } = await readSettings()
+    const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) {
       console.error('Cannot play file: media source path is not configured.')
       BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
@@ -2281,7 +2311,7 @@ export function setupLibraryIpc(): void {
   )
 
   ipcMain.handle('reveal-in-explorer', async (_, relativePath: string) => {
-    const { mediaSourcePath } = await readSettings()
+    const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (mediaSourcePath) {
       const absolutePath = path.join(mediaSourcePath, relativePath)
       shell.showItemInFolder(absolutePath)
@@ -2289,7 +2319,7 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
-    const { mediaSourcePath } = await readSettings()
+    const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) return false
     const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
@@ -2317,7 +2347,7 @@ export function setupLibraryIpc(): void {
   ipcMain.handle(
     'rename-item',
     async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
-      const { mediaSourcePath } = await readSettings()
+      const mediaSourcePath = await getAbsoluteMediaSourcePath()
       if (!mediaSourcePath) return false
       const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
       const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
@@ -2337,7 +2367,7 @@ export function setupLibraryIpc(): void {
   )
 
   ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
-    const { mediaSourcePath } = await readSettings()
+    const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) return null
     const absolutePath = path.join(mediaSourcePath, relativePath)
     try {

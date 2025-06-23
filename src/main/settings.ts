@@ -71,6 +71,7 @@ async function readRawSettings(): Promise<Settings> {
     virtualTags: [],
     libraryLocation: '',
     mediaSourcePath: '',
+    mediaSourcePathIsRelative: false,
     defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
     defaultLayouts: {
       _default: { layout: 'grid' },

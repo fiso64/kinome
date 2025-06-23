@@ -171,6 +171,7 @@ export interface Settings {
   virtualTags?: { name: string; expression: string }[]
   libraryLocation: string // The path to the library data directory.
   mediaSourcePath?: string
+  mediaSourcePathIsRelative?: boolean
   // Global defaults for layout-specific properties
   defaultLayoutSettings: {
     grid: GridSettings

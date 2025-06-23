@@ -28,6 +28,7 @@
   let showNextUp = $state(true)
   let libraryDataLocation = $state('') // The path to the library data directory
   let mediaSourcePath = $state('') // The path to the user's media files
+  let mediaSourcePathIsRelative = $state(false)
   let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
 
   // New structured view settings state
@@ -101,6 +102,7 @@
       showNextUp = settings.showNextUp
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
       libraryDataLocation = settings.libraryLocation
+      mediaSourcePathIsRelative = settings.mediaSourcePathIsRelative ?? false
 
       // Set new view settings
       defaultLayoutSettings = JSON.parse(JSON.stringify(settings.defaultLayoutSettings))
@@ -213,6 +215,7 @@
       showNextUp,
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
+      mediaSourcePathIsRelative,
       // New structured settings
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
@@ -323,6 +326,17 @@
         </p>
       </div>
       <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={mediaSourcePathIsRelative} />
+          <span>Store media source path relative to library data location</span>
+        </label>
+        <p class="help-text">
+          Useful for portable libraries where the media folder and library data folder have a fixed
+          relative position (e.g., on the same external drive). The path will be stored relative to
+          the parent directory of the Library Data Location.
+        </p>
+      </div>
+      <div class="form-group">
         <label>Library Data Location</label>
         <div class="path-display-container">
           <div class="path-display">
@@ -332,8 +346,7 @@
         </div>
         <p class="help-text">
           The folder where all metadata, images, and database files are stored. Changing this
-          requires an app restart to take effect (will happen automatically on save. TODO: it
-          doesn't seem to restart).
+          requires an app restart to take effect, which will happen automatically after saving.
         </p>
       </div>
     {:else if activeTab === 'view'}
