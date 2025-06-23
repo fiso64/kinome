@@ -15,7 +15,6 @@ import {
   updateIndexForItem,
   performSearch,
   debugPerformSearch,
-  removeItemFromIndex,
   removeItemAndDescendantsFromIndex
 } from './search'
 import type {
@@ -1197,12 +1196,12 @@ async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: M
     setBulkUpdateStatus(wasBulkUpdating)
   }
 
-  if (itemsToUpdate.length > 0) {
-    // We have mutated items in the DB, now we need to save and broadcast.
-    // We only update suggestions if we fetched a whole show's worth of episodes.
-    const updateSuggestions = !seasonFolder
-    await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: false })
-  }
+    if (itemsToUpdate.length > 0) {
+      // We have mutated items in the DB, now we need to save and broadcast.
+      // We only update suggestions if we fetched a whole show's worth of episodes.
+      const updateSuggestions = !seasonFolder
+      await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions })
+    }
 }
 
 export async function reapplyVirtualTagsAfterSettingsChange() {
@@ -2100,10 +2099,6 @@ export function setupLibraryIpc(): void {
           for (const child of node.children) {
             setUnwatchedRecursively(child)
           }
-        }
-      } else if (node.children) {
-        for (const child of node.children) {
-          setUnwatchedRecursively(child)
         }
       }
     }

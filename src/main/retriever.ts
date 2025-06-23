@@ -702,7 +702,7 @@ export async function fetchAndApplyEpisodeData(
       seasonFolder.tmdbEpisodes = []
     } else {
       // --- Cache Curated Episode Data ---
-      seasonFolder.tmdbEpisodes = tmdbEpisodesApi.map(
+      const tmdbEpisodes = tmdbEpisodesApi.map(
         (e: any): TmdbEpisode => ({
           episode_number: e.episode_number,
           name: e.name,
@@ -710,6 +710,7 @@ export async function fetchAndApplyEpisodeData(
           still_path: e.still_path
         })
       )
+      seasonFolder.tmdbEpisodes = tmdbEpisodes
 
       // --- Apply Cached Data to Local Files ---
       const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
@@ -717,7 +718,7 @@ export async function fetchAndApplyEpisodeData(
       for (const localEpisode of localEpisodes) {
         if (typeof localEpisode.episodeNumber === 'undefined') continue
 
-        const tmdbEpisode = seasonFolder.tmdbEpisodes.find(
+        const tmdbEpisode = tmdbEpisodes.find(
           (e) => e.episode_number === localEpisode.episodeNumber
         )
 
