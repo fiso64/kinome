@@ -113,13 +113,9 @@
             <HomeView
               {continueWatchingItems}
               parentItem={currentFolder}
-              on:itemClick={(e) => dispatch('itemClick', { item: e.detail.item })}
-              on:showContextMenu={(e) =>
-                dispatch('showContextMenu', {
-                  item: e.detail.item,
-                  event: e.detail.event,
-                  options: e.detail.options
-                })}
+              onItemClick={(item) => dispatch('itemClick', { item })}
+              onShowContextMenu={(item, event, options) =>
+                dispatch('showContextMenu', { item, event, options })}
               on:dismissContinueWatching={(e) =>
                 dispatch('dismissContinueWatching', { showId: e.detail.showId })}
               {suggestions}
