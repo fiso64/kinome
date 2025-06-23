@@ -1143,6 +1143,68 @@ async function fetchMetadataForLibrary(
   console.log('[Metadata] Autocomplete suggestions have been updated and broadcasted.')
 }
 
+// This helper will be called from get-continue-watching handlers.
+// It will do the fetch, and then call _finalizeItemUpdate to persist and notify.
+// This is an inline, awaited fetch, not fire-and-forget.
+async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: MediaFile) {
+  if (episode.title && episode.posterPath) {
+    return // Already has data
+  }
+  if (!show.tmdbId || !show.tmdbSeasons || !db) {
+    return
+  }
+
+  const seasonFolder = show.children.find(
+    (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
+  ) as MediaFolder | undefined
+
+  let itemsToUpdate: LibraryItem[] = []
+
+  const wasBulkUpdating = getBulkUpdateStatus()
+  setBulkUpdateStatus(true)
+  try {
+    const settings = await readSettings()
+    if (!settings.tmdbApiKey) return
+
+    if (seasonFolder) {
+      // Standard case: season is a subfolder
+      if (!seasonFolder.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
+        )
+        const modifiedEpisodes = await fetchAndApplyEpisodeData(
+          seasonFolder,
+          show.tmdbId,
+          settings.tmdbApiKey,
+          getLibraryDataPath(),
+          show.tmdbSeasons
+        )
+        itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
+      }
+    } else {
+      // File Mode case: episodes are loose in the show folder
+      if (!show.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is a loose file in an unfetched show. Fetching all loose episodes...`
+        )
+        const modifiedEpisodes = await applyTvShowData(show, settings, getLibraryDataPath())
+        itemsToUpdate = [show, ...modifiedEpisodes]
+      }
+    }
+  } catch (err) {
+    console.error('[Continue Watching] Failed to fetch data:', err)
+  } finally {
+    setBulkUpdateStatus(wasBulkUpdating)
+  }
+
+  if (itemsToUpdate.length > 0) {
+    // We have mutated items in the DB, now we need to save and broadcast.
+    // We only update suggestions if we fetched a whole show's worth of episodes.
+    const updateSuggestions = !seasonFolder
+    await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: false })
+  }
+}
+
 export async function reapplyVirtualTagsAfterSettingsChange() {
   if (!db || !db.root) {
     log('Cannot re-apply virtual tags: database not loaded.')
@@ -2472,6 +2534,7 @@ export function setupLibraryIpc(): void {
         }
 
         if (nextUnwatchedEpisode) {
+          await fetchEpisodeDataForContinueWatching(show, nextUnwatchedEpisode)
           continueWatchingItems.push({
             show: createShallowClonableCopy(show) as MediaFolder,
             nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
@@ -2521,6 +2584,7 @@ export function setupLibraryIpc(): void {
       }
 
       if (nextUnwatchedEpisode) {
+        await fetchEpisodeDataForContinueWatching(show as MediaFolder, nextUnwatchedEpisode)
         return {
           show: createShallowClonableCopy(show) as MediaFolder,
           nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
