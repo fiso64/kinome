@@ -254,11 +254,21 @@ export interface MediaFolder extends StoredViewSettings {
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   tmdbSeasons?: any[] | null // For the TV show root, caches the seasons array from TMDB
+  tmdbEpisodes?: TmdbEpisode[] | null // For a season folder, caches episode data from TMDB
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
   continueWatchingDismissed?: boolean
+  _lastSeenLocalMaxSeason?: number
+  _lastSeenLocalMaxEpisode?: number
 }
 
 export type LibraryItem = MediaFile | MediaFolder
+
+export interface TmdbEpisode {
+  episode_number: number
+  name: string
+  overview: string | null
+  still_path: string | null
+}
 
 export interface Database {
   version: number
@@ -349,9 +359,12 @@ export const RESETTABLE_METADATA_KEYS = [
   'tmdbDetailsFetched',
   'tmdbEpisodesFetched',
   'tmdbSeasons',
+  'tmdbEpisodes',
   'virtualTags', // Derived from metadata, so must be reset
   'tmdbCredits',
-  'tmdbCreditsFetched'
+  'tmdbCreditsFetched',
+  '_lastSeenLocalMaxSeason',
+  '_lastSeenLocalMaxEpisode'
 ] as const
 
 /**

@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem, MediaFile, MediaFolder, Person } from '../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../shared/types'
 
 const genreCache = new Map<number, string>()
 
@@ -504,6 +504,7 @@ export async function fetchItemDetails(
     }
 
     // Update other metadata fields
+    item.title = details.title || details.name
     if (details.overview) {
       item.overview = details.overview
     }
@@ -624,6 +625,34 @@ export async function applyTvShowData(
   return allModifiedEpisodes
 }
 
+export async function refetchShowSeasons(
+  show: MediaFolder,
+  settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
+  libraryDataPath: string
+): Promise<void> {
+  const tmdbApiKey = settings.tmdbApiKey
+  if (!show.tmdbId || show.mediaType !== 'tv' || !tmdbApiKey) {
+    return
+  }
+  const detailUrl = `https://api.themoviedb.org/3/tv/${show.tmdbId}?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Refetching seasons for "${show.title ?? show.name}" from ${detailUrl}`)
+  try {
+    const response = await fetch(detailUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB detail fetch failed: ${response.statusText}`)
+    }
+    const details = await response.json()
+    if (details.seasons) {
+      show.tmdbSeasons = details.seasons
+      console.log(`[TMDB] Successfully updated seasons for "${show.title ?? show.name}". Applying data...`)
+      // After updating seasons, re-apply data to children to catch the new season.
+      await applyTvShowData(show, settings, libraryDataPath)
+    }
+  } catch (error) {
+    console.error(`Error refetching seasons for "${show.name}":`, error)
+  }
+}
+
 /**
  * Fetches episode data for a specific season from TMDB and applies it to the
  * local file items within that season folder.
@@ -639,14 +668,9 @@ export async function fetchAndApplyEpisodeData(
   libraryDataPath: string,
   tmdbSeasons: any[]
 ): Promise<MediaFile[]> {
-  // If the folder passed doesn't have a season number, it's the TV show root
-  // in "File Mode", and we are fetching details for season 1. For actual season
-  // folders, `seasonFolder.seasonNumber` will be defined from the earlier
-  // local file analysis step.
   const seasonNumber = seasonFolder.seasonNumber ?? 1
   const modifiedEpisodes: MediaFile[] = []
 
-  // Check if the season number actually exists for the show on TMDB.
   const seasonExists = tmdbSeasons.some((s) => s.season_number === seasonNumber)
   if (!seasonExists) {
     console.log(`[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist on TMDB.`)
@@ -666,17 +690,29 @@ export async function fetchAndApplyEpisodeData(
       throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
     }
     const seasonDetails = await response.json()
-    const tmdbEpisodes = seasonDetails.episodes
+    const tmdbEpisodesApi = seasonDetails.episodes
 
-    if (!tmdbEpisodes || tmdbEpisodes.length === 0) {
-      console.log(`[TMDB] No episode data found for season ${seasonNumber}.`)
+    if (!tmdbEpisodesApi || tmdbEpisodesApi.length === 0) {
+      console.log(`[TMDB] No episode data found for season ${seasonNumber}. Caching empty array.`)
+      seasonFolder.tmdbEpisodes = []
     } else {
+      // --- Cache Curated Episode Data ---
+      seasonFolder.tmdbEpisodes = tmdbEpisodesApi.map(
+        (e: any): TmdbEpisode => ({
+          episode_number: e.episode_number,
+          name: e.name,
+          overview: e.overview,
+          still_path: e.still_path
+        })
+      )
+
+      // --- Apply Cached Data to Local Files ---
       const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
 
       for (const localEpisode of localEpisodes) {
         if (typeof localEpisode.episodeNumber === 'undefined') continue
 
-        const tmdbEpisode = tmdbEpisodes.find(
+        const tmdbEpisode = seasonFolder.tmdbEpisodes.find(
           (e) => e.episode_number === localEpisode.episodeNumber
         )
 
@@ -684,7 +720,8 @@ export async function fetchAndApplyEpisodeData(
           localEpisode.title = tmdbEpisode.name
           localEpisode.overview = tmdbEpisode.overview
           localEpisode.mediaType = 'episode'
-          if (tmdbEpisode.still_path) {
+          // Only download if poster is missing.
+          if (!localEpisode.posterPath && tmdbEpisode.still_path) {
             const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
             const imagesDir = getImagesPath(libraryDataPath)
             const posterFileName = `${localEpisode.id}.jpg`
@@ -692,27 +729,23 @@ export async function fetchAndApplyEpisodeData(
             try {
               await downloadImage(posterUrl, posterDestPath)
               localEpisode.posterPath = posterFileName
-              // Bust the cache for the new image. This is the critical fix.
               localEpisode._v = Date.now()
             } catch {
-              // ignore download error
+              /* ignore download error */
             }
           }
+        } else {
+          // If no matching TMDB episode, clear any old metadata.
+          localEpisode.title = undefined
+          localEpisode.overview = undefined
+          localEpisode.posterPath = undefined
         }
-        // The episode has been processed (it has an episode number), so it's "modified"
-        // and should be part of the update batch sent to the renderer.
         modifiedEpisodes.push(localEpisode)
       }
     }
   } catch (error) {
     console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   } finally {
-    // Mark this season as processed to prevent future redundant API calls.
-    // This flag is set to true even if TMDB returned no episodes, or if no local files
-    // could be matched. This signifies that an API request was successfully completed for
-    // this season, and the app shouldn't get stuck in a re-fetching loop.
-    // The details are also marked as fetched since the season detail API includes the
-    // season's own metadata (name, overview, etc.).
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
   }

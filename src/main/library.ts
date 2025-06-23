@@ -33,6 +33,7 @@ import {
   fetchItemDetails,
   fetchAndApplyCredits,
   applyTvShowData,
+  refetchShowSeasons,
   fetchAndApplyEpisodeData,
   refetchPoster,
   manualSearch,
@@ -576,6 +577,18 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       for (const { folder, season } of parsedFolders) {
         folder.seasonNumber = season
         folder.mediaType = 'season'
+
+        // Recurse: process episodes within this season folder.
+        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
+        if (!parsedSuccessfully) {
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, index) => {
+            file.seasonNumber = season
+            file.episodeNumber = index + 1
+            file.mediaType = 'episode'
+          })
+        }
       }
     } else {
       log(
@@ -584,9 +597,21 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       // Heuristic 3: "Alphabetical Subfolders" Rule (Final Fallback)
       subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       subFolders.forEach((folder, index) => {
-        // Assign season number starting from 1
-        folder.seasonNumber = index + 1
+        const season = index + 1
+        folder.seasonNumber = season
         folder.mediaType = 'season'
+
+        // Recurse: process episodes within this season folder.
+        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
+        if (!parsedSuccessfully) {
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, epIndex) => {
+            file.seasonNumber = season
+            file.episodeNumber = epIndex + 1
+            file.mediaType = 'episode'
+          })
+        }
       })
     }
   }
@@ -698,16 +723,25 @@ async function processInChunks<T>(
   }
 }
 
-// Recursively collects all items that need metadata or posters, based on folder flags.
+// Recursively collects items for processing.
 function collectItemsToProcess(
   folder: MediaFolder,
   newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
-  itemsMissingPosters: LibraryItem[]
+  itemsMissingPosters: LibraryItem[],
+  tvShows: MediaFolder[]
 ) {
+  if (folder.isHidden || folder.isMissing) {
+    return
+  }
+
+  // Collect the TV show itself for local analysis, regardless of flags.
+  if (folder.mediaType === 'tv') {
+    tvShows.push(folder)
+  }
+
   // Process children of the current folder if the flag is set.
   if (folder.retrieve_children_metadata) {
     for (const child of folder.children) {
-      // **THE FIX**: Do not process items that are marked as hidden or missing.
       if (child.isHidden || child.isMissing) {
         continue
       }
@@ -719,10 +753,10 @@ function collectItemsToProcess(
     }
   }
 
-  // Always recurse into subfolders to check their flags, but skip hidden folders.
+  // Recurse into subfolders to check their flags.
   for (const child of folder.children) {
-    if (child.type === 'folder' && !child.isHidden) {
-      collectItemsToProcess(child, newItems, itemsMissingPosters)
+    if (child.type === 'folder') {
+      collectItemsToProcess(child, newItems, itemsMissingPosters, tvShows)
     }
   }
 }
@@ -817,17 +851,82 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   }
 }
 
-async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
+async function fetchMetadataForLibrary(
+  db: Database,
+  window: BrowserWindow,
+  settings: Settings | null
+) {
   const libraryDataPath = getLibraryDataPath()
-  if (!tmdbApiKey || !db.root) {
-    console.warn('Metadata fetch skipped: No API key or library root.')
+  if (!settings || !settings.tmdbApiKey || !db.root) {
+    console.warn('Metadata fetch skipped: No settings, API key or library root.')
     return
   }
+  const tmdbApiKey = settings.tmdbApiKey
 
+  // --- Phase 1: Single-Pass Collection & Local Analysis ---
   const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
   const itemsMissingPosters: LibraryItem[] = []
-  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters)
+  const allTvShows: MediaFolder[] = []
 
+  // A single pass to collect everything needed for all subsequent steps.
+  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters, allTvShows)
+
+  // Now that we have the list of all TV shows, perform local analysis and cache invalidation.
+  if (allTvShows.length > 0) {
+    console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
+    for (const show of allTvShows) {
+      // 1. Re-analyze folder structure. This now correctly processes episodes inside season subfolders.
+      processTvShowStructure(show)
+
+      // 2. Invalidate show details cache if a new, higher season number is found locally.
+      if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+        const localSeasons = show.children.filter((c) => c.mediaType === 'season')
+        const maxLocalSeason = Math.max(0, ...localSeasons.map((s) => s.seasonNumber ?? 0))
+        const maxCachedSeason = Math.max(0, ...show.tmdbSeasons.map((s) => s.season_number))
+        if (
+          maxLocalSeason > maxCachedSeason &&
+          maxLocalSeason > (show._lastSeenLocalMaxSeason ?? 0)
+        ) {
+          console.log(
+            `[Metadata] New season for "${show.name}" (new local max: ${maxLocalSeason}, last: ${show._lastSeenLocalMaxSeason}). Fetching updated season list.`
+          )
+          // This is a targeted update. It fetches the latest season list for the show
+          // and applies data to children, without marking the entire show's details
+          // for a full refresh. This preserves user-made changes to the show's metadata.
+          await refetchShowSeasons(show, settings, libraryDataPath)
+        }
+        // Always update the last seen max season, so we don't re-trigger for the same number.
+        show._lastSeenLocalMaxSeason = maxLocalSeason
+      }
+
+      // 3. For each season, invalidate episode cache if new episodes are detected.
+      const seasonFolders = show.children.filter(
+        (c) => c.type === 'folder' && c.mediaType === 'season'
+      ) as MediaFolder[]
+
+      for (const season of seasonFolders) {
+        if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+          const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
+          const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
+          const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+
+          if (
+            maxLocalEpisode > maxCachedEpisode &&
+            maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
+          ) {
+            console.log(
+              `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
+            )
+            season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
+          }
+          // Always update the last seen max episode, so we don't re-trigger for the same number.
+          season._lastSeenLocalMaxEpisode = maxLocalEpisode
+        }
+      }
+    }
+  }
+
+  // --- Phase 2: Network Fetching ---
   if (newItemsToFetch.length === 0 && itemsMissingPosters.length === 0) {
     console.log('[Metadata] No new items or missing posters to fetch based on folder settings.')
     return
@@ -855,6 +954,9 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
     }): Promise<void> => {
       const { item, hint } = itemWithHint
       await searchTmdbAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
+      if (item.type === 'folder' && item.mediaType === 'tv') {
+        processTvShowStructure(item as MediaFolder)
+      }
       if (item.posterPath || item.tmdbId === null) {
         updatedItemsBatch.push(item)
       }
@@ -1117,7 +1219,7 @@ export function setupLibraryIpc(): void {
       log(`[Refresh ${refreshId}] Library refresh and sync complete.`)
 
       const settings = await readSettings()
-      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
+      fetchMetadataForLibrary(db, focusedWindow, settings).catch((err) =>
         console.error('Background metadata fetch failed during refresh:', err)
       )
       const t7 = performance.now()
@@ -1216,56 +1318,7 @@ export function setupLibraryIpc(): void {
       return null
     }
 
-    // --- TV Show Structure Processing ---
-    // If it's a TV show root that hasn't had its episodes fetched yet, process its structure to assign season/episode numbers locally first.
-    if (
-      item.type === 'folder' &&
-      item.mediaType === 'tv' &&
-      (item as MediaFolder).process_tv_children !== false &&
-      !(item as MediaFolder).tmdbEpisodesFetched
-    ) {
-      setBulkUpdateStatus(true)
-      processTvShowStructure(item as MediaFolder)
-      setBulkUpdateStatus(false)
-    }
-
-    // If it's a season folder that needs details, process its children to assign episode numbers locally.
-    const isSeasonNeedingDetails =
-      item.type === 'folder' &&
-      item.mediaType === 'season' &&
-      !(item as MediaFolder).tmdbEpisodesFetched
-    if (isSeasonNeedingDetails) {
-      const showFolder = findParent(item.id, db!.root!)
-      // Only process if the parent TV show allows it.
-      if (showFolder?.process_tv_children !== false) {
-        setBulkUpdateStatus(true)
-        const episodeFiles = (item as MediaFolder).children.filter(
-          (c) => c.type === 'file'
-        ) as MediaFile[]
-
-        // Use the new advanced parser, passing the parent folder's season number.
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(
-          episodeFiles,
-          (item as MediaFolder).seasonNumber
-        )
-
-        if (!parsedSuccessfully) {
-          log(
-            `TV Structure: High-confidence parsing failed for season folder "${item.name}", falling back to alphabetical sort.`
-          )
-          // Alphabetical Fallback
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, index) => {
-            file.episodeNumber = index + 1
-            // Use the parent folder's season number.
-            file.seasonNumber = (item as MediaFolder).seasonNumber
-            file.mediaType = 'episode'
-          })
-        }
-        setBulkUpdateStatus(false)
-      }
-    }
-    // --- End TV Show Structure Processing ---
+    // --- Local TV structure analysis is now handled by the main library refresh ---
 
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
@@ -1504,7 +1557,7 @@ export function setupLibraryIpc(): void {
 
         // Now trigger the metadata fetch
         const appSettings = await readSettings()
-        fetchMetadataForLibrary(db, focusedWindow, appSettings.tmdbApiKey).catch((err) =>
+        fetchMetadataForLibrary(db, focusedWindow, appSettings).catch((err) =>
           console.error('Background metadata fetch failed after applying initial settings:', err)
         )
       } catch (error) {
@@ -1789,16 +1842,6 @@ export function setupLibraryIpc(): void {
           }
 
           await fetchItemDetails(item, settings, libraryDataPath)
-          const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
-          try {
-            const response = await fetch(detailUrl)
-            if (response.ok) {
-              const details = await response.json()
-              item.title = details.title || details.name
-            }
-          } catch (e) {
-            console.error('Could not re-verify title from TMDB details endpoint', e)
-          }
         }
       } finally {
         setBulkUpdateStatus(false) // --- End Bulk Update ---
