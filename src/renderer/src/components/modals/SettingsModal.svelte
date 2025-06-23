@@ -6,7 +6,7 @@
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
-  const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
+  const placeholderText = 'e.g., mpv "{PATH}" or "C:\\VLC\\vlc.exe" "{PATH}"'
 
   let { settings }: { settings: Settings | null } = $props()
 

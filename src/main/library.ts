@@ -1834,7 +1834,7 @@ export function setupLibraryIpc(): void {
     }
 
     const absolutePath = path.join(mediaSourcePath, file.path)
-    const command = playerCommand.replace('{PATH}', `"${absolutePath}"`)
+    const command = playerCommand.replace('{PATH}', `${absolutePath}`)
 
     console.log(`Executing: ${command}`)
     exec(command, (error) => {

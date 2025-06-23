@@ -61,7 +61,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
  */
 async function readRawSettings(): Promise<Settings> {
   const defaultSettings: Settings = {
-    playerCommand: 'mpv {PATH}',
+    playerCommand: 'mpv "{PATH}"',
     tmdbApiKey: '',
     useLogos: true,
     creditsDisplay: 'tab',
