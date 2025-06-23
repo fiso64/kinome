@@ -2,8 +2,8 @@ console.log(`[${new Date().toISOString()}] [Preload] Preload script execution st
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { Settings } from '../main/settings'
 import type {
+  Settings,
   MediaFile,
   MediaFolder,
   LibraryItem,
@@ -27,7 +27,8 @@ const api = {
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-details', itemId),
-  updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
+  userUpdateItem: (item: LibraryItem): Promise<void> =>
+    ipcRenderer.invoke('user-update-item', item),
   getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
     ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
@@ -38,13 +39,35 @@ const api = {
     ipcRenderer.invoke('get-hidden-children', parentId),
   getParent: (itemId: string): Promise<MediaFolder | null> =>
     ipcRenderer.invoke('get-parent', itemId),
+  getContinueWatchingItems: (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> =>
+    ipcRenderer.invoke('get-continue-watching-items'),
+  getContinueWatchingForShow: (
+    showId: string
+  ): Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null> =>
+    ipcRenderer.invoke('get-continue-watching-for-show', showId),
+  setContinueWatchingDismissed: (showId: string): Promise<void> =>
+    ipcRenderer.invoke('set-continue-watching-dismissed', showId),
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
-  clearChildrenMetadata: (folderId: string): Promise<boolean> =>
-    ipcRenderer.invoke('clear-children-metadata', folderId),
+  clearItemMetadata: (itemId: string): Promise<boolean> =>
+    ipcRenderer.invoke('clear-item-metadata', itemId),
   clearVirtualFolderMetadata: (itemIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('clear-virtual-folder-metadata', itemIds),
+  fetchCredits: (itemId: string): Promise<void> => ipcRenderer.invoke('fetch-credits', itemId),
+  assignSeasonsAndEpisodes: (
+    showId: string,
+    seasonStrategy: 'smart' | 'alphabetic',
+    episodeStrategy: 'smart' | 'alphabetic',
+    fetchMetadata: boolean
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      'assign-seasons-and-episodes',
+      showId,
+      seasonStrategy,
+      episodeStrategy,
+      fetchMetadata
+    ),
 
   // Manual Match
   manualSearch: (
@@ -60,23 +83,29 @@ const api = {
   ): Promise<{ posters: any[]; backdrops: any[]; logos: any[] }> =>
     ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
   applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
-    ipcRenderer.invoke('apply-tmdb-result', itemId, result, mediaType),
+    ipcRenderer.invoke('user-apply-tmdb-result', itemId, result, mediaType),
+  markAsUnwatched: (itemId: string): Promise<void> =>
+    ipcRenderer.invoke('mark-as-unwatched', itemId),
   selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
   setImage: (
     itemId: string,
     imageType: 'poster' | 'backdrop' | 'logo',
     source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
-  ): Promise<void> => ipcRenderer.invoke('set-image', itemId, imageType, source),
+  ): Promise<void> => ipcRenderer.invoke('user-set-image', itemId, imageType, source),
   removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void> =>
     ipcRenderer.invoke('remove-image', itemId, imageType),
 
   // Filesystem
   revealInExplorer: (path: string): void => ipcRenderer.send('reveal-in-explorer', path),
   trashItem: (path: string): Promise<boolean> => ipcRenderer.invoke('trash-item', path),
+  deleteItemFromDb: (itemId: string): Promise<boolean> =>
+    ipcRenderer.invoke('delete-item-from-db', itemId),
   renameItem: (oldPath: string, newName: string): Promise<boolean> =>
     ipcRenderer.invoke('rename-item', oldPath, newName),
   getItemProperties: (path: string): Promise<any | null> =>
     ipcRenderer.invoke('get-item-properties', path),
+  selectLibraryDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke('select-library-directory'),
 
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('get-settings'),
@@ -102,6 +131,13 @@ const api = {
     ipcRenderer.on('library-item-updated', listener)
     return () => {
       ipcRenderer.removeListener('library-item-updated', listener)
+    }
+  },
+  onLibraryItemDeleted: (callback: (itemId: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, itemId: string): void => callback(itemId)
+    ipcRenderer.on('library-item-deleted', listener)
+    return () => {
+      ipcRenderer.removeListener('library-item-deleted', listener)
     }
   },
   onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void): (() => void) => {

@@ -33,6 +33,17 @@ function itemMatchesTags(item: DisplayableItem, tags: { key: string; value: stri
       case 'year':
         tagMatch = item.year?.toString() === tag.value
         break
+      case 'person':
+        if ('persons' in item && item.persons) {
+          // This is a SearchIndexEntry
+          tagMatch = item.persons.some((p) => p.toLowerCase() === tagValue)
+        } else if ('tmdbCredits' in item && item.tmdbCredits) {
+          // This is a LibraryItem
+          const castMatch = item.tmdbCredits.cast?.some((p) => p.name.toLowerCase() === tagValue)
+          const crewMatch = item.tmdbCredits.crew?.some((p) => p.name.toLowerCase() === tagValue)
+          tagMatch = !!(castMatch || crewMatch)
+        }
+        break
       default:
         // Check virtual tags first
         if (item.virtualTags && Object.prototype.hasOwnProperty.call(item.virtualTags, tag.key)) {

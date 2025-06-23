@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, BrowserWindow, shell } from 'electron'
+import { dialog, ipcMain, BrowserWindow, shell } from 'electron'
 import { exec } from 'child_process'
 
 const log = (message: string): void => {
@@ -6,6 +6,7 @@ const log = (message: string): void => {
 }
 import path from 'path'
 import fs, { readdir, stat } from 'fs/promises'
+import { type Dirent } from 'fs'
 import crypto from 'crypto'
 import { evaluateVirtualTagsForItem } from './virtualTags'
 import {
@@ -13,29 +14,34 @@ import {
   buildFullSearchIndex,
   updateIndexForItem,
   performSearch,
-  debugPerformSearch
+  debugPerformSearch,
+  removeItemAndDescendantsFromIndex
 } from './search'
 import type {
   Database,
   MediaFolder,
   LibraryItem,
   MediaFile,
-  AutocompleteSuggestions
+  AutocompleteSuggestions,
+  Settings
 } from '../shared/types'
+import { RESETTABLE_METADATA_KEYS } from '../shared/types'
 import {
   cacheGenreLists,
-  fetchAndApplyMetadata,
+  searchTmdbAndApplyMetadata,
   fetchItemDetails,
+  fetchAndApplyCredits,
   applyTvShowData,
+  refetchShowSeasons,
   fetchAndApplyEpisodeData,
   refetchPoster,
   manualSearch,
   getTmdbImages,
   downloadImage
 } from './retriever'
-import { readSettings, type Settings } from './settings'
+import { readSettings, writeLibrarySettings } from './settings'
+import { getLibraryDataPath } from './paths'
 
-const LIBRARY_DATA_DIR_NAME = 'library'
 const DATABASE_FILE_NAME = 'database.json'
 const DB_VERSION = 1
 
@@ -89,10 +95,6 @@ async function loadDbIntoMemory(): Promise<void> {
 }
 // --- End In-Memory Database Cache ---
 
-export function getLibraryDataPath(): string {
-  return path.join(app.getPath('userData'), LIBRARY_DATA_DIR_NAME)
-}
-
 function getDbPath(): string {
   return path.join(getLibraryDataPath(), DATABASE_FILE_NAME)
 }
@@ -126,7 +128,8 @@ async function writeDb(updatedDb: Database): Promise<void> {
     return value
   }
 
-  // Persist the data. JSON.stringify reads through proxies just fine.
+  // Persist the data. Paths are already relative, so no conversion needed.
+  // JSON.stringify reads through proxies just fine.
   await fs.writeFile(dbPath, JSON.stringify(updatedDb, replacer, 2))
 
   // If we were given a new object (not our current proxy), we must wrap it
@@ -137,6 +140,51 @@ async function writeDb(updatedDb: Database): Promise<void> {
     buildFullSearchIndex(db.root)
   }
   // If `db === updatedDb`, then `db` is already the correct proxy and no-op is needed.
+}
+
+/**
+ * A centralized helper to finalize an item update. It saves the database,
+ * broadcasts the changes to all renderer windows, and can optionally
+ * update global autocomplete suggestions.
+ * @param items The item or array of items that were updated.
+ * @param options.updateSuggestions If true, regenerates and broadcasts autocomplete suggestions.
+ */
+async function _finalizeItemUpdate(
+  items: LibraryItem | LibraryItem[],
+  options: { updateSuggestions?: boolean } = {}
+): Promise<void> {
+  // 1. Persist all changes to the database
+  if (!db) return
+  await writeDb(db)
+
+  const itemsArray = Array.isArray(items) ? items : [items]
+
+  // 2. Broadcast each updated item to all renderer windows.
+  // We send them individually to leverage the more detailed update logic
+  // in the renderer's `onLibraryItemUpdated` handler.
+  for (const item of itemsArray) {
+    // Create a shallow copy, excluding children, for efficient IPC.
+    // The renderer is responsible for merging this into its existing state.
+    const { children, ...rest } = item as MediaFolder
+    // We deep-clone the rest of the properties to remove proxies,
+    // but the large `children` array is excluded.
+    const itemWithoutChildren = JSON.parse(JSON.stringify(rest))
+
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('library-item-updated', itemWithoutChildren)
+    })
+  }
+
+  // 3. Conditionally update and broadcast global data like suggestions.
+  if (options.updateSuggestions) {
+    const newSuggestions = await getAutocompleteSuggestions()
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+    })
+  }
+  log(
+    `[Library] Finalized update for ${itemsArray.length} item(s). Suggestions updated: ${!!options.updateSuggestions}`
+  )
 }
 
 function generateId(relativePath: string): string {
@@ -231,21 +279,8 @@ async function getDirectoryContentStats(dirPath: string): Promise<{
   return { totalSize, fileCount, folderCount }
 }
 
-function getAllItemsAsMap(
-  node: MediaFolder,
-  map: Map<string, LibraryItem> = new Map()
-): Map<string, LibraryItem> {
-  map.set(node.id, node)
-  for (const child of node.children) {
-    if (child.type === 'folder') {
-      getAllItemsAsMap(child, map)
-    }
-    map.set(child.id, child)
-  }
-  return map
-}
-
 function findParent(id: string, node: MediaFolder): MediaFolder | null {
+  if (!node || !node.children) return null
   for (const child of node.children) {
     if (child.id === id) {
       return node
@@ -256,6 +291,145 @@ function findParent(id: string, node: MediaFolder): MediaFolder | null {
     }
   }
   return null
+}
+
+async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
+  const nodeAbsolutePath = path.join(mediaSourcePath, node.path)
+  let diskChildEntries: Dirent[]
+
+  try {
+    await fs.access(nodeAbsolutePath)
+    diskChildEntries = await fs.readdir(nodeAbsolutePath, { withFileTypes: true })
+
+    // If an .ignore file exists, handle it based on user edits.
+    if (diskChildEntries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
+      log(`Ignoring directory due to .ignore file: ${nodeAbsolutePath}`)
+
+      if (node.isUserEdited) {
+        // If user-edited, hide it but preserve it in the DB.
+        const hideRecursively = (item: LibraryItem) => {
+          item.isHidden = true
+          item.isMissing = undefined // Ensure it's not marked as missing
+          if (item.type === 'folder') {
+            item.children.forEach(hideRecursively)
+          }
+        }
+        hideRecursively(node)
+      } else {
+        // If not user-edited, treat it as missing so it gets pruned.
+        node.isMissing = true
+        const markAllChildrenMissing = (folder: MediaFolder) => {
+          if (!folder.children) return
+          folder.children.forEach((child) => {
+            child.isMissing = true
+            if (child.type === 'folder') markAllChildrenMissing(child)
+          })
+        }
+        markAllChildrenMissing(node)
+      }
+      return // Stop processing this branch
+    }
+
+    // No .ignore file, proceed with normal sync.
+    // Un-hide the node and its children if they were previously hidden by an .ignore file.
+    if (node.isHidden) {
+      const unhideRecursively = (item: LibraryItem) => {
+        item.isHidden = undefined
+        if (item.type === 'folder') {
+          item.children.forEach(unhideRecursively)
+        }
+      }
+      unhideRecursively(node)
+    }
+    node.isMissing = undefined
+  } catch (e) {
+    // Folder is genuinely missing from disk.
+    node.isMissing = true
+    const markAllChildrenMissing = (folder: MediaFolder) => {
+      if (!folder.children) return
+      folder.children.forEach((child) => {
+        child.isMissing = true
+        if (child.type === 'folder') markAllChildrenMissing(child)
+      })
+    }
+    markAllChildrenMissing(node)
+    return
+  }
+
+  const dbChildrenMap = new Map(node.children.map((child) => [child.name, child]))
+  const diskChildrenNames = new Set(diskChildEntries.map((e) => e.name))
+
+  // Add new items from disk to the DB node.
+  for (const entry of diskChildEntries) {
+    if (!dbChildrenMap.has(entry.name)) {
+      const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
+      if (entry.isDirectory() || isVideoFile) {
+        const childRelativePath = path.join(node.path, entry.name).replace(/\\/g, '/')
+        const newChild: LibraryItem = {
+          id: generateId(childRelativePath),
+          name: entry.name,
+          path: childRelativePath,
+          type: entry.isDirectory() ? 'folder' : 'file',
+          ...(entry.isDirectory() && { children: [] })
+        } as any
+        node.children.push(newChild)
+      }
+    }
+  }
+
+  // Sync all children (old and new).
+  for (const child of node.children) {
+    if (diskChildrenNames.has(child.name)) {
+      child.isMissing = undefined
+      if (child.type === 'folder') {
+        await syncWithDisk(child, mediaSourcePath)
+      }
+    } else {
+      child.isMissing = true
+      if (child.type === 'folder') {
+        const markDescendantsMissing = (folder: MediaFolder) => {
+          if (!folder.children) return
+          folder.children.forEach((c) => {
+            c.isMissing = true
+            if (c.type === 'folder') markDescendantsMissing(c)
+          })
+        }
+        markDescendantsMissing(child)
+      }
+    }
+  }
+}
+
+/**
+ * Recursively removes items from the tree that are marked as `isMissing`
+ * but have NOT been marked as `isUserEdited`.
+ * @param node The folder to start pruning from.
+ */
+function pruneUntouchedMissingItems(node: MediaFolder) {
+  if (!node.children) return
+
+  // If the parent folder itself is missing, we do not prune its children.
+  // This preserves the record of what it contained for the user to see.
+  if (node.isMissing) {
+    for (const child of node.children) {
+      if (child.type === 'folder') {
+        pruneUntouchedMissingItems(child)
+      }
+    }
+    return
+  }
+
+  // The parent folder exists, so we can safely prune its missing children if they are not user-edited.
+  node.children = node.children.filter((child) => {
+    return !(child.isMissing && !child.isUserEdited)
+  })
+
+  // Recurse for the remaining children that are folders.
+  for (const child of node.children) {
+    if (child.type === 'folder') {
+      pruneUntouchedMissingItems(child)
+    }
+  }
 }
 
 /**
@@ -402,6 +576,18 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       for (const { folder, season } of parsedFolders) {
         folder.seasonNumber = season
         folder.mediaType = 'season'
+
+        // Recurse: process episodes within this season folder.
+        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
+        if (!parsedSuccessfully) {
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, index) => {
+            file.seasonNumber = season
+            file.episodeNumber = index + 1
+            file.mediaType = 'episode'
+          })
+        }
       }
     } else {
       log(
@@ -410,10 +596,167 @@ function processTvShowStructure(showFolder: MediaFolder): void {
       // Heuristic 3: "Alphabetical Subfolders" Rule (Final Fallback)
       subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
       subFolders.forEach((folder, index) => {
-        // Assign season number starting from 1
-        folder.seasonNumber = index + 1
+        const season = index + 1
+        folder.seasonNumber = season
         folder.mediaType = 'season'
+
+        // Recurse: process episodes within this season folder.
+        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
+        if (!parsedSuccessfully) {
+          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+          episodeFiles.forEach((file, epIndex) => {
+            file.seasonNumber = season
+            file.episodeNumber = epIndex + 1
+            file.mediaType = 'episode'
+          })
+        }
       })
+    }
+  }
+}
+
+function assignEpisodesByStrategy(
+  files: MediaFile[],
+  seasonNumber: number,
+  strategy: 'smart' | 'alphabetic'
+) {
+  if (strategy === 'alphabetic') {
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    files.forEach((file, index) => {
+      file.seasonNumber = seasonNumber
+      file.episodeNumber = index + 1
+      file.mediaType = 'episode'
+    })
+    return
+  }
+
+  // smart strategy
+  const parsedSuccessfully = processAndAssignEpisodeNumbers(files, seasonNumber)
+  if (!parsedSuccessfully) {
+    log(
+      'TV Structure (Smart Fallback): High-confidence parsing failed, falling back to alphabetical.'
+    )
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    files.forEach((file, index) => {
+      file.seasonNumber = seasonNumber
+      file.episodeNumber = index + 1
+      file.mediaType = 'episode'
+    })
+  }
+}
+
+function assignSeasonsAndEpisodes(
+  showFolder: MediaFolder,
+  seasonStrategy: 'smart' | 'alphabetic',
+  episodeStrategy: 'smart' | 'alphabetic'
+) {
+  const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+  const subFolders = showFolder.children.filter(
+    (c) => c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
+  ) as MediaFolder[]
+
+  const assignEpisodeFunc = (files: MediaFile[], season: number) =>
+    assignEpisodesByStrategy(files, season, episodeStrategy)
+
+  if (mediaFiles.length > 0) {
+    assignEpisodeFunc(mediaFiles, 1)
+    return
+  }
+
+  if (subFolders.length > 0) {
+    if (seasonStrategy === 'smart') {
+      const seasonPattern = /\b(?:Season\s*|S)(\d{1,2})\b/i
+      const parsedFolders: { folder: MediaFolder; season: number }[] = []
+
+      for (const folder of subFolders) {
+        const seasonMatch = folder.name.match(seasonPattern)
+        if (seasonMatch) {
+          parsedFolders.push({ folder, season: parseInt(seasonMatch[1]) })
+        }
+      }
+
+      if (parsedFolders.length > 0) {
+        for (const { folder, season } of parsedFolders) {
+          folder.seasonNumber = season
+          folder.mediaType = 'season'
+          const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+          assignEpisodeFunc(episodeFiles, season)
+        }
+        return // Smart season assignment succeeded
+      }
+    }
+
+    // Fallback for smart or explicit alphabetic
+    subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    subFolders.forEach((folder, index) => {
+      const season = index + 1
+      folder.seasonNumber = season
+      folder.mediaType = 'season'
+      const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
+      assignEpisodeFunc(episodeFiles, season)
+    })
+  }
+}
+
+async function clearTvStructureMetadata(
+  folder: MediaFolder,
+  imagesDir: string,
+  modifiedItems: Set<LibraryItem>
+): Promise<void> {
+  for (const child of folder.children) {
+    let wasModified = false // Reset properties for this child
+
+    if (child.posterPath) {
+      try {
+        await fs.unlink(path.join(imagesDir, child.posterPath))
+      } catch (e) {
+        /* ignore if file not found */
+      }
+      child.posterPath = undefined
+      wasModified = true
+    }
+
+    if (child.title) {
+      child.title = undefined
+      wasModified = true
+    }
+    if (child.overview) {
+      child.overview = undefined
+      wasModified = true
+    }
+    if (child.mediaType === 'season' || child.mediaType === 'episode') {
+      child.mediaType = undefined
+      wasModified = true
+    }
+    if ('seasonNumber' in child && child.seasonNumber !== undefined) {
+      child.seasonNumber = undefined
+      wasModified = true
+    }
+    if ('episodeNumber' in child && child.episodeNumber !== undefined) {
+      child.episodeNumber = undefined
+      wasModified = true
+    } // Reset cache flags to allow re-fetching
+
+    if ('tmdbDetailsFetched' in child && child.tmdbDetailsFetched) {
+      child.tmdbDetailsFetched = false
+      wasModified = true
+    }
+    if ('tmdbEpisodesFetched' in child && child.tmdbEpisodesFetched) {
+      child.tmdbEpisodesFetched = false
+      wasModified = true
+    }
+    if ('tmdbEpisodes' in child && child.tmdbEpisodes) {
+      child.tmdbEpisodes = undefined
+      wasModified = true
+    }
+
+    if (wasModified) {
+      modifiedItems.add(child)
+    }
+
+    if (child.type === 'folder') {
+      await clearTvStructureMetadata(child, imagesDir, modifiedItems)
     }
   }
 }
@@ -451,9 +794,16 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
   const children: LibraryItem[] = []
 
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
+
+  // Check if an .ignore file exists in the directory.
+  if (entries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
+    log(`Ignoring directory due to .ignore file: ${dirPath}`)
+    return null
+  }
+
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name)
-    const entryRelativePath = path.relative(rootPath, entryPath)
+    const entryRelativePath = path.relative(rootPath, entryPath).replace(/\\/g, '/')
 
     if (entry.isDirectory()) {
       const subFolder = await scanDirectory(entryPath, rootPath)
@@ -466,7 +816,7 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
         children.push({
           id: generateId(entryRelativePath),
           name: entry.name,
-          path: entryPath,
+          path: entryRelativePath,
           type: 'file'
         })
       }
@@ -478,11 +828,11 @@ async function scanDirectory(dirPath: string, rootPath: string): Promise<MediaFo
     return null
   }
 
-  const relativePath = path.relative(rootPath, dirPath)
+  const relativePath = path.relative(rootPath, dirPath).replace(/\\/g, '/')
   const folder: MediaFolder = {
     id: generateId(relativePath || '.'), // Use dot for root itself
     name: name || path.basename(rootPath), // Use root basename if name is empty
-    path: dirPath,
+    path: relativePath || '.', // Store relative path, using '.' for the root itself
     type: 'folder',
     children
   }
@@ -517,17 +867,26 @@ async function processInChunks<T>(
   }
 }
 
-// Recursively collects all items that need metadata or posters, based on folder flags.
+// Recursively collects items for processing.
 function collectItemsToProcess(
   folder: MediaFolder,
   newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
-  itemsMissingPosters: LibraryItem[]
+  itemsMissingPosters: LibraryItem[],
+  tvShows: MediaFolder[]
 ) {
+  if (folder.isHidden || folder.isMissing) {
+    return
+  }
+
+  // Collect the TV show itself for local analysis, regardless of flags.
+  if (folder.mediaType === 'tv') {
+    tvShows.push(folder)
+  }
+
   // Process children of the current folder if the flag is set.
   if (folder.retrieve_children_metadata) {
     for (const child of folder.children) {
-      // **THE FIX**: Do not process items that are marked as hidden.
-      if (child.isHidden) {
+      if (child.isHidden || child.isMissing) {
         continue
       }
       if (typeof child.tmdbId === 'undefined') {
@@ -538,22 +897,30 @@ function collectItemsToProcess(
     }
   }
 
-  // Always recurse into subfolders to check their flags, but skip hidden folders.
+  // Recurse into subfolders to check their flags.
   for (const child of folder.children) {
-    if (child.type === 'folder' && !child.isHidden) {
-      collectItemsToProcess(child, newItems, itemsMissingPosters)
+    if (child.type === 'folder') {
+      collectItemsToProcess(child, newItems, itemsMissingPosters, tvShows)
     }
   }
 }
 
 async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   if (!db || !db.root) {
-    return { mediaTypes: [], genres: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
+    return {
+      mediaTypes: [],
+      genres: [],
+      persons: [],
+      tagKeys: [],
+      virtualTagKeys: [],
+      tagValues: {}
+    }
   }
 
   const allItems = getAllItemsAsList(db.root)
   const mediaTypes = new Set<string>()
   const genres = new Set<string>()
+  const persons = new Set<string>()
   const tagKeys = new Set<string>()
   const virtualTagKeys = new Set<string>()
   const tagValues: Record<string, Set<string>> = {}
@@ -566,6 +933,12 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
     // Collect genres
     if (item.genres) {
       item.genres.forEach((genre) => genres.add(genre.trim()))
+    }
+
+    // Collect persons from credits
+    if (item.tmdbCredits) {
+      ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
+      ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
     }
 
     // Collect custom tags
@@ -615,23 +988,97 @@ async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
   return {
     mediaTypes: Array.from(mediaTypes).sort(),
     genres: Array.from(genres).sort(),
+    persons: Array.from(persons).sort(),
     tagKeys: Array.from(tagKeys).sort(),
     virtualTagKeys: Array.from(virtualTagKeys).sort(),
     tagValues: tagValuesAsArrays
   }
 }
 
-async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdbApiKey?: string) {
+async function fetchMetadataForLibrary(
+  db: Database,
+  window: BrowserWindow,
+  settings: Settings | null
+) {
   const libraryDataPath = getLibraryDataPath()
-  if (!tmdbApiKey || !db.root) {
-    console.warn('Metadata fetch skipped: No API key or library root.')
+  if (!settings || !settings.tmdbApiKey || !db.root) {
+    console.warn('Metadata fetch skipped: No settings, API key or library root.')
     return
   }
+  const tmdbApiKey = settings.tmdbApiKey
 
   const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
   const itemsMissingPosters: LibraryItem[] = []
-  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters)
+  const allTvShows: MediaFolder[] = []
 
+  // A single pass to collect everything needed for all subsequent steps.
+  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters, allTvShows)
+
+  // --- Phase 1: Local Analysis ---
+  // This has been disabled. While automatic new season and episode detection is a nice thought,
+  // we shouldn't just indiscriminantely reassing all season and episode numbers to avoid losing
+  // modifications made by the user.
+  // Idea: Only perform local analysis for those tv shows where the old (pre-rescan) season subdirs
+  // and episode files have the numbers that would have been returned by our heuristic. If they are
+  // different, this indicates that some form of manual change has been made. Will probably require
+  // other changes in the code.
+
+  //   // Now that we have the list of all TV shows, perform local analysis and cache invalidation.
+  //   if (allTvShows.length > 0) {
+  //     console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
+  //     for (const show of allTvShows) {
+  //       // 1. Re-analyze folder structure. This now correctly processes episodes inside season subfolders.
+  //       processTvShowStructure(show)
+
+  //       // 2. Invalidate show details cache if a new, higher season number is found locally.
+  //       if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+  //         const localSeasons = show.children.filter((c) => c.mediaType === 'season')
+  //         const maxLocalSeason = Math.max(0, ...localSeasons.map((s) => s.seasonNumber ?? 0))
+  //         const maxCachedSeason = Math.max(0, ...show.tmdbSeasons.map((s) => s.season_number))
+  //         if (
+  //           maxLocalSeason > maxCachedSeason &&
+  //           maxLocalSeason > (show._lastSeenLocalMaxSeason ?? 0)
+  //         ) {
+  //           console.log(
+  //             `[Metadata] New season for "${show.name}" (new local max: ${maxLocalSeason}, last: ${show._lastSeenLocalMaxSeason}). Fetching updated season list.`
+  //           )
+  //           // This is a targeted update. It fetches the latest season list for the show
+  //           // and applies data to children, without marking the entire show's details
+  //           // for a full refresh. This preserves user-made changes to the show's metadata.
+  //           await refetchShowSeasons(show, settings, libraryDataPath)
+  //         }
+  //         // Always update the last seen max season, so we don't re-trigger for the same number.
+  //         show._lastSeenLocalMaxSeason = maxLocalSeason
+  //       }
+
+  //       // 3. For each season, invalidate episode cache if new episodes are detected.
+  //       const seasonFolders = show.children.filter(
+  //         (c) => c.type === 'folder' && c.mediaType === 'season'
+  //       ) as MediaFolder[]
+
+  //       for (const season of seasonFolders) {
+  //         if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+  //           const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
+  //           const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
+  //           const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+
+  //           if (
+  //             maxLocalEpisode > maxCachedEpisode &&
+  //             maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
+  //           ) {
+  //             console.log(
+  //               `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
+  //             )
+  //             season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
+  //           }
+  //           // Always update the last seen max episode, so we don't re-trigger for the same number.
+  //           season._lastSeenLocalMaxEpisode = maxLocalEpisode
+  //         }
+  //       }
+  //     }
+  //   }
+
+  // --- Phase 2: Network Fetching ---
   if (newItemsToFetch.length === 0 && itemsMissingPosters.length === 0) {
     console.log('[Metadata] No new items or missing posters to fetch based on folder settings.')
     return
@@ -658,7 +1105,10 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
       hint?: 'movie' | 'tv'
     }): Promise<void> => {
       const { item, hint } = itemWithHint
-      await fetchAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
+      await searchTmdbAndApplyMetadata(item, tmdbApiKey, libraryDataPath, hint)
+      if (item.type === 'folder' && item.mediaType === 'tv') {
+        processTvShowStructure(item as MediaFolder)
+      }
       if (item.posterPath || item.tmdbId === null) {
         updatedItemsBatch.push(item)
       }
@@ -683,6 +1133,75 @@ async function fetchMetadataForLibrary(db: Database, window: BrowserWindow, tmdb
 
   await writeDb(db)
   console.log('[Metadata] Finished all fetching and saved final DB.')
+
+  // After all items are processed, regenerate suggestions which now include new people/genres.
+  const newSuggestions = await getAutocompleteSuggestions()
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
+  })
+  console.log('[Metadata] Autocomplete suggestions have been updated and broadcasted.')
+}
+
+// This helper will be called from get-continue-watching handlers.
+// It will do the fetch, and then call _finalizeItemUpdate to persist and notify.
+// This is an inline, awaited fetch, not fire-and-forget.
+async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: MediaFile) {
+  if (episode.title && episode.posterPath) {
+    return // Already has data
+  }
+  if (!show.tmdbId || !show.tmdbSeasons || !db) {
+    return
+  }
+
+  const seasonFolder = show.children.find(
+    (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
+  ) as MediaFolder | undefined
+
+  let itemsToUpdate: LibraryItem[] = []
+
+  const wasBulkUpdating = getBulkUpdateStatus()
+  setBulkUpdateStatus(true)
+  try {
+    const settings = await readSettings()
+    if (!settings.tmdbApiKey) return
+
+    if (seasonFolder) {
+      // Standard case: season is a subfolder
+      if (!seasonFolder.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
+        )
+        const modifiedEpisodes = await fetchAndApplyEpisodeData(
+          seasonFolder,
+          show.tmdbId,
+          settings.tmdbApiKey,
+          getLibraryDataPath(),
+          show.tmdbSeasons
+        )
+        itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
+      }
+    } else {
+      // File Mode case: episodes are loose in the show folder
+      if (!show.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is a loose file in an unfetched show. Fetching all loose episodes...`
+        )
+        const modifiedEpisodes = await applyTvShowData(show, settings, getLibraryDataPath())
+        itemsToUpdate = [show, ...modifiedEpisodes]
+      }
+    }
+  } catch (err) {
+    console.error('[Continue Watching] Failed to fetch data:', err)
+  } finally {
+    setBulkUpdateStatus(wasBulkUpdating)
+  }
+
+    if (itemsToUpdate.length > 0) {
+      // We have mutated items in the DB, now we need to save and broadcast.
+      // We only update suggestions if we fetched a whole show's worth of episodes.
+      const updateSuggestions = !seasonFolder
+      await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions })
+    }
 }
 
 export async function reapplyVirtualTagsAfterSettingsChange() {
@@ -725,7 +1244,7 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
 }
 
 async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
-  // Delete associated image files
+  // Delete associated image files first, as their paths are part of the metadata being reset.
   if (item.posterPath) {
     try {
       await fs.unlink(path.join(imagesDir, item.posterPath))
@@ -748,34 +1267,47 @@ async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
     }
   }
 
-  // Reset all metadata fields to undefined.
-  // This will cause them to be re-evaluated or re-fetched later.
-  item.title = undefined
-  item.overview = undefined
-  item.posterPath = undefined
-  item.backdropPath = undefined
-  item.logoPath = undefined
-  item.tmdbId = undefined
-  item.mediaType = undefined
-  item.year = undefined
-  item.genres = undefined
-  item.tags = undefined
-  item.tmdbDetailsFetched = undefined
-  item.virtualTags = undefined // Will be re-evaluated
-  item.isHidden = undefined
-  item._v = Date.now() // Bust UI cache
-
-  if (item.type === 'file') {
-    item.opensAsFolder = undefined
-    item.seasonNumber = undefined
-    item.episodeNumber = undefined
-    // We preserve 'watched' status as it's user-generated state, not fetched metadata.
-  } else {
-    // MediaFolder
-    item.seasonNumber = undefined
-    item.tmdbSeasons = undefined
-    item.tmdbEpisodesFetched = undefined
+  // Loop through the centrally-defined list of resettable keys and set them to a value
+  // that will be propagated over IPC (i.e. not `undefined`).
+  // We cast `item` to `any` here to allow dynamic key assignment.
+  for (const key of RESETTABLE_METADATA_KEYS) {
+    // Only attempt to delete the key if it exists on the item. This prevents
+    // us from adding properties to an object that shouldn't have them (e.g. `episodeNumber` on a folder).
+    if (key in item) {
+      const itemAsAny = item as any
+      switch (key) {
+        case 'tags':
+          itemAsAny[key] = {}
+          break
+        case 'genres':
+          itemAsAny[key] = []
+          break
+        case 'tmdbDetailsFetched':
+        case 'tmdbEpisodesFetched':
+        case 'tmdbCreditsFetched':
+          itemAsAny[key] = false
+          break
+        case 'virtualTags':
+          // This one is special, it gets re-evaluated later anyway.
+          itemAsAny[key] = undefined
+          break
+        case 'posterPath':
+        case 'backdropPath':
+        case 'logoPath':
+          // Set to undefined to trigger re-fetch, null means "user explicitly removed".
+          // We already unlinked the files, so a re-fetch is desired.
+          itemAsAny[key] = undefined
+          break
+        default:
+          // All other properties (title, overview, year, tmdbId, tmdbCredits, tmdbSeasons etc.) can be safely set to null.
+          itemAsAny[key] = null
+          break
+      }
+    }
   }
+
+  // Bust the UI cache to reflect the changes.
+  item._v = Date.now()
 }
 
 async function clearChildrenRecursively(
@@ -788,6 +1320,28 @@ async function clearChildrenRecursively(
     modifiedItems.push(child)
     if (child.type === 'folder') {
       await clearChildrenRecursively(child, imagesDir, modifiedItems)
+    }
+  }
+}
+
+/**
+ * A helper to mark an item and its ancestors as user-edited.
+ * This protects them from being pruned if they go missing from the filesystem.
+ * Only "valuable" user edit channels should call this channel.
+ * Some user actions like play-file (which sets watched state) are user actions that result in the
+ * db getting modified, but are on their own not sufficiently "valuable" to prevent pruning.
+ * Any "valuable" user edit calling this should have a channel name prefixed with user-, like user-update-item
+ * and user-set-image.
+ */
+function markAsUserEdited(itemId: string, dbRoot: MediaFolder | null) {
+  if (!dbRoot) return
+  const item = findItemById(itemId, dbRoot)
+  if (item) {
+    item.isUserEdited = true
+    let parent = findParent(item.id, dbRoot)
+    while (parent) {
+      parent.isUserEdited = true
+      parent = findParent(parent.id, dbRoot)
     }
   }
 }
@@ -806,15 +1360,10 @@ async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
     updateIndexForItem(item)
   }
 
-  await writeDb(db!)
   log(`Finished metadata clear for ${modifiedItems.length} items.`)
-
-  // Broadcast the batch update to all windows. This allows the UI to update
-  // reactively without a full library reload.
-  const plainItems = JSON.parse(JSON.stringify(modifiedItems))
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send('library-items-updated', plainItems)
-  })
+  // Use the centralized helper to save, notify, and update suggestions.
+  // Clearing metadata definitely warrants an update to suggestions.
+  await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
 }
 
 export function setupLibraryIpc(): void {
@@ -831,97 +1380,74 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('get-library-media-source-path', async () => {
-    return db?.mediaSourcePath ?? null
+    const settings = await readSettings()
+    return settings.mediaSourcePath ?? null
   })
 
   ipcMain.handle('refresh-library', async () => {
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
+    const { mediaSourcePath } = await readSettings()
 
-    if (!db || !db.mediaSourcePath) {
-      console.log('Cannot refresh, no library configured.')
+    if (!db || !db.root || !mediaSourcePath) {
+      log('Cannot refresh, no library configured.')
       return null
     }
 
-    console.log(`Refreshing library from: ${db.mediaSourcePath}`)
+    const refreshId = crypto.randomBytes(4).toString('hex')
+    log(`[Refresh ${refreshId}] Starting refresh from: ${mediaSourcePath}`)
+    const t0 = performance.now()
+
     try {
       setBulkUpdateStatus(true)
+
+      // Start the recursive sync process. This modifies the existing `db.root` in place.
+      await syncWithDisk(db.root, mediaSourcePath)
+      const t1 = performance.now()
+      log(`[Refresh ${refreshId}] syncWithDisk took ${(t1 - t0).toFixed(2)}ms`)
+
+      // After syncing, prune items that are missing and have not been manually edited.
+      pruneUntouchedMissingItems(db.root)
+      const t2 = performance.now()
+      log(`[Refresh ${refreshId}] pruneUntouchedMissingItems took ${(t2 - t1).toFixed(2)}ms`)
+
       const imagesDir = path.join(getLibraryDataPath(), 'images')
-      const newRoot = await scanDirectory(db.mediaSourcePath, db.mediaSourcePath)
-      const oldItemsMap = db.root ? getAllItemsAsMap(db.root) : new Map()
+      await verifyImagePaths(db.root, imagesDir)
+      const t3 = performance.now()
+      log(`[Refresh ${refreshId}] verifyImagePaths took ${(t3 - t2).toFixed(2)}ms`)
 
-      // This function merges old metadata and verifies image paths for all items.
-      async function processItem(item: LibraryItem | null) {
-        if (!item) return // Handle null items from scanner
-        const oldItem = oldItemsMap.get(item.id)
-        if (oldItem) {
-          const oldFolderProps =
-            oldItem.type === 'folder'
-              ? {
-                  layout: oldItem.layout,
-                  childrenClickAction: oldItem.childrenClickAction,
-                  retrieve_children_metadata: oldItem.retrieve_children_metadata,
-                  children_type_hint: oldItem.children_type_hint,
-                  groupBy: oldItem.groupBy,
-                  virtualFolderSettings: oldItem.virtualFolderSettings,
-                  process_tv_children: (oldItem as MediaFolder).process_tv_children
-                }
-              : {}
-
-          Object.assign(item, {
-            title: oldItem.title,
-            overview: oldItem.overview,
-            posterPath: oldItem.posterPath,
-            backdropPath: oldItem.backdropPath,
-            logoPath: oldItem.logoPath,
-            tmdbId: oldItem.tmdbId,
-            mediaType: oldItem.mediaType,
-            year: oldItem.year,
-            genres: oldItem.genres,
-            tags: oldItem.tags,
-            tmdbDetailsFetched:
-              oldItem.type === 'file' ? oldItem.tmdbDetailsFetched : oldItem.tmdbDetailsFetched,
-            _v: oldItem._v,
-            ...oldFolderProps,
-            watched: oldItem.type === 'file' && item.type === 'file' ? oldItem.watched : undefined,
-            isHidden: oldItem.isHidden
-          })
-        }
-
-        await verifyImagePaths(item, imagesDir)
-
-        if (item.type === 'folder') {
-          await Promise.all(item.children.map(processItem))
-        }
-      }
-
-      await processItem(newRoot)
-
-      // Directly set the new root on our proxied DB. The proxy will detect this change.
-      db.root = newRoot
-
-      // Apply virtual tags. These changes will also be detected by the proxy.
       const currentSettings = await readSettings()
-      if (db.root) {
-        applyVirtualTagsToAllItems(db.root, currentSettings)
-      }
+      applyVirtualTagsToAllItems(db.root, currentSettings)
+      const t4 = performance.now()
+      log(`[Refresh ${refreshId}] applyVirtualTagsToAllItems took ${(t4 - t3).toFixed(2)}ms`)
 
-      // Rebuild the search index now that all data is merged and updated.
       buildFullSearchIndex(db.root)
-      setBulkUpdateStatus(false)
+      const t5 = performance.now()
+      log(`[Refresh ${refreshId}] buildFullSearchIndex took ${(t5 - t4).toFixed(2)}ms`)
+
+      setBulkUpdateStatus(false) // Re-enable single-item updates from here
 
       await writeDb(db)
-      console.log('Library refresh and search index rebuild complete. Database updated.')
+      const t6 = performance.now()
+      log(`[Refresh ${refreshId}] writeDb took ${(t6 - t5).toFixed(2)}ms`)
+      log(`[Refresh ${refreshId}] Library refresh and sync complete.`)
 
       const settings = await readSettings()
-      fetchMetadataForLibrary(db, focusedWindow, settings.tmdbApiKey).catch((err) =>
+      fetchMetadataForLibrary(db, focusedWindow, settings).catch((err) =>
         console.error('Background metadata fetch failed during refresh:', err)
+      )
+      const t7 = performance.now()
+      log(`[Refresh ${refreshId}] Total time before returning: ${(t7 - t0).toFixed(2)}ms`)
+
+      const memoryUsage = process.memoryUsage()
+      log(
+        `[Refresh ${refreshId}] Memory: RSS=${(memoryUsage.rss / 1024 / 1024).toFixed(2)}MB, HeapTotal=${(memoryUsage.heapTotal / 1024 / 1024).toFixed(2)}MB, HeapUsed=${(memoryUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`
       )
 
       return db.root ? createShallowClonableCopy(db.root) : null
     } catch (error) {
       console.error('Failed to refresh library:', error)
-      // On error, we can send a deep copy of the old root as a fallback.
+      setBulkUpdateStatus(false) // Ensure bulk status is reset on error
       return db?.root ? JSON.parse(JSON.stringify(db.root)) : null
     }
   })
@@ -944,31 +1470,34 @@ export function setupLibraryIpc(): void {
     console.log(`Starting scan of: ${mediaSourcePath}`)
 
     try {
-      // 1. Scan directory structure first.
+      // 1. Save the new media source path to settings. This is now the source of truth.
+      await writeLibrarySettings({ mediaSourcePath })
+
+      // 2. Scan directory structure. This returns a tree with relative paths, which is what we want now.
       const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
 
       setBulkUpdateStatus(true)
       const newDb: Database = {
         version: DB_VERSION,
-        mediaSourcePath,
         root: rootNode
       }
 
-      // 2. Apply virtual tags before creating the proxy.
+      // 3. Apply virtual tags before creating the proxy.
       const settings = await readSettings()
       if (rootNode) {
         applyVirtualTagsToAllItems(rootNode, settings)
       }
       setBulkUpdateStatus(false) // Turn off before metadata fetch starts.
 
-      // 3. This will create the proxy, update the global `db`, and build the search index.
+      // 4. This will create the proxy, update the global `db` (with absolute paths),
+      // build the search index, and write to disk (with relative paths).
       await writeDb(newDb)
       console.log('Initial scan, DB write, and index build complete.')
 
-      // 4. Do NOT start background metadata fetching. The renderer will prompt the user
+      // 5. Do NOT start background metadata fetching. The renderer will prompt the user
       // and trigger it via a separate IPC call.
 
-      // 5. Return a DEEP, de-proxied copy of the root for the initial settings modal.
+      // 6. Return a DEEP, de-proxied copy of the root for the initial settings modal.
       // This ensures the tree view in the modal has the full folder structure.
       if (db!.root) {
         const deepCopy = JSON.parse(JSON.stringify(db!.root))
@@ -1003,62 +1532,15 @@ export function setupLibraryIpc(): void {
       return null
     }
 
-    // --- TV Show Structure Processing ---
-    // If it's a TV show root that hasn't had its episodes fetched yet, process its structure to assign season/episode numbers locally first.
-    if (
-      item.type === 'folder' &&
-      item.mediaType === 'tv' &&
-      (item as MediaFolder).process_tv_children !== false &&
-      !(item as MediaFolder).tmdbEpisodesFetched
-    ) {
-      setBulkUpdateStatus(true)
-      processTvShowStructure(item as MediaFolder)
-      setBulkUpdateStatus(false)
-    }
-
-    // If it's a season folder that needs details, process its children to assign episode numbers locally.
-    const isSeasonNeedingDetails =
-      item.type === 'folder' &&
-      item.mediaType === 'season' &&
-      !(item as MediaFolder).tmdbEpisodesFetched
-    if (isSeasonNeedingDetails) {
-      const showFolder = findParent(item.id, db!.root!)
-      // Only process if the parent TV show allows it.
-      if (showFolder?.process_tv_children !== false) {
-        setBulkUpdateStatus(true)
-        const episodeFiles = (item as MediaFolder).children.filter(
-          (c) => c.type === 'file'
-        ) as MediaFile[]
-
-        // Use the new advanced parser, passing the parent folder's season number.
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(
-          episodeFiles,
-          (item as MediaFolder).seasonNumber
-        )
-
-        if (!parsedSuccessfully) {
-          log(
-            `TV Structure: High-confidence parsing failed for season folder "${item.name}", falling back to alphabetical sort.`
-          )
-          // Alphabetical Fallback
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, index) => {
-            file.episodeNumber = index + 1
-            // Use the parent folder's season number.
-            file.seasonNumber = (item as MediaFolder).seasonNumber
-            file.mediaType = 'episode'
-          })
-        }
-        setBulkUpdateStatus(false)
-      }
-    }
-    // --- End TV Show Structure Processing ---
+    // --- Local TV structure analysis is now handled by the main library refresh ---
 
     // Verify local image paths. This is a fast, local operation.
     await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
 
-    // --- Fire-and-Forget Background Fetch ---
-    // Determine if any fetching is needed.
+    // --- Fire-and-Forget Background Fetches ---
+
+    // -- Fetch #1: Core Details (Backdrop, Logo, Genres, Episodes etc.) ---
+    // This is the highest priority fetch.
     const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
     const needsEpisodeFetch =
       item.type === 'folder' &&
@@ -1068,42 +1550,60 @@ export function setupLibraryIpc(): void {
     if (needsDetailsFetch || needsEpisodeFetch) {
       ;(async () => {
         setBulkUpdateStatus(true)
+        const allModifiedItems: LibraryItem[] = []
         try {
           const settings = await readSettings()
           if (!settings.tmdbApiKey) return
 
           // --- Case 1: The item's own details are missing. Fetch them. ---
-          // The `fetchItemDetails` function will subsequently call `applyTvShowData` if needed.
           if (needsDetailsFetch) {
             log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
-            await fetchItemDetails(item, settings, getLibraryDataPath())
+            const modified = await fetchItemDetails(item, settings, getLibraryDataPath())
+            allModifiedItems.push(...modified)
           }
           // --- Case 2: The item's details are present, but its children's are not. ---
           else if (needsEpisodeFetch && item.type === 'folder') {
             if (item.mediaType === 'season') {
               const showFolder = findParent(item.id, db!.root!)
               if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-                log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-                await fetchAndApplyEpisodeData(
-                  item,
-                  showFolder.tmdbId,
-                  settings.tmdbApiKey,
-                  getLibraryDataPath()
-                )
+                if (!showFolder.tmdbDetailsFetched) {
+                  log(
+                    `[Details] Parent show "${showFolder.name}" details missing, fetching them first.`
+                  )
+                  const modifiedParent = await fetchItemDetails(
+                    showFolder,
+                    settings,
+                    getLibraryDataPath()
+                  )
+                  allModifiedItems.push(...modifiedParent)
+                }
+
+                if (showFolder.tmdbSeasons) {
+                  log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+                  const modifiedEpisodes = await fetchAndApplyEpisodeData(
+                    item,
+                    showFolder.tmdbId,
+                    settings.tmdbApiKey,
+                    getLibraryDataPath(),
+                    showFolder.tmdbSeasons
+                  )
+                  allModifiedItems.push(item, ...modifiedEpisodes)
+                } else {
+                  item.tmdbEpisodesFetched = true
+                  log(
+                    `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
+                  )
+                }
               } else {
-                // This is the key fix: if we can't fetch episodes because the parent show isn't
-                // ready, we must still mark this season as 'processed' to prevent an infinite
-                // loop of the renderer re-requesting details.
                 item.tmdbEpisodesFetched = true
                 log(
                   `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
                 )
               }
             } else if (item.mediaType === 'tv') {
-              log(
-                `[Details] TV show episode data missing. Processing children for "${item.name}"`
-              )
-              await applyTvShowData(item, settings, getLibraryDataPath())
+              log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
+              const modifiedChildren = await applyTvShowData(item, settings, getLibraryDataPath())
+              allModifiedItems.push(item, ...modifiedChildren)
             }
           }
 
@@ -1114,16 +1614,16 @@ export function setupLibraryIpc(): void {
         } finally {
           setBulkUpdateStatus(false) // Ensure bulk mode is always turned off.
 
-          // Manually trigger a single, incremental re-index now that the fetch is complete.
-          updateIndexForItem(item)
+          const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
+          const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
 
-          await writeDb(db!) // Save the updated database
+          for (const modifiedItem of itemsToUpdate) {
+            updateIndexForItem(modifiedItem)
+          }
 
-          // Notify all renderer windows that the item has been updated.
-          const plainItem = JSON.parse(JSON.stringify(item))
-          BrowserWindow.getAllWindows().forEach((window) => {
-            window.webContents.send('library-item-updated', plainItem)
-          })
+          // Use the centralized helper. Fetching details can update genres, so update suggestions.
+          await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: true })
+
           log(`[Details] Background processing complete for "${item.name}"`)
         }
       })()
@@ -1139,6 +1639,48 @@ export function setupLibraryIpc(): void {
       return deepCopy
     }
     return null
+  })
+
+  ipcMain.handle('fetch-credits', async (_, itemId: string): Promise<void> => {
+    if (!db || !db.root) return
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`[Credits] Cannot fetch, item ${itemId} not found.`)
+      return
+    }
+
+    const needsCreditsFetch =
+      !item.tmdbCreditsFetched &&
+      item.tmdbId &&
+      (item.mediaType === 'movie' || item.mediaType === 'tv')
+
+    if (!needsCreditsFetch) {
+      log(`[Credits] Fetch not needed for "${item.name}".`)
+      return
+    }
+
+    try {
+      const settings = await readSettings()
+      // This check is slightly redundant as the renderer should not call this
+      // if the setting is 'hidden', but it's a good safeguard.
+      if (!settings.tmdbApiKey || settings.creditsDisplay === 'hidden') {
+        if (settings.creditsDisplay === 'hidden') {
+          item.tmdbCreditsFetched = true
+          await writeDb(db)
+        }
+        return
+      }
+
+      await fetchAndApplyCredits(item, settings.tmdbApiKey)
+      item._v = Date.now()
+
+      // Use the centralized helper to save, notify, and update suggestions.
+      await _finalizeItemUpdate(item, { updateSuggestions: true })
+
+      log(`[Credits] Fetch complete for "${item.name}"`)
+    } catch (err) {
+      console.error(`[Credits] Background fetch for item ${itemId} failed:`, err)
+    }
   })
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
@@ -1157,15 +1699,42 @@ export function setupLibraryIpc(): void {
     const itemInDb = findItemById(file.id, db.root)
     if (itemInDb && itemInDb.type === 'file') {
       itemInDb.watched = true
-      await writeDb(db) // Persist the change
+      ;(itemInDb as MediaFile).lastWatched = Date.now()
+      // if playing an episode, un-dismiss the show
+      let parent = findParent(itemInDb.id, db.root)
+      let show: MediaFolder | null = null
+      while (parent) {
+        if (parent.mediaType === 'tv') {
+          show = parent
+          break
+        }
+        parent = findParent(parent.id, db.root)
+      }
+      if (show?.continueWatchingDismissed) {
+        show.continueWatchingDismissed = false
+      }
+      await _finalizeItemUpdate(itemInDb)
     } else {
       console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
       // We can still try to play it, so we don't return false here.
     }
 
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) {
+      console.error('Cannot play file: media source path is not configured.')
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Configuration Error',
+        message: 'Media source path is not configured. Please check your library settings.'
+      })
+      return false
+    }
+
+    // Construct absolute path
+    const absolutePath = path.join(mediaSourcePath, file.path)
+
     // Launch the external player
     // The path is always quoted to handle spaces correctly.
-    const command = playerCommand.replace('{PATH}', `"${file.path}"`)
+    const command = playerCommand.replace('{PATH}', `"${absolutePath}"`)
 
     console.log(`Executing: ${command}`)
     exec(command, (error) => {
@@ -1203,7 +1772,7 @@ export function setupLibraryIpc(): void {
 
         // Now trigger the metadata fetch
         const appSettings = await readSettings()
-        fetchMetadataForLibrary(db, focusedWindow, appSettings.tmdbApiKey).catch((err) =>
+        fetchMetadataForLibrary(db, focusedWindow, appSettings).catch((err) =>
           console.error('Background metadata fetch failed after applying initial settings:', err)
         )
       } catch (error) {
@@ -1212,29 +1781,32 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.handle('clear-children-metadata', async (_, folderId: string): Promise<boolean> => {
+  ipcMain.handle('clear-item-metadata', async (_, itemId: string): Promise<boolean> => {
     if (!db || !db.root) {
       console.error('Cannot clear metadata: database not found.')
       return false
     }
-    const parentFolder = findItemById(folderId, db.root)
-    if (!parentFolder || parentFolder.type !== 'folder') {
-      console.error(`Cannot clear metadata: folder with ID ${folderId} not found.`)
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot clear metadata: item with ID ${itemId} not found.`)
       return false
     }
 
-    log(`Starting metadata clear for children of "${parentFolder.name}"...`)
+    log(`Starting metadata clear for item "${item.name}" and its children (if any)...`)
     setBulkUpdateStatus(true)
 
     try {
       const imagesDir = path.join(getLibraryDataPath(), 'images')
       const modifiedItems: LibraryItem[] = []
-      await clearChildrenRecursively(parentFolder, imagesDir, modifiedItems)
 
-      // Also reset the flag on the parent folder itself and bust its UI cache.
-      parentFolder.tmdbEpisodesFetched = undefined
-      parentFolder._v = Date.now()
-      modifiedItems.push(parentFolder)
+      // Reset the item itself
+      await resetItemMetadata(item, imagesDir)
+      modifiedItems.push(item)
+
+      // If it's a folder, reset its children recursively
+      if (item.type === 'folder') {
+        await clearChildrenRecursively(item, imagesDir, modifiedItems)
+      }
 
       await finalizeMetadataClear(modifiedItems)
       return true
@@ -1282,7 +1854,7 @@ export function setupLibraryIpc(): void {
 
   ipcMain.handle('get-autocomplete-suggestions', getAutocompleteSuggestions)
 
-  ipcMain.handle('update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+  async function _updateItem(updatedItem: LibraryItem): Promise<void> {
     if (!db || !db.root) {
       console.error('Cannot update item: database not found in memory.')
       return
@@ -1311,19 +1883,28 @@ export function setupLibraryIpc(): void {
       // Manually trigger a single, incremental update for the item now.
       updateIndexForItem(itemInDb)
 
-      await writeDb(db)
+      // Use the centralized helper to save, notify, and update suggestions.
+      await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
+
       console.log(`Updated item ${updatedItem.id} in database.`)
-
-      const newSuggestions = await getAutocompleteSuggestions()
-
-      const plainItem = JSON.parse(JSON.stringify(itemInDb))
-      BrowserWindow.getAllWindows().forEach((window) => {
-        window.webContents.send('library-item-updated', plainItem)
-        window.webContents.send('autocomplete-suggestions-updated', newSuggestions)
-      })
     } else {
       console.error(`Could not find item with id ${updatedItem.id} in DB to update.`)
     }
+  }
+
+  ipcMain.handle('user-update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+    if (!db?.root) return
+    log(
+      `Marking item as user-edited: "${updatedItem.title ?? updatedItem.name}" (ID: ${updatedItem.id})`
+    )
+    markAsUserEdited(updatedItem.id, db.root)
+    await _updateItem(updatedItem)
+  })
+
+  // handle to update item without marking as user-edited. Currently unused in the app.
+  // rename to 'update-item' before use.
+  ipcMain.handle('___update-item', async (_, updatedItem: LibraryItem): Promise<void> => {
+    await _updateItem(updatedItem)
   })
 
   ipcMain.handle(
@@ -1351,9 +1932,10 @@ export function setupLibraryIpc(): void {
   )
 
   ipcMain.handle(
-    'apply-tmdb-result',
-    async (event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
+    'user-apply-tmdb-result',
+    async (_event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
       if (!db || !db.root) return
+      markAsUserEdited(itemId, db.root)
       const item = findItemById(itemId, db.root)
       if (!item) return
 
@@ -1361,135 +1943,244 @@ export function setupLibraryIpc(): void {
       const libraryDataPath = getLibraryDataPath()
       if (!settings.tmdbApiKey) return
 
-      // Clear old data that will be replaced
-      item.overview = undefined
-      item.backdropPath = undefined
-      item.logoPath = undefined
-      item.year = undefined
-      item.genres = []
-      if (item.type === 'file') {
-        item.opensAsFolder = true
-      }
-      item.posterPath = undefined // Clear poster so it gets re-fetched
-      item.tmdbDetailsFetched = undefined // Clear the details flag to force a refetch
+      // --- Start Bulk Update ---
+      // This prevents the proxy from sending intermediate "cleared" states to the UI,
+      // which was causing the tab-switching bug.
+      setBulkUpdateStatus(true)
+      try {
+        // Clear old data that will be replaced.
+        item.overview = null
+        item.year = null
+        item.genres = []
+        if (item.type === 'file') {
+          item.opensAsFolder = true
+        }
 
-      // --- Invalidate TV Show specific data ---
-      // If we are applying a new TV match to a folder, we need to clear out any
-      // old, incorrect season and episode data that might be cached on its children.
-      if (item.type === 'folder' && mediaType === 'tv') {
-        item.tmdbSeasons = undefined // Clear cached season list from TMDB
-        item.tmdbEpisodesFetched = undefined // Allow re-processing of show structure
-        for (const season of item.children) {
-          if (season.type === 'folder' && season.mediaType === 'season') {
-            // Reset the flag to allow lazy-loading to trigger again.
-            season.tmdbDetailsFetched = false
-            season.tmdbEpisodesFetched = undefined // Allow re-processing of season
-            // Clear out the old, incorrect episode posters and bust their cache.
-            for (const episode of season.children) {
-              if (episode.type === 'file' && episode.mediaType === 'episode') {
-                episode.posterPath = undefined
-                episode._v = Date.now()
+        // Set image paths to undefined to trigger re-fetch in fetchItemDetails.
+        // `null` means "user explicitly removed", `undefined` means "not yet fetched".
+        item.posterPath = undefined
+        item.backdropPath = undefined
+        item.logoPath = undefined
+
+        // Reset fetch state flags so they are re-evaluated.
+        item.tmdbDetailsFetched = false
+        item.tmdbCreditsFetched = false
+        item.tmdbCredits = null
+
+        // --- Invalidate TV Show specific data ---
+        if (item.type === 'folder' && mediaType === 'tv') {
+          item.tmdbSeasons = null
+          item.tmdbEpisodesFetched = false // Allow re-processing of show structure
+          for (const season of item.children) {
+            if (season.type === 'folder' && season.mediaType === 'season') {
+              season.tmdbDetailsFetched = false
+              season.tmdbEpisodesFetched = undefined
+              for (const episode of season.children) {
+                if (episode.type === 'file' && episode.mediaType === 'episode') {
+                  episode.posterPath = undefined
+                }
               }
             }
           }
         }
+
+        // Handle a season result differently
+        if (mediaType === 'season' && item.type === 'folder') {
+          item.mediaType = 'season'
+          item.title = result.name // Seasons have 'name'
+          item.overview = result.overview
+          item.seasonNumber = result.season_number
+
+          if (result.poster_path) {
+            const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
+            const imagesDir = path.join(libraryDataPath, 'images')
+            const posterFileName = `${item.id}.jpg`
+            const posterDestPath = path.join(imagesDir, posterFileName)
+            try {
+              await downloadImage(posterUrl, posterDestPath)
+              item.posterPath = posterFileName
+            } catch (e) {
+              console.error('Failed to download season poster', e)
+            }
+          }
+          item.tmdbDetailsFetched = true
+          item.tmdbEpisodesFetched = undefined
+
+          const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
+          const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, item.seasonNumber)
+          if (!parsedSuccessfully) {
+            log(
+              `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
+            )
+            episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+            episodeFiles.forEach((file, index) => {
+              file.episodeNumber = index + 1
+              file.seasonNumber = item.seasonNumber
+              file.mediaType = 'episode'
+            })
+          }
+
+          const showFolder = findParent(item.id, db!.root!)
+          if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
+            console.log(
+              `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
+            )
+            if (!showFolder.tmdbDetailsFetched) {
+              await fetchItemDetails(showFolder, settings, libraryDataPath)
+            }
+            if (showFolder.tmdbSeasons) {
+              await fetchAndApplyEpisodeData(
+                item,
+                showFolder.tmdbId,
+                settings.tmdbApiKey,
+                libraryDataPath,
+                showFolder.tmdbSeasons
+              )
+            }
+          }
+        } else {
+          // --- Existing logic for Movie/TV Show ---
+          item.tmdbId = result.id
+          item.mediaType = mediaType
+          item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
+
+          // If we're applying a TV show result after a metadata clear, we need to
+          // re-run the local structure analysis to identify season folders BEFORE
+          // we fetch and apply the new details.
+          if (
+            item.type === 'folder' &&
+            mediaType === 'tv' &&
+            (item as MediaFolder).process_tv_children !== false
+          ) {
+            log('[Manual Match] Re-processing local TV structure before fetching details.')
+            processTvShowStructure(item as MediaFolder)
+          }
+
+          await fetchItemDetails(item, settings, libraryDataPath)
+        }
+      } finally {
+        setBulkUpdateStatus(false) // --- End Bulk Update ---
       }
 
-      // Bust cache for the main item itself immediately after clearing old data.
+      // Bust the UI cache to reflect all the new data and images.
       item._v = Date.now()
 
-      // Handle a season result differently
-      if (mediaType === 'season' && item.type === 'folder') {
-        item.mediaType = 'season'
-        item.title = result.name // Seasons have 'name'
-        item.overview = result.overview
-        item.seasonNumber = result.season_number
-
-        if (result.poster_path) {
-          const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
-          const imagesDir = path.join(libraryDataPath, 'images')
-          const posterFileName = `${item.id}.jpg`
-          const posterDestPath = path.join(imagesDir, posterFileName)
-          try {
-            await downloadImage(posterUrl, posterDestPath)
-            item.posterPath = posterFileName
-          } catch (e) {
-            console.error('Failed to download season poster', e)
-          }
-        }
-
-        // For seasons, we don't set a tmdbId on the item itself.
-        // Mark that this season's details are now "fetched" via this manual match.
-        item.tmdbDetailsFetched = true
-        // Explicitly mark that its episodes have NOT been fetched yet, so the next
-        // step will trigger.
-        item.tmdbEpisodesFetched = undefined
-
-        // --- Local Episode Number Assignment ---
-        // We must assign episode numbers to the files within this folder before we can
-        // fetch and map TMDB data to them. This mirrors the logic from get-item-details.
-        setBulkUpdateStatus(true)
-        const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, item.seasonNumber)
-
-        if (!parsedSuccessfully) {
-          log(
-            `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
-          )
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, index) => {
-            file.episodeNumber = index + 1
-            file.seasonNumber = item.seasonNumber
-            file.mediaType = 'episode'
-          })
-        }
-        setBulkUpdateStatus(false)
-        // --- End Local Episode Number Assignment ---
-
-        // Now, immediately try to fetch the episodes for this newly matched season.
-        // This makes the manual match a single, cohesive operation.
-        const showFolder = findParent(item.id, db!.root!)
-        if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
-          console.log(
-            `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
-          )
-          await fetchAndApplyEpisodeData(
-            item,
-            showFolder.tmdbId,
-            settings.tmdbApiKey,
-            libraryDataPath
-          )
-        }
-      } else {
-        // --- Existing logic for Movie/TV Show ---
-        item.tmdbId = result.id
-        item.mediaType = mediaType
-        item.title = result.title // Movies/Shows have 'title' or 'name' (handled by manualSearch)
-
-        // This will fetch poster, backdrop, and other details (overview, year, genres)
-        await fetchItemDetails(item, settings, libraryDataPath)
-        item._v = Date.now() // Bust cache after image updates
-
-        // The details from TMDB might have a more accurate/complete title. Let's update it one last time.
-        const detailUrl = `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${settings.tmdbApiKey}`
-        try {
-          const response = await fetch(detailUrl)
-          if (response.ok) {
-            const details = await response.json()
-            item.title = details.title || details.name
-          }
-        } catch (e) {
-          console.error('Could not re-verify title from TMDB details endpoint', e)
-        }
-      }
-
       // Re-evaluate virtual tags after all other properties have been updated.
+      // This is safe to do outside the bulk update.
       item.virtualTags = evaluateVirtualTagsForItem(item, settings)
 
-      await writeDb(db)
+      // Use the centralized helper to save and broadcast the final, complete item.
+      await _finalizeItemUpdate(item, { updateSuggestions: true })
+    }
+  )
 
-      const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', JSON.parse(JSON.stringify(item)))
+  ipcMain.handle('mark-as-unwatched', async (_, itemId: string): Promise<void> => {
+    if (!db || !db.root) return
+
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot mark as unwatched: item ${itemId} not found.`)
+      return
+    }
+
+    const modifiedItems: LibraryItem[] = []
+    function setUnwatchedRecursively(node: LibraryItem) {
+      if (node.type === 'file' && node.watched) {
+        node.watched = false
+        node.lastWatched = undefined
+        modifiedItems.push(node)
+      }
+      if (node.type === 'folder') {
+        if (node.continueWatchingDismissed) {
+          node.continueWatchingDismissed = false
+          modifiedItems.push(node)
+        }
+        if (node.children) {
+          for (const child of node.children) {
+            setUnwatchedRecursively(child)
+          }
+        }
+      }
+    }
+
+    setBulkUpdateStatus(true)
+    setUnwatchedRecursively(item)
+    setBulkUpdateStatus(false)
+
+    if (modifiedItems.length > 0) {
+      for (const modifiedItem of modifiedItems) {
+        updateIndexForItem(modifiedItem)
+      }
+      await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
+    }
+  })
+
+  ipcMain.handle(
+    'assign-seasons-and-episodes',
+    async (
+      _,
+      showId: string,
+      seasonStrategy: 'smart' | 'alphabetic',
+      episodeStrategy: 'smart' | 'alphabetic',
+      fetchMetadata: boolean
+    ) => {
+      if (!db?.root) return
+
+      const show = findItemById(showId, db.root)
+      if (!show || show.type !== 'folder') {
+        log(`[Assign Seasons] Could not find show with ID ${showId}`)
+        return
+      }
+
+      log(`[Assign Seasons] Starting assignment for "${show.name}"...`)
+      setBulkUpdateStatus(true)
+
+      try {
+        const modifiedItems = new Set<LibraryItem>()
+        modifiedItems.add(show) // 1. Clear old data from the show object itself and all children
+
+        log(`[Assign Seasons] Clearing old season/episode data...`)
+        show.tmdbSeasons = undefined
+        show.tmdbEpisodesFetched = undefined
+        const imagesDir = path.join(getLibraryDataPath(), 'images')
+        await clearTvStructureMetadata(show, imagesDir, modifiedItems) // 2. Assign new data
+
+        log(
+          `[Assign Seasons] Assigning new data with strategy: ${seasonStrategy}/${episodeStrategy}`
+        )
+        assignSeasonsAndEpisodes(show, seasonStrategy, episodeStrategy) // 3. Re-collect all modified items after assignment to ensure they are marked dirty
+
+        getAllItemsAsList(show, []).forEach((item) => modifiedItems.add(item))
+
+        const settings = await readSettings() // 4. Optionally fetch new metadata using the targeted season refetch logic
+
+        if (fetchMetadata || show.process_tv_children !== false) {
+          log(`[Assign Seasons] Triggering targeted season fetch for "${show.name}"...`) // This function now returns all modified items (the show and its children)
+
+          const fetchedItems = await refetchShowSeasons(show, settings, getLibraryDataPath())
+          for (const item of fetchedItems) {
+            modifiedItems.add(item)
+          }
+        } // 5. Re-apply virtual tags and update search index for all changed items
+
+        log(
+          `[Assign Seasons] Re-applying virtual tags and re-indexing for ${modifiedItems.size} items...`
+        )
+        for (const item of modifiedItems) {
+          item.virtualTags = evaluateVirtualTagsForItem(item, settings)
+          updateIndexForItem(item)
+        }
+
+        setBulkUpdateStatus(false) // 6. Finalize update (save DB, notify UI)
+
+        log(`[Assign Seasons] Finalizing update for ${modifiedItems.size} items...`)
+        await _finalizeItemUpdate(Array.from(modifiedItems), { updateSuggestions: true })
+
+        log(`[Assign Seasons] Assignment complete for "${show.name}".`)
+      } catch (error) {
+        console.error(`[Assign Seasons] Failed during assignment for show ${showId}:`, error)
+        setBulkUpdateStatus(false)
+      }
     }
   )
 
@@ -1510,14 +2201,15 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle(
-    'set-image',
+    'user-set-image',
     async (
-      event,
+      _event,
       itemId: string,
       imageType: 'poster' | 'backdrop' | 'logo',
       source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
     ) => {
       if (!db || !db.root) return
+      markAsUserEdited(itemId, db.root)
       const item = findItemById(itemId, db.root)
       if (!item) return
 
@@ -1555,10 +2247,9 @@ export function setupLibraryIpc(): void {
         else if (imageType === 'logo') item.logoPath = fileName
 
         item._v = Date.now() // Bust cache
-        await writeDb(db)
-        const plainItem = JSON.parse(JSON.stringify(item))
-        const window = BrowserWindow.fromWebContents(event.sender)
-        window?.webContents.send('library-item-updated', plainItem)
+
+        // Use the centralized helper. No need to update suggestions for an image change.
+        await _finalizeItemUpdate(item, { updateSuggestions: false })
       } catch (err) {
         console.error(`Failed to set image for ${itemId}:`, err)
         BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
@@ -1571,7 +2262,7 @@ export function setupLibraryIpc(): void {
 
   ipcMain.handle(
     'remove-image',
-    async (event, itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
+    async (_event, itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
       if (!db || !db.root) return
       const item = findItemById(itemId, db.root)
       if (!item) return
@@ -1583,23 +2274,29 @@ export function setupLibraryIpc(): void {
       else if (imageType === 'logo') item.logoPath = null
 
       item._v = Date.now() // Bust cache
-      await writeDb(db)
-      const plainItem = JSON.parse(JSON.stringify(item))
-      const window = BrowserWindow.fromWebContents(event.sender)
-      window?.webContents.send('library-item-updated', plainItem)
+
+      // Use the centralized helper. No need to update suggestions for an image change.
+      await _finalizeItemUpdate(item, { updateSuggestions: false })
     }
   )
 
-  ipcMain.on('reveal-in-explorer', (_, itemPath: string) => {
-    shell.showItemInFolder(itemPath)
+  ipcMain.handle('reveal-in-explorer', async (_, relativePath: string) => {
+    const { mediaSourcePath } = await readSettings()
+    if (mediaSourcePath) {
+      const absolutePath = path.join(mediaSourcePath, relativePath)
+      shell.showItemInFolder(absolutePath)
+    }
   })
 
-  ipcMain.handle('trash-item', async (_, itemPath: string): Promise<boolean> => {
+  ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) return false
+    const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
-      await shell.trashItem(itemPath)
+      await shell.trashItem(absolutePath)
       return true
     } catch (error) {
-      console.error(`Failed to trash item at ${itemPath}:`, error)
+      console.error(`Failed to trash item at ${absolutePath}:`, error)
       BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
         title: 'Deletion Error',
         message: 'Failed to move item to trash. Check file permissions or see logs for details.',
@@ -1617,35 +2314,44 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.handle('rename-item', async (_, oldPath: string, newName: string): Promise<boolean> => {
-    const newPath = path.join(path.dirname(oldPath), newName)
-    try {
-      await fs.rename(oldPath, newPath)
-      return true
-    } catch (error) {
-      console.error(`Failed to rename from ${oldPath} to ${newPath}:`, error)
-      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
-        title: 'Rename Error',
-        message: 'Failed to rename item. Check file permissions or see logs for details.',
-        detail: (error as Error).message
-      })
-      return false
+  ipcMain.handle(
+    'rename-item',
+    async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
+      const { mediaSourcePath } = await readSettings()
+      if (!mediaSourcePath) return false
+      const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
+      const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
+      try {
+        await fs.rename(oldAbsolutePath, newAbsolutePath)
+        return true
+      } catch (error) {
+        console.error(`Failed to rename from ${oldAbsolutePath} to ${newAbsolutePath}:`, error)
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Rename Error',
+          message: 'Failed to rename item. Check file permissions or see logs for details.',
+          detail: (error as Error).message
+        })
+        return false
+      }
     }
-  })
+  )
 
-  ipcMain.handle('get-item-properties', async (_, itemPath: string) => {
+  ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
+    const { mediaSourcePath } = await readSettings()
+    if (!mediaSourcePath) return null
+    const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
-      const stats = await fs.stat(itemPath)
+      const stats = await fs.stat(absolutePath)
       const baseProperties = {
-        name: path.basename(itemPath),
-        path: itemPath,
+        name: path.basename(absolutePath),
+        path: absolutePath,
         type: stats.isDirectory() ? 'Folder' : ('File' as 'File' | 'Folder'),
         created: stats.birthtime.toISOString(),
         modified: stats.mtime.toISOString()
       }
 
       if (stats.isDirectory()) {
-        const contentStats = await getDirectoryContentStats(itemPath)
+        const contentStats = await getDirectoryContentStats(absolutePath)
         return {
           ...baseProperties,
           size: contentStats.totalSize,
@@ -1655,7 +2361,7 @@ export function setupLibraryIpc(): void {
         return { ...baseProperties, size: stats.size }
       }
     } catch (error) {
-      console.error(`Failed to get properties for ${itemPath}:`, error)
+      console.error(`Failed to get properties for ${absolutePath}:`, error)
       return null
     }
   })
@@ -1667,6 +2373,37 @@ export function setupLibraryIpc(): void {
       return debugPerformSearch(query)
     }
   )
+
+  ipcMain.handle('delete-item-from-db', async (_, itemId: string): Promise<boolean> => {
+    if (!db || !db.root) return false
+
+    const parent = findParent(itemId, db.root)
+    if (!parent) {
+      log(`[DB Delete] Could not find parent for item ${itemId}. Deletion failed.`)
+      return false
+    }
+
+    const itemIndex = parent.children.findIndex((c) => c.id === itemId)
+    if (itemIndex === -1) {
+      log(`[DB Delete] Item ${itemId} not found in parent's children. Deletion failed.`)
+      return false
+    }
+
+    const [itemToDelete] = parent.children.splice(itemIndex, 1)
+
+    // This recursively cleans up all in-memory indexes and maps
+    removeItemAndDescendantsFromIndex(itemToDelete)
+
+    await writeDb(db)
+
+    // Notify all windows that an item was deleted.
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('library-item-deleted', itemId)
+    })
+
+    log(`[DB Delete] Successfully deleted item ${itemToDelete.id} from database.`)
+    return true
+  })
 
   ipcMain.handle('get-item-by-id', async (_, itemId: string): Promise<LibraryItem | null> => {
     if (!db || !db.root) {
@@ -1704,4 +2441,164 @@ export function setupLibraryIpc(): void {
     const hiddenChildren = parent.children.filter((child) => child.isHidden)
     return JSON.parse(JSON.stringify(hiddenChildren)) // Return deep copy
   })
+
+  ipcMain.handle('set-continue-watching-dismissed', async (_, showId: string) => {
+    if (!db || !db.root) return
+    const show = findItemById(showId, db.root)
+    if (show && show.type === 'folder') {
+      show.continueWatchingDismissed = true
+      await _finalizeItemUpdate(show, { updateSuggestions: false })
+    }
+  })
+
+  ipcMain.handle(
+    'get-continue-watching-items',
+    async (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> => {
+      if (!db?.root) return []
+
+      const allItems = getAllItemsAsList(db.root)
+      const parentMap = new Map<string, string>()
+      function buildParentMap(node: MediaFolder) {
+        if (!node.children) return
+        for (const child of node.children) {
+          parentMap.set(child.id, node.id)
+          if (child.type === 'folder') {
+            buildParentMap(child)
+          }
+        }
+      }
+      buildParentMap(db.root)
+
+      const shows = new Map<string, MediaFolder>()
+      const episodesByShow = new Map<string, MediaFile[]>()
+
+      for (const item of allItems) {
+        if (item.type === 'folder' && item.mediaType === 'tv') {
+          shows.set(item.id, item)
+          episodesByShow.set(item.id, [])
+        }
+      }
+
+      for (const item of allItems) {
+        if (item.type === 'file' && item.mediaType === 'episode') {
+          let currentParentId = parentMap.get(item.id)
+          let showId: string | null = null
+          while (currentParentId) {
+            const parent = findItemById(currentParentId, db.root)
+            if (parent?.type === 'folder' && parent.mediaType === 'tv') {
+              showId = parent.id
+              break
+            }
+            currentParentId = parentMap.get(currentParentId)
+          }
+
+          if (showId && episodesByShow.has(showId)) {
+            episodesByShow.get(showId)!.push(item as MediaFile)
+          }
+        }
+      }
+
+      const getComparableEpisodeNumber = (ep: MediaFile) =>
+        (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+      const continueWatchingItems: {
+        show: MediaFolder
+        nextEpisode: MediaFile
+        lastWatched: number
+      }[] = []
+
+      for (const [showId, show] of shows.entries()) {
+        if (show.continueWatchingDismissed) continue
+
+        const episodes = episodesByShow.get(showId)!
+        if (episodes.length === 0) continue
+
+        const watchedEpisodes = episodes.filter((ep) => ep.watched)
+        if (watchedEpisodes.length === 0) continue
+
+        const allEpisodesSorted = [...episodes].sort(
+          (a, b) => getComparableEpisodeNumber(a) - getComparableEpisodeNumber(b)
+        )
+
+        const maxWatchedEpisode = watchedEpisodes.reduce((max, ep) =>
+          getComparableEpisodeNumber(ep) > getComparableEpisodeNumber(max) ? ep : max
+        )
+
+        let nextUnwatchedEpisode: MediaFile | undefined
+        for (const episode of allEpisodesSorted) {
+          if (getComparableEpisodeNumber(episode) > getComparableEpisodeNumber(maxWatchedEpisode)) {
+            if (!episode.watched) {
+              nextUnwatchedEpisode = episode
+              break
+            }
+          }
+        }
+
+        if (nextUnwatchedEpisode) {
+          await fetchEpisodeDataForContinueWatching(show, nextUnwatchedEpisode)
+          const lastWatchedTime = Math.max(0, ...watchedEpisodes.map((ep) => ep.lastWatched ?? 0))
+          continueWatchingItems.push({
+            show: createShallowClonableCopy(show) as MediaFolder,
+            nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile,
+            lastWatched: lastWatchedTime
+          })
+        }
+      }
+
+      // Sort by most recently watched and return only the show and episode.
+      return continueWatchingItems
+        .sort((a, b) => b.lastWatched - a.lastWatched)
+        .map(({ show, nextEpisode }) => ({ show, nextEpisode }))
+    }
+  )
+
+  ipcMain.handle(
+    'get-continue-watching-for-show',
+    async (_, showId: string): Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null> => {
+      if (!db?.root) return null
+      const show = findItemById(showId, db.root)
+      if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.continueWatchingDismissed) {
+        return null
+      }
+
+      const episodes = (getAllItemsAsList(show) as LibraryItem[]).filter(
+        (item) => item.type === 'file' && item.mediaType === 'episode'
+      ) as MediaFile[]
+
+      if (episodes.length === 0) return null
+      const watchedEpisodes = episodes.filter((ep) => ep.watched)
+      if (watchedEpisodes.length === 0) return null
+
+      const getComparableEpisodeNumber = (ep: MediaFile) =>
+        (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+      const allEpisodesSorted = [...episodes].sort(
+        (a, b) => getComparableEpisodeNumber(a) - getComparableEpisodeNumber(b)
+      )
+
+      const maxWatchedEpisode = watchedEpisodes.reduce((max, ep) =>
+        getComparableEpisodeNumber(ep) > getComparableEpisodeNumber(max) ? ep : max
+      )
+
+      let nextUnwatchedEpisode: MediaFile | undefined
+      for (const episode of allEpisodesSorted) {
+        if (getComparableEpisodeNumber(episode) > getComparableEpisodeNumber(maxWatchedEpisode)) {
+          if (!episode.watched) {
+            nextUnwatchedEpisode = episode
+            break
+          }
+        }
+      }
+
+      if (nextUnwatchedEpisode) {
+        await fetchEpisodeDataForContinueWatching(show as MediaFolder, nextUnwatchedEpisode)
+        return {
+          show: createShallowClonableCopy(show) as MediaFolder,
+          nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
+        }
+      }
+
+      return null
+    }
+  )
 }

@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem } from '../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../shared/types'
 
 const genreCache = new Map<number, string>()
 
@@ -92,7 +92,7 @@ export async function downloadImage(url: string, destinationPath: string): Promi
   }
 }
 
-export async function fetchAndApplyMetadata(
+export async function searchTmdbAndApplyMetadata(
   item: LibraryItem,
   tmdbApiKey: string,
   libraryDataPath: string,
@@ -152,25 +152,28 @@ export async function fetchAndApplyMetadata(
     )?.[0]
 
     if (result) {
+      // Step 1: Populate item with data from the search result.
       item.tmdbId = result.id
       item.mediaType = result.media_type ?? endpoint // Fallback to our guessed endpoint type
+
+      // TODO: Check if/how/when data gets truncated for TMDB search results vs detail results.
+      // For now, we are trusting the search result data to be sufficient for library browsing.
       item.title = result.title || result.name // 'title' for movie, 'name' for tv
       item.overview = result.overview
       if (item.type === 'file') {
         item.opensAsFolder = true
       }
-
       const date = result.release_date || result.first_air_date
       if (date) {
         item.year = new Date(date).getFullYear()
       }
-
       if (result.genre_ids && Array.isArray(result.genre_ids) && genreCache.size > 0) {
         item.genres = result.genre_ids
           .map((id: number) => genreCache.get(id))
           .filter((name): name is string => !!name)
       }
 
+      // Download the poster from the search result.
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
         const imagesDir = getImagesPath(libraryDataPath)
@@ -181,8 +184,14 @@ export async function fetchAndApplyMetadata(
           item.posterPath = posterFileName
         } catch {
           console.error(`Failed to download or save poster for item: ${item.name}`)
-          // Do not set item.posterPath if download fails
         }
+      }
+
+      // Make a dedicated request for credits.
+      // This is done during the scan so that cast & crew are immediately
+      // available in the search index for filtering.
+      if (item.mediaType === 'movie' || item.mediaType === 'tv') {
+        await fetchAndApplyCredits(item, tmdbApiKey)
       }
     } else {
       console.log(`No TMDB result found for "${query}" with endpoint "${endpoint}"`)
@@ -231,17 +240,189 @@ export async function refetchPoster(
   }
 }
 
-import type { Settings } from './settings'
+/**
+ * Processes a raw TMDB credits object and attaches a structured `tmdbCredits` object to the item.
+ * It handles both the simple format for movies and the complex "aggregate_credits" format for TV shows.
+ * @param item The library item to which credits will be applied.
+ * @param creditsData The raw credits object from the TMDB API.
+ */
+function applyCreditsToItem(item: LibraryItem, creditsData: any) {
+  const isTv = item.mediaType === 'tv'
+  // aggregate_credits (from the dedicated endpoint) has a `roles` array on cast members.
+  // The simple `credits` (from append_to_response) does not. This is our differentiator.
+  const isAggregated = isTv && creditsData.cast?.[0]?.roles
+
+  if (!isAggregated) {
+    // Simple case for movies or non-aggregated TV credits from `append_to_response`.
+    item.tmdbCredits = {
+      cast: (creditsData.cast ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        profile_path: p.profile_path,
+        character: p.character,
+        order: p.order
+      })),
+      crew: (creditsData.crew ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        profile_path: p.profile_path,
+        job: p.job
+      }))
+    }
+    return
+  }
+
+  // --- Start of complex TV aggregate credits logic ---
+  // This logic is specifically for the data from the /tv/{id}/aggregate_credits endpoint.
+
+  // Step 1: Unify roles and determine importance scores.
+  const IMPORTANT_JOBS = ['Creator', 'Director', 'Screenplay', 'Writer']
+  const people = new Map<
+    number,
+    {
+      personData: any
+      actingScore: number
+      crewScore: number
+      characters: string[]
+      jobs: string[]
+    }
+  >()
+
+  // Helper to initialize or retrieve a person from the map.
+  const ensurePerson = (personId: number, initialData: any) => {
+    if (!people.has(personId)) {
+      people.set(personId, {
+        personData: initialData,
+        actingScore: Infinity,
+        crewScore: Infinity,
+        characters: [],
+        jobs: []
+      })
+    }
+    return people.get(personId)!
+  }
+
+  // Process cast members to get their best acting score.
+  ;(creditsData.cast ?? []).forEach((castMember: any) => {
+    const p = ensurePerson(castMember.id, castMember)
+    p.actingScore = Math.min(p.actingScore, castMember.order)
+    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
+  })
+
+  // Process crew members to get their best crew score.
+  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
+    let bestJobIndex = Infinity
+    const importantJobsForPerson: string[] = []
+
+    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
+      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+      if (index !== -1) {
+        bestJobIndex = Math.min(bestJobIndex, index)
+        importantJobsForPerson.push(jobInfo.job)
+      }
+    })
+
+    // Only add crew if they have an important job.
+    if (bestJobIndex !== Infinity) {
+      const p = ensurePerson(crewMember.id, crewMember)
+      p.crewScore = Math.min(p.crewScore, bestJobIndex)
+      p.jobs.push(...importantJobsForPerson)
+      p.personData = { ...p.personData, ...crewMember }
+    }
+  })
+
+  // Step 2: Determine primary role ("The Cranston Rule") and categorize.
+  const finalCast: Person[] = []
+  const finalCrew: Person[] = []
+
+  people.forEach((p) => {
+    const isPrimarilyActor = p.actingScore <= 15 || p.actingScore < p.crewScore
+
+    if (isPrimarilyActor) {
+      finalCast.push({
+        id: p.personData.id,
+        name: p.personData.name,
+        profile_path: p.personData.profile_path,
+        // Synthesize a character string from all their acting roles.
+        character: [...new Set(p.characters)].join(' / '),
+        // Use the best acting score for sorting.
+        order: p.actingScore
+      })
+    } else {
+      finalCrew.push({
+        id: p.personData.id,
+        name: p.personData.name,
+        profile_path: p.personData.profile_path,
+        // Synthesize a job string from all their important crew roles.
+        job: [...new Set(p.jobs)].join(' / '),
+        // Use the best crew score for sorting.
+        order: p.crewScore
+      })
+    }
+  })
+
+  // Step 3: Sort the final lists for display.
+  finalCast.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity))
+  finalCrew.sort((a, b) => {
+    // Primary sort: by job importance (lower is better)
+    const aOrder = a.order ?? Infinity
+    const bOrder = b.order ?? Infinity
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder
+    }
+    // Secondary sort: people with images first
+    const aHasImage = !!a.profile_path
+    const bHasImage = !!b.profile_path
+    if (aHasImage !== bHasImage) {
+      return aHasImage ? -1 : 1
+    }
+    return 0
+  })
+
+  item.tmdbCredits = { cast: finalCast, crew: finalCrew }
+}
+
+import type { Settings } from '../shared/types'
+
+export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string): Promise<void> {
+  if (!item.tmdbId || !item.mediaType || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) {
+    console.log(`Skipping credits fetch for "${item.name}", not a movie or tv show.`)
+    item.tmdbCreditsFetched = true // Mark as "processed" to avoid retries
+    return
+  }
+
+  const isTv = item.mediaType === 'tv'
+  const endpoint = isTv ? 'aggregate_credits' : 'credits'
+  const creditsUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}/${endpoint}?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Fetching credits for "${item.title ?? item.name}" from ${creditsUrl}`)
+
+  try {
+    const response = await fetch(creditsUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB credits fetch failed: ${response.statusText}`)
+    }
+    const credits = await response.json()
+    applyCreditsToItem(item, credits)
+  } catch (error) {
+    console.error(`Error fetching credits for "${item.name}":`, error)
+    // Don't mark as fetched on error, so it can be retried.
+    return
+  }
+
+  item.tmdbCreditsFetched = true
+}
 
 export async function fetchItemDetails(
   item: LibraryItem,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
-): Promise<void> {
+): Promise<LibraryItem[]> {
   if (!item.tmdbId || !item.mediaType) {
     console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
-    return
+    return [item]
   }
+  const modifiedItems: LibraryItem[] = [item]
 
   const imagesDir = getImagesPath(libraryDataPath)
   const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${settings.tmdbApiKey}&append_to_response=images`
@@ -323,6 +504,7 @@ export async function fetchItemDetails(
     }
 
     // Update other metadata fields
+    item.title = details.title || details.name
     if (details.overview) {
       item.overview = details.overview
     }
@@ -346,11 +528,13 @@ export async function fetchItemDetails(
       details.seasons
     ) {
       item.tmdbSeasons = details.seasons // Cache the full season data
-      await applyTvShowData(item, settings, libraryDataPath)
+      const modifiedChildren = await applyTvShowData(item, settings, libraryDataPath)
+      modifiedItems.push(...modifiedChildren)
     }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)
   }
+  return modifiedItems
 }
 
 /**
@@ -362,8 +546,9 @@ export async function applyTvShowData(
   item: MediaFolder,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
-): Promise<void> {
+): Promise<MediaFile[]> {
   const imagesDir = getImagesPath(libraryDataPath)
+  const allModifiedEpisodes: MediaFile[] = []
 
   if (
     item.type === 'folder' &&
@@ -383,58 +568,94 @@ export async function applyTvShowData(
       for (const seasonFolder of seasonFolders) {
         const tmdbSeason = tmdbSeasons.find((s) => s.season_number === seasonFolder.seasonNumber)
         if (tmdbSeason) {
-            seasonFolder.title = tmdbSeason.name
-            seasonFolder.overview = tmdbSeason.overview
-            if (tmdbSeason.poster_path) {
-              const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
-              const posterFileName = `${seasonFolder.id}.jpg`
-              const posterDestPath = path.join(imagesDir, posterFileName)
-              try {
-                await downloadImage(posterUrl, posterDestPath)
-                seasonFolder.posterPath = posterFileName
-              } catch {
-                // Ignore download error
-              }
+          seasonFolder.title = tmdbSeason.name
+          seasonFolder.overview = tmdbSeason.overview
+          if (tmdbSeason.poster_path) {
+            const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
+            const posterFileName = `${seasonFolder.id}.jpg`
+            const posterDestPath = path.join(imagesDir, posterFileName)
+            try {
+              await downloadImage(posterUrl, posterDestPath)
+              seasonFolder.posterPath = posterFileName
+            } catch {
+              // Ignore download error
             }
           }
-        }
-      } else {
-        // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
-        const filesWithSeason = item.children.filter(
-          (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
-        ) as MediaFile[]
-
-        if (filesWithSeason.length > 0) {
-          // Group files by season number to handle multiple seasons in one folder
-          const seasonsToFetch = new Set(filesWithSeason.map((f) => f.seasonNumber!))
-
-          for (const seasonNum of seasonsToFetch) {
-            // We create a temporary "fake" season folder object to pass to the fetch function.
-            // It contains the children only for the current season number being processed.
-            const fakeSeasonFolder: MediaFolder = {
-              ...(item as MediaFolder), // Copy properties from the show's root folder
-              seasonNumber: seasonNum,
-              children: filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
-            }
-
-            console.log(
-              `[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`
-            )
-            await fetchAndApplyEpisodeData(
-              fakeSeasonFolder,
-              item.tmdbId!,
-              settings.tmdbApiKey!,
-              libraryDataPath
-            )
-          }
-          // The show is in file mode and we've attempted to fetch all episodes.
-          // Mark it as processed.
-          item.tmdbEpisodesFetched = true
         }
       }
-      // If we've reached this point, we have processed the seasons/episodes.
-      item.tmdbEpisodesFetched = true
+    } else {
+      // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
+      const filesWithSeason = item.children.filter(
+        (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
+      ) as MediaFile[]
+
+      if (filesWithSeason.length > 0) {
+        // Group files by season number to handle multiple seasons in one folder
+        const seasonsToFetch = new Set(filesWithSeason.map((f) => f.seasonNumber!))
+
+        for (const seasonNum of seasonsToFetch) {
+          // We create a temporary "fake" season folder object to pass to the fetch function.
+          // It contains the children only for the current season number being processed.
+          const fakeSeasonFolder: MediaFolder = {
+            ...(item as MediaFolder), // Copy properties from the show's root folder
+            seasonNumber: seasonNum,
+            children: filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
+          }
+
+          console.log(
+            `[TMDB] TV show is in "File Mode". Fetching episodes for Season ${seasonNum}.`
+          )
+          const modifiedInSeason = await fetchAndApplyEpisodeData(
+            fakeSeasonFolder,
+            item.tmdbId!,
+            settings.tmdbApiKey!,
+            libraryDataPath,
+            item.tmdbSeasons
+          )
+          allModifiedEpisodes.push(...modifiedInSeason)
+        }
+        // The show is in file mode and we've attempted to fetch all episodes.
+        // Mark it as processed.
+        item.tmdbEpisodesFetched = true
+      }
     }
+    // If we've reached this point, we have processed the seasons/episodes.
+    item.tmdbEpisodesFetched = true
+  }
+  return allModifiedEpisodes
+}
+
+export async function refetchShowSeasons(
+  show: MediaFolder,
+  settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
+  libraryDataPath: string
+): Promise<LibraryItem[]> {
+  const tmdbApiKey = settings.tmdbApiKey
+  if (!show.tmdbId || show.mediaType !== 'tv' || !tmdbApiKey) {
+    return []
+  }
+  const detailUrl = `https://api.themoviedb.org/3/tv/${show.tmdbId}?api_key=${tmdbApiKey}`
+  console.log(`[TMDB] Refetching seasons for "${show.title ?? show.name}" from ${detailUrl}`)
+  const modifiedItems: LibraryItem[] = []
+  try {
+    const response = await fetch(detailUrl)
+    if (!response.ok) {
+      throw new Error(`TMDB detail fetch failed: ${response.statusText}`)
+    }
+    const details = await response.json()
+    if (details.seasons) {
+      show.tmdbSeasons = details.seasons
+      modifiedItems.push(show)
+      console.log(
+        `[TMDB] Successfully updated seasons for "${show.title ?? show.name}". Applying data...`
+      ) // After updating seasons, re-apply data to children to catch the new season.
+      const modifiedChildren = await applyTvShowData(show, settings, libraryDataPath)
+      modifiedItems.push(...modifiedChildren)
+    }
+  } catch (error) {
+    console.error(`Error refetching seasons for "${show.name}":`, error)
+  }
+  return modifiedItems
 }
 
 /**
@@ -449,13 +670,19 @@ export async function fetchAndApplyEpisodeData(
   seasonFolder: MediaFolder,
   showTmdbId: number,
   tmdbApiKey: string,
-  libraryDataPath: string
-): Promise<void> {
-  // If the folder passed doesn't have a season number, it's the TV show root
-  // in "File Mode", and we are fetching details for season 1. For actual season
-  // folders, `seasonFolder.seasonNumber` will be defined from the earlier
-  // local file analysis step.
+  libraryDataPath: string,
+  tmdbSeasons: any[]
+): Promise<MediaFile[]> {
   const seasonNumber = seasonFolder.seasonNumber ?? 1
+  const modifiedEpisodes: MediaFile[] = []
+
+  const seasonExists = tmdbSeasons.some((s) => s.season_number === seasonNumber)
+  if (!seasonExists) {
+    console.log(`[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist on TMDB.`)
+    seasonFolder.tmdbEpisodesFetched = true
+    seasonFolder.tmdbDetailsFetched = true
+    return []
+  }
 
   const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
   console.log(
@@ -468,11 +695,24 @@ export async function fetchAndApplyEpisodeData(
       throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
     }
     const seasonDetails = await response.json()
-    const tmdbEpisodes = seasonDetails.episodes
+    const tmdbEpisodesApi = seasonDetails.episodes
 
-    if (!tmdbEpisodes || tmdbEpisodes.length === 0) {
-      console.log(`[TMDB] No episode data found for season ${seasonNumber}.`)
+    if (!tmdbEpisodesApi || tmdbEpisodesApi.length === 0) {
+      console.log(`[TMDB] No episode data found for season ${seasonNumber}. Caching empty array.`)
+      seasonFolder.tmdbEpisodes = []
     } else {
+      // --- Cache Curated Episode Data ---
+      const tmdbEpisodes = tmdbEpisodesApi.map(
+        (e: any): TmdbEpisode => ({
+          episode_number: e.episode_number,
+          name: e.name,
+          overview: e.overview,
+          still_path: e.still_path
+        })
+      )
+      seasonFolder.tmdbEpisodes = tmdbEpisodes
+
+      // --- Apply Cached Data to Local Files ---
       const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
 
       for (const localEpisode of localEpisodes) {
@@ -486,7 +726,8 @@ export async function fetchAndApplyEpisodeData(
           localEpisode.title = tmdbEpisode.name
           localEpisode.overview = tmdbEpisode.overview
           localEpisode.mediaType = 'episode'
-          if (tmdbEpisode.still_path) {
+          // Only download if poster is missing.
+          if (!localEpisode.posterPath && tmdbEpisode.still_path) {
             const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
             const imagesDir = getImagesPath(libraryDataPath)
             const posterFileName = `${localEpisode.id}.jpg`
@@ -494,27 +735,27 @@ export async function fetchAndApplyEpisodeData(
             try {
               await downloadImage(posterUrl, posterDestPath)
               localEpisode.posterPath = posterFileName
-              // Bust the cache for the new image. This is the critical fix.
               localEpisode._v = Date.now()
             } catch {
-              // ignore download error
+              /* ignore download error */
             }
           }
+        } else {
+          // If no matching TMDB episode, clear any old metadata.
+          localEpisode.title = undefined
+          localEpisode.overview = undefined
+          localEpisode.posterPath = undefined
         }
+        modifiedEpisodes.push(localEpisode)
       }
     }
   } catch (error) {
     console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   } finally {
-    // Mark this season as processed to prevent future redundant API calls.
-    // This flag is set to true even if TMDB returned no episodes, or if no local files
-    // could be matched. This signifies that an API request was successfully completed for
-    // this season, and the app shouldn't get stuck in a re-fetching loop.
-    // The details are also marked as fetched since the season detail API includes the
-    // season's own metadata (name, overview, etc.).
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
   }
+  return modifiedEpisodes
 }
 
 export async function manualSearch(

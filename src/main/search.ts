@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import Fuse from 'fuse.js'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
+import { SEARCH_INDEX_PROPERTIES } from '../shared/types'
 import { itemMatchesAllTags } from '../shared/filter'
 
 const SEARCH_RESULT_LIMIT = 50
@@ -51,28 +52,37 @@ function calculateStaticScore(item: LibraryItem, parent?: LibraryItem): number {
  * @returns A new, plain search index entry.
  */
 function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): SearchIndexEntry {
-  // Use JSON stringify/parse to create a deep, "de-proxied" copy of nested objects.
-  // This is acceptable here because it only runs during index creation, not on every search.
-  const genres = item.genres ? JSON.parse(JSON.stringify(item.genres)) : undefined
-  const tags = item.tags ? JSON.parse(JSON.stringify(item.tags)) : undefined
-  const virtualTags = item.virtualTags ? JSON.parse(JSON.stringify(item.virtualTags)) : undefined
+  const entry: Partial<SearchIndexEntry> = {}
 
-  return {
-    id: item.id,
-    title: item.title ?? item.name,
-    type: item.type,
-    posterPath: item.posterPath,
-    overview: item.overview,
-    mediaType: item.mediaType,
-    year: item.year,
-    genres: genres,
-    tags: tags,
-    virtualTags: virtualTags,
-    watched: item.type === 'file' ? item.watched : undefined,
-    episodeNumber: item.type === 'file' ? item.episodeNumber : undefined,
-    _v: item._v,
-    staticScore: calculateStaticScore(item, parent)
+  // Copy all relevant properties from the item to the search entry.
+  for (const key of SEARCH_INDEX_PROPERTIES) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      const value = (item as any)[key]
+      // Deep clone arrays/objects to ensure the index is free of proxies.
+      if (typeof value === 'object' && value !== null) {
+        ;(entry as any)[key] = JSON.parse(JSON.stringify(value))
+      } else {
+        ;(entry as any)[key] = value
+      }
+    }
   }
+
+  // Handle special cases and computed properties.
+  entry.title = item.title ?? item.name
+
+  // Extract person names from credits
+  if ('tmdbCredits' in item && item.tmdbCredits) {
+    const personNames = new Set<string>()
+    ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && personNames.add(p.name))
+    ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && personNames.add(p.name))
+    if (personNames.size > 0) {
+      entry.persons = Array.from(personNames)
+    }
+  }
+
+  entry.staticScore = calculateStaticScore(item, parent)
+
+  return entry as SearchIndexEntry
 }
 
 /**
@@ -90,7 +100,7 @@ function _updateOrAddItemToIndex(entry: SearchIndexEntry) {
 /**
  * Removes an entry from the search index array by its ID.
  */
-function _removeItemFromIndex(itemId: string) {
+export function removeItemFromIndex(itemId: string) {
   const index = searchIndex.findIndex((i) => i.id === itemId)
   if (index !== -1) {
     searchIndex.splice(index, 1)
@@ -110,12 +120,13 @@ export function updateIndexForItem(item: LibraryItem) {
   if (
     (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
     item.isHidden
+    // Note: Missing items are deliberately not excluded
   ) {
-    _removeItemFromIndex(item.id)
+    removeItemFromIndex(item.id)
     // Also remove all its descendants from the index.
     function removeChildren(folder: MediaFolder) {
       folder.children.forEach((child) => {
-        _removeItemFromIndex(child.id)
+        removeItemFromIndex(child.id)
         if (child.type === 'folder') {
           removeChildren(child)
         }
@@ -176,8 +187,8 @@ function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boo
   }
 }
 
-// A WeakMap caches proxies, preventing re-proxying of the same object and
-// handling circular references gracefully.
+// A WeakMap caches proxies for any object, preventing re-proxying and handling
+// garbage collection of old DBs gracefully.
 const proxyCache = new WeakMap()
 
 /**
@@ -185,13 +196,29 @@ const proxyCache = new WeakMap()
  * @param isBulkUpdate A function that returns the current bulk update status.
  */
 function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
-  return {
+  // This handler is created once per DB proxy session and is reused for all
+  // nested objects, which is crucial for performance.
+  const handler: ProxyHandler<any> = {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver)
-      // If the retrieved value is an object (and not null), wrap it in a proxy too.
+
+      // During bulk updates, we want raw performance and don't need change tracking.
+      // By returning the raw value, we prevent the creation of nested proxies,
+      // which dramatically speeds up full-tree traversals.
+      if (isBulkUpdate()) {
+        return value
+      }
+
+      // If the retrieved value is an object (and not null), wrap it in a proxy.
       if (value && typeof value === 'object') {
-        // Pass the same handler down to nested objects.
-        return new Proxy(value, createProxyHandler(isBulkUpdate))
+        // Return a cached proxy if one exists for this object.
+        if (proxyCache.has(value)) {
+          return proxyCache.get(value)
+        }
+        // Otherwise, create a new proxy with the *same* handler, cache it, and return it.
+        const newProxy = new Proxy(value, handler)
+        proxyCache.set(value, newProxy)
+        return newProxy
       }
       return value
     },
@@ -207,6 +234,7 @@ function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
       return success
     }
   }
+  return handler
 }
 
 /**
@@ -216,13 +244,20 @@ function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
  * @returns A new Proxy that wraps the database.
  */
 export function createDbProxy(db: Database, isBulkUpdate: () => boolean): Database {
-  // Use a WeakMap to cache the top-level proxy as well.
+  // The WeakMap is not cleared here. When a new DB is loaded, the old `db` object
+  // becomes garbage-collectible. The WeakMap will automatically drop the entries
+  // for the old `db` and all its children, preventing memory leaks.
   if (proxyCache.has(db)) {
     return proxyCache.get(db)
   }
+
+  // Create the single, reusable handler for this proxy session.
   const handler = createProxyHandler(isBulkUpdate)
   const proxy = new Proxy(db, handler)
+
+  // Cache the root proxy.
   proxyCache.set(db, proxy)
+
   return proxy
 }
 
@@ -236,7 +271,9 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
   searchIndex = []
   itemMap.clear()
   parentMap.clear()
-  console.log(`[${new Date().toISOString()}] [Search] Full search index build initiated.`)
+  console.log(
+    `[${new Date().toISOString()}] [Search] Index build initiated. Cleared searchIndex (now ${searchIndex.length}), itemMap (now ${itemMap.size}).`
+  )
   if (!root) {
     return
   }
@@ -246,6 +283,7 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
     if (
       (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
       item.isHidden
+      // Note: Missing items are deliberately not excluded
     ) {
       return // Don't index this folder or its children
     }
@@ -272,6 +310,22 @@ export function buildFullSearchIndex(root: MediaFolder | null) {
   console.log(
     `[${new Date().toISOString()}] [Search] Index built with ${searchIndex.length} items in ${duration}ms.`
   )
+}
+
+/**
+ * Recursively removes an item and all its descendants from the in-memory lookup maps and search index.
+ * @param item The root item to remove.
+ */
+export function removeItemAndDescendantsFromIndex(item: LibraryItem) {
+  function unindexRecursively(currentItem: LibraryItem) {
+    itemMap.delete(currentItem.id)
+    parentMap.delete(currentItem.id)
+    removeItemFromIndex(currentItem.id)
+    if (currentItem.type === 'folder' && currentItem.children) {
+      currentItem.children.forEach(unindexRecursively)
+    }
+  }
+  unindexRecursively(item)
 }
 
 function normalizeText(text: string): string {

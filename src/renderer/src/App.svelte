@@ -1,20 +1,22 @@
 <script lang="ts">
-  import MediaView from './components/MediaView.svelte'
-  import SettingsModal from './components/SettingsModal.svelte'
-  import SearchInput from './components/SearchInput.svelte'
-  import WindowControls from './components/WindowControls.svelte'
-  import ItemDetail from './components/ItemDetail.svelte'
-  import ContextMenu from './components/ContextMenu.svelte'
-  import ItemSettingsModal from './components/item-settings/ItemSettingsModal.svelte'
-  import ManualSearchModal from './components/ManualSearchModal.svelte'
-  import PropertiesModal from './components/PropertiesModal.svelte'
-  import RenameModal from './components/RenameModal.svelte'
-  import FilterBar from './components/FilterBar.svelte'
-  import ListView from './components/media-views/ListView.svelte'
-  import InitialFolderSettingsModal from './components/InitialFolderSettingsModal.svelte'
-  import Dialog from './components/Dialog.svelte'
+  import AppHeader from './components/layout/AppHeader.svelte'
+  import MainView from './components/layout/MainView.svelte'
+  import SettingsModal from './components/modals/SettingsModal.svelte'
+  import ContextMenu from './components/ui/ContextMenu.svelte'
+  import ItemSettingsModal from './components/modals/ItemSettingsModal.svelte'
+  import ManualSearchModal from './components/modals/ManualSearchModal.svelte'
+  import PropertiesModal from './components/modals/PropertiesModal.svelte'
+  import RenameModal from './components/modals/RenameModal.svelte'
+  import AssignSeasonsModal from './components/modals/AssignSeasonsModal.svelte'
+  import FilterBar from './components/ui/FilterBar.svelte'
+  import InitialFolderSettingsModal from './components/modals/InitialFolderSettingsModal.svelte'
+  import Dialog from './components/ui/Dialog.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import { dialogStore } from './lib/dialog-store'
+  import { autocompleteState } from './lib/autocomplete-manager'
+  import AutocompleteMenu from './components/ui/AutocompleteMenu.svelte'
+  import { resolveViewSettings } from '../../shared/settings-helpers'
+  import { isTypingTag as isTypingTagHelper } from './lib/view-helpers'
   import {
     getLoadedItem,
     updateCachedItem,
@@ -24,23 +26,6 @@
 
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
-  }
-
-  function getDefaultLayoutForDetailView(
-    item: MediaFolder,
-    currentSettings: Settings | null
-  ): 'grid' | 'list' | 'tree' | 'tabs' | 'sections' {
-    if (currentSettings) {
-      switch (item.mediaType) {
-        case 'movie':
-          return currentSettings.defaultMovieViewSettings.layout
-        case 'tv':
-          return currentSettings.defaultTvShowViewSettings.layout
-        case 'season':
-          return currentSettings.defaultSeasonViewSettings.layout
-      }
-    }
-    return 'tree' // Global fallback for detail view
   }
 
   type ActiveModal =
@@ -55,32 +40,33 @@
     | { type: 'properties'; item: LibraryItem }
     | { type: 'rename'; item: LibraryItem }
     | { type: 'initialFolderSettings'; root: MediaFolder }
+    | { type: 'assignSeasons'; item: MediaFolder }
 
   let viewStack: MediaFolder[] = $state([])
   let lastDetailItem: LibraryItem | null = $state(null)
   let isScanning = $state(true)
   let isRefreshing = $state(false)
+  let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
 
   // --- Search & Filter State ---
-  // For the main, full-page search
   let globalSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
   const isGlobalSearchActive = $derived(
     globalSearchQuery.text.trim() !== '' || globalSearchQuery.tags.length > 0
   )
+  const isTypingGlobalTag = $derived(isTypingTagHelper(globalSearchQuery.text))
   let searchResults = $state<SearchIndexEntry[]>([])
-  let highlightedSearchItemIndex = $state<number | null>(null)
+  let highlightedGlobalSearchItemIndex = $state<number | null>(null)
   let isPerformingSearch = $state(false)
 
-  // For the search dropdown in the detail view
   let detailViewSearchQuery = $state({ text: '', tags: [] as { key: string; value: string }[] })
   const isDetailSearchActive = $derived(
     detailViewSearchQuery.text.trim() !== '' || detailViewSearchQuery.tags.length > 0
   )
+  const isTypingDetailTag = $derived(isTypingTagHelper(detailViewSearchQuery.text))
   let detailViewSearchResults = $state<SearchIndexEntry[]>([])
   let highlightedDetailSearchItemIndex = $state<number | null>(null)
   let isPerformingDetailSearch = $state(false)
 
-  // For the local filter bar
   let filterQuery = $state<{ text: string; tags: { key: string; value: string }[] }>({
     text: '',
     tags: []
@@ -106,7 +92,6 @@
     ...allAutocompleteSuggestions.tagKeys.map((k) => `tags.${k}`)
   ])
   let selectedItemForDetailView: LibraryItem | null = $state(null)
-  let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
   let activeModal = $state<ActiveModal | null>(null)
   let settings = $state<Settings | null>(null)
 
@@ -127,32 +112,20 @@
   // ---
 
   const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
-  const canGoBack = $derived(
-    selectedItemForDetailView !== null || viewStack.length > 1 || isGlobalSearchActive
-  )
+  const isDetailViewActive = $derived(selectedItemForDetailView !== null)
+  const canGoBack = $derived(isDetailViewActive || viewStack.length > 1 || isGlobalSearchActive)
 
-  const currentFolderClickAction = $derived(() => {
-    if (currentFolder?.childrenClickAction) return currentFolder.childrenClickAction
-    if (settings) {
-      switch (currentFolder?.mediaType) {
-        case 'movie':
-          return settings.defaultMovieViewSettings.clickAction
-        case 'tv':
-          return settings.defaultTvShowViewSettings.clickAction
-        case 'season':
-          return settings.defaultSeasonViewSettings.clickAction
-        default:
-          return settings.defaultViewSettings.clickAction
-      }
-    }
-    return 'detail'
-  })
+  const currentFolderClickAction = $derived(
+    resolveViewSettings(currentFolder, settings).settings.clickAction
+  )
 
   const folderToConfigureLayout = $derived(
     selectedItemForDetailView?.type === 'folder'
       ? (selectedItemForDetailView as MediaFolder)
       : currentFolder
   )
+
+  let appHeaderComponent = $state<any>()
 
   // This effect runs once on mount to fetch initial data
   $effect(() => {
@@ -169,6 +142,7 @@
       isScanning = false
     })
 
+    window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
     window.api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
     window.api.getSettings().then((s) => (settings = s))
 
@@ -185,7 +159,6 @@
           e
         )
         console.error('Original Error Message:', options)
-        // This is the last-resort fallback. It's ugly, but it guarantees the user sees the error.
         alert(`[ERROR] ${options.title}\n\n${options.message}\n\n${options.detail ?? ''}`)
       }
     })
@@ -196,14 +169,12 @@
     }
   })
 
-  // This effect is reactive and will update the CSS variable whenever the settings change
+  // This effect is reactive and will update the global default CSS variable whenever the settings change
   $effect(() => {
-    if (settings?.gridPosterSize) {
-      document.documentElement.style.setProperty(
-        '--grid-poster-size',
-        `${settings.gridPosterSize}px`
-      )
-    }
+    document.documentElement.style.setProperty(
+      '--grid-poster-size',
+      `${settings?.gridPosterSize ?? 200}px`
+    )
   })
 
   $effect(() => {
@@ -219,7 +190,11 @@
     // Hide filter bar when navigating to detail view or global search, and restore it when returning.
     if (selectedItemForDetailView || isGlobalSearchActive) {
       if (isFilterBarVisible) {
-        wasFilterBarVisible = true
+        const isFilterQueryEmpty = filterQuery.text.trim() === '' && filterQuery.tags.length === 0
+        // Only remember to restore the filter bar if it had content.
+        if (!isFilterQueryEmpty) {
+          wasFilterBarVisible = true
+        }
         isFilterBarVisible = false
       }
     } else {
@@ -232,37 +207,29 @@
 
   // --- Global Search Effect (No Debounce) ---
   $effect(() => {
-    // VERY IMPORTANT NOTE:
-    // This search is intentionally not debounced to provide instant feedback on
-    // local filesystems. When network-based sources (like Rclone/Jellyfin) are
-    // implemented, the search logic for those sources MUST be debounced to
-    // prevent excessive network requests and API calls. The current implementation
-    // would be highly inefficient over a network.
-
     const query = globalSearchQuery
-    if (isGlobalSearchActive) {
+    // Only perform search if the view is active AND the user is not in the middle of typing a tag.
+    if (isGlobalSearchActive && !isTypingGlobalTag) {
       isPerformingSearch = true
       selectedItemForDetailView = null
       const plainQuery = JSON.parse(JSON.stringify(query))
       window.api.performSearch(plainQuery).then((results) => {
         searchResults = results
         isPerformingSearch = false
-        highlightedSearchItemIndex = results.length > 0 ? 0 : null
+        highlightedGlobalSearchItemIndex = results.length > 0 ? 0 : null
       })
-    } else {
+    } else if (!isGlobalSearchActive) {
+      // Clear results if the search becomes inactive
       searchResults = []
       isPerformingSearch = false
-      highlightedSearchItemIndex = null
+      highlightedGlobalSearchItemIndex = null
     }
   })
 
   // --- Detail View Search Effect ---
   $effect(() => {
-    // VERY IMPORTANT NOTE: See the note on the global search effect. This search
-    // must also be debounced when network sources are added.
-
     const query = detailViewSearchQuery
-    if (selectedItemForDetailView && isDetailSearchActive) {
+    if (selectedItemForDetailView && isDetailSearchActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
       const plainQuery = JSON.parse(JSON.stringify(query))
       window.api.performSearch(plainQuery).then((results) => {
@@ -270,26 +237,10 @@
         isPerformingDetailSearch = false
         highlightedDetailSearchItemIndex = results.length > 0 ? 0 : null
       })
-    } else {
+    } else if (!isDetailSearchActive) {
       detailViewSearchResults = []
       isPerformingDetailSearch = false
       highlightedDetailSearchItemIndex = null
-    }
-  })
-
-  // Effect to close detail view search dropdown when clicking outside
-  $effect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const searchContainer = document.querySelector('.search-container')
-      if (searchContainer && !searchContainer.contains(event.target as Node)) {
-        detailViewSearchQuery = { text: '', tags: [] }
-      }
-    }
-    if (selectedItemForDetailView && isDetailSearchActive) {
-      window.addEventListener('click', handleClickOutside, { capture: true })
-    }
-    return () => {
-      window.removeEventListener('click', handleClickOutside, { capture: true })
     }
   })
 
@@ -297,119 +248,71 @@
     // Auto-highlight the first search result or clear highlight
     if (searchResults.length > 0) {
       if (
-        highlightedSearchItemIndex === null ||
-        highlightedSearchItemIndex >= searchResults.length
+        highlightedGlobalSearchItemIndex === null ||
+        highlightedGlobalSearchItemIndex >= searchResults.length
       ) {
-        highlightedSearchItemIndex = 0
+        highlightedGlobalSearchItemIndex = 0
       }
     } else {
-      highlightedSearchItemIndex = null
+      highlightedGlobalSearchItemIndex = null
     }
   })
 
-  // Set up a listener for real-time metadata updates from the main process.
-  $effect(() => {
-    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+  function handleItemUpdates(updatedItems: LibraryItem[]) {
+    for (const updatedItem of updatedItems) {
       if (updatedItem.isHidden) {
-        // The item was just hidden. We need to remove it from all visible lists.
-        if (selectedItemForDetailView?.id === updatedItem.id) {
-          goBack()
-        }
-
+        // --- Handle Hiding ---
+        if (selectedItemForDetailView?.id === updatedItem.id) goBack()
         const parentInStack = findParentOfItem(currentFolder, updatedItem.id)
         if (parentInStack) {
           parentInStack.children = parentInStack.children.filter((c) => c.id !== updatedItem.id)
-          viewStack = [...viewStack]
         }
-
         if (selectedItemForDetailView?.type === 'folder') {
           const parentInDetail = findParentOfItem(selectedItemForDetailView, updatedItem.id)
           if (parentInDetail) {
             parentInDetail.children = parentInDetail.children.filter((c) => c.id !== updatedItem.id)
-            selectedItemForDetailView = { ...selectedItemForDetailView }
           }
         }
-
         searchResults = searchResults.filter((r) => r.id !== updatedItem.id)
         detailViewSearchResults = detailViewSearchResults.filter((r) => r.id !== updatedItem.id)
-        return // Stop further processing for the hidden item.
+        continue // Skip to next item
       }
 
+      // --- Handle Updates ---
       updateCachedItem(updatedItem)
 
-      let wasHandledInView = false
-
-      // --- Case 1: A detail view is active. Check for updates there first. ---
-      if (selectedItemForDetailView) {
-        // A) Is the updated item the main subject of the detail view?
-        if (selectedItemForDetailView.id === updatedItem.id) {
-          selectedItemForDetailView = { ...selectedItemForDetailView, ...updatedItem }
-          wasHandledInView = true
-        }
-        // B) Is the updated item a descendant of the detail view item?
-        else if (selectedItemForDetailView.type === 'folder') {
-          // Recursively find the parent of the updated item within the detail view's data structure.
-          const parentInDetailView = findParentOfItem(selectedItemForDetailView, updatedItem.id)
-          if (parentInDetailView) {
-            const childIndex = parentInDetailView.children.findIndex((c) => c.id === updatedItem.id)
-            if (childIndex !== -1) {
-              // To trigger reactivity, we need to replace the children array, not just mutate it.
-              parentInDetailView.children = [
-                ...parentInDetailView.children.slice(0, childIndex),
-                updatedItem,
-                ...parentInDetailView.children.slice(childIndex + 1)
-              ]
-              // Then, trigger a top-level update on the detail view item to ensure Svelte
-              // re-renders the component tree and picks up the deep change.
-              selectedItemForDetailView = { ...selectedItemForDetailView }
-              wasHandledInView = true
-            }
-          }
-        }
+      // Find the item in the detail view tree and update its properties in place.
+      const itemInDetailTree =
+        selectedItemForDetailView?.type === 'folder'
+          ? findItemInTree(selectedItemForDetailView, updatedItem.id)
+          : null
+      if (selectedItemForDetailView?.id === updatedItem.id) {
+        Object.assign(selectedItemForDetailView, updatedItem)
+      } else if (itemInDetailTree) {
+        Object.assign(itemInDetailTree, updatedItem)
       }
 
-      // --- Case 2: Update the main grid/list view if not handled by detail view. ---
-      if (!wasHandledInView && currentFolder) {
-        // A) Is the updated item the folder being viewed itself? (e.g., layout change)
-        if (currentFolder.id === updatedItem.id) {
-          // To trigger reactivity, we must replace the item in the viewStack array.
-          viewStack[viewStack.length - 1] = updatedItem as MediaFolder
-          viewStack = [...viewStack]
-        }
-        // B) Is the updated item a child of the current view?
-        else {
-          const parent = findParentOfItem(currentFolder, updatedItem.id)
-          if (parent) {
-            const itemIndex = parent.children.findIndex((child) => child.id === updatedItem.id)
-            if (itemIndex !== -1) {
-              // Replace the children array to trigger reactivity.
-              parent.children = [
-                ...parent.children.slice(0, itemIndex),
-                updatedItem,
-                ...parent.children.slice(itemIndex + 1)
-              ]
-              // Also trigger reactivity on the top-level view stack.
-              viewStack = [...viewStack]
-            }
-          }
-        }
+      // Find the item in the main view stack and update its properties in place.
+      const itemInViewStack = currentFolder ? findItemInTree(currentFolder, updatedItem.id) : null
+      if (currentFolder?.id === updatedItem.id) {
+        Object.assign(currentFolder, updatedItem)
+      } else if (itemInViewStack) {
+        Object.assign(itemInViewStack, updatedItem)
       }
 
-      // --- Case 3: Update search results list, if active. ---
+      // Update search results list, if active.
       const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
       if (indexInSearch > -1) {
         const itemInSearch = searchResults[indexInSearch]
-        // Update all relevant fields for the search result entry
         Object.assign(itemInSearch, {
           title: updatedItem.title ?? updatedItem.name,
           posterPath: updatedItem.posterPath,
           _v: updatedItem._v,
           watched: 'watched' in updatedItem ? updatedItem.watched : undefined
         })
-        searchResults = [...searchResults]
       }
 
-      // --- Case 4: Update the item in an active modal. ---
+      // Update the item in an active modal.
       if (
         (activeModal?.type === 'manualSearch' ||
           activeModal?.type === 'itemSettings' ||
@@ -417,11 +320,28 @@
           activeModal?.type === 'rename') &&
         activeModal.item.id === updatedItem.id
       ) {
-        // Re-create the modal object to ensure reactivity, passing the updated item.
-        activeModal = {
-          ...activeModal,
-          item: { ...activeModal.item, ...updatedItem }
-        }
+        Object.assign(activeModal.item, updatedItem)
+      }
+    }
+
+    // Trigger Svelte reactivity
+    viewStack = [...viewStack]
+    searchResults = [...searchResults]
+    if (selectedItemForDetailView) {
+      selectedItemForDetailView = { ...selectedItemForDetailView }
+    }
+    if (activeModal) {
+      activeModal = { ...activeModal }
+    }
+  }
+
+  // Set up a listener for real-time metadata updates from the main process.
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
+      handleItemUpdates([updatedItem])
+      // If an episode was marked as watched/unwatched, refresh the continue watching list.
+      if (updatedItem.type === 'file' && 'watched' in updatedItem) {
+        window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
       }
     })
     return () => unlisten()
@@ -431,61 +351,31 @@
   $effect(() => {
     const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
+      handleItemUpdates(updatedItems)
+    })
+    return () => unlisten()
+  })
 
-      for (const updatedItem of updatedItems) {
-        updateCachedItem(updatedItem)
-
-        let itemInTree: LibraryItem | null = null
-        for (const folder of viewStack) {
-          itemInTree = findItemInTree(folder, updatedItem.id)
-          if (itemInTree) break
-        }
-        if (itemInTree) Object.assign(itemInTree, updatedItem)
-
-        // Find and update item if it's the detail view subject or one of its descendants.
-        if (selectedItemForDetailView) {
-          if (selectedItemForDetailView.id === updatedItem.id) {
-            Object.assign(selectedItemForDetailView, updatedItem)
-          } else if (selectedItemForDetailView.type === 'folder') {
-            const itemInDetailTree = findItemInTree(selectedItemForDetailView, updatedItem.id)
-            if (itemInDetailTree) {
-              Object.assign(itemInDetailTree, updatedItem)
-            }
-          }
-        }
-        // Update item if it's in the current search results
-        const indexInSearch = searchResults.findIndex((i) => i.id === updatedItem.id)
-        if (indexInSearch > -1) {
-          const itemInSearch = searchResults[indexInSearch]
-          // Only update fields that exist on SearchIndexEntry
-          itemInSearch.title = updatedItem.title ?? updatedItem.name
-          itemInSearch.posterPath = updatedItem.posterPath
-          itemInSearch._v = updatedItem._v
-        }
-
-        // Also check if the updated item is being displayed in a modal
-        if (
-          (activeModal?.type === 'manualSearch' ||
-            activeModal?.type === 'itemSettings' ||
-            activeModal?.type === 'properties' ||
-            activeModal?.type === 'rename') &&
-          activeModal.item.id === updatedItem.id
-        ) {
-          // The item object in the modal is a copy, so we need to update it.
-          // We will trigger a top-level update after the loop.
-          Object.assign(activeModal.item, updatedItem)
+  // Listener for item deletion
+  $effect(() => {
+    const unlisten = window.api.onLibraryItemDeleted((deletedItemId) => {
+      log(`Received deletion event for item ${deletedItemId}`)
+      // This logic is similar to `isHidden`, but it's a permanent removal.
+      if (selectedItemForDetailView?.id === deletedItemId) goBack()
+      const parentInStack = findParentOfItem(currentFolder, deletedItemId)
+      if (parentInStack) {
+        parentInStack.children = parentInStack.children.filter((c) => c.id !== deletedItemId)
+      }
+      if (selectedItemForDetailView?.type === 'folder') {
+        const parentInDetail = findParentOfItem(selectedItemForDetailView, deletedItemId)
+        if (parentInDetail) {
+          parentInDetail.children = parentInDetail.children.filter((c) => c.id !== deletedItemId)
+          selectedItemForDetailView = { ...selectedItemForDetailView }
         }
       }
-
-      // Trigger reactivity after all items in the batch are processed
+      searchResults = searchResults.filter((r) => r.id !== deletedItemId)
+      detailViewSearchResults = detailViewSearchResults.filter((r) => r.id !== deletedItemId)
       viewStack = [...viewStack]
-      searchResults = [...searchResults]
-      if (selectedItemForDetailView) {
-        selectedItemForDetailView = { ...selectedItemForDetailView }
-      }
-      if (activeModal) {
-        activeModal = { ...activeModal }
-      }
     })
     return () => unlisten()
   })
@@ -597,14 +487,10 @@
       type: 'file',
       watched: item.watched
     }
-    // Call the main process to play the file and update the DB.
-    // The main process will now broadcast the 'library-item-updated' event
-    // via the proxy, which will be caught by the listener.
     await window.api.playFile(plainFile)
   }
 
   async function handleRevealItem(item: LibraryItem) {
-    // No path means it's probably a virtual item or from a remote source
     if (!item.path) {
       console.warn('Item has no path, cannot reveal.', item)
       return
@@ -612,11 +498,15 @@
     window.api.revealInExplorer(item.path)
   }
 
+  function handleDismissContinueWatching(showId: string) {
+    window.api.setContinueWatchingDismissed(showId)
+    continueWatchingItems = continueWatchingItems.filter((cw) => cw.show.id !== showId)
+  }
+
   async function handleApplyInitialSettings(
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ) {
     await window.api.applyInitialFolderSettings(settings)
-    // After applying, load and display the root of the library.
     const root = await window.api.getLibraryRoot()
     if (root) {
       primeCacheWithRoot(root)
@@ -646,7 +536,6 @@
 
     const success = await window.api.trashItem(item.path)
     if (success) {
-      // Refresh the library to reflect the deletion
       await handleRefresh()
     }
   }
@@ -661,6 +550,34 @@
     activeModal = { type: 'properties', item }
   }
 
+  async function handleMarkAsUnwatched(item: LibraryItem) {
+    await window.api.markAsUnwatched(item.id)
+  }
+
+  async function handleDeleteItemFromDb(item: LibraryItem) {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Database Deletion',
+      message: `Are you sure you want to permanently delete the record for "${
+        item.title ?? item.name
+      }" from the database?`,
+      detail:
+        'This only affects the library database, not the file on disk. This action cannot be undone.',
+      confirmText: 'Delete Record',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+    if (confirmed) {
+      await window.api.deleteItemFromDb(item.id)
+      // The `onLibraryItemDeleted` listener will handle UI updates.
+    }
+  }
+
+  function onContextMenuDeleteItemFromDb() {
+    if (contextMenuItem) {
+      handleDeleteItemFromDb(contextMenuItem)
+    }
+  }
+
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
@@ -670,33 +587,23 @@
       return
     }
 
-    // --- Is the click on an item INSIDE an active detail view? ---
     if (selectedItemForDetailView) {
       const parent = selectedItemForDetailView
-
-      // Special case: If we are in a detail view FOR THIS FILE, and we click it
-      // in the contents list, it must be a "play" action.
       if (selectedItemForDetailView.id === item.id && item.type === 'file') {
         handlePlayFile(loadedItem)
         return
       }
-
-      // Playable file click inside detail view
       if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
         handlePlayFile(loadedItem)
         return
       }
-
-      // It's a folder or special file that opens another detail view from within a detail view
       if (
         loadedItem.type === 'folder' &&
         (parent as MediaFolder).childrenClickAction === 'navigate'
       ) {
         drillDown(loadedItem as MediaFolder)
       } else {
-        // Default 'detail' action when drilling down
         lastDetailItem = parent
-        // The current detail view's item becomes part of the breadcrumb trail if it's a folder
         if (parent.type === 'folder') {
           viewStack.push(parent)
         }
@@ -706,37 +613,28 @@
       return
     }
 
-    // --- The click is from the main view (grid, list, etc.) or search results ---
-
-    // Playable file click from main view
     if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
       handlePlayFile(loadedItem)
       return
     }
-    // Tree view special case for playing files
     if (loadedItem.type === 'file' && (currentFolder?.layout ?? 'grid') === 'tree') {
       handlePlayFile(loadedItem)
       return
     }
-
-    // Main view folder navigation
     if (loadedItem.type === 'folder' && currentFolderClickAction === 'navigate') {
       handleNavigateFolder(loadedItem as MediaFolder)
       return
     }
 
-    // Default action from main view: open detail view
-    lastDetailItem = null // Important: reset lastDetailItem
-    // Pre-process the item before showing its detail page
+    lastDetailItem = null
     const processedItem = await window.api.getItemDetails(loadedItem.id)
     selectedItemForDetailView = processedItem ?? loadedItem
     detailViewSearchQuery = { text: '', tags: [] }
 
-    // If click was from search results, update highlight
     if (fromSearch) {
       const clickedIndex = searchResults.findIndex((sr) => sr.id === item.id)
       if (clickedIndex !== -1) {
-        highlightedSearchItemIndex = clickedIndex
+        highlightedGlobalSearchItemIndex = clickedIndex
       }
     }
   }
@@ -750,14 +648,18 @@
   function goBack(): void {
     if (!canGoBack) return
 
-    // If a detail view's search dropdown is active, just close it first.
     if (selectedItemForDetailView && isDetailSearchActive) {
       detailViewSearchQuery = { text: '', tags: [] }
       return
     }
 
     if (isGlobalSearchActive && !selectedItemForDetailView) {
-      globalSearchQuery = { text: '', tags: [] }
+      if (lastDetailItem) {
+        // We came from a detail page. Restore it.
+        selectedItemForDetailView = lastDetailItem
+        lastDetailItem = null
+      }
+      globalSearchQuery = { text: '', tags: [] } // In all cases, clear search
       return
     }
 
@@ -785,112 +687,110 @@
     // This can be implemented in the future to handle forward navigation.
   }
 
+  async function handleClearItemMetadata(item: LibraryItem) {
+    const isFolder = item.type === 'folder'
+    const isVirtual = (item as any).isVirtual === true
+    const message = isVirtual
+      ? `This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
+      : `This will permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
+
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Metadata Clearing',
+      message,
+      detail: 'This action cannot be undone.',
+      confirmText: 'Clear Metadata',
+      cancelText: 'Cancel',
+      confirmClass: 'danger'
+    })
+
+    if (!confirmed) return
+
+    if (isVirtual && item.type === 'folder') {
+      const childIds = item.children.map((c) => c.id)
+      await window.api.clearVirtualFolderMetadata(childIds)
+    } else {
+      await window.api.clearItemMetadata(item.id)
+    }
+    // The onLibraryItemUpdated/onLibraryItemsUpdated listeners will handle UI updates.
+  }
+
+  async function handleHideItemFromContext(item: LibraryItem) {
+    const confirmed = await dialogStore.showConfirmation({
+      title: 'Confirm Hide',
+      message: `Are you sure you want to hide "${item.title ?? item.name}"?`,
+      detail: "This is not a deletion. It can be unhidden from its parent folder's settings.",
+      confirmText: 'Hide Item',
+      cancelText: 'Cancel'
+    })
+
+    if (confirmed) {
+      const itemToUpdate = { ...JSON.parse(JSON.stringify(item)), isHidden: true }
+      await window.api.userUpdateItem(itemToUpdate)
+      // The onLibraryItemUpdated listener will handle UI updates.
+    }
+
+    async function handleDeleteItemFromDb(item: LibraryItem) {
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Database Deletion',
+        message: `Are you sure you want to permanently delete the record for "${
+          item.title ?? item.name
+        }" from the database?`,
+        detail:
+          'This only affects the library database, not the file on disk. This action cannot be undone.',
+        confirmText: 'Delete Record',
+        cancelText: 'Cancel',
+        confirmClass: 'danger'
+      })
+      if (confirmed) {
+        await window.api.deleteItemFromDb(item.id)
+        // The `onLibraryItemDeleted` listener will handle UI updates.
+      }
+    }
+  }
+
+  async function handleOpenLibrary(): Promise<void> {
+    const path = await window.api.selectLibraryDirectory()
+    if (path) {
+      await window.api.saveSettings({ libraryLocation: path })
+      // Reload the entire application to apply the new library path
+      window.location.reload()
+    }
+  }
+
   async function handleDetailSearchItemClick(item: SearchIndexEntry) {
-    // This click replaces the current detail view with a new one.
     const loadedItem = await getLoadedItem(item.id)
     if (!loadedItem) {
       console.error('Failed to load item from store:', item.id)
       return
     }
 
-    // Treat this as a navigation: the current item becomes the "last" one for back-button purposes.
     lastDetailItem = selectedItemForDetailView
-    // The viewStack logic for `lastDetailItem` expects a folder, so we only push if it is one.
-    // This is a simplification; a more robust solution might need a separate history stack.
     if (lastDetailItem?.type === 'folder') {
       viewStack.push(lastDetailItem as MediaFolder)
     }
 
     const processedItem = await window.api.getItemDetails(loadedItem.id)
     selectedItemForDetailView = processedItem ?? loadedItem
-    detailViewSearchQuery = { text: '', tags: [] } // This will hide the dropdown.
+    detailViewSearchQuery = { text: '', tags: [] }
   }
 
   function handleSearchByTag(key: string, value: string): void {
+    lastDetailItem = selectedItemForDetailView
     selectedItemForDetailView = null
     globalSearchQuery = { text: '', tags: [{ key, value }] }
-  }
-
-  function handleSearchKeyDown(event: KeyboardEvent) {
-    const autocompleteMenu = document.querySelector('.autocomplete-menu')
-    if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
-      return // Let autocomplete handle its own keyboard events
-    }
-
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      goBack()
-      return
-    }
-
-    const isDetailContext = !!selectedItemForDetailView
-    const items = isDetailContext ? detailViewSearchResults : searchResults
-    let highlightedIndex = isDetailContext
-      ? highlightedDetailSearchItemIndex
-      : highlightedSearchItemIndex
-
-    if (items.length === 0) return
-
-    let newIndex = highlightedIndex
-    let shouldPreventDefault = false
-
-    if (event.key === 'ArrowDown') {
-      shouldPreventDefault = true
-      if (highlightedIndex === null) {
-        newIndex = 0
-      } else {
-        newIndex = (highlightedIndex + 1) % items.length
-      }
-    } else if (event.key === 'ArrowUp') {
-      shouldPreventDefault = true
-      if (highlightedIndex === null || highlightedIndex === 0) {
-        newIndex = items.length - 1
-      } else {
-        newIndex--
-      }
-    } else if (event.key === 'Enter') {
-      shouldPreventDefault = true
-      if (highlightedIndex !== null) {
-        const selectedResult = items[highlightedIndex]
-        if (selectedResult) {
-          if (isDetailContext) {
-            handleDetailSearchItemClick(selectedResult)
-          } else {
-            handleItemClick(selectedResult)
-          }
-        }
-      }
-    }
-
-    if (shouldPreventDefault) {
-      event.preventDefault()
-    }
-
-    if (newIndex !== highlightedIndex) {
-      if (isDetailContext) {
-        highlightedDetailSearchItemIndex = newIndex
-      } else {
-        highlightedSearchItemIndex = newIndex
-      }
-    }
   }
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
       openSettings: () => (activeModal = { type: 'settings' }),
-      focusSearch: () => {
-        searchInputEl?.focus()
-        searchInputEl?.select()
-      },
+      focusSearch: () => appHeaderComponent?.focusSearchInput(),
       navigateBack: goBack,
       navigateForward: goForward,
       reloadLibrary: handleRefresh,
       showAndFocusFilterBar: () => {
         if (isFilterBarVisible) {
-          // If already visible, just increment the key to trigger a refocus.
           filterFocusKey++
         } else {
-          // Otherwise, make it visible. The effect in FilterBar will handle the initial focus.
           isFilterBarVisible = true
         }
       }
@@ -900,16 +800,12 @@
 
   function openLayoutSelector() {
     if (folderToConfigureLayout) {
-      const isMainViewContext = !selectedItemForDetailView
-      const defaultLayout = isMainViewContext
-        ? settings?.defaultFolderLayout ?? 'grid'
-        : getDefaultLayoutForDetailView(folderToConfigureLayout, settings)
-
+      const resolvedSettings = resolveViewSettings(folderToConfigureLayout, settings).settings
       activeModal = {
         type: 'itemSettings',
         item: folderToConfigureLayout,
         initialTab: 'view',
-        defaultLayout
+        defaultLayout: resolvedSettings.layout
       }
     }
   }
@@ -922,17 +818,14 @@
     event.preventDefault()
     event.stopPropagation()
 
-    // If it's a search result, we only have partial data.
-    // Fetch the full LibraryItem before showing the menu.
     if ('staticScore' in item) {
       const fullItem = await getLoadedItem(item.id)
       if (fullItem) {
         contextMenuItem = fullItem
       } else {
-        return // Can't show menu if full item fails to load
+        return
       }
     } else {
-      // It's already a full LibraryItem
       contextMenuItem = item
     }
 
@@ -945,6 +838,7 @@
 {#if activeModal}
   {#if activeModal.type === 'settings'}
     <SettingsModal
+      {settings}
       close={() => {
         const wasSettings = activeModal?.type === 'settings'
         activeModal = null
@@ -960,6 +854,7 @@
       initialTab={activeModal.initialTab}
       defaultLayout={activeModal.defaultLayout}
       {groupByKeys}
+      {settings}
       onClose={() => (activeModal = null)}
       onNeedRefresh={handleRefresh}
     />
@@ -982,11 +877,12 @@
       root={activeModal.root}
       onApply={handleApplyInitialSettings}
       onClose={() => {
-        // If user closes without applying, we still need to show the (un-fetched) library
         handleApplyInitialSettings([])
         activeModal = null
       }}
     />
+  {:else if activeModal.type === 'assignSeasons'}
+    <AssignSeasonsModal item={activeModal.item} onClose={() => (activeModal = null)} />
   {/if}
 {/if}
 
@@ -1006,49 +902,43 @@
     }}
     onEditMetadata={() => {
       if (contextMenuItem) {
-        const itemToConfigure = contextMenuItem as MediaFolder // Cast is safe
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
           item: contextMenuItem,
           initialTab: 'metadata',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}
     onSetLayout={() => {
       if (contextMenuItem?.type === 'folder') {
-        const itemToConfigure = contextMenuItem as MediaFolder
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
-          item: itemToConfigure,
+          item: contextMenuItem as MediaFolder,
           initialTab: 'view',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}
     onOpenFolderSettings={() => {
       if (contextMenuItem?.type === 'folder') {
-        const itemToConfigure = contextMenuItem as MediaFolder
-        const isMainViewContext = !selectedItemForDetailView && currentFolder?.id === itemToConfigure.id
-        const defaultLayout = isMainViewContext
-          ? settings?.defaultFolderLayout ?? 'grid'
-          : getDefaultLayoutForDetailView(itemToConfigure, settings)
-
+        const resolvedSettings = resolveViewSettings(
+          contextMenuItem as MediaFolder,
+          settings
+        ).settings
         activeModal = {
           type: 'itemSettings',
-          item: itemToConfigure,
+          item: contextMenuItem as MediaFolder,
           initialTab: 'folder',
-          defaultLayout
+          defaultLayout: resolvedSettings.layout
         }
       }
     }}
@@ -1087,9 +977,34 @@
         handleRenameItem(contextMenuItem)
       }
     }}
+    onMarkAsUnwatched={() => {
+      if (contextMenuItem) {
+        handleMarkAsUnwatched(contextMenuItem)
+      }
+    }}
     onShowProperties={() => {
       if (contextMenuItem) {
         handleShowProperties(contextMenuItem)
+      }
+    }}
+    onClearMetadata={() => {
+      if (contextMenuItem) {
+        handleClearItemMetadata(contextMenuItem)
+      }
+    }}
+    onHideItem={() => {
+      if (contextMenuItem) {
+        handleHideItemFromContext(contextMenuItem)
+      }
+    }}
+    onAssignSeasons={() => {
+      if (contextMenuItem?.type === 'folder') {
+        activeModal = { type: 'assignSeasons', item: contextMenuItem }
+      }
+    }}
+    onDeleteItemFromDb={() => {
+      if (contextMenuItem) {
+        handleDeleteItemFromDb(contextMenuItem)
       }
     }}
   />
@@ -1106,193 +1021,67 @@
   />
 {/if}
 
+{#if $autocompleteState.show}
+  <AutocompleteMenu
+    suggestions={$autocompleteState.suggestions}
+    position={$autocompleteState.position}
+    onSelect={$autocompleteState.onSelect}
+    onClose={() => autocompleteState.update((s) => ({ ...s, show: false }))}
+    activeIndex={$autocompleteState.activeIndex}
+  />
+{/if}
+
 <main>
-  <header class:in-detail-view={selectedItemForDetailView}>
-    <div class="header-content" class:no-drag={isContextMenuVisible}>
-      <div class="header-left">
-        <button class="back-button" class:hidden={!canGoBack} onclick={goBack} title="Go back">
-          ←
-        </button>
-        <!-- In detail view, the title is handled by the component itself -->
-        {#if !selectedItemForDetailView}
-          <h1>
-            {#if isGlobalSearchActive}
-              Search Results
-            {:else}
-              {currentFolder?.title ?? currentFolder?.name ?? 'Media Browser'}
-            {/if}
-          </h1>
-        {/if}
-      </div>
+  <AppHeader
+    bind:this={appHeaderComponent}
+    {canGoBack}
+    {isDetailViewActive}
+    {isGlobalSearchActive}
+    {currentFolder}
+    {isRefreshing}
+    {isScanning}
+    {isContextMenuVisible}
+    {folderToConfigureLayout}
+    suggestions={allAutocompleteSuggestions}
+    isPerformingGlobalSearch={isPerformingSearch}
+    globalSearchResults={searchResults}
+    {isPerformingDetailSearch}
+    detailSearchResults={detailViewSearchResults}
+    {isDetailSearchActive}
+    bind:globalSearchQuery
+    bind:detailViewSearchQuery
+    bind:highlightedGlobalSearchItemIndex
+    bind:highlightedDetailSearchItemIndex
+    on:back={goBack}
+    on:refresh={handleRefresh}
+    on:openSettings={() => (activeModal = { type: 'settings' })}
+    on:openLayoutSelector={openLayoutSelector}
+    on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+    on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
+    on:detailSearchItemClick={(e) => handleDetailSearchItemClick(e.detail.item)}
+    {settings}
+  />
 
-      <div class="search-container" onkeydown={handleSearchKeyDown}>
-        {#if selectedItemForDetailView}
-          <SearchInput
-            bind:query={detailViewSearchQuery}
-            suggestions={allAutocompleteSuggestions}
-            bind:element={searchInputEl}
-          />
-        {:else}
-          <SearchInput
-            bind:query={globalSearchQuery}
-            suggestions={allAutocompleteSuggestions}
-            bind:element={searchInputEl}
-          />
-        {/if}
-
-        {#if selectedItemForDetailView && (isDetailSearchActive || isPerformingDetailSearch)}
-          <div class="search-dropdown">
-            {#if isPerformingDetailSearch && detailViewSearchResults.length === 0}
-              <div class="dropdown-status">Searching...</div>
-            {:else if detailViewSearchResults.length > 0}
-              <ListView
-                items={detailViewSearchResults}
-                onItemClick={handleDetailSearchItemClick}
-                onShowContextMenu={(item, e) => handleShowContextMenu(item, e, { layout: 'list' })}
-                highlightedIndex={highlightedDetailSearchItemIndex}
-                fixedAspectRatio={true}
-              />
-            {:else if !isPerformingDetailSearch}
-              <div class="dropdown-status">No results found.</div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      <div class="header-right">
-        {#if !selectedItemForDetailView}
-          <button
-            onclick={handleRefresh}
-            disabled={isRefreshing || isScanning}
-            title="Refresh Library (F5)"
-            class="refresh-button"
-          >
-            <span class:reloading={isRefreshing}>⟳</span>
-          </button>
-        {/if}
-        {#if folderToConfigureLayout}
-          <button onclick={openLayoutSelector} title="Set View Layout" class="layout-button">
-            <!-- A simple layout icon -->
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-            </svg>
-          </button>
-          <button
-            onclick={(e) => handleShowContextMenu(folderToConfigureLayout, e)}
-            title="More options..."
-            class="more-options-button"
-          >
-            <!-- vertical ellipsis icon -->
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 4 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              ><path
-                d="M2 4C3.10457 4 4 3.10457 4 2C4 0.895431 3.10457 0 2 0C0.895431 0 0 0.895431 0 2C0 3.10457 0.895431 4 2 4Z"
-                fill="currentColor"
-              /><path
-                d="M2 10C3.10457 10 4 9.10457 4 8C4 6.89543 3.10457 6 2 6C0.895431 6 0 6.89543 0 8C0 9.10457 0.895431 10 2 10Z"
-                fill="currentColor"
-              /><path
-                d="M2 16C3.10457 16 4 15.1046 4 14C4 12.8954 3.10457 12 2 12C0.895431 12 0 12.8954 0 14C0 15.1046 0.895431 16 2 16Z"
-                fill="currentColor"
-              /></svg
-            >
-          </button>
-        {/if}
-        <button
-          onclick={() => (activeModal = { type: 'settings' })}
-          title="Settings"
-          class="settings-button">⚙️</button
-        >
-      </div>
-    </div>
-    <WindowControls />
-  </header>
-
-  <div class="content">
-    {#if isScanning}
-      <!-- <p class="status-text">Loading library...</p> -->
-    {:else if !currentFolder && !isGlobalSearchActive}
-      <div class="welcome-screen">
-        <h2>Welcome to Media Browser</h2>
-        <p>To get started, scan a folder containing your media.</p>
-        <button onclick={handleScan}>Select Media Folder</button>
-      </div>
-    {:else}
-      <div class="main-view-container" class:hidden={selectedItemForDetailView}>
-        <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
-        <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
-          <div class="search-header">
-            {#if isPerformingSearch}
-              <span>Searching...</span>
-            {:else}
-              <span>Found {searchResults.length} results.</span>
-            {/if}
-          </div>
-          <div class="search-content-wrapper">
-            {#if searchResults.length > 0}
-              <MediaView
-                items={searchResults}
-                onItemClick={handleItemClick}
-                layout="list"
-                onShowContextMenu={handleShowContextMenu}
-                suggestions={allAutocompleteSuggestions}
-                highlightedIndex={highlightedSearchItemIndex}
-                isPreSorted={true}
-                grayOutWatched={false}
-                listFixedAspectRatio={true}
-              />
-            {:else if !isPerformingSearch}
-              <p class="status-text">No results found.</p>
-            {/if}
-          </div>
-        </div>
-
-        <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
-        {#if currentFolder}
-        <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
-          <div class="folder-content-wrapper">
-            <MediaView
-              parentItem={currentFolder}
-              items={currentFolder.children}
-              searchQuery={filterQuery}
-              onItemClick={handleItemClick}
-              onShowContextMenu={handleShowContextMenu}
-              suggestions={allAutocompleteSuggestions}
-              {settings}
-            />
-          </div>
-        </div>
-        {/if}
-      </div>
-
-      {#if selectedItemForDetailView && settings}
-        <ItemDetail
-          item={selectedItemForDetailView}
-          onItemClick={handleItemClick}
-          onSearchByTag={handleSearchByTag}
-          showContextMenu={handleShowContextMenu}
-          {settings}
-        />
-      {/if}
-    {/if}
-  </div>
+  <MainView
+    {isScanning}
+    {continueWatchingItems}
+    {currentFolder}
+    {isGlobalSearchActive}
+    {searchResults}
+    {isPerformingSearch}
+    highlightedSearchItemIndex={highlightedGlobalSearchItemIndex}
+    {selectedItemForDetailView}
+    {filterQuery}
+    suggestions={allAutocompleteSuggestions}
+    {settings}
+    on:scanLibrary={handleScan}
+    on:openLibrary={handleOpenLibrary}
+    on:itemClick={(e) => handleItemClick(e.detail.item)}
+    on:showContextMenu={(e) =>
+      handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+    on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+    on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+  />
 
   {#if isFilterBarVisible}
     <FilterBar
@@ -1309,38 +1098,6 @@
 </main>
 
 <style>
-  .search-container {
-    display: flex;
-    justify-content: center;
-    min-width: 0; /* Let the child dictate min-width */
-    position: relative;
-    /* This shift is no longer needed with the new layout */
-    /* left: 50px; */
-  }
-
-  .search-dropdown {
-    position: absolute;
-    top: calc(100% + 5px); /* Position below the search input */
-    left: 0;
-    right: 0;
-    z-index: 200;
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 8px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-    max-height: 70vh;
-    overflow-y: auto;
-    /* The ListView inside will need some padding */
-  }
-  .search-dropdown :global(.media-list) {
-    padding: 0.5rem;
-  }
-  .dropdown-status {
-    padding: 2rem;
-    text-align: center;
-    color: var(--ev-c-text-2);
-  }
-
   main {
     --header-height: 54px;
     display: flex;
@@ -1348,169 +1105,5 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-  }
-
-  header {
-    display: flex;
-    border-bottom: 1px solid var(--color-background-mute);
-    height: var(--header-height);
-    flex-shrink: 0;
-    transition: background-color 0.3s ease;
-    position: relative;
-    z-index: 10;
-  }
-
-  header.in-detail-view {
-    background-color: transparent;
-    border-bottom: none;
-  }
-
-  .header-content {
-    flex-grow: 1;
-    display: grid;
-    /* The middle column will be at least its min-content size, but no more than 1000px. */
-    /* The side columns take up the remaining space equally, ensuring stability. */
-    grid-template-columns: 1fr minmax(auto, 1000px) 1fr;
-    align-items: center;
-    gap: 1.5rem;
-    padding: 0 1.5rem;
-    -webkit-app-region: drag;
-  }
-
-  .header-left,
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .header-left {
-    overflow: hidden; /* For long folder names */
-    justify-self: start;
-  }
-
-  .header-right {
-    justify-self: end;
-  }
-
-  h1 {
-    font-size: 1.2rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .back-button,
-  .refresh-button,
-  .layout-button,
-  .more-options-button,
-  .settings-button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 1.2rem;
-    line-height: 1;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .settings-button,
-  .layout-button,
-  .more-options-button {
-    background-color: var(--ev-button-alt-bg);
-    color: var(--ev-c-text-1);
-  }
-
-  .back-button.hidden {
-    visibility: hidden;
-  }
-
-  .welcome-screen button {
-    flex-shrink: 0;
-  }
-
-  .content {
-    flex-grow: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    scrollbar-gutter: stable;
-    position: relative; /* Needed for the absolute positioned detail view */
-  }
-
-  .main-view-container {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    position: relative; /* For stacking contexts */
-  }
-  .main-view-container.hidden {
-    visibility: hidden;
-  }
-
-  .view-wrapper {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-  .view-wrapper.hidden {
-    visibility: hidden;
-  }
-
-  .folder-content-wrapper,
-  .search-content-wrapper {
-    flex-grow: 1;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-  }
-
-  .search-content-wrapper :global(.media-list) {
-    max-width: 1000px;
-    margin: 0 auto;
-  }
-
-  .search-header {
-    padding: 0.5rem 1.5rem;
-    font-style: italic;
-    color: var(--ev-c-text-2);
-    border-bottom: 1px solid var(--color-background-mute);
-    flex-shrink: 0;
-  }
-
-  .welcome-screen,
-  .status-text {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 1rem;
-    padding: 2rem;
-    text-align: center;
-  }
-
-  /* --- Refresh Button Animation --- */
-  .reloading {
-    display: inline-block;
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* Temporarily disable dragging on the header when a context menu is open */
-  .header-content.no-drag {
-    -webkit-app-region: no-drag;
   }
 </style>
