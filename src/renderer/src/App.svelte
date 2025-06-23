@@ -839,14 +839,16 @@
   {#if activeModal.type === 'settings'}
     <SettingsModal
       {settings}
-      close={() => {
+      on:close={() => {
         const wasSettings = activeModal?.type === 'settings'
         activeModal = null
         if (wasSettings) {
           window.api.getSettings().then((s) => (settings = s))
         }
       }}
-      scanLibrary={handleScan}
+      on:fullRescanCompleted={(e) => {
+        activeModal = { type: 'initialFolderSettings', root: e.detail.root }
+      }}
     />
   {:else if activeModal.type === 'itemSettings'}
     <ItemSettingsModal

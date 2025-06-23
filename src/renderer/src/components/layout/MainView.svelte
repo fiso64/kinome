@@ -18,6 +18,7 @@
     settings
   }: {
     isScanning: boolean
+    continueWatchingItems: ContinueWatchingItem[]
     currentFolder: MediaFolder | null
     isGlobalSearchActive: boolean
     searchResults: SearchIndexEntry[]
@@ -75,7 +76,7 @@
       </div>
     </div>
   {:else}
-    <div class="main-view-container" class:hidden={selectedItemForDetailView}>
+  <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
       <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
         <div class="search-header">
@@ -112,13 +113,19 @@
             <HomeView
               {continueWatchingItems}
               parentItem={currentFolder}
-              onItemClick={(item) => dispatch('itemClick', { item })}
-              onShowContextMenu={(item, e, options) =>
-                dispatch('showContextMenu', { item, event: e, options })}
+              on:itemClick={(e) => dispatch('itemClick', { item: e.detail.item })}
+              on:showContextMenu={(e) =>
+                dispatch('showContextMenu', {
+                  item: e.detail.item,
+                  event: e.detail.event,
+                  options: e.detail.options
+                })}
               on:dismissContinueWatching={(e) =>
                 dispatch('dismissContinueWatching', { showId: e.detail.showId })}
               {suggestions}
               {settings}
+              on:scanLibrary={() => dispatch('scanLibrary')}
+              on:openLibrary={() => dispatch('openLibrary')}
             />
           {:else}
             <div class="folder-content-wrapper">

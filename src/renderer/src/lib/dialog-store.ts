@@ -36,6 +36,7 @@ function closeDialog(value: any) {
 // Public API for the store
 export const dialogStore = {
   subscribe,
+  showDialog,
   close: closeDialog, // For closing via Escape key or backdrop click
   showConfirmation: (options: {
     title: string

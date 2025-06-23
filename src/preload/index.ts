@@ -22,7 +22,10 @@ const api = {
     tags: { key: string; value: string }[]
   }): Promise<any> => ipcRenderer.invoke('debug-perform-search', query),
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
-  scanLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('scan-library'),
+  performInitialScan: (): Promise<MediaFolder | null> =>
+    ipcRenderer.invoke('perform-initial-scan'),
+  performFullRescan: (newPath: string): Promise<MediaFolder | null> =>
+    ipcRenderer.invoke('perform-full-rescan', newPath),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
@@ -106,6 +109,8 @@ const api = {
     ipcRenderer.invoke('get-item-properties', path),
   selectLibraryDirectory: (): Promise<string | null> =>
     ipcRenderer.invoke('select-library-directory'),
+  selectMediaSourceDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke('select-media-source-directory'),
 
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('get-settings'),
@@ -113,6 +118,8 @@ const api = {
     ipcRenderer.invoke('get-library-media-source-path'),
   saveSettings: (settings: Partial<Settings>): Promise<void> =>
     ipcRenderer.invoke('save-settings', settings),
+  saveMediaSourcePath: (newPath: string): Promise<void> =>
+    ipcRenderer.invoke('save-media-source-path', newPath),
 
   // Window Controls
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),

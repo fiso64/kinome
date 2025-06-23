@@ -33,10 +33,12 @@ declare global {
         tags: { key: string; value: string }[]
       }) => Promise<any>
       getLibraryRoot: () => Promise<MediaFolder | null>
-      scanLibrary: () => Promise<MediaFolder | null> // Used to set a new library path
+      performInitialScan: () => Promise<MediaFolder | null>
+      performFullRescan: (newPath: string) => Promise<MediaFolder | null>
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
       // Settings
       getSettings: () => Promise<Settings>
+      saveMediaSourcePath: (newPath: string) => Promise<void>
       getLibraryMediaSourcePath: () => Promise<string | null>
       saveSettings: (settings: Partial<Settings>) => Promise<void>
       // Data
@@ -95,6 +97,7 @@ declare global {
       renameItem: (oldPath: string, newName: string) => Promise<boolean>
       getItemProperties: (path: string) => Promise<any | null>
       selectLibraryDirectory: () => Promise<string | null>
+      selectMediaSourceDirectory: () => Promise<string | null>
       // Window
       minimizeWindow: () => void
       toggleMaximizeWindow: () => void

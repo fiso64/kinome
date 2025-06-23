@@ -1407,6 +1407,12 @@ export function setupLibraryIpc(): void {
 
     if (!db || !db.root || !mediaSourcePath) {
       log('Cannot refresh, no library configured.')
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Refresh Failed',
+        message: 'Cannot refresh the library.',
+        detail:
+          'The library database or media source path has not been configured yet. Please set it up in Settings.'
+      })
       return null
     }
 
@@ -1415,6 +1421,18 @@ export function setupLibraryIpc(): void {
     const t0 = performance.now()
 
     try {
+      try {
+        await fs.access(mediaSourcePath)
+      } catch (e) {
+        log(`Media source path not found: ${mediaSourcePath}`)
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Refresh Failed',
+          message: 'The configured media source path could not be found.',
+          detail: `Path: ${mediaSourcePath}`
+        })
+        return db?.root ? createShallowClonableCopy(db.root) : null // Return current state without changing anything
+      }
+
       setBulkUpdateStatus(true)
 
       // Start the recursive sync process. This modifies the existing `db.root` in place.
@@ -1468,7 +1486,7 @@ export function setupLibraryIpc(): void {
     }
   })
 
-  ipcMain.handle('scan-library', async () => {
+  ipcMain.handle('perform-initial-scan', async () => {
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
 
@@ -1548,6 +1566,85 @@ export function setupLibraryIpc(): void {
       console.error('Failed to scan directory:', error)
       return null
     }
+  })
+
+  ipcMain.handle('perform-full-rescan', async (_, mediaSourcePath: string) => {
+    if (!mediaSourcePath) {
+      console.error('Full rescan called without a mediaSourcePath.')
+      return null
+    }
+
+    console.log(`Starting full rescan of: ${mediaSourcePath}`)
+
+    try {
+      const settings = await readSettings()
+      let pathToSave = mediaSourcePath
+      if (settings.mediaSourcePathIsRelative) {
+        const libraryPath = getLibraryDataPath()
+        let relativePath = path.relative(path.dirname(libraryPath), mediaSourcePath)
+        relativePath = relativePath.replace(/\\/g, '/')
+        if (relativePath === '') {
+          pathToSave = '.'
+        } else if (relativePath.startsWith('../')) {
+          pathToSave = relativePath
+        } else {
+          pathToSave = './' + relativePath
+        }
+      }
+      await writeLibrarySettings({ mediaSourcePath: pathToSave })
+
+      const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
+
+      setBulkUpdateStatus(true)
+      const newDb: Database = {
+        version: DB_VERSION,
+        root: rootNode
+      }
+
+      if (rootNode) {
+        applyVirtualTagsToAllItems(rootNode, settings)
+      }
+      setBulkUpdateStatus(false)
+
+      await writeDb(newDb)
+      console.log('Full rescan, DB write, and index build complete.')
+
+      if (db!.root) {
+        const deepCopy = JSON.parse(JSON.stringify(db!.root))
+        function filterHiddenRecursively(folder: MediaFolder) {
+          folder.children = folder.children.filter((child) => !child.isHidden)
+          folder.children.forEach((child) => {
+            if (child.type === 'folder') {
+              filterHiddenRecursively(child)
+            }
+          })
+        }
+        filterHiddenRecursively(deepCopy)
+        return deepCopy
+      }
+      return null
+    } catch (error) {
+      console.error('Failed to perform full rescan:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('save-media-source-path', async (_, newPath: string) => {
+    const settings = await readSettings()
+    let pathToSave = newPath
+    if (settings.mediaSourcePathIsRelative) {
+      const libraryPath = getLibraryDataPath()
+      let relativePath = path.relative(path.dirname(libraryPath), newPath)
+      relativePath = relativePath.replace(/\\/g, '/')
+      if (relativePath === '') {
+        pathToSave = '.'
+      } else if (relativePath.startsWith('../')) {
+        pathToSave = relativePath
+      } else {
+        pathToSave = './' + relativePath
+      }
+    }
+    await writeLibrarySettings({ mediaSourcePath: pathToSave })
   })
 
   ipcMain.handle('get-item-details', async (_, itemId: string): Promise<LibraryItem | null> => {

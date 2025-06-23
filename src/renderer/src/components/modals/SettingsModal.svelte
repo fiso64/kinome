@@ -1,16 +1,21 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
+  import { dialogStore } from '../../lib/dialog-store'
+  import { createEventDispatcher } from 'svelte'
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
   let {
-    close,
-    scanLibrary,
     settings
-  }: { close: () => void; scanLibrary: () => Promise<void>; settings: Settings | null } = $props()
+  }: { settings: Settings | null } = $props()
+
+  const dispatch = createEventDispatcher<{
+    close: void
+    fullRescanCompleted: { root: MediaFolder }
+  }>()
 
   type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
@@ -196,7 +201,7 @@
   }
 
   function handleCancel() {
-    close()
+    dispatch('close')
   }
 
   async function handleSave(): Promise<void> {
@@ -226,12 +231,41 @@
     if (wasLibLocationChanged) {
       window.location.reload()
     } else {
-      close()
+      dispatch('close')
     }
   }
 
   async function handleChangeLibrary() {
-    await scanLibrary()
+    const newPath = await window.api.selectMediaSourceDirectory()
+    if (!newPath) return
+
+    const choice = await dialogStore.showDialog({
+      title: 'Media Source Path Changed',
+      message: 'How do you want to apply this change?',
+      detail:
+        'A "Full Rescan" wipes all metadata and is for new libraries. "Rescan" updates the existing library from the new location, preserving metadata for matching files.',
+      buttons: [
+        { label: 'Do Nothing', value: 'nothing', class: 'secondary' },
+        { label: 'Full Rescan (Wipe)', value: 'full_rescan', class: 'danger' },
+        { label: 'Rescan (Sync)', value: 'rescan', class: 'primary' }
+      ]
+    })
+
+      if (choice === 'full_rescan') {
+        const root = await window.api.performFullRescan(newPath)
+        if (root) {
+          dispatch('fullRescanCompleted', { root })
+          // The modal is already closed by the parent, but we also dispatch to be safe
+          dispatch('close')
+        }
+      } else if (choice === 'rescan') {
+      await window.api.saveMediaSourcePath(newPath)
+      await window.api.refreshLibrary()
+    } else if (choice === 'nothing') {
+      await window.api.saveMediaSourcePath(newPath)
+    }
+
+    // After any action, update the displayed path.
     mediaSourcePath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
   }
 
@@ -321,8 +355,7 @@
           <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
         </div>
         <p class="help-text">
-          The folder containing your media files. Changing this will start a full re-scan of the new
-          location.
+          The folder containing your media files. Click 'Browse...' to select a new location.
         </p>
       </div>
       <div class="form-group">
