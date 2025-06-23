@@ -87,18 +87,18 @@
         </div>
         <div class="search-content-wrapper">
           {#if searchResults.length > 0}
-          <MediaView
-            items={searchResults}
-            onItemClick={(item) => dispatch('itemClick', { item })}
-            parentItem={searchParentItem}
-            onShowContextMenu={(item, e, options) =>
-              dispatch('showContextMenu', { item, event: e, options })}
-            {suggestions}
-            highlightedIndex={highlightedSearchItemIndex}
-            isPreSorted={true}
-            {settings}
-            listFixedAspectRatio={true}
-          />
+            <MediaView
+              items={searchResults}
+              onItemClick={(item) => dispatch('itemClick', { item })}
+              parentItem={searchParentItem}
+              onShowContextMenu={(item, e, options) =>
+                dispatch('showContextMenu', { item, event: e, options })}
+              {suggestions}
+              highlightedIndex={highlightedSearchItemIndex}
+              isPreSorted={true}
+              {settings}
+              listFixedAspectRatio={true}
+            />
           {:else if !isPerformingSearch}
             <p class="status-text">No results found.</p>
           {/if}

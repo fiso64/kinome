@@ -361,9 +361,7 @@
           <input type="checkbox" bind:checked={grayOutWatched} />
           <span>Grey out watched items in lists</span>
         </label>
-        <p class="help-text">
-          Reduces the opacity of items that have been marked as watched.
-        </p>
+        <p class="help-text">Reduces the opacity of items that have been marked as watched.</p>
       </div>
       <div class="form-group">
         <label class="checkbox-label">
