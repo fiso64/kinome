@@ -283,68 +283,70 @@
   })
 </script>
 
-<div
-  class="media-grid-container"
-  oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
->
-  {#if layout === 'grid'}
-    <GridView
-      items={itemsForViews}
-      {onItemClick}
-      {onShowContextMenu}
-      {grayOutWatched}
-      {parentItem}
-      {gridPosterSize}
-    />
-  {:else if layout === 'tree'}
-    <TreeView
-      items={itemsForViews}
-      {onItemClick}
-      {onShowContextMenu}
-      {grayOutWatched}
-      {parentItem}
-    />
-  {:else if layout === 'horizontal-grid'}
-    <HorizontalGridView
-      items={itemsForViews}
-      {onItemClick}
-      {onShowContextMenu}
-      {grayOutWatched}
-      {parentItem}
-      {gridPosterSize}
-      {showHorizontalScrollbar}
-    />
-  {:else if layout === 'list'}
-    <ListView
-      items={itemsForViews}
-      {onItemClick}
-      {onShowContextMenu}
-      {highlightedIndex}
-      {grayOutWatched}
-      {parentItem}
-      {listDescriptionRows}
-      fixedAspectRatio={listFixedAspectRatio}
-    />
-  {:else if layout === 'tabs'}
-    <TabsView
-      folders={foldersForTabsOrSections}
-      {onItemClick}
-      {onShowContextMenu}
-      {suggestions}
-      {grayOutWatched}
-      {settings}
-    />
-  {:else if layout === 'sections'}
-    <SectionsView
-      folders={foldersForTabsOrSections}
-      {onItemClick}
-      {onShowContextMenu}
-      {suggestions}
-      {grayOutWatched}
-      {settings}
-    />
-  {/if}
-</div>
+{#if settings}
+  <div
+    class="media-grid-container"
+    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+  >
+    {#if layout === 'grid'}
+      <GridView
+        items={itemsForViews}
+        {onItemClick}
+        {onShowContextMenu}
+        {grayOutWatched}
+        {parentItem}
+        {gridPosterSize}
+      />
+    {:else if layout === 'tree'}
+      <TreeView
+        items={itemsForViews}
+        {onItemClick}
+        {onShowContextMenu}
+        {grayOutWatched}
+        {parentItem}
+      />
+    {:else if layout === 'horizontal-grid'}
+      <HorizontalGridView
+        items={itemsForViews}
+        {onItemClick}
+        {onShowContextMenu}
+        {grayOutWatched}
+        {parentItem}
+        {gridPosterSize}
+        {showHorizontalScrollbar}
+      />
+    {:else if layout === 'list'}
+      <ListView
+        items={itemsForViews}
+        {onItemClick}
+        {onShowContextMenu}
+        {highlightedIndex}
+        {grayOutWatched}
+        {parentItem}
+        {listDescriptionRows}
+        fixedAspectRatio={listFixedAspectRatio}
+      />
+    {:else if layout === 'tabs'}
+      <TabsView
+        folders={foldersForTabsOrSections}
+        {onItemClick}
+        {onShowContextMenu}
+        {suggestions}
+        {grayOutWatched}
+        {settings}
+      />
+    {:else if layout === 'sections'}
+      <SectionsView
+        folders={foldersForTabsOrSections}
+        {onItemClick}
+        {onShowContextMenu}
+        {suggestions}
+        {grayOutWatched}
+        {settings}
+      />
+    {/if}
+  </div>
+{/if}
 
 <style>
   .media-grid-container {

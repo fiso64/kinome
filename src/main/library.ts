@@ -1196,12 +1196,12 @@ async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: M
     setBulkUpdateStatus(wasBulkUpdating)
   }
 
-    if (itemsToUpdate.length > 0) {
-      // We have mutated items in the DB, now we need to save and broadcast.
-      // We only update suggestions if we fetched a whole show's worth of episodes.
-      const updateSuggestions = !seasonFolder
-      await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions })
-    }
+  if (itemsToUpdate.length > 0) {
+    // We have mutated items in the DB, now we need to save and broadcast.
+    // We only update suggestions if we fetched a whole show's worth of episodes.
+    const updateSuggestions = !seasonFolder
+    await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions })
+  }
 }
 
 export async function reapplyVirtualTagsAfterSettingsChange() {
