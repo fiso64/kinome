@@ -8,9 +8,7 @@
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv {PATH} or "C:\\VLC\\vlc.exe" {PATH}'
 
-  let {
-    settings
-  }: { settings: Settings | null } = $props()
+  let { settings }: { settings: Settings | null } = $props()
 
   const dispatch = createEventDispatcher<{
     close: void
@@ -251,14 +249,14 @@
       ]
     })
 
-      if (choice === 'full_rescan') {
-        const root = await window.api.performFullRescan(newPath)
-        if (root) {
-          dispatch('fullRescanCompleted', { root })
-          // The modal is already closed by the parent, but we also dispatch to be safe
-          dispatch('close')
-        }
-      } else if (choice === 'rescan') {
+    if (choice === 'full_rescan') {
+      const root = await window.api.performFullRescan(newPath)
+      if (root) {
+        dispatch('fullRescanCompleted', { root })
+        // The modal is already closed by the parent, but we also dispatch to be safe
+        dispatch('close')
+      }
+    } else if (choice === 'rescan') {
       await window.api.saveMediaSourcePath(newPath)
       await window.api.refreshLibrary()
     } else if (choice === 'nothing') {

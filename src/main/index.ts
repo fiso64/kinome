@@ -135,10 +135,7 @@ app.whenReady().then(() => {
         // from relative to absolute
         const libPath = oldSettings.libraryLocation
         if (libPath) {
-          otherSettings.mediaSourcePath = resolvePath(
-            dirname(libPath),
-            oldSettings.mediaSourcePath
-          )
+          otherSettings.mediaSourcePath = resolvePath(dirname(libPath), oldSettings.mediaSourcePath)
         }
       }
     }

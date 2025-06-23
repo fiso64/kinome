@@ -22,8 +22,7 @@ const api = {
     tags: { key: string; value: string }[]
   }): Promise<any> => ipcRenderer.invoke('debug-perform-search', query),
   getLibraryRoot: (): Promise<MediaFolder | null> => ipcRenderer.invoke('get-library-root'),
-  performInitialScan: (): Promise<MediaFolder | null> =>
-    ipcRenderer.invoke('perform-initial-scan'),
+  performInitialScan: (): Promise<MediaFolder | null> => ipcRenderer.invoke('perform-initial-scan'),
   performFullRescan: (newPath: string): Promise<MediaFolder | null> =>
     ipcRenderer.invoke('perform-full-rescan', newPath),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),

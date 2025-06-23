@@ -76,7 +76,7 @@
       </div>
     </div>
   {:else}
-  <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
+    <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
       <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
         <div class="search-header">
