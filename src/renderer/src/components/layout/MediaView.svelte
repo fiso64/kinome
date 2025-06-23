@@ -1,5 +1,6 @@
 <script lang="ts">
   import GridView from '../views/GridView.svelte'
+  import HorizontalGridView from '../views/HorizontalGridView.svelte'
   import TreeView from '../views/TreeView.svelte'
   import TabsView from '../views/TabsView.svelte'
   import SectionsView from '../views/SectionsView.svelte'
@@ -8,7 +9,7 @@
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import { isTypingTag as isTypingTagHelper } from '../../lib/view-helpers'
 
-  type Layout = 'grid' | 'tree' | 'tabs' | 'sections' | 'list'
+  type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -49,23 +50,25 @@
     listFixedAspectRatio?: boolean
   } = $props()
 
-  const { layout, groupBy, gridPosterSize, listDescriptionRows } = $derived.by(() => {
-    // Resolve settings using the centralized helper function.
-    const resolved = resolveViewSettings(parentItem, settings).settings
+  const { layout, groupBy, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } =
+    $derived.by(() => {
+      // Resolve settings using the centralized helper function.
+      const resolved = resolveViewSettings(parentItem, settings).settings
 
-    // The `layoutProp` is a special, one-off override from a parent component (e.g., search results view).
-    // It should take precedence over all other resolved layout settings.
-    if (layoutProp) {
-      resolved.layout = layoutProp
-    }
+      // The `layoutProp` is a special, one-off override from a parent component (e.g., search results view).
+      // It should take precedence over all other resolved layout settings.
+      if (layoutProp) {
+        resolved.layout = layoutProp
+      }
 
-    return {
-      layout: resolved.layout,
-      groupBy: resolved.groupBy,
-      gridPosterSize: resolved.gridPosterSize,
-      listDescriptionRows: resolved.listDescriptionRows
-    }
-  })
+      return {
+        layout: resolved.layout,
+        groupBy: resolved.groupBy,
+        gridPosterSize: resolved.gridPosterSize,
+        listDescriptionRows: resolved.listDescriptionRows,
+        showHorizontalScrollbar: (resolved as any).showHorizontalScrollbar
+      }
+    })
 
   // --- Search Query Stability ---
   // This prevents the view from re-filtering while the user is in the middle of typing a tag.
@@ -300,6 +303,16 @@
       {onShowContextMenu}
       {grayOutWatched}
       {parentItem}
+    />
+  {:else if layout === 'horizontal-grid'}
+    <HorizontalGridView
+      items={itemsForViews}
+      {onItemClick}
+      {onShowContextMenu}
+      {grayOutWatched}
+      {parentItem}
+      {gridPosterSize}
+      {showHorizontalScrollbar}
     />
   {:else if layout === 'list'}
     <ListView

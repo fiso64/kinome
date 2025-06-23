@@ -125,6 +125,10 @@ async function readRawSettings(): Promise<Settings> {
           ...finalSettings.defaultLayoutSettings.grid,
           ...saved.defaultLayoutSettings?.grid
         },
+        'horizontal-grid': {
+          ...finalSettings.defaultLayoutSettings['horizontal-grid'],
+          ...saved.defaultLayoutSettings?.['horizontal-grid']
+        },
         list: {
           ...finalSettings.defaultLayoutSettings.list,
           ...saved.defaultLayoutSettings?.list

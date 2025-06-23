@@ -16,15 +16,17 @@
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
+    showHorizontalScrollbar = $bindable(),
     settings
   }: {
     item: MediaFolder & VirtualFolderProps
     groupByKeys: string[]
-    selectedLayout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    selectedLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
+    showHorizontalScrollbar?: boolean | null
     settings: Settings | null
   } = $props()
 </script>
@@ -37,5 +39,6 @@
   bind:selectedGroupBy
   bind:gridPosterSize
   bind:listDescriptionRows
+  bind:showHorizontalScrollbar
   {groupByKeys}
 />

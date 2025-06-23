@@ -9,6 +9,11 @@
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
+    {
+      value: 'horizontal-grid',
+      label: 'Horizontal Grid',
+      description: 'A horizontally scrolling poster grid.'
+    },
     { value: 'list', label: 'List', description: 'A detailed list with posters and info.' },
     { value: 'tree', label: 'Tree', description: 'Collapsible list view, good for files.' },
     { value: 'tabs', label: 'Tabs', description: 'Group children into tabs by metadata.' },
@@ -38,7 +43,7 @@
     typeKey,
     settings,
     // Config props
-    availableLayouts = ['grid', 'list', 'tree', 'tabs', 'sections'],
+    availableLayouts = ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'],
     showClickAction = true,
     groupByKeys,
     configMode = false,
@@ -48,7 +53,8 @@
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
-    listDescriptionRows = $bindable()
+    listDescriptionRows = $bindable(),
+    showHorizontalScrollbar = $bindable()
   }: {
     // Context props
     item?: MediaFolder
@@ -66,6 +72,7 @@
     selectedGroupBy?: string | null
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
+    showHorizontalScrollbar?: boolean | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
@@ -113,7 +120,14 @@
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
   const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
-  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null) // --- Group By ---
+  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null) // --- Horizontal Scrollbar ---
+
+  const defaultShowScrollbar = $derived(
+    (inheritedInfo.settings as any).showHorizontalScrollbar ??
+      LAYOUT_SPECIFIC_SETTINGS_CONFIG['horizontal-grid'].showHorizontalScrollbar
+  )
+  const effectiveShowScrollbar = $derived(showHorizontalScrollbar ?? defaultShowScrollbar)
+  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null) // --- Group By ---
 
   const defaultGroupBy = $derived(
     inheritedInfo.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
@@ -199,7 +213,7 @@
   {/if}
 
   <!-- Grid-specific settings -->
-  {#if layoutToShowOptionsFor === 'grid'}
+  {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid'}
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Grid Poster Size</h4>
@@ -230,6 +244,38 @@
         />
         <span>{effectiveGridSize}px</span>
       </div>
+    </div>
+  {/if}
+
+  <!-- Horizontal-Grid-specific settings -->
+  {#if layoutToShowOptionsFor === 'horizontal-grid'}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h4>Horizontal Scrollbar</h4>
+      {#if !configMode}
+        {#if isShowScrollbarOverridden}
+          <button class="link-button" onclick={() => (showHorizontalScrollbar = null)}
+            >Reset to default</button
+          >
+        {:else}
+          <span class="inherited-value-text-inline">
+            Using default from <strong
+              >{formatSource(inheritedInfo.sources.showHorizontalScrollbar)}</strong
+            >
+          </span>
+        {/if}
+      {/if}
+    </div>
+    <p class="help-text">Show a scrollbar when the content overflows horizontally.</p>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input
+          type="checkbox"
+          checked={effectiveShowScrollbar}
+          onchange={() => (showHorizontalScrollbar = !effectiveShowScrollbar)}
+        />
+        <span>Show horizontal scrollbar</span>
+      </label>
     </div>
   {/if}
 

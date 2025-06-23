@@ -8,6 +8,13 @@ export interface GridSettings {
 }
 
 /**
+ * Defines the shape of settings for a horizontal grid layout.
+ */
+export interface HorizontalGridSettings extends GridSettings {
+  showHorizontalScrollbar: boolean
+}
+
+/**
  * Defines the shape of settings specific to the 'list' layout.
  */
 export interface ListSettings {
@@ -24,7 +31,7 @@ export interface GroupingSettings {
 /**
  * A union of all possible layout-specific setting objects.
  */
-type LayoutSpecificSettings = GridSettings | GroupingSettings | ListSettings
+type LayoutSpecificSettings = GridSettings | HorizontalGridSettings | GroupingSettings | ListSettings
 
 /**
  * The single source of truth for layout-specific properties and their ultimate default values.
@@ -32,6 +39,7 @@ type LayoutSpecificSettings = GridSettings | GroupingSettings | ListSettings
  */
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   grid: { gridPosterSize: 250 },
+  'horizontal-grid': { gridPosterSize: 250, showHorizontalScrollbar: false },
   list: { listDescriptionRows: 3 },
   tabs: { groupBy: 'folder' },
   sections: { groupBy: 'folder' }
@@ -62,7 +70,7 @@ export const ALL_VIEW_OVERRIDE_KEYS: readonly string[] = [
  * Defines the core properties common to all views.
  */
 export interface BaseViewSettings {
-  layout: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  layout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
   clickAction: 'detail' | 'navigate'
 }
 
@@ -71,7 +79,7 @@ export interface BaseViewSettings {
  * It's a partial object containing only the user-defined *overrides*.
  */
 export type StoredViewSettings = Partial<
-  BaseViewSettings & GridSettings & GroupingSettings & ListSettings
+  BaseViewSettings & GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings
 >
 
 /**
@@ -104,8 +112,9 @@ export const DEFAULT_LAYOUTS_CONFIG = {
   movie: {
     label: 'Default Movie Contents View',
     help: 'The default view for the contents of a movie folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
       | 'grid'
+      | 'horizontal-grid'
       | 'list'
       | 'tree'
       | 'tabs'
@@ -116,8 +125,9 @@ export const DEFAULT_LAYOUTS_CONFIG = {
   tv: {
     label: 'Default TV Show Contents View',
     help: 'The default view for the contents of a TV show folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
       | 'grid'
+      | 'horizontal-grid'
       | 'list'
       | 'tree'
       | 'tabs'
@@ -128,8 +138,9 @@ export const DEFAULT_LAYOUTS_CONFIG = {
   season: {
     label: 'Default Season Contents View',
     help: 'The default view for the contents of a season folder on its detail page.',
-    availableLayouts: ['grid', 'list', 'tree', 'tabs', 'sections'] as (
+    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
       | 'grid'
+      | 'horizontal-grid'
       | 'list'
       | 'tree'
       | 'tabs'
@@ -158,6 +169,7 @@ export interface Settings {
   // Global defaults for layout-specific properties
   defaultLayoutSettings: {
     grid: GridSettings
+    'horizontal-grid': HorizontalGridSettings
     list: ListSettings
     tabs: GroupingSettings
     sections: GroupingSettings

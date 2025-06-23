@@ -70,6 +70,9 @@
   let listDescriptionRows = $state(
     (_isFolder ? (item as MediaFolder).listDescriptionRows : null) ?? null
   )
+  let showHorizontalScrollbar = $state(
+    (_isFolder ? (item as MediaFolder).showHorizontalScrollbar : null) ?? null
+  )
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
@@ -140,6 +143,7 @@
         updatedItem.layout = selectedLayout ?? undefined
         updatedItem.gridPosterSize = gridPosterSize ?? undefined
         updatedItem.listDescriptionRows = listDescriptionRows ?? undefined
+        updatedItem.showHorizontalScrollbar = showHorizontalScrollbar ?? undefined
         updatedItem.groupBy =
           selectedGroupBy === 'folder' || selectedGroupBy === null ? undefined : selectedGroupBy
         updatedItem.clickAction = selectedClickAction ?? undefined
@@ -232,6 +236,7 @@
         bind:selectedGroupBy
         bind:gridPosterSize
         bind:listDescriptionRows
+        bind:showHorizontalScrollbar
       />
     {:else if activeTab === 'folder' && isFolder}
       <FolderTab

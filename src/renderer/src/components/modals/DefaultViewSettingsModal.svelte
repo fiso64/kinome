@@ -19,7 +19,7 @@
     onClose: () => void
     onSave: (newSettings: StoredViewSettings) => void
     groupByKeys: string[]
-    availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+    availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
     settings: Settings | null
   } = $props()
@@ -29,6 +29,7 @@
   let selectedGroupBy = $state(initialSettings.groupBy)
   let gridPosterSize = $state(initialSettings.gridPosterSize)
   let listDescriptionRows = $state(initialSettings.listDescriptionRows)
+  let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
 
   function handleSave() {
     const newSettings: StoredViewSettings = {
@@ -36,7 +37,8 @@
       clickAction: selectedClickAction,
       groupBy: selectedGroupBy,
       gridPosterSize: gridPosterSize,
-      listDescriptionRows: listDescriptionRows
+      listDescriptionRows: listDescriptionRows,
+      showHorizontalScrollbar: showHorizontalScrollbar
     }
     // Remove undefined/null keys to keep stored settings clean
     Object.keys(newSettings).forEach(
@@ -60,6 +62,7 @@
     bind:selectedGroupBy
     bind:gridPosterSize
     bind:listDescriptionRows
+    bind:showHorizontalScrollbar
     {groupByKeys}
     {availableLayouts}
     {showClickAction}

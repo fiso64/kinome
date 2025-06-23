@@ -47,6 +47,7 @@
     <ViewConfigurator
       configMode={true}
       bind:gridPosterSize={localSettings.grid.gridPosterSize}
+      bind:showHorizontalScrollbar={localSettings['horizontal-grid'].showHorizontalScrollbar}
       bind:listDescriptionRows={localSettings.list.listDescriptionRows}
       bind:selectedGroupBy={sharedGroupBy}
       {groupByKeys}
