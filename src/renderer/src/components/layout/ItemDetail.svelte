@@ -569,7 +569,7 @@
   .section-title {
     font-size: 1.5rem;
     font-weight: bold;
-    border-bottom: 1px solid var(--color-background-mute);
+    /* border-bottom: 1px solid var(--color-background-mute); */
     padding-bottom: 0.5rem;
     margin-bottom: 0.5rem;
   }

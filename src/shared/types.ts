@@ -190,6 +190,7 @@ export interface MediaFile {
   path: string // Full path to the file
   type: 'file'
   watched?: boolean // User state, preserved
+  lastWatched?: number // Timestamp of when the item was last played
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string

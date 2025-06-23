@@ -1700,6 +1700,7 @@ export function setupLibraryIpc(): void {
     const itemInDb = findItemById(file.id, db.root)
     if (itemInDb && itemInDb.type === 'file') {
       itemInDb.watched = true
+      ;(itemInDb as MediaFile).lastWatched = Date.now()
       // if playing an episode, un-dismiss the show
       let parent = findParent(itemInDb.id, db.root)
       let show: MediaFolder | null = null
@@ -2085,8 +2086,9 @@ export function setupLibraryIpc(): void {
 
     const modifiedItems: LibraryItem[] = []
     function setUnwatchedRecursively(node: LibraryItem) {
-      if ('watched' in node && node.watched) {
+      if (node.type === 'file' && node.watched) {
         node.watched = false
+        node.lastWatched = undefined
         modifiedItems.push(node)
       }
       if (node.type === 'folder') {
@@ -2504,7 +2506,11 @@ export function setupLibraryIpc(): void {
       const getComparableEpisodeNumber = (ep: MediaFile) =>
         (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
 
-      const continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[] = []
+      const continueWatchingItems: {
+        show: MediaFolder
+        nextEpisode: MediaFile
+        lastWatched: number
+      }[] = []
 
       for (const [showId, show] of shows.entries()) {
         if (show.continueWatchingDismissed) continue
@@ -2535,13 +2541,22 @@ export function setupLibraryIpc(): void {
 
         if (nextUnwatchedEpisode) {
           await fetchEpisodeDataForContinueWatching(show, nextUnwatchedEpisode)
+          const lastWatchedTime = Math.max(
+            0,
+            ...watchedEpisodes.map((ep) => ep.lastWatched ?? 0)
+          )
           continueWatchingItems.push({
             show: createShallowClonableCopy(show) as MediaFolder,
-            nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
+            nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile,
+            lastWatched: lastWatchedTime
           })
         }
       }
+
+      // Sort by most recently watched and return only the show and episode.
       return continueWatchingItems
+        .sort((a, b) => b.lastWatched - a.lastWatched)
+        .map(({ show, nextEpisode }) => ({ show, nextEpisode }))
     }
   )
 
