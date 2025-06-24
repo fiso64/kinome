@@ -2517,7 +2517,7 @@ export function setupLibraryIpc(): void {
     }
   )
 
-  ipcMain.handle('reveal-in-explorer', async (_, relativePath: string) => {
+  ipcMain.on('reveal-in-explorer', async (_, relativePath: string) => {
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (mediaSourcePath) {
       const absolutePath = path.join(mediaSourcePath, relativePath)
@@ -2556,10 +2556,62 @@ export function setupLibraryIpc(): void {
     async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
       const mediaSourcePath = await getAbsoluteMediaSourcePath()
       if (!mediaSourcePath) return false
+      if (!db || !db.root) return false
+
+      function findItemByPath(p: string, node: MediaFolder): LibraryItem | null {
+        if (node.path === p) return node
+        if (!node.children) return null
+        for (const child of node.children) {
+          if (child.path === p) return child
+          if (child.type === 'folder') {
+            const found = findItemByPath(p, child)
+            if (found) return found
+          }
+        }
+        return null
+      }
+      const itemToRename = findItemByPath(relativeOldPath, db.root)
+      if (!itemToRename) {
+        console.error(`[Rename] Could not find item in DB: ${relativeOldPath}`)
+        return false
+      }
+
       const oldAbsolutePath = path.join(mediaSourcePath, relativeOldPath)
       const newAbsolutePath = path.join(path.dirname(oldAbsolutePath), newName)
+
       try {
         await fs.rename(oldAbsolutePath, newAbsolutePath)
+
+        setBulkUpdateStatus(true)
+
+        const parent = findParent(itemToRename.id, db.root)
+        if (!parent) {
+          setBulkUpdateStatus(false)
+          console.error(`[Rename] Could not find parent for item: ${itemToRename.name}`)
+          return false
+        }
+        const settings = await readSettings()
+
+        function updatePathsAndIds(item: LibraryItem, newParentPath: string) {
+          removeItemAndDescendantsFromIndex(item)
+
+          if (item.path === relativeOldPath) item.name = newName
+
+          item.path = path.join(newParentPath, item.name).replace(/\\/g, '/')
+          item.id = generateId(item.path)
+          item.virtualTags = evaluateVirtualTagsForItem(item, settings)
+
+          if (item.type === 'folder') {
+            item.children.forEach((child) => updatePathsAndIds(child, item.path))
+          }
+          updateIndexForItem(item)
+        }
+
+        updatePathsAndIds(itemToRename, parent.path === '.' ? '' : parent.path)
+
+        setBulkUpdateStatus(false)
+        await writeDb(db)
+
         return true
       } catch (error) {
         console.error(`Failed to rename from ${oldAbsolutePath} to ${newAbsolutePath}:`, error)
