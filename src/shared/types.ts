@@ -44,7 +44,7 @@ type LayoutSpecificSettings =
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   grid: { gridPosterSize: 250 },
   'horizontal-grid': { gridPosterSize: 250, showHorizontalScrollbar: false },
-  list: { listDescriptionRows: 3 },
+  list: { listDescriptionRows: 5 },
   tabs: { groupBy: 'folder' },
   sections: { groupBy: 'folder' }
 } as const
