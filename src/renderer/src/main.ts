@@ -10,6 +10,12 @@ const app = mount(App, {
   target: document.getElementById('app')!
 })
 
+// Listen for force reload message from main process
+window.api.onForceReloadForNewLibrary(() => {
+  console.log('[Renderer] Received force-reload-for-new-library. Reloading window...')
+  window.location.reload()
+})
+
 // Expose a more user-friendly debug function to the console
 window.debugSearch = async (query) => {
   let searchQuery: { text: string; tags: { key: string; value: string }[] }

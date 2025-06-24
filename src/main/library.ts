@@ -68,7 +68,7 @@ function applyVirtualTagsToAllItems(node: LibraryItem, settings: Settings) {
   }
 }
 
-async function loadDbIntoMemory(): Promise<void> {
+export async function loadDbIntoMemory(): Promise<void> {
   log('Attempting to load database from disk...')
   const rawDb = await readDb()
 

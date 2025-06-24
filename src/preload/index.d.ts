@@ -113,6 +113,8 @@ declare global {
       onShowErrorDialog: (
         callback: (options: { title: string; message: string; detail?: string }) => void
       ) => () => void
+      onForceReloadForNewLibrary: (callback: () => void) => () => void
+      onSettingsPossiblyUpdated: (callback: (newSettings: Settings) => void) => () => void
     }
   }
 }

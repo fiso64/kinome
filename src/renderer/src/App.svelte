@@ -163,9 +163,15 @@
       }
     })
 
+    const unlistenSettingsUpdated = window.api.onSettingsPossiblyUpdated((newSettings) => {
+      log('Received settings-possibly-updated event from main process.')
+      settings = newSettings
+    })
+
     return () => {
       unlistenSuggestions()
       unlistenErrors()
+      unlistenSettingsUpdated()
     }
   })
 

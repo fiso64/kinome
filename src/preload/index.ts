@@ -174,6 +174,21 @@ const api = {
     return () => {
       ipcRenderer.removeListener('show-error-dialog', listener)
     }
+  },
+  onForceReloadForNewLibrary: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('force-reload-for-new-library', listener)
+    return () => {
+      ipcRenderer.removeListener('force-reload-for-new-library', listener)
+    }
+  },
+  onSettingsPossiblyUpdated: (callback: (newSettings: Settings) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, newSettings: Settings): void =>
+      callback(newSettings)
+    ipcRenderer.on('settings-possibly-updated', listener)
+    return () => {
+      ipcRenderer.removeListener('settings-possibly-updated', listener)
+    }
   }
 }
 

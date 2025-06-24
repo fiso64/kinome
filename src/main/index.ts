@@ -5,7 +5,11 @@ import './startup'
 import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath, relative, dirname } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
-import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange } from './library'
+import {
+  setupLibraryIpc,
+  reapplyVirtualTagsAfterSettingsChange,
+  loadDbIntoMemory
+} from './library'
 import { getLibraryDataPath, setLibraryDataPath } from './paths'
 import { readSettings, writeLibrarySettings, writeGlobalSettings } from './settings'
 import type { Settings } from '../shared/types'
@@ -108,55 +112,101 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('save-settings', async (_, settingsToSave: Partial<Settings>) => {
-    const oldSettings = await readSettings()
-    const { libraryLocation, ...otherSettings } = settingsToSave
-
-    // Handle media path relativity conversion
-    const newRelativity = otherSettings.mediaSourcePathIsRelative
-    const oldRelativity = oldSettings.mediaSourcePathIsRelative
+    const oldSettings = await readSettings() // Reads combined settings of the CURRENT library
 
     if (
-      newRelativity !== undefined &&
-      newRelativity !== oldRelativity &&
-      oldSettings.mediaSourcePath
+      settingsToSave.libraryLocation !== undefined &&
+      settingsToSave.libraryLocation !== oldSettings.libraryLocation
     ) {
-      if (newRelativity === true) {
-        // from absolute to relative
-        const libPath = libraryLocation ?? oldSettings.libraryLocation
-        if (libPath) {
-          let relativePath = relative(dirname(libPath), oldSettings.mediaSourcePath)
-          relativePath = relativePath.replace(/\\/g, '/')
+      // --- Library Location IS Changing ---
+      console.log(
+        `[Main] Library location changing from "${oldSettings.libraryLocation}" to "${settingsToSave.libraryLocation}"`
+      )
+      await writeGlobalSettings({ libraryLocation: settingsToSave.libraryLocation })
+      setLibraryDataPath(settingsToSave.libraryLocation)
 
-          if (relativePath === '') {
-            otherSettings.mediaSourcePath = '.'
-          } else if (relativePath.startsWith('../')) {
-            otherSettings.mediaSourcePath = relativePath
-          } else {
-            otherSettings.mediaSourcePath = './' + relativePath
+      // The DB and settings for the new library will be loaded.
+      // Any other settings in `settingsToSave` are for the *old* library context
+      // and should NOT be written to the new library-settings.json at this stage.
+      await loadDbIntoMemory() // This will now use the new library path and read its settings.
+      console.log('[Main] New DB loaded. Forcing renderer reload.')
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('force-reload-for-new-library')
+      })
+      // IMPORTANT: Do not proceed to write other settings from settingsToSave.
+      // The renderer will reload and fetch fresh settings from the new library context.
+    } else {
+      // --- Library Location is NOT Changing (or not specified in settingsToSave) ---
+      // We are saving settings for the CURRENT library.
+      console.log('[Main] Saving settings for current library.')
+
+      // Create a copy of settingsToSave, excluding libraryLocation as it's global.
+      const { libraryLocation: discardedLibLoc, ...settingsForCurrentLibrary } = settingsToSave
+
+      // Handle media path relativity conversion for the CURRENT library
+      const newRelativity = settingsForCurrentLibrary.mediaSourcePathIsRelative
+      const oldRelativity = oldSettings.mediaSourcePathIsRelative // from current library's settings
+
+      if (
+        newRelativity !== undefined &&
+        newRelativity !== oldRelativity &&
+        oldSettings.mediaSourcePath // only convert if mediaSourcePath exists for current library
+      ) {
+        console.log(
+          `[Main] Converting mediaSourcePath relativity. New: ${newRelativity}, Old: ${oldRelativity}`
+        )
+        if (newRelativity === true) {
+          // from absolute to relative
+          if (oldSettings.libraryLocation) {
+            // Use current libraryLocation for conversion
+            let relativePath = relative(
+              dirname(oldSettings.libraryLocation),
+              oldSettings.mediaSourcePath
+            )
+            relativePath = relativePath.replace(/\\/g, '/')
+            settingsForCurrentLibrary.mediaSourcePath =
+              relativePath === ''
+                ? '.'
+                : relativePath.startsWith('../')
+                  ? relativePath
+                  : './' + relativePath
+            console.log(
+              `[Main] Converted to relative path: ${settingsForCurrentLibrary.mediaSourcePath}`
+            )
+          }
+        } else {
+          // from relative to absolute
+          if (oldSettings.libraryLocation) {
+            // Use current libraryLocation for conversion
+            settingsForCurrentLibrary.mediaSourcePath = resolvePath(
+              dirname(oldSettings.libraryLocation),
+              oldSettings.mediaSourcePath
+            )
+            console.log(
+              `[Main] Converted to absolute path: ${settingsForCurrentLibrary.mediaSourcePath}`
+            )
           }
         }
-      } else {
-        // from relative to absolute
-        const libPath = oldSettings.libraryLocation
-        if (libPath) {
-          otherSettings.mediaSourcePath = resolvePath(dirname(libPath), oldSettings.mediaSourcePath)
-        }
       }
-    }
 
-    if (libraryLocation !== undefined && libraryLocation !== oldSettings.libraryLocation) {
-      await writeGlobalSettings({ libraryLocation })
-      setLibraryDataPath(libraryLocation)
-    }
+      if (Object.keys(settingsForCurrentLibrary).length > 0) {
+        await writeLibrarySettings(settingsForCurrentLibrary) // Writes to current library's settings file
+      }
 
-    if (Object.keys(otherSettings).length > 0) {
-      await writeLibrarySettings(otherSettings)
-    }
-
-    const newSettings = await readSettings()
-
-    if (JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettings.virtualTags)) {
-      await reapplyVirtualTagsAfterSettingsChange()
+      // Check if virtual tags specifically changed and reapply
+      const newSettingsAfterSave = await readSettings() // Re-read to get the merged result
+      if (
+        JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettingsAfterSave.virtualTags)
+      ) {
+        console.log('[Main] Virtual tags changed, reapplying.')
+        await reapplyVirtualTagsAfterSettingsChange()
+      }
+      // After saving, we should also let the renderer know that settings might have updated,
+      // so it can re-fetch or react if necessary (e.g., TMDB API key change).
+      // A simple way is to send all new settings back, or a specific event.
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('settings-possibly-updated', newSettingsAfterSave)
+      })
     }
   })
 
