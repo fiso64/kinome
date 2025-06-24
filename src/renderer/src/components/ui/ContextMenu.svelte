@@ -382,7 +382,7 @@
             onclick={(e) => e.stopPropagation()}
           >
             <button class="context-menu-item" onclick={handleReveal}>
-              <span class="icon">↗️</span>
+              <span class="icon">📁</span>
               <span>Show in Explorer</span>
             </button>
             <button class="context-menu-item" onclick={handleRename}>

@@ -1812,10 +1812,10 @@ export function setupLibraryIpc(): void {
 
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
     // --- Phase 1: Launch Player ASAP ---
-    const { playerCommand } = await readSettings()
+    const { playerCommands } = await readSettings()
 
-    if (!playerCommand) {
-      console.error('Cannot play file: player command not configured.')
+    if (!playerCommands || playerCommands.length === 0 || !playerCommands[0].command) {
+      console.error('Cannot play file: no player commands configured or default command is empty.')
       BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
         title: 'Configuration Error',
         message: 'Player command is not configured. Please set it in Settings.'
@@ -1834,20 +1834,20 @@ export function setupLibraryIpc(): void {
     }
 
     const absolutePath = path.join(mediaSourcePath, file.path)
-    const command = playerCommand.replace('{PATH}', `${absolutePath}`)
+    // Use the first player command as the default
+    const commandToExecute = playerCommands[0].command.replace('{PATH}', `${absolutePath}`)
 
-    console.log(`Executing: ${command}`)
-    exec(command, (error) => {
+    console.log(`Executing: ${commandToExecute}`)
+    exec(commandToExecute, (error) => {
       if (error) {
         console.error(`Failed to execute player command: ${error.message}`)
         BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
           title: 'Player Error',
           message: 'Failed to launch the external player.',
-          detail: `Please check your player command in Settings.\n\nCommand: ${command}\nError: ${error.message}`
+          detail: `Please check your player command in Settings.\n\nCommand: ${commandToExecute}\nError: ${error.message}`
         })
       }
     })
-
     // --- Phase 2: Update Database in Background ---
     // Fire-and-forget the update logic.
     ;(async () => {

@@ -5,7 +5,9 @@
   import { createEventDispatcher } from 'svelte'
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
+  import PlayerCommandsModal from './PlayerCommandsModal.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
+  import type { PlayerCommandConfig } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv "{PATH}" or "C:\\VLC\\vlc.exe" "{PATH}"'
 
   let { settings }: { settings: Settings | null } = $props()
@@ -20,9 +22,10 @@
   let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
   let activeLayoutSettingsModal = $state(false)
+  let activePlayerCommandsModal = $state(false)
 
   // --- Form State ---
-  let playerCommand = $state('')
+  let playerCommands = $state<PlayerCommandConfig[]>([])
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
   let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
@@ -96,7 +99,7 @@
 
   $effect(() => {
     window.api.getSettings().then((settings) => {
-      playerCommand = settings.playerCommand ?? ''
+      playerCommands = JSON.parse(JSON.stringify(settings.playerCommands ?? []))
       tmdbApiKey = settings.tmdbApiKey
       useLogos = settings.useLogos
       creditsDisplay = settings.creditsDisplay
@@ -209,7 +212,7 @@
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
     await window.api.saveSettings({
-      playerCommand,
+      playerCommands: JSON.parse(JSON.stringify(playerCommands)),
       tmdbApiKey,
       useLogos,
       creditsDisplay,
@@ -293,6 +296,13 @@
   />
 {/if}
 
+{#if activePlayerCommandsModal}
+  <PlayerCommandsModal
+    bind:playerCommands
+    onClose={() => (activePlayerCommandsModal = false)}
+  />
+{/if}
+
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
     initialSettings={defaultLayoutSettings}
@@ -323,15 +333,40 @@
   <div class="tab-content">
     {#if activeTab === 'general'}
       <div class="form-group">
-        <label for="player-command">Player Command</label>
-        <input
-          type="text"
-          id="player-command"
-          bind:value={playerCommand}
-          placeholder={placeholderText}
-        />
+        <label for="player-command-display">Default Player Command</label>
+        <div class="path-display-container">
+          <input
+            type="text"
+            id="player-command-display"
+            value={playerCommands[0]?.command ?? ''}
+            oninput={(e) => {
+              const newCommand = (e.target as HTMLInputElement).value
+              if (playerCommands.length > 0) {
+                playerCommands[0].command = newCommand
+              } else {
+                // This case should ideally not happen if defaults are set,
+                // but as a fallback, create a new default command.
+                playerCommands = [
+                  { id: crypto.randomUUID(), name: 'Default Player', command: newCommand }
+                ]
+              }
+              playerCommands = [...playerCommands] // Trigger Svelte reactivity
+            }}
+            placeholder={placeholderText}
+            class:input-empty={!playerCommands[0]?.command}
+            style="flex-grow:1;"
+          />
+          <button
+            class="secondary"
+            onclick={() => (activePlayerCommandsModal = true)}
+            style="height: auto; align-self: stretch;"
+          >
+            Manage...
+          </button>
+        </div>
         <p class="help-text">
-          Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
+          The default player command. Click "Manage..." to add, remove, or reorder multiple player
+          configurations. Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
         </p>
       </div>
       <div class="form-group">
@@ -564,7 +599,7 @@
 
   .path-display-container {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.5rem; /* Restore gap */
     align-items: center;
   }
   .path-display {
@@ -583,9 +618,17 @@
     font-size: 0.9rem;
     white-space: nowrap;
     overflow-x: auto;
-    color: var(--ev-c-text-2);
+    color: var(--ev-c-text-2); /* This makes it look disabled */
     flex-grow: 1;
   }
+  /* Ensure the player command input looks like a normal input */
+  #player-command-display {
+    color: var(--color-text); /* Override the greyish text from .path-display */
+  }
+  #player-command-display.input-empty {
+     /* Optional: different style for empty state if needed */
+  }
+
 
   .virtual-tags-list {
     display: flex;

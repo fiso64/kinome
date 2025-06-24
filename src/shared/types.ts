@@ -169,6 +169,7 @@ export interface Settings {
   showContinueWatching: boolean
   showNextUp: boolean
   virtualTags?: { name: string; expression: string }[]
+  playerCommands: PlayerCommandConfig[] // Changed from playerCommand: string
   libraryLocation: string // The path to the library data directory.
   mediaSourcePath?: string
   mediaSourcePathIsRelative?: boolean
@@ -281,6 +282,12 @@ export interface MediaFolder extends StoredViewSettings {
 }
 
 export type LibraryItem = MediaFile | MediaFolder
+
+export interface PlayerCommandConfig {
+  id: string
+  name: string
+  command: string
+}
 
 export interface TmdbEpisode {
   episode_number: number
