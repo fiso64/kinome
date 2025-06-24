@@ -94,6 +94,7 @@ The goal is to expand source support and prepare for future growth.
         *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an IPC event to the renderer with the updated data (`BrowserWindow.getAllWindows().forEach(...)`).
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
     -  We will have to refactor the database structure to be relational (e.g a separate tmdb movies/shows/seasons table(s) instead of storing all that data in the folder node json) 
+    -  Test the new database with rclone remotes (most remotes should support random access reads). With and without `--vfs-cache-mode full`.
 *   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
