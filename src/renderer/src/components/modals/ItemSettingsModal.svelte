@@ -32,9 +32,15 @@
 
   const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
   const isFolder = $derived(item.type === 'folder') // Reactive derived value for the template
-  const isVirtual = $derived(item.isVirtual === true)
+  const isVirtual = $derived(item.isVirtual === true) // This derived value is fine for the template
 
-  let activeTab = $state(initialTab)
+  // For initializing `activeTab`, directly use the prop `item.isVirtual`
+  // to avoid the compiler warning about capturing the initial value of a derived signal.
+  let activeTab = $state(
+    item.isVirtual === true && (initialTab === 'metadata' || initialTab === 'folder')
+      ? 'view'
+      : initialTab
+  )
 
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
@@ -193,17 +199,21 @@
 <ModalWindow title={item.title ?? item.name} {onClose} onSave={handleSave} maxWidth="700px">
   {#snippet header()}
     <div class="tabs">
-      <button class:active={activeTab === 'metadata'} onclick={() => (activeTab = 'metadata')}>
-        Metadata
-      </button>
+      {#if !isVirtual}
+        <button class:active={activeTab === 'metadata'} onclick={() => (activeTab = 'metadata')}>
+          Metadata
+        </button>
+      {/if}
       {#if isFolder}
         <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>
           View
         </button>
-        <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
-          Settings
-        </button>
-      {:else}
+        {#if !isVirtual}
+          <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
+            Settings
+          </button>
+        {/if}
+      {:else if !isVirtual}
         <button class:active={activeTab === 'settings'} onclick={() => (activeTab = 'settings')}>
           Settings
         </button>
@@ -212,7 +222,7 @@
   {/snippet}
 
   <div class="scroll-area">
-    {#if activeTab === 'metadata'}
+    {#if activeTab === 'metadata' && !isVirtual}
       <MetadataTab
         {item}
         bind:title
@@ -238,7 +248,7 @@
         bind:listDescriptionRows
         bind:showHorizontalScrollbar
       />
-    {:else if activeTab === 'folder' && isFolder}
+    {:else if activeTab === 'folder' && isFolder && !isVirtual}
       <FolderTab
         item={item as MediaFolder}
         bind:retrieveChildrenMetadata
@@ -246,7 +256,7 @@
         bind:processTvChildren
         {onNeedRefresh}
       />
-    {:else if activeTab === 'settings' && !isFolder}
+    {:else if activeTab === 'settings' && !isFolder && !isVirtual}
       <FileTab />
     {/if}
   </div>

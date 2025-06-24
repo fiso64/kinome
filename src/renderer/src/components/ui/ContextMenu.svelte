@@ -257,41 +257,43 @@
     {/if}
 
     {#if item.type === 'folder'}
-      {#if !isVirtual}
-        <button
-          class="context-menu-item"
-          onclick={handleLayout}
-          onmouseenter={() => (activeSubmenu = null)}
-        >
-          <span class="icon">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-              <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
-              ></rect>
-            </svg>
-          </span>
-          <span>Set View...</span>
-        </button>
-      {/if}
+      <!-- "Set View..." is applicable to both physical and virtual folders -->
       <button
         class="context-menu-item"
-        onclick={handleFolderSettings}
+        onclick={handleLayout}
         onmouseenter={() => (activeSubmenu = null)}
       >
-        <span class="icon">⚙️</span>
-        <span>Folder Settings...</span>
+        <span class="icon">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+            ></rect>
+            <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+            ></rect>
+            <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+            ></rect>
+            <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"
+            ></rect>
+          </svg>
+        </span>
+        <span>Set View...</span>
       </button>
+      {#if !isVirtual}
+        <!-- "Folder Settings..." is only for physical folders -->
+        <button
+          class="context-menu-item"
+          onclick={handleFolderSettings}
+          onmouseenter={() => (activeSubmenu = null)}
+        >
+          <span class="icon">⚙️</span>
+          <span>Folder Settings...</span>
+        </button>
+      {/if}
     {/if}
     {#if item.type === 'file'}
       <button
@@ -327,18 +329,18 @@
             <span class="icon">👁️</span>
             <span>Mark as Unwatched</span>
           </button>
-          {#if item.mediaType === 'tv'}
+          {#if item.mediaType === 'tv' && !isVirtual}
             <button class="context-menu-item" onclick={handleAssignSeasons}>
               <span class="icon">🔢</span>
               <span>Assign Seasons & Episodes...</span>
             </button>
           {/if}
+          <div class="separator"></div>
+          <button class="context-menu-item danger" onclick={handleClearMetadata}>
+            <span class="icon">🔥</span>
+            <span>Clear Metadata...</span>
+          </button>
           {#if !isVirtual}
-            <div class="separator"></div>
-            <button class="context-menu-item danger" onclick={handleClearMetadata}>
-              <span class="icon">🔥</span>
-              <span>Clear Metadata...</span>
-            </button>
             <button class="context-menu-item danger" onclick={handleHideItem}>
               <span class="icon">🚫</span>
               <span>Hide Item...</span>
