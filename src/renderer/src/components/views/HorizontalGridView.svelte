@@ -69,6 +69,24 @@
       behavior: 'smooth'
     })
   }
+
+  function handleWheel(event: WheelEvent) {
+    if (!listElement) return
+    // If there's no horizontal overflow, do nothing.
+    if (listElement.scrollWidth <= listElement.clientWidth) return
+
+    const verticalScrollIntent = event.deltaY !== 0 && event.ctrlKey
+    const horizontalScrollIntent = event.deltaX !== 0 // Native horizontal trackpad/mouse scroll
+
+    if (verticalScrollIntent || horizontalScrollIntent) {
+      event.preventDefault()
+      let scrollAmount = event.deltaX // Start with native horizontal scroll
+      if (verticalScrollIntent) {
+        scrollAmount += event.deltaY // Add vertical wheel scroll if Ctrl is pressed
+      }
+      listElement.scrollLeft += scrollAmount
+    }
+  }
 </script>
 
 <div
@@ -98,6 +116,7 @@
       class="media-grid"
       class:with-scrollbar={showHorizontalScrollbar}
       style={gridPosterSize ? `grid-auto-columns: ${gridPosterSize}px;` : ''}
+      onwheel={handleWheel}
     >
       {#each items as item (item.id)}
         {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
