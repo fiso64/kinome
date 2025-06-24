@@ -1810,6 +1810,73 @@ export function setupLibraryIpc(): void {
     }
   })
 
+  ipcMain.handle(
+    'play-file-with',
+    async (_, file: MediaFile, command: string): Promise<boolean> => {
+      if (!command) {
+        console.error('Cannot play file: no command provided.')
+        return false
+      }
+
+      const mediaSourcePath = await getAbsoluteMediaSourcePath()
+      if (!mediaSourcePath) {
+        console.error('Cannot play file: media source path is not configured.')
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Configuration Error',
+          message: 'Media source path is not configured. Please check your library settings.'
+        })
+        return false
+      }
+
+      const absolutePath = path.join(mediaSourcePath, file.path)
+      const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
+
+      console.log(`Executing: ${commandToExecute}`)
+      exec(commandToExecute, (error) => {
+        if (error) {
+          console.error(`Failed to execute player command: ${error.message}`)
+          BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+            title: 'Player Error',
+            message: 'Failed to launch the external player.',
+            detail: `Please check your player command in Settings.\n\nCommand: ${commandToExecute}\nError: ${error.message}`
+          })
+        }
+      })
+
+      // Fire-and-forget the update logic.
+      ;(async () => {
+        if (!db || !db.root) {
+          console.warn('DB not ready, cannot mark item as watched.')
+          return
+        }
+
+        const itemInDb = findItemById(file.id, db.root)
+        if (itemInDb && itemInDb.type === 'file') {
+          itemInDb.watched = true
+          ;(itemInDb as MediaFile).lastWatched = Date.now()
+          // if playing an episode, un-dismiss the show
+          let parent = findParent(itemInDb.id, db.root)
+          let show: MediaFolder | null = null
+          while (parent) {
+            if (parent.mediaType === 'tv') {
+              show = parent
+              break
+            }
+            parent = findParent(parent.id, db.root)
+          }
+          if (show?.continueWatchingDismissed) {
+            show.continueWatchingDismissed = false
+          }
+          await _finalizeItemUpdate(itemInDb)
+        } else {
+          console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
+        }
+      })()
+
+      return true // Indicate that the attempt to play was processed.
+    }
+  )
+
   ipcMain.handle('play-file', async (_, file: MediaFile): Promise<boolean> => {
     // --- Phase 1: Launch Player ASAP ---
     const { playerCommands } = await readSettings()

@@ -43,6 +43,11 @@
     onAssignSeasons: () => void
   } = $props()
 
+  let settings = $state<Settings | null>(null)
+  $effect(() => {
+    window.api.getSettings().then((s) => (settings = s))
+  })
+
   const isVirtual = $derived((item as any).isVirtual === true)
 
   let menuElement = $state<HTMLDivElement>()
@@ -159,6 +164,14 @@
 
   function handleAssignSeasons() {
     onAssignSeasons()
+    onClose()
+  }
+
+  function handlePlayWith(command: string) {
+    // The item is guaranteed to be a file because of the #if block.
+    // We must convert the Svelte proxy object to a plain JS object before sending over IPC.
+    const plainItem = JSON.parse(JSON.stringify(item))
+    window.api.playFileWith(plainItem as MediaFile, command)
     onClose()
   }
 
@@ -355,6 +368,36 @@
         </div>
       {/if}
     </div>
+
+    {#if item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
+      <div
+        class="submenu-container"
+        onmouseenter={() => (activeSubmenu = 'play')}
+        onmouseleave={() => (activeSubmenu = null)}
+      >
+        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+          <span class="icon">▶️</span>
+          <span>Play with...</span>
+          <span class="submenu-arrow">▸</span>
+        </button>
+
+        {#if activeSubmenu === 'play'}
+          <div
+            bind:this={submenuElement}
+            class="context-menu submenu"
+            class:on-left={submenuOnLeft}
+            style="top: {submenuTop}px;"
+            onclick={(e) => e.stopPropagation()}
+          >
+            {#each settings.playerCommands as player}
+              <button class="context-menu-item" onclick={() => handlePlayWith(player.command)}>
+                <span>{player.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     {#if !isVirtual && item.path}
       <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>

@@ -90,6 +90,7 @@ declare global {
       removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
+      playFileWith: (file: MediaFile, command: string) => Promise<boolean>
       // Filesystem
       revealInExplorer: (path: string) => void
       trashItem: (path: string) => Promise<boolean>

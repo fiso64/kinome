@@ -27,6 +27,8 @@ const api = {
     ipcRenderer.invoke('perform-full-rescan', newPath),
   refreshLibrary: (): Promise<MediaFolder | null> => ipcRenderer.invoke('refresh-library'),
   playFile: (file: MediaFile): Promise<boolean> => ipcRenderer.invoke('play-file', file),
+  playFileWith: (file: MediaFile, command: string): Promise<boolean> =>
+    ipcRenderer.invoke('play-file-with', file, command),
   getItemDetails: (itemId: string): Promise<LibraryItem | null> =>
     ipcRenderer.invoke('get-item-details', itemId),
   userUpdateItem: (item: LibraryItem): Promise<void> =>
