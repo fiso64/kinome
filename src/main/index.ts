@@ -78,22 +78,26 @@ app.whenReady().then(() => {
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
-    if (is.dev) {
-      window.webContents.on('before-input-event', (event, input) => {
-        if (input.key === 'F12') {
-          if (window.webContents.isDevToolsOpened()) {
-            window.webContents.closeDevTools()
-          } else {
-            window.webContents.openDevTools({ mode: 'right' })
-          }
-          event.preventDefault()
+    // Removed if (is.dev) to allow F12 and Ctrl+R in production
+    window.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12') {
+        if (window.webContents.isDevToolsOpened()) {
+          window.webContents.closeDevTools()
+        } else {
+          // You might want to restrict the mode in production, e.g., mode: 'detach'
+          // or only open if a specific flag is passed or setting is enabled.
+          // For now, keeping it as 'right'.
+          window.webContents.openDevTools({ mode: 'right' })
         }
-        if (input.control && input.key.toLowerCase() === 'r') {
-          window.webContents.reload()
-          event.preventDefault()
-        }
-      })
-    }
+        event.preventDefault()
+      }
+      // Ctrl+R for reloading the renderer process.
+      // Be cautious with this in production as it might confuse users or lose state.
+      if (input.control && input.key.toLowerCase() === 'r') {
+        window.webContents.reload()
+        event.preventDefault()
+      }
+    })
   })
 
   setupLibraryIpc()
