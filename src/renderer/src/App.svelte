@@ -455,7 +455,7 @@
     lastDetailItem = null
     clearItemCache()
     viewStack = [] // Clear the view stack to show the welcome/loading screen
-    const newRoot = await window.api.scanLibrary()
+    const newRoot = await window.api.performInitialScan()
     if (newRoot) {
       primeCacheWithRoot(newRoot)
       activeModal = { type: 'initialFolderSettings', root: newRoot }
