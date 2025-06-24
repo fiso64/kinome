@@ -161,7 +161,6 @@ export const DEFAULT_LAYOUTS_CONFIG = {
 export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 
 export interface Settings {
-  playerCommand: string
   tmdbApiKey: string
   useLogos: boolean
   creditsDisplay: 'shown' | 'collapsed' | 'hidden' | 'tab'
@@ -169,7 +168,7 @@ export interface Settings {
   showContinueWatching: boolean
   showNextUp: boolean
   virtualTags?: { name: string; expression: string }[]
-  playerCommands: PlayerCommandConfig[] // Changed from playerCommand: string
+  playerCommands: PlayerCommandConfig[]
   libraryLocation: string // The path to the library data directory.
   mediaSourcePath?: string
   mediaSourcePathIsRelative?: boolean

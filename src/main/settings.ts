@@ -111,19 +111,6 @@ async function readRawSettings(): Promise<Settings> {
   const settingsToMerge = [librarySettings, globalSettings]
 
   for (const saved of settingsToMerge) {
-    // Migration for playerCommand to playerCommands
-    if ((saved as any).playerCommand && !saved.playerCommands) {
-      console.log('[Settings] Migrating old playerCommand to new playerCommands format.')
-      saved.playerCommands = [
-        {
-          id: crypto.randomUUID(),
-          name: 'Default Player',
-          command: (saved as any).playerCommand as string
-        }
-      ]
-      delete (saved as any).playerCommand // Remove old key
-    }
-
     const mergedLayouts = (Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]).reduce(
       (acc, key) => {
         acc[key] = { ...finalSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
