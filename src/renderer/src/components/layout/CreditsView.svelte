@@ -71,7 +71,7 @@
   })
 
   function horizontalScroll(event: WheelEvent) {
-    if (event.deltaY === 0) return
+    if (event.deltaY === 0 || !event.ctrlKey) return // Only scroll horizontally with Ctrl + wheel
     event.preventDefault()
     const element = event.currentTarget as HTMLElement
     element.scrollLeft += event.deltaY

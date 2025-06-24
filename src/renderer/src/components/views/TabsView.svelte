@@ -117,11 +117,16 @@
     // If there's no horizontal overflow, do nothing.
     if (tabListElement.scrollWidth <= tabListElement.clientWidth) return
 
-    // If there is horizontal scroll, prevent vertical page scroll and scroll tabs instead.
-    // This handles both vertical mouse wheel (deltaY) and horizontal trackpad swipes (deltaX).
-    if (event.deltaY !== 0 || event.deltaX !== 0) {
+    const verticalScrollIntent = event.deltaY !== 0 && event.ctrlKey
+    const horizontalScrollIntent = event.deltaX !== 0
+
+    if (verticalScrollIntent || horizontalScrollIntent) {
       event.preventDefault()
-      tabListElement.scrollLeft += event.deltaY + event.deltaX
+      let scrollAmount = event.deltaX // Native horizontal scroll
+      if (verticalScrollIntent) {
+        scrollAmount += event.deltaY // Add vertical wheel scroll if Ctrl is pressed
+      }
+      tabListElement.scrollLeft += scrollAmount
     }
   }
 </script>
