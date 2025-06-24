@@ -667,7 +667,6 @@
     top: 47px; /* Height of tabs + gap */
     left: -1rem; /* Align with parent padding */
     right: -1rem; /* Align with parent padding */
-    max-height: 50vh; /* Set a maximum height, but allow it to be smaller */
 
     background-color: var(--color-background-soft);
     border: 1px solid var(--color-background-mute);
