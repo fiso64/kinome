@@ -230,6 +230,9 @@
               <h3>
                 {#if searchType === 'season' && typeof result.season_number !== 'undefined'}
                   {result.season_number}. {result.name ?? result.title}
+                  {#if typeof result.episode_count !== 'undefined'}
+                    <span class="episode-count">({result.episode_count} episodes)</span>
+                  {/if}
                 {:else}
                   {result.title ?? result.name} ({result.year ?? 'N/A'})
                 {/if}
@@ -503,6 +506,12 @@
   .result-info h3 {
     margin: 0 0 0.5rem;
     font-size: 1.2rem;
+  }
+  .episode-count {
+    font-size: 0.9rem;
+    color: var(--ev-c-text-2);
+    font-weight: normal;
+    margin-left: 0.5rem;
   }
   .result-info p {
     font-size: 0.9rem;

@@ -812,7 +812,8 @@ export async function manualSearch(
           year: s.air_date ? new Date(s.air_date).getFullYear() : null,
           poster_path: s.poster_path,
           overview: s.overview,
-          season_number: s.season_number
+          season_number: s.season_number,
+          episode_count: s.episode_count // Add episode count
         }))
       } else {
         // Return single movie/tv result, formatted as an array of one
@@ -876,7 +877,8 @@ export async function manualSearch(
         year: s.air_date ? new Date(s.air_date).getFullYear() : null,
         poster_path: s.poster_path,
         overview: s.overview,
-        season_number: s.season_number
+        season_number: s.season_number,
+        episode_count: s.episode_count // Add episode count
       }))
     } catch (error) {
       console.error(`Error during season search for "${query}":`, error)
