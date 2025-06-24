@@ -58,14 +58,17 @@
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
 
   $effect(() => {
-    if (menuElement) {
+    // For file items, the menu content can change when `settings` are loaded (e.g. "Play with...").
+    // We must wait for settings to be available before calculating the position to avoid a layout shift.
+    if (menuElement && (item.type !== 'file' || settings)) {
       const menuRect = menuElement.getBoundingClientRect()
       const { innerHeight: windowHeight, innerWidth: windowWidth } = window
       const margin = 5 // a small margin from the edge
 
       let top = position.top
       if (top + menuRect.height > windowHeight - margin) {
-        top = windowHeight - menuRect.height - margin
+        // It overflows the bottom, so place it above the cursor
+        top = position.top - menuRect.height
       }
       if (top < margin) top = margin
 
