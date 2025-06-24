@@ -18,6 +18,7 @@
     settings: Settings
   } = $props()
 
+  let parentShow = $state<MediaFolder | null>(null)
   let activeInfoTab: 'overview' | 'credits' = $state('overview')
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
   let lastSeenItemId = $state(item.id)
@@ -38,6 +39,7 @@
     if (item.id !== lastSeenItemId) {
       activeInfoTab = 'overview'
       lastSeenItemId = item.id
+      parentShow = null // Reset parent show when item changes
     }
     // If the overview tab is not visible but is selected, switch to credits.
     // We also check tmdbDetailsFetched to avoid switching tabs during a re-fetch.
@@ -91,7 +93,7 @@
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
       ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : (item.title ?? item.name)
+      : item.title ?? item.name // Simplified: always use item's own title/name
   )
 
   const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
@@ -126,8 +128,17 @@
         continueWatchingInfo = info
       })
     } else {
-      // If it's not a TV show, there's no "Next Up", so ensure it's cleared.
       continueWatchingInfo = null
+    }
+
+    // Fetch parent show if current item is a season
+    if (item.mediaType === 'season') {
+      window.api.getParent(item.id).then((p) => {
+        parentShow = p
+      })
+    } else {
+      // Ensure parentShow is null if the item is not a season
+      parentShow = null
     }
 
     // Also, reset fade-in animation flags if the image source has changed.
@@ -185,6 +196,11 @@
 
       <div class="info-column">
         <div class="title-and-meta">
+          {#if item.mediaType === 'season' && parentShow}
+            <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
+              <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
+            </button>
+          {/if}
           {#if (settings.useLogos ?? true) && item.logoPath}
             <div class="logo-container">
               <img
@@ -464,7 +480,35 @@
   .title-and-meta {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0.75rem; /* Reduced gap to accommodate parent link */
+  }
+
+  .parent-show-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--ev-c-text-2);
+    cursor: pointer;
+    text-align: left;
+    transition: color 0.2s ease;
+    display: inline-block; /* Make button only as wide as its content */
+    align-self: flex-start; /* Prevent it from stretching if parent is flex column */
+  }
+  .parent-show-link:hover {
+    color: var(--ev-c-text-1);
+    background: none; /* Explicitly remove background on hover */
+    /* text-decoration: underline; removed */
+  }
+  .breadcrumb-arrow {
+    margin-right: 0.4em; /* Space between arrow and text */
+    color: var(--ev-c-text-3);
+    transition: color 0.2s ease;
+    font-weight: normal; /* Make arrow less bold than the link text */
+  }
+  .parent-show-link:hover .breadcrumb-arrow {
+    color: var(--ev-c-text-1); /* Match text color on hover */
   }
 
   .logo-container {
