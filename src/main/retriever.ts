@@ -671,25 +671,48 @@ export async function fetchAndApplyEpisodeData(
   showTmdbId: number,
   tmdbApiKey: string,
   libraryDataPath: string,
-  tmdbSeasons: any[]
+  tmdbSeasons?: any[] // Made optional
 ): Promise<MediaFile[]> {
   const seasonNumber = seasonFolder.seasonNumber ?? 1
   const modifiedEpisodes: MediaFile[] = []
 
-  const seasonExists = tmdbSeasons.some((s) => s.season_number === seasonNumber)
-  if (!seasonExists) {
-    console.log(`[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist on TMDB.`)
+  // If tmdbSeasons is provided, check if the season exists in it.
+  // If not provided (e.g., manual season match where parent show data isn't fully loaded),
+  // we proceed assuming the season number on seasonFolder is valid for an API attempt.
+  if (tmdbSeasons) {
+    const seasonExistsInProvidedList = tmdbSeasons.some((s) => s.season_number === seasonNumber)
+    if (!seasonExistsInProvidedList) {
+      console.log(
+        `[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist in the provided TMDB season list.`
+      )
+      seasonFolder.tmdbEpisodesFetched = true
+      // Mark details as fetched too, as we've determined it's not in the provided list
+      // and there's nothing more to fetch based on that context.
+      seasonFolder.tmdbDetailsFetched = true
+      return []
+    }
+  }
+  // If tmdbSeasons is not provided (e.g. manual match, parent show processing disabled),
+  // we proceed to try fetching,
+  // relying on seasonFolder.seasonNumber.
+
+  if (typeof seasonFolder.seasonNumber !== 'number') { // Check if seasonNumber is actually a number
+    console.warn(
+      `[TMDB] Season folder "${seasonFolder.name}" (ID: ${seasonFolder.id}) has no valid seasonNumber (${seasonFolder.seasonNumber}). Cannot fetch episodes.`
+    )
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
-    return []
+    // This return was misplaced from the original logic where it was inside the seasonNumber check.
+    // return [] // We should not return here, but proceed to the try block.
   }
 
-  const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
-  console.log(
-    `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
-  )
-
+  // The try block should start here, encompassing the API call and processing.
   try {
+    const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
+    console.log(
+      `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
+    )
+
     const response = await fetch(episodeApiUrl)
     if (!response.ok) {
       throw new Error(`TMDB episode fetch failed: ${response.statusText}`)

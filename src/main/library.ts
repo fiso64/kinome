@@ -2135,28 +2135,50 @@ export function setupLibraryIpc(): void {
             }
           }
           item.tmdbDetailsFetched = true
-          item.tmdbEpisodesFetched = undefined
+          item.tmdbEpisodesFetched = undefined // Ensure episodes will be fetched
 
           const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
-          const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, item.seasonNumber)
-          if (!parsedSuccessfully) {
+
+          // Check if any episode files already have episode numbers
+          const alreadyNumbered = episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')
+
+          if (!alreadyNumbered) {
+            // If no files are numbered, attempt to assign them using smart parsing for this season.
             log(
-              `[Manual Match] High-confidence parsing failed for "${item.name}", falling back to alphabetical sort.`
+              `[Manual Match] No episodes numbered in season "${item.name}". Attempting smart parsing.`
             )
-            episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-            episodeFiles.forEach((file, index) => {
-              file.episodeNumber = index + 1
-              file.seasonNumber = item.seasonNumber
-              file.mediaType = 'episode'
-            })
+            const parsedSuccessfully = processAndAssignEpisodeNumbers(
+              episodeFiles,
+              item.seasonNumber
+            )
+            if (!parsedSuccessfully) {
+              log(
+                `[Manual Match] Smart parsing failed for episodes in "${item.name}", falling back to alphabetical.`
+              )
+              // Alphabetical Fallback if smart parsing didn't work
+              episodeFiles.sort((a, b) =>
+                a.name.localeCompare(b.name, undefined, { numeric: true })
+              )
+              episodeFiles.forEach((file, index) => {
+                file.episodeNumber = index + 1
+                file.seasonNumber = item.seasonNumber // Ensure season number is set
+                file.mediaType = 'episode'
+              })
+            }
+          } else {
+            log(
+              `[Manual Match] Episodes in season "${item.name}" already have numbers. Skipping local assignment.`
+            )
           }
 
+          // Now, fetch and apply TMDB episode data using the (now potentially assigned) local episode numbers.
           const showFolder = findParent(item.id, db!.root!)
           if (showFolder && showFolder.tmdbId && settings.tmdbApiKey) {
             console.log(
-              `[Manual Match] Season matched. Now fetching episodes for "${item.name}"...`
+              `[Manual Match] Season matched. Now fetching TMDB episode data for "${item.name}"...`
             )
             if (!showFolder.tmdbDetailsFetched) {
+              // Ensure parent show details (which include tmdbSeasons) are fetched if not already
               await fetchItemDetails(showFolder, settings, libraryDataPath)
             }
             if (showFolder.tmdbSeasons) {
@@ -2167,7 +2189,24 @@ export function setupLibraryIpc(): void {
                 libraryDataPath,
                 showFolder.tmdbSeasons
               )
+            } else {
+              // If parent show doesn't have tmdbSeasons (e.g., TV processing disabled for the show),
+              // call fetchAndApplyEpisodeData without it. The function will use item.seasonNumber.
+              log(
+                `[Manual Match] Parent show "${showFolder.name}" has no cached TMDB seasons. Fetching episodes directly for S${item.seasonNumber} of "${item.name}".`
+              )
+              await fetchAndApplyEpisodeData(
+                item, // This is the seasonFolder
+                showFolder.tmdbId,
+                settings.tmdbApiKey,
+                libraryDataPath
+                // tmdbSeasons argument is omitted
+              )
             }
+          } else {
+            log(
+              `[Manual Match] Cannot fetch episodes for "${item.name}": Parent show folder, TMDB ID, or API key missing.`
+            )
           }
         } else {
           // --- Existing logic for Movie/TV Show ---
