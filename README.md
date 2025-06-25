@@ -2,9 +2,9 @@
 
 An Electron application with Svelte and TypeScript
 
-## Known Issues
+## Development Plan / Roadmap
 
-- Home view with "Sections" layout does not render after restart.
+[**PLAN.md**](./docs/PLAN.md)
 
 ## Recommended IDE Setup
 

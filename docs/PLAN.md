@@ -1,8 +1,8 @@
-# High-Level Development Plan
+# Development Plan
 
 This plan prioritizes getting a useful Minimum Viable Product (MVP) working with a local file source, then iteratively adding features.
 
-#### Phase 1: The Foundation - MVP with Local Files
+### Phase 1: The Foundation - MVP with Local Files
 
 *   `[X]` **Project Setup:** Basic Electron + Svelte project template is in place.
 *   `[X]` **Database Abstraction (JSON):** Create the "database" module in the `main` process. It will be responsible for loading, querying, and saving a single `database.json`. It must be able to model the library as a hierarchical tree, storing folders and media files with their parent-child relationships.
@@ -17,7 +17,7 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
     *   When a user clicks an item in the grid, the app marks it as watched in the JSON file and launches the external player with the file path.
 *   `[X]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
-#### Phase 2: Adding Intelligence & Polish
+### Phase 2: Adding Intelligence & Polish
 
 The goal is to make the app visually appealing and more informative.
 
@@ -42,7 +42,7 @@ The goal is to make the app visually appealing and more informative.
     *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
     *   If not possible to improve backdrop performance, at least make it fade in smoothly (fade in will always be needed when it is first downloaded as a delay is unavoidable in that case).
 
-#### Phase 3: Core Feature Completion 
+### Phase 3: Core Feature Completion 
 
 The goal is to implement the key features that make the app unique and powerful.
 
@@ -67,18 +67,18 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[ ]` **Flexible UI Engine, Part 2** 
     *   `[X]` For tab and section views, allow defining the tabs or sections by arbitrary tags or metadata in the media list, not just folder names. (Store tab/section settings in "virtual folders")
     *   `[X]` "Virtual tags" (similar to MusicBee). Virtual tags are derived from metadata or custom tags. Add new tab in the settings for defining virtual tags, with key/values similar as in the custom tags section in metadata edit window. The values of the virtual tags will be expressions, possibly involving one or multiple metadata/custom tags ({genre}, {my-custom-tag}), and possibly involving functions which modify strings. E.g.: A virtual tag named "isAnimation" which is equal to "Animation" when the genre tag contains "Animation", and otherwise "Film". Virtual tags can be filtered by in the search bar or can be set as group by. Careful: They should not be included in autocompletions for custom tag keys.
-    *   `[ ]` Filtering items from view depending on conditions
-    *   `[ ]` Sorting by arbitrary values, or custom sort (drag and drop)
+    *   `[ ]` Filtering items from view depending on conditions [**postponed until database migration (p4)**]
+    *   `[ ]` Sorting by arbitrary values, maybe custom sort (drag and drop) [**postponed until database migration (p4)**]
 *   `[X]` Improve search bar
     *   `[X]` Unified deep search: Make the search bar search all media library (all immediate children union all descendants which have an image, or maybe ALL descendants. Think what to include.). When searching, no tabs or sections will be displayed: results will be shown in a new separate media grid element (let's default it to poster grid view), all in one place. 
     *   `[X]` Rank results according to how closely they match the query (need a very fast rank algorithm. maybe normalize + ngram?)
     *   `[X]` Add a smaller "filter" bar inside the media grid view, which will filter only the immediate children on the current tab, similar to how the search bar works currently. The filter bar should initially be a looking glass button and expand to a small search bar when pressed.
 *   `[X]` add tighter integration with the local filesystem (e.g make it easy to reveal files in explorer and view file properties, delete). add these to the context menu after a separator. Also, make sure to use good abstractions for later, since some remote sources will not have these things (maybe each source defines the possible additional actions that are available for files and folders?). Ensure the explorer integration is cross-platform.
-*   `[ ]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
+*   `[X]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
 
-#### Phase 4: Expansion & Refinement
-1
-The goal is to expand source support and prepare for future growth.
+### Phase 4: Expansion & Refinement
+
+The goal is to prepare for future growth.
 
 *   `[ ]` Option to rescan on startup => Need to ensure rescan is non-destructive, always.
 *   `[ ]` Split the main process into transport layer and service layer.
@@ -95,13 +95,21 @@ The goal is to expand source support and prepare for future growth.
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
     -  We will have to refactor the database structure to be relational (e.g a separate tmdb movies/shows/seasons table(s) instead of storing all that data in the folder node json) 
     -  Test the new database with rclone remotes (most remotes should support random access reads). With and without `--vfs-cache-mode full`.
-*   `[ ]` Improve navigation performance as much as possible. Remove all lag and jitter.
+*   `[ ]` Improve code maintainability and readability (particularly god components like `App.svelte`)
+*   `[ ]` Improve navigation and user action performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
-*   `[ ]` Polish UI as much as possible
-*   `[ ]` **Add network/remote library functionality** 
-    *   `[ ]` Consider whether it is feasable to have a source like rclone which only supports file operations (not a custom server). Implement a new `Source` module for Rclone. This will involve using the Rclone CLI and the user-defined URL template for playback. This will be the first major test of the `Source` abstraction.
-    *   `[ ]` Maybe turn the main process into a server (with a distributable binary) that can be run and connected to on a remote.
-*   `[ ]` **Add Jellyfin Source:** Jellyfin will differ from rclone and local path sources due it (hopefully) providing most metadata already. Automatic TMDB retrieval might become disabled for jellyfin. If the user decides to add custom tags, metadata or images, we will still have to store them and "enrich" the data returned by jellyfin with our stored values. 
+*   `[ ]` Refine player support. More detailed watched states (including time) => integration with common video players like mpv, vlc. 
+*   `[ ]` Improve and polish UI everywhere. Test on different screen sizes.
+*   `[ ]` Abstract and generalize the code sufficiently to be able to deal with the differences between desktop, web, and mobile (android, ios).
+
+#### Future
+*   `[ ]` **Server Support:** 
+    *   Decide: Integrate with existing servers (like jellyfin's), or make a custom one?
+    *   For a custom server:
+        *   `[ ]` Turn the main process into a server (with a distributable binary) that can be run on a remote and communicate.  
+                  Note: The application should (still) NOT require a server for local libraries, and work entirely via IPC in that case.
+        *   `[ ]` Implement common features like multi-user support, on-the-fly transcoding, etc. 
+*   `[ ]` **True Cross-Platform:** Web? Android? iOS?
 *   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
-*   `[ ]` **(Future) Plugin System:** Implement a versatile plugin system. Create a myanimelist plugin.
+*   `[ ]` **Plugin System:** Implement a versatile plugin system. User data integration plugins (myanimelist?), searcher plugins (browsing tmdb?), downloader plugins (downloading from various trackers?), etc.

@@ -1,5 +1,5 @@
 
-# Project Idea
+# Project Idea (somewhat out of date)
 
 A unified media browser with support for multiple sources.
 
