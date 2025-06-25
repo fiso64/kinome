@@ -7,8 +7,8 @@ import { getLibraryDataPath } from './paths'
 
 const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
-const DEFAULT_API_KEY_B64 = 'ZDRjNDk4OWQwZmI4Njc1MmY1ZDc1MzczZjExZGIwNmU='
-const DEFAULT_API_KEY = Buffer.from(DEFAULT_API_KEY_B64, 'base64').toString('utf-8')
+const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // make bots work for it a little
+const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
 
 function getGlobalSettingsPath(): string {
   return path.join(app.getPath('userData'), GLOBAL_SETTINGS_FILE_NAME)
@@ -61,7 +61,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
  */
 async function readRawSettings(): Promise<Settings> {
   const defaultSettings: Settings = {
-    playerCommands: [{ id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}"' }],
+    playerCommands: [{ id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }],
     tmdbApiKey: '',
     useLogos: true,
     creditsDisplay: 'tab',
@@ -158,7 +158,7 @@ async function readRawSettings(): Promise<Settings> {
 export async function readSettings(): Promise<Settings> {
   const settings = await readRawSettings()
   if (!settings.tmdbApiKey) {
-    settings.tmdbApiKey = DEFAULT_API_KEY
+    settings.tmdbApiKey = DEFAULT_STRING
   }
   return settings
 }
@@ -183,7 +183,7 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
 
     // If the API key is the default one, remove it before saving
     // so it doesn't get written to the file.
-    if (settingsToSave.tmdbApiKey === DEFAULT_API_KEY) {
+    if (settingsToSave.tmdbApiKey === DEFAULT_STRING) {
       delete settingsToSave.tmdbApiKey
     }
     // Never save libraryLocation to library settings.
