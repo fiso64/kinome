@@ -2,7 +2,7 @@
 
 This plan prioritizes getting a useful Minimum Viable Product (MVP) working with a local file source, then iteratively adding features.
 
-### Phase 1: The Foundation - MVP with Local Files
+### ~~Phase 1: The Foundation - MVP with Local Files~~
 
 *   `[X]` **Project Setup:** Basic Electron + Svelte project template is in place.
 *   `[X]` **Database Abstraction (JSON):** Create the "database" module in the `main` process. It will be responsible for loading, querying, and saving a single `database.json`. It must be able to model the library as a hierarchical tree, storing folders and media files with their parent-child relationships.
@@ -17,7 +17,7 @@ This plan prioritizes getting a useful Minimum Viable Product (MVP) working with
     *   When a user clicks an item in the grid, the app marks it as watched in the JSON file and launches the external player with the file path.
 *   `[X]` **Basic Search:** Add a search bar that performs a simple text search on the titles in the database.
 
-### Phase 2: Adding Intelligence & Polish
+### ~~Phase 2: Adding Intelligence & Polish~~
 
 The goal is to make the app visually appealing and more informative.
 
@@ -42,7 +42,7 @@ The goal is to make the app visually appealing and more informative.
     *   Why does the backdrop sometimes show with a slight delay even though the image is already locally cached?
     *   If not possible to improve backdrop performance, at least make it fade in smoothly (fade in will always be needed when it is first downloaded as a delay is unavoidable in that case).
 
-### Phase 3: Core Feature Completion 
+### ~~Phase 3: Core Feature Completion~~
 
 The goal is to implement the key features that make the app unique and powerful.
 
@@ -64,11 +64,11 @@ The goal is to implement the key features that make the app unique and powerful.
     *   The current poster and backdrop should always be shown in the window
     *   Also allow to select a local image as backdrop or poster (will be copied to the database).
     *   Add manual search as context menu entry
-*   `[ ]` **Flexible UI Engine, Part 2** 
+*   `[X]` **Flexible UI Engine, Part 2** 
     *   `[X]` For tab and section views, allow defining the tabs or sections by arbitrary tags or metadata in the media list, not just folder names. (Store tab/section settings in "virtual folders")
     *   `[X]` "Virtual tags" (similar to MusicBee). Virtual tags are derived from metadata or custom tags. Add new tab in the settings for defining virtual tags, with key/values similar as in the custom tags section in metadata edit window. The values of the virtual tags will be expressions, possibly involving one or multiple metadata/custom tags ({genre}, {my-custom-tag}), and possibly involving functions which modify strings. E.g.: A virtual tag named "isAnimation" which is equal to "Animation" when the genre tag contains "Animation", and otherwise "Film". Virtual tags can be filtered by in the search bar or can be set as group by. Careful: They should not be included in autocompletions for custom tag keys.
-    *   `[ ]` Filtering items from view depending on conditions [**postponed until database migration (p4)**]
-    *   `[ ]` Sorting by arbitrary values, maybe custom sort (drag and drop) [**postponed until database migration (p4)**]
+    *   Filtering items from view depending on conditions [**postponed until database migration (p4)**]
+    *   Sorting by arbitrary values, maybe custom sort (drag and drop) [**postponed until database migration (p4)**]
 *   `[X]` Improve search bar
     *   `[X]` Unified deep search: Make the search bar search all media library (all immediate children union all descendants which have an image, or maybe ALL descendants. Think what to include.). When searching, no tabs or sections will be displayed: results will be shown in a new separate media grid element (let's default it to poster grid view), all in one place. 
     *   `[X]` Rank results according to how closely they match the query (need a very fast rank algorithm. maybe normalize + ngram?)
@@ -95,6 +95,7 @@ The goal is to prepare for future growth.
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
     -  We will have to refactor the database structure to be relational (e.g a separate tmdb movies/shows/seasons table(s) instead of storing all that data in the folder node json) 
     -  Test the new database with rclone remotes (most remotes should support random access reads). With and without `--vfs-cache-mode full`.
+*   `[ ]` More UI configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
 *   `[ ]` Improve code maintainability and readability (particularly god components like `App.svelte`)
 *   `[ ]` Improve navigation and user action performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
