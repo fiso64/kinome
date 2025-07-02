@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
+  import { formatLayoutString } from '../../../../shared/settings-helpers'
   import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
   import { dialogStore } from '../../lib/dialog-store'
   import { createEventDispatcher } from 'svelte'
@@ -42,26 +43,6 @@
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let settingsLoaded = $state(false)
-
-  function formatLayoutString(viewSettings: ViewSettings | null): string {
-    if (!viewSettings?.layout) return 'Not set'
-
-    const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
-    if (viewSettings.layout === 'tabs' || viewSettings.layout === 'sections') {
-      const groupByKey = viewSettings.groupBy
-      if (!groupByKey || groupByKey === 'folder') return layout
-
-      let displayKey = groupByKey
-      if (groupByKey.startsWith('tags.')) {
-        displayKey = groupByKey.substring(5)
-      } else if (groupByKey.startsWith('vt.')) {
-        displayKey = groupByKey.substring(3)
-      }
-      const formattedKey = displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
-      return `${layout} by ${formattedKey}`
-    }
-    return layout
-  }
 
   let suggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],

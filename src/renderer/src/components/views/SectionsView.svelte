@@ -11,12 +11,14 @@
   type DisplayableItem = LibraryItem | SearchIndexEntry
 
   let {
+    container,
     folders,
     onItemClick,
     onShowContextMenu,
     suggestions,
     settings
   }: {
+    container?: MediaFolder | VirtualFolder
     folders: (MediaFolder | VirtualFolder)[]
     onItemClick: (item: DisplayableItem) => void
     onShowContextMenu: (
@@ -39,6 +41,7 @@
 <div class="sections-view">
   {#if folders.length > 0}
     {#each folders as folder (folder.id)}
+      {@const parentForMediaView = { ...folder, ...(container?.childViewSettings ?? {}) }}
       <section class="content-section">
         <h2
           class="section-title"
@@ -48,7 +51,7 @@
           {folder.title ?? folder.name}
         </h2>
         <MediaView
-          parentItem={folder}
+          parentItem={parentForMediaView}
           items={folder.children}
           {onItemClick}
           {onShowContextMenu}

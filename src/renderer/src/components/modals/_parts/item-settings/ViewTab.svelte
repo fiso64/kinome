@@ -17,6 +17,7 @@
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
+    childViewSettings = $bindable(),
     settings
   }: {
     item: MediaFolder & VirtualFolderProps
@@ -27,6 +28,7 @@
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
+    childViewSettings?: StoredViewSettings | null
     settings: Settings | null
   } = $props()
 </script>
@@ -40,5 +42,6 @@
   bind:gridPosterSize
   bind:listDescriptionRows
   bind:showHorizontalScrollbar
+  bind:childViewSettings
   {groupByKeys}
 />

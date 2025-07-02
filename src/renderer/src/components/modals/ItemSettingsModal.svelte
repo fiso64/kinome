@@ -80,6 +80,7 @@
   let showHorizontalScrollbar = $state(
     (_isFolder ? (item as MediaFolder).showHorizontalScrollbar : null) ?? null
   )
+  let childViewSettings = $state(_isFolder ? (item.childViewSettings ?? null) : null)
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
@@ -124,6 +125,15 @@
 
       applyViewSettings(virtualFolderSettings)
 
+      // Clone childViewSettings before assigning it
+      if (childViewSettings) {
+        ;(virtualFolderSettings as any).childViewSettings = JSON.parse(
+          JSON.stringify(childViewSettings)
+        )
+      } else {
+        delete (virtualFolderSettings as any).childViewSettings
+      }
+
       updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] =
         virtualFolderSettings
       return updatedParent
@@ -162,6 +172,11 @@
       // Apply view and folder changes if it's a folder
       if (updatedItem.type === 'folder') {
         applyViewSettings(updatedItem)
+
+        // Clone childViewSettings before assigning it
+        updatedItem.childViewSettings = childViewSettings
+          ? JSON.parse(JSON.stringify(childViewSettings))
+          : undefined
 
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
         updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
@@ -255,6 +270,7 @@
         bind:gridPosterSize
         bind:listDescriptionRows
         bind:showHorizontalScrollbar
+        bind:childViewSettings
       />
     {:else if activeTab === 'folder' && isFolder && !isVirtual}
       <FolderTab

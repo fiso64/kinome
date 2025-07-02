@@ -8,7 +8,7 @@ import type {
   ResolutionInfo,
   ResolutionSource
 } from './types'
-import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, DEFAULT_LAYOUTS_CONFIG } from './types'
 
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.
@@ -77,16 +77,21 @@ export function resolveViewSettings(
 
   const resolvedSources: ResolutionInfo['sources'] = {}
 
-  // 2. Resolve the base properties (`layout` and `clickAction`).
+  // 2. Resolve the base properties (`layout`, `clickAction`, `childViewSettings`).
   const layoutLayer = cascadeLayers.find((layer) => layer.settings.layout)
   const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
+  const childViewSettingsLayer = cascadeLayers.find((layer) => layer.settings.childViewSettings)
 
-  const resolvedBase: BaseViewSettings = {
+  const resolvedBase: any = {
     layout: layoutLayer?.settings.layout ?? 'grid',
-    clickAction: clickActionLayer?.settings.clickAction ?? 'detail'
+    clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
+    childViewSettings: childViewSettingsLayer?.settings.childViewSettings ?? undefined
   }
+
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
+  if (childViewSettingsLayer)
+    (resolvedSources as any).childViewSettings = childViewSettingsLayer.sourceInfo
 
   // 3. Get the list of layout-specific keys for the now-resolved layout.
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
@@ -119,4 +124,29 @@ export function resolveViewSettings(
     },
     sources: resolvedSources
   }
+}
+
+/**
+ * Creates a human-readable string describing a layout and its grouping.
+ * @param viewSettings The view settings object to format.
+ * @returns A descriptive string like "Tabs by Genre" or "Grid".
+ */
+export function formatLayoutString(viewSettings: StoredViewSettings | null | undefined): string {
+  if (!viewSettings?.layout) return 'Not set'
+
+  const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
+  if (viewSettings.layout === 'tabs' || viewSettings.layout === 'sections') {
+    const groupByKey = viewSettings.groupBy
+    if (!groupByKey || groupByKey === 'folder') return layout
+
+    let displayKey = groupByKey
+    if (groupByKey.startsWith('tags.')) {
+      displayKey = groupByKey.substring(5)
+    } else if (groupByKey.startsWith('vt.')) {
+      displayKey = groupByKey.substring(3)
+    }
+    const formattedKey = displayKey.charAt(0).toUpperCase() + displayKey.slice(1)
+    return `${layout} by ${formattedKey}`
+  }
+  return layout
 }

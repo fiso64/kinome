@@ -250,9 +250,8 @@
                   filesLayout = settings.defaultFolderLayout ?? 'grid'
               }
             }
-            if (filesLayout === 'tabs' || filesLayout === 'sections') {
-              filesLayout = 'tree' // Safety downgrade
-            }
+            // The user is now free to set tabs/sections for loose files.
+            // The safety downgrade has been removed.
 
             const filesFolder: VirtualFolder = {
               id: `virtual--${parentItem.id}--files`,
@@ -328,6 +327,7 @@
       />
     {:else if layout === 'tabs'}
       <TabsView
+        container={parentItem}
         folders={foldersForTabsOrSections}
         {onItemClick}
         {onShowContextMenu}
@@ -337,6 +337,7 @@
       />
     {:else if layout === 'sections'}
       <SectionsView
+        container={parentItem}
         folders={foldersForTabsOrSections}
         {onItemClick}
         {onShowContextMenu}

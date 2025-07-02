@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
+  import { resolveViewSettings, formatLayoutString } from '../../../../shared/settings-helpers'
   import {
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
     ALL_VIEW_OVERRIDE_KEYS,
     DEFAULT_LAYOUTS_CONFIG
   } from '../../../../shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '../../../../shared/types'
+  import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
 
   const layouts = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
@@ -54,7 +55,8 @@
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
-    showHorizontalScrollbar = $bindable()
+    showHorizontalScrollbar = $bindable(),
+    childViewSettings = $bindable()
   }: {
     // Context props
     item?: MediaFolder
@@ -73,10 +75,12 @@
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
+    childViewSettings?: StoredViewSettings | null
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
   let activeConfigLayout = $state(initialConfigLayout)
+  let isChildSettingsModalOpen = $state(false)
 
   // This computes the "inherited" settings for the item/type, ignoring any local overrides.
   const inheritedInfo = $derived.by(() => {
@@ -308,6 +312,24 @@
         {/if}
       </select>
     </div>
+
+    {#if !configMode}
+      <div class="divider"></div>
+      <div class="heading-with-action">
+        <h4>Child Item Layout</h4>
+        {#if childViewSettings}
+          <button class="link-button" onclick={() => (childViewSettings = null)}>Reset</button>
+        {/if}
+      </div>
+      <p class="help-text">
+        Optionally override the layout used for items *inside* each tab or section. If not set, each
+        item will use its own default view.
+      </p>
+      <div class="view-config-row" onclick={() => (isChildSettingsModalOpen = true)}>
+        <span>{formatLayoutString(childViewSettings)}</span>
+        <button class="secondary" tabindex="-1">Configure...</button>
+      </div>
+    {/if}
   {/if}
 
   <!-- List-specific settings -->
@@ -381,6 +403,20 @@
     </div>
   {/if}
 </div>
+
+{#if isChildSettingsModalOpen && !configMode}
+  <DefaultViewSettingsModal
+    title="Configure Child Layout"
+    initialSettings={childViewSettings ?? {}}
+    onClose={() => (isChildSettingsModalOpen = false)}
+    onSave={(newSettings) => (childViewSettings = newSettings)}
+    typeKey={'_default'}
+    {settings}
+    {groupByKeys}
+    availableLayouts={['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections']}
+    showClickAction={false}
+  />
+{/if}
 
 <style>
   .content {
