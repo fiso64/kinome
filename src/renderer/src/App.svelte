@@ -587,6 +587,11 @@
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
+    if ((item as any).isVirtual === true) {
+      handleNavigateFolder(item as MediaFolder)
+      return
+    }
+
     const loadedItem = await getLoadedItem(item.id)
     if (!loadedItem) {
       console.error('Failed to load item from store:', item.id)

@@ -236,16 +236,16 @@
     onmousedown={(e) => e.stopPropagation()}
     oncontextmenu={(e) => e.stopPropagation()}
   >
+    {#if (layout === 'tree' || layout === 'tabs' || layout === 'sections') && item.type === 'folder'}
+      <button
+        class="context-menu-item"
+        onclick={handleOpen}
+        onmouseenter={() => (activeSubmenu = null)}
+      >
+        Open
+      </button>
+    {/if}
     {#if !isVirtual}
-      {#if (layout === 'tree' || layout === 'tabs') && item.type === 'folder'}
-        <button
-          class="context-menu-item"
-          onclick={handleOpen}
-          onmouseenter={() => (activeSubmenu = null)}
-        >
-          Open
-        </button>
-      {/if}
       <button
         class="context-menu-item"
         onclick={handleEdit}
