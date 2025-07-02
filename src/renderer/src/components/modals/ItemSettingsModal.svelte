@@ -4,6 +4,7 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
+  import type { StoredViewSettings } from '../../../../shared/types'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -88,6 +89,22 @@
   let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
 
   // --- Actions ---
+
+  /**
+   * Applies the current view settings from the modal's state to a target object.
+   * This centralizes the logic for both physical and virtual folders.
+   * @param target The object to apply view settings to (either a LibraryItem or a virtual folder settings object).
+   */
+  function applyViewSettings(target: Partial<StoredViewSettings>) {
+    target.layout = selectedLayout
+    target.clickAction = selectedClickAction
+    target.gridPosterSize = gridPosterSize
+    target.listDescriptionRows = listDescriptionRows
+    target.showHorizontalScrollbar = showHorizontalScrollbar
+    target.groupBy =
+      selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
+  }
+
   async function buildUpdatedItem(): Promise<LibraryItem | null> {
     if (isVirtual && item.physicalParentId) {
       // --- Editing a Virtual Folder ---
@@ -102,24 +119,16 @@
       if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
         updatedParent.virtualFolderSettings[item.groupByKey!] = {}
       }
-      const settings =
+      const virtualFolderSettings =
         updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
 
-      // Apply all view settings. Setting a property to undefined will remove the override.
-      settings.layout = selectedLayout ?? undefined
-      settings.clickAction = selectedClickAction ?? undefined
-      settings.gridPosterSize = gridPosterSize ?? undefined
-      settings.listDescriptionRows = listDescriptionRows ?? undefined
-      settings.showHorizontalScrollbar = showHorizontalScrollbar ?? undefined
-      settings.groupBy =
-        selectedGroupBy === 'folder' || selectedGroupBy === null ? undefined : selectedGroupBy
+      applyViewSettings(virtualFolderSettings)
 
-      updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
+      updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] =
+        virtualFolderSettings
       return updatedParent
     } else {
       // --- Editing a Physical Item ---
-      // Clone the item but exclude the 'children' array to avoid a slow deep clone
-      // and a large IPC payload. The rest of the item data is small.
       const { children, ...itemWithoutChildren } = item as MediaFolder
       const updatedItem: LibraryItem = JSON.parse(JSON.stringify(itemWithoutChildren))
 
@@ -152,20 +161,13 @@
 
       // Apply view and folder changes if it's a folder
       if (updatedItem.type === 'folder') {
-        updatedItem.layout = selectedLayout ?? undefined
-        updatedItem.gridPosterSize = gridPosterSize ?? undefined
-        updatedItem.listDescriptionRows = listDescriptionRows ?? undefined
-        updatedItem.showHorizontalScrollbar = showHorizontalScrollbar ?? undefined
-        updatedItem.groupBy =
-          selectedGroupBy === 'folder' || selectedGroupBy === null ? undefined : selectedGroupBy
-        updatedItem.clickAction = selectedClickAction ?? undefined
+        applyViewSettings(updatedItem)
+
         updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
         updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
         updatedItem.process_tv_children = processTvChildren === true ? undefined : false
       }
 
-      // Hiding/unhiding is handled elsewhere (context menu / parent folder settings).
-      // We just preserve the current state.
       updatedItem.isHidden = item.isHidden
 
       return updatedItem
