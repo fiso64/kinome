@@ -93,7 +93,7 @@
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
       ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : item.title ?? item.name // Simplified: always use item's own title/name
+      : (item.title ?? item.name) // Simplified: always use item's own title/name
   )
 
   const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)

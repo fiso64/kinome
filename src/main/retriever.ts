@@ -696,7 +696,8 @@ export async function fetchAndApplyEpisodeData(
   // we proceed to try fetching,
   // relying on seasonFolder.seasonNumber.
 
-  if (typeof seasonFolder.seasonNumber !== 'number') { // Check if seasonNumber is actually a number
+  if (typeof seasonFolder.seasonNumber !== 'number') {
+    // Check if seasonNumber is actually a number
     console.warn(
       `[TMDB] Season folder "${seasonFolder.name}" (ID: ${seasonFolder.id}) has no valid seasonNumber (${seasonFolder.seasonNumber}). Cannot fetch episodes.`
     )

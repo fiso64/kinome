@@ -278,10 +278,7 @@
 {/if}
 
 {#if activePlayerCommandsModal}
-  <PlayerCommandsModal
-    bind:playerCommands
-    onClose={() => (activePlayerCommandsModal = false)}
-  />
+  <PlayerCommandsModal bind:playerCommands onClose={() => (activePlayerCommandsModal = false)} />
 {/if}
 
 {#if activeLayoutSettingsModal}
@@ -607,9 +604,8 @@
     color: var(--color-text); /* Override the greyish text from .path-display */
   }
   #player-command-display.input-empty {
-     /* Optional: different style for empty state if needed */
+    /* Optional: different style for empty state if needed */
   }
-
 
   .virtual-tags-list {
     display: flex;

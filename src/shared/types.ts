@@ -83,7 +83,8 @@ export interface BaseViewSettings {
  * Represents how view settings are stored in `settings.json` or on a `MediaFolder`.
  * It's a partial object containing only the user-defined *overrides*.
  */
-export interface StoredViewSettings extends Partial<
+export interface StoredViewSettings
+  extends Partial<
     BaseViewSettings & GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings
   > {
   childViewSettings?: StoredViewSettings

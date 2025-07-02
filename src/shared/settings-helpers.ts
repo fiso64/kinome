@@ -3,12 +3,11 @@ import type {
   Settings,
   ResolvedViewSettings,
   StoredViewSettings,
-  BaseViewSettings,
   DefaultLayoutKey,
   ResolutionInfo,
   ResolutionSource
 } from './types'
-import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, DEFAULT_LAYOUTS_CONFIG } from './types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
 
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.

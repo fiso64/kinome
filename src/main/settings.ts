@@ -61,7 +61,9 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
  */
 async function readRawSettings(): Promise<Settings> {
   const defaultSettings: Settings = {
-    playerCommands: [{ id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }],
+    playerCommands: [
+      { id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }
+    ],
     tmdbApiKey: '',
     useLogos: true,
     creditsDisplay: 'tab',

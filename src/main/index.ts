@@ -5,11 +5,7 @@ import './startup'
 import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
 import { join, resolve as resolvePath, relative, dirname } from 'path'
 import { electronApp, is } from '@electron-toolkit/utils'
-import {
-  setupLibraryIpc,
-  reapplyVirtualTagsAfterSettingsChange,
-  loadDbIntoMemory
-} from './library'
+import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange, loadDbIntoMemory } from './library'
 import { getLibraryDataPath, setLibraryDataPath } from './paths'
 import { readSettings, writeLibrarySettings, writeGlobalSettings } from './settings'
 import type { Settings } from '../shared/types'

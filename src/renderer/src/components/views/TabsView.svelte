@@ -186,7 +186,7 @@
   </div>
   <div class="tab-content">
     {#if folders.length > 0}
-    {#each folders as folder (folder.id)}
+      {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
           {@const parentForMediaView = { ...folder, ...(container?.childViewSettings ?? {}) }}
           <MediaView

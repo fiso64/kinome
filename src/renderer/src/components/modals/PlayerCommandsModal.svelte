@@ -81,7 +81,6 @@
     }
   }
 
-
   function handleSave() {
     playerCommands = JSON.parse(JSON.stringify(localPlayerCommands))
     onClose()
@@ -200,11 +199,7 @@
 
     <div class="add-command-form">
       <h4>Add New Player</h4>
-      <input
-        type="text"
-        bind:value={formCommandNameForNew}
-        placeholder="Player Name (e.g., MPV)"
-      />
+      <input type="text" bind:value={formCommandNameForNew} placeholder="Player Name (e.g., MPV)" />
       <input
         type="text"
         bind:value={formCommandStringForNew}
