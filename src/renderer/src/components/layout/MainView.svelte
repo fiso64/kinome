@@ -125,6 +125,7 @@
             />
           {:else}
             <div class="folder-content-wrapper">
+              <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
               <MediaView
                 parentItem={currentFolder}
                 items={currentFolder.children}
@@ -187,11 +188,21 @@
     visibility: hidden;
   }
 
-  .folder-content-wrapper,
   .search-content-wrapper {
+    display: flex;
+    flex-direction: column;
     flex-grow: 1;
     overflow-y: auto;
     scrollbar-gutter: stable;
+  }
+
+  .folder-content-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-top: 1.5rem;
   }
 
   .search-content-wrapper :global(.media-list) {
@@ -204,6 +215,14 @@
     font-style: italic;
     color: var(--ev-c-text-2);
     border-bottom: 1px solid var(--color-background-mute);
+    flex-shrink: 0;
+  }
+
+  .folder-header-title {
+    font-size: 1.8rem;
+    font-weight: bold;
+    padding: 0 1.5rem;
+    margin-bottom: 1rem;
     flex-shrink: 0;
   }
 
