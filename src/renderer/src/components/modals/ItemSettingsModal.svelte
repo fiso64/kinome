@@ -105,9 +105,15 @@
       const settings =
         updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
 
-      settings.layout = selectedLayout
-      settings.groupBy = selectedGroupBy === 'folder' ? undefined : selectedGroupBy
-      settings.clickAction = selectedClickAction
+      // Apply all view settings. Setting a property to undefined will remove the override.
+      settings.layout = selectedLayout ?? undefined
+      settings.clickAction = selectedClickAction ?? undefined
+      settings.gridPosterSize = gridPosterSize ?? undefined
+      settings.listDescriptionRows = listDescriptionRows ?? undefined
+      settings.showHorizontalScrollbar = showHorizontalScrollbar ?? undefined
+      settings.groupBy =
+        selectedGroupBy === 'folder' || selectedGroupBy === null ? undefined : selectedGroupBy
+
       updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] = settings
       return updatedParent
     } else {
