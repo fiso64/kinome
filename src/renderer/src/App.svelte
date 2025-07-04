@@ -556,9 +556,7 @@
     activeModal = { type: 'properties', item }
   }
 
-  async function handleMarkAsUnwatched(item: LibraryItem) {
-    await window.api.markAsUnwatched(item.id)
-  }
+
 
   async function handleDeleteItemFromDb(item: LibraryItem) {
     const confirmed = await dialogStore.showConfirmation({
@@ -988,11 +986,6 @@
     onRenameItem={() => {
       if (contextMenuItem) {
         handleRenameItem(contextMenuItem)
-      }
-    }}
-    onMarkAsUnwatched={() => {
-      if (contextMenuItem) {
-        handleMarkAsUnwatched(contextMenuItem)
       }
     }}
     onShowProperties={() => {

@@ -11,7 +11,6 @@
     onOpenFileSettings,
     onManualSearch,
     onEditArtwork,
-    onMarkAsUnwatched,
     onRevealInExplorer,
     onDeleteItem,
     onRenameItem,
@@ -32,7 +31,6 @@
     onOpenFileSettings: () => void
     onManualSearch: () => void
     onEditArtwork: () => void
-    onMarkAsUnwatched: () => void
     onRevealInExplorer: () => void
     onDeleteItem: () => void
     onRenameItem: () => void
@@ -56,6 +54,23 @@
   let submenuOnLeft = $state(false)
   let submenuTop = $state(0) // For vertical adjustment
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
+
+  type WatchedState = 'fully' | 'partially' | 'unwatched' | 'none' | 'file_watched' | 'file_unwatched'
+  let watchedState: WatchedState = $state('none')
+
+  $effect(() => {
+    if (activeSubmenu !== 'actions') return
+
+    const updateWatchedState = async () => {
+      if (item.type === 'file') {
+        watchedState = item.watched ? 'file_watched' : 'file_unwatched'
+      } else {
+        // We know it's a folder, but TS doesn't, so we cast.
+        watchedState = await window.api.getFolderWatchedState((item as MediaFolder).id)
+      }
+    }
+    updateWatchedState()
+  })
 
   $effect(() => {
     // For file items, the menu content can change when `settings` are loaded (e.g. "Play with...").
@@ -178,8 +193,13 @@
     onClose()
   }
 
+  function handleMarkAsWatched() {
+    window.api.markAsWatched(item.id)
+    onClose()
+  }
+
   function handleMarkAsUnwatched() {
-    onMarkAsUnwatched()
+    window.api.markAsUnwatched(item.id)
     onClose()
   }
 
@@ -341,10 +361,18 @@
           style="top: {submenuTop}px;"
           onclick={(e) => e.stopPropagation()}
         >
-          <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
-            <span class="icon">👁️</span>
-            <span>Mark as Unwatched</span>
-          </button>
+          {#if ['file_unwatched', 'unwatched', 'partially'].includes(watchedState)}
+            <button class="context-menu-item" onclick={handleMarkAsWatched}>
+              <span class="icon">👓</span>
+              <span>Mark as Watched</span>
+            </button>
+          {/if}
+          {#if ['file_watched', 'fully', 'partially'].includes(watchedState)}
+            <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
+              <span class="icon">🕶️</span>
+              <span>Mark as Unwatched</span>
+            </button>
+          {/if}
           {#if item.mediaType === 'tv' && !isVirtual}
             <button class="context-menu-item" onclick={handleAssignSeasons}>
               <span class="icon">🔢</span>

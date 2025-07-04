@@ -13,6 +13,7 @@ import {
   createDbProxy,
   buildFullSearchIndex,
   updateIndexForItem,
+  updateIndexForItems,
   performSearch,
   debugPerformSearch,
   removeItemAndDescendantsFromIndex
@@ -175,21 +176,11 @@ async function _finalizeItemUpdate(
 
   const itemsArray = Array.isArray(items) ? items : [items]
 
-  // 2. Broadcast each updated item to all renderer windows.
-  // We send them individually to leverage the more detailed update logic
-  // in the renderer's `onLibraryItemUpdated` handler.
-  for (const item of itemsArray) {
-    // Create a shallow copy, excluding children, for efficient IPC.
-    // The renderer is responsible for merging this into its existing state.
-    const { children, ...rest } = item as MediaFolder
-    // We deep-clone the rest of the properties to remove proxies,
-    // but the large `children` array is excluded.
-    const itemWithoutChildren = JSON.parse(JSON.stringify(rest))
-
-    BrowserWindow.getAllWindows().forEach((window) => {
-      window.webContents.send('library-item-updated', itemWithoutChildren)
-    })
-  }
+  // 2. Broadcast the updated items to all renderer windows in a single batch.
+  const plainItems = JSON.parse(JSON.stringify(itemsArray))
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('library-items-updated', plainItems)
+  })
 
   // 3. Conditionally update and broadcast global data like suggestions.
   if (options.updateSuggestions) {
@@ -1382,6 +1373,36 @@ async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
   await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
 }
 
+function getFolderWatchedState(folder: MediaFolder): 'fully' | 'partially' | 'unwatched' | 'none' {
+  let hasWatched = false
+  let hasUnwatched = false
+  let hasFiles = false
+
+  function traverse(item: LibraryItem) {
+    if (hasWatched && hasUnwatched) return // Optimization
+
+    if (item.type === 'file') {
+      hasFiles = true
+      if (item.watched) {
+        hasWatched = true
+      } else {
+        hasUnwatched = true
+      }
+    } else if (item.type === 'folder' && item.children) {
+      for (const child of item.children) {
+        traverse(child)
+      }
+    }
+  }
+
+  traverse(folder)
+
+  if (!hasFiles) return 'none'
+  if (hasWatched && hasUnwatched) return 'partially'
+  if (hasWatched) return 'fully'
+  return 'unwatched'
+}
+
 export function setupLibraryIpc(): void {
   // Load the database into memory when the app is ready
   loadDbIntoMemory()
@@ -2345,12 +2366,53 @@ export function setupLibraryIpc(): void {
     setBulkUpdateStatus(false)
 
     if (modifiedItems.length > 0) {
-      for (const modifiedItem of modifiedItems) {
-        updateIndexForItem(modifiedItem)
-      }
+      updateIndexForItems(modifiedItems)
       await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
     }
   })
+
+  ipcMain.handle('mark-as-watched', async (_, itemId: string): Promise<void> => {
+    if (!db || !db.root) return
+
+    const item = findItemById(itemId, db.root)
+    if (!item) {
+      console.error(`Cannot mark as watched: item ${itemId} not found.`)
+      return
+    }
+
+    const modifiedItems: LibraryItem[] = []
+    function setWatchedRecursively(node: LibraryItem) {
+      if (node.type === 'file' && !node.watched) {
+        node.watched = true
+        ;(node as MediaFile).lastWatched = Date.now()
+        modifiedItems.push(node)
+      }
+      if (node.type === 'folder' && node.children) {
+        for (const child of node.children) {
+          setWatchedRecursively(child)
+        }
+      }
+    }
+
+    setBulkUpdateStatus(true)
+    setWatchedRecursively(item)
+    setBulkUpdateStatus(false)
+
+    if (modifiedItems.length > 0) {
+      updateIndexForItems(modifiedItems)
+      await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
+    }
+  })
+
+  ipcMain.handle(
+    'get-folder-watched-state',
+    async (_, folderId: string): Promise<'fully' | 'partially' | 'unwatched' | 'none'> => {
+      if (!db?.root) return 'none'
+      const folder = findItemById(folderId, db.root)
+      if (!folder || folder.type !== 'folder') return 'none'
+      return getFolderWatchedState(folder)
+    }
+  )
 
   ipcMain.handle(
     'assign-seasons-and-episodes',

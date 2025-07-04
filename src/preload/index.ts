@@ -86,10 +86,18 @@ const api = {
     language: string
   ): Promise<{ posters: any[]; backdrops: any[]; logos: any[] }> =>
     ipcRenderer.invoke('get-tmdb-images', tmdbId, mediaType, language),
-  applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv'): Promise<void> =>
-    ipcRenderer.invoke('user-apply-tmdb-result', itemId, result, mediaType),
+  applyTmdbResult: (
+    itemId: string,
+    result: any,
+    mediaType: 'movie' | 'tv' | 'season'
+  ): Promise<void> => ipcRenderer.invoke('user-apply-tmdb-result', itemId, result, mediaType),
+  markAsWatched: (itemId: string): Promise<void> => ipcRenderer.invoke('mark-as-watched', itemId),
   markAsUnwatched: (itemId: string): Promise<void> =>
     ipcRenderer.invoke('mark-as-unwatched', itemId),
+  getFolderWatchedState: (
+    folderId: string
+  ): Promise<'fully' | 'partially' | 'unwatched' | 'none'> =>
+    ipcRenderer.invoke('get-folder-watched-state', folderId),
   selectLocalImage: (): Promise<string | null> => ipcRenderer.invoke('select-local-image'),
   setImage: (
     itemId: string,

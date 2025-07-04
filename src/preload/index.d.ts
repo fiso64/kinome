@@ -79,8 +79,16 @@ declare global {
         mediaType: 'movie' | 'tv',
         language: string
       ) => Promise<{ posters: any[]; backdrops: any[]; logos: any[] }>
-      applyTmdbResult: (itemId: string, result: any, mediaType: 'movie' | 'tv') => Promise<void>
+      applyTmdbResult: (
+        itemId: string,
+        result: any,
+        mediaType: 'movie' | 'tv' | 'season'
+      ) => Promise<void>
+      markAsWatched: (itemId: string) => Promise<void>
       markAsUnwatched: (itemId: string) => Promise<void>
+      getFolderWatchedState: (
+        folderId: string
+      ) => Promise<'fully' | 'partially' | 'unwatched' | 'none'>
       selectLocalImage: () => Promise<string | null>
       setImage: (
         itemId: string,

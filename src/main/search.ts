@@ -108,6 +108,73 @@ export function removeItemFromIndex(itemId: string) {
 }
 
 /**
+ * Updates the search index for a batch of items in one pass.
+ * @param items The array of LibraryItem objects to update.
+ */
+export function updateIndexForItems(items: LibraryItem[]) {
+  const itemsToUpdate = new Map<string, LibraryItem>()
+  const itemsToRemove = new Set<string>()
+
+  // First, determine which items to update and which to remove
+  for (const item of items) {
+    itemMap.set(item.id, item) // Always keep the item map up-to-date
+
+    if (
+      (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
+      item.isHidden
+    ) {
+      itemsToRemove.add(item.id)
+      if (item.type === 'folder' && item.children) {
+        function collectChildrenIds(folder: MediaFolder) {
+          folder.children.forEach((child) => {
+            itemsToRemove.add(child.id)
+            if (child.type === 'folder') collectChildrenIds(child)
+          })
+        }
+        collectChildrenIds(item)
+      }
+    } else {
+      itemsToUpdate.set(item.id, item)
+    }
+  }
+
+  if (itemsToRemove.size === 0 && itemsToUpdate.size === 0) return
+
+  const newSearchIndex: SearchIndexEntry[] = []
+  const updatedIds = new Set<string>()
+
+  // Rebuild the index by iterating through the old one
+  for (const entry of searchIndex) {
+    if (itemsToRemove.has(entry.id)) {
+      continue // Skip removed items
+    }
+    if (itemsToUpdate.has(entry.id)) {
+      const item = itemsToUpdate.get(entry.id)!
+      const parentId = parentMap.get(item.id)
+      const parent = parentId ? itemMap.get(parentId) : undefined
+      newSearchIndex.push(createSearchIndexEntry(item, parent))
+      updatedIds.add(entry.id)
+    } else {
+      newSearchIndex.push(entry) // Keep existing item
+    }
+  }
+
+  // Add any new items that weren't in the original index
+  for (const [id, item] of itemsToUpdate.entries()) {
+    if (!updatedIds.has(id)) {
+      const parentId = parentMap.get(item.id)
+      const parent = parentId ? itemMap.get(parentId) : undefined
+      newSearchIndex.push(createSearchIndexEntry(item, parent))
+    }
+  }
+
+  searchIndex = newSearchIndex
+  console.log(
+    `[Search Index] Batched update complete. Updated: ${itemsToUpdate.size}, Removed: ${itemsToRemove.size}`
+  )
+}
+
+/**
  * Evaluates a single item and decides whether to add, update, or remove it
  * and its children from the search index.
  * @param item The LibraryItem to process.
