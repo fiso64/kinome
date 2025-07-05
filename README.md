@@ -39,5 +39,5 @@ pnpm build:linux
 
 ## License
 
-AGPL-3.0-only+NIGGER
-See https://plusnigger.org/
+AGPL-3.0-only+NIGGER.  
+See https://plusnigger.org/.
