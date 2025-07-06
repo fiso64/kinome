@@ -22,11 +22,15 @@
   let {
     query = $bindable({ text: '', tags: [] }),
     suggestions,
-    element = $bindable()
+    element = $bindable(),
+    onfocus,
+    onblur
   }: {
     query: { text: string; tags: { key: string; value: string }[] }
     suggestions: AutocompleteSuggestions
     element?: HTMLInputElement
+    onfocus?: (event: FocusEvent) => void
+    onblur?: (event: FocusEvent) => void
   } = $props()
 
   function addPill(key: string, value: string) {
@@ -126,15 +130,17 @@
         >
       </div>
     {/each}
-    <input
-      bind:this={element}
-      bind:value={query.text}
-      use:autocomplete={autocompleteConfig}
-      onkeydown={handleKeyDown}
-      placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
-      class="search-input-field"
-      aria-label="Search current folder"
-    />
+      <input
+        bind:this={element}
+        bind:value={query.text}
+        use:autocomplete={autocompleteConfig}
+        onkeydown={handleKeyDown}
+        placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
+        class="search-input-field"
+        aria-label="Search current folder"
+        onfocus={onfocus}
+        onblur={onblur}
+      />
   </div>
 </div>
 

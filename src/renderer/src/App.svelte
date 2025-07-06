@@ -655,12 +655,8 @@
   }
 
   function goBack(): void {
+    appHeaderComponent?.blurSearchInput()
     if (!canGoBack) return
-
-    if (selectedItemForDetailView && isDetailSearchActive) {
-      detailViewSearchQuery = { text: '', tags: [] }
-      return
-    }
 
     if (isGlobalSearchActive && !selectedItemForDetailView) {
       if (lastDetailItem) {

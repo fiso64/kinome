@@ -59,6 +59,22 @@
   }>()
 
   let searchInputEl = $state<HTMLInputElement | undefined>(undefined)
+  let isSearchFocused = $state(false)
+
+  function handleSearchBlur(event: FocusEvent) {
+    // We need to query for the dropdown element inside the handler,
+    // as it might not exist in the DOM when the component first mounts.
+    const dropdown = document.querySelector('.search-dropdown')
+
+    // If the element that is receiving focus next is inside the dropdown,
+    // don't hide the dropdown. This allows clicks on dropdown items to work.
+    if (dropdown && event.relatedTarget && dropdown.contains(event.relatedTarget as Node)) {
+      return
+    }
+
+    // Otherwise, the user has clicked outside or tabbed away, so hide the dropdown immediately.
+    isSearchFocused = false
+  }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
     const autocompleteMenu = document.querySelector('.autocomplete-menu')
@@ -68,7 +84,7 @@
 
     if (event.key === 'Escape') {
       event.preventDefault()
-      dispatch('back')
+      searchInputEl?.blur()
       return
     }
 
@@ -124,26 +140,17 @@
     }
   }
 
-  $effect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const searchContainer = document.querySelector('.search-container')
-      if (searchContainer && !searchContainer.contains(event.target as Node)) {
-        detailViewSearchQuery = { text: '', tags: [] }
-      }
-    }
-    if (isDetailViewActive && isDetailSearchActive) {
-      window.addEventListener('click', handleClickOutside, { capture: true })
-    }
-    return () => {
-      window.removeEventListener('click', handleClickOutside, { capture: true })
-    }
-  })
+
 
   // Export a method to be called from the parent.
   // This is how we can manage focus from a parent component.
   export function focusSearchInput() {
     searchInputEl?.focus()
     searchInputEl?.select()
+  }
+
+  export function blurSearchInput() {
+    searchInputEl?.blur()
   }
 
   const searchPopupParentItem = $derived(
@@ -183,18 +190,26 @@
       {/if}
     </div>
 
-    <div class="search-container" onkeydown={handleSearchKeyDown}>
+  <div class="search-container" onkeydown={handleSearchKeyDown}>
       {#if isDetailViewActive}
         <SearchInput
           bind:query={detailViewSearchQuery}
           {suggestions}
           bind:element={searchInputEl}
+          onfocus={() => (isSearchFocused = true)}
+          onblur={handleSearchBlur}
         />
       {:else}
-        <SearchInput bind:query={globalSearchQuery} {suggestions} bind:element={searchInputEl} />
+        <SearchInput
+          bind:query={globalSearchQuery}
+          {suggestions}
+          bind:element={searchInputEl}
+          onfocus={() => (isSearchFocused = true)}
+          onblur={handleSearchBlur}
+        />
       {/if}
 
-      {#if isDetailViewActive && (isDetailSearchActive || isPerformingDetailSearch)}
+      {#if isDetailViewActive && (isDetailSearchActive || isPerformingDetailSearch) && isSearchFocused}
         <div class="search-dropdown">
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
             <div class="dropdown-status">Searching...</div>

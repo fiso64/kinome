@@ -46,7 +46,11 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     } else if (event.key === 'F5') {
       event.preventDefault()
       actions.reloadLibrary()
-    } else if (event.key === 'BrowserBack' || (event.altKey && event.key === 'ArrowLeft')) {
+    } else if (
+      event.key === 'Escape' ||
+      event.key === 'BrowserBack' ||
+      (event.altKey && event.key === 'ArrowLeft')
+    ) {
       event.preventDefault()
       actions.navigateBack()
     } else if (event.key === 'BrowserForward' || (event.altKey && event.key === 'ArrowRight')) {
