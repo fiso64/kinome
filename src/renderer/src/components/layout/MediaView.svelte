@@ -212,15 +212,13 @@
           // 2. Create sorted virtual folders for each season
           const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
           for (const seasonNum of sortedSeasonNumbers) {
-            let seasonLayout: Layout = settings?.defaultSeasonFolderLayout ?? 'list'
-            if (seasonLayout === 'tabs' || seasonLayout === 'sections') {
-              seasonLayout = 'list' // Safety downgrade
-            }
+            const groupByValue = `__season_${seasonNum}__`
+            const virtualSettings = parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
 
             const seasonFolder: VirtualFolder = {
               id: `virtual--${parentItem.id}--season--${seasonNum}`,
               name: `Season ${seasonNum}`,
-              title: `Season ${seasonNum}`,
+              title: virtualSettings.title ?? `Season ${seasonNum}`,
               type: 'folder',
               children: filesBySeason.get(seasonNum)!,
               path: '',
@@ -228,35 +226,22 @@
               physicalParentId: parentItem.id,
               groupByKey: 'folder',
               groupByValue: `__season_${seasonNum}__`,
-              layout: seasonLayout,
               mediaType: 'season',
-              seasonNumber: seasonNum
+              seasonNumber: seasonNum,
+              ...virtualSettings
             }
             allVirtualFolders.push(seasonFolder)
           }
 
           // 3. Create a virtual folder for any remaining "unseasoned" files
           if (unseasonedFiles.length > 0) {
-            let filesLayout: Layout = 'tree' // Safe fallback
-            if (settings) {
-              switch (parentItem.mediaType) {
-                case 'movie':
-                  filesLayout = settings.defaultMovieFolderLayout ?? 'tree'
-                  break
-                case 'tv':
-                  filesLayout = settings.defaultTvShowFolderLayout ?? 'list'
-                  break
-                default:
-                  filesLayout = settings.defaultFolderLayout ?? 'grid'
-              }
-            }
-            // The user is now free to set tabs/sections for loose files.
-            // The safety downgrade has been removed.
+            const groupByValue = '__files__'
+            const virtualSettings = parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
 
             const filesFolder: VirtualFolder = {
               id: `virtual--${parentItem.id}--files`,
               name: 'Files',
-              title: 'Files',
+              title: virtualSettings.title ?? 'Files',
               type: 'folder',
               children: unseasonedFiles,
               path: '',
@@ -264,7 +249,7 @@
               physicalParentId: parentItem.id,
               groupByKey: 'folder',
               groupByValue: '__files__',
-              layout: filesLayout
+              ...virtualSettings
             }
             allVirtualFolders.push(filesFolder)
           }
