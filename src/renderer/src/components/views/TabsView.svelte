@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaView from '../layout/MediaView.svelte'
   import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  import { activeTabState } from '../../lib/view-state-store'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -30,22 +31,32 @@
     settings?: Settings | null
   } = $props()
 
-  let activeTabId = $state<string | null>(null)
   let tabListElement = $state<HTMLDivElement | undefined>()
   let canScrollLeft = $state(false)
   let canScrollRight = $state(false)
 
-  $effect(() => {
+  const activeTabId = $derived.by(() => {
+    if (!container) return folders[0]?.id ?? null
+    const lastActive = $activeTabState.get(container.id)
     const currentFolderIds = folders.map((f) => f.id)
-    if (activeTabId === null || !currentFolderIds.includes(activeTabId)) {
-      activeTabId = folders[0]?.id ?? null
+    if (lastActive && currentFolderIds.includes(lastActive)) {
+      return lastActive
     }
+    return folders[0]?.id ?? null
+  })
 
-    // When the active tab is determined (or changes), check if its
-    // corresponding folder needs episode data to be fetched.
-    const activeFolder = folders.find((f) => f.id === activeTabId)
-    if (activeFolder) {
-      triggerSeasonEpisodeFetch(activeFolder)
+  function selectTab(tabId: string) {
+    if (!container) return
+    activeTabState.update((map) => map.set(container.id, tabId))
+  }
+
+  // Effect to trigger data fetching when the active tab changes
+  $effect(() => {
+    if (activeTabId) {
+      const activeFolder = folders.find((f) => f.id === activeTabId)
+      if (activeFolder) {
+        triggerSeasonEpisodeFetch(activeFolder)
+      }
     }
   })
 
@@ -67,7 +78,7 @@
           ? (currentIndex - 1 + folders.length) % folders.length
           : (currentIndex + 1) % folders.length
 
-        activeTabId = folders[nextIndex].id
+        selectTab(folders[nextIndex].id)
       }
     }
 
@@ -160,7 +171,7 @@
         <button
           class="tab"
           class:active={activeTabId === folder.id}
-          onclick={() => (activeTabId = folder.id)}
+          onclick={() => selectTab(folder.id)}
           oncontextmenu={(e) => onShowContextMenu(folder, e, { layout: 'tabs' })}
         >
           {folder.title ?? folder.name}
