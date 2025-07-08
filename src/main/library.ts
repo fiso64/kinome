@@ -879,6 +879,7 @@ function collectItemsToProcess(
   folder: MediaFolder,
   newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
   itemsMissingPosters: LibraryItem[],
+  itemsMissingCredits: LibraryItem[],
   tvShows: MediaFolder[]
 ) {
   if (folder.isHidden || folder.isMissing) {
@@ -898,8 +899,16 @@ function collectItemsToProcess(
       }
       if (typeof child.tmdbId === 'undefined') {
         newItems.push({ item: child, hint: folder.children_type_hint })
-      } else if (child.tmdbId && !child.posterPath) {
-        itemsMissingPosters.push(child)
+      } else if (child.tmdbId) {
+        if (!child.posterPath) {
+          itemsMissingPosters.push(child)
+        }
+        if (
+          !child.tmdbCreditsFetched &&
+          (child.mediaType === 'movie' || child.mediaType === 'tv')
+        ) {
+          itemsMissingCredits.push(child)
+        }
       }
     }
   }
@@ -907,7 +916,7 @@ function collectItemsToProcess(
   // Recurse into subfolders to check their flags.
   for (const child of folder.children) {
     if (child.type === 'folder') {
-      collectItemsToProcess(child, newItems, itemsMissingPosters, tvShows)
+      collectItemsToProcess(child, newItems, itemsMissingPosters, itemsMissingCredits, tvShows)
     }
   }
 }
@@ -1016,10 +1025,17 @@ async function fetchMetadataForLibrary(
 
   const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
   const itemsMissingPosters: LibraryItem[] = []
+  const itemsMissingCredits: LibraryItem[] = []
   const allTvShows: MediaFolder[] = []
 
   // A single pass to collect everything needed for all subsequent steps.
-  collectItemsToProcess(db.root, newItemsToFetch, itemsMissingPosters, allTvShows)
+  collectItemsToProcess(
+    db.root,
+    newItemsToFetch,
+    itemsMissingPosters,
+    itemsMissingCredits,
+    allTvShows
+  )
 
   // --- Phase 1: Local Analysis ---
   // This has been disabled. While automatic new season and episode detection is a nice thought,
@@ -1086,8 +1102,14 @@ async function fetchMetadataForLibrary(
   //   }
 
   // --- Phase 2: Network Fetching ---
-  if (newItemsToFetch.length === 0 && itemsMissingPosters.length === 0) {
-    console.log('[Metadata] No new items or missing posters to fetch based on folder settings.')
+  if (
+    newItemsToFetch.length === 0 &&
+    itemsMissingPosters.length === 0 &&
+    itemsMissingCredits.length === 0
+  ) {
+    console.log(
+      '[Metadata] No new items, missing posters, or missing credits to fetch based on folder settings.'
+    )
     return
   }
 
@@ -1135,6 +1157,21 @@ async function fetchMetadataForLibrary(
       }
     }
     await processInChunks(itemsMissingPosters, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
+  }
+
+  // Fetch credits for existing items that are missing them.
+  if (itemsMissingCredits.length > 0) {
+    console.log(`[Metadata] Starting credits fetch for ${itemsMissingCredits.length} items...`)
+    const updatedItemsBatch: LibraryItem[] = []
+    const task = async (item: LibraryItem): Promise<void> => {
+      await fetchAndApplyCredits(item, tmdbApiKey)
+      // We push to the batch if tmdbCreditsFetched is now true.
+      if (item.tmdbCreditsFetched) {
+        updatedItemsBatch.push(item)
+      }
+    }
+    await processInChunks(itemsMissingCredits, 17, task)
     sendBatchUpdate(updatedItemsBatch)
   }
 
@@ -2315,6 +2352,10 @@ export function setupLibraryIpc(): void {
           }
 
           await fetchItemDetails(item, settings, libraryDataPath)
+          // Also fetch credits to make the item fully populated immediately.
+          if (mediaType === 'movie' || mediaType === 'tv') {
+            await fetchAndApplyCredits(item, settings.tmdbApiKey)
+          }
         }
       } finally {
         setBulkUpdateStatus(false) // --- End Bulk Update ---
