@@ -358,6 +358,11 @@
     const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
       handleItemUpdates(updatedItems)
+      // If any of the updated items was an episode that was marked as watched/unwatched,
+      // refresh the continue watching list.
+      if (updatedItems.some((item) => item.type === 'file' && 'watched' in item)) {
+        window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+      }
     })
     return () => unlisten()
   })
