@@ -719,6 +719,24 @@ export async function fetchAndApplyEpisodeData(
       throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
     }
     const seasonDetails = await response.json()
+
+    // Apply details from the season endpoint to the season folder itself,
+    // only if the properties aren't already set (to respect user edits).
+    if (!seasonFolder.title) seasonFolder.title = seasonDetails.name
+    if (!seasonFolder.overview) seasonFolder.overview = seasonDetails.overview
+    if (!seasonFolder.posterPath && seasonDetails.poster_path) {
+      const posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`
+      const imagesDir = getImagesPath(libraryDataPath)
+      const posterFileName = `${seasonFolder.id}.jpg`
+      const posterDestPath = path.join(imagesDir, posterFileName)
+      try {
+        await downloadImage(posterUrl, posterDestPath)
+        seasonFolder.posterPath = posterFileName
+      } catch {
+        /* ignore download error */
+      }
+    }
+
     const tmdbEpisodesApi = seasonDetails.episodes
 
     if (!tmdbEpisodesApi || tmdbEpisodesApi.length === 0) {

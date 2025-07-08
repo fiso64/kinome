@@ -530,95 +530,70 @@ const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'fe
  * to its children before any API calls. This function MUTATES the children.
  * @param showFolder The root folder of the TV show.
  */
+/**
+ * Non-destructively assigns season/episode numbers to new files within a TV show folder.
+ * This is used during automatic library refreshes.
+ */
 function processTvShowStructure(showFolder: MediaFolder): void {
-  log(`Processing TV structure for: "${showFolder.name}"`)
-  const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
-  const subFolders = showFolder.children.filter(
+  log(`[Sync] Analyzing TV structure for: "${showFolder.name}"`)
+
+  const allSubFolders = showFolder.children.filter(
     (c) => c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())
   ) as MediaFolder[]
 
-  // Heuristic 1: "Immediate Files" Rule
-  if (mediaFiles.length > 0) {
-    log(`TV Structure: Found ${mediaFiles.length} immediate files. Entering "File Mode".`)
-    // Use the new advanced parser, assuming Season 1 for files in the root.
-    const parsedSuccessfully = processAndAssignEpisodeNumbers(mediaFiles, 1)
+  // Non-destructive file assignment helper
+  const assignNewEpisodeNumbers = (files: MediaFile[], seasonNum: number) => {
+    const unnumbered = files.filter((f) => typeof f.episodeNumber !== 'number')
+    if (unnumbered.length === 0) return
 
-    if (!parsedSuccessfully) {
-      log(
-        'TV Structure: High-confidence parsing failed, falling back to alphabetical sort for Season 1.'
-      )
-      // Alphabetical Fallback
-      mediaFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-      mediaFiles.forEach((file, index) => {
-        file.seasonNumber = 1
-        file.episodeNumber = index + 1
-        file.mediaType = 'episode'
-      })
-    }
-    return
+    log(`[Sync] Found ${unnumbered.length} new episodes in Season ${seasonNum}.`)
+    const maxExistingEpisode = Math.max(0, ...files.map((f) => f.episodeNumber ?? 0))
+    unnumbered.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    unnumbered.forEach((file, i) => {
+      file.episodeNumber = maxExistingEpisode + i + 1
+      file.seasonNumber = seasonNum
+      file.mediaType = 'episode'
+    })
   }
 
-  // Heuristics 2 & 3 for subfolders
-  if (subFolders.length > 0) {
-    log(`TV Structure: Found ${subFolders.length} subfolders. Analyzing folder names.`)
+  // Heuristic 1: "File Mode". If there are any files directly in the show folder.
+  const immediateFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+  if (immediateFiles.length > 0) {
+    assignNewEpisodeNumbers(immediateFiles, 1)
+    return // In file mode, we don't process subfolders as seasons.
+  }
 
+  // Heuristic 2: "Folder Mode". Process season subfolders.
+  if (allSubFolders.length > 0) {
     const seasonPattern = /\b(?:Season\s*|S)(\d{1,2})\b/i
-    const parsedFolders: { folder: MediaFolder; season: number }[] = []
+    const unnumberedFolders = allSubFolders.filter((f) => typeof f.seasonNumber !== 'number')
 
-    // First pass: try to parse all folders.
-    for (const folder of subFolders) {
-      const seasonMatch = folder.name.match(seasonPattern)
-      if (seasonMatch) {
-        parsedFolders.push({ folder, season: parseInt(seasonMatch[1]) })
+    // First, assign numbers to any folders that match a pattern like "S01".
+    for (const folder of unnumberedFolders) {
+      const match = folder.name.match(seasonPattern)
+      if (match) {
+        folder.seasonNumber = parseInt(match[1])
+        folder.mediaType = 'season'
       }
     }
 
-    // Heuristic 2: "Patterned Subfolders" Rule.
-    // If we found at least one folder that looks like a season.
-    if (parsedFolders.length > 0) {
-      log(
-        `TV Structure: Found ${parsedFolders.length} patterned season folders. Entering "Patterned" mode.`
-      )
-      // Only assign season numbers to folders that matched.
-      for (const { folder, season } of parsedFolders) {
-        folder.seasonNumber = season
+    // Then, for any folders *still* unnumbered, assign alphabetically after the highest existing number.
+    const stillUnnumbered = allSubFolders.filter((f) => typeof f.seasonNumber !== 'number')
+    if (stillUnnumbered.length > 0) {
+      const maxExistingSeason = Math.max(0, ...allSubFolders.map((f) => f.seasonNumber ?? 0))
+      stillUnnumbered.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      stillUnnumbered.forEach((folder, i) => {
+        folder.seasonNumber = maxExistingSeason + i + 1
         folder.mediaType = 'season'
-
-        // Recurse: process episodes within this season folder.
-        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
-        if (!parsedSuccessfully) {
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, index) => {
-            file.seasonNumber = season
-            file.episodeNumber = index + 1
-            file.mediaType = 'episode'
-          })
-        }
-      }
-    } else {
-      log(
-        'TV Structure: No season folder name patterns matched, falling back to alphabetical sort.'
-      )
-      // Heuristic 3: "Alphabetical Subfolders" Rule (Final Fallback)
-      subFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-      subFolders.forEach((folder, index) => {
-        const season = index + 1
-        folder.seasonNumber = season
-        folder.mediaType = 'season'
-
-        // Recurse: process episodes within this season folder.
-        const episodeFiles = folder.children.filter((c) => c.type === 'file') as MediaFile[]
-        const parsedSuccessfully = processAndAssignEpisodeNumbers(episodeFiles, season)
-        if (!parsedSuccessfully) {
-          episodeFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-          episodeFiles.forEach((file, epIndex) => {
-            file.seasonNumber = season
-            file.episodeNumber = epIndex + 1
-            file.mediaType = 'episode'
-          })
-        }
       })
+    }
+
+    // Finally, process the episodes inside every season folder.
+    for (const seasonFolder of allSubFolders) {
+      if (typeof seasonFolder.seasonNumber === 'number') {
+        const episodeFiles = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+        assignNewEpisodeNumbers(episodeFiles, seasonFolder.seasonNumber)
+      }
     }
   }
 }
@@ -1038,68 +1013,83 @@ async function fetchMetadataForLibrary(
   )
 
   // --- Phase 1: Local Analysis ---
-  // This has been disabled. While automatic new season and episode detection is a nice thought,
-  // we shouldn't just indiscriminantely reassing all season and episode numbers to avoid losing
-  // modifications made by the user.
-  // Idea: Only perform local analysis for those tv shows where the old (pre-rescan) season subdirs
-  // and episode files have the numbers that would have been returned by our heuristic. If they are
-  // different, this indicates that some form of manual change has been made. Will probably require
-  // other changes in the code.
+  // This phase runs before any network calls. It analyzes the local file structure
+  // for TV shows to assign season/episode numbers to new files and to detect if
+  // a full metadata refresh for a show or season is necessary.
 
-  //   // Now that we have the list of all TV shows, perform local analysis and cache invalidation.
-  //   if (allTvShows.length > 0) {
-  //     console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
-  //     for (const show of allTvShows) {
-  //       // 1. Re-analyze folder structure. This now correctly processes episodes inside season subfolders.
-  //       processTvShowStructure(show)
+  if (allTvShows.length > 0) {
+    console.log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
+    for (const show of allTvShows) {
+      // 1. Re-analyze folder structure. This is now non-destructive and only
+      // assigns numbers to newly added files/folders.
+      processTvShowStructure(show)
 
-  //       // 2. Invalidate show details cache if a new, higher season number is found locally.
-  //       if (show.tmdbSeasons && show.tmdbDetailsFetched) {
-  //         const localSeasons = show.children.filter((c) => c.mediaType === 'season')
-  //         const maxLocalSeason = Math.max(0, ...localSeasons.map((s) => s.seasonNumber ?? 0))
-  //         const maxCachedSeason = Math.max(0, ...show.tmdbSeasons.map((s) => s.season_number))
-  //         if (
-  //           maxLocalSeason > maxCachedSeason &&
-  //           maxLocalSeason > (show._lastSeenLocalMaxSeason ?? 0)
-  //         ) {
-  //           console.log(
-  //             `[Metadata] New season for "${show.name}" (new local max: ${maxLocalSeason}, last: ${show._lastSeenLocalMaxSeason}). Fetching updated season list.`
-  //           )
-  //           // This is a targeted update. It fetches the latest season list for the show
-  //           // and applies data to children, without marking the entire show's details
-  //           // for a full refresh. This preserves user-made changes to the show's metadata.
-  //           await refetchShowSeasons(show, settings, libraryDataPath)
-  //         }
-  //         // Always update the last seen max season, so we don't re-trigger for the same number.
-  //         show._lastSeenLocalMaxSeason = maxLocalSeason
-  //       }
+      // 2. Check if a season metadata refresh is needed. This happens if a local season
+      //    exists that isn't represented in the cached TMDB season data.
+      if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+        const localSeasonNumbers = new Set<number>()
+        show.children.forEach((child) => {
+          if ('seasonNumber' in child && typeof child.seasonNumber === 'number') {
+            localSeasonNumbers.add(child.seasonNumber)
+          }
+        })
 
-  //       // 3. For each season, invalidate episode cache if new episodes are detected.
-  //       const seasonFolders = show.children.filter(
-  //         (c) => c.type === 'folder' && c.mediaType === 'season'
-  //       ) as MediaFolder[]
+        // No local seasons to check against, so nothing to do here.
+        if (localSeasonNumbers.size > 0) {
+          const cachedSeasonNumbers = new Set(show.tmdbSeasons.map((s) => s.season_number))
 
-  //       for (const season of seasonFolders) {
-  //         if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
-  //           const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
-  //           const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
-  //           const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+          let needsRefetch = false
+          for (const localNum of localSeasonNumbers) {
+            if (!cachedSeasonNumbers.has(localNum)) {
+              needsRefetch = true
+              break
+            }
+          }
 
-  //           if (
-  //             maxLocalEpisode > maxCachedEpisode &&
-  //             maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
-  //           ) {
-  //             console.log(
-  //               `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
-  //             )
-  //             season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
-  //           }
-  //           // Always update the last seen max episode, so we don't re-trigger for the same number.
-  //           season._lastSeenLocalMaxEpisode = maxLocalEpisode
-  //         }
-  //       }
-  //     }
-  //   }
+          // Also check for unprocessed seasons as a fallback (e.g., if a previous refetch failed).
+          const hasUnprocessedSeason = show.children.some(
+            (c) =>
+              c.type === 'folder' &&
+              c.mediaType === 'season' &&
+              c.seasonNumber != null &&
+              !c.title
+          )
+
+          if (needsRefetch || hasUnprocessedSeason) {
+            console.log(
+              `[Metadata] New or unprocessed seasons detected for "${show.name}". Fetching updated season list.`
+            )
+            await refetchShowSeasons(show, settings, libraryDataPath)
+          }
+        }
+      }
+
+      // 3. For each season, invalidate episode cache if new episodes are detected.
+      const seasonFolders = show.children.filter(
+        (c) => c.type === 'folder' && c.mediaType === 'season'
+      ) as MediaFolder[]
+
+      for (const season of seasonFolders) {
+        if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+          const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
+          const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
+          const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+
+          if (
+            maxLocalEpisode > maxCachedEpisode &&
+            maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
+          ) {
+            console.log(
+              `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
+            )
+            season.tmdbEpisodesFetched = false // This will trigger an on-demand refetch.
+          }
+          // Always update the last seen max episode, so we don't re-trigger for the same number.
+          season._lastSeenLocalMaxEpisode = maxLocalEpisode
+        }
+      }
+    }
+  }
 
   // --- Phase 2: Network Fetching ---
   if (
