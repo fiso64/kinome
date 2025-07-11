@@ -345,8 +345,12 @@
   $effect(() => {
     const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
       handleItemUpdates([updatedItem])
-      // If an episode was marked as watched/unwatched, refresh the continue watching list.
-      if (updatedItem.type === 'file' && 'watched' in updatedItem) {
+      // If an episode was played or a show was dismissed, refresh the continue watching list.
+      const shouldRefresh =
+        (updatedItem.type === 'file' && 'watched' in updatedItem) ||
+        (updatedItem.type === 'folder' && 'continueWatchingDismissed' in updatedItem)
+
+      if (shouldRefresh) {
         window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
       }
     })
@@ -358,9 +362,13 @@
     const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
       handleItemUpdates(updatedItems)
-      // If any of the updated items was an episode that was marked as watched/unwatched,
-      // refresh the continue watching list.
-      if (updatedItems.some((item) => item.type === 'file' && 'watched' in item)) {
+      // If any of the updated items could affect the continue watching list, refresh it.
+      const shouldRefresh = updatedItems.some(
+        (item) =>
+          (item.type === 'file' && 'watched' in item) ||
+          (item.type === 'folder' && 'continueWatchingDismissed' in item)
+      )
+      if (shouldRefresh) {
         window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
       }
     })

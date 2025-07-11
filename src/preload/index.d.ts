@@ -55,6 +55,7 @@ declare global {
         showId: string
       ) => Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null>
       setContinueWatchingDismissed: (showId: string) => Promise<void>
+      setNextUpDismissed: (showId: string) => Promise<void>
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>

@@ -1902,20 +1902,25 @@ export function setupLibraryIpc(): void {
         if (itemInDb && itemInDb.type === 'file') {
           itemInDb.watched = true
           ;(itemInDb as MediaFile).lastWatched = Date.now()
-          // if playing an episode, un-dismiss the show
-          let parent = findParent(itemInDb.id, db.root)
-          let show: MediaFolder | null = null
-          while (parent) {
-            if (parent.mediaType === 'tv') {
-              show = parent
-              break
-            }
-            parent = findParent(parent.id, db.root)
+        // if playing an episode, un-dismiss the show
+        let parent = findParent(itemInDb.id, db.root)
+        let show: MediaFolder | null = null
+        while (parent) {
+          if (parent.mediaType === 'tv') {
+            show = parent
+            break
           }
-          if (show?.continueWatchingDismissed) {
+          parent = findParent(parent.id, db.root)
+        }
+        if (show) {
+          if (show.continueWatchingDismissed) {
             show.continueWatchingDismissed = false
           }
-          await _finalizeItemUpdate(itemInDb)
+          if (show.nextUpDismissed) {
+            show.nextUpDismissed = false
+          }
+        }
+        await _finalizeItemUpdate(itemInDb)
         } else {
           console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
         }
@@ -1985,8 +1990,13 @@ export function setupLibraryIpc(): void {
           }
           parent = findParent(parent.id, db.root)
         }
-        if (show?.continueWatchingDismissed) {
-          show.continueWatchingDismissed = false
+        if (show) {
+          if (show.continueWatchingDismissed) {
+            show.continueWatchingDismissed = false
+          }
+          if (show.nextUpDismissed) {
+            show.nextUpDismissed = false
+          }
         }
         await _finalizeItemUpdate(itemInDb)
       } else {
@@ -2380,10 +2390,19 @@ export function setupLibraryIpc(): void {
         modifiedItems.push(node)
       }
       if (node.type === 'folder') {
+        let wasModified = false
         if (node.continueWatchingDismissed) {
           node.continueWatchingDismissed = false
+          wasModified = true
+        }
+        if (node.nextUpDismissed) {
+          node.nextUpDismissed = false
+          wasModified = true
+        }
+        if (wasModified) {
           modifiedItems.push(node)
         }
+
         if (node.children) {
           for (const child of node.children) {
             setUnwatchedRecursively(child)
@@ -2833,6 +2852,16 @@ export function setupLibraryIpc(): void {
     }
   })
 
+  ipcMain.handle('set-next-up-dismissed', async (_, showId: string) => {
+    if (!db || !db.root) return
+    const show = findItemById(showId, db.root)
+    if (show && show.type === 'folder') {
+      show.nextUpDismissed = true
+      show.continueWatchingDismissed = true // Also dismiss on home screen
+      await _finalizeItemUpdate(show, { updateSuggestions: false })
+    }
+  })
+
   ipcMain.handle(
     'get-continue-watching-items',
     async (): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> => {
@@ -2939,7 +2968,7 @@ export function setupLibraryIpc(): void {
     async (_, showId: string): Promise<{ show: MediaFolder; nextEpisode: MediaFile } | null> => {
       if (!db?.root) return null
       const show = findItemById(showId, db.root)
-      if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.continueWatchingDismissed) {
+      if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.nextUpDismissed) {
         return null
       }
 

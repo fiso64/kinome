@@ -293,7 +293,7 @@
           layout="horizontal"
           on:itemClick={(e) => onItemClick(e.detail.item)}
           on:dismiss={() => {
-            window.api.setContinueWatchingDismissed(continueWatchingInfo!.show.id)
+            window.api.setNextUpDismissed(continueWatchingInfo!.show.id)
             continueWatchingInfo = null
           }}
         />

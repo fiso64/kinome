@@ -280,6 +280,7 @@ export interface MediaFolder extends StoredViewSettings {
   tmdbEpisodes?: TmdbEpisode[] | null // For a season folder, caches episode data from TMDB
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
   continueWatchingDismissed?: boolean
+  nextUpDismissed?: boolean
   _lastSeenLocalMaxSeason?: number
   _lastSeenLocalMaxEpisode?: number
 }
@@ -392,6 +393,8 @@ export const RESETTABLE_METADATA_KEYS = [
   'virtualTags', // Derived from metadata, so must be reset
   'tmdbCredits',
   'tmdbCreditsFetched',
+  'continueWatchingDismissed',
+  'nextUpDismissed',
   '_lastSeenLocalMaxSeason',
   '_lastSeenLocalMaxEpisode'
 ] as const

@@ -51,6 +51,8 @@ const api = {
     ipcRenderer.invoke('get-continue-watching-for-show', showId),
   setContinueWatchingDismissed: (showId: string): Promise<void> =>
     ipcRenderer.invoke('set-continue-watching-dismissed', showId),
+  setNextUpDismissed: (showId: string): Promise<void> =>
+    ipcRenderer.invoke('set-next-up-dismissed', showId),
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
