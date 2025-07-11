@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import { tabNavigationIntent } from '../../lib/view-state-store'
 
   type ContinueWatchingItem = {
     show: MediaFolder
@@ -19,14 +20,29 @@
     itemClick: { item: LibraryItem }
   }>()
 
-  function handleItemKeydown(event: KeyboardEvent, itemToClick: LibraryItem) {
+  function handleShowDetailsClick() {
+    // Before dispatching the navigation, set the intent to open the correct tab.
+    if (item.nextEpisode.seasonNumber != null) {
+      tabNavigationIntent.set({
+        targetShowId: item.show.id,
+        targetSeasonNumber: item.nextEpisode.seasonNumber
+      })
+    }
+    dispatch('itemClick', { item: item.show })
+  }
+
+  function handleItemKeydown(event: KeyboardEvent, target: 'play' | 'show') {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      dispatch('itemClick', { item: itemToClick })
+      if (target === 'play') {
+        dispatch('itemClick', { item: item.nextEpisode })
+      } else {
+        handleShowDetailsClick()
+      }
     }
   }
 
-  function handleDismiss(event: MouseEvent, showId: string) {
+  function handleDismiss(event: MouseEvent, showId:string) {
     event.stopPropagation()
     dispatch('dismiss', { showId })
   }
@@ -48,7 +64,7 @@
     tabindex={layout === 'vertical' ? 0 : undefined}
     aria-label="Play next episode"
     onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
-    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, item.nextEpisode) : null}
+    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, 'play') : null}
   >
     <img
       src="media-browser-asset://images/{item.nextEpisode.posterPath ?? item.show.posterPath}{item
@@ -67,8 +83,8 @@
     role={layout === 'vertical' ? 'button' : undefined}
     tabindex={layout === 'vertical' ? 0 : undefined}
     aria-label={layout === 'vertical' ? 'Go to show details' : undefined}
-    onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.show }) : null}
-    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, item.show) : null}
+    onclick={layout === 'vertical' ? handleShowDetailsClick : null}
+    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, 'show') : null}
   >
     {#if layout !== 'horizontal'}
       <div class="cw-show-title" title={item.show.title ?? item.show.name}>

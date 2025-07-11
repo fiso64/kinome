@@ -1,7 +1,8 @@
 <script lang="ts">
   import MediaView from '../layout/MediaView.svelte'
   import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
-  import { activeTabState } from '../../lib/view-state-store'
+  import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
+  import { get } from 'svelte/store'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -30,6 +31,61 @@
     suggestions?: AutocompleteSuggestions
     settings?: Settings | null
   } = $props()
+
+  let lastProcessedContainerId: string | undefined = undefined
+
+  $effect(() => {
+    if (!container) return
+
+    // Check for a specific navigation intent first. This logic runs before
+    // the "last processed container" check, allowing it to override sticky tab behavior.
+    const intent = get(tabNavigationIntent)
+    if (intent && intent.targetShowId === container.id) {
+      const nextUpSeasonFolder = folders.find(
+        (f) => (f as MediaFolder).seasonNumber === intent.targetSeasonNumber
+      )
+      if (nextUpSeasonFolder) {
+        selectTab(nextUpSeasonFolder.id)
+      }
+      // IMPORTANT: Consume the intent so it doesn't fire again.
+      tabNavigationIntent.set(null)
+    }
+
+    // This effect runs when the component is (re)created with a container.
+    // It's designed to set an intelligent default tab for a TV show *only if*
+    // a tab hasn't already been selected by the user for this container.
+    if (container.id === lastProcessedContainerId) return
+
+    lastProcessedContainerId = container.id
+
+    // Check if a tab has already been set for this container in the global state.
+    // If so, the user has likely interacted with it, and we should respect their choice.
+    if ($activeTabState.has(container.id)) {
+      return
+    }
+
+    // Only apply this logic to TV show folders.
+    const isTvShowContainer = container.type === 'folder' && container.mediaType === 'tv'
+    if (!isTvShowContainer) return
+
+    // Asynchronously fetch the "Next Up" episode to determine the default tab.
+    window.api.getContinueWatchingForShow(container.id).then((info) => {
+      // It's possible for the user to have clicked a tab while we were fetching.
+      // Double-check that no tab has been set before we override it.
+      if ($activeTabState.has(container.id)) return
+
+      if (info && !info.show.nextUpDismissed) {
+        const nextEpisodeSeasonNumber = info.nextEpisode.seasonNumber
+        const nextUpSeasonFolder = folders.find(
+          (f) => (f as MediaFolder).seasonNumber === nextEpisodeSeasonNumber
+        )
+
+        if (nextUpSeasonFolder) {
+          selectTab(nextUpSeasonFolder.id)
+        }
+      }
+    })
+  })
 
   let tabListElement = $state<HTMLDivElement | undefined>()
   let canScrollLeft = $state(false)
