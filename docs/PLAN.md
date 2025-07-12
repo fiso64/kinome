@@ -76,6 +76,9 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[X]` add tighter integration with the local filesystem (e.g make it easy to reveal files in explorer and view file properties, delete). add these to the context menu after a separator. Also, make sure to use good abstractions for later, since some remote sources will not have these things (maybe each source defines the possible additional actions that are available for files and folders?). Ensure the explorer integration is cross-platform.
 *   `[X]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
 
+### Phase ?: Miscellaneous TODO
+- Bug: After adding a new item to library, requires refreshing twice before the item shows up
+
 ### Phase 4: Expansion & Refinement
 
 The goal is to prepare for future growth.
@@ -100,17 +103,23 @@ The goal is to prepare for future growth.
 *   `[ ]` Improve navigation and user action performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
-*   `[ ]` Refine player support. More detailed watched states (including time) => integration with common video players like mpv, vlc. 
+*   `[ ]` Optional: Refine player support. More detailed watched states (including time) => integration with common video players like mpv, vlc. (Maybe later)
 *   `[ ]` Improve and polish UI everywhere. Test on different screen sizes.
 *   `[ ]` Abstract and generalize the code sufficiently to be able to deal with the differences between desktop, web, and mobile (android, ios).
 
 #### Future
+
+*   `[ ]` **Plugin System:** Implement a versatile plugin system. Searcher plugins (browsing tmdb?), downloader/streamer plugins (downloading from various trackers?), etc.
+    *   Very similar to Stremio (look into it): 
+        1. A searcher plugin will allow searching for media that isn't in the local library (e.g. tmdb search plugin)
+        2. A downloader/streamer plugin will be required to play any items not in the local library (e.g.: a https stream plugin returning https stream link(s), torrent downloader plugin returning results from a particular tracker). Downloader plugins should also allow one to permanently add a movie/show to the local library. In the spirit of the app, we should make it use an external torrent client (user-configured, similar to existing video player configuration) instead of a built-in one, if possible.
+        3. If possible, make Stremio plugins work out of the box with media-browser.
+        4. The existing local files searching and playing logic might be refactored into yet another searcher and "streamer" plugin respectively.
 *   `[ ]` **Server Support:** 
     *   Decide: Integrate with existing servers (like jellyfin's), or make a custom one?
     *   For a custom server:
         *   `[ ]` Turn the main process into a server (with a distributable binary) that can be run on a remote and communicate.  
                   Note: The application should (still) NOT require a server for local libraries, and work entirely via IPC in that case.
         *   `[ ]` Implement common features like multi-user support, on-the-fly transcoding, etc. 
+    *   Either way, these will be implemented as searcher/streamer plugins with the new system explained above.
 *   `[ ]` **True Cross-Platform:** Web? Android? iOS?
-*   `[ ]` **Multi-Library Support:** Refactor the codebase to handle multiple library configurations instead of just one.
-*   `[ ]` **Plugin System:** Implement a versatile plugin system. User data integration plugins (myanimelist?), searcher plugins (browsing tmdb?), downloader plugins (downloading from various trackers?), etc.
