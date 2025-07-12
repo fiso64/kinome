@@ -110,7 +110,7 @@ The goal is to prepare for future growth.
 #### Future
 
 *   `[ ]` **Plugin System:** Implement a versatile plugin system. Searcher plugins (browsing tmdb?), downloader/streamer plugins (downloading from various trackers?), etc.
-    *   Very similar to Stremio (look into it): 
+    *   Very similar to Stremio ([look into it](https://guides.viren070.me/stremio)): 
         1. A searcher plugin will allow searching for media that isn't in the local library (e.g. tmdb search plugin)
         2. A downloader/streamer plugin will be required to play any items not in the local library (e.g.: a https stream plugin returning https stream link(s), torrent downloader plugin returning results from a particular tracker). Downloader plugins should also allow one to permanently add a movie/show to the local library. In the spirit of the app, we should make it use an external torrent client (user-configured, similar to existing video player configuration) instead of a built-in one, if possible.
         3. If possible, make Stremio plugins work out of the box with media-browser.
