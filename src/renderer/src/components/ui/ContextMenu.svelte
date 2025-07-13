@@ -203,6 +203,11 @@
     onClose()
   }
 
+  function handleCustomAction(commandId: string) {
+    window.api.executeCustomAction(item.id, commandId)
+    onClose()
+  }
+
   function handleReveal() {
     onRevealInExplorer()
     onClose()
@@ -423,6 +428,36 @@
             {#each settings.playerCommands as player}
               <button class="context-menu-item" onclick={() => handlePlayWith(player.command)}>
                 <span>{player.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if !isVirtual && item.path && settings?.customActions && settings.customActions.length > 0}
+      <div
+        class="submenu-container"
+        onmouseenter={() => (activeSubmenu = 'custom')}
+        onmouseleave={() => (activeSubmenu = null)}
+      >
+        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+          <span class="icon">🛠️</span>
+          <span>Custom Actions</span>
+          <span class="submenu-arrow">▸</span>
+        </button>
+
+        {#if activeSubmenu === 'custom'}
+          <div
+            bind:this={submenuElement}
+            class="context-menu submenu"
+            class:on-left={submenuOnLeft}
+            style="top: {submenuTop}px;"
+            onclick={(e) => e.stopPropagation()}
+          >
+            {#each settings.customActions as action (action.id)}
+              <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
+                <span>{action.name}</span>
               </button>
             {/each}
           </div>

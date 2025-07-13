@@ -109,6 +109,10 @@ const api = {
   removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void> =>
     ipcRenderer.invoke('remove-image', itemId, imageType),
 
+  // Actions
+  executeCustomAction: (itemId: string, commandId: string): Promise<void> =>
+    ipcRenderer.invoke('execute-custom-action', itemId, commandId),
+
   // Filesystem
   revealInExplorer: (path: string): void => ipcRenderer.send('reveal-in-explorer', path),
   trashItem: (path: string): Promise<boolean> => ipcRenderer.invoke('trash-item', path),

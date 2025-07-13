@@ -173,6 +173,7 @@ export interface Settings {
   showNextUp: boolean
   virtualTags?: { name: string; expression: string }[]
   playerCommands: PlayerCommandConfig[]
+  customActions: CustomActionConfig[]
   libraryLocation: string // The path to the library data directory.
   mediaSourcePath?: string
   mediaSourcePathIsRelative?: boolean
@@ -288,6 +289,12 @@ export interface MediaFolder extends StoredViewSettings {
 export type LibraryItem = MediaFile | MediaFolder
 
 export interface PlayerCommandConfig {
+  id: string
+  name: string
+  command: string
+}
+
+export interface CustomActionConfig {
   id: string
   name: string
   command: string

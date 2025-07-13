@@ -14,6 +14,7 @@ declare global {
   // The `_` prefix is used to avoid name clashes within this file.
   type ViewSettings = _ViewSettings
   type Settings = _Settings
+  type CustomActionConfig = import('../../shared/types').CustomActionConfig
   type MediaFile = _MediaFile
   type MediaFolder = _MediaFolder
   type LibraryItem = _LibraryItem
@@ -97,6 +98,8 @@ declare global {
         source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
       ) => Promise<void>
       removeImage: (itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => Promise<void>
+      // Actions
+      executeCustomAction: (itemId: string, commandId: string) => Promise<void>
       // Playback
       playFile: (file: MediaFile) => Promise<boolean>
       playFileWith: (file: MediaFile, command: string) => Promise<boolean>

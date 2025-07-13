@@ -7,8 +7,9 @@
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
   import PlayerCommandsModal from './PlayerCommandsModal.svelte'
+  import CustomActionsModal from './CustomActionsModal.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
-  import type { PlayerCommandConfig } from '../../../../shared/types'
+  import type { PlayerCommandConfig, CustomActionConfig } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv "{PATH}" or "C:\\VLC\\vlc.exe" "{PATH}"'
 
   let { settings }: { settings: Settings | null } = $props()
@@ -24,9 +25,11 @@
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
   let activeLayoutSettingsModal = $state(false)
   let activePlayerCommandsModal = $state(false)
+  let activeCustomActionsModal = $state(false)
 
   // --- Form State ---
   let playerCommands = $state<PlayerCommandConfig[]>([])
+  let customActions = $state<CustomActionConfig[]>([])
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
   let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
@@ -81,6 +84,7 @@
   $effect(() => {
     window.api.getSettings().then((settings) => {
       playerCommands = JSON.parse(JSON.stringify(settings.playerCommands ?? []))
+      customActions = JSON.parse(JSON.stringify(settings.customActions ?? []))
       tmdbApiKey = settings.tmdbApiKey
       useLogos = settings.useLogos
       creditsDisplay = settings.creditsDisplay
@@ -194,6 +198,7 @@
       .filter((vt) => vt.name && vt.expression)
     await window.api.saveSettings({
       playerCommands: JSON.parse(JSON.stringify(playerCommands)),
+      customActions: JSON.parse(JSON.stringify(customActions)),
       tmdbApiKey,
       useLogos,
       creditsDisplay,
@@ -281,6 +286,10 @@
   <PlayerCommandsModal bind:playerCommands onClose={() => (activePlayerCommandsModal = false)} />
 {/if}
 
+{#if activeCustomActionsModal}
+  <CustomActionsModal bind:customActions onClose={() => (activeCustomActionsModal = false)} />
+{/if}
+
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
     initialSettings={defaultLayoutSettings}
@@ -345,6 +354,24 @@
         <p class="help-text">
           The default player command. Click "Manage..." to add, remove, or reorder multiple player
           configurations. Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
+        </p>
+      </div>
+      <div class="form-group">
+        <label>Custom Actions</label>
+        <div class="path-display-container">
+          <div class="path-display" style="flex-grow: 1; text-align: center;">
+            {customActions.length} action(s) configured
+          </div>
+          <button
+            class="secondary"
+            onclick={() => (activeCustomActionsModal = true)}
+            style="height: auto; align-self: stretch;"
+          >
+            Manage...
+          </button>
+        </div>
+        <p class="help-text">
+          Define custom shell commands to run on items. These are available in the context menu.
         </p>
       </div>
       <div class="form-group">

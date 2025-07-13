@@ -2188,6 +2188,56 @@ export function setupLibraryIpc(): void {
   )
 
   ipcMain.handle(
+    'execute-custom-action',
+    async (_, itemId: string, commandId: string): Promise<void> => {
+      if (!db || !db.root) {
+        console.error('Cannot execute custom action: database not found.')
+        return
+      }
+
+      const item = findItemById(itemId, db.root)
+      if (!item) {
+        console.error(`Cannot execute custom action: item ${itemId} not found.`)
+        return
+      }
+
+      const settings = await readSettings()
+      const action = settings.customActions.find((a) => a.id === commandId)
+
+      if (!action) {
+        console.error(`Cannot execute custom action: command ${commandId} not found.`)
+        return
+      }
+
+      const mediaSourcePath = await getAbsoluteMediaSourcePath()
+      if (!mediaSourcePath) {
+        console.error('Cannot execute custom action: media source path is not configured.')
+        return
+      }
+
+      const absolutePath = path.join(mediaSourcePath, item.path)
+      const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
+      let commandToExecute = action.command
+      commandToExecute = commandToExecute.replace(/{path}/g, absolutePath)
+      commandToExecute = commandToExecute.replace(/{title}/g, title)
+      commandToExecute = commandToExecute.replace(/{type}/g, item.mediaType ?? '')
+      commandToExecute = commandToExecute.replace(/{year}/g, item.year?.toString() ?? '')
+
+      console.log(`Executing custom action: ${commandToExecute}`)
+      exec(commandToExecute, (error) => {
+        if (error) {
+          console.error(`Failed to execute custom action: ${error.message}`)
+          BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+            title: 'Custom Action Error',
+            message: 'Failed to execute the custom command.',
+            detail: `Command: ${commandToExecute}\nError: ${error.message}`
+          })
+        }
+      })
+    }
+  )
+
+  ipcMain.handle(
     'user-apply-tmdb-result',
     async (_event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
       if (!db || !db.root) return

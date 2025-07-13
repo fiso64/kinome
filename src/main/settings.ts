@@ -64,6 +64,7 @@ async function readRawSettings(): Promise<Settings> {
     playerCommands: [
       { id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }
     ],
+    customActions: [],
     tmdbApiKey: '',
     useLogos: true,
     creditsDisplay: 'tab',
