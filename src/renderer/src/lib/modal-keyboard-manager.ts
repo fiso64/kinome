@@ -10,14 +10,20 @@ function globalKeydownListener(event: KeyboardEvent) {
   if (handlerStack.length > 0) {
     const topHandler = handlerStack[handlerStack.length - 1]
     topHandler(event)
+    // If the modal handler prevented the default action (e.g., for Escape or Enter),
+    // then also stop the event from propagating to other global listeners like shortcuts.
+    if (event.defaultPrevented) {
+      event.stopPropagation()
+    }
   }
 }
 
 // This check is to prevent errors during SSR or in non-browser environments.
 if (typeof window !== 'undefined') {
-  // Listen during the bubbling phase (default) so that child elements' keydown
-  // handlers (e.g., in TagInput) can run and call preventDefault() first.
-  window.addEventListener('keydown', globalKeydownListener)
+  // Listen during the capture phase (by setting the third argument to `true`)
+  // to ensure this runs before other global listeners (like shortcuts) and can
+  // stop the event from propagating to them if handled.
+  window.addEventListener('keydown', globalKeydownListener, true)
 }
 
 /**
