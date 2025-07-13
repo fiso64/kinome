@@ -78,6 +78,8 @@ The goal is to implement the key features that make the app unique and powerful.
 
 ### Phase ?: Miscellaneous TODO
 - Bug: After adding a new item to library, requires refreshing twice before the item shows up
+- Bug: Refreshing takes you out of detail view. Refresh button should also be available in detail view.
+- Some actions (like moving an item to trash) trigger an expensive full refresh which is wasteful. Find all such actions and make them more targeted.
 
 ### Phase 4: Expansion & Refinement
 
