@@ -105,6 +105,7 @@ The goal is to prepare for future growth.
 *   `[ ]` Improve navigation and user action performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
+    *   `[ ]` Consider moving to Tauri.
 *   `[ ]` Optional: Refine player support. More detailed watched states (including time) => integration with common video players like mpv, vlc. (Maybe later)
 *   `[ ]` Improve and polish UI everywhere. Test on different screen sizes.
 *   `[ ]` Abstract and generalize the code sufficiently to be able to deal with the differences between desktop, web, and mobile (android, ios).

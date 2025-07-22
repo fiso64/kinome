@@ -287,7 +287,6 @@
     position: relative;
     display: flex;
     align-items: center;
-    background-color: var(--color-background);
     flex-shrink: 0;
   }
 
