@@ -1084,10 +1084,7 @@ async function fetchMetadataForLibrary(
           // Also check for unprocessed seasons as a fallback (e.g., if a previous refetch failed).
           const hasUnprocessedSeason = show.children.some(
             (c) =>
-              c.type === 'folder' &&
-              c.mediaType === 'season' &&
-              c.seasonNumber != null &&
-              !c.title
+              c.type === 'folder' && c.mediaType === 'season' && c.seasonNumber != null && !c.title
           )
 
           if (needsRefetch || hasUnprocessedSeason) {
@@ -1950,7 +1947,10 @@ export function setupLibraryIpc(): void {
 
       const mediaSourceIsRemote = isRemotePath(mediaSourcePath)
       const absolutePath = mediaSourceIsRemote
-        ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
+        ? new URL(
+            file.path,
+            mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')
+          ).toString()
         : path.join(mediaSourcePath, file.path)
 
       const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
@@ -1978,25 +1978,25 @@ export function setupLibraryIpc(): void {
         if (itemInDb && itemInDb.type === 'file') {
           itemInDb.watched = true
           ;(itemInDb as MediaFile).lastWatched = Date.now()
-        // if playing an episode, un-dismiss the show
-        let parent = findParent(itemInDb.id, db.root)
-        let show: MediaFolder | null = null
-        while (parent) {
-          if (parent.mediaType === 'tv') {
-            show = parent
-            break
+          // if playing an episode, un-dismiss the show
+          let parent = findParent(itemInDb.id, db.root)
+          let show: MediaFolder | null = null
+          while (parent) {
+            if (parent.mediaType === 'tv') {
+              show = parent
+              break
+            }
+            parent = findParent(parent.id, db.root)
           }
-          parent = findParent(parent.id, db.root)
-        }
-        if (show) {
-          if (show.continueWatchingDismissed) {
-            show.continueWatchingDismissed = false
+          if (show) {
+            if (show.continueWatchingDismissed) {
+              show.continueWatchingDismissed = false
+            }
+            if (show.nextUpDismissed) {
+              show.nextUpDismissed = false
+            }
           }
-          if (show.nextUpDismissed) {
-            show.nextUpDismissed = false
-          }
-        }
-        await _finalizeItemUpdate(itemInDb)
+          await _finalizeItemUpdate(itemInDb)
         } else {
           console.warn(`Could not find item with id ${file.id} in DB to mark as watched.`)
         }

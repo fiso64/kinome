@@ -7,7 +7,7 @@ import { join, resolve as resolvePath, relative, dirname } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange, loadDbIntoMemory } from './library'
-import { getLibraryDataPath, setLibraryDataPath, isRemoteLibrary, resolveLibraryPath } from './paths'
+import { setLibraryDataPath, isRemoteLibrary, resolveLibraryPath } from './paths'
 import { readSettings, writeLibrarySettings, writeGlobalSettings } from './settings'
 import type { Settings } from '../shared/types'
 

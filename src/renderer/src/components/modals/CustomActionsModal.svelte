@@ -10,9 +10,7 @@
     onClose: () => void
   } = $props()
 
-  let localCustomActions = $state<CustomActionConfig[]>(
-    JSON.parse(JSON.stringify(customActions))
-  )
+  let localCustomActions = $state<CustomActionConfig[]>(JSON.parse(JSON.stringify(customActions)))
   let editCommandId = $state<string | null>(null)
   let formCommandNameForNew = $state('')
   let formCommandStringForNew = $state('')
@@ -166,14 +164,18 @@
       </p>
     </div>
 
-<div class="add-command-form">
-  <h4>Add New Action</h4>
-  <input type="text" bind:value={formCommandNameForNew} placeholder="Action Name (e.g., Convert to MP4)" />
-  <input
-    type="text"
-    bind:value={formCommandStringForNew}
-    placeholder="Command (e.g., ffmpeg -i &quot;{'{path}'}&quot; &quot;{'{path}'}.mp4&quot;)"
-  />
+    <div class="add-command-form">
+      <h4>Add New Action</h4>
+      <input
+        type="text"
+        bind:value={formCommandNameForNew}
+        placeholder="Action Name (e.g., Convert to MP4)"
+      />
+      <input
+        type="text"
+        bind:value={formCommandStringForNew}
+        placeholder="Command (e.g., ffmpeg -i &quot;{'{path}'}&quot; &quot;{'{path}'}.mp4&quot;)"
+      />
       <div class="form-actions">
         <button
           class="primary add-btn"

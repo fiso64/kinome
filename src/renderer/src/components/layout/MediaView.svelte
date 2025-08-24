@@ -213,7 +213,8 @@
           const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
           for (const seasonNum of sortedSeasonNumbers) {
             const groupByValue = `__season_${seasonNum}__`
-            const virtualSettings = parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
+            const virtualSettings =
+              parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
 
             const seasonFolder: VirtualFolder = {
               id: `virtual--${parentItem.id}--season--${seasonNum}`,
@@ -236,7 +237,8 @@
           // 3. Create a virtual folder for any remaining "unseasoned" files
           if (unseasonedFiles.length > 0) {
             const groupByValue = '__files__'
-            const virtualSettings = parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
+            const virtualSettings =
+              parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
 
             const filesFolder: VirtualFolder = {
               id: `virtual--${parentItem.id}--files`,

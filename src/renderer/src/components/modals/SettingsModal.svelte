@@ -403,9 +403,9 @@
         </label>
         <p class="help-text">
           Useful for portable libraries where the media folder and library data have a fixed
-          relative position. The path is stored relative to the parent of the Library Data
-          Location. For a local path <code>C:\Data\Library</code>, this is <code>C:\Data</code>. For a
-          URL <code>http://server/library/</code>, this is <code>http://server/</code>.
+          relative position. The path is stored relative to the parent of the Library Data Location.
+          For a local path <code>C:\Data\Library</code>, this is <code>C:\Data</code>. For a URL
+          <code>http://server/library/</code>, this is <code>http://server/</code>.
         </p>
       </div>
       <div class="form-group">

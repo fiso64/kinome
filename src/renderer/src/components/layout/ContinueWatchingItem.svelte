@@ -42,7 +42,7 @@
     }
   }
 
-  function handleDismiss(event: MouseEvent, showId:string) {
+  function handleDismiss(event: MouseEvent, showId: string) {
     event.stopPropagation()
     dispatch('dismiss', { showId })
   }

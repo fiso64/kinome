@@ -55,7 +55,13 @@
   let submenuTop = $state(0) // For vertical adjustment
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
 
-  type WatchedState = 'fully' | 'partially' | 'unwatched' | 'none' | 'file_watched' | 'file_unwatched'
+  type WatchedState =
+    | 'fully'
+    | 'partially'
+    | 'unwatched'
+    | 'none'
+    | 'file_watched'
+    | 'file_unwatched'
   let watchedState: WatchedState = $state('none')
 
   $effect(() => {

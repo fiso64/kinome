@@ -140,8 +140,6 @@
     }
   }
 
-
-
   // Export a method to be called from the parent.
   // This is how we can manage focus from a parent component.
   export function focusSearchInput() {
@@ -190,7 +188,7 @@
       {/if}
     </div>
 
-  <div class="search-container" onkeydown={handleSearchKeyDown}>
+    <div class="search-container" onkeydown={handleSearchKeyDown}>
       {#if isDetailViewActive}
         <SearchInput
           bind:query={detailViewSearchQuery}

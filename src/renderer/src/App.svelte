@@ -569,8 +569,6 @@
     activeModal = { type: 'properties', item }
   }
 
-
-
   async function handleDeleteItemFromDb(item: LibraryItem) {
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Database Deletion',
