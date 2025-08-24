@@ -2,11 +2,12 @@
 // any other module that depends on it is loaded.
 import './startup'
 
-import { app, shell, BrowserWindow, ipcMain, protocol, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, dialog, net } from 'electron'
 import { join, resolve as resolvePath, relative, dirname } from 'path'
+import { pathToFileURL } from 'url'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { setupLibraryIpc, reapplyVirtualTagsAfterSettingsChange, loadDbIntoMemory } from './library'
-import { getLibraryDataPath, setLibraryDataPath } from './paths'
+import { getLibraryDataPath, setLibraryDataPath, isRemoteLibrary, resolveLibraryPath } from './paths'
 import { readSettings, writeLibrarySettings, writeGlobalSettings } from './settings'
 import type { Settings } from '../shared/types'
 
@@ -60,15 +61,28 @@ function createWindow(): void {
 app.whenReady().then(() => {
   console.log(`[${new Date().toISOString()}] [Main] App is ready.`)
 
-  protocol.registerFileProtocol('media-browser-asset', (request, callback) => {
-    let pathString = request.url.substring('media-browser-asset://'.length)
-    const queryIndex = pathString.indexOf('?')
-    if (queryIndex !== -1) {
-      pathString = pathString.substring(0, queryIndex)
+  protocol.handle('media-browser-asset', (request) => {
+    try {
+      let pathString = request.url.substring('media-browser-asset://'.length)
+      const queryIndex = pathString.indexOf('?')
+      if (queryIndex !== -1) {
+        pathString = pathString.substring(0, queryIndex)
+      }
+      const relativePath = decodeURIComponent(pathString)
+      const fullPathOrUrl = resolveLibraryPath(relativePath)
+
+      if (isRemoteLibrary()) {
+        // For remote libraries, fetch the resource from the remote URL and return the response.
+        return net.fetch(fullPathOrUrl)
+      } else {
+        // For local libraries, convert the absolute path to a file URL and fetch it.
+        return net.fetch(pathToFileURL(fullPathOrUrl).toString())
+      }
+    } catch (e) {
+      console.error(`[Protocol Handler] Failed to handle ${request.url}:`, e)
+      // Return a 404 response on error.
+      return new Response(null, { status: 404 })
     }
-    const relativePath = decodeURIComponent(pathString)
-    const absolutePath = resolvePath(getLibraryDataPath(), relativePath)
-    callback({ path: absolutePath })
   })
 
   // Set app user model id for windows

@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import type { DefaultLayoutKey, Settings } from '../shared/types'
 import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../shared/types'
-import { getLibraryDataPath } from './paths'
+import { getLibraryDataPath, isRemoteLibrary, resolveLibraryPath, isRemotePath } from './paths'
 
 const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
@@ -15,16 +15,29 @@ function getGlobalSettingsPath(): string {
 }
 
 function getLibrarySettingsPath(): string {
-  const libraryPath = getLibraryDataPath()
-  return path.join(libraryPath, LIBRARY_SETTINGS_FILE_NAME)
+  return resolveLibraryPath(LIBRARY_SETTINGS_FILE_NAME)
 }
 
 // Helper to read a single settings file and return its content or an empty object
 async function readSettingsFile(filePath: string): Promise<Partial<Settings>> {
   try {
-    const data = await fs.readFile(filePath, 'utf-8')
+    let data: string
+    if (isRemotePath(filePath)) {
+      const response = await fetch(filePath)
+      if (!response.ok) {
+        // A 404 is a normal "file not found" case for remote files.
+        if (response.status !== 404) {
+          console.warn(`[Settings] Failed to fetch ${filePath}: ${response.statusText}`)
+        }
+        return {}
+      }
+      data = await response.text()
+    } else {
+      data = await fs.readFile(filePath, 'utf-8')
+    }
     return JSON.parse(data)
-  } catch {
+  } catch (e) {
+    // This catches fs errors (e.g. file not found), network errors, and JSON parsing errors.
     return {}
   }
 }
@@ -172,6 +185,11 @@ export async function readSettings(): Promise<Settings> {
  * @param settings The partial settings object to save.
  */
 export async function writeLibrarySettings(settings: Partial<Settings>): Promise<void> {
+  if (isRemoteLibrary()) {
+    console.warn('[Settings] Skipping write to library-settings.json for remote library.')
+    return
+  }
+
   const settingsPath = getLibrarySettingsPath()
   try {
     // Ensure library data directory exists before writing

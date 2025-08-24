@@ -5,6 +5,7 @@ const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Main] ${message}`)
 }
 import path from 'path'
+import { URL } from 'url'
 import fs, { readdir, stat } from 'fs/promises'
 import { type Dirent } from 'fs'
 import crypto from 'crypto'
@@ -41,7 +42,7 @@ import {
   downloadImage
 } from './retriever'
 import { readSettings, writeLibrarySettings } from './settings'
-import { getLibraryDataPath } from './paths'
+import { getLibraryDataPath, isRemoteLibrary, resolveLibraryPath, isRemotePath } from './paths'
 
 const DATABASE_FILE_NAME = 'database.json'
 const DB_VERSION = 1
@@ -97,13 +98,25 @@ export async function loadDbIntoMemory(): Promise<void> {
 // --- End In-Memory Database Cache ---
 
 function getDbPath(): string {
-  return path.join(getLibraryDataPath(), DATABASE_FILE_NAME)
+  return resolveLibraryPath(DATABASE_FILE_NAME)
 }
 
 async function readDb(): Promise<Database | null> {
   try {
     const dbPath = getDbPath()
-    const data = await fs.readFile(dbPath, 'utf-8')
+    let data: string
+    if (isRemoteLibrary()) {
+      console.log(`[Library] Fetching remote database from: ${dbPath}`)
+      const response = await fetch(dbPath)
+      if (!response.ok) {
+        console.warn(`[Library] Failed to fetch ${dbPath}: ${response.statusText}`)
+        return null
+      }
+      data = await response.text()
+    } else {
+      data = await fs.readFile(dbPath, 'utf-8')
+    }
+
     const parsedDb = JSON.parse(data) as Database
     if (parsedDb.version !== DB_VERSION) {
       console.warn(
@@ -112,8 +125,8 @@ async function readDb(): Promise<Database | null> {
       return null
     }
     return parsedDb
-  } catch {
-    // File doesn't exist or is corrupt, which is fine on first run
+  } catch (e) {
+    console.error(`[Library] Failed to read or parse database from ${getDbPath()}:`, e)
     return null
   }
 }
@@ -126,15 +139,31 @@ async function getAbsoluteMediaSourcePath(): Promise<string | null> {
 
   if (settings.mediaSourcePathIsRelative) {
     const libraryPath = getLibraryDataPath()
-    // If library path is empty (should not happen if mediaSourcePath is set), return relative path as is.
     if (!libraryPath) return settings.mediaSourcePath
-    return path.resolve(path.dirname(libraryPath), settings.mediaSourcePath)
+
+    if (isRemoteLibrary()) {
+      // For remote paths, resolve relative to the parent URL, mimicking path.dirname().
+      const parentUrl = new URL('..', libraryPath)
+      return new URL(settings.mediaSourcePath, parentUrl).toString()
+    } else {
+      return path.resolve(path.dirname(libraryPath), settings.mediaSourcePath)
+    }
   }
 
   return settings.mediaSourcePath
 }
 
 async function writeDb(updatedDb: Database): Promise<void> {
+  // If the library is remote, we don't persist any changes.
+  // We only update the in-memory representation if a completely new DB object was passed.
+  if (isRemoteLibrary()) {
+    if (db !== updatedDb) {
+      db = createDbProxy(updatedDb, getBulkUpdateStatus)
+      buildFullSearchIndex(db.root)
+    }
+    return
+  }
+
   // This function now handles both new raw objects and our existing proxy.
   const libraryPath = getLibraryDataPath()
   await fs.mkdir(libraryPath, { recursive: true })
@@ -690,10 +719,12 @@ async function clearTvStructureMetadata(
     let wasModified = false // Reset properties for this child
 
     if (child.posterPath) {
-      try {
-        await fs.unlink(path.join(imagesDir, child.posterPath))
-      } catch (e) {
-        /* ignore if file not found */
+      if (!isRemoteLibrary()) {
+        try {
+          await fs.unlink(path.join(imagesDir, child.posterPath))
+        } catch (e) {
+          /* ignore if file not found */
+        }
       }
       child.posterPath = undefined
       wasModified = true
@@ -745,6 +776,10 @@ async function clearTvStructureMetadata(
 
 // Checks if image files exist on disk. If not, it nullifies the path in the item object.
 async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
+  if (isRemoteLibrary()) {
+    return // Skip image existence check for remote libraries.
+  }
+
   if (item.posterPath) {
     try {
       await fs.access(path.join(imagesDir, item.posterPath))
@@ -1186,6 +1221,9 @@ async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: M
   if (!show.tmdbId || !show.tmdbSeasons || !db) {
     return
   }
+  if (isRemoteLibrary()) {
+    return
+  }
 
   const seasonFolder = show.children.find(
     (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
@@ -1278,26 +1316,28 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
 }
 
 async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
-  // Delete associated image files first, as their paths are part of the metadata being reset.
-  if (item.posterPath) {
-    try {
-      await fs.unlink(path.join(imagesDir, item.posterPath))
-    } catch (e) {
-      /* ignore if file not found */
+  // For local libraries, delete associated image files first.
+  if (!isRemoteLibrary()) {
+    if (item.posterPath) {
+      try {
+        await fs.unlink(path.join(imagesDir, item.posterPath))
+      } catch (e) {
+        /* ignore if file not found */
+      }
     }
-  }
-  if (item.backdropPath) {
-    try {
-      await fs.unlink(path.join(imagesDir, item.backdropPath))
-    } catch (e) {
-      /* ignore if file not found */
+    if (item.backdropPath) {
+      try {
+        await fs.unlink(path.join(imagesDir, item.backdropPath))
+      } catch (e) {
+        /* ignore if file not found */
+      }
     }
-  }
-  if (item.logoPath) {
-    try {
-      await fs.unlink(path.join(imagesDir, item.logoPath))
-    } catch (e) {
-      /* ignore if file not found */
+    if (item.logoPath) {
+      try {
+        await fs.unlink(path.join(imagesDir, item.logoPath))
+      } catch (e) {
+        /* ignore if file not found */
+      }
     }
   }
 
@@ -1449,6 +1489,14 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('refresh-library', async () => {
+    if (isRemoteLibrary()) {
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Operation Not Supported',
+        message: 'Refreshing is not available for remote libraries.'
+      })
+      return db?.root ? createShallowClonableCopy(db.root) : null
+    }
+
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
@@ -1535,6 +1583,14 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('perform-initial-scan', async () => {
+    if (isRemoteLibrary()) {
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Operation Not Supported',
+        message: 'Scanning is not available when using a remote library.'
+      })
+      return db?.root ? createShallowClonableCopy(db.root) : null
+    }
+
     const focusedWindow = BrowserWindow.getFocusedWindow()
     if (!focusedWindow) return null
 
@@ -1617,6 +1673,14 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('perform-full-rescan', async (_, mediaSourcePath: string) => {
+    if (isRemoteLibrary()) {
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Operation Not Supported',
+        message: 'Rescanning is not available for remote libraries.'
+      })
+      return db?.root ? createShallowClonableCopy(db.root) : null
+    }
+
     if (!mediaSourcePath) {
       console.error('Full rescan called without a mediaSourcePath.')
       return null
@@ -1724,6 +1788,10 @@ export function setupLibraryIpc(): void {
 
     if (needsDetailsFetch || needsEpisodeFetch) {
       ;(async () => {
+        if (isRemoteLibrary()) {
+          log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
+          return
+        }
         setBulkUpdateStatus(true)
         const allModifiedItems: LibraryItem[] = []
         try {
@@ -1817,6 +1885,10 @@ export function setupLibraryIpc(): void {
   })
 
   ipcMain.handle('fetch-credits', async (_, itemId: string): Promise<void> => {
+    if (isRemoteLibrary()) {
+      log(`[Credits] Skipping fetch for item ${itemId} on remote read-only library.`)
+      return
+    }
     if (!db || !db.root) return
     const item = findItemById(itemId, db.root)
     if (!item) {
@@ -1876,7 +1948,11 @@ export function setupLibraryIpc(): void {
         return false
       }
 
-      const absolutePath = path.join(mediaSourcePath, file.path)
+      const mediaSourceIsRemote = isRemotePath(mediaSourcePath)
+      const absolutePath = mediaSourceIsRemote
+        ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
+        : path.join(mediaSourcePath, file.path)
+
       const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
 
       console.log(`Executing: ${commandToExecute}`)
@@ -1953,7 +2029,11 @@ export function setupLibraryIpc(): void {
       return false
     }
 
-    const absolutePath = path.join(mediaSourcePath, file.path)
+    const mediaSourceIsRemote = isRemotePath(mediaSourcePath)
+    const absolutePath = mediaSourceIsRemote
+      ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
+      : path.join(mediaSourcePath, file.path)
+
     // Use the first player command as the default
     const commandToExecute = playerCommands[0].command.replace('{PATH}', `${absolutePath}`)
 
@@ -2010,6 +2090,13 @@ export function setupLibraryIpc(): void {
   ipcMain.handle(
     'apply-initial-folder-settings',
     async (_, settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]) => {
+      if (isRemoteLibrary()) {
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Operation Not Supported',
+          message: 'Applying folder settings is not available for remote libraries.'
+        })
+        return
+      }
       const focusedWindow = BrowserWindow.getFocusedWindow()
       if (!focusedWindow || !db || !db.root) return
 
@@ -2240,6 +2327,13 @@ export function setupLibraryIpc(): void {
   ipcMain.handle(
     'user-apply-tmdb-result',
     async (_event, itemId: string, result: any, mediaType: 'movie' | 'tv' | 'season') => {
+      if (isRemoteLibrary()) {
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Operation Not Supported',
+          message: 'Applying metadata is not available for read-only remote libraries.'
+        })
+        return
+      }
       if (!db || !db.root) return
       markAsUserEdited(itemId, db.root)
       const item = findItemById(itemId, db.root)
@@ -2607,6 +2701,13 @@ export function setupLibraryIpc(): void {
       imageType: 'poster' | 'backdrop' | 'logo',
       source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
     ) => {
+      if (isRemoteLibrary()) {
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Operation Not Supported',
+          message: 'Setting images is not available for remote libraries.'
+        })
+        return
+      }
       if (!db || !db.root) return
       markAsUserEdited(itemId, db.root)
       const item = findItemById(itemId, db.root)
@@ -2681,13 +2782,28 @@ export function setupLibraryIpc(): void {
 
   ipcMain.on('reveal-in-explorer', async (_, relativePath: string) => {
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
-    if (mediaSourcePath) {
+    if (!mediaSourcePath) return
+
+    if (isRemotePath(mediaSourcePath)) {
+      const url = new URL(
+        relativePath,
+        mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')
+      ).toString()
+      shell.openExternal(url)
+    } else {
       const absolutePath = path.join(mediaSourcePath, relativePath)
       shell.showItemInFolder(absolutePath)
     }
   })
 
   ipcMain.handle('trash-item', async (_, relativePath: string): Promise<boolean> => {
+    if (isRemoteLibrary()) {
+      BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+        title: 'Operation Not Supported',
+        message: 'Deleting files is not available for remote libraries.'
+      })
+      return false
+    }
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) return false
     const absolutePath = path.join(mediaSourcePath, relativePath)
@@ -2716,6 +2832,13 @@ export function setupLibraryIpc(): void {
   ipcMain.handle(
     'rename-item',
     async (_, relativeOldPath: string, newName: string): Promise<boolean> => {
+      if (isRemoteLibrary()) {
+        BrowserWindow.getFocusedWindow()?.webContents.send('show-error-dialog', {
+          title: 'Operation Not Supported',
+          message: 'Renaming items is not available for remote libraries.'
+        })
+        return false
+      }
       const mediaSourcePath = await getAbsoluteMediaSourcePath()
       if (!mediaSourcePath) return false
       if (!db || !db.root) return false
@@ -2790,6 +2913,12 @@ export function setupLibraryIpc(): void {
   ipcMain.handle('get-item-properties', async (_, relativePath: string) => {
     const mediaSourcePath = await getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) return null
+
+    if (isRemotePath(mediaSourcePath)) {
+      // Cannot get file system stats for a remote item
+      return null
+    }
+
     const absolutePath = path.join(mediaSourcePath, relativePath)
     try {
       const stats = await fs.stat(absolutePath)

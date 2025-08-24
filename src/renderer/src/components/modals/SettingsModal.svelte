@@ -402,22 +402,26 @@
           <span>Store media source path relative to library data location</span>
         </label>
         <p class="help-text">
-          Useful for portable libraries where the media folder and library data folder have a fixed
-          relative position (e.g., on the same external drive). The path will be stored relative to
-          the parent directory of the Library Data Location.
+          Useful for portable libraries where the media folder and library data have a fixed
+          relative position. The path is stored relative to the parent of the Library Data
+          Location. For a local path <code>C:\Data\Library</code>, this is <code>C:\Data</code>. For a
+          URL <code>http://server/library/</code>, this is <code>http://server/</code>.
         </p>
       </div>
       <div class="form-group">
         <label>Library Data Location</label>
         <div class="path-display-container">
-          <div class="path-display">
-            {libraryDataLocation || 'Default (next to application data)'}
-          </div>
+          <input
+            type="text"
+            class="path-input"
+            bind:value={libraryDataLocation}
+            placeholder="Enter local path or http(s):// URL"
+          />
           <button class="secondary" onclick={handleChangeLibraryDataLocation}>Browse...</button>
         </div>
         <p class="help-text">
-          The folder where all metadata, images, and database files are stored. Changing this
-          requires an app restart to take effect, which will happen automatically after saving.
+          The folder (or URL) where metadata, images, and database files are stored. Changing this
+          requires an app restart, which happens automatically after saving.
         </p>
       </div>
     {:else if activeTab === 'view'}
@@ -607,7 +611,8 @@
     gap: 0.5rem; /* Restore gap */
     align-items: center;
   }
-  .path-display {
+  .path-display,
+  .path-input {
     padding: 0.5rem;
     background-color: var(--color-background);
     border: 1px solid var(--color-background-mute);
@@ -623,8 +628,12 @@
     font-size: 0.9rem;
     white-space: nowrap;
     overflow-x: auto;
-    color: var(--ev-c-text-2); /* This makes it look disabled */
+    color: var(--ev-c-text-2);
     flex-grow: 1;
+  }
+  .path-input {
+    color: var(--color-text);
+    width: 100%;
   }
   /* Ensure the player command input looks like a normal input */
   #player-command-display {
