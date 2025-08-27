@@ -461,13 +461,7 @@
       <div class="form-group">
         <label>Detail Page Backdrop Blur</label>
         <div class="slider-container">
-          <input
-            type="range"
-            bind:value={itemDetailBackdropBlur}
-            min="0"
-            max="20"
-            step="1"
-          />
+          <input type="range" bind:value={itemDetailBackdropBlur} min="0" max="20" step="1" />
           <span>{itemDetailBackdropBlur}px</span>
         </div>
         <p class="help-text">Controls the amount of blur applied to the background image.</p>

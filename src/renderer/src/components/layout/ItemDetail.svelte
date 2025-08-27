@@ -241,7 +241,7 @@
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
-<div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
+  <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
     {#if item.backdropPath}
       <img
         src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
@@ -256,10 +256,10 @@
   </div>
 
   <div class="detail-content">
-<div class="info-grid">
-  <div class="poster-column" bind:this={posterColumnElement}>
-    <div class="poster">
-      {#if item.posterPath}
+    <div class="info-grid">
+      <div class="poster-column" bind:this={posterColumnElement}>
+        <div class="poster">
+          {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
               alt="Poster"
@@ -333,35 +333,35 @@
               </div>
             {/if}
 
-<div class="content-holder">
-  <!-- Overview is always present to maintain content height -->
-<div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
-  {#if item.overview}
-    <div class="overview-expandable-area">
-      <div
-        class="overview-wrapper"
-        bind:this={overviewWrapperElement}
-        class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-        class:expanded={isOverviewExpanded}
-      >
-        <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
-      </div>
-      {#if isOverviewOverflowing}
-        <div class="expand-button-wrapper">
-          <button
-            class="expand-overview-btn"
-            onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-            aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-          >
-            <span class="chevron" class:up={isOverviewExpanded}></span>
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/if}
-</div>
+            <div class="content-holder">
+              <!-- Overview is always present to maintain content height -->
+              <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
+                {#if item.overview}
+                  <div class="overview-expandable-area">
+                    <div
+                      class="overview-wrapper"
+                      bind:this={overviewWrapperElement}
+                      class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+                      class:expanded={isOverviewExpanded}
+                    >
+                      <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+                    </div>
+                    {#if isOverviewOverflowing}
+                      <div class="expand-button-wrapper">
+                        <button
+                          class="expand-overview-btn"
+                          onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                          aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+                        >
+                          <span class="chevron" class:up={isOverviewExpanded}></span>
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
 
-  <!-- Credits "pop out" on top of the overview area -->
+              <!-- Credits "pop out" on top of the overview area -->
               {#if activeInfoTab === 'credits' && showCreditsSection}
                 <div class="credits-popout">
                   <div class="tab-content-wrapper">
@@ -377,32 +377,32 @@
               {/if}
             </div>
           </div>
-{:else if item.overview}
-  <div class="overview-container">
-    <h2 class="section-title">Overview</h2>
-    <div class="overview-expandable-area">
-      <div
-        class="overview-wrapper"
-        bind:this={overviewWrapperElement}
-        class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-        class:expanded={isOverviewExpanded}
-      >
-        <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
-      </div>
-      {#if isOverviewOverflowing}
-        <div class="expand-button-wrapper">
-          <button
-            class="expand-overview-btn"
-            onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-            aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-          >
-            <span class="chevron" class:up={isOverviewExpanded}></span>
-          </button>
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
+        {:else if item.overview}
+          <div class="overview-container">
+            <h2 class="section-title">Overview</h2>
+            <div class="overview-expandable-area">
+              <div
+                class="overview-wrapper"
+                bind:this={overviewWrapperElement}
+                class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+                class:expanded={isOverviewExpanded}
+              >
+                <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+              </div>
+              {#if isOverviewOverflowing}
+                <div class="expand-button-wrapper">
+                  <button
+                    class="expand-overview-btn"
+                    onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                    aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+                  >
+                    <span class="chevron" class:up={isOverviewExpanded}></span>
+                  </button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
 
