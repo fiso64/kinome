@@ -345,13 +345,15 @@
         <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
       </div>
       {#if isOverviewOverflowing}
-        <button
-          class="expand-overview-btn"
-          onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-          aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-        >
-          <span class="chevron">{isOverviewExpanded ? '▲' : '▼'}</span>
-        </button>
+        <div class="expand-button-wrapper">
+          <button
+            class="expand-overview-btn"
+            onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+            aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+          >
+            <span class="chevron" class:up={isOverviewExpanded}></span>
+          </button>
+        </div>
       {/if}
     </div>
   {/if}
@@ -386,13 +388,15 @@
         <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
       </div>
       {#if isOverviewOverflowing}
-        <button
-          class="expand-overview-btn"
-          onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-          aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-        >
-          <span class="chevron">{isOverviewExpanded ? '▲' : '▼'}</span>
-        </button>
+        <div class="expand-button-wrapper">
+          <button
+            class="expand-overview-btn"
+            onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+            aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+          >
+            <span class="chevron" class:up={isOverviewExpanded}></span>
+          </button>
+        </div>
       {/if}
     </div>
   </div>
@@ -916,32 +920,41 @@
     -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
     mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
   }
+  .expand-button-wrapper {
+    text-align: center;
+    margin-top: -1.5rem;
+    position: relative;
+    z-index: 1;
+    transition: margin-top 0.3s ease-in-out;
+  }
+  .overview-wrapper.expanded + .expand-button-wrapper {
+    margin-top: 0.5rem;
+  }
   .expand-overview-btn {
-    position: absolute;
-    bottom: -0.75rem;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
+    background: none;
+    border: none;
     color: var(--ev-c-text-2);
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
     transition: all 0.2s ease;
-    z-index: 1; /* Above the masked text */
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
   }
   .expand-overview-btn:hover {
     color: var(--ev-c-text-1);
-    background-color: var(--ev-c-gray-3);
-    border-color: var(--ev-c-gray-2);
-    transform: translateX(-50%) scale(1.1);
+    background-color: var(--color-background-soft);
   }
   .expand-overview-btn .chevron {
-    font-size: 1rem;
+    display: inline-block;
+    border: solid currentColor;
+    border-width: 0 2px 2px 0;
+    padding: 3px;
+    transform: rotate(45deg); /* Down arrow */
     transition: transform 0.2s ease;
+  }
+  .expand-overview-btn .chevron.up {
+    transform: rotate(-135deg); /* Up arrow */
   }
 </style>
