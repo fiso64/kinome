@@ -378,29 +378,17 @@
     color: var(--ev-c-text-1);
   }
 
-  .tabs-view-header::before,
-  .tabs-view-header::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 60px;
-    z-index: 1; /* Below buttons, above tabs */
-    pointer-events: none;
-    transition: opacity 0.3s;
-    opacity: 0;
+  .tabs-view-header.can-scroll-left .tab-list {
+    -webkit-mask-image: linear-gradient(to right, transparent, black 40px);
+    mask-image: linear-gradient(to right, transparent, black 40px);
   }
-  .tabs-view-header::before {
-    left: 0;
-    background: linear-gradient(to right, var(--color-background) 30%, transparent);
+  .tabs-view-header.can-scroll-right .tab-list {
+    -webkit-mask-image: linear-gradient(to left, transparent, black 40px);
+    mask-image: linear-gradient(to left, transparent, black 40px);
   }
-  .tabs-view-header::after {
-    right: 0;
-    background: linear-gradient(to left, var(--color-background) 30%, transparent);
-  }
-  .tabs-view-header.can-scroll-left::before,
-  .tabs-view-header.can-scroll-right::after {
-    opacity: 1;
+  .tabs-view-header.can-scroll-left.can-scroll-right .tab-list {
+    -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
   }
 
   .tab-content {
@@ -425,6 +413,6 @@
   }
   :global(.full-backdrop-mode) .tabs-view-header::before,
   :global(.full-backdrop-mode) .tabs-view-header::after {
-    background: none;
+    /* This rule is no longer needed as the fadeout is handled by a mask. */
   }
 </style>
