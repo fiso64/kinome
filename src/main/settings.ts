@@ -96,7 +96,9 @@ async function readRawSettings(): Promise<Settings> {
       season: { layout: 'list', listDescriptionRows: 3 }
     },
     searchResultView: { layout: 'list', listDescriptionRows: 5 },
-    searchPopupView: { layout: 'list', listDescriptionRows: 2 }
+    searchPopupView: { layout: 'list', listDescriptionRows: 2 },
+    itemDetailBackdropSize: 'small',
+    itemDetailBackdropBlur: 4
   }
 
   // --- Start with defaults ---

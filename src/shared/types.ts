@@ -192,6 +192,9 @@ export interface Settings {
   // View settings for special non-folder views
   searchResultView: StoredViewSettings
   searchPopupView: StoredViewSettings
+  // Item Detail view settings
+  itemDetailBackdropSize: 'small' | 'full'
+  itemDetailBackdropBlur: number
 }
 
 export interface Person {

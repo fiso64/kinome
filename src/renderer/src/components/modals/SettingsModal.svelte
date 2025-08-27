@@ -36,6 +36,8 @@
   let grayOutWatched = $state(true)
   let showContinueWatching = $state(true)
   let showNextUp = $state(true)
+  let itemDetailBackdropSize = $state<'small' | 'full'>('small')
+  let itemDetailBackdropBlur = $state(4)
   let libraryDataLocation = $state('') // The path to the library data directory
   let mediaSourcePath = $state('') // The path to the user's media files
   let mediaSourcePathIsRelative = $state(false)
@@ -91,6 +93,8 @@
       grayOutWatched = settings.grayOutWatched
       showContinueWatching = settings.showContinueWatching
       showNextUp = settings.showNextUp
+      itemDetailBackdropSize = settings.itemDetailBackdropSize
+      itemDetailBackdropBlur = settings.itemDetailBackdropBlur
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
       libraryDataLocation = settings.libraryLocation
       mediaSourcePathIsRelative = settings.mediaSourcePathIsRelative ?? false
@@ -205,6 +209,8 @@
       grayOutWatched,
       showContinueWatching,
       showNextUp,
+      itemDetailBackdropSize,
+      itemDetailBackdropBlur,
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
       mediaSourcePathIsRelative,
@@ -443,6 +449,28 @@
           <option value="hidden">Do Not Show or Fetch</option>
         </select>
         <p class="help-text">Controls the default visibility of the credits section.</p>
+      </div>
+      <div class="form-group">
+        <label for="backdrop-size">Detail Page Backdrop Size</label>
+        <select id="backdrop-size" bind:value={itemDetailBackdropSize}>
+          <option value="small">Small (Default)</option>
+          <option value="full">Full Screen</option>
+        </select>
+        <p class="help-text">Controls the size of the background image on item detail pages.</p>
+      </div>
+      <div class="form-group">
+        <label>Detail Page Backdrop Blur</label>
+        <div class="slider-container">
+          <input
+            type="range"
+            bind:value={itemDetailBackdropBlur}
+            min="0"
+            max="20"
+            step="1"
+          />
+          <span>{itemDetailBackdropBlur}px</span>
+        </div>
+        <p class="help-text">Controls the amount of blur applied to the background image.</p>
       </div>
       <div class="form-group">
         <label class="checkbox-label">
@@ -698,5 +726,13 @@
   }
   .view-config-row button {
     pointer-events: none;
+  }
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .slider-container input[type='range'] {
+    flex-grow: 1;
   }
 </style>

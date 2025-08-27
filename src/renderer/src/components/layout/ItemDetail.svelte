@@ -162,7 +162,7 @@
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
-  <div class="backdrop-container">
+<div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
     {#if item.backdropPath}
       <img
         src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
@@ -170,6 +170,7 @@
         class="backdrop-image"
         class:loaded={isBackdropLoaded}
         onload={() => (isBackdropLoaded = true)}
+        style="--backdrop-blur: {settings.itemDetailBackdropBlur}px;"
       />
     {/if}
     <div class="backdrop-overlay"></div>
@@ -389,6 +390,13 @@
     height: 50vh;
     max-height: 400px;
     overflow: hidden;
+    transition:
+      height 0.3s ease-in-out,
+      max-height 0.3s ease-in-out;
+  }
+  .backdrop-container.full-size {
+    height: 100vh;
+    max-height: none;
   }
 
   .backdrop-image,
@@ -405,7 +413,8 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: blur(4px);
+    filter: blur(var(--backdrop-blur, 4px));
+    transition: filter 0.3s ease-in-out;
   }
 
   .backdrop-overlay {
