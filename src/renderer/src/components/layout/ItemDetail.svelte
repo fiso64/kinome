@@ -24,6 +24,13 @@
   let lastSeenItemId = $state(item.id)
   let overviewContainerElement = $state<HTMLDivElement>()
   let continueWatchingInfo = $state<{ show: MediaFolder; nextEpisode: MediaFile } | null>(null)
+  let isOverviewExpanded = $state(false)
+  let isOverviewOverflowing = $state(false)
+
+  let posterColumnElement = $state<HTMLDivElement>()
+  let infoColumnElement = $state<HTMLDivElement>()
+  let overviewWrapperElement = $state<HTMLDivElement>()
+  let overviewParagraphElement = $state<HTMLParagraphElement>()
 
   const showOverviewTab = $derived(!!item.overview)
   const showCreditsSection = $derived(
@@ -87,6 +94,72 @@
     // Cleanup function to remove the listener.
     return () => {
       window.removeEventListener('mousedown', handleClickOutside)
+    }
+  })
+
+  $effect(() => {
+    // Rerun whenever these reactive dependencies change.
+    const isExpanded = isOverviewExpanded
+    const currentTab = activeInfoTab
+    const currentSettings = settings
+
+    // Reset on item change
+    if (item.id !== lastSeenItemId) {
+      isOverviewExpanded = false
+      isOverviewOverflowing = false
+    }
+
+    const posterCol = posterColumnElement
+    const infoCol = infoColumnElement
+    const overviewWrapper = overviewWrapperElement
+    const overviewP = overviewParagraphElement
+
+    if (!item.overview || !posterCol || !infoCol || !overviewWrapper || !overviewP) {
+      isOverviewOverflowing = false
+      return
+    }
+
+    const checkOverflow = () => {
+      if (currentSettings?.creditsDisplay === 'tab' && currentTab !== 'overview') {
+        isOverviewOverflowing = false
+        overviewWrapper.style.maxHeight = ''
+        return
+      }
+
+      // 1. Reset to measure natural, unconstrained height
+      overviewWrapper.style.maxHeight = ''
+
+      // 2. Force reflow to ensure we get up-to-date measurements
+      infoCol.getBoundingClientRect()
+
+      const posterHeight = posterCol.offsetHeight
+      const infoHeight = infoCol.offsetHeight
+
+      const isCurrentlyOverflowing = infoHeight > posterHeight
+      isOverviewOverflowing = isCurrentlyOverflowing
+
+      if (isCurrentlyOverflowing && !isExpanded) {
+        // 3. Calculate how much the info column overflows
+        const overflowAmount = infoHeight - posterHeight
+        // 4. Get the current (unconstrained) height of the element we can shrink
+        const currentOverviewWrapperHeight = overviewWrapper.offsetHeight
+        // 5. The new max-height is its current height minus the overflow
+        const newMaxHeight = currentOverviewWrapperHeight - overflowAmount
+
+        overviewWrapper.style.maxHeight = `${Math.max(10, newMaxHeight)}px`
+      }
+      // If expanded or not overflowing, maxHeight is already cleared, so it takes full height.
+    }
+
+    const observer = new ResizeObserver(checkOverflow)
+    observer.observe(posterCol)
+    observer.observe(infoCol)
+    observer.observe(overviewP) // Observing the text container is important for text wrapping changes
+
+    queueMicrotask(checkOverflow)
+
+    return () => {
+      observer.disconnect()
     }
   })
 
@@ -181,10 +254,10 @@
   </div>
 
   <div class="detail-content">
-    <div class="info-grid">
-      <div class="poster-column">
-        <div class="poster">
-          {#if item.posterPath}
+<div class="info-grid">
+  <div class="poster-column" bind:this={posterColumnElement}>
+    <div class="poster">
+      {#if item.posterPath}
             <img
               src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
               alt="Poster"
@@ -200,7 +273,7 @@
         {/if}
       </div>
 
-      <div class="info-column">
+      <div class="info-column" bind:this={infoColumnElement}>
         <div class="title-and-meta">
           {#if item.mediaType === 'season' && parentShow}
             <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
@@ -258,15 +331,33 @@
               </div>
             {/if}
 
-            <div class="content-holder">
-              <!-- Overview is always present to maintain content height -->
-              <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
-                {#if item.overview}
-                  <p class="overview">{item.overview}</p>
-                {/if}
-              </div>
+<div class="content-holder">
+  <!-- Overview is always present to maintain content height -->
+<div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
+  {#if item.overview}
+    <div class="overview-expandable-area">
+      <div
+        class="overview-wrapper"
+        bind:this={overviewWrapperElement}
+        class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+        class:expanded={isOverviewExpanded}
+      >
+        <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+      </div>
+      {#if isOverviewOverflowing}
+        <button
+          class="expand-overview-btn"
+          onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+          aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+        >
+          <span class="chevron">{isOverviewExpanded ? '▲' : '▼'}</span>
+        </button>
+      {/if}
+    </div>
+  {/if}
+</div>
 
-              <!-- Credits "pop out" on top of the overview area -->
+  <!-- Credits "pop out" on top of the overview area -->
               {#if activeInfoTab === 'credits' && showCreditsSection}
                 <div class="credits-popout">
                   <div class="tab-content-wrapper">
@@ -282,12 +373,30 @@
               {/if}
             </div>
           </div>
-        {:else if item.overview}
-          <div class="overview-container">
-            <h2 class="section-title">Overview</h2>
-            <p class="overview">{item.overview}</p>
-          </div>
-        {/if}
+{:else if item.overview}
+  <div class="overview-container">
+    <h2 class="section-title">Overview</h2>
+    <div class="overview-expandable-area">
+      <div
+        class="overview-wrapper"
+        bind:this={overviewWrapperElement}
+        class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+        class:expanded={isOverviewExpanded}
+      >
+        <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+      </div>
+      {#if isOverviewOverflowing}
+        <button
+          class="expand-overview-btn"
+          onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+          aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+        >
+          <span class="chevron">{isOverviewExpanded ? '▲' : '▼'}</span>
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
       </div>
     </div>
 
@@ -793,5 +902,46 @@
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
+  }
+
+  /* Overview Expansion Styles */
+  .overview-expandable-area {
+    position: relative;
+  }
+  .overview-wrapper {
+    transition: max-height 0.3s ease-in-out;
+    overflow: hidden;
+  }
+  .overview-wrapper.collapsed {
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
+  }
+  .expand-overview-btn {
+    position: absolute;
+    bottom: -0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-background-soft);
+    border: 1px solid var(--color-background-mute);
+    color: var(--ev-c-text-2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    z-index: 1; /* Above the masked text */
+  }
+  .expand-overview-btn:hover {
+    color: var(--ev-c-text-1);
+    background-color: var(--ev-c-gray-3);
+    border-color: var(--ev-c-gray-2);
+    transform: translateX(-50%) scale(1.1);
+  }
+  .expand-overview-btn .chevron {
+    font-size: 1rem;
+    transition: transform 0.2s ease;
   }
 </style>
