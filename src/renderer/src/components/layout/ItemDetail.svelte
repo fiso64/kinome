@@ -453,6 +453,8 @@
     grid-template-columns: 300px 1fr;
     gap: 2.5rem;
     align-items: start;
+    position: relative; /* Create a stacking context */
+    z-index: 2; /* Lift this grid above subsequent siblings like .children-section */
   }
 
   .poster-column {
@@ -724,7 +726,7 @@
     /* Position relative to the .overview-container */
     position: absolute;
     /* Start right after the tabs */
-    top: 47px; /* Height of tabs + gap */
+    top: 87px; /* Height of tabs + gap */
     left: -1rem; /* Align with parent padding */
     right: -1rem; /* Align with parent padding */
 
@@ -769,7 +771,7 @@
     background-color: transparent;
   }
   .full-backdrop-mode .overview-container {
-    background: rgba(20, 20, 22, 0.75);
+    background: rgba(20, 20, 22, 0.5);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -786,7 +788,7 @@
     border-color: rgba(255, 255, 255, 0.1);
   }
   .full-backdrop-mode .collapsible-content {
-    background: rgba(20, 20, 22, 0.75);
+    background: rgba(20, 20, 22, 0.5);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
