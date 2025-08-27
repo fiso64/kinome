@@ -30,98 +30,19 @@
     showHorizontalScrollbar?: boolean
   } = $props()
 
-  let listElement = $state<HTMLDivElement | undefined>()
-  let canScrollLeft = $state(false)
-  let canScrollRight = $state(false)
+  import { writable } from 'svelte/store'
+  import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
 
-  let targetScrollLeft = $state(0)
-  let scrollTimeout: number | undefined = $state(undefined)
-
-  $effect(() => {
-    const el = listElement
-    if (!el) return
-
-    const syncScrollTarget = () => {
-      targetScrollLeft = el.scrollLeft
-    }
-
-    const checkScrollability = () => {
-      // A small buffer helps prevent floating point inaccuracies
-      canScrollLeft = el.scrollLeft > 1
-      canScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1
-    }
-
-    const handleScroll = () => {
-      checkScrollability()
-      // Debounced sync for manual scrolling
-      clearTimeout(scrollTimeout)
-      scrollTimeout = setTimeout(syncScrollTarget, 150)
-    }
-
-    // Initial checks
-    checkScrollability()
-    syncScrollTarget()
-
-    // Re-check on scroll and resize events
-    const observer = new ResizeObserver(() => {
-      checkScrollability()
-      syncScrollTarget() // Also sync on resize
-    })
-    observer.observe(el)
-    el.addEventListener('scroll', handleScroll)
-
-    // A one-time check after images might load
-    const imageLoadTimeoutId = setTimeout(checkScrollability, 500)
-
-    return () => {
-      observer.disconnect()
-      el.removeEventListener('scroll', handleScroll)
-      clearTimeout(imageLoadTimeoutId)
-      clearTimeout(scrollTimeout)
-    }
+  let listElement: HTMLDivElement | undefined = $state()
+  const scrollState = writable<HorizontalScrollState>({
+    canScrollLeft: false,
+    canScrollRight: false
   })
+  const canScrollLeft = $derived($scrollState.canScrollLeft)
+  const canScrollRight = $derived($scrollState.canScrollRight)
 
   function scroll(direction: 'left' | 'right') {
-    if (!listElement) return
-    clearTimeout(scrollTimeout) // Prevent sync while we are commanding a scroll
-
-    const scrollAmount = listElement.clientWidth * 0.8
-    let newTarget = targetScrollLeft // Base next scroll on the last intended position
-
-    if (direction === 'left') {
-      newTarget -= scrollAmount
-    } else {
-      newTarget += scrollAmount
-    }
-
-    // Clamp the target to valid scroll bounds
-    const maxScroll = listElement.scrollWidth - listElement.clientWidth
-    newTarget = Math.max(0, Math.min(maxScroll, newTarget))
-
-    targetScrollLeft = newTarget // Update the state
-
-    listElement.scrollTo({
-      left: targetScrollLeft,
-      behavior: 'smooth'
-    })
-  }
-
-  function handleWheel(event: WheelEvent) {
-    if (!listElement) return
-    // If there's no horizontal overflow, do nothing.
-    if (listElement.scrollWidth <= listElement.clientWidth) return
-
-    const verticalScrollIntent = event.deltaY !== 0 && event.ctrlKey
-    const horizontalScrollIntent = event.deltaX !== 0 // Native horizontal trackpad/mouse scroll
-
-    if (verticalScrollIntent || horizontalScrollIntent) {
-      event.preventDefault()
-      let scrollAmount = event.deltaX // Start with native horizontal scroll
-      if (verticalScrollIntent) {
-        scrollAmount += event.deltaY // Add vertical wheel scroll if Ctrl is pressed
-      }
-      listElement.scrollLeft += scrollAmount
-    }
+    listElement?.dispatchEvent(new CustomEvent('smooth-scroll', { detail: { direction } }))
   }
 </script>
 
@@ -152,7 +73,7 @@
       class="media-grid"
       class:with-scrollbar={showHorizontalScrollbar}
       style={gridPosterSize ? `grid-auto-columns: ${gridPosterSize}px;` : ''}
-      onwheel={handleWheel}
+      use:horizontalScroller={scrollState}
     >
       {#each items as item (item.id)}
         {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}

@@ -87,9 +87,16 @@
     })
   })
 
-  let tabListElement = $state<HTMLDivElement | undefined>()
-  let canScrollLeft = $state(false)
-  let canScrollRight = $state(false)
+  import { writable } from 'svelte/store'
+  import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
+
+  let tabListElement: HTMLDivElement | undefined = $state()
+  const scrollState = writable<HorizontalScrollState>({
+    canScrollLeft: false,
+    canScrollRight: false
+  })
+  const canScrollLeft = $derived($scrollState.canScrollLeft)
+  const canScrollRight = $derived($scrollState.canScrollRight)
 
   const activeTabId = $derived.by(() => {
     if (!container) return folders[0]?.id ?? null
@@ -145,53 +152,6 @@
     }
   })
 
-  let targetScrollLeft = $state(0)
-  let scrollTimeout: number | undefined = $state(undefined)
-
-  $effect(() => {
-    const el = tabListElement
-    if (!el) return
-
-    const syncScrollTarget = () => {
-      targetScrollLeft = el.scrollLeft
-    }
-
-    const checkScrollability = () => {
-      // A small buffer helps prevent floating point inaccuracies
-      canScrollLeft = el.scrollLeft > 1
-      canScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1
-    }
-
-    const handleScroll = () => {
-      checkScrollability()
-      // Debounced sync for manual scrolling
-      clearTimeout(scrollTimeout)
-      scrollTimeout = setTimeout(syncScrollTarget, 150)
-    }
-
-    // Initial checks
-    checkScrollability()
-    syncScrollTarget()
-
-    // Re-check on scroll and resize events
-    const observer = new ResizeObserver(() => {
-      checkScrollability()
-      syncScrollTarget() // Also sync on resize
-    })
-    observer.observe(el)
-    el.addEventListener('scroll', handleScroll)
-
-    // A one-time check after images in the child MediaView might load
-    const imageLoadTimeoutId = setTimeout(checkScrollability, 500)
-
-    return () => {
-      observer.disconnect()
-      el.removeEventListener('scroll', handleScroll)
-      clearTimeout(imageLoadTimeoutId)
-      clearTimeout(scrollTimeout)
-    }
-  })
-
   // When the active tab changes, scroll it into view.
   $effect(() => {
     if (activeTabId && tabListElement) {
@@ -201,46 +161,7 @@
   })
 
   function scrollTabs(direction: 'left' | 'right') {
-    if (!tabListElement) return
-    clearTimeout(scrollTimeout) // Prevent sync while we are commanding a scroll
-
-    const scrollAmount = tabListElement.clientWidth * 0.8
-    let newTarget = targetScrollLeft // Base next scroll on the last intended position
-
-    if (direction === 'left') {
-      newTarget -= scrollAmount
-    } else {
-      newTarget += scrollAmount
-    }
-
-    // Clamp the target to valid scroll bounds
-    const maxScroll = tabListElement.scrollWidth - tabListElement.clientWidth
-    newTarget = Math.max(0, Math.min(maxScroll, newTarget))
-
-    targetScrollLeft = newTarget // Update the state
-
-    tabListElement.scrollTo({
-      left: targetScrollLeft,
-      behavior: 'smooth'
-    })
-  }
-
-  function handleWheel(event: WheelEvent) {
-    if (!tabListElement) return
-    // If there's no horizontal overflow, do nothing.
-    if (tabListElement.scrollWidth <= tabListElement.clientWidth) return
-
-    const verticalScrollIntent = event.deltaY !== 0 && event.ctrlKey
-    const horizontalScrollIntent = event.deltaX !== 0
-
-    if (verticalScrollIntent || horizontalScrollIntent) {
-      event.preventDefault()
-      let scrollAmount = event.deltaX // Native horizontal scroll
-      if (verticalScrollIntent) {
-        scrollAmount += event.deltaY // Add vertical wheel scroll if Ctrl is pressed
-      }
-      tabListElement.scrollLeft += scrollAmount
-    }
+    tabListElement?.dispatchEvent(new CustomEvent('smooth-scroll', { detail: { direction } }))
   }
 </script>
 
@@ -266,7 +187,7 @@
         /></svg
       >
     </button>
-    <div class="tab-list" bind:this={tabListElement} onwheel={handleWheel}>
+    <div class="tab-list" bind:this={tabListElement} use:horizontalScroller={scrollState}>
       {#each folders as folder (folder.id)}
         <button
           class="tab"
