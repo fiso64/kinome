@@ -534,8 +534,8 @@
   }
 
   .logo-image {
-    width: 100%;
-    height: 100%;
+    max-width: 100%;
+    max-height: 202.5px; /* 45% of poster height (300px width * 1.5 aspect ratio * 0.45) */
     object-fit: contain;
     object-position: left bottom;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
