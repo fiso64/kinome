@@ -524,6 +524,7 @@
   .logo-image {
     opacity: 0;
     transition: opacity 0.4s ease-in-out;
+    overflow: hidden;
   }
   .backdrop-image.loaded,
   .logo-image.loaded {
