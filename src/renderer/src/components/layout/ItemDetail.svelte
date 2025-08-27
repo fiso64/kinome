@@ -782,7 +782,7 @@
     margin-bottom: 1rem;
   }
   .full-backdrop-mode .credits-popout {
-    background-color: rgba(30, 30, 33, 0.85); /* a bit more opaque for readability */
+    background-color: rgba(20, 20, 22, 1); /* opaque for readability */
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-color: rgba(255, 255, 255, 0.1);
