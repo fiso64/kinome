@@ -547,7 +547,7 @@
     height: 100%;
     background: linear-gradient(
       to top,
-      var(--color-background) 15%,
+      var(--color-background) 10%,
       rgba(0, 0, 0, 0.6) 60%,
       rgba(0, 0, 0, 0.2) 100%
     );
