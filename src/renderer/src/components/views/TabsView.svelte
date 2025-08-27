@@ -341,6 +341,7 @@
     padding: 1rem 1.5rem;
     margin: 0 1rem;
     gap: 1rem;
+    scroll-behavior: smooth;
     -ms-overflow-style: none; /* for Internet Explorer, Edge */
     scrollbar-width: none; /* for Firefox */
     flex-grow: 1;
