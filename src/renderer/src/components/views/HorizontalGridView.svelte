@@ -232,7 +232,6 @@
     padding: 0.5rem 1.5rem; /* Add vertical padding for hover scale */
     width: 100%;
     overflow-x: auto;
-    scroll-behavior: smooth;
     -ms-overflow-style: none; /* for Internet Explorer, Edge */
     scrollbar-width: none; /* for Firefox */
   }
