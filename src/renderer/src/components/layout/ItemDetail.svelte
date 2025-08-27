@@ -122,7 +122,9 @@
     const checkOverflow = () => {
       if (currentSettings?.creditsDisplay === 'tab' && currentTab !== 'overview') {
         isOverviewOverflowing = false
-        overviewWrapper.style.maxHeight = ''
+        // When the credits popout is active, we hide the expand button,
+        // but we should not alter the height of the (now hidden) overview container.
+        // Simply returning preserves its collapsed/expanded state.
         return
       }
 
