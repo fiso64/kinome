@@ -423,4 +423,8 @@
     background-color: rgba(80, 80, 85, 0.85);
     border-color: rgba(255, 255, 255, 0.2);
   }
+  :global(.full-backdrop-mode) .tabs-view-header::before,
+  :global(.full-backdrop-mode) .tabs-view-header::after {
+    background: none;
+  }
 </style>
