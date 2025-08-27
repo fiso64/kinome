@@ -145,9 +145,16 @@
     }
   })
 
+  let targetScrollLeft = $state(0)
+  let scrollTimeout: number | undefined = $state(undefined)
+
   $effect(() => {
     const el = tabListElement
     if (!el) return
+
+    const syncScrollTarget = () => {
+      targetScrollLeft = el.scrollLeft
+    }
 
     const checkScrollability = () => {
       // A small buffer helps prevent floating point inaccuracies
@@ -155,28 +162,65 @@
       canScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1
     }
 
-    checkScrollability() // Initial check
+    const handleScroll = () => {
+      checkScrollability()
+      // Debounced sync for manual scrolling
+      clearTimeout(scrollTimeout)
+      scrollTimeout = setTimeout(syncScrollTarget, 150)
+    }
+
+    // Initial checks
+    checkScrollability()
+    syncScrollTarget()
 
     // Re-check on scroll and resize events
-    const observer = new ResizeObserver(checkScrollability)
+    const observer = new ResizeObserver(() => {
+      checkScrollability()
+      syncScrollTarget() // Also sync on resize
+    })
     observer.observe(el)
-    el.addEventListener('scroll', checkScrollability)
+    el.addEventListener('scroll', handleScroll)
 
     // A one-time check after images in the child MediaView might load
-    const timeoutId = setTimeout(checkScrollability, 500)
+    const imageLoadTimeoutId = setTimeout(checkScrollability, 500)
 
     return () => {
       observer.disconnect()
-      el.removeEventListener('scroll', checkScrollability)
-      clearTimeout(timeoutId)
+      el.removeEventListener('scroll', handleScroll)
+      clearTimeout(imageLoadTimeoutId)
+      clearTimeout(scrollTimeout)
+    }
+  })
+
+  // When the active tab changes, scroll it into view.
+  $effect(() => {
+    if (activeTabId && tabListElement) {
+      const activeTabElement = tabListElement.querySelector('.tab.active')
+      activeTabElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
     }
   })
 
   function scrollTabs(direction: 'left' | 'right') {
     if (!tabListElement) return
+    clearTimeout(scrollTimeout) // Prevent sync while we are commanding a scroll
+
     const scrollAmount = tabListElement.clientWidth * 0.8
+    let newTarget = targetScrollLeft // Base next scroll on the last intended position
+
+    if (direction === 'left') {
+      newTarget -= scrollAmount
+    } else {
+      newTarget += scrollAmount
+    }
+
+    // Clamp the target to valid scroll bounds
+    const maxScroll = tabListElement.scrollWidth - tabListElement.clientWidth
+    newTarget = Math.max(0, Math.min(maxScroll, newTarget))
+
+    targetScrollLeft = newTarget // Update the state
+
     tabListElement.scrollTo({
-      left: tabListElement.scrollLeft + (direction === 'left' ? -scrollAmount : scrollAmount),
+      left: targetScrollLeft,
       behavior: 'smooth'
     })
   }
