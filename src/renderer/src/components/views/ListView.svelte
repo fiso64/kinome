@@ -294,4 +294,20 @@
     margin-right: 0.5rem;
     font-size: 1rem;
   }
+
+  /* --- Full Backdrop Mode Styles --- */
+  :global(.full-backdrop-mode) .list-item {
+    background-color: rgba(30, 30, 33, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  :global(.full-backdrop-mode) .list-item:hover {
+    background-color: rgba(50, 50, 55, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  :global(.full-backdrop-mode) .list-item.highlighted {
+    background-color: rgba(80, 80, 85, 0.8);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
 </style>

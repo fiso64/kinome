@@ -88,4 +88,20 @@
   .section-title:hover {
     color: var(--ev-c-white-soft);
   }
+  .section-title:hover {
+    color: var(--ev-c-white-soft);
+  }
+  :global(.full-backdrop-mode) .section-title {
+    background-color: rgba(30, 30, 33, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-color: rgba(255, 255, 255, 0.1);
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 0.5rem;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    border-radius: 6px;
+    border-bottom-style: solid;
+  }
 </style>

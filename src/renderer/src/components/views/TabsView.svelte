@@ -407,4 +407,20 @@
     flex-grow: 1;
     overflow-y: auto;
   }
+
+  /* --- Full Backdrop Mode Styles --- */
+  :global(.full-backdrop-mode) .tab {
+    background-color: rgba(30, 30, 33, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  :global(.full-backdrop-mode) .tab:hover {
+    background-color: rgba(50, 50, 55, 0.8);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  :global(.full-backdrop-mode) .tab.active {
+    background-color: rgba(80, 80, 85, 0.85);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
 </style>

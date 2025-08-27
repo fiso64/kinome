@@ -155,7 +155,11 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
+<div
+  class="detail-view"
+  class:full-backdrop-mode={settings.itemDetailBackdropSize === 'full'}
+  oncontextmenu={(e) => showContextMenu(item, e)}
+>
   {#if item.isMissing}
     <div class="missing-banner">
       <span class="icon">⚠️</span>
@@ -314,6 +318,7 @@
           layout={contentsLayout}
           onShowContextMenu={showContextMenu}
           {settings}
+          fullBackdropMode={settings.itemDetailBackdropSize === 'full'}
         />
       </div>
     {/if}
@@ -328,6 +333,7 @@
           layout="tree"
           onShowContextMenu={showContextMenu}
           {settings}
+          fullBackdropMode={settings.itemDetailBackdropSize === 'full'}
         />
       </div>
     {/if}
@@ -756,5 +762,34 @@
     justify-content: center;
     gap: 0.5rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+  }
+
+  /* --- Full Backdrop Mode Styles --- */
+  .detail-view.full-backdrop-mode {
+    background-color: transparent;
+  }
+  .full-backdrop-mode .overview-container {
+    background: rgba(20, 20, 22, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .full-backdrop-mode .overview-container .section-title {
+    margin-bottom: 1rem;
+  }
+  .full-backdrop-mode .credits-popout {
+    background-color: rgba(30, 30, 33, 0.85); /* a bit more opaque for readability */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .full-backdrop-mode .collapsible-content {
+    background: rgba(20, 20, 22, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
   }
 </style>
