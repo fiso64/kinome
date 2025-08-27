@@ -114,19 +114,20 @@
 </div>
 
 <style>
-  .tree-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 6px;
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
   .tree-item:hover {
     background-color: var(--color-background-soft);
   }
@@ -195,13 +196,13 @@
 
   /* --- Full Backdrop Mode Styles --- */
   :global(.full-backdrop-mode) .tree-item {
-    background-color: rgba(30, 30, 33, 0.7);
+    background-color: rgba(20, 20, 22, 0.5); /* More translucent */
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
   :global(.full-backdrop-mode) .tree-item:hover {
-    background-color: rgba(50, 50, 55, 0.8);
+    background-color: rgba(40, 40, 44, 0.7); /* More subtle hover */
     border-color: rgba(255, 255, 255, 0.15);
   }
 </style>
