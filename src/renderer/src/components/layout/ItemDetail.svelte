@@ -154,6 +154,7 @@
   })
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="detail-view" oncontextmenu={(e) => showContextMenu(item, e)}>
   {#if item.isMissing}
     <div class="missing-banner">
