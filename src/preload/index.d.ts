@@ -45,7 +45,7 @@ declare global {
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       userUpdateItem: (item: LibraryItem) => Promise<void>
-      updateItem: (item: LibraryItem) => Promise<void>
+      updateItem: (item: LibraryItem) => Promise<void> // For internal/non-user-driven updates
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       getItemById: (itemId: string) => Promise<LibraryItem | null>
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>

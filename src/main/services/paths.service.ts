@@ -1,12 +1,17 @@
-import { app } from 'electron'
-import path from 'path'
 import { URL } from 'url'
+import path from 'path'
 
 export const LIBRARY_DATA_DIR_NAME = 'library'
 
+// This will be set at startup. It needs a default for the initial synchronous read in startup.service.
+let userDataPath: string = '.'
+export function setUserDataPath(path: string): void {
+  userDataPath = path
+}
+
 // This will be set at startup from global settings.
 // The default value is used before settings are read, or if libraryLocation is not set.
-let libraryDataPath: string = path.join(app.getPath('userData'), LIBRARY_DATA_DIR_NAME)
+let libraryDataPath: string = path.join(userDataPath, LIBRARY_DATA_DIR_NAME)
 
 /**
  * Checks if a given path is a remote HTTP/HTTPS URL.
@@ -30,7 +35,9 @@ export function isRemoteLibrary(): boolean {
  */
 export function resolveLibraryPath(relativePath: string): string {
   if (isRemoteLibrary()) {
-    return new URL(relativePath, libraryDataPath).toString()
+    // Make sure the base URL has a trailing slash for correct resolution.
+    const baseUrl = libraryDataPath.endsWith('/') ? libraryDataPath : libraryDataPath + '/'
+    return new URL(relativePath, baseUrl).toString()
   }
   return path.join(libraryDataPath, relativePath)
 }
@@ -47,4 +54,9 @@ export function setLibraryDataPath(newPath: string): void {
   }
   console.log(`[Paths] Library data path set to: ${finalPath}`)
   libraryDataPath = finalPath
+}
+
+// Re-initialize the default library data path once the real user data path is known.
+export function reinitializeDefaultLibraryPath(): void {
+  libraryDataPath = path.join(userDataPath, LIBRARY_DATA_DIR_NAME)
 }

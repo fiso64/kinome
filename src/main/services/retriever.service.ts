@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs/promises'
-import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../../shared/types'
 
 const genreCache = new Map<number, string>()
 
@@ -383,7 +383,7 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
   item.tmdbCredits = { cast: finalCast, crew: finalCrew }
 }
 
-import type { Settings } from '../shared/types'
+import type { Settings } from '../../shared/types'
 
 export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string): Promise<void> {
   if (!item.tmdbId || !item.mediaType || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) {

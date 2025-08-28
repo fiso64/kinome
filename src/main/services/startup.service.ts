@@ -1,12 +1,22 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
-import { setLibraryDataPath } from './paths'
+import {
+  setLibraryDataPath,
+  setUserDataPath,
+  reinitializeDefaultLibraryPath
+} from './paths.service'
 
 // This code runs IMMEDIATELY when the module is imported,
 // before any other code in the importing file (index.ts) runs.
 
-const globalSettingsPath = path.join(app.getPath('userData'), 'settings.json')
+// Step 1: Provide the electron-specific user data path to the agnostic paths service.
+const userData = app.getPath('userData')
+setUserDataPath(userData)
+reinitializeDefaultLibraryPath() // Now the default path is correct.
+
+// Step 2: Read the global settings to see if a custom library path is set.
+const globalSettingsPath = path.join(userData, 'settings.json')
 
 try {
   // We MUST use a synchronous read here, as we cannot use `await` at the top level.

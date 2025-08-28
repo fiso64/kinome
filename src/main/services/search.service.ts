@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron'
 import Fuse from 'fuse.js'
+import { serviceEventEmitter } from './event.emitter.service'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
 import { SEARCH_INDEX_PROPERTIES } from '../shared/types'
 import { itemMatchesAllTags } from '../shared/filter'
@@ -234,13 +234,11 @@ function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boo
 
   const item = target as LibraryItem
 
-  // --- Broadcast the change to all renderer windows ---
+  // --- Broadcast the change via the service event emitter ---
   // This ensures any change to an item in the main process
-  // is immediately reflected in the UI.
+  // is immediately reflected in the UI, via the transport layer.
   const plainItem = JSON.parse(JSON.stringify(item))
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send('library-item-updated', plainItem)
-  })
+  serviceEventEmitter.emit('library-item-updated', plainItem)
 
   // Update the item itself in the search index.
   updateIndexForItem(item)

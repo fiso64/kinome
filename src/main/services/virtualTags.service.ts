@@ -1,4 +1,4 @@
-import type { LibraryItem, Settings } from '../shared/types'
+import type { LibraryItem, Settings } from '../../shared/types'
 
 // Blacklist properties that are unsafe, unnecessary, or could cause
 // performance issues/circular dependencies in user expressions.

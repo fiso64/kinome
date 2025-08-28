@@ -33,6 +33,7 @@ const api = {
     ipcRenderer.invoke('get-item-details', itemId),
   userUpdateItem: (item: LibraryItem): Promise<void> =>
     ipcRenderer.invoke('user-update-item', item),
+  updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
   getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
     ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
