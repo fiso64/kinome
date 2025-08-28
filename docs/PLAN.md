@@ -94,7 +94,7 @@ The goal is to prepare for future growth.
         *   `getChildren(parentId: string): LibraryItem[]`
         *   `updateItem(item: Partial<LibraryItem> & { id: string }): void`
         *   `findItems(query: string): SearchResult[]`
-    - `[ ]` **Change Notification: Explicit Events (Replacing the Proxy)**
+    - `[X]` **Change Notification: Explicit Events (Replacing the Proxy)**
         The proxy's job is to detect changes and notify the UI. In a repository-based architecture, this becomes explicit and much more predictable.
         *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an event to the renderer with the updated data, if needed.
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
