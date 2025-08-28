@@ -190,7 +190,7 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
       console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
     })
 
-  return repositoryService.createTransferableCopy(item)
+  return repositoryService.createForDetailViewCopy(item)
 }
 
 export async function getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {

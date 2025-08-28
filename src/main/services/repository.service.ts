@@ -290,3 +290,29 @@ export function createTransferableCopy(item: LibraryItem): LibraryItem {
   }
   return plainItem
 }
+
+/**
+ * Creates a deeper, transferable copy of a library item specifically for the detail view.
+ * It preserves descendants, which is necessary for tabbed/sectioned views within the detail page.
+ * @param item The library item to copy.
+ * @returns A plain JavaScript object copy of the item with one extra level of children.
+ */
+export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
+  // 1. Start with a full deep clone to get a clean object.
+  const plainItem = JSON.parse(JSON.stringify(item));
+
+  if (plainItem.type === 'folder' && Array.isArray(plainItem.children)) {
+    // 2. Filter any hidden direct children (e.g., hidden seasons).
+    plainItem.children = plainItem.children.filter((child: LibraryItem) => !child.isHidden);
+
+    // 3. For each direct child that is a folder (e.g., a season), ensure its own
+    //    children (the episodes) are filtered...
+    for (const child of plainItem.children) {
+      if (child.type === 'folder' && Array.isArray(child.children)) {
+        child.children = child.children.filter((grandchild: LibraryItem) => !grandchild.isHidden);
+        // ...but we do NOT prune the great-grandchildren here.
+      }
+    }
+  }
+  return plainItem;
+}
