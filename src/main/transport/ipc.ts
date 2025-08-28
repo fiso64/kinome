@@ -54,7 +54,7 @@ export function setupIpcHandlers() {
     try {
       const window = BrowserWindow.getFocusedWindow()
       if (!window) return null
-      return await libraryService.refreshLibrary(window)
+      return await libraryService.refreshLibrary()
     } catch (e: any) {
       showErrorDialog({
         title: 'Refresh Failed',
@@ -76,7 +76,7 @@ export function setupIpcHandlers() {
       if (result.canceled || result.filePaths.length === 0) {
         return await libraryService.getLibraryRoot()
       }
-      return await libraryService.performInitialScan(result.filePaths[0], window)
+      return await libraryService.performInitialScan(result.filePaths[0])
     } catch (e: any) {
       showErrorDialog({ title: 'Initial Scan Failed', message: e.message })
       return null
@@ -118,9 +118,7 @@ export function setupIpcHandlers() {
   ipcMain.handle('play-file', (_, file) => libraryService.playFile(file, showErrorDialog))
 
   ipcMain.handle('apply-initial-folder-settings', async (_, settings) => {
-    const window = BrowserWindow.getFocusedWindow()
-    if (!window) return
-    libraryService.applyInitialFolderSettings(settings, window)
+    libraryService.applyInitialFolderSettings(settings)
   })
   ipcMain.handle('clear-item-metadata', (_, itemId: string) =>
     libraryService.clearItemMetadata(itemId)

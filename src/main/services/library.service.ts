@@ -935,7 +935,7 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
     return db.root ? createShallowClonableCopy(db.root) : null
 }
 
-export async function performInitialScan(mediaSourcePath: string, window: any): Promise<MediaFolder | null> {
+export async function performInitialScan(mediaSourcePath: string): Promise<MediaFolder | null> {
     if (isRemoteLibrary()) throw new Error('Scanning is not available when using a remote library.')
     log(`Starting scan of: ${mediaSourcePath}`)
     const settings = await readSettings()
@@ -1157,7 +1157,7 @@ export async function playFile(file: MediaFile, onError: ErrorCallback): Promise
     return playFileWith(file, playerCommands[0].command, onError)
 }
 
-export async function applyInitialFolderSettings(settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[], window: any) {
+export async function applyInitialFolderSettings(settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]) {
     if (isRemoteLibrary()) return
     if (!db || !db.root) return
     try {
