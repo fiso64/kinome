@@ -1,4 +1,3 @@
-
 # Project Structure
 
 This document provides a high-level overview of the project's structure to help you find your way around the codebase.
@@ -16,26 +15,38 @@ The application is divided into three main parts, following the standard Electro
 
 ### `src/main` (Backend)
 
-This is the Node.js environment where all the core application logic resides. It manages the window, interacts with the file system, fetches data, and communicates with the renderer process via IPC (Inter-Process Communication).
+This is the Node.js environment where all the core application logic resides. The backend is further split into a **transport** layer and a **service** layer to ensure a clean separation of concerns.
 
--   `index.ts`: The main entry point. Initializes the Electron app, creates the `BrowserWindow`, and sets up top-level IPC handlers for settings and window controls.
--   `library.ts`: The heart of the backend. It's responsible for:
-    -   Loading, saving, and managing the `database.json`.
+-   `index.ts`: The main application entry point. It's responsible for the Electron application lifecycle, creating the `BrowserWindow`, and bootstrapping the other backend modules. It contains minimal application logic.
+
+#### `src/main/transport`
+
+This layer is responsible for all communication between the backend and the outside world (specifically, the renderer process). It is the *only* part of the backend that should depend on Electron-specific modules like `ipcMain` and `BrowserWindow`.
+
+-   `ipc.ts`: The central hub for all Inter-Process Communication (IPC). It defines all `ipcMain` handlers that the renderer can invoke. Each handler typically calls a function from the corresponding service, acting as a bridge between the renderer's requests and the core business logic. It also subscribes to events from the service layer to push updates to the renderer.
+
+#### `src/main/services`
+
+This layer contains the core business logic of the application. These modules are "pure" Node.js modules, completely decoupled from Electron. This makes them portable, easier to test, and reusable.
+
+-   `library.service.ts`: The heart of the backend. It's responsible for:
+    -   Loading, saving, and managing the in-memory database.
     -   Scanning the user's media source for new or removed files.
-    -   Coordinating metadata fetching via the `retriever`.
-    -   Handling most of the business logic exposed through IPC handlers (e.g., `getItemDetails`, `playFile`, `updateItem`).
--   `search.ts`: Manages the in-memory search index using `Fuse.js`. It includes logic for building the index from the library and performing fast, fuzzy searches. It also contains the `Proxy` logic that detects changes to the database object in memory.
--   `retriever.ts`: Handles all external communication with the TMDB API. It fetches metadata (details, credits, images) and downloads images to the local library cache.
--   `settings.ts`: Manages reading and writing configuration. It merges settings from three levels: hardcoded defaults, a global `settings.json`, and a per-library `library-settings.json`.
--   `paths.ts`: A small but critical module for resolving paths within the library data directory. It correctly handles both local file paths and remote HTTP URLs.
--   `virtualTags.ts`: Contains the logic for evaluating user-defined JavaScript expressions to create "virtual tags" on library items.
--   `startup.ts`: A special script that runs *before* `index.ts`. It performs a synchronous read of the global settings file to determine the library path. This is crucial for setting up the correct environment before any other modules load.
+    -   Coordinating metadata fetching via the `retriever.service`.
+    -   Handling most of the business logic (e.g., `getItemDetails`, `playFile`, `updateItem`).
+-   `search.service.ts`: Manages the in-memory search index using `Fuse.js`. It includes logic for building the index and performing fast, fuzzy searches. It also contains the `Proxy` logic that detects changes to the database object in memory.
+-   `retriever.service.ts`: Handles all external communication with the TMDB API. It fetches metadata (details, credits, images) and downloads images to the local library cache.
+-   `settings.service.ts`: Manages reading and writing configuration. It merges settings from three levels: hardcoded defaults, a global `settings.json`, and a per-library `library-settings.json`.
+-   `paths.service.ts`: A small but critical module for resolving paths within the library data directory. It correctly handles both local file paths and remote HTTP URLs.
+-   `virtualTags.service.ts`: Contains the logic for evaluating user-defined expressions to create "virtual tags" on library items.
+-   `startup.service.ts`: A special script that runs *before* `index.ts`. It performs a synchronous read of the global settings file to determine the library path, which is crucial for setting up the correct environment before other modules load.
+-   `event.emitter.service.ts`: Provides a global event emitter instance. This is the key to decoupling the service layer from the transport layer. Services emit events here (e.g., `library-items-updated`), and the transport layer (`ipc.ts`) listens for these events to notify the renderer.
 
 ### `src/preload` (Bridge)
 
 This script acts as a secure bridge between the `main` process (Node.js) and the `renderer` process (browser).
 
--   `index.ts`: Exposes a well-defined `window.api` object to the renderer. This is the API contract that the frontend uses to interact with the backend. Each function in `window.api` typically corresponds to an `ipcMain.handle` in the `main` process.
+-   `index.ts`: Exposes a well-defined `window.api` object to the renderer. This is the API contract that the frontend uses to interact with the backend. Each function in `window.api` typically corresponds to an `ipcMain.handle` in `transport/ipc.ts`.
 -   `index.d.ts`: Provides TypeScript definitions for `window.api`, allowing the Svelte/TypeScript code in the renderer to use it with full type safety and autocompletion.
 
 ### `src/renderer` (Frontend)
