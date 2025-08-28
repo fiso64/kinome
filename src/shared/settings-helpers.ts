@@ -93,7 +93,10 @@ export function resolveViewSettings(
     (resolvedSources as any).childViewSettings = childViewSettingsLayer.sourceInfo
 
   // 3. Get the list of layout-specific keys for the now-resolved layout.
-  const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
+  const layoutConfig =
+    LAYOUT_SPECIFIC_SETTINGS_CONFIG[
+      resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
+    ] ?? {}
   const specificKeys = Object.keys(layoutConfig)
   const resolvedSpecific: Record<string, any> = {}
 

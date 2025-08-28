@@ -413,6 +413,37 @@ export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string
   item.tmdbCreditsFetched = true
 }
 
+async function _downloadAndApplyImageIfNeeded(
+  item: LibraryItem,
+  imageType: 'poster' | 'backdrop' | 'logo',
+  tmdbPath: string | null | undefined,
+  imageUrlPrefix: string,
+  fileName: string,
+  imagesDir: string
+): Promise<void> {
+  const itemAsAny = item as any
+  const key: 'posterPath' | 'backdropPath' | 'logoPath' = `${imageType}Path`
+
+  // Do not overwrite if a path is already set (or explicitly cleared by the user).
+  if (typeof itemAsAny[key] !== 'undefined') {
+    return
+  }
+
+  if (tmdbPath) {
+    const imageUrl = `${imageUrlPrefix}${tmdbPath}`
+    const destPath = path.join(imagesDir, fileName)
+    try {
+      await downloadImage(imageUrl, destPath)
+      itemAsAny[key] = fileName
+      console.log(`[TMDB] Downloaded ${imageType} for "${item.title ?? item.name}"`)
+    } catch {
+      itemAsAny[key] = null // Mark as failed to prevent retries
+    }
+  } else {
+    itemAsAny[key] = null // No image provided by API
+  }
+}
+
 export async function fetchItemDetails(
   item: LibraryItem,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
@@ -436,72 +467,46 @@ export async function fetchItemDetails(
     }
     const details = await response.json()
 
-    // --- Poster ---
-    // Explicitly check if undefined (null means user has permanently removed the image).
-    if (typeof item.posterPath === 'undefined') {
-      if (details.poster_path) {
-        const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
-        const posterFileName = `${item.id}.jpg`
-        const posterDestPath = path.join(imagesDir, posterFileName)
-        try {
-          await downloadImage(posterUrl, posterDestPath)
-          item.posterPath = posterFileName
-          console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
-        } catch {
-          item.posterPath = null // Mark as failed to prevent retries
-        }
-      } else {
-        item.posterPath = null // No poster provided by API
-      }
-    }
+    // --- Images ---
+    await _downloadAndApplyImageIfNeeded(
+      item,
+      'poster',
+      details.poster_path,
+      'https://image.tmdb.org/t/p/w500',
+      `${item.id}.jpg`,
+      imagesDir
+    )
 
-    // --- Backdrop ---
-    if (typeof item.backdropPath === 'undefined') {
-      if (details.backdrop_path) {
-        const backdropUrl = `https://image.tmdb.org/t/p/original${details.backdrop_path}`
-        const backdropFileName = `${item.id}-backdrop.jpg`
-        const backdropDestPath = path.join(imagesDir, backdropFileName)
-        try {
-          await downloadImage(backdropUrl, backdropDestPath)
-          item.backdropPath = backdropFileName
-          console.log(`[TMDB] Downloaded backdrop for "${item.title ?? item.name}"`)
-        } catch {
-          item.backdropPath = null
-        }
-      } else {
-        item.backdropPath = null
-      }
-    }
+    await _downloadAndApplyImageIfNeeded(
+      item,
+      'backdrop',
+      details.backdrop_path,
+      'https://image.tmdb.org/t/p/original',
+      `${item.id}-backdrop.jpg`,
+      imagesDir
+    )
 
-    // --- Logo ---
     if (settings.useLogos) {
-      if (typeof item.logoPath === 'undefined') {
-        const logos = details.images?.logos
-        // Prioritize English, then language-neutral, then any.
-        const bestLogo =
-          logos?.find((l) => l.iso_639_1 === 'en') ||
-          logos?.find((l) => l.iso_639_1 === null) ||
-          logos?.[0]
-
-        if (bestLogo) {
-          const logoUrl = `https://image.tmdb.org/t/p/w500${bestLogo.file_path}`
-          const extension = path.extname(bestLogo.file_path)
-          const logoFileName = `${item.id}-logo${extension}`
-          const logoDestPath = path.join(imagesDir, logoFileName)
-          try {
-            await downloadImage(logoUrl, logoDestPath)
-            item.logoPath = logoFileName
-            console.log(`[TMDB] Downloaded logo for "${item.title ?? item.name}"`)
-          } catch {
-            item.logoPath = null // Mark as failed to prevent retries
-          }
-        } else {
-          item.logoPath = null // No logo found
-        }
+      const logos = details.images?.logos
+      const bestLogo =
+        logos?.find((l) => l.iso_639_1 === 'en') ||
+        logos?.find((l) => l.iso_639_1 === null) ||
+        logos?.[0]
+      if (bestLogo) {
+        const extension = path.extname(bestLogo.file_path)
+        await _downloadAndApplyImageIfNeeded(
+          item,
+          'logo',
+          bestLogo.file_path,
+          'https://image.tmdb.org/t/p/w500',
+          `${item.id}-logo${extension}`,
+          imagesDir
+        )
+      } else if (typeof item.logoPath === 'undefined') {
+        item.logoPath = null // No logo found
       }
     } else if (typeof item.logoPath === 'undefined') {
-      // If setting is disabled and we haven't tried to fetch a logo before,
-      // mark it as checked (null) to prevent fetching if the setting is re-enabled.
+      // If setting is disabled, mark as checked to prevent future fetching.
       item.logoPath = null
     }
 

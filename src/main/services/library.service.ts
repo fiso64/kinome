@@ -165,15 +165,24 @@ function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
 
-function createShallowClonableCopy(item: LibraryItem): LibraryItem {
+/**
+ * Creates a deep, transferable copy of a library item suitable for sending over IPC.
+ * It removes proxies, filters hidden children, and prunes grandchildren to keep the payload small.
+ * @param item The library item to copy.
+ * @returns A plain JavaScript object copy of the item.
+ */
+function createTransferableCopy(item: LibraryItem): LibraryItem {
+  // Deep clone to create a plain object free of proxies for IPC.
   const plainItem = JSON.parse(JSON.stringify(item))
 
-  if (plainItem.type === 'folder') {
+  if (plainItem.type === 'folder' && Array.isArray(plainItem.children)) {
     plainItem.children = plainItem.children
       .filter((child: LibraryItem) => !child.isHidden)
       .map((child: LibraryItem) => {
         if (child.type === 'folder') {
-          child.children = null as any
+          // Create a new object that conforms to the MediaFolder shape but with empty children
+          // to prevent sending the entire subtree over IPC. The client will lazy-load them.
+          return { ...child, children: [] }
         }
         return child
       })
@@ -1007,7 +1016,7 @@ export async function getFolderWatchedState(
 
 export async function getLibraryRoot(): Promise<MediaFolder | null> {
   if (!db) await loadDbIntoMemory()
-  return db?.root ? (createShallowClonableCopy(db.root) as MediaFolder) : null
+  return db?.root ? (createTransferableCopy(db.root) as MediaFolder) : null
 }
 
 export async function refreshLibrary(): Promise<MediaFolder | null> {
@@ -1061,79 +1070,144 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
   log(
     `[Refresh ${refreshId}] Memory: RSS=${(memoryUsage.rss / 1024 / 1024).toFixed(2)}MB, HeapTotal=${(memoryUsage.heapTotal / 1024 / 1024).toFixed(2)}MB, HeapUsed=${(memoryUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`
   )
-  return db.root ? (createShallowClonableCopy(db.root) as MediaFolder) : null
+  return db.root ? (createTransferableCopy(db.root) as MediaFolder) : null
+}
+
+async function _scanAndCreateNewDb(
+  mediaSourcePath: string,
+  scanType: 'Initial Scan' | 'Full Rescan'
+): Promise<MediaFolder | null> {
+  if (pathsService.isRemoteLibrary()) {
+    throw new Error(`${scanType} is not available for remote libraries.`)
+  }
+  log(`Starting ${scanType.toLowerCase()} of: ${mediaSourcePath}`)
+
+  // 1. Determine path to save in settings
+  const settings = await settingsService.readSettings()
+  let pathToSave = mediaSourcePath
+  if (settings.mediaSourcePathIsRelative) {
+    const libraryPath = pathsService.getLibraryDataPath()
+    let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
+    relative = relative.replace(/\\/g, '/')
+    if (relative === '') pathToSave = '.'
+    else if (relative.startsWith('../')) pathToSave = relative
+    else pathToSave = './' + relative
+  }
+  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
+
+  // 2. Scan directory and build new DB
+  const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
+  setBulkUpdateStatus(true)
+  const newDb: Database = { version: DB_VERSION, root: rootNode }
+  if (rootNode) applyVirtualTagsToAllItems(rootNode, settings)
+  setBulkUpdateStatus(false)
+  await writeDb(newDb)
+  log(`${scanType}, DB write, and index build complete.`)
+
+  // 3. Return a copy of the root, filtering hidden items
+  if (db?.root) {
+    const deepCopy = JSON.parse(JSON.stringify(db.root))
+    function filterHiddenRecursively(folder: MediaFolder) {
+      folder.children = folder.children.filter((child) => !child.isHidden)
+      folder.children.forEach((child) => {
+        if (child.type === 'folder') filterHiddenRecursively(child)
+      })
+    }
+    filterHiddenRecursively(deepCopy)
+    return deepCopy
+  }
+  return null
 }
 
 export async function performInitialScan(mediaSourcePath: string): Promise<MediaFolder | null> {
-  if (pathsService.isRemoteLibrary())
-    throw new Error('Scanning is not available when using a remote library.')
-  log(`Starting scan of: ${mediaSourcePath}`)
-  const settings = await settingsService.readSettings()
-  let pathToSave = mediaSourcePath
-  if (settings.mediaSourcePathIsRelative) {
-    const libraryPath = pathsService.getLibraryDataPath()
-    let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
-    relative = relative.replace(/\\/g, '/')
-    if (relative === '') pathToSave = '.'
-    else if (relative.startsWith('../')) pathToSave = relative
-    else pathToSave = './' + relative
-  }
-  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
-  const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
-  setBulkUpdateStatus(true)
-  const newDb: Database = { version: DB_VERSION, root: rootNode }
-  if (rootNode) applyVirtualTagsToAllItems(rootNode, settings)
-  setBulkUpdateStatus(false)
-  await writeDb(newDb)
-  log('Initial scan, DB write, and index build complete.')
-  if (db!.root) {
-    const deepCopy = JSON.parse(JSON.stringify(db!.root))
-    function filterHiddenRecursively(folder: MediaFolder) {
-      folder.children = folder.children.filter((child) => !child.isHidden)
-      folder.children.forEach((child) => {
-        if (child.type === 'folder') filterHiddenRecursively(child)
-      })
-    }
-    filterHiddenRecursively(deepCopy)
-    return deepCopy
-  }
-  return null
+  return _scanAndCreateNewDb(mediaSourcePath, 'Initial Scan')
 }
 
 export async function performFullRescan(mediaSourcePath: string): Promise<MediaFolder | null> {
-  if (pathsService.isRemoteLibrary())
-    throw new Error('Rescanning is not available for remote libraries.')
-  log(`Starting full rescan of: ${mediaSourcePath}`)
-  const settings = await settingsService.readSettings()
-  let pathToSave = mediaSourcePath
-  if (settings.mediaSourcePathIsRelative) {
-    const libraryPath = pathsService.getLibraryDataPath()
-    let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
-    relative = relative.replace(/\\/g, '/')
-    if (relative === '') pathToSave = '.'
-    else if (relative.startsWith('../')) pathToSave = relative
-    else pathToSave = './' + relative
+  return _scanAndCreateNewDb(mediaSourcePath, 'Full Rescan')
+}
+
+/**
+ * Fetches missing details/episodes for an item in the background without blocking the initial response.
+ */
+async function _backgroundFetchAndApplyDetails(
+  item: LibraryItem,
+  needsDetailsFetch: boolean,
+  needsEpisodeFetch: boolean
+): Promise<void> {
+  if (pathsService.isRemoteLibrary()) {
+    log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
+    return
   }
-  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
-  const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
   setBulkUpdateStatus(true)
-  const newDb: Database = { version: DB_VERSION, root: rootNode }
-  if (rootNode) applyVirtualTagsToAllItems(rootNode, settings)
-  setBulkUpdateStatus(false)
-  await writeDb(newDb)
-  log('Full rescan, DB write, and index build complete.')
-  if (db!.root) {
-    const deepCopy = JSON.parse(JSON.stringify(db!.root))
-    function filterHiddenRecursively(folder: MediaFolder) {
-      folder.children = folder.children.filter((child) => !child.isHidden)
-      folder.children.forEach((child) => {
-        if (child.type === 'folder') filterHiddenRecursively(child)
-      })
+  const allModifiedItems: LibraryItem[] = []
+  try {
+    const settings = await settingsService.readSettings()
+    if (!settings.tmdbApiKey) return
+    if (needsDetailsFetch) {
+      log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
+      const modified = await retrieverService.fetchItemDetails(
+        item,
+        settings,
+        pathsService.getLibraryDataPath()
+      )
+      allModifiedItems.push(...modified)
+    } else if (needsEpisodeFetch && item.type === 'folder') {
+      if (item.mediaType === 'season') {
+        const showFolder = findParent(item.id, db!.root!)
+        if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
+          if (!showFolder.tmdbDetailsFetched) {
+            log(`[Details] Parent show "${showFolder.name}" details missing, fetching them first.`)
+            const modifiedParent = await retrieverService.fetchItemDetails(
+              showFolder,
+              settings,
+              pathsService.getLibraryDataPath()
+            )
+            allModifiedItems.push(...modifiedParent)
+          }
+          if (showFolder.tmdbSeasons) {
+            log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+            const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
+              item,
+              showFolder.tmdbId,
+              settings.tmdbApiKey,
+              pathsService.getLibraryDataPath(),
+              showFolder.tmdbSeasons
+            )
+            allModifiedItems.push(item, ...modifiedEpisodes)
+          } else {
+            item.tmdbEpisodesFetched = true
+            log(
+              `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
+            )
+          }
+        } else {
+          item.tmdbEpisodesFetched = true
+          log(
+            `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
+          )
+        }
+      } else if (item.mediaType === 'tv') {
+        log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
+        const modifiedChildren = await retrieverService.applyTvShowData(
+          item,
+          settings,
+          pathsService.getLibraryDataPath()
+        )
+        allModifiedItems.push(item, ...modifiedChildren)
+      }
     }
-    filterHiddenRecursively(deepCopy)
-    return deepCopy
+    item._v = Date.now()
+  } finally {
+    setBulkUpdateStatus(false)
+    const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
+    const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
+    for (const modifiedItem of itemsToUpdate) {
+      searchService.updateIndexForItem(modifiedItem)
+    }
+    await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: true })
+    log(`[Details] Background processing complete for "${item.name}"`)
   }
-  return null
 }
 
 export async function getItemDetails(itemId: string): Promise<LibraryItem | null> {
@@ -1147,85 +1221,9 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
     (item.mediaType === 'tv' || item.mediaType === 'season') &&
     !item.tmdbEpisodesFetched
   if (needsDetailsFetch || needsEpisodeFetch) {
-    ;(async () => {
-      if (pathsService.isRemoteLibrary()) {
-        log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
-        return
-      }
-      setBulkUpdateStatus(true)
-      const allModifiedItems: LibraryItem[] = []
-      try {
-        const settings = await settingsService.readSettings()
-        if (!settings.tmdbApiKey) return
-        if (needsDetailsFetch) {
-          log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
-          const modified = await retrieverService.fetchItemDetails(
-            item,
-            settings,
-            pathsService.getLibraryDataPath()
-          )
-          allModifiedItems.push(...modified)
-        } else if (needsEpisodeFetch && item.type === 'folder') {
-          if (item.mediaType === 'season') {
-            const showFolder = findParent(item.id, db!.root!)
-            if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-              if (!showFolder.tmdbDetailsFetched) {
-                log(
-                  `[Details] Parent show "${showFolder.name}" details missing, fetching them first.`
-                )
-                const modifiedParent = await retrieverService.fetchItemDetails(
-                  showFolder,
-                  settings,
-                  pathsService.getLibraryDataPath()
-                )
-                allModifiedItems.push(...modifiedParent)
-              }
-              if (showFolder.tmdbSeasons) {
-                log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-                const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
-                  item,
-                  showFolder.tmdbId,
-                  settings.tmdbApiKey,
-                  pathsService.getLibraryDataPath(),
-                  showFolder.tmdbSeasons
-                )
-                allModifiedItems.push(item, ...modifiedEpisodes)
-              } else {
-                item.tmdbEpisodesFetched = true
-                log(
-                  `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
-                )
-              }
-            } else {
-              item.tmdbEpisodesFetched = true
-              log(
-                `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
-              )
-            }
-          } else if (item.mediaType === 'tv') {
-            log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
-            const modifiedChildren = await retrieverService.applyTvShowData(
-              item,
-              settings,
-              pathsService.getLibraryDataPath()
-            )
-            allModifiedItems.push(item, ...modifiedChildren)
-          }
-        }
-        item._v = Date.now()
-      } catch (err) {
-        console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
-      } finally {
-        setBulkUpdateStatus(false)
-        const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
-        const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
-        for (const modifiedItem of itemsToUpdate) {
-          searchService.updateIndexForItem(modifiedItem)
-        }
-        await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: true })
-        log(`[Details] Background processing complete for "${item.name}"`)
-      }
-    })()
+    _backgroundFetchAndApplyDetails(item, needsDetailsFetch, needsEpisodeFetch).catch((err) => {
+      console.error(`[Details] Background fetch for item ${itemId} failed:`, err)
+    })
   }
   if (item) {
     const deepCopy = JSON.parse(JSON.stringify(item))
@@ -1299,45 +1297,12 @@ export async function playFileWith(
       })
     }
   })
-  ;(async () => {
-    if (!db?.root) return
-    const itemInDb = findItemById(file.id, db.root)
-    if (!itemInDb || itemInDb.type !== 'file') return
 
-    const wasBulk = getBulkUpdateStatus()
-    setBulkUpdateStatus(true)
+  // Update watched state in the background without blocking the UI.
+  _updateWatchedStateAfterPlay(file).catch((err) => {
+    console.error('Failed to update watched state after playing file:', err)
+  })
 
-    const itemsToUpdate: LibraryItem[] = [itemInDb]
-    itemInDb.watched = true
-    itemInDb.lastWatched = Date.now()
-
-    let parent = findParent(itemInDb.id, db.root)
-    while (parent) {
-      if (parent.mediaType === 'tv') {
-        let parentModified = false
-        if (parent.continueWatchingDismissed) {
-          parent.continueWatchingDismissed = false
-          parentModified = true
-        }
-        if (parent.nextUpDismissed) {
-          parent.nextUpDismissed = false
-          parentModified = true
-        }
-        if (parentModified) {
-          itemsToUpdate.push(parent)
-        }
-        break // Stop searching upwards once we find the show
-      }
-      parent = findParent(parent.id, db.root)
-    }
-
-    setBulkUpdateStatus(wasBulk)
-
-    if (itemsToUpdate.length > 0) {
-      searchService.updateIndexForItems(itemsToUpdate)
-      await _finalizeItemUpdate(itemsToUpdate)
-    }
-  })()
   return true
 }
 
@@ -1937,14 +1902,14 @@ export async function deleteItemFromDb(itemId: string): Promise<boolean> {
 export async function getItemById(itemId: string): Promise<LibraryItem | null> {
   if (!db || !db.root) return null
   const item = findItemById(itemId, db.root)
-  return item ? createShallowClonableCopy(item) : null
+  return item ? createTransferableCopy(item) : null
 }
 
 export async function getChildren(parentId: string): Promise<LibraryItem[] | null> {
   if (!db || !db.root) return null
   const parent = findItemById(parentId, db.root)
   if (!parent || parent.type !== 'folder') return null
-  return parent.children.map((child) => createShallowClonableCopy(child))
+  return parent.children.map((child) => createTransferableCopy(child))
 }
 
 export async function getParent(itemId: string): Promise<MediaFolder | null> {
@@ -2049,8 +2014,8 @@ export async function getContinueWatchingItems(): Promise<
       await fetchEpisodeDataForContinueWatching(show, nextUnwatchedEpisode)
       const lastWatchedTime = Math.max(0, ...watchedEpisodes.map((ep) => ep.lastWatched ?? 0))
       continueWatchingItems.push({
-        show: createShallowClonableCopy(show) as MediaFolder,
-        nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile,
+        show: createTransferableCopy(show) as MediaFolder,
+        nextEpisode: createTransferableCopy(nextUnwatchedEpisode) as MediaFile,
         lastWatched: lastWatchedTime
       })
     }
@@ -2092,8 +2057,8 @@ export async function getContinueWatchingForShow(
   if (nextUnwatchedEpisode) {
     await fetchEpisodeDataForContinueWatching(show as MediaFolder, nextUnwatchedEpisode)
     return {
-      show: createShallowClonableCopy(show) as MediaFolder,
-      nextEpisode: createShallowClonableCopy(nextUnwatchedEpisode) as MediaFile
+      show: createTransferableCopy(show) as MediaFolder,
+      nextEpisode: createTransferableCopy(nextUnwatchedEpisode) as MediaFile
     }
   }
   return null

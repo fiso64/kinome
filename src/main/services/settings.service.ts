@@ -89,6 +89,23 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
 }
 
 /**
+ * Helper to perform a one-level deep merge on nested objects within a settings object.
+ */
+function mergeNestedObjects<T extends Record<string, any>>(
+  base: T,
+  override: Partial<T> | undefined
+): T {
+  if (!override) return base
+  const result = { ...base }
+  for (const key in base) {
+    if (Object.prototype.hasOwnProperty.call(base, key) && override[key]) {
+      result[key] = { ...base[key], ...override[key] }
+    }
+  }
+  return result
+}
+
+/**
  * Reads and merges settings from defaults, global, and library-specific files.
  * @returns A fully populated Settings object.
  */
@@ -149,40 +166,14 @@ async function readRawSettings(): Promise<Settings> {
   const settingsToMerge = [librarySettings, globalSettings]
 
   for (const saved of settingsToMerge) {
-    const mergedLayouts = (Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]).reduce(
-      (acc, key) => {
-        acc[key] = { ...finalSettings.defaultLayouts[key], ...saved.defaultLayouts?.[key] }
-        return acc
-      },
-      finalSettings.defaultLayouts
-    )
-
     finalSettings = {
       ...finalSettings,
       ...saved,
-      defaultLayoutSettings: {
-        grid: {
-          ...finalSettings.defaultLayoutSettings.grid,
-          ...saved.defaultLayoutSettings?.grid
-        },
-        'horizontal-grid': {
-          ...finalSettings.defaultLayoutSettings['horizontal-grid'],
-          ...saved.defaultLayoutSettings?.['horizontal-grid']
-        },
-        list: {
-          ...finalSettings.defaultLayoutSettings.list,
-          ...saved.defaultLayoutSettings?.list
-        },
-        tabs: {
-          ...finalSettings.defaultLayoutSettings.tabs,
-          ...saved.defaultLayoutSettings?.tabs
-        },
-        sections: {
-          ...finalSettings.defaultLayoutSettings.sections,
-          ...saved.defaultLayoutSettings?.sections
-        }
-      },
-      defaultLayouts: mergedLayouts
+      defaultLayoutSettings: mergeNestedObjects(
+        finalSettings.defaultLayoutSettings,
+        saved.defaultLayoutSettings
+      ),
+      defaultLayouts: mergeNestedObjects(finalSettings.defaultLayouts, saved.defaultLayouts)
     }
   }
 
