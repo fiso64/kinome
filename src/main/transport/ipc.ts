@@ -132,12 +132,15 @@ export function setupIpcHandlers() {
   )
   ipcMain.handle('update-item', (_, updatedItem) => libraryService.updateItem(updatedItem, false))
 
-  ipcMain.handle('manual-search', (_, query, type, year, tmdbId) =>
-    libraryService.manualSearch(query, type, year, tmdbId)
-  )
-  ipcMain.handle('get-tmdb-images', (_, tmdbId, mediaType, language) =>
-    libraryService.getTmdbImages(tmdbId, mediaType, language)
-  )
+  ipcMain.handle('manual-search', async (_, query, type, year, tmdbId) => {
+    const settings = await settingsService.readSettings()
+    return libraryService.manualSearch(query, type, settings.tmdbApiKey, year, tmdbId)
+  })
+
+  ipcMain.handle('get-tmdb-images', async (_, tmdbId, mediaType, language) => {
+    const settings = await settingsService.readSettings()
+    return libraryService.getTmdbImages(tmdbId, mediaType, settings.tmdbApiKey, language)
+  })
   ipcMain.handle('execute-custom-action', (_, itemId, commandId) =>
     libraryService.executeCustomAction(itemId, commandId, showErrorDialog)
   )
