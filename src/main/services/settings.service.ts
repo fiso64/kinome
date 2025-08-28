@@ -250,14 +250,14 @@ export async function saveAbsoluteMediaSourcePath(absolutePath: string): Promise
   let pathToSave = absolutePath
   if (settings.mediaSourcePathIsRelative) {
     const libraryPath = getLibraryDataPath()
-    let relative = relative(dirname(libraryPath), absolutePath)
-    relative = relative.replace(/\\/g, '/')
-    if (relative === '') {
+    let relativePath = relative(dirname(libraryPath), absolutePath)
+    relativePath = relativePath.replace(/\\/g, '/')
+    if (relativePath === '') {
       pathToSave = '.'
-    } else if (relative.startsWith('../')) {
-      pathToSave = relative
+    } else if (relativePath.startsWith('../')) {
+      pathToSave = relativePath
     } else {
-      pathToSave = './' + relative
+      pathToSave = './' + relativePath
     }
   }
   await writeLibrarySettings({ mediaSourcePath: pathToSave })

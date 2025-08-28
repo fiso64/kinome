@@ -671,7 +671,7 @@ export async function fetchAndApplyEpisodeData(
   showTmdbId: number,
   tmdbApiKey: string,
   libraryDataPath: string,
-  tmdbSeasons?: any[] // Made optional
+  tmdbSeasons?: any[] | null // Made optional
 ): Promise<MediaFile[]> {
   const seasonNumber = seasonFolder.seasonNumber ?? 1
   const modifiedEpisodes: MediaFile[] = []

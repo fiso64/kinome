@@ -25,8 +25,6 @@ import {
   refetchShowSeasons,
   fetchAndApplyEpisodeData,
   refetchPoster,
-  manualSearch,
-  getTmdbImages,
   downloadImage
 } from './retriever.service'
 import { readSettings, writeLibrarySettings, getAbsoluteMediaSourcePath } from './settings.service'
@@ -900,7 +898,7 @@ export async function getFolderWatchedState(
 
 export async function getLibraryRoot(): Promise<MediaFolder | null> {
   if (!db) await loadDbIntoMemory()
-  return db?.root ? createShallowClonableCopy(db.root) : null
+  return db?.root ? (createShallowClonableCopy(db.root) as MediaFolder) : null
 }
 
 export async function refreshLibrary(): Promise<MediaFolder | null> {
@@ -940,7 +938,7 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
     const t7 = performance.now(); log(`[Refresh ${refreshId}] Total time before returning: ${(t7 - t0).toFixed(2)}ms`)
     const memoryUsage = process.memoryUsage()
     log(`[Refresh ${refreshId}] Memory: RSS=${(memoryUsage.rss / 1024 / 1024).toFixed(2)}MB, HeapTotal=${(memoryUsage.heapTotal / 1024 / 1024).toFixed(2)}MB, HeapUsed=${(memoryUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`)
-    return db.root ? createShallowClonableCopy(db.root) : null
+    return db.root ? (createShallowClonableCopy(db.root) as MediaFolder) : null
 }
 
 export async function performInitialScan(mediaSourcePath: string): Promise<MediaFolder | null> {

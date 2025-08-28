@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
-import { dirname, relative, resolve as resolvePath } from 'path'
+import { dirname, resolve as resolvePath } from 'path'
 
 import * as libraryService from '../services/library.service'
 import * as settingsService from '../services/settings.service'
