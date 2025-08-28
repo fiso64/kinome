@@ -1,8 +1,8 @@
 import Fuse from 'fuse.js'
 import { serviceEventEmitter } from './event.emitter.service'
-import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../shared/types'
-import { SEARCH_INDEX_PROPERTIES } from '../shared/types'
-import { itemMatchesAllTags } from '../shared/filter'
+import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
+import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
+import { itemMatchesAllTags } from '../../shared/filter'
 
 const SEARCH_RESULT_LIMIT = 50
 

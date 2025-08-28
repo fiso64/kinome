@@ -461,7 +461,7 @@ function assignEpisodesByStrategy(files: MediaFile[], seasonNumber: number, stra
     }
 }
 
-function assignSeasonsAndEpisodes(showFolder: MediaFolder, seasonStrategy: 'smart' | 'alphabetic', episodeStrategy: 'smart' | 'alphabetic') {
+function _assignSeasonsAndEpisodesByStrategy(showFolder: MediaFolder, seasonStrategy: 'smart' | 'alphabetic', episodeStrategy: 'smart' | 'alphabetic') {
     const mediaFiles = showFolder.children.filter((c) => c.type === 'file') as MediaFile[]
     const subFolders = showFolder.children.filter((c) => c.type === 'folder' && !SPECIAL_FOLDER_NAMES_FOR_TV.includes(c.name.toLowerCase())) as MediaFolder[]
     const assignEpisodeFunc = (files: MediaFile[], season: number) => assignEpisodesByStrategy(files, season, episodeStrategy)
@@ -1455,7 +1455,7 @@ export async function assignSeasonsAndEpisodes(showId: string, seasonStrategy: '
         const imagesDir = path.join(getLibraryDataPath(), 'images')
         await clearTvStructureMetadata(show, imagesDir, modifiedItems)
         log(`[Assign Seasons] Assigning new data with strategy: ${seasonStrategy}/${episodeStrategy}`)
-        assignSeasonsAndEpisodes(show, seasonStrategy, episodeStrategy)
+        _assignSeasonsAndEpisodesByStrategy(show, seasonStrategy, episodeStrategy)
         getAllItemsAsList(show, []).forEach((item) => modifiedItems.add(item))
         const settings = await readSettings()
         if (fetchMetadata || show.process_tv_children !== false) {
