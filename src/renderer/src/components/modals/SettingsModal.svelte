@@ -48,6 +48,7 @@
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let settingsLoaded = $state(false)
+  let resolvedMediaPath = $state('Resolving...')
 
   let suggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
@@ -97,6 +98,7 @@
       itemDetailBackdropBlur = settings.itemDetailBackdropBlur
       virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
       libraryDataLocation = settings.libraryLocation
+      mediaSourcePath = settings.mediaSourcePath ?? ''
       mediaSourcePathIsRelative = settings.mediaSourcePathIsRelative ?? false
 
       // Set new view settings
@@ -106,11 +108,27 @@
       settingsLoaded = true
     })
 
-    window.api.getLibraryMediaSourcePath().then((path) => {
-      mediaSourcePath = path ?? 'Not set'
-    })
-
     window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
+
+    // This effect creates an async derived value for the resolved media path
+    $effect(() => {
+      let cancelled = false
+      const resolve = async () => {
+        if (!mediaSourcePath.trim()) {
+          if (!cancelled) resolvedMediaPath = 'Not set'
+          return
+        }
+        const resolved = await window.api.resolveMediaSourcePath({
+          path: mediaSourcePath,
+          isRelative: mediaSourcePathIsRelative
+        })
+        if (!cancelled) resolvedMediaPath = resolved
+      }
+      resolve()
+      return () => {
+        cancelled = true
+      }
+    })
 
     const TABS = ['general', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -196,10 +214,14 @@
 
   async function handleSave(): Promise<void> {
     const wasLibLocationChanged = libraryDataLocation !== settings?.libraryLocation
+    const mediaPathChanged =
+      mediaSourcePath !== settings?.mediaSourcePath ||
+      mediaSourcePathIsRelative !== settings?.mediaSourcePathIsRelative
 
     const tagsToSave = virtualTags
       .map(({ name, expression }) => ({ name, expression }))
       .filter((vt) => vt.name && vt.expression)
+
     await window.api.saveSettings({
       playerCommands: JSON.parse(JSON.stringify(playerCommands)),
       customActions: JSON.parse(JSON.stringify(customActions)),
@@ -213,8 +235,8 @@
       itemDetailBackdropBlur,
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
+      mediaSourcePath,
       mediaSourcePathIsRelative,
-      // New structured settings
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
         : undefined,
@@ -222,44 +244,40 @@
     })
 
     if (wasLibLocationChanged) {
-      window.location.reload()
-    } else {
-      dispatch('close')
+      // This will trigger a full app reload which is necessary
+      return
     }
+
+    if (mediaPathChanged) {
+      const choice = await dialogStore.showDialog({
+        title: 'Media Source Path Changed',
+        message: 'How do you want to proceed?',
+        detail:
+          'A "Full Rescan" is for new libraries and wipes all metadata. A "Refresh" syncs changes for the existing library.',
+        buttons: [
+          { label: 'Do Nothing', value: 'nothing', class: 'secondary' },
+          { label: 'Full Rescan (Wipe)', value: 'full_rescan', class: 'danger' },
+          { label: 'Refresh (Sync)', value: 'rescan', class: 'primary' }
+        ]
+      })
+      if (choice === 'full_rescan') {
+        const root = await window.api.performFullRescan(resolvedMediaPath)
+        if (root) {
+          dispatch('fullRescanCompleted', { root })
+        }
+      } else if (choice === 'rescan') {
+        await window.api.refreshLibrary()
+      }
+    }
+
+    dispatch('close')
   }
 
-  async function handleChangeLibrary() {
+  async function handleBrowseMediaSource() {
     const newPath = await window.api.selectMediaSourceDirectory()
-    if (!newPath) return
-
-    const choice = await dialogStore.showDialog({
-      title: 'Media Source Path Changed',
-      message: 'How do you want to apply this change?',
-      detail:
-        'A "Full Rescan" wipes all metadata and is for new libraries. "Rescan" updates the existing library from the new location, preserving metadata for matching files.',
-      buttons: [
-        { label: 'Do Nothing', value: 'nothing', class: 'secondary' },
-        { label: 'Full Rescan (Wipe)', value: 'full_rescan', class: 'danger' },
-        { label: 'Rescan (Sync)', value: 'rescan', class: 'primary' }
-      ]
-    })
-
-    if (choice === 'full_rescan') {
-      const root = await window.api.performFullRescan(newPath)
-      if (root) {
-        dispatch('fullRescanCompleted', { root })
-        // The modal is already closed by the parent, but we also dispatch to be safe
-        dispatch('close')
-      }
-    } else if (choice === 'rescan') {
-      await window.api.saveMediaSourcePath(newPath)
-      await window.api.refreshLibrary()
-    } else if (choice === 'nothing') {
-      await window.api.saveMediaSourcePath(newPath)
+    if (newPath) {
+      mediaSourcePath = newPath
     }
-
-    // After any action, update the displayed path.
-    mediaSourcePath = (await window.api.getLibraryMediaSourcePath()) ?? 'Not set'
   }
 
   async function handleChangeLibraryDataLocation() {
@@ -395,11 +413,16 @@
       <div class="form-group">
         <label>Media Source Path</label>
         <div class="path-display-container">
-          <div class="path-display">{mediaSourcePath}</div>
-          <button class="secondary" onclick={handleChangeLibrary}>Browse...</button>
+          <input
+            type="text"
+            class="path-input"
+            bind:value={mediaSourcePath}
+            placeholder="Enter local path to your media"
+          />
+          <button class="secondary" onclick={handleBrowseMediaSource}>Browse...</button>
         </div>
         <p class="help-text">
-          The folder containing your media files. Click 'Browse...' to select a new location.
+          Resolved Path: <code>{resolvedMediaPath}</code>
         </p>
       </div>
       <div class="form-group">

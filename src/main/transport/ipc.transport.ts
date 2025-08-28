@@ -131,10 +131,6 @@ export class IpcTransport implements ITransport {
       }
     })
 
-    ipcMain.handle('save-media-source-path', async (_, newPath: string) => {
-      await settingsService.saveAbsoluteMediaSourcePath(newPath)
-    })
-
     ipcMain.handle('get-item-details', (_, itemId: string) => libraryService.getItemDetails(itemId))
     ipcMain.handle('fetch-credits', (_, itemId: string) => libraryService.fetchCredits(itemId))
     ipcMain.handle('play-file-with', (_, file, command) =>
@@ -296,6 +292,11 @@ export class IpcTransport implements ITransport {
 
     // --- Settings IPC Handlers ---
     ipcMain.handle('get-settings', async () => settingsService.readSettings())
+    ipcMain.handle(
+      'resolve-media-source-path',
+      (_, { path, isRelative }: { path: string; isRelative: boolean }) =>
+        settingsService.resolveMediaSourcePath(path, isRelative)
+    )
 
     ipcMain.handle('save-settings', async (_, settingsToSave: Partial<Settings>) => {
       const oldSettings = await settingsService.readSettings()

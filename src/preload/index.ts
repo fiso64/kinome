@@ -134,8 +134,8 @@ const api = {
     ipcRenderer.invoke('get-library-media-source-path'),
   saveSettings: (settings: Partial<Settings>): Promise<void> =>
     ipcRenderer.invoke('save-settings', settings),
-  saveMediaSourcePath: (newPath: string): Promise<void> =>
-    ipcRenderer.invoke('save-media-source-path', newPath),
+  resolveMediaSourcePath: (args: { path: string; isRelative: boolean }): Promise<string> =>
+    ipcRenderer.invoke('resolve-media-source-path', args),
 
   // Window Controls
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),

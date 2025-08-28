@@ -39,9 +39,9 @@ declare global {
       refreshLibrary: () => Promise<MediaFolder | null> // Used to scan for new/removed files
       // Settings
       getSettings: () => Promise<Settings>
-      saveMediaSourcePath: (newPath: string) => Promise<void>
       getLibraryMediaSourcePath: () => Promise<string | null>
       saveSettings: (settings: Partial<Settings>) => Promise<void>
+      resolveMediaSourcePath: (args: { path: string; isRelative: boolean }) => Promise<string>
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       userUpdateItem: (item: LibraryItem) => Promise<void>
