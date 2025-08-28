@@ -30,8 +30,6 @@ export class IpcTransport implements ITransport {
     })
   }
 
-
-
   notifyAutocompleteSuggestionsUpdated(suggestions: AutocompleteSuggestions): void {
     BrowserWindow.getAllWindows().forEach((window) => {
       window.webContents.send('autocomplete-suggestions-updated', suggestions)
@@ -153,7 +151,6 @@ export class IpcTransport implements ITransport {
     ipcMain.handle('user-update-item', (_, updatedItem) =>
       libraryService.updateItem(updatedItem, true)
     )
-
 
     ipcMain.handle('manual-search', async (_, query, type, year, tmdbId) => {
       const settings = await settingsService.readSettings()

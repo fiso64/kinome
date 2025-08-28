@@ -17,8 +17,7 @@ import type {
   MediaFolder,
   LibraryItem,
   MediaFile,
-  AutocompleteSuggestions,
-  Settings
+  AutocompleteSuggestions
 } from '../../shared/types'
 import { getTransport } from '../transport.registry'
 
@@ -776,9 +775,7 @@ export async function getContinueWatchingForShow(
   if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.nextUpDismissed) return null
   const episodes = repositoryService
     .getAllDescendantsAsList(show)
-    .filter(
-      (item) => item.type === 'file' && item.mediaType === 'episode'
-    ) as MediaFile[]
+    .filter((item) => item.type === 'file' && item.mediaType === 'episode') as MediaFile[]
   if (episodes.length === 0) return null
   const watchedEpisodes = episodes.filter((ep) => ep.watched)
   if (watchedEpisodes.length === 0) return null

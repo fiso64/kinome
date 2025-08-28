@@ -1,4 +1,3 @@
-import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
 import * as virtualTagsService from './virtualTags.service'
@@ -306,20 +305,20 @@ export function createTransferableCopy(item: LibraryItem): LibraryItem {
  */
 export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
   // 1. Start with a full deep clone to get a clean object.
-  const plainItem = JSON.parse(JSON.stringify(item));
+  const plainItem = JSON.parse(JSON.stringify(item))
 
   if (plainItem.type === 'folder' && Array.isArray(plainItem.children)) {
     // 2. Filter any hidden direct children (e.g., hidden seasons).
-    plainItem.children = plainItem.children.filter((child: LibraryItem) => !child.isHidden);
+    plainItem.children = plainItem.children.filter((child: LibraryItem) => !child.isHidden)
 
     // 3. For each direct child that is a folder (e.g., a season), ensure its own
     //    children (the episodes) are filtered...
     for (const child of plainItem.children) {
       if (child.type === 'folder' && Array.isArray(child.children)) {
-        child.children = child.children.filter((grandchild: LibraryItem) => !grandchild.isHidden);
+        child.children = child.children.filter((grandchild: LibraryItem) => !grandchild.isHidden)
         // ...but we do NOT prune the great-grandchildren here.
       }
     }
   }
-  return plainItem;
+  return plainItem
 }

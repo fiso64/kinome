@@ -12,8 +12,6 @@ export interface ITransport {
    */
   notifyLibraryItemsUpdated(items: LibraryItem[]): void
 
-
-
   /**
    * Notifies clients that the autocomplete suggestions have been updated.
    * @param suggestions The new set of autocomplete suggestions.

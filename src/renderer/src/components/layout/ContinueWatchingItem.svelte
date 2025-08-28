@@ -226,7 +226,7 @@
       transform 0.2s ease,
       background-color 0.2s ease;
   }
-.play-icon {
+  .play-icon {
     font-size: 3rem;
     color: rgba(255, 255, 255, 0.8);
     text-shadow: 0 0 15px black;

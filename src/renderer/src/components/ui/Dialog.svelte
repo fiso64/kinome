@@ -68,13 +68,19 @@
       if (event.key === 'Escape') {
         const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
         if (cancelButton) {
-          onClose(checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value)
+          onClose(
+            checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value
+          )
         }
       } else if (event.key === 'Enter') {
         const confirmButton =
           buttons.find((b) => b.class === 'primary' || b.class === 'danger') ?? buttons[0]
         if (confirmButton) {
-          onClose(checkbox ? { value: confirmButton.value, checkboxValue: isChecked } : confirmButton.value)
+          onClose(
+            checkbox
+              ? { value: confirmButton.value, checkboxValue: isChecked }
+              : confirmButton.value
+          )
         }
       }
     }
@@ -90,7 +96,9 @@
   onmousedown={(e) => {
     if (e.target === e.currentTarget) {
       const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
-      onClose(checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value)
+      onClose(
+        checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value
+      )
     }
   }}
 >
@@ -106,18 +114,18 @@
       <h2 id="dialog-title">{title}</h2>
     </header>
 
-<div class="dialog-body">
-  <p id="dialog-message" class="message">{message}</p>
-  {#if detail}
-    <p class="detail">{detail}</p>
-  {/if}
-  {#if checkbox}
-    <label class="checkbox-label">
-      <input type="checkbox" bind:checked={isChecked} />
-      <span>{checkbox.label}</span>
-    </label>
-  {/if}
-</div>
+    <div class="dialog-body">
+      <p id="dialog-message" class="message">{message}</p>
+      {#if detail}
+        <p class="detail">{detail}</p>
+      {/if}
+      {#if checkbox}
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={isChecked} />
+          <span>{checkbox.label}</span>
+        </label>
+      {/if}
+    </div>
 
     <footer class="dialog-actions">
       {#each buttons as button (button.label)}

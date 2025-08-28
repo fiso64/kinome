@@ -1,7 +1,7 @@
 import path, { dirname, relative, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
-import type { DefaultLayoutKey, Settings } from '../../shared/types'
-import { DEFAULT_LAYOUTS_CONFIG, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
+import type { Settings } from '../../shared/types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
 import {
   getLibraryDataPath,
   isRemoteLibrary,

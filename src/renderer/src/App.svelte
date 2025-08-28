@@ -341,8 +341,6 @@
     }
   }
 
-
-
   // Listener for BATCH metadata updates
   $effect(() => {
     const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {

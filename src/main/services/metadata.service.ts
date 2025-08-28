@@ -6,7 +6,6 @@ import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as retrieverService from './retriever.service'
 import * as tvShowService from './tv-show.service'
-import * as searchService from './search.service'
 import * as virtualTagsService from './virtualTags.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
@@ -16,8 +15,6 @@ import { getTransport } from '../transport.registry'
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
 }
-
-
 
 async function processInChunks<T>(
   items: T[],
@@ -542,7 +539,10 @@ export async function applyTmdbResult(
       item.tmdbDetailsFetched = true
       item.tmdbEpisodesFetched = undefined
       const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
-      if (!episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')) {
+      if (
+        typeof item.seasonNumber === 'number' &&
+        !episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')
+      ) {
         tvShowService.assignEpisodesByStrategy(episodeFiles, item.seasonNumber, 'smart')
       }
       const showFolder = repositoryService.findParent(item.id)

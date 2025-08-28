@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js'
 
-import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
+import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
 import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
 import { itemMatchesAllTags } from '../../shared/filter'
 
@@ -86,18 +86,6 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
 }
 
 /**
- * Adds or updates an entry in the search index array.
- */
-function _updateOrAddItemToIndex(entry: SearchIndexEntry) {
-  const index = searchIndex.findIndex((i) => i.id === entry.id)
-  if (index !== -1) {
-    searchIndex[index] = entry // Update existing item
-  } else {
-    searchIndex.push(entry) // Add new item
-  }
-}
-
-/**
  * Removes an entry from the search index array by its ID.
  */
 export function removeItemFromIndex(itemId: string) {
@@ -173,8 +161,6 @@ export function updateIndexForItems(items: LibraryItem[]) {
     `[Search Index] Batched update complete. Updated: ${itemsToUpdate.size}, Removed: ${itemsToRemove.size}`
   )
 }
-
-
 
 // Proxy-based change detection has been removed.
 // The library.service is now responsible for explicitly triggering index updates
