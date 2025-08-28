@@ -477,6 +477,7 @@ export async function fetchItemDetails(
     if (settings.useLogos) {
       if (typeof item.logoPath === 'undefined') {
         const logos = details.images?.logos
+        // Prioritize English, then language-neutral, then any.
         const bestLogo =
           logos?.find((l) => l.iso_639_1 === 'en') ||
           logos?.find((l) => l.iso_639_1 === null) ||
@@ -492,14 +493,15 @@ export async function fetchItemDetails(
             item.logoPath = logoFileName
             console.log(`[TMDB] Downloaded logo for "${item.title ?? item.name}"`)
           } catch {
-            item.logoPath = null
+            item.logoPath = null // Mark as failed to prevent retries
           }
         } else {
-          item.logoPath = null
+          item.logoPath = null // No logo found
         }
       }
-    } else {
-      // If setting is disabled, ensure logo path is null
+    } else if (typeof item.logoPath === 'undefined') {
+      // If setting is disabled and we haven't tried to fetch a logo before,
+      // mark it as checked (null) to prevent fetching if the setting is re-enabled.
       item.logoPath = null
     }
 
@@ -692,22 +694,17 @@ export async function fetchAndApplyEpisodeData(
       return []
     }
   }
-  // If tmdbSeasons is not provided (e.g. manual match, parent show processing disabled),
-  // we proceed to try fetching,
-  // relying on seasonFolder.seasonNumber.
-
+  // If tmdbSeasons is not provided (e.g., manual match where parent show processing is disabled),
+  // we proceed to try fetching, relying on the seasonFolder.seasonNumber.
   if (typeof seasonFolder.seasonNumber !== 'number') {
-    // Check if seasonNumber is actually a number
     console.warn(
       `[TMDB] Season folder "${seasonFolder.name}" (ID: ${seasonFolder.id}) has no valid seasonNumber (${seasonFolder.seasonNumber}). Cannot fetch episodes.`
     )
     seasonFolder.tmdbEpisodesFetched = true
     seasonFolder.tmdbDetailsFetched = true
-    // This return was misplaced from the original logic where it was inside the seasonNumber check.
-    // return [] // We should not return here, but proceed to the try block.
+    return [] // Cannot proceed without a valid season number
   }
 
-  // The try block should start here, encompassing the API call and processing.
   try {
     const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
     console.log(

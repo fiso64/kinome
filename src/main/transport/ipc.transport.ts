@@ -227,8 +227,8 @@ export class IpcTransport implements ITransport {
         const absolutePath = await libraryService.getAbsolutePath(relativePath)
         if (!absolutePath) return false
         await shell.trashItem(absolutePath)
-        // The service will detect the change on next refresh, or we can trigger it.
-        // For now, let's trigger a targeted DB update.
+        // After successfully moving the item to trash, immediately update the
+        // in-memory database to reflect the change without requiring a full refresh.
         await libraryService.handleItemRemovedByPath(relativePath)
         return true
       } catch (error: any) {

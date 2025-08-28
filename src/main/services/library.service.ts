@@ -4,16 +4,11 @@ import { URL } from 'url'
 import fs, { readdir, stat } from 'fs/promises'
 import { type Dirent } from 'fs'
 import crypto from 'crypto'
-import { evaluateVirtualTagsForItem } from './virtualTags.service'
-import {
-  createDbProxy,
-  buildFullSearchIndex,
-  updateIndexForItem,
-  updateIndexForItems,
-  performSearch,
-  debugPerformSearch,
-  removeItemAndDescendantsFromIndex
-} from './search.service'
+import * as virtualTagsService from './virtualTags.service'
+import * as searchService from './search.service'
+import * as retrieverService from './retriever.service'
+import * as settingsService from './settings.service'
+import * as pathsService from './paths.service'
 import type {
   Database,
   MediaFolder,
@@ -23,24 +18,6 @@ import type {
   Settings
 } from '../../shared/types'
 import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
-import {
-  cacheGenreLists,
-  searchTmdbAndApplyMetadata,
-  fetchItemDetails,
-  fetchAndApplyCredits,
-  applyTvShowData,
-  refetchShowSeasons,
-  fetchAndApplyEpisodeData,
-  refetchPoster,
-  downloadImage
-} from './retriever.service'
-import { readSettings, writeLibrarySettings, getAbsoluteMediaSourcePath } from './settings.service'
-import {
-  getLibraryDataPath,
-  isRemoteLibrary,
-  resolveLibraryPath,
-  isRemotePath
-} from './paths.service'
 import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
@@ -67,7 +44,7 @@ const setBulkUpdateStatus = (status: boolean): void => {
  * This function MUTATES the items in place.
  */
 function applyVirtualTagsToAllItems(node: LibraryItem, settings: Settings) {
-  node.virtualTags = evaluateVirtualTagsForItem(node, settings)
+  node.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(node, settings)
   if (node.type === 'folder') {
     for (const child of node.children) {
       applyVirtualTagsToAllItems(child, settings)
@@ -83,30 +60,30 @@ export async function loadDbIntoMemory(): Promise<void> {
     log('Database file found. Processing...')
     setBulkUpdateStatus(true)
     if (rawDb.root) {
-      const settings = await readSettings()
+      const settings = await settingsService.readSettings()
       applyVirtualTagsToAllItems(rawDb.root, settings)
     }
-    db = createDbProxy(rawDb, getBulkUpdateStatus)
+    db = searchService.createDbProxy(rawDb, getBulkUpdateStatus)
     log('Database wrapped in proxy.')
-    buildFullSearchIndex(db.root)
+    searchService.buildFullSearchIndex(db.root)
     setBulkUpdateStatus(false)
     log('Finished loading DB into memory.')
   } else {
     log('No database file found or DB is invalid.')
     db = null
-    buildFullSearchIndex(null)
+    searchService.buildFullSearchIndex(null)
   }
 }
 
 function getDbPath(): string {
-  return resolveLibraryPath(DATABASE_FILE_NAME)
+  return pathsService.resolveLibraryPath(DATABASE_FILE_NAME)
 }
 
 async function readDb(): Promise<Database | null> {
   try {
     const dbPath = getDbPath()
     let data: string
-    if (isRemoteLibrary()) {
+    if (pathsService.isRemoteLibrary()) {
       log(`Fetching remote database from: ${dbPath}`)
       const response = await fetch(dbPath)
       if (!response.ok) {
@@ -135,15 +112,15 @@ async function readDb(): Promise<Database | null> {
 }
 
 async function writeDb(updatedDb: Database): Promise<void> {
-  if (isRemoteLibrary()) {
+  if (pathsService.isRemoteLibrary()) {
     if (db !== updatedDb) {
-      db = createDbProxy(updatedDb, getBulkUpdateStatus)
-      buildFullSearchIndex(db.root)
+      db = searchService.createDbProxy(updatedDb, getBulkUpdateStatus)
+      searchService.buildFullSearchIndex(db.root)
     }
     return
   }
 
-  const libraryPath = getLibraryDataPath()
+  const libraryPath = pathsService.getLibraryDataPath()
   await fs.mkdir(libraryPath, { recursive: true })
   const dbPath = getDbPath()
 
@@ -155,8 +132,8 @@ async function writeDb(updatedDb: Database): Promise<void> {
   await fs.writeFile(dbPath, JSON.stringify(updatedDb, replacer, 2))
 
   if (db !== updatedDb) {
-    db = createDbProxy(updatedDb, getBulkUpdateStatus)
-    buildFullSearchIndex(db.root)
+    db = searchService.createDbProxy(updatedDb, getBulkUpdateStatus)
+    searchService.buildFullSearchIndex(db.root)
   }
 }
 
@@ -545,7 +522,7 @@ async function clearTvStructureMetadata(
   for (const child of folder.children) {
     let wasModified = false
     if (child.posterPath) {
-      if (!isRemoteLibrary()) {
+      if (!pathsService.isRemoteLibrary()) {
         try {
           await fs.unlink(path.join(imagesDir, child.posterPath))
         } catch (e) {}
@@ -591,7 +568,7 @@ async function clearTvStructureMetadata(
 }
 
 async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
-  if (isRemoteLibrary()) return
+  if (pathsService.isRemoteLibrary()) return
   if (item.posterPath) {
     try {
       await fs.access(path.join(imagesDir, item.posterPath))
@@ -708,8 +685,8 @@ function collectItemsToProcess(
 
 async function fetchMetadataForLibrary() {
   if (!db || !db.root) return
-  const settings = await readSettings()
-  const libraryDataPath = getLibraryDataPath()
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
   if (!settings.tmdbApiKey) {
     console.warn('Metadata fetch skipped: No TMDB API key.')
     return
@@ -753,7 +730,7 @@ async function fetchMetadataForLibrary() {
             log(
               `[Metadata] New or unprocessed seasons detected for "${show.name}". Fetching updated season list.`
             )
-            await refetchShowSeasons(show, settings, libraryDataPath)
+            await retrieverService.refetchShowSeasons(show, settings, libraryDataPath)
           }
         }
       }
@@ -793,7 +770,7 @@ async function fetchMetadataForLibrary() {
       getTransport().notifyLibraryItemsUpdated(plainItems)
     }
   }
-  await cacheGenreLists(settings.tmdbApiKey)
+  await retrieverService.cacheGenreLists(settings.tmdbApiKey)
   if (newItemsToFetch.length > 0) {
     log(`[Metadata] Starting fetch for ${newItemsToFetch.length} new items...`)
     const updatedItemsBatch: LibraryItem[] = []
@@ -802,7 +779,12 @@ async function fetchMetadataForLibrary() {
       hint?: 'movie' | 'tv'
     }): Promise<void> => {
       const { item, hint } = itemWithHint
-      await searchTmdbAndApplyMetadata(item, settings.tmdbApiKey, libraryDataPath, hint)
+      await retrieverService.searchTmdbAndApplyMetadata(
+        item,
+        settings.tmdbApiKey,
+        libraryDataPath,
+        hint
+      )
       if (item.type === 'folder' && item.mediaType === 'tv')
         processTvShowStructure(item as MediaFolder)
       if (item.posterPath || item.tmdbId === null) updatedItemsBatch.push(item)
@@ -814,7 +796,7 @@ async function fetchMetadataForLibrary() {
     log(`[Metadata] Starting poster refetch for ${itemsMissingPosters.length} items...`)
     const updatedItemsBatch: LibraryItem[] = []
     const task = async (item: LibraryItem): Promise<void> => {
-      await refetchPoster(item, settings.tmdbApiKey, libraryDataPath)
+      await retrieverService.refetchPoster(item, settings.tmdbApiKey, libraryDataPath)
       if (item.posterPath) updatedItemsBatch.push(item)
     }
     await processInChunks(itemsMissingPosters, 17, task)
@@ -824,7 +806,7 @@ async function fetchMetadataForLibrary() {
     log(`[Metadata] Starting credits fetch for ${itemsMissingCredits.length} items...`)
     const updatedItemsBatch: LibraryItem[] = []
     const task = async (item: LibraryItem): Promise<void> => {
-      await fetchAndApplyCredits(item, settings.tmdbApiKey)
+      await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
       if (item.tmdbCreditsFetched) updatedItemsBatch.push(item)
     }
     await processInChunks(itemsMissingCredits, 17, task)
@@ -839,7 +821,7 @@ async function fetchMetadataForLibrary() {
 
 async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: MediaFile) {
   if (episode.title && episode.posterPath) return
-  if (!show.tmdbId || !show.tmdbSeasons || !db || isRemoteLibrary()) return
+  if (!show.tmdbId || !show.tmdbSeasons || !db || pathsService.isRemoteLibrary()) return
   const seasonFolder = show.children.find(
     (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
   ) as MediaFolder | undefined
@@ -847,18 +829,18 @@ async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: M
   const wasBulkUpdating = getBulkUpdateStatus()
   setBulkUpdateStatus(true)
   try {
-    const settings = await readSettings()
+    const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) return
     if (seasonFolder) {
       if (!seasonFolder.tmdbEpisodesFetched) {
         log(
           `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
         )
-        const modifiedEpisodes = await fetchAndApplyEpisodeData(
+        const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
           seasonFolder,
           show.tmdbId,
           settings.tmdbApiKey,
-          getLibraryDataPath(),
+          pathsService.getLibraryDataPath(),
           show.tmdbSeasons
         )
         itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
@@ -868,7 +850,11 @@ async function fetchEpisodeDataForContinueWatching(show: MediaFolder, episode: M
         log(
           `[Continue Watching] Next episode "${episode.name}" is a loose file in an unfetched show. Fetching all loose episodes...`
         )
-        const modifiedEpisodes = await applyTvShowData(show, settings, getLibraryDataPath())
+        const modifiedEpisodes = await retrieverService.applyTvShowData(
+          show,
+          settings,
+          pathsService.getLibraryDataPath()
+        )
         itemsToUpdate = [show, ...modifiedEpisodes]
       }
     }
@@ -889,9 +875,9 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
   }
   log('Re-applying virtual tags to all items due to settings change...')
   setBulkUpdateStatus(true)
-  const settings = await readSettings()
+  const settings = await settingsService.readSettings()
   applyVirtualTagsToAllItems(db.root, settings)
-  buildFullSearchIndex(db.root)
+  searchService.buildFullSearchIndex(db.root)
   setBulkUpdateStatus(false)
   await writeDb(db!)
   const allItems = getAllItemsAsList(db.root)
@@ -904,7 +890,7 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
 }
 
 async function resetItemMetadata(item: LibraryItem, imagesDir: string) {
-  if (!isRemoteLibrary()) {
+  if (!pathsService.isRemoteLibrary()) {
     if (item.posterPath)
       try {
         await fs.unlink(path.join(imagesDir, item.posterPath))
@@ -976,13 +962,13 @@ function markAsUserEdited(itemId: string, dbRoot: MediaFolder | null) {
 }
 
 async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
-  const currentSettings = await readSettings()
+  const currentSettings = await settingsService.readSettings()
   for (const item of modifiedItems) {
-    item.virtualTags = evaluateVirtualTagsForItem(item, currentSettings)
+    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, currentSettings)
   }
   setBulkUpdateStatus(false)
   for (const item of modifiedItems) {
-    updateIndexForItem(item)
+    searchService.updateIndexForItem(item)
   }
   log(`Finished metadata clear for ${modifiedItems.length} items.`)
   await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
@@ -1025,10 +1011,10 @@ export async function getLibraryRoot(): Promise<MediaFolder | null> {
 }
 
 export async function refreshLibrary(): Promise<MediaFolder | null> {
-  if (isRemoteLibrary()) {
+  if (pathsService.isRemoteLibrary()) {
     throw new Error('Refreshing is not available for remote libraries.')
   }
-  const mediaSourcePath = await getAbsoluteMediaSourcePath()
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!db || !db.root || !mediaSourcePath) {
     throw new Error('Cannot refresh, no library configured.')
   }
@@ -1050,15 +1036,15 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
   pruneUntouchedMissingItems(db.root)
   const t2 = performance.now()
   log(`[Refresh ${refreshId}] pruneUntouchedMissingItems took ${(t2 - t1).toFixed(2)}ms`)
-  const imagesDir = path.join(getLibraryDataPath(), 'images')
+  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
   await verifyImagePaths(db.root, imagesDir)
   const t3 = performance.now()
   log(`[Refresh ${refreshId}] verifyImagePaths took ${(t3 - t2).toFixed(2)}ms`)
-  const currentSettings = await readSettings()
+  const currentSettings = await settingsService.readSettings()
   applyVirtualTagsToAllItems(db.root, currentSettings)
   const t4 = performance.now()
   log(`[Refresh ${refreshId}] applyVirtualTagsToAllItems took ${(t4 - t3).toFixed(2)}ms`)
-  buildFullSearchIndex(db.root)
+  searchService.buildFullSearchIndex(db.root)
   const t5 = performance.now()
   log(`[Refresh ${refreshId}] buildFullSearchIndex took ${(t5 - t4).toFixed(2)}ms`)
   setBulkUpdateStatus(false)
@@ -1079,19 +1065,20 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
 }
 
 export async function performInitialScan(mediaSourcePath: string): Promise<MediaFolder | null> {
-  if (isRemoteLibrary()) throw new Error('Scanning is not available when using a remote library.')
+  if (pathsService.isRemoteLibrary())
+    throw new Error('Scanning is not available when using a remote library.')
   log(`Starting scan of: ${mediaSourcePath}`)
-  const settings = await readSettings()
+  const settings = await settingsService.readSettings()
   let pathToSave = mediaSourcePath
   if (settings.mediaSourcePathIsRelative) {
-    const libraryPath = getLibraryDataPath()
+    const libraryPath = pathsService.getLibraryDataPath()
     let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
     relative = relative.replace(/\\/g, '/')
     if (relative === '') pathToSave = '.'
     else if (relative.startsWith('../')) pathToSave = relative
     else pathToSave = './' + relative
   }
-  await writeLibrarySettings({ mediaSourcePath: pathToSave })
+  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
   const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
   setBulkUpdateStatus(true)
   const newDb: Database = { version: DB_VERSION, root: rootNode }
@@ -1114,19 +1101,20 @@ export async function performInitialScan(mediaSourcePath: string): Promise<Media
 }
 
 export async function performFullRescan(mediaSourcePath: string): Promise<MediaFolder | null> {
-  if (isRemoteLibrary()) throw new Error('Rescanning is not available for remote libraries.')
+  if (pathsService.isRemoteLibrary())
+    throw new Error('Rescanning is not available for remote libraries.')
   log(`Starting full rescan of: ${mediaSourcePath}`)
-  const settings = await readSettings()
+  const settings = await settingsService.readSettings()
   let pathToSave = mediaSourcePath
   if (settings.mediaSourcePathIsRelative) {
-    const libraryPath = getLibraryDataPath()
+    const libraryPath = pathsService.getLibraryDataPath()
     let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
     relative = relative.replace(/\\/g, '/')
     if (relative === '') pathToSave = '.'
     else if (relative.startsWith('../')) pathToSave = relative
     else pathToSave = './' + relative
   }
-  await writeLibrarySettings({ mediaSourcePath: pathToSave })
+  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
   const rootNode = await scanDirectory(mediaSourcePath, mediaSourcePath)
   setBulkUpdateStatus(true)
   const newDb: Database = { version: DB_VERSION, root: rootNode }
@@ -1152,7 +1140,7 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
   if (!db || !db.root) throw new Error('Cannot get item details: database not found.')
   const item = findItemById(itemId, db.root)
   if (!item) throw new Error(`Cannot get item details: item with id ${itemId} not found.`)
-  await verifyImagePaths(item, path.join(getLibraryDataPath(), 'images'))
+  await verifyImagePaths(item, path.join(pathsService.getLibraryDataPath(), 'images'))
   const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
   const needsEpisodeFetch =
     item.type === 'folder' &&
@@ -1160,18 +1148,22 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
     !item.tmdbEpisodesFetched
   if (needsDetailsFetch || needsEpisodeFetch) {
     ;(async () => {
-      if (isRemoteLibrary()) {
+      if (pathsService.isRemoteLibrary()) {
         log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
         return
       }
       setBulkUpdateStatus(true)
       const allModifiedItems: LibraryItem[] = []
       try {
-        const settings = await readSettings()
+        const settings = await settingsService.readSettings()
         if (!settings.tmdbApiKey) return
         if (needsDetailsFetch) {
           log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
-          const modified = await fetchItemDetails(item, settings, getLibraryDataPath())
+          const modified = await retrieverService.fetchItemDetails(
+            item,
+            settings,
+            pathsService.getLibraryDataPath()
+          )
           allModifiedItems.push(...modified)
         } else if (needsEpisodeFetch && item.type === 'folder') {
           if (item.mediaType === 'season') {
@@ -1181,20 +1173,20 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
                 log(
                   `[Details] Parent show "${showFolder.name}" details missing, fetching them first.`
                 )
-                const modifiedParent = await fetchItemDetails(
+                const modifiedParent = await retrieverService.fetchItemDetails(
                   showFolder,
                   settings,
-                  getLibraryDataPath()
+                  pathsService.getLibraryDataPath()
                 )
                 allModifiedItems.push(...modifiedParent)
               }
               if (showFolder.tmdbSeasons) {
                 log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-                const modifiedEpisodes = await fetchAndApplyEpisodeData(
+                const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
                   item,
                   showFolder.tmdbId,
                   settings.tmdbApiKey,
-                  getLibraryDataPath(),
+                  pathsService.getLibraryDataPath(),
                   showFolder.tmdbSeasons
                 )
                 allModifiedItems.push(item, ...modifiedEpisodes)
@@ -1212,7 +1204,11 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
             }
           } else if (item.mediaType === 'tv') {
             log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
-            const modifiedChildren = await applyTvShowData(item, settings, getLibraryDataPath())
+            const modifiedChildren = await retrieverService.applyTvShowData(
+              item,
+              settings,
+              pathsService.getLibraryDataPath()
+            )
             allModifiedItems.push(item, ...modifiedChildren)
           }
         }
@@ -1224,7 +1220,7 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
         const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
         const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
         for (const modifiedItem of itemsToUpdate) {
-          updateIndexForItem(modifiedItem)
+          searchService.updateIndexForItem(modifiedItem)
         }
         await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: true })
         log(`[Details] Background processing complete for "${item.name}"`)
@@ -1242,7 +1238,7 @@ export async function getItemDetails(itemId: string): Promise<LibraryItem | null
 }
 
 export async function fetchCredits(itemId: string): Promise<void> {
-  if (isRemoteLibrary()) {
+  if (pathsService.isRemoteLibrary()) {
     log(`[Credits] Skipping fetch for item ${itemId} on remote read-only library.`)
     return
   }
@@ -1258,7 +1254,7 @@ export async function fetchCredits(itemId: string): Promise<void> {
     return
   }
   try {
-    const settings = await readSettings()
+    const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey || settings.creditsDisplay === 'hidden') {
       if (settings.creditsDisplay === 'hidden') {
         item.tmdbCreditsFetched = true
@@ -1266,7 +1262,7 @@ export async function fetchCredits(itemId: string): Promise<void> {
       }
       return
     }
-    await fetchAndApplyCredits(item, settings.tmdbApiKey)
+    await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
     item._v = Date.now()
     await _finalizeItemUpdate(item, { updateSuggestions: true })
     log(`[Credits] Fetch complete for "${item.name}"`)
@@ -1281,7 +1277,7 @@ export async function playFileWith(
   onError: ErrorCallback
 ): Promise<boolean> {
   if (!command) return false
-  const mediaSourcePath = await getAbsoluteMediaSourcePath()
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) {
     onError({
       title: 'Configuration Error',
@@ -1289,7 +1285,7 @@ export async function playFileWith(
     })
     return false
   }
-  const absolutePath = isRemotePath(mediaSourcePath)
+  const absolutePath = pathsService.isRemotePath(mediaSourcePath)
     ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
     : path.join(mediaSourcePath, file.path)
   const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
@@ -1306,26 +1302,47 @@ export async function playFileWith(
   ;(async () => {
     if (!db?.root) return
     const itemInDb = findItemById(file.id, db.root)
-    if (itemInDb && itemInDb.type === 'file') {
-      itemInDb.watched = true
-      ;(itemInDb as MediaFile).lastWatched = Date.now()
-      let parent = findParent(itemInDb.id, db.root)
-      while (parent) {
-        if (parent.mediaType === 'tv') {
-          if (parent.continueWatchingDismissed) parent.continueWatchingDismissed = false
-          if (parent.nextUpDismissed) parent.nextUpDismissed = false
-          break
+    if (!itemInDb || itemInDb.type !== 'file') return
+
+    const wasBulk = getBulkUpdateStatus()
+    setBulkUpdateStatus(true)
+
+    const itemsToUpdate: LibraryItem[] = [itemInDb]
+    itemInDb.watched = true
+    itemInDb.lastWatched = Date.now()
+
+    let parent = findParent(itemInDb.id, db.root)
+    while (parent) {
+      if (parent.mediaType === 'tv') {
+        let parentModified = false
+        if (parent.continueWatchingDismissed) {
+          parent.continueWatchingDismissed = false
+          parentModified = true
         }
-        parent = findParent(parent.id, db.root)
+        if (parent.nextUpDismissed) {
+          parent.nextUpDismissed = false
+          parentModified = true
+        }
+        if (parentModified) {
+          itemsToUpdate.push(parent)
+        }
+        break // Stop searching upwards once we find the show
       }
-      await _finalizeItemUpdate(itemInDb)
+      parent = findParent(parent.id, db.root)
+    }
+
+    setBulkUpdateStatus(wasBulk)
+
+    if (itemsToUpdate.length > 0) {
+      searchService.updateIndexForItems(itemsToUpdate)
+      await _finalizeItemUpdate(itemsToUpdate)
     }
   })()
   return true
 }
 
 export async function playFile(file: MediaFile, onError: ErrorCallback): Promise<boolean> {
-  const { playerCommands } = await readSettings()
+  const { playerCommands } = await settingsService.readSettings()
   if (!playerCommands || playerCommands.length === 0 || !playerCommands[0].command) {
     onError({
       title: 'Configuration Error',
@@ -1339,7 +1356,7 @@ export async function playFile(file: MediaFile, onError: ErrorCallback): Promise
 export async function applyInitialFolderSettings(
   settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
 ) {
-  if (isRemoteLibrary()) return
+  if (pathsService.isRemoteLibrary()) return
   if (!db || !db.root) return
   try {
     setBulkUpdateStatus(true)
@@ -1368,7 +1385,7 @@ export async function clearItemMetadata(itemId: string): Promise<boolean> {
   log(`Starting metadata clear for item "${item.name}"...`)
   setBulkUpdateStatus(true)
   try {
-    const imagesDir = path.join(getLibraryDataPath(), 'images')
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
     const modifiedItems: LibraryItem[] = []
     await resetItemMetadata(item, imagesDir)
     modifiedItems.push(item)
@@ -1387,7 +1404,7 @@ export async function clearVirtualFolderMetadata(itemIds: string[]): Promise<boo
   log(`Starting metadata clear for ${itemIds.length} items from virtual folder...`)
   setBulkUpdateStatus(true)
   try {
-    const imagesDir = path.join(getLibraryDataPath(), 'images')
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
     const modifiedItems: LibraryItem[] = []
     for (const itemId of itemIds) {
       const item = findItemById(itemId, db.root)
@@ -1485,10 +1502,10 @@ export async function updateItem(updatedItem: LibraryItem, isUserEdit: boolean):
     delete (safeUpdates as Partial<LibraryItem>).path
     delete (safeUpdates as Partial<LibraryItem>).type
     Object.assign(itemInDb, safeUpdates)
-    const settings = await readSettings()
-    itemInDb.virtualTags = evaluateVirtualTagsForItem(itemInDb, settings)
+    const settings = await settingsService.readSettings()
+    itemInDb.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(itemInDb, settings)
     setBulkUpdateStatus(false)
-    updateIndexForItem(itemInDb)
+    searchService.updateIndexForItem(itemInDb)
     await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
     log(`Updated item ${updatedItem.id} in database.`)
   } else {
@@ -1496,7 +1513,8 @@ export async function updateItem(updatedItem: LibraryItem, isUserEdit: boolean):
   }
 }
 
-export { manualSearch, getTmdbImages } from './retriever.service'
+export const manualSearch = retrieverService.manualSearch
+export const getTmdbImages = retrieverService.getTmdbImages
 
 export async function executeCustomAction(
   itemId: string,
@@ -1506,10 +1524,10 @@ export async function executeCustomAction(
   if (!db?.root) return
   const item = findItemById(itemId, db.root)
   if (!item) return
-  const settings = await readSettings()
+  const settings = await settingsService.readSettings()
   const action = settings.customActions.find((a) => a.id === commandId)
   if (!action) return
-  const mediaSourcePath = await getAbsoluteMediaSourcePath()
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) return
   const absolutePath = path.join(mediaSourcePath, item.path)
   const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
@@ -1536,7 +1554,7 @@ export async function applyTmdbResult(
   mediaType: 'movie' | 'tv' | 'season',
   onError: ErrorCallback
 ) {
-  if (isRemoteLibrary()) {
+  if (pathsService.isRemoteLibrary()) {
     onError({
       title: 'Operation Not Supported',
       message: 'Applying metadata is not available for read-only remote libraries.'
@@ -1547,8 +1565,8 @@ export async function applyTmdbResult(
   markAsUserEdited(itemId, db.root)
   const item = findItemById(itemId, db.root)
   if (!item) return
-  const settings = await readSettings()
-  const libraryDataPath = getLibraryDataPath()
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
   if (!settings.tmdbApiKey) return
   setBulkUpdateStatus(true)
   try {
@@ -1583,9 +1601,9 @@ export async function applyTmdbResult(
       item.seasonNumber = result.season_number
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
-        const posterDestPath = path.join(getLibraryDataPath(), 'images', `${item.id}.jpg`)
+        const posterDestPath = path.join(pathsService.getLibraryDataPath(), 'images', `${item.id}.jpg`)
         try {
-          await downloadImage(posterUrl, posterDestPath)
+          await retrieverService.downloadImage(posterUrl, posterDestPath)
           item.posterPath = `${item.id}.jpg`
         } catch (e) {
           console.error('Failed to download season poster', e)
@@ -1607,8 +1625,8 @@ export async function applyTmdbResult(
       const showFolder = findParent(item.id, db!.root!)
       if (showFolder?.tmdbId && settings.tmdbApiKey) {
         if (!showFolder.tmdbDetailsFetched)
-          await fetchItemDetails(showFolder, settings, libraryDataPath)
-        await fetchAndApplyEpisodeData(
+          await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath)
+        await retrieverService.fetchAndApplyEpisodeData(
           item,
           showFolder.tmdbId,
           settings.tmdbApiKey,
@@ -1623,15 +1641,15 @@ export async function applyTmdbResult(
       if (item.type === 'folder' && mediaType === 'tv' && item.process_tv_children !== false) {
         processTvShowStructure(item as MediaFolder)
       }
-      await fetchItemDetails(item, settings, libraryDataPath)
+      await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
       if (mediaType === 'movie' || mediaType === 'tv')
-        await fetchAndApplyCredits(item, settings.tmdbApiKey)
+        await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
     }
   } finally {
     setBulkUpdateStatus(false)
   }
   item._v = Date.now()
-  item.virtualTags = evaluateVirtualTagsForItem(item, settings)
+  item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
   await _finalizeItemUpdate(item, { updateSuggestions: true })
 }
 
@@ -1664,7 +1682,7 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   setUnwatchedRecursively(item)
   setBulkUpdateStatus(false)
   if (modifiedItems.length > 0) {
-    updateIndexForItems(modifiedItems)
+    searchService.updateIndexForItems(modifiedItems)
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
   }
 }
@@ -1686,7 +1704,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
   setWatchedRecursively(item)
   setBulkUpdateStatus(false)
   if (modifiedItems.length > 0) {
-    updateIndexForItems(modifiedItems)
+    searchService.updateIndexForItems(modifiedItems)
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
   }
 }
@@ -1708,23 +1726,27 @@ export async function assignSeasonsAndEpisodes(
     log(`[Assign Seasons] Clearing old season/episode data...`)
     show.tmdbSeasons = undefined
     show.tmdbEpisodesFetched = undefined
-    const imagesDir = path.join(getLibraryDataPath(), 'images')
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
     await clearTvStructureMetadata(show, imagesDir, modifiedItems)
     log(`[Assign Seasons] Assigning new data with strategy: ${seasonStrategy}/${episodeStrategy}`)
     _assignSeasonsAndEpisodesByStrategy(show, seasonStrategy, episodeStrategy)
     getAllItemsAsList(show, []).forEach((item) => modifiedItems.add(item))
-    const settings = await readSettings()
+    const settings = await settingsService.readSettings()
     if (fetchMetadata || show.process_tv_children !== false) {
       log(`[Assign Seasons] Triggering targeted season fetch for "${show.name}"...`)
-      const fetchedItems = await refetchShowSeasons(show, settings, getLibraryDataPath())
+      const fetchedItems = await retrieverService.refetchShowSeasons(
+        show,
+        settings,
+        pathsService.getLibraryDataPath()
+      )
       for (const item of fetchedItems) modifiedItems.add(item)
     }
     log(
       `[Assign Seasons] Re-applying virtual tags and re-indexing for ${modifiedItems.size} items...`
     )
     for (const item of modifiedItems) {
-      item.virtualTags = evaluateVirtualTagsForItem(item, settings)
-      updateIndexForItem(item)
+      item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+      searchService.updateIndexForItem(item)
     }
     setBulkUpdateStatus(false)
     log(`[Assign Seasons] Finalizing update for ${modifiedItems.size} items...`)
@@ -1742,7 +1764,7 @@ export async function setImage(
   source: { type: 'tmdb'; path: string } | { type: 'local'; path: string },
   onError: ErrorCallback
 ) {
-  if (isRemoteLibrary()) {
+  if (pathsService.isRemoteLibrary()) {
     onError({
       title: 'Operation Not Supported',
       message: 'Setting images is not available for remote libraries.'
@@ -1753,7 +1775,7 @@ export async function setImage(
   markAsUserEdited(itemId, db.root)
   const item = findItemById(itemId, db.root)
   if (!item) return
-  const imagesDir = path.join(getLibraryDataPath(), 'images')
+  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
   const extension = path.extname(source.path)
   let fileName = ''
   switch (imageType) {
@@ -1773,7 +1795,7 @@ export async function setImage(
       let size = 'original'
       if (imageType === 'poster' || imageType === 'logo') size = 'w500'
       const url = `https://image.tmdb.org/t/p/${size}${source.path}`
-      await downloadImage(url, destPath)
+      await retrieverService.downloadImage(url, destPath)
     } else {
       await fs.copyFile(source.path, destPath)
     }
@@ -1803,9 +1825,9 @@ export async function removeImage(itemId: string, imageType: 'poster' | 'backdro
 }
 
 export async function getAbsolutePath(relativePath: string): Promise<string | null> {
-  const mediaSourcePath = await getAbsoluteMediaSourcePath()
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) return null
-  if (isRemotePath(mediaSourcePath)) {
+  if (pathsService.isRemotePath(mediaSourcePath)) {
     return new URL(
       relativePath,
       mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')
@@ -1823,7 +1845,7 @@ export async function handleItemRemovedByPath(relativePath: string): Promise<voi
   const itemIndex = parent.children.findIndex((c) => c.id === item.id)
   if (itemIndex === -1) return
   parent.children.splice(itemIndex, 1)
-  removeItemAndDescendantsFromIndex(item)
+  searchService.removeItemAndDescendantsFromIndex(item)
   await writeDb(db)
   getTransport().notifyLibraryItemDeleted(item.id)
 }
@@ -1851,16 +1873,16 @@ export async function handleItemRenamed(relativeOldPath: string, newName: string
     setBulkUpdateStatus(false)
     throw new Error(`[Rename] Could not find parent for item: ${itemToRename.name}`)
   }
-  const settings = await readSettings()
+  const settings = await settingsService.readSettings()
   function updatePathsAndIds(item: LibraryItem, newParentPath: string) {
-    removeItemAndDescendantsFromIndex(item)
+    searchService.removeItemAndDescendantsFromIndex(item)
     if (item.path === relativeOldPath) item.name = newName
     item.path = path.join(newParentPath, item.name).replace(/\\/g, '/')
     item.id = generateId(item.path)
-    item.virtualTags = evaluateVirtualTagsForItem(item, settings)
+    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
     if (item.type === 'folder')
       item.children.forEach((child) => updatePathsAndIds(child, item.path))
-    updateIndexForItem(item)
+    searchService.updateIndexForItem(item)
   }
   updatePathsAndIds(itemToRename, parent.path === '.' ? '' : parent.path)
   setBulkUpdateStatus(false)
@@ -1868,8 +1890,8 @@ export async function handleItemRenamed(relativeOldPath: string, newName: string
 }
 
 export async function getItemProperties(relativePath: string): Promise<any | null> {
-  const mediaSourcePath = await getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath || isRemotePath(mediaSourcePath)) return null
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
+  if (!mediaSourcePath || pathsService.isRemotePath(mediaSourcePath)) return null
   const absolutePath = path.join(mediaSourcePath, relativePath)
   try {
     const stats = await fs.stat(absolutePath)
@@ -1896,7 +1918,8 @@ export async function getItemProperties(relativePath: string): Promise<any | nul
   }
 }
 
-export { performSearch, debugPerformSearch }
+export const performSearch = searchService.performSearch
+export const debugPerformSearch = searchService.debugPerformSearch
 
 export async function deleteItemFromDb(itemId: string): Promise<boolean> {
   if (!db || !db.root) return false
@@ -1905,7 +1928,7 @@ export async function deleteItemFromDb(itemId: string): Promise<boolean> {
   const itemIndex = parent.children.findIndex((c) => c.id === itemId)
   if (itemIndex === -1) return false
   const [itemToDelete] = parent.children.splice(itemIndex, 1)
-  removeItemAndDescendantsFromIndex(itemToDelete)
+  searchService.removeItemAndDescendantsFromIndex(itemToDelete)
   await writeDb(db)
   getTransport().notifyLibraryItemDeleted(itemId)
   return true

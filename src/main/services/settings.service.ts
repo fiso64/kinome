@@ -340,8 +340,8 @@ export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
 
     if (isRemoteLibrary()) {
       // For remote paths, resolve relative to the parent URL, mimicking path.dirname().
-      const baseUrl = libraryPath.endsWith('/') ? libraryPath : libraryPath + '/'
-      const parentUrl = new URL('..', baseUrl)
+      // libraryPath for remote is guaranteed to have a trailing slash by paths.service.
+      const parentUrl = new URL('..', libraryPath)
       return new URL(settings.mediaSourcePath, parentUrl).toString()
     } else {
       return path.resolve(path.dirname(libraryPath), settings.mediaSourcePath)
