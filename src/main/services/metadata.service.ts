@@ -1,0 +1,609 @@
+import path from 'path'
+import fs from 'fs/promises'
+
+import * as repositoryService from './repository.service'
+import * as settingsService from './settings.service'
+import * as pathsService from './paths.service'
+import * as retrieverService from './retriever.service'
+import * as tvShowService from './tv-show.service'
+import * as searchService from './search.service'
+import * as virtualTagsService from './virtualTags.service'
+
+import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
+import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
+import { getTransport } from '../transport.registry'
+
+const log = (message: string): void => {
+  console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
+}
+
+
+
+async function processInChunks<T>(
+  items: T[],
+  concurrencyLimit: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  const queue = [...items]
+  const active: Promise<void>[] = []
+  while (queue.length > 0 || active.length > 0) {
+    while (active.length < concurrencyLimit && queue.length > 0) {
+      const item = queue.shift()!
+      const promise = task(item).finally(() => {
+        const index = active.indexOf(promise)
+        if (index !== -1) active.splice(index, 1)
+      })
+      active.push(promise)
+    }
+    if (active.length > 0) await Promise.race(active)
+  }
+}
+
+function collectItemsToProcess(
+  folder: MediaFolder,
+  newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
+  itemsMissingPosters: LibraryItem[],
+  itemsMissingCredits: LibraryItem[],
+  tvShows: MediaFolder[]
+) {
+  if (folder.isHidden || folder.isMissing) return
+  if (folder.mediaType === 'tv') tvShows.push(folder)
+  if (folder.retrieve_children_metadata) {
+    for (const child of folder.children) {
+      if (child.isHidden || child.isMissing) continue
+      if (typeof child.tmdbId === 'undefined') {
+        newItems.push({ item: child, hint: folder.children_type_hint })
+      } else if (child.tmdbId) {
+        if (!child.posterPath) itemsMissingPosters.push(child)
+        if (
+          !child.tmdbCreditsFetched &&
+          (child.mediaType === 'movie' || child.mediaType === 'tv')
+        ) {
+          itemsMissingCredits.push(child)
+        }
+      }
+    }
+  }
+  for (const child of folder.children) {
+    if (child.type === 'folder') {
+      collectItemsToProcess(child, newItems, itemsMissingPosters, itemsMissingCredits, tvShows)
+    }
+  }
+}
+
+export async function fetchMetadataForLibrary() {
+  const dbRoot = repositoryService.getRoot()
+  if (!dbRoot) return
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
+  if (!settings.tmdbApiKey) {
+    console.warn('Metadata fetch skipped: No TMDB API key.')
+    return
+  }
+  const newItemsToFetch: { item: LibraryItem; hint?: 'movie' | 'tv' }[] = []
+  const itemsMissingPosters: LibraryItem[] = []
+  const itemsMissingCredits: LibraryItem[] = []
+  const allTvShows: MediaFolder[] = []
+  collectItemsToProcess(
+    dbRoot,
+    newItemsToFetch,
+    itemsMissingPosters,
+    itemsMissingCredits,
+    allTvShows
+  )
+  if (allTvShows.length > 0) {
+    log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
+    for (const show of allTvShows) {
+      tvShowService.processTvShowStructure(show)
+      if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+        const localSeasonNumbers = new Set<number>()
+        show.children.forEach((child) => {
+          if ('seasonNumber' in child && typeof child.seasonNumber === 'number') {
+            localSeasonNumbers.add(child.seasonNumber)
+          }
+        })
+        if (localSeasonNumbers.size > 0) {
+          const cachedSeasonNumbers = new Set(show.tmdbSeasons.map((s) => s.season_number))
+          let needsRefetch = false
+          for (const localNum of localSeasonNumbers) {
+            if (!cachedSeasonNumbers.has(localNum)) {
+              needsRefetch = true
+              break
+            }
+          }
+          const hasUnprocessedSeason = show.children.some(
+            (c) =>
+              c.type === 'folder' && c.mediaType === 'season' && c.seasonNumber != null && !c.title
+          )
+          if (needsRefetch || hasUnprocessedSeason) {
+            log(
+              `[Metadata] New or unprocessed seasons detected for "${show.name}". Fetching updated season list.`
+            )
+            await retrieverService.refetchShowSeasons(show, settings, libraryDataPath)
+          }
+        }
+      }
+      const seasonFolders = show.children.filter(
+        (c) => c.type === 'folder' && c.mediaType === 'season'
+      ) as MediaFolder[]
+      for (const season of seasonFolders) {
+        if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+          const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
+          const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
+          const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
+          if (
+            maxLocalEpisode > maxCachedEpisode &&
+            maxLocalEpisode > (season._lastSeenLocalMaxEpisode ?? 0)
+          ) {
+            log(
+              `[Metadata] New episode for "${show.name} S${season.seasonNumber}" (new local max: ${maxLocalEpisode}, last: ${season._lastSeenLocalMaxEpisode}). Invalidating episode cache.`
+            )
+            season.tmdbEpisodesFetched = false
+          }
+          season._lastSeenLocalMaxEpisode = maxLocalEpisode
+        }
+      }
+    }
+  }
+  if (
+    newItemsToFetch.length === 0 &&
+    itemsMissingPosters.length === 0 &&
+    itemsMissingCredits.length === 0
+  ) {
+    log('[Metadata] No new items, missing posters, or missing credits to fetch.')
+    return
+  }
+  const sendBatchUpdate = (updatedItems: LibraryItem[]): void => {
+    if (updatedItems.length > 0) {
+      const plainItems = JSON.parse(JSON.stringify(updatedItems))
+      getTransport().notifyLibraryItemsUpdated(plainItems)
+    }
+  }
+  await retrieverService.cacheGenreLists(settings.tmdbApiKey)
+  if (newItemsToFetch.length > 0) {
+    log(`[Metadata] Starting fetch for ${newItemsToFetch.length} new items...`)
+    const updatedItemsBatch: LibraryItem[] = []
+    const task = async (itemWithHint: {
+      item: LibraryItem
+      hint?: 'movie' | 'tv'
+    }): Promise<void> => {
+      const { item, hint } = itemWithHint
+      await retrieverService.searchTmdbAndApplyMetadata(
+        item,
+        settings.tmdbApiKey,
+        libraryDataPath,
+        hint
+      )
+      if (item.type === 'folder' && item.mediaType === 'tv')
+        tvShowService.processTvShowStructure(item as MediaFolder)
+      if (item.posterPath || item.tmdbId === null) updatedItemsBatch.push(item)
+    }
+    await processInChunks(newItemsToFetch, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
+  }
+  if (itemsMissingPosters.length > 0) {
+    log(`[Metadata] Starting poster refetch for ${itemsMissingPosters.length} items...`)
+    const updatedItemsBatch: LibraryItem[] = []
+    const task = async (item: LibraryItem): Promise<void> => {
+      await retrieverService.refetchPoster(item, settings.tmdbApiKey, libraryDataPath)
+      if (item.posterPath) updatedItemsBatch.push(item)
+    }
+    await processInChunks(itemsMissingPosters, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
+  }
+  if (itemsMissingCredits.length > 0) {
+    log(`[Metadata] Starting credits fetch for ${itemsMissingCredits.length} items...`)
+    const updatedItemsBatch: LibraryItem[] = []
+    const task = async (item: LibraryItem): Promise<void> => {
+      await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
+      if (item.tmdbCreditsFetched) updatedItemsBatch.push(item)
+    }
+    await processInChunks(itemsMissingCredits, 17, task)
+    sendBatchUpdate(updatedItemsBatch)
+  }
+  await repositoryService.writeDb()
+  log('[Metadata] Finished all fetching and saved final DB.')
+  // TODO: Update and broadcast autocomplete suggestions
+}
+
+export async function fetchEpisodeDataForContinueWatching(
+  show: MediaFolder,
+  episode: MediaFile
+): Promise<LibraryItem[]> {
+  if (episode.title && episode.posterPath) return []
+  if (!show.tmdbId || !show.tmdbSeasons || pathsService.isRemoteLibrary()) return []
+  const seasonFolder = show.children.find(
+    (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
+  ) as MediaFolder | undefined
+  let itemsToUpdate: LibraryItem[] = []
+  const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
+  repositoryService.setBulkUpdateStatus(true)
+  try {
+    const settings = await settingsService.readSettings()
+    if (!settings.tmdbApiKey) return []
+    if (seasonFolder) {
+      if (!seasonFolder.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
+        )
+        const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
+          seasonFolder,
+          show.tmdbId,
+          settings.tmdbApiKey,
+          pathsService.getLibraryDataPath(),
+          show.tmdbSeasons
+        )
+        itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
+      }
+    } else {
+      if (!show.tmdbEpisodesFetched) {
+        log(
+          `[Continue Watching] Next episode "${episode.name}" is a loose file in an unfetched show. Fetching all loose episodes...`
+        )
+        const modifiedEpisodes = await retrieverService.applyTvShowData(
+          show,
+          settings,
+          pathsService.getLibraryDataPath()
+        )
+        itemsToUpdate = [show, ...modifiedEpisodes]
+      }
+    }
+  } catch (err) {
+    console.error('[Continue Watching] Failed to fetch data:', err)
+  } finally {
+    repositoryService.setBulkUpdateStatus(wasBulkUpdating)
+  }
+  return itemsToUpdate
+}
+
+async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
+  if (!pathsService.isRemoteLibrary()) {
+    if (item.posterPath)
+      try {
+        await fs.unlink(path.join(imagesDir, item.posterPath))
+      } catch (e) {}
+    if (item.backdropPath)
+      try {
+        await fs.unlink(path.join(imagesDir, item.backdropPath))
+      } catch (e) {}
+    if (item.logoPath)
+      try {
+        await fs.unlink(path.join(imagesDir, item.logoPath))
+      } catch (e) {}
+  }
+  for (const key of RESETTABLE_METADATA_KEYS) {
+    if (key in item) {
+      const itemAsAny = item as any
+      switch (key) {
+        case 'tags':
+          itemAsAny[key] = {}
+          break
+        case 'genres':
+          itemAsAny[key] = []
+          break
+        case 'tmdbDetailsFetched':
+        case 'tmdbEpisodesFetched':
+        case 'tmdbCreditsFetched':
+          itemAsAny[key] = false
+          break
+        case 'virtualTags':
+          itemAsAny[key] = undefined
+          break
+        case 'posterPath':
+        case 'backdropPath':
+        case 'logoPath':
+          itemAsAny[key] = undefined
+          break
+        default:
+          itemAsAny[key] = null
+          break
+      }
+    }
+  }
+  item._v = Date.now()
+}
+
+async function _clearChildrenRecursively(
+  folder: MediaFolder,
+  imagesDir: string,
+  modifiedItems: LibraryItem[]
+): Promise<void> {
+  for (const child of folder.children) {
+    await _resetItemMetadata(child, imagesDir)
+    modifiedItems.push(child)
+    if (child.type === 'folder') await _clearChildrenRecursively(child, imagesDir, modifiedItems)
+  }
+}
+
+async function _finalizeMetadataClear(modifiedItems: LibraryItem[]): Promise<LibraryItem[]> {
+  const currentSettings = await settingsService.readSettings()
+  for (const item of modifiedItems) {
+    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, currentSettings)
+  }
+  repositoryService.setBulkUpdateStatus(false)
+  for (const item of modifiedItems) {
+    searchService.updateIndexForItem(item)
+  }
+  log(`Finished metadata clear for ${modifiedItems.length} items.`)
+  return modifiedItems
+}
+
+export async function clearItemMetadata(itemId: string): Promise<LibraryItem[]> {
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return []
+  log(`Starting metadata clear for item "${item.name}"...`)
+  repositoryService.setBulkUpdateStatus(true)
+  try {
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+    const modifiedItems: LibraryItem[] = []
+    await _resetItemMetadata(item, imagesDir)
+    modifiedItems.push(item)
+    if (item.type === 'folder') await _clearChildrenRecursively(item, imagesDir, modifiedItems)
+    return await _finalizeMetadataClear(modifiedItems)
+  } catch (error) {
+    console.error('Failed during metadata clearing process:', error)
+    repositoryService.setBulkUpdateStatus(false)
+    return []
+  }
+}
+
+export async function clearVirtualFolderMetadata(itemIds: string[]): Promise<LibraryItem[]> {
+  log(`Starting metadata clear for ${itemIds.length} items from virtual folder...`)
+  repositoryService.setBulkUpdateStatus(true)
+  try {
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+    const modifiedItems: LibraryItem[] = []
+    for (const itemId of itemIds) {
+      const item = repositoryService.getItemById(itemId)
+      if (!item) continue
+      await _resetItemMetadata(item, imagesDir)
+      modifiedItems.push(item)
+      if (item.type === 'folder') await _clearChildrenRecursively(item, imagesDir, modifiedItems)
+    }
+    return await _finalizeMetadataClear(modifiedItems)
+  } catch (error) {
+    console.error('Failed during virtual folder metadata clearing process:', error)
+    repositoryService.setBulkUpdateStatus(false)
+    return []
+  }
+}
+
+export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
+  const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
+  const needsEpisodeFetch =
+    item.type === 'folder' &&
+    (item.mediaType === 'tv' || item.mediaType === 'season') &&
+    !item.tmdbEpisodesFetched
+  if (!needsDetailsFetch && !needsEpisodeFetch) return []
+
+  if (pathsService.isRemoteLibrary()) {
+    log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
+    return []
+  }
+  repositoryService.setBulkUpdateStatus(true)
+  const allModifiedItems: LibraryItem[] = []
+  try {
+    const settings = await settingsService.readSettings()
+    if (!settings.tmdbApiKey) return []
+    if (needsDetailsFetch) {
+      log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
+      const modified = await retrieverService.fetchItemDetails(
+        item,
+        settings,
+        pathsService.getLibraryDataPath()
+      )
+      allModifiedItems.push(...modified)
+    } else if (needsEpisodeFetch && item.type === 'folder') {
+      const dbRoot = repositoryService.getRoot()
+      if (!dbRoot) throw new Error('Cannot fetch episodes: database root not found.')
+      if (item.mediaType === 'season') {
+        const showFolder = repositoryService.findParent(item.id)
+        if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
+          if (!showFolder.tmdbDetailsFetched) {
+            log(`[Details] Parent show "${showFolder.name}" details missing, fetching them first.`)
+            const modifiedParent = await retrieverService.fetchItemDetails(
+              showFolder,
+              settings,
+              pathsService.getLibraryDataPath()
+            )
+            allModifiedItems.push(...modifiedParent)
+          }
+          if (showFolder.tmdbSeasons) {
+            log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+            const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
+              item,
+              showFolder.tmdbId,
+              settings.tmdbApiKey,
+              pathsService.getLibraryDataPath(),
+              showFolder.tmdbSeasons
+            )
+            allModifiedItems.push(item, ...modifiedEpisodes)
+          } else {
+            item.tmdbEpisodesFetched = true
+            log(
+              `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
+            )
+          }
+        } else {
+          item.tmdbEpisodesFetched = true
+          log(
+            `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
+          )
+        }
+      } else if (item.mediaType === 'tv') {
+        log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
+        const modifiedChildren = await retrieverService.applyTvShowData(
+          item,
+          settings,
+          pathsService.getLibraryDataPath()
+        )
+        allModifiedItems.push(item, ...modifiedChildren)
+      }
+    }
+    item._v = Date.now()
+  } finally {
+    repositoryService.setBulkUpdateStatus(false)
+    const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
+    const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
+    for (const modifiedItem of itemsToUpdate) {
+      searchService.updateIndexForItem(modifiedItem)
+    }
+    log(`[Details] Background processing complete for "${item.name}"`)
+    return itemsToUpdate
+  }
+}
+
+export async function applyTmdbResult(
+  itemId: string,
+  result: any,
+  mediaType: 'movie' | 'tv' | 'season'
+): Promise<LibraryItem | null> {
+  if (pathsService.isRemoteLibrary()) {
+    throw new Error('Applying metadata is not available for read-only remote libraries.')
+  }
+  repositoryService.markAsUserEdited(itemId)
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return null
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
+  if (!settings.tmdbApiKey) return null
+  repositoryService.setBulkUpdateStatus(true)
+  try {
+    item.overview = null
+    item.year = null
+    item.genres = []
+    if (item.type === 'file') item.opensAsFolder = true
+    item.posterPath = undefined
+    item.backdropPath = undefined
+    item.logoPath = undefined
+    item.tmdbDetailsFetched = false
+    item.tmdbCreditsFetched = false
+    item.tmdbCredits = null
+    if (item.type === 'folder' && mediaType === 'tv') {
+      item.tmdbSeasons = null
+      item.tmdbEpisodesFetched = false
+      for (const season of item.children) {
+        if (season.type === 'folder' && season.mediaType === 'season') {
+          season.tmdbDetailsFetched = false
+          season.tmdbEpisodesFetched = undefined
+          for (const episode of season.children) {
+            if (episode.type === 'file' && episode.mediaType === 'episode')
+              episode.posterPath = undefined
+          }
+        }
+      }
+    }
+    if (mediaType === 'season' && item.type === 'folder') {
+      item.mediaType = 'season'
+      item.title = result.name
+      item.overview = result.overview
+      item.seasonNumber = result.season_number
+      if (result.poster_path) {
+        const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
+        const posterDestPath = path.join(
+          pathsService.getLibraryDataPath(),
+          'images',
+          `${item.id}.jpg`
+        )
+        try {
+          await retrieverService.downloadImage(posterUrl, posterDestPath)
+          item.posterPath = `${item.id}.jpg`
+        } catch (e) {
+          console.error('Failed to download season poster', e)
+        }
+      }
+      item.tmdbDetailsFetched = true
+      item.tmdbEpisodesFetched = undefined
+      const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
+      if (!episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')) {
+        tvShowService.assignEpisodesByStrategy(episodeFiles, item.seasonNumber, 'smart')
+      }
+      const showFolder = repositoryService.findParent(item.id)
+      if (showFolder?.tmdbId && settings.tmdbApiKey) {
+        if (!showFolder.tmdbDetailsFetched)
+          await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath)
+        await retrieverService.fetchAndApplyEpisodeData(
+          item,
+          showFolder.tmdbId,
+          settings.tmdbApiKey,
+          libraryDataPath,
+          showFolder.tmdbSeasons
+        )
+      }
+    } else {
+      item.tmdbId = result.id
+      item.mediaType = mediaType
+      item.title = result.title
+      if (item.type === 'folder' && mediaType === 'tv' && item.process_tv_children !== false) {
+        tvShowService.processTvShowStructure(item as MediaFolder)
+      }
+      await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
+      if (mediaType === 'movie' || mediaType === 'tv')
+        await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
+    }
+  } finally {
+    repositoryService.setBulkUpdateStatus(false)
+  }
+  item._v = Date.now()
+  item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+  return item
+}
+
+export async function setImage(
+  itemId: string,
+  imageType: 'poster' | 'backdrop' | 'logo',
+  source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+): Promise<LibraryItem | null> {
+  if (pathsService.isRemoteLibrary()) {
+    throw new Error('Setting images is not available for remote libraries.')
+  }
+  repositoryService.markAsUserEdited(itemId)
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return null
+  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+  const extension = path.extname(source.path)
+  let fileName = ''
+  switch (imageType) {
+    case 'poster':
+      fileName = `${item.id}${extension || '.jpg'}`
+      break
+    case 'backdrop':
+      fileName = `${item.id}-backdrop${extension || '.jpg'}`
+      break
+    case 'logo':
+      fileName = `${item.id}-logo${extension || '.svg'}`
+      break
+  }
+  const destPath = path.join(imagesDir, fileName)
+  try {
+    if (source.type === 'tmdb') {
+      let size = 'original'
+      if (imageType === 'poster' || imageType === 'logo') size = 'w500'
+      const url = `https://image.tmdb.org/t/p/${size}${source.path}`
+      await retrieverService.downloadImage(url, destPath)
+    } else {
+      await fs.copyFile(source.path, destPath)
+    }
+    if (imageType === 'poster') item.posterPath = fileName
+    else if (imageType === 'backdrop') item.backdropPath = fileName
+    else if (imageType === 'logo') item.logoPath = fileName
+    item._v = Date.now()
+    return item
+  } catch (err) {
+    console.error(`Failed to set image for ${itemId}:`, err)
+    throw new Error('Failed to set the selected image. See logs for more details.')
+  }
+}
+
+export async function removeImage(
+  itemId: string,
+  imageType: 'poster' | 'backdrop' | 'logo'
+): Promise<LibraryItem | null> {
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return null
+  if (imageType === 'poster') item.posterPath = null
+  else if (imageType === 'backdrop') item.backdropPath = null
+  else if (imageType === 'logo') item.logoPath = null
+  item._v = Date.now()
+  return item
+}
