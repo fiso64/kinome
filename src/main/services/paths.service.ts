@@ -8,6 +8,9 @@ let userDataPath: string = '.'
 export function setUserDataPath(path: string): void {
   userDataPath = path
 }
+export function getUserDataPath(): string {
+  return userDataPath
+}
 
 // This will be set at startup from global settings.
 // The default value is used before settings are read, or if libraryLocation is not set.

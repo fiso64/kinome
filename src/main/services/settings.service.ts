@@ -6,7 +6,8 @@ import {
   getLibraryDataPath,
   isRemoteLibrary,
   resolveLibraryPath,
-  isRemotePath
+  isRemotePath,
+  getUserDataPath
 } from './paths.service'
 import { reapplyVirtualTagsAfterSettingsChange } from './library.service'
 
@@ -17,18 +18,15 @@ const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64'
 
 // This is now private. The transport layer doesn't need to know the exact path.
 function getGlobalSettingsPath(): string {
-  // The library data path is always inside the user data path for local installs.
-  // We can derive the user data path from it.
-  const libPath = getLibraryDataPath()
-  // This logic is tricky. Let's assume startup.service correctly sets the initial library path from
-  // the real user data path. So `libPath`'s parent is userData.
+  // Global settings are always in the app's user data directory,
+  // regardless of where the library data is located.
   if (isRemoteLibrary()) {
-    // There is no global settings file for a remote library in this context.
-    // This function should only be called for local libraries.
-    // However, to prevent crashes, let's return a dummy path.
+    // Remote libraries do not have a corresponding local global settings file in this context.
+    // A client connecting to a remote server would have its own local settings.
+    // For the desktop app, a remote library means we can't write global settings.
     return ''
   }
-  const userDataPath = path.resolve(libPath, '..')
+  const userDataPath = getUserDataPath()
   return path.join(userDataPath, GLOBAL_SETTINGS_FILE_NAME)
 }
 
