@@ -88,7 +88,7 @@ The goal is to prepare for future growth.
 *   `[ ]` Option to rescan on startup => Need to ensure rescan is non-destructive, always.
 *   `[X]` Split the main process into transport layer and service layer.
 *   `[ ]` Database migration: Refactor to use SQLite as the central data store.
-    - `[ ]` **Data Access: The Repository Pattern**
+    - `[X]` **Data Access: The Repository Pattern**
         Instead of a single, massive `db` object, create a dedicated "repository" module (e.g., `src/main/repository.ts`). This module would be the *only* part of the application that knows how to talk to the database. It would expose an API like:
         *   `getItemById(id: string): LibraryItem`
         *   `getChildren(parentId: string): LibraryItem[]`
@@ -96,12 +96,12 @@ The goal is to prepare for future growth.
         *   `findItems(query: string): SearchResult[]`
     - `[ ]` **Change Notification: Explicit Events (Replacing the Proxy)**
         The proxy's job is to detect changes and notify the UI. In a repository-based architecture, this becomes explicit and much more predictable.
-        *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an IPC event to the renderer with the updated data (`BrowserWindow.getAllWindows().forEach(...)`).
+        *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an event to the renderer with the updated data, if needed.
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
     -  We will have to refactor the database structure to be relational (e.g a separate tmdb movies/shows/seasons table(s) instead of storing all that data in the folder node json) 
     -  Test the new database with rclone remotes (most remotes should support random access reads). With and without `--vfs-cache-mode full`.
 *   `[ ]` More UI configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
-*   `[ ]` Improve code maintainability and readability (particularly god components like `App.svelte`)
+*   `[ ]` Improve renderer code maintainability and readability (particularly god components like `App.svelte`)
 *   `[ ]` Improve navigation and user action performance as much as possible. Remove all lag and jitter.
     *   `[ ]` Optimize virtual tags. Each individual virtual tag should only be computed when needed and only for the necessary subset of items instead of the entire library. E.g: when displaying a tabbed view grouped by a virtual tag, only compute that specific tag for the immediate children only (this is sufficient to determine the layout) and cache the results. In the search results, if filtering by a particular virtual tag, only compute this tag as a last filtering step for the search results, not for the entire library.
     *   `[ ]` Consider IPC diffing to improve performance and prepare for network functionality.
