@@ -86,7 +86,7 @@ The goal is to implement the key features that make the app unique and powerful.
 The goal is to prepare for future growth.
 
 *   `[ ]` Option to rescan on startup => Need to ensure rescan is non-destructive, always.
-*   `[ ]` Split the main process into transport layer and service layer.
+*   `[X]` Split the main process into transport layer and service layer.
 *   `[ ]` Database migration: Refactor to use SQLite as the central data store.
     -  **Data Access: The Repository Pattern**
         Instead of a single, massive `db` object, create a dedicated "repository" module (e.g., `src/main/repository.ts`). This module would be the *only* part of the application that knows how to talk to the database. It would expose an API like:
