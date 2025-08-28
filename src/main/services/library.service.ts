@@ -31,7 +31,7 @@ import {
 } from './retriever.service'
 import { readSettings, writeLibrarySettings, getAbsoluteMediaSourcePath } from './settings.service'
 import { getLibraryDataPath, isRemoteLibrary, resolveLibraryPath, isRemotePath } from './paths.service'
-import { serviceEventEmitter } from './event.emitter.service'
+import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Library Service] ${message}`)
@@ -161,11 +161,11 @@ async function _finalizeItemUpdate(
 
   const itemsArray = Array.isArray(items) ? items : [items]
   const plainItems = JSON.parse(JSON.stringify(itemsArray))
-  serviceEventEmitter.emit('library-items-updated', plainItems)
+  getTransport().notifyLibraryItemsUpdated(plainItems)
 
   if (options.updateSuggestions) {
     const newSuggestions = await getAutocompleteSuggestions()
-    serviceEventEmitter.emit('autocomplete-suggestions-updated', newSuggestions)
+    getTransport().notifyAutocompleteSuggestionsUpdated(newSuggestions)
   }
   log(`Finalized update for ${itemsArray.length} item(s). Suggestions updated: ${!!options.updateSuggestions}`)
 }
@@ -712,10 +712,10 @@ async function fetchMetadataForLibrary() {
         return
     }
     const sendBatchUpdate = (updatedItems: LibraryItem[]): void => {
-        if (updatedItems.length > 0) {
-            const plainItems = JSON.parse(JSON.stringify(updatedItems))
-            serviceEventEmitter.emit('library-items-updated', plainItems)
-        }
+    if (updatedItems.length > 0) {
+      const plainItems = JSON.parse(JSON.stringify(updatedItems))
+      getTransport().notifyLibraryItemsUpdated(plainItems)
+    }
     }
     await cacheGenreLists(settings.tmdbApiKey)
     if (newItemsToFetch.length > 0) {
@@ -753,7 +753,7 @@ async function fetchMetadataForLibrary() {
     await writeDb(db)
     log('[Metadata] Finished all fetching and saved final DB.')
     const newSuggestions = await getAutocompleteSuggestions()
-    serviceEventEmitter.emit('autocomplete-suggestions-updated', newSuggestions)
+    getTransport().notifyAutocompleteSuggestionsUpdated(newSuggestions)
     log('[Metadata] Autocomplete suggestions have been updated and broadcasted.')
 }
 
@@ -805,9 +805,9 @@ export async function reapplyVirtualTagsAfterSettingsChange() {
   const allItems = getAllItemsAsList(db.root)
   log(`Emitting update for ${allItems.length} items.`)
   const plainItems = JSON.parse(JSON.stringify(allItems))
-  serviceEventEmitter.emit('library-items-updated', plainItems)
+  getTransport().notifyLibraryItemsUpdated(plainItems)
   const newSuggestions = await getAutocompleteSuggestions()
-  serviceEventEmitter.emit('autocomplete-suggestions-updated', newSuggestions)
+  getTransport().notifyAutocompleteSuggestionsUpdated(newSuggestions)
   log('Finished re-applying virtual tags and notified transport layer.')
 }
 
@@ -1555,7 +1555,7 @@ export async function handleItemRemovedByPath(relativePath: string): Promise<voi
     parent.children.splice(itemIndex, 1)
     removeItemAndDescendantsFromIndex(item)
     await writeDb(db)
-    serviceEventEmitter.emit('library-item-deleted', item.id)
+    getTransport().notifyLibraryItemDeleted(item.id)
 }
 
 function findItemByPath(p: string, node: MediaFolder): LibraryItem | null {
@@ -1626,7 +1626,7 @@ export async function deleteItemFromDb(itemId: string): Promise<boolean> {
     const [itemToDelete] = parent.children.splice(itemIndex, 1)
     removeItemAndDescendantsFromIndex(itemToDelete)
     await writeDb(db)
-    serviceEventEmitter.emit('library-item-deleted', itemId)
+    getTransport().notifyLibraryItemDeleted(itemId)
     return true
 }
 

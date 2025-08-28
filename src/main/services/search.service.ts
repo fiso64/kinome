@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { serviceEventEmitter } from './event.emitter.service'
+import { getTransport } from '../transport.registry'
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
 import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
 import { itemMatchesAllTags } from '../../shared/filter'
@@ -238,7 +238,7 @@ function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boo
   // This ensures any change to an item in the main process
   // is immediately reflected in the UI, via the transport layer.
   const plainItem = JSON.parse(JSON.stringify(item))
-  serviceEventEmitter.emit('library-item-updated', plainItem)
+  getTransport().notifyLibraryItemUpdated(plainItem)
 
   // Update the item itself in the search index.
   updateIndexForItem(item)

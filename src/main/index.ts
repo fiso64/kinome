@@ -2,13 +2,14 @@
 // any other module that depends on it is loaded.
 import './services/startup.service'
 
-import { app, shell, BrowserWindow, protocol, net, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, protocol, net } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { loadDbIntoMemory } from './services/library.service'
 import { isRemoteLibrary, resolveLibraryPath } from './services/paths.service'
-import { setupIpcHandlers } from './transport/ipc'
+import { IpcTransport } from './transport/ipc.transport'
+import { setTransport } from './transport.registry'
 
 function createWindow(): void {
   // Create the browser window.
@@ -107,8 +108,11 @@ app.whenReady().then(async () => {
   })
 
   // Initialize services and transport layers
+  const ipcTransport = new IpcTransport()
+  setTransport(ipcTransport)
+
   await loadDbIntoMemory()
-  setupIpcHandlers()
+  ipcTransport.initialize()
 
   createWindow()
 

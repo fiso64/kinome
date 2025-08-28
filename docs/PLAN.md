@@ -108,7 +108,7 @@ The goal is to prepare for future growth.
     *   `[ ]` Consider moving to Tauri.
 *   `[ ]` Optional: Refine player support. More detailed watched states (including time) => integration with common video players like mpv, vlc. (Maybe later)
 *   `[ ]` Improve and polish UI everywhere. Test on different screen sizes.
-*   `[ ]` Abstract and generalize the code sufficiently to be able to deal with the differences between desktop, web, and mobile (android, ios).
+*   `[ ]` Abstract and generalize the code sufficiently to be able to deal with the differences between desktop, web, and mobile (android, ios). Create two entirely separate pnpm projects "core" (backend, src/main) and "web" (frontend, mostly src/renderer).
 
 #### Future
 
