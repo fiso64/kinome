@@ -32,8 +32,13 @@ This layer is responsible for all communication between the backend and the rend
 Contains the core business logic. These are pure Node.js modules, **completely decoupled from Electron**. They communicate with the frontend via the abstract `ITransport` interface, making them portable and testable.
 
 -   `library.service.ts`: The heart of the backend. Manages the in-memory database, scans the media source, coordinates metadata fetching, and handles core business logic (`playFile`, `updateItem`, etc.).
+-   `repository.service.ts`: Manages the in-memory database (reading, writing, querying).
+-   `filesystem.service.ts`: Manages scanning the filesystem and syncing the database with disk changes.
 -   `search.service.ts`: Manages the `Fuse.js` search index. Includes the `Proxy` that automatically detects database changes to keep the index and UI in sync.
+-   `metadata.service.ts`: Orchestrates metadata fetching from various sources.
 -   `retriever.service.ts`: Handles all communication with the TMDB API for fetching metadata and images.
+-   `tv-show.service.ts`: Contains logic for parsing and organizing TV show files and folders.
+-   `actions.service.ts`: Handles user actions like playing a file, revealing it in the explorer, or deleting it.
 -   `settings.service.ts`: Manages configuration by merging defaults, global settings (`settings.json`), and library-specific settings (`library-settings.json`).
 -   `paths.service.ts`: Resolves paths to data files (e.g., `database.json`, images), handling both local file paths and remote URLs.
 -   `virtualTags.service.ts`: Evaluates user-defined expressions to create "virtual tags" on library items.
@@ -53,6 +58,7 @@ The user interface of the application, built with Svelte and TypeScript. It runs
 
 -   `src/main.ts`: The entry point for the renderer. It mounts the root `App.svelte` component into the DOM.
 -   `src/App.svelte`: The top-level Svelte component. Manages global UI state (navigation stack, modals, search results) and listens for real-time updates from the `main` process.
+-   `src/assets/`: Global CSS files.
 -   `src/components/`: Contains all the Svelte components, organized by function.
     -   `layout/`: High-level components that structure the UI, like `AppHeader`, `MainView`, `ItemDetail`.
     -   `views/`: The different ways to display a list of media items (`GridView`, `ListView`, `TabsView`, etc.). These are the core of the flexible UI engine.
@@ -64,6 +70,9 @@ The user interface of the application, built with Svelte and TypeScript. It runs
     -   `dialog-store.ts`: A Svelte store for managing and queuing confirmation and error dialogs.
     -   `autocomplete-manager.ts`: A reusable Svelte action (`use:autocomplete`) for powering suggestion menus in input fields.
     -   `view-state-store.ts`: Svelte stores for managing UI state that needs to persist, like the active tab in a `TabsView`.
+    -   `horizontal-scroll.ts`: A Svelte action for components that need smooth horizontal scrolling.
+    -   `modal-keyboard-manager.ts`: Manages keyboard shortcuts for modals, ensuring only the topmost modal responds.
+    -   `view-helpers.ts`: Provides helper functions for the frontend views.
 
 ### `src/shared` (Shared Code)
 
