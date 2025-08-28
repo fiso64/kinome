@@ -1,0 +1,11 @@
+LICENSE
+README.md
+electron-builder.yml
+electron.vite.config.ts
+eslint.config.mjs
+package.json
+svelte.config.mjs
+tsconfig.json
+tsconfig.node.json
+tsconfig.web.json
+docs/IDEA.md
