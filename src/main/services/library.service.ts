@@ -514,8 +514,8 @@ export async function fetchCredits(itemId: string): Promise<void> {
   }
 }
 
-export async function clearItemMetadata(itemId: string): Promise<void> {
-  const modifiedItems = await metadataService.clearItemMetadata(itemId)
+export async function clearItemMetadata(itemId: string, childrenOnly: boolean): Promise<void> {
+  const modifiedItems = await metadataService.clearItemMetadata(itemId, childrenOnly)
   if (modifiedItems.length > 0) {
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
   }

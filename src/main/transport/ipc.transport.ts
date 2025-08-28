@@ -145,8 +145,8 @@ export class IpcTransport implements ITransport {
     ipcMain.handle('apply-initial-folder-settings', async (_, settings) => {
       libraryService.applyInitialFolderSettings(settings)
     })
-    ipcMain.handle('clear-item-metadata', (_, itemId: string) =>
-      libraryService.clearItemMetadata(itemId)
+    ipcMain.handle('clear-item-metadata', (_, itemId: string, childrenOnly: boolean) =>
+      libraryService.clearItemMetadata(itemId, childrenOnly)
     )
     ipcMain.handle('clear-virtual-folder-metadata', (_, itemIds: string[]) =>
       libraryService.clearVirtualFolderMetadata(itemIds)

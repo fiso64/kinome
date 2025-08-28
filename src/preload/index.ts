@@ -57,8 +57,8 @@ const api = {
   applyInitialFolderSettings: (
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ): Promise<void> => ipcRenderer.invoke('apply-initial-folder-settings', settings),
-  clearItemMetadata: (itemId: string): Promise<boolean> =>
-    ipcRenderer.invoke('clear-item-metadata', itemId),
+  clearItemMetadata: (itemId: string, childrenOnly: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('clear-item-metadata', itemId, childrenOnly),
   clearVirtualFolderMetadata: (itemIds: string[]): Promise<boolean> =>
     ipcRenderer.invoke('clear-virtual-folder-metadata', itemIds),
   fetchCredits: (itemId: string): Promise<void> => ipcRenderer.invoke('fetch-credits', itemId),

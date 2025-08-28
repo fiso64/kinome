@@ -6,11 +6,17 @@ export type DialogButton = {
   class?: 'primary' | 'secondary' | 'danger'
 }
 
+export type CheckboxConfig = {
+  label: string
+  checked: boolean
+}
+
 type DialogConfig = {
   title: string
   message: string
   detail?: string
   buttons: DialogButton[]
+  checkbox?: CheckboxConfig
   resolve: (value: any) => void
 }
 
@@ -66,6 +72,37 @@ export const dialogStore = {
       message: options.message,
       detail: options.detail,
       buttons: [{ label: 'OK', value: undefined, class: 'primary' }]
+    })
+  },
+  showConfirmationWithCheckbox: (options: {
+    title: string
+    message: string
+    detail?: string
+    confirmText?: string
+    cancelText?: string
+    confirmClass?: 'primary' | 'danger'
+    checkbox: { label: string; checked: boolean }
+  }): Promise<{ confirmed: boolean; checkboxValue: boolean }> => {
+    return showDialog({
+      title: options.title,
+      message: options.message,
+      detail: options.detail,
+      checkbox: { label: options.checkbox.label, checked: options.checkbox.checked },
+      buttons: [
+        { label: options.cancelText ?? 'Cancel', value: false, class: 'secondary' },
+        {
+          label: options.confirmText ?? 'Confirm',
+          value: true,
+          class: options.confirmClass ?? 'primary'
+        }
+      ]
+    }).then((result) => {
+      // The result from the dialog will now be an object like { value: boolean, checkboxValue: boolean }
+      if (typeof result === 'object' && result !== null && 'value' in result) {
+        return { confirmed: !!result.value, checkboxValue: result.checkboxValue }
+      }
+      // This is a fallback in case something goes wrong, but shouldn't be hit with the new explicit logic
+      return { confirmed: !!result, checkboxValue: false }
     })
   }
 }

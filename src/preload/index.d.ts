@@ -60,7 +60,7 @@ declare global {
       applyInitialFolderSettings: (
         settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
       ) => Promise<void>
-      clearItemMetadata: (itemId: string) => Promise<boolean>
+      clearItemMetadata: (itemId: string, childrenOnly: boolean) => Promise<boolean>
       clearVirtualFolderMetadata: (itemIds: string[]) => Promise<boolean>
       fetchCredits: (itemId: string) => Promise<void>
       assignSeasonsAndEpisodes: (

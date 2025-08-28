@@ -347,17 +347,27 @@ async function _finalizeMetadataClear(modifiedItems: LibraryItem[]): Promise<Lib
   return modifiedItems
 }
 
-export async function clearItemMetadata(itemId: string): Promise<LibraryItem[]> {
+export async function clearItemMetadata(
+  itemId: string,
+  childrenOnly: boolean
+): Promise<LibraryItem[]> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return []
-  log(`Starting metadata clear for item "${item.name}"...`)
+  log(`Starting metadata clear for item "${item.name}"... Children only: ${childrenOnly}`)
   repositoryService.setBulkUpdateStatus(true)
   try {
     const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
     const modifiedItems: LibraryItem[] = []
-    await _resetItemMetadata(item, imagesDir)
-    modifiedItems.push(item)
-    if (item.type === 'folder') await _clearChildrenRecursively(item, imagesDir, modifiedItems)
+
+    if (!childrenOnly) {
+      await _resetItemMetadata(item, imagesDir)
+      modifiedItems.push(item)
+    }
+
+    if (item.type === 'folder') {
+      await _clearChildrenRecursively(item, imagesDir, modifiedItems)
+    }
+
     return await _finalizeMetadataClear(modifiedItems)
   } catch (error) {
     console.error('Failed during metadata clearing process:', error)

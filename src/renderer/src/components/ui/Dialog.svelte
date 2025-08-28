@@ -1,21 +1,24 @@
 <script lang="ts">
   import { registerModalKeyHandler } from '../../lib/modal-keyboard-manager'
-  import type { DialogButton } from '../../lib/dialog-store'
+  import type { DialogButton, CheckboxConfig } from '../../lib/dialog-store'
 
   let {
     title,
     message,
     detail,
     buttons,
-    onClose
+    onClose,
+    checkbox
   }: {
     title: string
     message: string
     detail?: string
     buttons: DialogButton[]
     onClose: (value: any) => void
+    checkbox?: CheckboxConfig
   } = $props()
 
+  let isChecked = $state(checkbox?.checked ?? false)
   let isDragging = $state(false)
   let position = $state({ x: 0, y: 0 })
   let dragStartPos = $state({ mouseX: 0, mouseY: 0, elementX: 0, elementY: 0 })
@@ -65,13 +68,13 @@
       if (event.key === 'Escape') {
         const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
         if (cancelButton) {
-          onClose(cancelButton.value)
+          onClose(checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value)
         }
       } else if (event.key === 'Enter') {
         const confirmButton =
           buttons.find((b) => b.class === 'primary' || b.class === 'danger') ?? buttons[0]
         if (confirmButton) {
-          onClose(confirmButton.value)
+          onClose(checkbox ? { value: confirmButton.value, checkboxValue: isChecked } : confirmButton.value)
         }
       }
     }
@@ -87,7 +90,7 @@
   onmousedown={(e) => {
     if (e.target === e.currentTarget) {
       const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
-      onClose(cancelButton.value)
+      onClose(checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value)
     }
   }}
 >
@@ -103,12 +106,18 @@
       <h2 id="dialog-title">{title}</h2>
     </header>
 
-    <div class="dialog-body">
-      <p id="dialog-message" class="message">{message}</p>
-      {#if detail}
-        <p class="detail">{detail}</p>
-      {/if}
-    </div>
+<div class="dialog-body">
+  <p id="dialog-message" class="message">{message}</p>
+  {#if detail}
+    <p class="detail">{detail}</p>
+  {/if}
+  {#if checkbox}
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={isChecked} />
+      <span>{checkbox.label}</span>
+    </label>
+  {/if}
+</div>
 
     <footer class="dialog-actions">
       {#each buttons as button (button.label)}
@@ -117,7 +126,9 @@
           class:primary={button.class === 'primary'}
           class:danger={button.class === 'danger'}
           class:secondary={button.class === 'secondary'}
-          onclick={() => onClose(button.value)}>{button.label}</button
+          onclick={() =>
+            onClose(checkbox ? { value: button.value, checkboxValue: isChecked } : button.value)}
+          >{button.label}</button
         >
       {/each}
     </footer>
@@ -190,6 +201,22 @@
     line-height: 1.5;
     color: var(--ev-c-text-2);
     white-space: pre-wrap;
+  }
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--color-background);
+    border-radius: 6px;
+  }
+  .checkbox-label input {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
   }
   .dialog-actions {
     display: flex;

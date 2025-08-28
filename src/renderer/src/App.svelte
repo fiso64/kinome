@@ -696,22 +696,40 @@
       ? `This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${item.title ?? item.name}".`
       : `This will permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
 
-    const confirmed = await dialogStore.showConfirmation({
-      title: 'Confirm Metadata Clearing',
-      message,
-      detail: 'This action cannot be undone.',
-      confirmText: 'Clear Metadata',
-      cancelText: 'Cancel',
-      confirmClass: 'danger'
-    })
-
-    if (!confirmed) return
-
-    if (isVirtual && item.type === 'folder') {
-      const childIds = item.children.map((c) => c.id)
-      await window.api.clearVirtualFolderMetadata(childIds)
+    if (isFolder && !isVirtual) {
+      const result = await dialogStore.showConfirmationWithCheckbox({
+        title: 'Confirm Metadata Clearing',
+        message,
+        detail: 'This action cannot be undone.',
+        confirmText: 'Clear Metadata',
+        cancelText: 'Cancel',
+        confirmClass: 'danger',
+        checkbox: {
+          label: 'Preserve metadata for this item, only clear for its children.',
+          checked: false
+        }
+      })
+      if (result.confirmed) {
+        await window.api.clearItemMetadata(item.id, result.checkboxValue)
+      }
     } else {
-      await window.api.clearItemMetadata(item.id)
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Metadata Clearing',
+        message,
+        detail: 'This action cannot be undone.',
+        confirmText: 'Clear Metadata',
+        cancelText: 'Cancel',
+        confirmClass: 'danger'
+      })
+
+      if (!confirmed) return
+
+      if (isVirtual && item.type === 'folder') {
+        const childIds = item.children.map((c) => c.id)
+        await window.api.clearVirtualFolderMetadata(childIds)
+      } else {
+        await window.api.clearItemMetadata(item.id, false)
+      }
     }
     // The onLibraryItemUpdated/onLibraryItemsUpdated listeners will handle UI updates.
   }
@@ -1016,6 +1034,7 @@
     message={dialog.message}
     detail={dialog.detail}
     buttons={dialog.buttons}
+    checkbox={dialog.checkbox}
     onClose={(value) => dialogStore.close(value)}
   />
 {/if}
