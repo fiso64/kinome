@@ -279,9 +279,7 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
     newRelativity !== oldRelativity &&
     oldSettings.mediaSourcePath
   ) {
-    console.log(
-      `[Settings Service] Converting mediaSourcePath relativity. New: ${newRelativity}`
-    )
+    console.log(`[Settings Service] Converting mediaSourcePath relativity. New: ${newRelativity}`)
     if (newRelativity === true) {
       // from absolute to relative
       if (oldSettings.libraryLocation) {
@@ -314,7 +312,9 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   // Check if virtual tags specifically changed and reapply
   const newSettingsAfterSave = await readSettings()
-  if (JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettingsAfterSave.virtualTags)) {
+  if (
+    JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettingsAfterSave.virtualTags)
+  ) {
     console.log('[Settings Service] Virtual tags changed, reapplying.')
     await reapplyVirtualTagsAfterSettingsChange()
   }

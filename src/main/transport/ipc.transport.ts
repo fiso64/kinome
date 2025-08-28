@@ -311,7 +311,9 @@ export class IpcTransport implements ITransport {
         console.log(
           `[IPC] Library location changing from "${oldSettings.libraryLocation}" to "${settingsToSave.libraryLocation}"`
         )
-        await settingsService.writeGlobalSettings({ libraryLocation: settingsToSave.libraryLocation })
+        await settingsService.writeGlobalSettings({
+          libraryLocation: settingsToSave.libraryLocation
+        })
         setLibraryDataPath(settingsToSave.libraryLocation)
         await loadDbIntoMemory()
         console.log('[IPC] New DB loaded. Forcing renderer reload.')
