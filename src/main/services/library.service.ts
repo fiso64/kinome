@@ -744,7 +744,7 @@ export async function getContinueWatchingForShow(
   const show = repositoryService.getItemById(showId)
   if (show?.type !== 'folder' || show.mediaType !== 'tv' || show.nextUpDismissed) return null
   const episodes = repositoryService
-    .getAllItemsAsList()
+    .getAllDescendantsAsList(show)
     .filter(
       (item) => item.type === 'file' && item.mediaType === 'episode'
     ) as MediaFile[]
