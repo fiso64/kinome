@@ -126,8 +126,14 @@ export function triggerSeasonEpisodeFetch(item: LibraryItem): void {
     (item.mediaType === 'season' || item.mediaType === 'tv') &&
     !item.tmdbEpisodesFetched
   ) {
+    const isVirtual = (item as any).isVirtual === true
+    const physicalParentId = (item as any).physicalParentId
+
+    // If it's a virtual folder, we trigger the fetch on its real parent.
+    const idToFetch = isVirtual && physicalParentId ? physicalParentId : item.id
+
     // This is a fire-and-forget call. The UI will update reactively
     // when the library-item-updated event is received.
-    window.api.getItemDetails(item.id)
+    window.api.getItemDetails(idToFetch)
   }
 }

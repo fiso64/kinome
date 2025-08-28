@@ -88,13 +88,13 @@ The goal is to prepare for future growth.
 *   `[ ]` Option to rescan on startup => Need to ensure rescan is non-destructive, always.
 *   `[X]` Split the main process into transport layer and service layer.
 *   `[ ]` Database migration: Refactor to use SQLite as the central data store.
-    -  **Data Access: The Repository Pattern**
+    - `[ ]` **Data Access: The Repository Pattern**
         Instead of a single, massive `db` object, create a dedicated "repository" module (e.g., `src/main/repository.ts`). This module would be the *only* part of the application that knows how to talk to the database. It would expose an API like:
         *   `getItemById(id: string): LibraryItem`
         *   `getChildren(parentId: string): LibraryItem[]`
         *   `updateItem(item: Partial<LibraryItem> & { id: string }): void`
         *   `findItems(query: string): SearchResult[]`
-    -  **Change Notification: Explicit Events (Replacing the Proxy)**
+    - `[ ]` **Change Notification: Explicit Events (Replacing the Proxy)**
         The proxy's job is to detect changes and notify the UI. In a repository-based architecture, this becomes explicit and much more predictable.
         *   Any function in the repository that modifies data (like `updateItem`) would be responsible for two things: 1) executing the `UPDATE` SQL statement, and 2) explicitly sending an IPC event to the renderer with the updated data (`BrowserWindow.getAllWindows().forEach(...)`).
         *   This eliminates the "magic" and replaces it with clear, debuggable logic. 
