@@ -867,8 +867,16 @@ async function finalizeMetadataClear(modifiedItems: LibraryItem[]) {
   await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
 }
 
-function getFolderWatchedState(folder: MediaFolder): 'fully' | 'partially' | 'unwatched' | 'none' {
-  let hasWatched = false, hasUnwatched = false, hasFiles = false
+export async function getFolderWatchedState(
+  folderId: string
+): Promise<'fully' | 'partially' | 'unwatched' | 'none'> {
+  if (!db?.root) return 'none'
+  const folder = findItemById(folderId, db.root)
+  if (!folder || folder.type !== 'folder') return 'none'
+
+  let hasWatched = false,
+    hasUnwatched = false,
+    hasFiles = false
   function traverse(item: LibraryItem) {
     if (hasWatched && hasUnwatched) return
     if (item.type === 'file') {
@@ -1438,7 +1446,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
     }
 }
 
-export { getFolderWatchedState }
+
 
 export async function assignSeasonsAndEpisodes(showId: string, seasonStrategy: 'smart' | 'alphabetic', episodeStrategy: 'smart' | 'alphabetic', fetchMetadata: boolean) {
     if (!db?.root) return

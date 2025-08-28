@@ -110,32 +110,6 @@ app.whenReady().then(async () => {
   await loadDbIntoMemory()
   setupIpcHandlers()
 
-  // --- Window Control IPC Handlers (These are pure transport, so they can stay) ---
-  ipcMain.on('window-minimize', () => {
-    BrowserWindow.getFocusedWindow()?.minimize()
-  })
-
-  ipcMain.on('window-toggle-maximize', () => {
-    const window = BrowserWindow.getFocusedWindow()
-    if (window) {
-      if (window.isMaximized()) {
-        window.unmaximize()
-      } else {
-        window.maximize()
-      }
-    }
-  })
-
-  ipcMain.on('window-close', () => {
-    BrowserWindow.getFocusedWindow()?.close()
-  })
-
-  ipcMain.handle('is-window-maximized', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    return window?.isMaximized() ?? false
-  })
-  // --- End Window Control IPC Handlers ---
-
   createWindow()
 
   app.on('activate', function () {

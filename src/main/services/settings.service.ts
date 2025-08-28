@@ -245,6 +245,24 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
  * Does not handle library location changes.
  * @param settingsToSave The partial settings object to save.
  */
+export async function saveAbsoluteMediaSourcePath(absolutePath: string): Promise<void> {
+  const settings = await readSettings()
+  let pathToSave = absolutePath
+  if (settings.mediaSourcePathIsRelative) {
+    const libraryPath = getLibraryDataPath()
+    let relative = relative(dirname(libraryPath), absolutePath)
+    relative = relative.replace(/\\/g, '/')
+    if (relative === '') {
+      pathToSave = '.'
+    } else if (relative.startsWith('../')) {
+      pathToSave = relative
+    } else {
+      pathToSave = './' + relative
+    }
+  }
+  await writeLibrarySettings({ mediaSourcePath: pathToSave })
+}
+
 export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Promise<void> {
   console.log('[Settings Service] Saving settings for current library.')
   const oldSettings = await readSettings()

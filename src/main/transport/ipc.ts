@@ -44,6 +44,28 @@ export function setupIpcHandlers() {
     })
   })
 
+  // --- Window Control IPC Handlers ---
+  ipcMain.on('window-minimize', () => {
+    BrowserWindow.getFocusedWindow()?.minimize()
+  })
+  ipcMain.on('window-toggle-maximize', () => {
+    const window = BrowserWindow.getFocusedWindow()
+    if (window) {
+      if (window.isMaximized()) {
+        window.unmaximize()
+      } else {
+        window.maximize()
+      }
+    }
+  })
+  ipcMain.on('window-close', () => {
+    BrowserWindow.getFocusedWindow()?.close()
+  })
+  ipcMain.handle('is-window-maximized', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    return window?.isMaximized() ?? false
+  })
+
   // --- Library IPC Handlers ---
   ipcMain.handle('get-library-root', () => libraryService.getLibraryRoot())
   ipcMain.handle('get-library-media-source-path', () =>
@@ -93,21 +115,7 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.handle('save-media-source-path', async (_, newPath: string) => {
-    const settings = await settingsService.readSettings()
-    let pathToSave = newPath
-    if (settings.mediaSourcePathIsRelative) {
-      const libraryPath = pathService.getLibraryDataPath()
-      let relative = relativePath(dirname(libraryPath), newPath)
-      relative = relative.replace(/\\/g, '/')
-      if (relative === '') {
-        pathToSave = '.'
-      } else if (relative.startsWith('../')) {
-        pathToSave = relative
-      } else {
-        pathToSave = './' + relative
-      }
-    }
-    await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
+    await settingsService.saveAbsoluteMediaSourcePath(newPath)
   })
 
   ipcMain.handle('get-item-details', (_, itemId: string) => libraryService.getItemDetails(itemId))
