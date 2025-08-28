@@ -46,6 +46,8 @@
     event.stopPropagation()
     dispatch('dismiss', { showId })
   }
+
+  const posterToShow = $derived(item.nextEpisode.posterPath ?? item.show.posterPath)
 </script>
 
 <div
@@ -66,14 +68,17 @@
     onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
     onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, 'play') : null}
   >
-    <img
-      src="media-browser-asset://images/{item.nextEpisode.posterPath ?? item.show.posterPath}{item
-        .nextEpisode._v
-        ? `?v=${item.nextEpisode._v}`
-        : ''}"
-      alt={item.nextEpisode.title ?? item.show.title}
-      loading="lazy"
-    />
+    {#if posterToShow}
+      <img
+        src="media-browser-asset://images/{posterToShow}{item.nextEpisode._v
+          ? `?v=${item.nextEpisode._v}`
+          : ''}"
+        alt={item.nextEpisode.title ?? item.show.title}
+        loading="lazy"
+      />
+    {:else}
+      <div class="no-poster-icon">🎬</div>
+    {/if}
     <div class="cw-poster-overlay">
       <div class="play-icon">▶</div>
     </div>
@@ -221,10 +226,14 @@
       transform 0.2s ease,
       background-color 0.2s ease;
   }
-  .play-icon {
+.play-icon {
     font-size: 3rem;
     color: rgba(255, 255, 255, 0.8);
     text-shadow: 0 0 15px black;
+  }
+  .no-poster-icon {
+    font-size: 3rem;
+    color: var(--ev-c-text-3);
   }
 
   .cw-info {

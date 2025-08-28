@@ -272,29 +272,50 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
       } catch (e) {}
   }
   for (const key of RESETTABLE_METADATA_KEYS) {
-    if (key in item) {
+    // We check hasOwnProperty because we only want to reset properties that actually exist.
+    // A property set to `undefined` will not be present.
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
       const itemAsAny = item as any
       switch (key) {
+        // --- Reset to empty objects/arrays ---
         case 'tags':
           itemAsAny[key] = {}
           break
         case 'genres':
           itemAsAny[key] = []
           break
+
+        // --- Reset to false ---
         case 'tmdbDetailsFetched':
         case 'tmdbEpisodesFetched':
         case 'tmdbCreditsFetched':
           itemAsAny[key] = false
           break
+
+        // --- Reset to undefined (property will be removed) ---
+        case 'title':
+        case 'mediaType':
+        case 'opensAsFolder':
+        case 'seasonNumber':
+        case 'episodeNumber':
         case 'virtualTags':
-          itemAsAny[key] = undefined
-          break
         case 'posterPath':
         case 'backdropPath':
         case 'logoPath':
+        case 'continueWatchingDismissed':
+        case 'nextUpDismissed':
+        case '_lastSeenLocalMaxSeason':
+        case '_lastSeenLocalMaxEpisode':
           itemAsAny[key] = undefined
           break
-        default:
+
+        // --- Reset to null (property exists but has no value) ---
+        case 'overview':
+        case 'tmdbId':
+        case 'year':
+        case 'tmdbSeasons':
+        case 'tmdbEpisodes':
+        case 'tmdbCredits':
           itemAsAny[key] = null
           break
       }
