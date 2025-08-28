@@ -380,12 +380,43 @@ export async function playFileWith(
 ): Promise<boolean> {
   const success = await actionsService.playFileWith(file, command, onError)
   if (success) {
+    const itemInDb = repositoryService.getItemById(file.id)
+    const wasAlreadyWatched = (itemInDb as MediaFile | null)?.watched === true
+
     const updatedFile = repositoryService.updateItem(file.id, {
       watched: true,
       lastWatched: Date.now()
     })
     if (updatedFile) {
-      await _finalizeItemUpdate(updatedFile, { updateSuggestions: false })
+      const itemsToUpdate: LibraryItem[] = [updatedFile]
+
+      // Only reset dismissal flags if we are marking a previously unwatched episode as watched.
+      if (!wasAlreadyWatched) {
+        let parent = repositoryService.findParent(updatedFile.id)
+        let show: MediaFolder | null = null
+        while (parent) {
+          if (parent.type === 'folder' && parent.mediaType === 'tv') {
+            show = parent
+            break
+          }
+          parent = repositoryService.findParent(parent.id)
+        }
+
+        if (show && (show.nextUpDismissed || show.continueWatchingDismissed)) {
+          log(
+            `[Playback] Resetting dismissal flags for show "${show.name}" after watching new episode.`
+          )
+          const updatedShow = repositoryService.updateItem(show.id, {
+            nextUpDismissed: false,
+            continueWatchingDismissed: false
+          })
+          if (updatedShow) {
+            itemsToUpdate.push(updatedShow)
+          }
+        }
+      }
+
+      await _finalizeItemUpdate(itemsToUpdate, { updateSuggestions: false })
     }
   }
   return success
