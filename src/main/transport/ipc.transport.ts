@@ -30,11 +30,7 @@ export class IpcTransport implements ITransport {
     })
   }
 
-  notifyLibraryItemUpdated(item: LibraryItem): void {
-    BrowserWindow.getAllWindows().forEach((window) => {
-      window.webContents.send('library-item-updated', item)
-    })
-  }
+
 
   notifyAutocompleteSuggestionsUpdated(suggestions: AutocompleteSuggestions): void {
     BrowserWindow.getAllWindows().forEach((window) => {
@@ -161,7 +157,7 @@ export class IpcTransport implements ITransport {
     ipcMain.handle('user-update-item', (_, updatedItem) =>
       libraryService.updateItem(updatedItem, true)
     )
-    ipcMain.handle('update-item', (_, updatedItem) => libraryService.updateItem(updatedItem, false))
+
 
     ipcMain.handle('manual-search', async (_, query, type, year, tmdbId) => {
       const settings = await settingsService.readSettings()

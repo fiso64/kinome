@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { getTransport } from '../transport.registry'
+
 import type { Database, LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
 import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
 import { itemMatchesAllTags } from '../../shared/filter'
@@ -174,157 +174,11 @@ export function updateIndexForItems(items: LibraryItem[]) {
   )
 }
 
-/**
- * Evaluates a single item and decides whether to add, update, or remove it
- * and its children from the search index.
- * @param item The LibraryItem to process.
- */
-export function updateIndexForItem(item: LibraryItem) {
-  // Always keep the item map up-to-date with the latest version of the item.
-  itemMap.set(item.id, item)
 
-  // --- Exclusion Rules ---
-  if (
-    (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
-    item.isHidden
-    // Note: Missing items are deliberately not excluded
-  ) {
-    removeItemFromIndex(item.id)
-    // Also remove all its descendants from the index.
-    function removeChildren(folder: MediaFolder) {
-      folder.children.forEach((child) => {
-        removeItemFromIndex(child.id)
-        if (child.type === 'folder') {
-          removeChildren(child)
-        }
-      })
-    }
-    if (item.type === 'folder' && item.children) removeChildren(item)
-    return
-  }
 
-  // Find parent to calculate score correctly.
-  const parentId = parentMap.get(item.id)
-  const parent = parentId ? itemMap.get(parentId) : undefined
-
-  const entry = createSearchIndexEntry(item, parent)
-
-  console.log(`[Search Index] Incrementally updating index for: "${entry.title}" (ID: ${entry.id})`)
-  _updateOrAddItemToIndex(entry)
-}
-
-/**
- * This is the generic handler called by the proxy on any data change.
- * @param target The raw object that was modified.
- * @param prop The property key that was changed.
- * @param isBulkUpdate A flag to disable indexing during bulk operations.
- */
-function onObjectChange(target: object, prop: string | symbol, isBulkUpdate: boolean) {
-  if (isBulkUpdate) {
-    return
-  }
-
-  // We only care about changes on LibraryItems.
-  if (
-    !Object.prototype.hasOwnProperty.call(target, 'id') ||
-    !Object.prototype.hasOwnProperty.call(target, 'type')
-  ) {
-    return
-  }
-
-  const item = target as LibraryItem
-
-  // --- Broadcast the change via the service event emitter ---
-  // This ensures any change to an item in the main process
-  // is immediately reflected in the UI, via the transport layer.
-  const plainItem = JSON.parse(JSON.stringify(item))
-  getTransport().notifyLibraryItemUpdated(plainItem)
-
-  // Update the item itself in the search index.
-  updateIndexForItem(item)
-
-  // If a folder's poster path changes, its children's scores might be affected.
-  // We need to trigger an update for them too.
-  if (item.type === 'folder' && prop === 'posterPath' && item.children) {
-    item.children.forEach((child) => {
-      updateIndexForItem(child)
-    })
-  }
-}
-
-// A WeakMap caches proxies for any object, preventing re-proxying and handling
-// garbage collection of old DBs gracefully.
-const proxyCache = new WeakMap()
-
-/**
- * Creates a handler for the recursive proxy.
- * @param isBulkUpdate A function that returns the current bulk update status.
- */
-function createProxyHandler(isBulkUpdate: () => boolean): ProxyHandler<any> {
-  // This handler is created once per DB proxy session and is reused for all
-  // nested objects, which is crucial for performance.
-  const handler: ProxyHandler<any> = {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver)
-
-      // During bulk updates, we want raw performance and don't need change tracking.
-      // By returning the raw value, we prevent the creation of nested proxies,
-      // which dramatically speeds up full-tree traversals.
-      if (isBulkUpdate()) {
-        return value
-      }
-
-      // If the retrieved value is an object (and not null), wrap it in a proxy.
-      if (value && typeof value === 'object') {
-        // Return a cached proxy if one exists for this object.
-        if (proxyCache.has(value)) {
-          return proxyCache.get(value)
-        }
-        // Otherwise, create a new proxy with the *same* handler, cache it, and return it.
-        const newProxy = new Proxy(value, handler)
-        proxyCache.set(value, newProxy)
-        return newProxy
-      }
-      return value
-    },
-    set(target, prop, value, receiver) {
-      const oldValue = Reflect.get(target, prop, receiver)
-      const success = Reflect.set(target, prop, value, receiver)
-
-      // Only trigger the change handler if the new value is different from the old one.
-      if (success && value !== oldValue) {
-        onObjectChange(target, prop, isBulkUpdate())
-      }
-
-      return success
-    }
-  }
-  return handler
-}
-
-/**
- * Wraps the raw database object in a recursive Proxy.
- * @param db The raw database object.
- * @param isBulkUpdate A function that returns the current bulk update status.
- * @returns A new Proxy that wraps the database.
- */
-export function createDbProxy(db: Database, isBulkUpdate: () => boolean): Database {
-  // The WeakMap is not cleared here. When a new DB is loaded, the old `db` object
-  // becomes garbage-collectible. The WeakMap will automatically drop the entries
-  // for the old `db` and all its children, preventing memory leaks.
-  if (proxyCache.has(db)) {
-    return proxyCache.get(db)
-  }
-
-  // Create the single, reusable handler for this proxy session.
-  const handler = createProxyHandler(isBulkUpdate)
-  const proxy = new Proxy(db, handler)
-
-  // Cache the root proxy.
-  proxyCache.set(db, proxy)
-
-  return proxy
-}
+// Proxy-based change detection has been removed.
+// The library.service is now responsible for explicitly triggering index updates
+// and notifying the renderer.
 
 /**
  * Builds the entire search index from the library root.

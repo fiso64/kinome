@@ -33,7 +33,7 @@ const api = {
     ipcRenderer.invoke('get-item-details', itemId),
   userUpdateItem: (item: LibraryItem): Promise<void> =>
     ipcRenderer.invoke('user-update-item', item),
-  updateItem: (item: LibraryItem): Promise<void> => ipcRenderer.invoke('update-item', item),
+
   getAutocompleteSuggestions: (): Promise<AutocompleteSuggestions> =>
     ipcRenderer.invoke('get-autocomplete-suggestions'),
   getItemById: (itemId: string): Promise<LibraryItem | null> =>
@@ -149,13 +149,7 @@ const api = {
       ipcRenderer.removeListener('window-is-maximized', listener)
     }
   },
-  onLibraryItemUpdated: (callback: (item: LibraryItem) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, item: LibraryItem): void => callback(item)
-    ipcRenderer.on('library-item-updated', listener)
-    return () => {
-      ipcRenderer.removeListener('library-item-updated', listener)
-    }
-  },
+
   onLibraryItemDeleted: (callback: (itemId: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, itemId: string): void => callback(itemId)
     ipcRenderer.on('library-item-deleted', listener)

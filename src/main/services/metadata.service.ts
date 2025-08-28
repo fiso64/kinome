@@ -342,9 +342,7 @@ async function _finalizeMetadataClear(modifiedItems: LibraryItem[]): Promise<Lib
     item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, currentSettings)
   }
   repositoryService.setBulkUpdateStatus(false)
-  for (const item of modifiedItems) {
-    searchService.updateIndexForItem(item)
-  }
+  // No need to update search index here, it's handled by _finalizeItemUpdate in library.service
   log(`Finished metadata clear for ${modifiedItems.length} items.`)
   return modifiedItems
 }
@@ -466,9 +464,7 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
     repositoryService.setBulkUpdateStatus(false)
     const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
     const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
-    for (const modifiedItem of itemsToUpdate) {
-      searchService.updateIndexForItem(modifiedItem)
-    }
+    // No need to update search index here, it's handled by _finalizeItemUpdate in library.service
     log(`[Details] Background processing complete for "${item.name}"`)
     return itemsToUpdate
   }

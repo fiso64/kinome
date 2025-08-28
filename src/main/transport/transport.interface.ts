@@ -12,11 +12,7 @@ export interface ITransport {
    */
   notifyLibraryItemsUpdated(items: LibraryItem[]): void
 
-  /**
-   * Notifies clients that a single library item has been updated.
-   * @param item The updated library item.
-   */
-  notifyLibraryItemUpdated(item: LibraryItem): void
+
 
   /**
    * Notifies clients that the autocomplete suggestions have been updated.

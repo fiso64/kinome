@@ -45,7 +45,7 @@ declare global {
       // Data
       getItemDetails: (itemId: string) => Promise<LibraryItem | null>
       userUpdateItem: (item: LibraryItem) => Promise<void>
-      updateItem: (item: LibraryItem) => Promise<void> // For internal/non-user-driven updates
+
       getAutocompleteSuggestions: () => Promise<AutocompleteSuggestions>
       getItemById: (itemId: string) => Promise<LibraryItem | null>
       getChildren: (parentId: string) => Promise<LibraryItem[] | null>
@@ -117,7 +117,7 @@ declare global {
       closeWindow: () => void
       isWindowMaximized: () => Promise<boolean>
       onWindowMaximizedStatus: (callback: (isMaximized: boolean) => void) => () => void
-      onLibraryItemUpdated: (callback: (item: LibraryItem) => void) => () => void
+
       onLibraryItemDeleted: (callback: (itemId: string) => void) => () => void
       onLibraryItemsUpdated: (callback: (items: LibraryItem[]) => void) => () => void
       onAutocompleteSuggestionsUpdated: (

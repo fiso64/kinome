@@ -341,21 +341,7 @@
     }
   }
 
-  // Set up a listener for real-time metadata updates from the main process.
-  $effect(() => {
-    const unlisten = window.api.onLibraryItemUpdated((updatedItem) => {
-      handleItemUpdates([updatedItem])
-      // If an episode was played or a show was dismissed, refresh the continue watching list.
-      const shouldRefresh =
-        (updatedItem.type === 'file' && 'watched' in updatedItem) ||
-        (updatedItem.type === 'folder' && 'continueWatchingDismissed' in updatedItem)
 
-      if (shouldRefresh) {
-        window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
-      }
-    })
-    return () => unlisten()
-  })
 
   // Listener for BATCH metadata updates
   $effect(() => {

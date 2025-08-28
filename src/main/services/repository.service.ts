@@ -89,7 +89,7 @@ export async function createNewDb(rootNode: MediaFolder | null): Promise<void> {
     applyVirtualTagsToAllItems(rootNode, settings)
   }
   // This replaces the old db instance.
-  db = searchService.createDbProxy(newDb, getBulkUpdateStatus)
+  db = newDb
   searchService.buildFullSearchIndex(db.root)
   setBulkUpdateStatus(false)
   await writeDb()
@@ -121,8 +121,7 @@ export async function loadDb(): Promise<void> {
       const settings = await settingsService.readSettings()
       applyVirtualTagsToAllItems(rawDb.root, settings)
     }
-    db = searchService.createDbProxy(rawDb, getBulkUpdateStatus)
-    log('Database wrapped in proxy.')
+    db = rawDb
     searchService.buildFullSearchIndex(db.root)
     setBulkUpdateStatus(false)
     log('Finished loading DB into memory.')
@@ -214,17 +213,25 @@ export function findItemByPath(p: string): LibraryItem | null {
 
 // --- Write Operations ---
 
-export function markAsUserEdited(itemId: string): void {
-  if (!db?.root) return
+export function markAsUserEdited(itemId: string): LibraryItem[] {
+  if (!db?.root) return []
+  const modifiedItems: LibraryItem[] = []
   const item = getItemById(itemId)
   if (item) {
-    item.isUserEdited = true
+    if (!item.isUserEdited) {
+      item.isUserEdited = true
+      modifiedItems.push(item)
+    }
     let parent = findParent(item.id)
     while (parent) {
-      parent.isUserEdited = true
+      if (!parent.isUserEdited) {
+        parent.isUserEdited = true
+        modifiedItems.push(parent)
+      }
       parent = findParent(parent.id)
     }
   }
+  return modifiedItems
 }
 
 /**

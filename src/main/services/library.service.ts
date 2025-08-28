@@ -33,17 +33,22 @@ type ErrorCallback = (options: { title: string; message: string; detail?: string
 // =================================================================================================
 
 /**
- * Centralized helper to finalize an item update. It saves the database,
- * emits events for the transport layer, and updates suggestions.
+ * Centralized helper to finalize an item update. It updates the search index,
+ * saves the database, emits events for the transport layer, and updates suggestions.
  */
 async function _finalizeItemUpdate(
   items: LibraryItem | LibraryItem[],
   options: { updateSuggestions?: boolean } = {}
 ): Promise<void> {
   if (!items || (Array.isArray(items) && items.length === 0)) return
-  await repositoryService.writeDb()
 
   const itemsArray = Array.isArray(items) ? items : [items]
+
+  // This is now the single point of truth for updating the search index from item mutations.
+  searchService.updateIndexForItems(itemsArray)
+
+  await repositoryService.writeDb()
+
   const plainItems = JSON.parse(JSON.stringify(itemsArray))
   getTransport().notifyLibraryItemsUpdated(plainItems)
 
@@ -289,26 +294,33 @@ export async function getFolderWatchedState(
 // =================================================================================================
 
 export async function updateItem(updatedItem: LibraryItem, isUserEdit: boolean): Promise<void> {
+  const itemInDb = repositoryService.getItemById(updatedItem.id)
+  if (!itemInDb) {
+    throw new Error(`Could not find item with id ${updatedItem.id} in DB to update.`)
+  }
+
+  const allModifiedItems = new Set<LibraryItem>()
+
+  // Apply the core updates from the renderer
+  repositoryService.updateItem(updatedItem.id, updatedItem)
+  allModifiedItems.add(itemInDb)
+
+  // If it's a user edit, also mark the item and its parents, collecting all modified items.
   if (isUserEdit) {
     log(
       `Marking item as user-edited: "${updatedItem.title ?? updatedItem.name}" (ID: ${updatedItem.id})`
     )
-    repositoryService.markAsUserEdited(updatedItem.id)
+    const markedItems = repositoryService.markAsUserEdited(updatedItem.id)
+    markedItems.forEach((i) => allModifiedItems.add(i))
   }
 
-  repositoryService.setBulkUpdateStatus(true)
-  const itemInDb = repositoryService.updateItem(updatedItem.id, updatedItem)
-  if (itemInDb) {
-    const settings = await settingsService.readSettings()
-    itemInDb.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(itemInDb, settings)
-    repositoryService.setBulkUpdateStatus(false)
-    searchService.updateIndexForItem(itemInDb)
-    await _finalizeItemUpdate(itemInDb, { updateSuggestions: true })
-    log(`Updated item ${updatedItem.id} in database.`)
-  } else {
-    repositoryService.setBulkUpdateStatus(false)
-    throw new Error(`Could not find item with id ${updatedItem.id} in DB to update.`)
-  }
+  // Re-evaluate virtual tags on the primary item
+  const settings = await settingsService.readSettings()
+  itemInDb.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(itemInDb, settings)
+
+  // Finalize the batch of all modified items
+  await _finalizeItemUpdate(Array.from(allModifiedItems), { updateSuggestions: true })
+  log(`Updated item ${updatedItem.id} in database.`)
 }
 
 export async function applyInitialFolderSettings(
@@ -410,19 +422,20 @@ export async function handleItemRenamed(relativeOldPath: string, newName: string
     throw new Error(`[Rename] Could not find parent for item: ${itemToRename.name}`)
   }
   const settings = await settingsService.readSettings()
+  const allModifiedItems = new Set<LibraryItem>()
   function updatePathsAndIds(item: LibraryItem, newParentPath: string) {
-    searchService.removeItemAndDescendantsFromIndex(item)
+    searchService.removeItemAndDescendantsFromIndex(item) // Old index entries must be cleared by path
     if (item.path === relativeOldPath) item.name = newName
     item.path = path.join(newParentPath, item.name).replace(/\\/g, '/')
     item.id = repositoryService.generateId(item.path)
     item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+    allModifiedItems.add(item)
     if (item.type === 'folder')
       item.children.forEach((child) => updatePathsAndIds(child, item.path))
-    searchService.updateIndexForItem(item)
   }
   updatePathsAndIds(itemToRename, parent.path === '.' ? '' : parent.path)
   repositoryService.setBulkUpdateStatus(false)
-  await repositoryService.writeDb()
+  await _finalizeItemUpdate(Array.from(allModifiedItems), { updateSuggestions: true })
 }
 
 export async function deleteItemFromDb(itemId: string): Promise<boolean> {
@@ -562,12 +575,9 @@ export async function assignSeasonsAndEpisodes(
       )
       for (const item of fetchedItems) modifiedItems.add(item)
     }
-    log(
-      `[Assign Seasons] Re-applying virtual tags and re-indexing for ${modifiedItems.size} items...`
-    )
+    log(`[Assign Seasons] Re-applying virtual tags for ${modifiedItems.size} items...`)
     for (const item of modifiedItems) {
       item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-      searchService.updateIndexForItem(item)
     }
     repositoryService.setBulkUpdateStatus(false)
     log(`[Assign Seasons] Finalizing update for ${modifiedItems.size} items...`)
@@ -608,7 +618,6 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   setUnwatchedRecursively(item)
   repositoryService.setBulkUpdateStatus(false)
   if (modifiedItems.length > 0) {
-    searchService.updateIndexForItems(modifiedItems)
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
   }
 }
@@ -629,7 +638,6 @@ export async function markAsWatched(itemId: string): Promise<void> {
   setWatchedRecursively(item)
   repositoryService.setBulkUpdateStatus(false)
   if (modifiedItems.length > 0) {
-    searchService.updateIndexForItems(modifiedItems)
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: false })
   }
 }
