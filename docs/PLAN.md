@@ -77,9 +77,10 @@ The goal is to implement the key features that make the app unique and powerful.
 *   `[X]` Add a "continue watching" element. Modify the root media view and create a new element specifically for the root, which will host the continue watching element and the media view element below it. Also show the element in tv show folders detail view if they have been partially watched. Make it easy to permanently dismiss the continue watching element (in both root view and tv show detail view).
 
 ### Phase ?: Miscellaneous TODO
-- Bug: After adding a new item to library, requires refreshing twice before the item shows up
+- Bug: After adding a new item to library, requires refreshing twice before the item shows up (test this, might be fixed)
 - Bug: Refreshing takes you out of detail view. Refresh button should also be available in detail view.
 - Some actions (like moving an item to trash) trigger an expensive full refresh which is wasteful. Find all such actions and make them more targeted.
+- All subdirs of a tv type item should probably be set to season type automatically (even if no season number was found). 
 
 ### Phase 4: Expansion & Refinement
 
@@ -112,17 +113,17 @@ The goal is to prepare for future growth.
 
 #### Future
 
+*   `[ ]` **Server Support:** 
+    *   `[ ]` Turn the main process into a server (with a distributable binary) that can be run on a remote and communicate.  
+              Note: The application should (still) NOT require a server for local libraries, and work entirely via IPC in that case.
+              Ensure the service is fast, meaning *fast*.
+        `[ ]` The server will have an api, and also host the same ui as what has already been built, accessible in a web browser. Clients will be able to use the browser or the desktop app.
+        `[ ]` The client should also support sending basic auth headers.
+    *   `[ ]` Implement multi-user support with admin/non-admin users. Still make it possible to use an unauthenticated user depending on server config.
 *   `[ ]` **Plugin System:** Implement a versatile plugin system. Searcher plugins (browsing tmdb?), downloader/streamer plugins (downloading from various trackers?), etc.
     *   Very similar to Stremio ([look into it](https://guides.viren070.me/stremio)): 
         1. A searcher plugin will allow searching for media that isn't in the local library (e.g. tmdb search plugin)
         2. A downloader/streamer plugin will be required to play any items not in the local library (e.g.: a https stream plugin returning https stream link(s), torrent downloader plugin returning results from a particular tracker). Downloader plugins should also allow one to permanently add a movie/show to the local library. In the spirit of the app, we should make it use an external torrent client (user-configured, similar to existing video player configuration) instead of a built-in one, if possible.
         3. If possible, make Stremio plugins work out of the box with media-browser.
         4. The existing local files searching and playing logic might be refactored into yet another searcher and "streamer" plugin respectively.
-*   `[ ]` **Server Support:** 
-    *   Decide: Integrate with existing servers (like jellyfin's), or make a custom one?
-    *   For a custom server:
-        *   `[ ]` Turn the main process into a server (with a distributable binary) that can be run on a remote and communicate.  
-                  Note: The application should (still) NOT require a server for local libraries, and work entirely via IPC in that case.
-        *   `[ ]` Implement common features like multi-user support, on-the-fly transcoding, etc. 
-    *   Either way, these will be implemented as searcher/streamer plugins with the new system explained above.
 *   `[ ]` **True Cross-Platform:** Web? Android? iOS?
