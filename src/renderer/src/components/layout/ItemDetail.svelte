@@ -255,7 +255,8 @@
     <div class="backdrop-overlay"></div>
   </div>
 
-  <div class="detail-content">
+  <div class="scroll-container">
+    <div class="detail-content">
     <div class="info-grid">
       <div class="poster-column" bind:this={posterColumnElement}>
         <div class="poster">
@@ -477,22 +478,32 @@
     {/if}
   </div>
 </div>
+</div>
 
 <style>
-  .detail-view {
-    position: fixed;
-    top: var(--header-height);
-    bottom: 0;
+  .scroll-container {
+    position: absolute;
+    top: 0;
     left: 0;
     right: 0;
-    color: var(--color-text);
-    background-color: var(--color-background);
-    z-index: 5;
+    bottom: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    /* Add a subtle fade-in for smoothness, but it's not hiding a long wait anymore */
-    animation: fadeIn 0.15s ease-in;
   }
+
+.detail-view {
+  position: fixed;
+  top: var(--header-height);
+  bottom: 0;
+  left: 0;
+  right: 0;
+  color: var(--color-text);
+  background-color: var(--color-background);
+  z-index: 5;
+  overflow: hidden; /* Prevent this container from scrolling */
+  /* Add a subtle fade-in for smoothness, but it's not hiding a long wait anymore */
+  animation: fadeIn 0.15s ease-in;
+}
 
   @keyframes fadeIn {
     from {
