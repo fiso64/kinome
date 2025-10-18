@@ -31,10 +31,10 @@ This layer is responsible for all communication between the backend and the rend
 
 Contains the core business logic. These are pure Node.js modules, **completely decoupled from Electron**. They communicate with the frontend via the abstract `ITransport` interface, making them portable and testable.
 
--   `library.service.ts`: The heart of the backend. Manages the in-memory database, scans the media source, coordinates metadata fetching, and handles core business logic (`playFile`, `updateItem`, etc.).
+-   `library.service.ts`: The central service that orchestrates the application's business logic. It is the main entry point for the transport layer and coordinates calls to specialized services to handle high-level operations like refreshing the library, playing files, and processing user data.
 -   `repository.service.ts`: Manages the in-memory database (reading, writing, querying).
 -   `filesystem.service.ts`: Manages scanning the filesystem and syncing the database with disk changes.
--   `search.service.ts`: Manages the `Fuse.js` search index. Includes the `Proxy` that automatically detects database changes to keep the index and UI in sync.
+-   `search.service.ts`: Manages the `Fuse.js` search index.
 -   `metadata.service.ts`: Orchestrates metadata fetching from various sources.
 -   `retriever.service.ts`: Handles all communication with the TMDB API for fetching metadata and images.
 -   `tv-show.service.ts`: Contains logic for parsing and organizing TV show files and folders.
