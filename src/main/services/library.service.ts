@@ -43,6 +43,12 @@ async function _finalizeItemUpdate(
 
   const itemsArray = Array.isArray(items) ? items : [items]
 
+  // Ensure virtual tags are up to date for all modified items
+  const settings = await settingsService.readSettings()
+  for (const item of itemsArray) {
+    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+  }
+
   // This is now the single point of truth for updating the search index from item mutations.
   searchService.updateIndexForItems(itemsArray)
 
@@ -313,11 +319,7 @@ export async function updateItem(updatedItem: LibraryItem, isUserEdit: boolean):
     markedItems.forEach((i) => allModifiedItems.add(i))
   }
 
-  // Re-evaluate virtual tags on the primary item
-  const settings = await settingsService.readSettings()
-  itemInDb.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(itemInDb, settings)
-
-  // Finalize the batch of all modified items
+  // Finalize the batch of all modified items (this will also update virtual tags and search index)
   await _finalizeItemUpdate(Array.from(allModifiedItems), { updateSuggestions: true })
   log(`Updated item ${updatedItem.id} in database.`)
 }
@@ -604,10 +606,6 @@ export async function assignSeasonsAndEpisodes(
         pathsService.getLibraryDataPath()
       )
       for (const item of fetchedItems) modifiedItems.add(item)
-    }
-    log(`[Assign Seasons] Re-applying virtual tags for ${modifiedItems.size} items...`)
-    for (const item of modifiedItems) {
-      item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
     }
     repositoryService.setBulkUpdateStatus(false)
     log(`[Assign Seasons] Finalizing update for ${modifiedItems.size} items...`)

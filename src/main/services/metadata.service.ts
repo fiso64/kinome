@@ -5,6 +5,7 @@ import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as retrieverService from './retriever.service'
+import * as searchService from './search.service'
 import * as tvShowService from './tv-show.service'
 import * as virtualTagsService from './virtualTags.service'
 
@@ -150,8 +151,12 @@ export async function fetchMetadataForLibrary() {
     log('[Metadata] No new items, missing posters, or missing credits to fetch.')
     return
   }
-  const sendBatchUpdate = (updatedItems: LibraryItem[]): void => {
+  const finalizeBatch = (updatedItems: LibraryItem[]): void => {
     if (updatedItems.length > 0) {
+      for (const item of updatedItems) {
+        item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+      }
+      searchService.updateIndexForItems(updatedItems)
       const plainItems = JSON.parse(JSON.stringify(updatedItems))
       getTransport().notifyLibraryItemsUpdated(plainItems)
     }
@@ -176,7 +181,7 @@ export async function fetchMetadataForLibrary() {
       if (item.posterPath || item.tmdbId === null) updatedItemsBatch.push(item)
     }
     await processInChunks(newItemsToFetch, 17, task)
-    sendBatchUpdate(updatedItemsBatch)
+    finalizeBatch(updatedItemsBatch)
   }
   if (itemsMissingPosters.length > 0) {
     log(`[Metadata] Starting poster refetch for ${itemsMissingPosters.length} items...`)
@@ -186,7 +191,7 @@ export async function fetchMetadataForLibrary() {
       if (item.posterPath) updatedItemsBatch.push(item)
     }
     await processInChunks(itemsMissingPosters, 17, task)
-    sendBatchUpdate(updatedItemsBatch)
+    finalizeBatch(updatedItemsBatch)
   }
   if (itemsMissingCredits.length > 0) {
     log(`[Metadata] Starting credits fetch for ${itemsMissingCredits.length} items...`)
@@ -196,7 +201,7 @@ export async function fetchMetadataForLibrary() {
       if (item.tmdbCreditsFetched) updatedItemsBatch.push(item)
     }
     await processInChunks(itemsMissingCredits, 17, task)
-    sendBatchUpdate(updatedItemsBatch)
+    finalizeBatch(updatedItemsBatch)
   }
   await repositoryService.writeDb()
   log('[Metadata] Finished all fetching and saved final DB.')
