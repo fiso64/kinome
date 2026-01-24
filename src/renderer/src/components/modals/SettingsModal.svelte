@@ -163,8 +163,15 @@
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
   }
 
+  import { navStack } from '../../lib/navigation-store.svelte'
+
   function handleCancel() {
-    dispatch('close')
+    // If opened via history, use history back. Otherwise (e.g. forced open via code), dispatch close.
+    if (navStack.isHistoryModalOpen) {
+      navStack.closeModal()
+    } else {
+      dispatch('close')
+    }
   }
 
   async function handleSave(): Promise<void> {
@@ -228,7 +235,7 @@
       }
     }
 
-    dispatch('close')
+    handleCancel() // Reuse cancel logic which handles history vs dispatch
   }
 
   async function handleBrowseMediaSource() {

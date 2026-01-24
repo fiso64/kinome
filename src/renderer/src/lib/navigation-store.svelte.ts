@@ -1,6 +1,8 @@
 import { getLoadedItem } from './item-store'
 import { findPathToItem } from './tree-helpers'
 import { api } from './api'
+import { modalStore } from './modal-store.svelte'
+import { resolveViewSettings } from '../../../shared/settings-helpers'
 import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../shared/types'
 
 // --- Types ---
@@ -10,25 +12,30 @@ export type ViewStackItem = MediaFolder
 interface HistoryState {
   stackIds: string[]
   detailId: string | null
+  modal?: { type: 'settings' } | { type: 'itemSettings'; itemId: string }
 }
 
 // --- State (using Svelte Runes) ---
 
 let viewStack = $state<ViewStackItem[]>([])
 let selectedItemForDetailView = $state<LibraryItem | null>(null)
+// We track if a modal is open via history to conditionally render the "Back" button or handle "Close"
+let isHistoryModalOpen = $state(false)
 
 // --- Derived State ---
 
 const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
 const isDetailViewActive = $derived(selectedItemForDetailView !== null)
-// We rely on browser history for "can go back", but visually we want to show the back button
-// if we are not at the root state.
-// Root state is: stack has 1 item (root) AND no detail view.
-const canGoBack = $derived(isDetailViewActive || viewStack.length > 1)
+// Show back button if we are not at root state OR if a history-managed modal is open
+const canGoBack = $derived(isDetailViewActive || viewStack.length > 1 || isHistoryModalOpen)
 
 // --- History Helpers ---
 
-function getUrlParams(stack: ViewStackItem[], detail: LibraryItem | null): string {
+function getUrlParams(
+  stack: ViewStackItem[],
+  detail: LibraryItem | null,
+  modal?: HistoryState['modal']
+): string {
   const params = new URLSearchParams()
   if (detail) {
     params.set('item', detail.id)
@@ -38,33 +45,43 @@ function getUrlParams(stack: ViewStackItem[], detail: LibraryItem | null): strin
       params.set('folder', current.id)
     }
   }
+
+  if (modal) {
+    params.set('modal', modal.type)
+    if (modal.type === 'itemSettings' && modal.itemId) {
+      params.set('modalItemId', modal.itemId)
+    }
+  }
+
   const str = params.toString()
   return str ? `?${str}` : '/'
 }
 
-function getSnapshot(): HistoryState {
+function getSnapshot(modal?: HistoryState['modal']): HistoryState {
   return {
     stackIds: viewStack.map((f) => f.id),
-    detailId: selectedItemForDetailView?.id ?? null
+    detailId: selectedItemForDetailView?.id ?? null,
+    modal
   }
 }
 
-function pushHistoryState() {
-  const state = getSnapshot()
-  const url = getUrlParams(viewStack, selectedItemForDetailView)
+function pushHistoryState(modal?: HistoryState['modal']) {
+  const state = getSnapshot(modal)
+  const url = getUrlParams(viewStack, selectedItemForDetailView, modal)
   history.pushState(state, '', url)
+  isHistoryModalOpen = !!modal
 }
 
-function replaceHistoryState() {
-  const state = getSnapshot()
-  const url = getUrlParams(viewStack, selectedItemForDetailView)
+function replaceHistoryState(modal?: HistoryState['modal']) {
+  const state = getSnapshot(modal)
+  const url = getUrlParams(viewStack, selectedItemForDetailView, modal)
   history.replaceState(state, '', url)
+  isHistoryModalOpen = !!modal
 }
 
 async function restoreFromState(state: HistoryState | null, rootFallback: MediaFolder) {
   if (state && state.stackIds && Array.isArray(state.stackIds) && state.stackIds.length > 0) {
     // Restore Stack
-    // We use getLoadedItem to fetch (from cache or api).
     const loadedItems = await Promise.all(state.stackIds.map((id) => getLoadedItem(id)))
     const validFolders = loadedItems.filter(
       (i): i is MediaFolder => !!i && i.type === 'folder'
@@ -83,10 +100,43 @@ async function restoreFromState(state: HistoryState | null, rootFallback: MediaF
     } else {
       selectedItemForDetailView = null
     }
+
+    // Restore Modal
+    if (state.modal) {
+      isHistoryModalOpen = true
+      if (state.modal.type === 'settings') {
+        modalStore.open('settings')
+      } else if (state.modal.type === 'itemSettings' && state.modal.itemId) {
+        const item = await getLoadedItem(state.modal.itemId)
+        if (item) {
+          // Resolve settings to pass default layout, required by ItemSettingsModal
+          const settings = await api.getSettings()
+          const resolved = resolveViewSettings(item as MediaFolder, settings).settings
+          modalStore.open('itemSettings', {
+            item,
+            initialTab: 'metadata', // Default tab when restored
+            defaultLayout: resolved.layout
+          })
+        }
+      }
+    } else {
+      isHistoryModalOpen = false
+      // Only close if active modal is one that we manage via history
+      // This prevents closing a transient confirmation dialog if a background refresh triggers state restore (rare)
+      // But typically popstate means user navigation.
+      if (
+        modalStore.activeModal?.type === 'settings' ||
+        modalStore.activeModal?.type === 'itemSettings'
+      ) {
+        modalStore.close()
+      }
+    }
   } else {
     // No valid state, reset to root
     viewStack = [rootFallback]
     selectedItemForDetailView = null
+    isHistoryModalOpen = false
+    modalStore.close()
     replaceHistoryState()
   }
 }
@@ -113,7 +163,7 @@ async function init(root: MediaFolder) {
 function navigateToRoot(root: MediaFolder): void {
   viewStack = [root]
   selectedItemForDetailView = null
-  pushHistoryState() // Or replace if we want to clear history? Usually navigate to root is a new action.
+  pushHistoryState()
 }
 
 function pushFolder(folder: MediaFolder): void {
@@ -122,14 +172,31 @@ function pushFolder(folder: MediaFolder): void {
   pushHistoryState()
 }
 
-function openDetailView(item: LibraryItem): void {
-  selectedItemForDetailView = item
-  pushHistoryState()
+// Modal Navigation Methods
+function openSettings() {
+  modalStore.open('settings')
+  pushHistoryState({ type: 'settings' })
 }
 
-function closeDetailView(): void {
-  selectedItemForDetailView = null
-  pushHistoryState()
+async function openItemSettings(
+  item: LibraryItem,
+  initialTab: 'metadata' | 'view' | 'folder' | 'settings' = 'metadata'
+) {
+  // Resolve settings immediately for smooth UI
+  const settings = await api.getSettings()
+  const resolved = resolveViewSettings(item as MediaFolder, settings).settings
+
+  modalStore.open('itemSettings', {
+    item,
+    initialTab,
+    defaultLayout: resolved.layout
+  })
+  pushHistoryState({ type: 'itemSettings', itemId: item.id })
+}
+
+function closeModal() {
+  // This is the programmatic "back" used by Close buttons on history-managed modals
+  history.back()
 }
 
 function goBack(): void {
@@ -249,7 +316,6 @@ export const navStack = {
   set selectedItemForDetailView(i) {
     selectedItemForDetailView = i
   },
-  // lastDetailItem removed
   get currentFolder() {
     return currentFolder
   },
@@ -259,12 +325,16 @@ export const navStack = {
   get canGoBack() {
     return canGoBack
   },
+  get isHistoryModalOpen() {
+    return isHistoryModalOpen
+  },
 
   init,
   navigateToRoot,
   pushFolder,
-  openDetailView,
-  closeDetailView,
+  openSettings,
+  openItemSettings,
+  closeModal,
   goBack,
   drillDown,
   handleItemClick,

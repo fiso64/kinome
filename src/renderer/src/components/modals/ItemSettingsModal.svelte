@@ -16,15 +16,15 @@
   let {
     item,
     onClose,
-    onNeedRefresh,
+    onNeedRefresh = async () => {}, // Make optional as it's not strictly required for saving
     initialTab = 'metadata',
-    groupByKeys,
-    defaultLayout,
+    groupByKeys = [],
+    defaultLayout = 'grid',
     settings
   }: {
     item: LibraryItem & VirtualFolderProps
     onClose: () => void
-    onNeedRefresh: () => Promise<void>
+    onNeedRefresh?: () => Promise<void>
     initialTab?: 'metadata' | 'view' | 'folder' | 'settings'
     groupByKeys: string[]
     defaultLayout: 'grid' | 'tree'
@@ -189,6 +189,8 @@
     }
   }
 
+  import { navStack } from '../../lib/navigation-store.svelte'
+
   async function handleSave() {
     const itemToUpdate = await buildUpdatedItem()
     let needsRefresh = false
@@ -206,11 +208,19 @@
 
     // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
     // will handle removing it from the view. The modal should always close.
-    onClose()
+    handleClose()
 
     // Trigger refresh after closing the modal for a better user experience.
     if (needsRefresh) {
       await onNeedRefresh()
+    }
+  }
+
+  function handleClose() {
+    if (navStack.isHistoryModalOpen) {
+      navStack.closeModal()
+    } else {
+      onClose()
     }
   }
 
@@ -219,7 +229,7 @@
   })
 </script>
 
-<ModalWindow title={item.title ?? item.name} {onClose} onSave={handleSave} maxWidth="700px">
+<ModalWindow title={item.title ?? item.name} onClose={handleClose} onSave={handleSave} maxWidth="700px">
   {#snippet header()}
     <div class="tabs">
       {#if !isVirtual}

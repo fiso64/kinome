@@ -381,7 +381,7 @@
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
-      openSettings: () => modalStore.open('settings'),
+      openSettings: () => navStack.openSettings(),
       focusSearch: () => appHeaderComponent?.focusSearchInput(),
       navigateBack: goBack,
       navigateForward: goForward,
@@ -399,12 +399,7 @@
 
   function openLayoutSelector() {
     if (folderToConfigureLayout) {
-      const resolvedSettings = resolveViewSettings(folderToConfigureLayout, settings).settings
-      modalStore.open('itemSettings', {
-        item: folderToConfigureLayout,
-        initialTab: 'view',
-        defaultLayout: resolvedSettings.layout
-      })
+      navStack.openItemSettings(folderToConfigureLayout, 'view')
     }
   }
 
@@ -471,7 +466,7 @@
     bind:highlightedDetailSearchItemIndex={searchStore.highlightedDetailIndex}
     on:back={goBack}
     on:refresh={handleRefresh}
-    on:openSettings={() => modalStore.open('settings')}
+    on:openSettings={() => navStack.openSettings()}
     on:openLayoutSelector={openLayoutSelector}
     on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
     on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
