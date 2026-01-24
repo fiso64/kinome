@@ -9,7 +9,6 @@ import {
   isRemotePath,
   getUserDataPath
 } from './paths.service'
-import { reapplyVirtualTagsAfterSettingsChange } from './library.service'
 
 const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
@@ -280,15 +279,6 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
   if (Object.keys(settingsForCurrentLibrary).length > 0) {
     await writeLibrarySettings(settingsForCurrentLibrary)
   }
-
-  // Check if virtual tags specifically changed and reapply
-  const newSettingsAfterSave = await readSettings()
-  if (
-    JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettingsAfterSave.virtualTags)
-  ) {
-    console.log('[Settings Service] Virtual tags changed, reapplying.')
-    await reapplyVirtualTagsAfterSettingsChange()
-  }
 }
 
 // --- FS Wrappers ---
@@ -305,7 +295,11 @@ export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
     return null
   }
 
-  if (settings.mediaSourcePathIsRelative) {
+  // Treat as relative if the flag is true OR if the path is physically not absolute
+  // (and it's not a remote library, although remote libs usually force relative flag)
+  const isPhysicallyRelative = !path.isAbsolute(settings.mediaSourcePath) && !isRemoteLibrary()
+
+  if (settings.mediaSourcePathIsRelative || isPhysicallyRelative) {
     const libraryPath = getLibraryDataPath()
     if (!libraryPath) return settings.mediaSourcePath
 

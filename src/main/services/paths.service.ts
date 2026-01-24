@@ -33,7 +33,7 @@ export function isRemoteLibrary(): boolean {
 /**
  * Resolves a relative path against the library data path.
  * Handles both local file paths and remote URLs correctly.
- * @param relativePath The path relative to the library root (e.g., 'database.json').
+ * @param relativePath The path relative to the library root (e.g., 'library.db').
  * @returns An absolute file system path or a full remote URL.
  */
 export function resolveLibraryPath(relativePath: string): string {

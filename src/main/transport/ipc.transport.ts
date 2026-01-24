@@ -165,7 +165,7 @@ export class IpcTransport implements ITransport {
       libraryService.executeCustomAction(itemId, commandId, showErrorDialog)
     )
     ipcMain.handle('user-apply-tmdb-result', (_, itemId, result, mediaType) =>
-      libraryService.applyTmdbResult(itemId, result, mediaType, showErrorDialog)
+      libraryService.applyTmdbResult(itemId, result, mediaType)
     )
     ipcMain.handle('mark-as-unwatched', (_, itemId) => libraryService.markAsUnwatched(itemId))
     ipcMain.handle('mark-as-watched', (_, itemId) => libraryService.markAsWatched(itemId))
@@ -188,7 +188,7 @@ export class IpcTransport implements ITransport {
     })
 
     ipcMain.handle('user-set-image', (_, itemId, imageType, source) =>
-      libraryService.setImage(itemId, imageType, source, showErrorDialog)
+      libraryService.setImage(itemId, imageType, source)
     )
     ipcMain.handle('remove-image', (_, itemId, imageType) =>
       libraryService.removeImage(itemId, imageType)
@@ -315,6 +315,13 @@ export class IpcTransport implements ITransport {
       } else {
         await settingsService.saveSettingsChanges(settingsToSave)
         const newSettings = await settingsService.readSettings()
+
+        // Detect Virtual Tag Changes
+        if (JSON.stringify(oldSettings.virtualTags) !== JSON.stringify(newSettings.virtualTags)) {
+          console.log('[IPC] Virtual tags changed, triggering re-application.')
+          await libraryService.reapplyVirtualTagsAfterSettingsChange()
+        }
+
         this.notifySettingsUpdated(newSettings)
       }
     })

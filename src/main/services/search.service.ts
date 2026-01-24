@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js'
 
-import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../shared/types'
+import type { LibraryItem, SearchIndexEntry } from '../../shared/types'
 import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
 import { itemMatchesAllTags } from '../../shared/filter'
 
@@ -60,9 +60,9 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
       const value = (item as any)[key]
       // Deep clone arrays/objects to ensure the index is free of proxies.
       if (typeof value === 'object' && value !== null) {
-        ;(entry as any)[key] = JSON.parse(JSON.stringify(value))
+        ; (entry as any)[key] = structuredClone(value)
       } else {
-        ;(entry as any)[key] = value
+        ; (entry as any)[key] = value
       }
     }
   }
@@ -73,8 +73,8 @@ function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): Search
   // Extract person names from credits
   if ('tmdbCredits' in item && item.tmdbCredits) {
     const personNames = new Set<string>()
-    ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && personNames.add(p.name))
-    ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && personNames.add(p.name))
+      ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && personNames.add(p.name))
+      ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && personNames.add(p.name))
     if (personNames.size > 0) {
       entry.persons = Array.from(personNames)
     }
@@ -99,28 +99,47 @@ export function removeItemFromIndex(itemId: string) {
  * Updates the search index for a batch of items in one pass.
  * @param items The array of LibraryItem objects to update.
  */
+/**
+ * Checks if an item is a descendant of any folder in the exclusion list.
+ * Travels up the parentMap to find if any ancestor is excluded.
+ */
+function isDescendantOfExcluded(itemId: string): boolean {
+  let currentId = itemId
+  while (true) {
+    const item = itemMap.get(currentId)
+    if (!item) break // Should not happen if map is consistent, or we reached root
+
+    if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
+      return true
+    }
+
+    const parentId = parentMap.get(currentId)
+    if (!parentId) break // Root reached
+    currentId = parentId
+  }
+  return false
+}
+
+/**
+ * Updates the search index for a batch of items in one pass.
+ * @param items The array of LibraryItem objects to update.
+ */
 export function updateIndexForItems(items: LibraryItem[]) {
   const itemsToUpdate = new Map<string, LibraryItem>()
   const itemsToRemove = new Set<string>()
 
-  // First, determine which items to update and which to remove
+  // 1. Update Maps first
   for (const item of items) {
-    itemMap.set(item.id, item) // Always keep the item map up-to-date
+    itemMap.set(item.id, item)
+    if (item.parentId) {
+      parentMap.set(item.id, item.parentId)
+    }
+  }
 
-    if (
-      (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
-      item.isHidden
-    ) {
+  // 2. Determine status
+  for (const item of items) {
+    if (item.isHidden || isDescendantOfExcluded(item.id)) {
       itemsToRemove.add(item.id)
-      if (item.type === 'folder' && item.children) {
-        function collectChildrenIds(folder: MediaFolder) {
-          folder.children.forEach((child) => {
-            itemsToRemove.add(child.id)
-            if (child.type === 'folder') collectChildrenIds(child)
-          })
-        }
-        collectChildrenIds(item)
-      }
     } else {
       itemsToUpdate.set(item.id, item)
     }
@@ -167,49 +186,42 @@ export function updateIndexForItems(items: LibraryItem[]) {
 // and notifying the renderer.
 
 /**
- * Builds the entire search index from the library root.
- * This is called once when the library is first loaded or fully replaced.
- * It populates the search index and the necessary lookup maps.
+ * Builds the entire search index from a flat list of all library items.
+ * This replaces the recursive traversal which required a loaded tree.
  */
-export function buildFullSearchIndex(root: MediaFolder | null) {
+export function buildFullSearchIndex(allItems: LibraryItem[]) {
   const startTime = performance.now()
   searchIndex = []
   itemMap.clear()
   parentMap.clear()
   console.log(
-    `[${new Date().toISOString()}] [Search] Index build initiated. Cleared searchIndex (now ${searchIndex.length}), itemMap (now ${itemMap.size}).`
+    `[${new Date().toISOString()}] [Search] Index build initiated for ${allItems.length} items.`
   )
-  if (!root) {
-    return
+
+  // 1. Populate Item Map and Parent Map
+  // We rely on `parentId` which is now populated from SQLite.
+  for (const item of allItems) {
+    itemMap.set(item.id, item)
+    if (item.parentId) {
+      parentMap.set(item.id, item.parentId)
+    }
   }
 
-  function traverse(item: LibraryItem, parent?: MediaFolder) {
-    // Exclusion rule
-    if (
-      (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) ||
-      item.isHidden
-      // Note: Missing items are deliberately not excluded
-    ) {
-      return // Don't index this folder or its children
+  // 2. Build Index with proper scoring and exclusion
+  for (const item of allItems) {
+    if (item.isHidden) continue
+
+    // Check ancestry for exclusion (e.g. content inside 'extras')
+    if (isDescendantOfExcluded(item.id)) {
+      continue
     }
 
-    // Populate maps
-    itemMap.set(item.id, item)
-    if (parent) {
-      parentMap.set(item.id, parent.id)
-    }
-
-    // Create and add entry to search index
+    const parentId = parentMap.get(item.id)
+    const parent = parentId ? itemMap.get(parentId) : undefined
     const entry = createSearchIndexEntry(item, parent)
     searchIndex.push(entry)
-
-    // Recurse if it's a folder
-    if (item.type === 'folder' && item.children) {
-      item.children.forEach((child) => traverse(child, item))
-    }
   }
 
-  traverse(root)
   const endTime = performance.now()
   const duration = (endTime - startTime).toFixed(2)
   console.log(

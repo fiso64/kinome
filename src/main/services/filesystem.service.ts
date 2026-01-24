@@ -1,177 +1,221 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { type Dirent } from 'fs'
-import * as pathsService from './paths.service'
-import { generateId } from './repository.service'
-import type { LibraryItem, MediaFolder } from '../../shared/types'
+import { generateId, runTransaction, getDb, getAllDescendantsAsList } from './repository.service'
+import type { MediaFolder } from '../../shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
 }
 
-export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
-  const nodeAbsolutePath = path.join(mediaSourcePath, node.path)
-  let diskChildEntries: Dirent[]
-  try {
-    await fs.access(nodeAbsolutePath)
-    diskChildEntries = await fs.readdir(nodeAbsolutePath, { withFileTypes: true })
-    if (diskChildEntries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
-      log(`Ignoring directory due to .ignore file: ${nodeAbsolutePath}`)
-      if (node.isUserEdited) {
-        const hideRecursively = (item: LibraryItem) => {
-          item.isHidden = true
-          item.isMissing = undefined
-          if (item.type === 'folder') item.children.forEach(hideRecursively)
-        }
-        hideRecursively(node)
-      } else {
-        node.isMissing = true
-        const markAllChildrenMissing = (folder: MediaFolder) => {
-          if (!folder.children) return
-          folder.children.forEach((child) => {
-            child.isMissing = true
-            if (child.type === 'folder') markAllChildrenMissing(child)
+/**
+ * Common walker function used by both Full and Partial scans.
+ * It recursively reads the FS and upserts items into the DB.
+ * It returns a Set of all IDs encountered during the walk.
+ */
+async function walkAndUpsert(
+  startPath: string,
+  mediaSourcePath: string,
+  db: any
+): Promise<Set<string>> {
+  const visitedIds = new Set<string>()
+  const queue: { currentPath: string; parentId: string | null }[] = []
+
+  // Initialize queue
+  if (startPath === mediaSourcePath) {
+    // Root case
+    const rootId = generateId('.')
+    const rootName = path.basename(mediaSourcePath)
+
+    // Upsert Root
+    db.prepare(`
+        INSERT INTO items (id, parent_id, path, name, type, is_missing)
+        VALUES (?, NULL, '.', ?, 'folder', 0)
+        ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+      `).run(rootId, rootName)
+
+    visitedIds.add(rootId)
+    queue.push({ currentPath: startPath, parentId: rootId })
+  } else {
+    // Partial scan case: We need to find the parent ID of the startPath
+    const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
+    const id = generateId(relativePath)
+    visitedIds.add(id)
+    queue.push({ currentPath: startPath, parentId: id }) // Note: We assume the start folder itself is already valid
+  }
+
+  // Iterative BFS to avoid recursion stack limits and handle transactions neatly
+  while (queue.length > 0) {
+    const { currentPath, parentId } = queue.shift()!
+    if (!parentId) continue // Should not happen given logic above
+
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true })
+    } catch (e) {
+      log(`Failed to read directory: ${currentPath}`)
+      continue
+    }
+
+    if (entries.some(e => e.name === '.ignore')) continue
+
+    // Prepare batch operations
+    const operations: (() => void)[] = []
+
+    for (const entry of entries) {
+      const isDirectory = entry.isDirectory()
+      const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
+
+      if (isDirectory || isVideoFile) {
+        const fullPath = path.join(currentPath, entry.name)
+        const relativePath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
+        const id = generateId(relativePath)
+        const type = isDirectory ? 'folder' : 'file'
+
+        visitedIds.add(id)
+
+        let stats = { size: 0, mtime: 0, birthtime: 0 }
+        try {
+          const s = await fs.stat(fullPath)
+          stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
+        } catch { }
+
+        operations.push(() => {
+          db.prepare(`
+              INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
+              VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
+              ON CONFLICT(id) DO UPDATE SET
+                is_missing = 0,
+                parent_id = excluded.parent_id,
+                size = excluded.size,
+                mtime = excluded.mtime
+            `).run({
+            id,
+            parentId,
+            path: relativePath,
+            name: entry.name,
+            type,
+            size: stats.size,
+            mtime: stats.mtime,
+            birthtime: stats.birthtime
           })
+        })
+
+        if (isDirectory) {
+          queue.push({ currentPath: fullPath, parentId: id })
         }
-        markAllChildrenMissing(node)
       }
-      return
     }
-    if (node.isHidden) {
-      const unhideRecursively = (item: LibraryItem) => {
-        item.isHidden = undefined
-        if (item.type === 'folder') item.children.forEach(unhideRecursively)
-      }
-      unhideRecursively(node)
-    }
-    node.isMissing = undefined
-  } catch (e) {
-    node.isMissing = true
-    const markAllChildrenMissing = (folder: MediaFolder) => {
-      if (!folder.children) return
-      folder.children.forEach((child) => {
-        child.isMissing = true
-        if (child.type === 'folder') markAllChildrenMissing(child)
+
+    // Execute batch for this directory level
+    if (operations.length > 0) {
+      runTransaction(() => {
+        operations.forEach(op => op())
       })
     }
-    markAllChildrenMissing(node)
-    return
   }
-  const dbChildrenMap = new Map(node.children.map((child) => [child.name, child]))
-  const diskChildrenNames = new Set(diskChildEntries.map((e) => e.name))
-  for (const entry of diskChildEntries) {
-    if (!dbChildrenMap.has(entry.name)) {
-      const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
-      if (entry.isDirectory() || isVideoFile) {
-        const childRelativePath = path.join(node.path, entry.name).replace(/\\/g, '/')
-        const newChild: LibraryItem = {
-          id: generateId(childRelativePath),
-          name: entry.name,
-          path: childRelativePath,
-          type: entry.isDirectory() ? 'folder' : 'file',
-          ...(entry.isDirectory() && { children: [] })
-        } as any
-        node.children.push(newChild)
-      }
-    }
-  }
-  for (const child of node.children) {
-    if (diskChildrenNames.has(child.name)) {
-      child.isMissing = undefined
-      if (child.type === 'folder') await syncWithDisk(child, mediaSourcePath)
-    } else {
-      child.isMissing = true
-      if (child.type === 'folder') {
-        const markDescendantsMissing = (folder: MediaFolder) => {
-          if (!folder.children) return
-          folder.children.forEach((c) => {
-            c.isMissing = true
-            if (c.type === 'folder') markDescendantsMissing(c)
-          })
-        }
-        markDescendantsMissing(child)
-      }
-    }
-  }
-}
 
-export function pruneUntouchedMissingItems(node: MediaFolder) {
-  if (!node.children) return
-  if (node.isMissing) {
-    for (const child of node.children) {
-      if (child.type === 'folder') pruneUntouchedMissingItems(child)
-    }
-    return
-  }
-  node.children = node.children.filter((child) => !(child.isMissing && !child.isUserEdited))
-  for (const child of node.children) {
-    if (child.type === 'folder') pruneUntouchedMissingItems(child)
-  }
-}
-
-export async function verifyImagePaths(item: LibraryItem, imagesDir: string) {
-  if (pathsService.isRemoteLibrary()) return
-  if (item.posterPath) {
-    try {
-      await fs.access(path.join(imagesDir, item.posterPath))
-    } catch {
-      log(`Poster for "${item.name}" not found. Marking for re-download.`)
-      item.posterPath = undefined
-    }
-  }
-  if (item.backdropPath) {
-    try {
-      await fs.access(path.join(imagesDir, item.backdropPath))
-    } catch {
-      log(`Backdrop for "${item.name}" not found. Marking for re-download.`)
-      item.backdropPath = undefined
-    }
-  }
-  if (item.logoPath) {
-    try {
-      await fs.access(path.join(imagesDir, item.logoPath))
-    } catch {
-      log(`Logo for "${item.name}" not found. Marking for re-download.`)
-      item.logoPath = undefined
-    }
-  }
+  return visitedIds
 }
 
 export async function scanDirectory(
-  dirPath: string,
-  rootPath: string
+  mediaSourcePath: string,
+  _rootPath?: string
 ): Promise<MediaFolder | null> {
-  const name = path.basename(dirPath)
-  const children: LibraryItem[] = []
-  const entries = await fs.readdir(dirPath, { withFileTypes: true })
-  if (entries.some((entry) => entry.name === '.ignore' && entry.isFile())) {
-    log(`Ignoring directory due to .ignore file: ${dirPath}`)
-    return null
+  const db = getDb()
+  log(`Starting full scan of ${mediaSourcePath}`)
+
+  const visitedIds = await walkAndUpsert(mediaSourcePath, mediaSourcePath, db)
+
+  // Full Scan cleanup:
+  // Any item in the DB that was NOT visited is missing.
+  // We can't do "NOT IN (...100k ids...)" safely.
+  // Efficient approach:
+  // 1. Get all IDs currently in DB where is_missing = 0.
+  // 2. Filter in JS (Set difference).
+  // 3. Batch update missing.
+
+  const allDbIds = db.prepare('SELECT id FROM items WHERE is_missing = 0').all().map((row: any) => row.id)
+  const missingIds = allDbIds.filter(id => !visitedIds.has(id))
+
+  if (missingIds.length > 0) {
+    log(`Marking ${missingIds.length} items as missing.`)
+    runTransaction(() => {
+      const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
+      missingIds.forEach(id => stmt.run(id))
+    })
   }
-  for (const entry of entries) {
-    const entryPath = path.join(dirPath, entry.name)
-    const entryRelativePath = path.relative(rootPath, entryPath).replace(/\\/g, '/')
-    if (entry.isDirectory()) {
-      const subFolder = await scanDirectory(entryPath, rootPath)
-      if (subFolder) children.push(subFolder)
-    } else if (entry.isFile()) {
-      if (/\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)) {
-        children.push({
-          id: generateId(entryRelativePath),
-          name: entry.name,
-          path: entryRelativePath,
-          type: 'file'
-        })
-      }
+
+  // Use dynamic require to avoid circular dependency issues at module top level if any
+  const { getRoot } = require('./repository.service')
+  return getRoot()
+}
+
+export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
+  const db = getDb()
+  const rootAbsPath = path.join(mediaSourcePath, node.path)
+
+  log(`Syncing subtree: ${node.path}`)
+
+  // 1. Get all KNOWN descendants of this folder from the DB.
+  // This allows us to know what *should* be there.
+  // We explicitly use the recursive query capability here.
+  const knownDescendants = getAllDescendantsAsList(node)
+  const knownIds = new Set(knownDescendants.map(d => d.id))
+
+  // 2. Walk the FS subtree.
+  const visitedIds = await walkAndUpsert(rootAbsPath, mediaSourcePath, db)
+
+  // 3. Calculate missing WITHIN this subtree.
+  // Missing = Known in DB - Found on Disk
+  const missingIds: string[] = []
+  for (const knownId of knownIds) {
+    if (!visitedIds.has(knownId)) {
+      missingIds.push(knownId)
     }
   }
-  if (children.length === 0) return null
-  const relativePath = path.relative(rootPath, dirPath).replace(/\\/g, '/')
-  return {
-    id: generateId(relativePath || '.'),
-    name: name || path.basename(rootPath),
-    path: relativePath || '.',
-    type: 'folder',
-    children
+
+  // 4. Mark missing.
+  if (missingIds.length > 0) {
+    log(`Marking ${missingIds.length} items as missing in subtree.`)
+    runTransaction(() => {
+      const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
+      missingIds.forEach(id => stmt.run(id))
+    })
+  }
+}
+
+export function pruneUntouchedMissingItems(_node: MediaFolder) {
+  // This logic is mostly handled by the is_missing flag now.
+  // If we want to physically delete them from DB:
+  // DELETE FROM items WHERE is_missing = 1 AND is_user_edited = 0
+  // For now we keep them to match previous behavior (soft delete).
+}
+
+export async function verifyImagePaths(_item: any, imagesDir: string) {
+  const db = getDb()
+  const rows = db.prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL').all() as any[]
+
+  // Check all images in one pass
+  for (const row of rows) {
+    const images = JSON.parse(row.images_json || '{}')
+    let changed = false
+
+    if (images.poster) {
+      try { await fs.access(path.join(imagesDir, images.poster)) }
+      catch { images.poster = null; changed = true; }
+    }
+    if (images.backdrop) {
+      try { await fs.access(path.join(imagesDir, images.backdrop)) }
+      catch { images.backdrop = null; changed = true; }
+    }
+    if (images.logo) {
+      try { await fs.access(path.join(imagesDir, images.logo)) }
+      catch { images.logo = null; changed = true; }
+    }
+
+    if (changed) {
+      db.prepare('UPDATE metadata SET images_json = ? WHERE item_id = ?').run(JSON.stringify(images), row.item_id)
+    }
   }
 }

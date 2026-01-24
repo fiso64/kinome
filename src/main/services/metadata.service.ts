@@ -12,29 +12,11 @@ import * as virtualTagsService from './virtualTags.service'
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
 import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
 import { getTransport } from '../transport.registry'
+import { processInChunks } from '../utils/concurrency'
+import { downloadImage } from '../utils/download'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
-}
-
-async function processInChunks<T>(
-  items: T[],
-  concurrencyLimit: number,
-  task: (item: T) => Promise<void>
-): Promise<void> {
-  const queue = [...items]
-  const active: Promise<void>[] = []
-  while (queue.length > 0 || active.length > 0) {
-    while (active.length < concurrencyLimit && queue.length > 0) {
-      const item = queue.shift()!
-      const promise = task(item).finally(() => {
-        const index = active.indexOf(promise)
-        if (index !== -1) active.splice(index, 1)
-      })
-      active.push(promise)
-    }
-    if (active.length > 0) await Promise.race(active)
-  }
 }
 
 function collectItemsToProcess(
@@ -153,6 +135,13 @@ export async function fetchMetadataForLibrary() {
   }
   const finalizeBatch = (updatedItems: LibraryItem[]): void => {
     if (updatedItems.length > 0) {
+      // Persist to DB
+      repositoryService.runTransaction(() => {
+        for (const item of updatedItems) {
+          repositoryService.updateItem(item.id, item)
+        }
+      })
+
       for (const item of updatedItems) {
         item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
       }
@@ -212,11 +201,28 @@ export async function fetchEpisodeDataForContinueWatching(
   show: MediaFolder,
   episode: MediaFile
 ): Promise<LibraryItem[]> {
+  log(`[Continue Watching] fetchEpisodeData triggered for Show: "${show.name}", Episode S${episode.seasonNumber}E${episode.episodeNumber}`)
   if (episode.title && episode.posterPath) return []
   if (!show.tmdbId || !show.tmdbSeasons || pathsService.isRemoteLibrary()) return []
+
+  // 1. Populate show children to allow structure processing
+  if (!show.children || show.children.length === 0) {
+    show.children = repositoryService.getChildren(show.id)
+  }
+
+  // 2. Process structure to assign seasonNumbers to folders (in-memory)
+  tvShowService.processTvShowStructure(show)
+
+  // 3. Find season folder matching the episode's season number
   const seasonFolder = show.children.find(
     (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
   ) as MediaFolder | undefined
+
+  if (seasonFolder) {
+    // 4. Populate the season folder's children (episodes) so retriever can match them
+    seasonFolder.children = repositoryService.getChildren(seasonFolder.id)
+  }
+
   let itemsToUpdate: LibraryItem[] = []
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
@@ -224,6 +230,16 @@ export async function fetchEpisodeDataForContinueWatching(
     const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) return []
     if (seasonFolder) {
+      // Check if season is known in TMDB data
+      const seasonKnown = show.tmdbSeasons?.some(s => s.season_number === seasonFolder?.seasonNumber)
+      if (!seasonKnown) {
+        log(`[Continue Watching] Season ${seasonFolder.seasonNumber} not found in cached metadata. Refetching show seasons...`)
+        await retrieverService.refetchShowSeasons(show, settings, pathsService.getLibraryDataPath())
+        // Re-fetch parent to get updated tmdbSeasons
+        const updatedShow = repositoryService.getItemById(show.id) as MediaFolder
+        if (updatedShow) show.tmdbSeasons = updatedShow.tmdbSeasons
+      }
+
       if (!seasonFolder.tmdbEpisodesFetched) {
         log(
           `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
@@ -253,6 +269,14 @@ export async function fetchEpisodeDataForContinueWatching(
   } catch (err) {
     console.error('[Continue Watching] Failed to fetch data:', err)
   } finally {
+    // Persist changes to DB so they are available immediately
+    if (itemsToUpdate.length > 0) {
+      repositoryService.runTransaction(() => {
+        for (const item of itemsToUpdate) {
+          repositoryService.updateItem(item.id, item)
+        }
+      })
+    }
     repositoryService.setBulkUpdateStatus(wasBulkUpdating)
   }
   return itemsToUpdate
@@ -263,15 +287,15 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
     if (item.posterPath)
       try {
         await fs.unlink(path.join(imagesDir, item.posterPath))
-      } catch (e) {}
+      } catch (e) { }
     if (item.backdropPath)
       try {
         await fs.unlink(path.join(imagesDir, item.backdropPath))
-      } catch (e) {}
+      } catch (e) { }
     if (item.logoPath)
       try {
         await fs.unlink(path.join(imagesDir, item.logoPath))
-      } catch (e) {}
+      } catch (e) { }
   }
   for (const key of RESETTABLE_METADATA_KEYS) {
     // We check hasOwnProperty because we only want to reset properties that actually exist.
@@ -441,6 +465,9 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
           }
           if (showFolder.tmdbSeasons) {
             log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
+            // Populate children so retriever can find the local files
+            item.children = repositoryService.getChildren(item.id)
+
             const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
               item,
               showFolder.tmdbId,
@@ -462,7 +489,16 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
           )
         }
       } else if (item.mediaType === 'tv') {
-        log(`[Details] TV show episode data missing. Processing children for "${item.name}"`)
+        log(`[Details] TV Show episode data missing. Processing children for "${item.name}"`)
+        // Populate children (Seasons/Episodes) so retriever can process them
+        item.children = repositoryService.getChildren(item.id)
+        // Also populate grandchildren if necessary (for "File Mode" or deep structures)
+        for (const child of item.children) {
+          if (child.type === 'folder') {
+            child.children = repositoryService.getChildren(child.id)
+          }
+        }
+
         const modifiedChildren = await retrieverService.applyTvShowData(
           item,
           settings,
@@ -535,7 +571,7 @@ export async function applyTmdbResult(
           `${item.id}.jpg`
         )
         try {
-          await retrieverService.downloadImage(posterUrl, posterDestPath)
+          await downloadImage(posterUrl, posterDestPath)
           item.posterPath = `${item.id}.jpg`
         } catch (e) {
           console.error('Failed to download season poster', e)
@@ -612,7 +648,7 @@ export async function setImage(
       let size = 'original'
       if (imageType === 'poster' || imageType === 'logo') size = 'w500'
       const url = `https://image.tmdb.org/t/p/${size}${source.path}`
-      await retrieverService.downloadImage(url, destPath)
+      await downloadImage(url, destPath)
     } else {
       await fs.copyFile(source.path, destPath)
     }

@@ -212,6 +212,7 @@ export interface Person {
 export interface MediaFile {
   // --- Core & User State (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
+  parentId?: string
   name: string
   path: string // Full path to the file
   type: 'file'
@@ -247,6 +248,7 @@ export interface MediaFile {
 export interface MediaFolder extends StoredViewSettings {
   // --- Core Properties (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
+  parentId?: string
   name: string
   path: string // Full path to the folder
   type: 'folder'

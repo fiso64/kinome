@@ -23,6 +23,7 @@
     clearItemCache,
     primeCacheWithRoot
   } from './lib/item-store'
+  import { api } from './lib/api'
 
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
@@ -130,27 +131,27 @@
   // This effect runs once on mount to fetch initial data
   $effect(() => {
     log('App mounted. Requesting library root from main process...')
-    window.api.getLibraryRoot().then(async (root) => {
-      log('Library root received from main process.')
-      if (root) {
-        primeCacheWithRoot(root)
-        viewStack = [root]
-        log('Root view rendered.')
-      } else {
-        log('No library found. Displaying welcome screen.')
-      }
-      isScanning = false
-    })
+    api.getLibraryRoot().then(async (root) => {
+        log('Library root received from main process.')
+        if (root) {
+          primeCacheWithRoot(root)
+          viewStack = [root]
+          log('Root view rendered.')
+        } else {
+          log('No library found. Displaying welcome screen.')
+        }
+        isScanning = false
+      })
+  
+      api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+      api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
+      api.getSettings().then((s) => (settings = s))
 
-    window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
-    window.api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
-    window.api.getSettings().then((s) => (settings = s))
-
-    const unlistenSuggestions = window.api.onAutocompleteSuggestionsUpdated((s) => {
+    const unlistenSuggestions = api.onAutocompleteSuggestionsUpdated((s) => {
       allAutocompleteSuggestions = s
     })
 
-    const unlistenErrors = window.api.onShowErrorDialog((options) => {
+    const unlistenErrors = api.onShowErrorDialog((options) => {
       try {
         dialogStore.showError(options)
       } catch (e) {
@@ -163,7 +164,7 @@
       }
     })
 
-    const unlistenSettingsUpdated = window.api.onSettingsPossiblyUpdated((newSettings) => {
+    const unlistenSettingsUpdated = api.onSettingsPossiblyUpdated((newSettings) => {
       log('Received settings-possibly-updated event from main process.')
       settings = newSettings
     })
@@ -219,7 +220,7 @@
       isPerformingSearch = true
       selectedItemForDetailView = null
       const plainQuery = JSON.parse(JSON.stringify(query))
-      window.api.performSearch(plainQuery).then((results) => {
+      api.performSearch(plainQuery).then((results) => {
         searchResults = results
         isPerformingSearch = false
         highlightedGlobalSearchItemIndex = results.length > 0 ? 0 : null
@@ -238,7 +239,7 @@
     if (selectedItemForDetailView && isDetailSearchActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
       const plainQuery = JSON.parse(JSON.stringify(query))
-      window.api.performSearch(plainQuery).then((results) => {
+      api.performSearch(plainQuery).then((results) => {
         detailViewSearchResults = results
         isPerformingDetailSearch = false
         highlightedDetailSearchItemIndex = results.length > 0 ? 0 : null
@@ -292,10 +293,25 @@
         selectedItemForDetailView?.type === 'folder'
           ? findItemInTree(selectedItemForDetailView, updatedItem.id)
           : null
+      
+      // Helper to safely merge updates without wiping populated children
+      const safeMerge = (target: LibraryItem, source: LibraryItem) => {
+        // If target has children and source has empty children (likely from a shallow backend update),
+        // preserve the target's children.
+        if (target.type === 'folder' && source.type === 'folder') {
+            const sourceChildren = (source as MediaFolder).children
+            if ((!sourceChildren || sourceChildren.length === 0) && (target as MediaFolder).children?.length > 0) {
+                // Delete children from source before merging so Object.assign doesn't overwrite
+                delete (source as MediaFolder).children
+            }
+        }
+        Object.assign(target, source)
+      }
+
       if (selectedItemForDetailView?.id === updatedItem.id) {
-        Object.assign(selectedItemForDetailView, updatedItem)
+        safeMerge(selectedItemForDetailView, updatedItem)
       } else if (itemInDetailTree) {
-        Object.assign(itemInDetailTree, updatedItem)
+        safeMerge(itemInDetailTree, updatedItem)
       }
 
       // Find the item in the main view stack and update its properties in place.
@@ -343,8 +359,12 @@
 
   // Listener for BATCH metadata updates
   $effect(() => {
-    const unlisten = window.api.onLibraryItemsUpdated((updatedItems) => {
+    const unlisten = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
+      // DEBUG: Check for S02 episode titles
+      const s02ep = updatedItems.find(i => i.id === '3d69235ff950ca868da19df0626c7e518e51763212e2cb64e165193acdaefad4')
+      if (s02ep) console.log('[App] Received update for S02E01:', s02ep)
+      
       handleItemUpdates(updatedItems)
       // If any of the updated items could affect the continue watching list, refresh it.
       const shouldRefresh = updatedItems.some(
@@ -353,7 +373,7 @@
           (item.type === 'folder' && 'continueWatchingDismissed' in item)
       )
       if (shouldRefresh) {
-        window.api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+        api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
       }
     })
     return () => unlisten()
@@ -361,7 +381,7 @@
 
   // Listener for item deletion
   $effect(() => {
-    const unlisten = window.api.onLibraryItemDeleted((deletedItemId) => {
+    const unlisten = api.onLibraryItemDeleted((deletedItemId) => {
       log(`Received deletion event for item ${deletedItemId}`)
       // This logic is similar to `isHidden`, but it's a permanent removal.
       if (selectedItemForDetailView?.id === deletedItemId) goBack()
@@ -458,7 +478,7 @@
     lastDetailItem = null
     clearItemCache()
     viewStack = [] // Clear the view stack to show the welcome/loading screen
-    const newRoot = await window.api.performInitialScan()
+    const newRoot = await api.performInitialScan()
     if (newRoot) {
       primeCacheWithRoot(newRoot)
       activeModal = { type: 'initialFolderSettings', root: newRoot }
@@ -471,7 +491,7 @@
     isRefreshing = true
     lastDetailItem = null
     clearItemCache()
-    const refreshedRoot = await window.api.refreshLibrary()
+    const refreshedRoot = await api.refreshLibrary()
     if (refreshedRoot) {
       const loadedRoot = await getLoadedItem(refreshedRoot.id)
       if (loadedRoot) {
@@ -490,7 +510,7 @@
       type: 'file',
       watched: item.watched
     }
-    await window.api.playFile(plainFile)
+    await api.playFile(plainFile)
   }
 
   async function handleRevealItem(item: LibraryItem) {
@@ -498,19 +518,19 @@
       console.warn('Item has no path, cannot reveal.', item)
       return
     }
-    window.api.revealInExplorer(item.path)
+    api.revealInExplorer(item.path)
   }
 
   function handleDismissContinueWatching(showId: string) {
-    window.api.setContinueWatchingDismissed(showId)
+    api.setContinueWatchingDismissed(showId)
     continueWatchingItems = continueWatchingItems.filter((cw) => cw.show.id !== showId)
   }
 
   async function handleApplyInitialSettings(
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ) {
-    await window.api.applyInitialFolderSettings(settings)
-    const root = await window.api.getLibraryRoot()
+    await api.applyInitialFolderSettings(settings)
+    const root = await api.getLibraryRoot()
     if (root) {
       primeCacheWithRoot(root)
       const loadedRoot = await getLoadedItem(root.id)
@@ -537,7 +557,7 @@
       return
     }
 
-    const success = await window.api.trashItem(item.path)
+    const success = await api.trashItem(item.path)
     if (success) {
       await handleRefresh()
     }
@@ -566,7 +586,7 @@
       confirmClass: 'danger'
     })
     if (confirmed) {
-      await window.api.deleteItemFromDb(item.id)
+      await api.deleteItemFromDb(item.id)
       // The `onLibraryItemDeleted` listener will handle UI updates.
     }
   }
@@ -611,7 +631,7 @@
         if (parent.type === 'folder') {
           viewStack.push(parent)
         }
-        const processedItem = await window.api.getItemDetails(loadedItem.id)
+        const processedItem = await api.getItemDetails(loadedItem.id)
         selectedItemForDetailView = processedItem ?? loadedItem
       }
       return
@@ -631,7 +651,7 @@
     }
 
     lastDetailItem = null
-    const processedItem = await window.api.getItemDetails(loadedItem.id)
+    const processedItem = await api.getItemDetails(loadedItem.id)
     selectedItemForDetailView = processedItem ?? loadedItem
     detailViewSearchQuery = { text: '', tags: [] }
 
@@ -708,7 +728,7 @@
         }
       })
       if (result.confirmed) {
-        await window.api.clearItemMetadata(item.id, result.checkboxValue)
+        await api.clearItemMetadata(item.id, result.checkboxValue)
       }
     } else {
       const confirmed = await dialogStore.showConfirmation({
@@ -724,9 +744,9 @@
 
       if (isVirtual && item.type === 'folder') {
         const childIds = item.children.map((c) => c.id)
-        await window.api.clearVirtualFolderMetadata(childIds)
+        await api.clearVirtualFolderMetadata(childIds)
       } else {
-        await window.api.clearItemMetadata(item.id, false)
+        await api.clearItemMetadata(item.id, false)
       }
     }
     // The onLibraryItemUpdated/onLibraryItemsUpdated listeners will handle UI updates.
@@ -743,7 +763,7 @@
 
     if (confirmed) {
       const itemToUpdate = { ...JSON.parse(JSON.stringify(item)), isHidden: true }
-      await window.api.userUpdateItem(itemToUpdate)
+      await api.userUpdateItem(itemToUpdate)
       // The onLibraryItemUpdated listener will handle UI updates.
     }
 
@@ -760,16 +780,16 @@
         confirmClass: 'danger'
       })
       if (confirmed) {
-        await window.api.deleteItemFromDb(item.id)
+        await api.deleteItemFromDb(item.id)
         // The `onLibraryItemDeleted` listener will handle UI updates.
       }
     }
   }
 
   async function handleOpenLibrary(): Promise<void> {
-    const path = await window.api.selectLibraryDirectory()
+    const path = await api.selectLibraryDirectory()
     if (path) {
-      await window.api.saveSettings({ libraryLocation: path })
+      await api.saveSettings({ libraryLocation: path })
       // Reload the entire application to apply the new library path
       window.location.reload()
     }

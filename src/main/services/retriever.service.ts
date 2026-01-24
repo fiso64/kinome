@@ -1,6 +1,7 @@
 import path from 'path'
-import fs from 'fs/promises'
 import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../../shared/types'
+import { downloadImage } from '../utils/download'
+import { parseTitle } from '../utils/title-parser'
 
 const genreCache = new Map<number, string>()
 
@@ -45,51 +46,6 @@ const SPECIAL_SUBFOLDER_NAMES = [
 
 function getImagesPath(libraryDataPath: string): string {
   return path.join(libraryDataPath, 'images')
-}
-
-// Basic filename parser to get a searchable title.
-// e.g., "The.Movie.(2023).1080p.mkv" -> "The Movie"
-function parseTitle(name: string): string {
-  // 1. Only remove known video extensions. This is the key fix to avoid stripping ". 2" from folder names.
-  let cleaned = name.replace(/\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i, '')
-
-  // 2. Replace dots and underscores with spaces
-  cleaned = cleaned.replace(/[._]/g, ' ')
-
-  // 3. Remove common technical tags
-  cleaned = cleaned.replace(
-    /\b(1080p|720p|4k|uhd|bluray|dvd|x264|x265|aac|hevc|web-dl|webrip|brrip)\b/gi,
-    ' '
-  )
-
-  // 4. Trim whitespace so the "end of string" anchor `$` works correctly for the year.
-  cleaned = cleaned.trim()
-
-  // 5. Remove year if it is at the end of the string and enclosed in () or []
-  cleaned = cleaned.replace(/\s*[\[(](19|20)\d{2}[)\]]\s*$/, '')
-
-  // 6. Final cleanup of any remaining multiple spaces and trim.
-  return cleaned.replace(/\s+/g, ' ').trim()
-}
-
-export async function downloadImage(url: string, destinationPath: string): Promise<void> {
-  try {
-    // Ensure the destination directory exists before writing the file.
-    const dir = path.dirname(destinationPath)
-    await fs.mkdir(dir, { recursive: true })
-
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`)
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const imageBuffer = Buffer.from(await (response as any).arrayBuffer())
-    await fs.writeFile(destinationPath, imageBuffer)
-  } catch (error) {
-    console.error(`Error during image download or save from ${url}:`, error)
-    // Re-throw the error so the calling function knows the operation failed.
-    throw error
-  }
 }
 
 export async function searchTmdbAndApplyMetadata(
@@ -302,35 +258,35 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-  // Process cast members to get their best acting score.
-  ;(creditsData.cast ?? []).forEach((castMember: any) => {
-    const p = ensurePerson(castMember.id, castMember)
-    p.actingScore = Math.min(p.actingScore, castMember.order)
-    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-  })
-
-  // Process crew members to get their best crew score.
-  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
-    let bestJobIndex = Infinity
-    const importantJobsForPerson: string[] = []
-
-    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
-      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-      if (index !== -1) {
-        bestJobIndex = Math.min(bestJobIndex, index)
-        importantJobsForPerson.push(jobInfo.job)
-      }
+    // Process cast members to get their best acting score.
+    ; (creditsData.cast ?? []).forEach((castMember: any) => {
+      const p = ensurePerson(castMember.id, castMember)
+      p.actingScore = Math.min(p.actingScore, castMember.order)
+      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+      p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
     })
 
-    // Only add crew if they have an important job.
-    if (bestJobIndex !== Infinity) {
-      const p = ensurePerson(crewMember.id, crewMember)
-      p.crewScore = Math.min(p.crewScore, bestJobIndex)
-      p.jobs.push(...importantJobsForPerson)
-      p.personData = { ...p.personData, ...crewMember }
-    }
-  })
+    // Process crew members to get their best crew score.
+    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
+      let bestJobIndex = Infinity
+      const importantJobsForPerson: string[] = []
+
+        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
+          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+          if (index !== -1) {
+            bestJobIndex = Math.min(bestJobIndex, index)
+            importantJobsForPerson.push(jobInfo.job)
+          }
+        })
+
+      // Only add crew if they have an important job.
+      if (bestJobIndex !== Infinity) {
+        const p = ensurePerson(crewMember.id, crewMember)
+        p.crewScore = Math.min(p.crewScore, bestJobIndex)
+        p.jobs.push(...importantJobsForPerson)
+        p.personData = { ...p.personData, ...crewMember }
+      }
+    })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
   const finalCast: Person[] = []

@@ -1,3 +1,5 @@
+import { api } from './api'
+
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
 }
@@ -15,7 +17,7 @@ const itemCache = new Map<string, LibraryItem>()
 async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> {
   if (item.children === null) {
     log(`ItemStore: Lazy-loading children for "${item.name}"...`)
-    const children = await window.api.getChildren(item.id)
+    const children = await api.getChildren(item.id)
     item.children = children ?? []
     // Cache the newly loaded children so they can be individually updated later.
     for (const child of item.children) {
@@ -50,7 +52,7 @@ export async function getLoadedItem(itemId: string): Promise<LibraryItem | null>
 
   // 2. If not in cache, fetch the base item from the backend. This is the normal path for lazy-loading.
   log(`ItemStore: Cache MISS for item ${itemId}. Fetching from backend...`)
-  const item = await window.api.getItemById(itemId)
+  const item = await api.getItemById(itemId)
   if (!item) {
     return null
   }
@@ -134,6 +136,7 @@ export function triggerSeasonEpisodeFetch(item: LibraryItem): void {
 
     // This is a fire-and-forget call. The UI will update reactively
     // when the library-item-updated event is received.
-    window.api.getItemDetails(idToFetch)
+    api.getItemDetails(idToFetch)
   }
 }
+
