@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
-import type { LibraryItem, MediaFolder } from '../../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
+import { RESETTABLE_METADATA_KEYS, VIEW_SETTINGS_KEYS } from '../../shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -519,8 +520,7 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
     }
 
     // 4. Folder Settings
-    const viewKeys = ['layout', 'clickAction', 'gridPosterSize', 'listDescriptionRows', 'groupBy']
-    const hasViewUpdates = viewKeys.some((k) => k in updates)
+    const hasViewUpdates = VIEW_SETTINGS_KEYS.some((k) => k in updates)
     const hasScraperUpdates =
       'retrieve_children_metadata' in updates ||
       'children_type_hint' in updates ||
@@ -534,7 +534,7 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
       const scraperSettings = parseJsonSafe<any>(existing.scraper_settings_json, {})
 
       if (hasViewUpdates) {
-        for (const key of viewKeys) {
+        for (const key of VIEW_SETTINGS_KEYS) {
           if (key in updates) (viewSettings as any)[key] = (updates as any)[key]
         }
       }

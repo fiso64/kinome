@@ -14,6 +14,7 @@ import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 
 import type { MediaFolder, LibraryItem, MediaFile } from '../../shared/types'
+import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
@@ -317,8 +318,8 @@ export const getAutocompleteSuggestions = async () => {
     if (item.mediaType) mediaTypes.add(item.mediaType.trim())
     if (item.genres) item.genres.forEach((g) => genres.add(g.trim()))
     if (item.tmdbCredits) {
-      ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
-      ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
+      ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
+        ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
     }
     if (item.tags) {
       for (const [key, value] of Object.entries(item.tags)) {
@@ -473,6 +474,46 @@ export const handleItemRenamed = async (oldPath: string, _newName: string) => {
   }
 }
 export const updateItem = async (item: LibraryItem, isUser: boolean) => {
+  // --- Check for Virtual Folder Redirection ---
+  if (item.id.startsWith('virtual--')) {
+    log(`Redirection triggered for virtual item: ${item.id}`)
+    const parts = item.id.split('--')
+    const physicalParentId = parts[1] // virtual--{parentId}--{key}--{value}
+    const groupByKey = parts[2]
+    const groupByValue = parts[3]
+
+    if (physicalParentId && groupByKey && groupByValue) {
+      const parent = repositoryService.getItemById(physicalParentId) as MediaFolder
+      if (parent) {
+        // Prepare settings to save
+        const settingsToSave: Partial<MediaFolder> = {}
+        for (const key of VIEW_SETTINGS_KEYS) {
+          if ((item as any)[key] !== undefined) {
+            ; (settingsToSave as any)[key] = (item as any)[key]
+          }
+        }
+
+        // Update virtual settings on physical parent
+        if (!parent.virtualFolderSettings) parent.virtualFolderSettings = {}
+        if (!parent.virtualFolderSettings[groupByKey]) parent.virtualFolderSettings[groupByKey] = {}
+        parent.virtualFolderSettings[groupByKey][groupByValue] = settingsToSave
+
+        // Persistence trigger
+        repositoryService.updateItem(parent.id, {
+          virtualFolderSettings: parent.virtualFolderSettings
+        })
+
+        if (isUser) repositoryService.markAsUserEdited(parent.id)
+
+        // Propagate update to renderer (both the virtual item's "bare" state and the parent)
+        // Note: Renderer's MediaView will re-generate the virtual items from the updated parent.
+        await _finalizeItemUpdate([parent, item])
+        return
+      }
+    }
+  }
+
+  // --- Standard Item Update ---
   repositoryService.updateItem(item.id, item)
   if (isUser) repositoryService.markAsUserEdited(item.id)
   _finalizeItemUpdate(item)

@@ -450,8 +450,11 @@ export const VIEW_SETTINGS_KEYS = [
   'clickAction',
   // Layout-specific settings
   'gridPosterSize',
+  'listDescriptionRows',
+  'showHorizontalScrollbar',
   'groupBy',
-  // Other view-related settings
+  // Special settings
+  'childViewSettings',
   'virtualFolderSettings'
 ] as const
 

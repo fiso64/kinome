@@ -99,14 +99,29 @@ export function primeCacheWithRoot(root: MediaFolder): void {
  * @param updatedItem The new version of the item.
  */
 export function updateCachedItem(updatedItem: LibraryItem): void {
+  // If we already have this item in cache and it's a folder with children,
+  // ensure we don't wipe them out if the update is shallow.
+  const existing = itemCache.get(updatedItem.id)
+  let itemToCache = { ...updatedItem }
+
+  if (
+    existing &&
+    existing.type === 'folder' &&
+    itemToCache.type === 'folder' &&
+    (!itemToCache.children || itemToCache.children.length === 0) &&
+    existing.children?.length > 0
+  ) {
+    itemToCache.children = existing.children
+  }
+
   // We always store a CLONE to ensure no shared mutations.
-  const clonedUpdate = JSON.parse(JSON.stringify(updatedItem))
+  const clonedUpdate = JSON.parse(JSON.stringify(itemToCache))
   itemCache.set(updatedItem.id, clonedUpdate)
 
   // If the updated item is a folder and has children, we must also
   // recursively update/add those children to the cache to ensure consistency.
-  if (updatedItem.type === 'folder' && Array.isArray(updatedItem.children)) {
-    for (const child of updatedItem.children) {
+  if (itemToCache.type === 'folder' && Array.isArray((itemToCache as MediaFolder).children)) {
+    for (const child of (itemToCache as MediaFolder).children) {
       updateCachedItem(child)
     }
   }

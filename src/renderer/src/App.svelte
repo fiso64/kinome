@@ -17,7 +17,7 @@
     clearItemCache,
     primeCacheWithRoot
   } from './lib/item-store'
-  import { findParentOfItem, replaceItemInTree } from './lib/tree-helpers'
+  import { findItemInTree, findParentOfItem, replaceItemInTree } from './lib/tree-helpers'
   import { navStack } from './lib/navigation-store.svelte' // Extracted navigation logic
   import { searchStore, initializeSearchEffects } from './lib/search-store.svelte'
   import { modalStore } from './lib/modal-store.svelte'
@@ -162,22 +162,47 @@
       const newItem = { ...updatedItem }
       updateCachedItem(newItem)
 
+      // Helper to merge children if the update is shallow
+      const safeMergeWithChildren = <T extends MediaFolder>(existing: T, incoming: T): T => {
+        if (
+          incoming.type === 'folder' &&
+          (!incoming.children || incoming.children.length === 0) &&
+          existing.children?.length > 0
+        ) {
+          return { ...incoming, children: existing.children }
+        }
+        return incoming
+      }
+
       // 1. Update Detail View
       if (navStack.selectedItemForDetailView?.id === newItem.id) {
-        // If the item ITSELF is currently open in detail view, replace it
-        navStack.selectedItemForDetailView = newItem
+        const existing = navStack.selectedItemForDetailView as MediaFolder
+        navStack.selectedItemForDetailView = safeMergeWithChildren(existing, newItem as MediaFolder)
       } else if (navStack.selectedItemForDetailView?.type === 'folder') {
-        // If a folder is open, see if the item is INSIDE that folder
         const currentDetail = navStack.selectedItemForDetailView as MediaFolder
-        const updatedDetail = replaceItemInTree(currentDetail, newItem.id, newItem)
+        // For children in the tree, we still want to replace the reference,
+        // but if the "item in tree" already had children (e.g. a nested folder), we should keep them.
+        const existingItem = findItemInTree(currentDetail, newItem.id)
+        const itemToInject =
+          existingItem && existingItem.type === 'folder'
+            ? safeMergeWithChildren(existingItem as MediaFolder, newItem as MediaFolder)
+            : newItem
+
+        const updatedDetail = replaceItemInTree(currentDetail, newItem.id, itemToInject)
         if (updatedDetail !== currentDetail) {
           navStack.selectedItemForDetailView = updatedDetail
         }
       }
 
-      // 2. Update Main View Stack (recursively find and replace in all stack levels)
+      // 2. Update Main View Stack
       navStack.viewStack = navStack.viewStack.map((folderInStack) => {
-        return replaceItemInTree(folderInStack, newItem.id, newItem)
+        const existingItemInStack = findItemInTree(folderInStack, newItem.id)
+        const itemToInjectInStack =
+          existingItemInStack && existingItemInStack.type === 'folder'
+            ? safeMergeWithChildren(existingItemInStack as MediaFolder, newItem as MediaFolder)
+            : newItem
+
+        return replaceItemInTree(folderInStack, newItem.id, itemToInjectInStack)
       })
 
       // 3. Update search results list, if active.
