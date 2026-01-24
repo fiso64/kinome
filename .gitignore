@@ -5,6 +5,9 @@ node_modules
 out
 dist
 
+# Test media
+test/media-browser-test-lib
+
 # A common name for Electron Builder output
 /release
 
