@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS metadata (
     seasons_json TEXT, -- Cached TMDB seasons array
     episodes_json TEXT, -- Cached TMDB episodes array
 
+    -- Versioning for cache-busting
+    version INTEGER,
+
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
 );
 

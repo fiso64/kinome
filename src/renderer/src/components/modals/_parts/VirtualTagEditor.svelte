@@ -1,15 +1,23 @@
 <script lang="ts">
-  import type { VirtualTagConfig, VirtualTagCondition, VirtualTagTarget, VirtualTagOperator } from '../../../../../../shared/types'
+  import type {
+    VirtualTagConfig,
+    VirtualTagCondition,
+    VirtualTagTarget,
+    VirtualTagOperator
+  } from '../../../../../../shared/types'
 
-  let { tag = $bindable(), onDelete }: { tag: VirtualTagConfig, onDelete: () => void } = $props()
+  let { tag = $bindable(), onDelete }: { tag: VirtualTagConfig; onDelete: () => void } = $props()
 
   function addCondition() {
-    tag.conditions = [...tag.conditions, {
-      target: 'genre',
-      operator: 'contains',
-      value: '',
-      result: ''
-    }]
+    tag.conditions = [
+      ...tag.conditions,
+      {
+        target: 'genre',
+        operator: 'contains',
+        value: '',
+        result: ''
+      }
+    ]
   }
 
   function removeCondition(index: number) {
@@ -37,7 +45,12 @@
 
 <div class="virtual-tag-editor">
   <div class="header">
-    <input type="text" bind:value={tag.name} placeholder="Virtual Tag Name (e.g. is_animated)" class="tag-name-input" />
+    <input
+      type="text"
+      bind:value={tag.name}
+      placeholder="Virtual Tag Name (e.g. is_animated)"
+      class="tag-name-input"
+    />
     <button class="remove-btn" onclick={onDelete} title="Remove Virtual Tag">&times;</button>
   </div>
 
@@ -52,7 +65,12 @@
         </select>
 
         {#if condition.target === 'tag'}
-          <input type="text" bind:value={condition.targetKey} placeholder="Tag Key" class="small-input" />
+          <input
+            type="text"
+            bind:value={condition.targetKey}
+            placeholder="Tag Key"
+            class="small-input"
+          />
         {/if}
 
         <select bind:value={condition.operator}>
@@ -73,7 +91,7 @@
 
   <div class="footer-row">
     <button class="secondary small" onclick={addCondition}>+ Add Condition</button>
-    
+
     <div class="default-result">
       <span>Else</span>
       <input type="text" bind:value={tag.defaultResult} placeholder="Default Result" />
@@ -128,11 +146,12 @@
   .small-input {
     width: 80px;
   }
-  .if-label, .then-label {
+  .if-label,
+  .then-label {
     font-weight: bold;
     font-size: 0.9rem;
     color: var(--ev-c-text-2);
-    width: 30px; 
+    width: 30px;
   }
   .then-label {
     text-align: center;

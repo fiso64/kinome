@@ -35,10 +35,15 @@ export function initializeDatabase(): Database.Database {
 
     // Auto-migration for dismissal flags
     try {
-      db.prepare('ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0').run()
+      db.prepare(
+        'ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0'
+      ).run()
     } catch { }
     try {
       db.prepare('ALTER TABLE user_state ADD COLUMN next_up_dismissed INTEGER DEFAULT 0').run()
+    } catch { }
+    try {
+      db.prepare('ALTER TABLE metadata ADD COLUMN version INTEGER').run()
     } catch { }
 
     return db

@@ -69,7 +69,11 @@
 <div class="media-list" bind:this={listElement}>
   {#if items.length > 0}
     {#each items as item, i (item.id)}
-      {@const _debug = console.log(`[ListView] Item: ${item.name}`, { title: item.title, poster: item.posterPath, id: item.id })}
+      {@const _debug = console.log(`[ListView] Item: ${item.name}`, {
+        title: item.title,
+        poster: item.posterPath,
+        id: item.id
+      })}
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
       {@const displayTitle =
         'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null

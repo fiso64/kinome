@@ -28,11 +28,13 @@ async function walkAndUpsert(
     const rootName = path.basename(mediaSourcePath)
 
     // Upsert Root
-    db.prepare(`
+    db.prepare(
+      `
         INSERT INTO items (id, parent_id, path, name, type, is_missing)
         VALUES (?, NULL, '.', ?, 'folder', 0)
         ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
-      `).run(rootId, rootName)
+      `
+    ).run(rootId, rootName)
 
     visitedIds.add(rootId)
     queue.push({ currentPath: startPath, parentId: rootId })
@@ -57,7 +59,7 @@ async function walkAndUpsert(
       continue
     }
 
-    if (entries.some(e => e.name === '.ignore')) continue
+    if (entries.some((e) => e.name === '.ignore')) continue
 
     // Prepare batch operations
     const operations: (() => void)[] = []
@@ -93,11 +95,16 @@ async function walkAndUpsert(
         let stats = { size: 0, mtime: 0, birthtime: 0 }
         try {
           const s = await fs.stat(fullPath)
-          stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
-        } catch { }
+          stats = {
+            size: s.size,
+            mtime: Math.floor(s.mtimeMs),
+            birthtime: Math.floor(s.birthtimeMs)
+          }
+        } catch {}
 
         operations.push(() => {
-          db.prepare(`
+          db.prepare(
+            `
               INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
               VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
               ON CONFLICT(id) DO UPDATE SET
@@ -105,7 +112,8 @@ async function walkAndUpsert(
                 parent_id = excluded.parent_id,
                 size = excluded.size,
                 mtime = excluded.mtime
-            `).run({
+            `
+          ).run({
             id,
             parentId,
             path: relativePath,
@@ -126,7 +134,7 @@ async function walkAndUpsert(
     // Execute batch for this directory level
     if (operations.length > 0) {
       repositoryService.runTransaction(() => {
-        operations.forEach(op => op())
+        operations.forEach((op) => op())
       })
     }
   }
@@ -151,14 +159,17 @@ export async function scanDirectory(
   // 2. Filter in JS (Set difference).
   // 3. Batch update missing.
 
-  const allDbIds = db.prepare('SELECT id FROM items WHERE is_missing = 0').all().map((row: any) => row.id)
-  const missingIds = allDbIds.filter(id => !visitedIds.has(id))
+  const allDbIds = db
+    .prepare('SELECT id FROM items WHERE is_missing = 0')
+    .all()
+    .map((row: any) => row.id)
+  const missingIds = allDbIds.filter((id) => !visitedIds.has(id))
 
   if (missingIds.length > 0) {
     log(`Marking ${missingIds.length} items as missing.`)
     repositoryService.runTransaction(() => {
       const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
-      missingIds.forEach(id => stmt.run(id))
+      missingIds.forEach((id) => stmt.run(id))
     })
   }
 
@@ -175,7 +186,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
   // This allows us to know what *should* be there.
   // We explicitly use the recursive query capability here.
   const knownDescendants = repositoryService.getAllDescendantsAsList(node)
-  const knownIds = new Set(knownDescendants.map(d => d.id))
+  const knownIds = new Set(knownDescendants.map((d) => d.id))
 
   // 2. Walk the FS subtree.
   const visitedIds = await walkAndUpsert(rootAbsPath, mediaSourcePath, db)
@@ -194,7 +205,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
     log(`Marking ${missingIds.length} items as missing in subtree.`)
     repositoryService.runTransaction(() => {
       const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
-      missingIds.forEach(id => stmt.run(id))
+      missingIds.forEach((id) => stmt.run(id))
     })
   }
 }
@@ -208,7 +219,9 @@ export function pruneUntouchedMissingItems(_node: MediaFolder) {
 
 export async function verifyImagePaths(_item: any, imagesDir: string) {
   const db = repositoryService.getDb()
-  const rows = db.prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL').all() as any[]
+  const rows = db
+    .prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL')
+    .all() as any[]
 
   // Check all images in one pass
   for (const row of rows) {
@@ -216,20 +229,35 @@ export async function verifyImagePaths(_item: any, imagesDir: string) {
     let changed = false
 
     if (images.poster) {
-      try { await fs.access(path.join(imagesDir, images.poster)) }
-      catch { images.poster = null; changed = true; }
+      try {
+        await fs.access(path.join(imagesDir, images.poster))
+      } catch {
+        images.poster = null
+        changed = true
+      }
     }
     if (images.backdrop) {
-      try { await fs.access(path.join(imagesDir, images.backdrop)) }
-      catch { images.backdrop = null; changed = true; }
+      try {
+        await fs.access(path.join(imagesDir, images.backdrop))
+      } catch {
+        images.backdrop = null
+        changed = true
+      }
     }
     if (images.logo) {
-      try { await fs.access(path.join(imagesDir, images.logo)) }
-      catch { images.logo = null; changed = true; }
+      try {
+        await fs.access(path.join(imagesDir, images.logo))
+      } catch {
+        images.logo = null
+        changed = true
+      }
     }
 
     if (changed) {
-      db.prepare('UPDATE metadata SET images_json = ? WHERE item_id = ?').run(JSON.stringify(images), row.item_id)
+      db.prepare('UPDATE metadata SET images_json = ? WHERE item_id = ?').run(
+        JSON.stringify(images),
+        row.item_id
+      )
     }
   }
 }

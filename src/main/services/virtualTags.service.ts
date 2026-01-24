@@ -1,5 +1,10 @@
 import { getDb } from '../database/client'
-import type { VirtualTagConfig, VirtualTagCondition, LibraryItem, Settings } from '../../shared/types'
+import type {
+  VirtualTagConfig,
+  VirtualTagCondition,
+  LibraryItem,
+  Settings
+} from '../../shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [VirtualTags] ${message}`)
@@ -64,10 +69,12 @@ function buildConditionSql(condition: VirtualTagCondition): string {
 }
 
 function generateCaseSql(tag: VirtualTagConfig): string {
-  const conditionsSql = tag.conditions.map(cond => {
-    const whenSql = buildConditionSql(cond)
-    return `WHEN ${whenSql} THEN '${escapeString(cond.result)}'`
-  }).join(' ')
+  const conditionsSql = tag.conditions
+    .map((cond) => {
+      const whenSql = buildConditionSql(cond)
+      return `WHEN ${whenSql} THEN '${escapeString(cond.result)}'`
+    })
+    .join(' ')
 
   const defaultSql = tag.defaultResult ? `ELSE '${escapeString(tag.defaultResult)}'` : 'ELSE NULL'
 
@@ -85,7 +92,9 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
     // Clear all virtual tags
     if (itemIds && itemIds.length > 0) {
       const placeholders = itemIds.map(() => '?').join(',')
-      db.prepare(`UPDATE metadata SET virtual_tags_json = '{}' WHERE item_id IN (${placeholders})`).run(itemIds)
+      db.prepare(
+        `UPDATE metadata SET virtual_tags_json = '{}' WHERE item_id IN (${placeholders})`
+      ).run(itemIds)
     } else {
       db.prepare(`UPDATE metadata SET virtual_tags_json = '{}'`).run()
     }
@@ -105,7 +114,9 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
     // Ensure every item from the items table has a row in metadata table first.
     // This allows virtual tags to be persisted even if no other metadata exists.
     if (itemIds && itemIds.length > 0) {
-      db.prepare(`INSERT OR IGNORE INTO metadata (item_id) VALUES ${itemIds.map(() => '(?)').join(',')}`).run(itemIds)
+      db.prepare(
+        `INSERT OR IGNORE INTO metadata (item_id) VALUES ${itemIds.map(() => '(?)').join(',')}`
+      ).run(itemIds)
     } else {
       db.prepare(`INSERT OR IGNORE INTO metadata (item_id) SELECT id FROM items`).run()
     }
@@ -132,7 +143,10 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
 /**
  * Evaluates virtual tags for a single item in-memory.
  */
-export function evaluateVirtualTagsForItem(item: LibraryItem, settings: Settings): Record<string, string> {
+export function evaluateVirtualTagsForItem(
+  item: LibraryItem,
+  settings: Settings
+): Record<string, string> {
   const result: Record<string, string> = {}
   if (!settings.virtualTags || settings.virtualTags.length === 0) return result
 
@@ -176,9 +190,11 @@ function evaluateCondition(item: LibraryItem, condition: VirtualTagCondition): b
     case 'genre':
       if (Array.isArray(item.genres)) {
         if (condition.operator === 'contains') {
-          return item.genres.some(g => String(g).toLowerCase().includes(String(condition.value).toLowerCase()))
+          return item.genres.some((g) =>
+            String(g).toLowerCase().includes(String(condition.value).toLowerCase())
+          )
         }
-        return item.genres.some(g => String(g) === String(condition.value))
+        return item.genres.some((g) => String(g) === String(condition.value))
       }
       return false
     case 'tag':

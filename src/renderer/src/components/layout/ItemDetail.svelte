@@ -71,7 +71,7 @@
 
   $effect(() => {
     if (activeInfoTab !== 'credits') {
-      return
+      return undefined
     }
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -116,7 +116,7 @@
 
     if (!item.overview || !posterCol || !infoCol || !overviewWrapper || !overviewP) {
       isOverviewOverflowing = false
-      return
+      return undefined
     }
 
     const checkOverflow = () => {
@@ -191,6 +191,7 @@
   let isLogoLoaded = $state(false)
   let previousBackdropPath = $state<string | null | undefined>(undefined)
   let previousLogoPath = $state<string | null | undefined>(undefined)
+  let previousV = $state<number | undefined>(undefined)
 
   $effect(() => {
     // This effect runs whenever the item prop changes.
@@ -216,16 +217,17 @@
       parentShow = null
     }
 
-    // Also, reset fade-in animation flags if the image source has changed.
-    // This prevents a re-fade if other metadata is updated but the image is the same.
-    if (item.backdropPath !== previousBackdropPath) {
+    // Also, reset fade-in animation flags if the image source has changed (path or version).
+    // This ensures a smooth transition and bypasses stale browser-side render states.
+    if (item.backdropPath !== previousBackdropPath || item._v !== previousV) {
       isBackdropLoaded = false
       previousBackdropPath = item.backdropPath
     }
-    if (item.logoPath !== previousLogoPath) {
+    if (item.logoPath !== previousLogoPath || item._v !== previousV) {
       isLogoLoaded = false
       previousLogoPath = item.logoPath
     }
+    previousV = item._v
   })
 </script>
 
@@ -434,7 +436,6 @@
             layout={contentsLayout}
             onShowContextMenu={showContextMenu}
             {settings}
-            fullBackdropMode={settings.itemDetailBackdropSize === 'full'}
           />
         </div>
       {/if}
@@ -449,7 +450,6 @@
             layout="tree"
             onShowContextMenu={showContextMenu}
             {settings}
-            fullBackdropMode={settings.itemDetailBackdropSize === 'full'}
           />
         </div>
       {/if}

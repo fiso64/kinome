@@ -300,7 +300,7 @@ export interface MediaFolder extends StoredViewSettings {
   tmdbEpisodesFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
-  tmdbSeasons?: any[] | null // For the TV show root, caches the seasons array from TMDB
+  tmdbSeasons?: TmdbSeason[] | null // For the TV show root, caches the seasons array from TMDB
   tmdbEpisodes?: TmdbEpisode[] | null // For a season folder, caches episode data from TMDB
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
   continueWatchingDismissed?: boolean
@@ -328,6 +328,41 @@ export interface TmdbEpisode {
   name: string
   overview: string | null
   still_path: string | null
+}
+
+export interface TmdbSeason {
+  id: number
+  air_date?: string | null
+  episode_count?: number
+  name: string
+  overview: string | null
+  poster_path: string | null
+  season_number: number
+}
+
+export interface TmdbImage {
+  aspect_ratio: number
+  file_path: string
+  height: number
+  iso_639_1: string | null
+  vote_average: number
+  vote_count: number
+  width: number
+}
+
+export interface TmdbSearchResult {
+  id: number
+  title?: string
+  name?: string
+  overview: string | null
+  poster_path: string | null
+  backdrop_path: string | null
+  release_date?: string
+  first_air_date?: string
+  media_type?: 'movie' | 'tv'
+  genre_ids?: number[]
+  season_number?: number
+  episode_count?: number
 }
 
 export interface Database {
@@ -364,6 +399,25 @@ export interface SearchIndexEntry {
   _v?: number // Cache-busting version number
   // Score for ranking
   staticScore: number
+}
+
+export interface MediaProperties {
+  name: string
+  path: string
+  type: 'File' | 'Folder'
+  created: string
+  modified: string
+  size: number
+  contains?: {
+    files: number
+    folders: number
+  }
+}
+
+export interface TmdbImageResults {
+  posters: TmdbImage[]
+  backdrops: TmdbImage[]
+  logos: TmdbImage[]
 }
 
 /**

@@ -7,7 +7,8 @@ export function rebuildSearchIndex() {
   console.log('[Search] Rebuilding FTS index...')
   runTransaction(() => {
     db.prepare('DELETE FROM items_fts').run()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO items_fts (id, name, title, original_title, overview, people, tags)
       SELECT 
         i.id, i.name, 
@@ -15,7 +16,8 @@ export function rebuildSearchIndex() {
         m.tags_json || ' ' || coalesce(m.virtual_tags_json, '')
       FROM items i
       LEFT JOIN metadata m ON i.id = m.item_id
-    `).run()
+    `
+    ).run()
   })
   console.log('[Search] FTS index rebuild complete.')
 }
@@ -105,7 +107,6 @@ export function performSearch(query: {
             ELSE 4 
           END ASC, 
           m.title ASC, i.name ASC`
-
     } else {
       // --- Long Query Strategy (FTS Trigram) ---
 
@@ -136,11 +137,19 @@ export function performSearch(query: {
       tags.forEach((tag, idx) => {
         const pKey = `tagVal${idx}`
         const tagValue = tag.value.toLowerCase()
-        if (tag.key === 'mediaType') { finalSql += ` AND m.media_type = @${pKey}`; params[pKey] = tagValue }
-        else if (tag.key === 'year') { finalSql += ` AND m.year = @${pKey}`; params[pKey] = parseInt(tagValue) || 0 }
-        else if (tag.key === 'genre') { finalSql += ` AND lower(m.genres_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
-        else if (tag.key === 'person') { finalSql += ` AND lower(m.people_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
-        else {
+        if (tag.key === 'mediaType') {
+          finalSql += ` AND m.media_type = @${pKey}`
+          params[pKey] = tagValue
+        } else if (tag.key === 'year') {
+          finalSql += ` AND m.year = @${pKey}`
+          params[pKey] = parseInt(tagValue) || 0
+        } else if (tag.key === 'genre') {
+          finalSql += ` AND lower(m.genres_json) LIKE @${pKey}`
+          params[pKey] = `%"${tagValue}"%`
+        } else if (tag.key === 'person') {
+          finalSql += ` AND lower(m.people_json) LIKE @${pKey}`
+          params[pKey] = `%"${tagValue}"%`
+        } else {
           const pValKey = `tagVal${idx}`
           const pValLikeKey = `tagValLike${idx}`
           const pPathKey = `tagPath${idx}`
@@ -168,7 +177,7 @@ export function performSearch(query: {
         if (results.length === 0) {
           const trigrams = toTrigrams(normalized)
           if (trigrams.length > 0) {
-            const fuzzyMatchQuery = trigrams.map(t => `"${t}"`).join(' OR ')
+            const fuzzyMatchQuery = trigrams.map((t) => `"${t}"`).join(' OR ')
             params.ftsQuery = `${cols} : (${fuzzyMatchQuery})`
             // Re-run with same tag filters (appended to sql already) but new fts param
             results = db.prepare(sql).all(params) as any[]
@@ -200,11 +209,19 @@ export function performSearch(query: {
     tags.forEach((tag, idx) => {
       const pKey = `tagVal${idx}`
       const tagValue = tag.value.toLowerCase()
-      if (tag.key === 'mediaType') { sql += ` AND m.media_type = @${pKey}`; params[pKey] = tagValue }
-      else if (tag.key === 'year') { sql += ` AND m.year = @${pKey}`; params[pKey] = parseInt(tagValue) || 0 }
-      else if (tag.key === 'genre') { sql += ` AND lower(m.genres_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
-      else if (tag.key === 'person') { sql += ` AND lower(m.people_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
-      else {
+      if (tag.key === 'mediaType') {
+        sql += ` AND m.media_type = @${pKey}`
+        params[pKey] = tagValue
+      } else if (tag.key === 'year') {
+        sql += ` AND m.year = @${pKey}`
+        params[pKey] = parseInt(tagValue) || 0
+      } else if (tag.key === 'genre') {
+        sql += ` AND lower(m.genres_json) LIKE @${pKey}`
+        params[pKey] = `%"${tagValue}"%`
+      } else if (tag.key === 'person') {
+        sql += ` AND lower(m.people_json) LIKE @${pKey}`
+        params[pKey] = `%"${tagValue}"%`
+      } else {
         const pValKey = `tagVal${idx}`
         const pValLikeKey = `tagValLike${idx}`
         const pPathKey = `tagPath${idx}`
@@ -253,7 +270,10 @@ function mapRowToEntry(row: any): SearchIndexEntry {
   }
   const vtCount = entry.virtualTags ? Object.keys(entry.virtualTags).length : 0
   if (vtCount > 0) {
-    console.log(`[Search] Search result "${entry.title}" has ${vtCount} virtual tags:`, JSON.stringify(entry.virtualTags))
+    console.log(
+      `[Search] Search result "${entry.title}" has ${vtCount} virtual tags:`,
+      JSON.stringify(entry.virtualTags)
+    )
   }
   return entry
 }

@@ -97,7 +97,11 @@
       showNextUp = settings.showNextUp
       itemDetailBackdropSize = settings.itemDetailBackdropSize
       itemDetailBackdropBlur = settings.itemDetailBackdropBlur
-      virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: vt.id || crypto.randomUUID(), conditions: vt.conditions || [] }))
+      virtualTags = (settings.virtualTags ?? []).map((vt) => ({
+        ...vt,
+        id: vt.id || crypto.randomUUID(),
+        conditions: vt.conditions || []
+      }))
       libraryDataLocation = settings.libraryLocation
       mediaSourcePath = settings.mediaSourcePath ?? ''
       mediaSourcePathIsRelative = settings.mediaSourcePathIsRelative ?? false
@@ -488,7 +492,8 @@
       {/if}
     {:else if activeTab === 'virtualTags'}
       <p class="help-text">
-        Virtual tags are calculated automatically based on rules. They are stored in the database for fast searching and filtering.
+        Virtual tags are calculated automatically based on rules. They are stored in the database
+        for fast searching and filtering.
       </p>
       <div class="virtual-tags-list">
         {#each virtualTags as tag, i (tag.id)}

@@ -85,7 +85,7 @@ export async function executeCustomAction(
   if (!mediaSourcePath) return
   const absolutePath = path.join(mediaSourcePath, item.path)
   const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
-  let commandToExecute = action.command
+  const commandToExecute = action.command
     .replace(/{path}/g, absolutePath)
     .replace(/{title}/g, title)
     .replace(/{type}/g, item.mediaType ?? '')

@@ -153,7 +153,9 @@
         for (const item of filteredItems) {
           const values = getValuesForKey(item, groupByKey)
           if (values.length === 0) {
-            console.log(`[MediaView] Item "${item.title || (item as any).name}" has no values for key "${groupByKey}". Virtual Tags: ${JSON.stringify(item.virtualTags)}`)
+            console.log(
+              `[MediaView] Item "${item.title || (item as any).name}" has no values for key "${groupByKey}". Virtual Tags: ${JSON.stringify(item.virtualTags)}`
+            )
             if (!groups['Uncategorized']) groups['Uncategorized'] = []
             groups['Uncategorized'].push(item)
           } else {

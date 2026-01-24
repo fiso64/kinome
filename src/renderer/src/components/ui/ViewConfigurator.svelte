@@ -410,7 +410,7 @@
     initialSettings={childViewSettings ?? {}}
     onClose={() => (isChildSettingsModalOpen = false)}
     onSave={(newSettings) => (childViewSettings = newSettings)}
-    typeKey={'_default'}
+    typeKey="_default"
     {settings}
     {groupByKeys}
     availableLayouts={['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections']}

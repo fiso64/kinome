@@ -10,21 +10,27 @@ const itemCache = new Map<string, LibraryItem>()
 /**
  * Ensures that a given folder item has its children loaded.
  * If children are null, it fetches them from the backend.
- * This function MUTATES the item object passed to it.
  * @param item The folder item to check and potentially load children for.
- * @returns The same folder item, with its children array guaranteed to be populated.
+ * @returns A promise that resolves to either the original item or a NEW reference if children were loaded.
  */
 async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> {
   if (item.children === null) {
     log(`ItemStore: Lazy-loading children for "${item.name}"...`)
     const children = await api.getChildren(item.id)
-    item.children = children ?? []
+
+    // Create a NEW reference with children populated
+    const updatedFolder: MediaFolder = {
+      ...item,
+      children: children ?? []
+    }
+
     // Cache the newly loaded children so they can be individually updated later.
-    for (const child of item.children) {
+    for (const child of updatedFolder.children) {
       if (!itemCache.has(child.id)) {
-        itemCache.set(child.id, child)
+        itemCache.set(child.id, { ...child })
       }
     }
+    return updatedFolder
   }
   return item
 }
@@ -35,19 +41,23 @@ async function ensureChildrenAreLoaded(item: MediaFolder): Promise<MediaFolder> 
  * It caches results to avoid redundant backend calls.
  *
  * @param itemId The ID of the item to retrieve.
- * @returns A promise that resolves to the fully loaded LibraryItem, or null if not found.
+ * @returns A promise that resolves to a CLONED fully loaded LibraryItem, or null if not found.
  */
 export async function getLoadedItem(itemId: string): Promise<LibraryItem | null> {
   // 1. Check cache first for an already processed item.
   if (itemCache.has(itemId)) {
     const cachedItem = itemCache.get(itemId)!
     log(`ItemStore: Cache HIT for "${cachedItem.name}" (${itemId})`)
-    // This is a crucial check: a folder can be in the cache but with unloaded children.
-    // We must ensure they are loaded before returning the item.
+
     if (cachedItem.type === 'folder') {
-      await ensureChildrenAreLoaded(cachedItem)
+      const foldersWithChildren = await ensureChildrenAreLoaded(cachedItem)
+      // If ensureChildrenAreLoaded returned a new reference, update the cache
+      if (foldersWithChildren !== cachedItem) {
+        itemCache.set(itemId, foldersWithChildren)
+      }
+      return { ...foldersWithChildren }
     }
-    return cachedItem
+    return { ...cachedItem }
   }
 
   // 2. If not in cache, fetch the base item from the backend. This is the normal path for lazy-loading.
@@ -58,13 +68,14 @@ export async function getLoadedItem(itemId: string): Promise<LibraryItem | null>
   }
 
   // 3. If it's a folder, ensure its direct children are also loaded.
-  if (item.type === 'folder') {
-    await ensureChildrenAreLoaded(item)
+  let finalItem = item
+  if (finalItem.type === 'folder') {
+    finalItem = await ensureChildrenAreLoaded(finalItem)
   }
 
-  // 4. Store the fully loaded item in the cache and return it.
-  itemCache.set(itemId, item)
-  return item
+  // 4. Store the fully loaded item in the cache and return a CLONE.
+  itemCache.set(itemId, finalItem)
+  return { ...finalItem }
 }
 
 /**
@@ -74,10 +85,10 @@ export async function getLoadedItem(itemId: string): Promise<LibraryItem | null>
  */
 export function primeCacheWithRoot(root: MediaFolder): void {
   log(`ItemStore: Priming cache with root "${root.name}" and its ${root.children.length} children.`)
-  itemCache.set(root.id, root)
+  itemCache.set(root.id, { ...root })
   if (root.children) {
     for (const child of root.children) {
-      itemCache.set(child.id, child)
+      itemCache.set(child.id, { ...child })
     }
   }
 }
@@ -88,20 +99,12 @@ export function primeCacheWithRoot(root: MediaFolder): void {
  * @param updatedItem The new version of the item.
  */
 export function updateCachedItem(updatedItem: LibraryItem): void {
-  const cachedItem = itemCache.get(updatedItem.id)
-
-  if (cachedItem) {
-    // Item exists, merge properties. `updatedItem` is the source of truth.
-    Object.assign(cachedItem, updatedItem)
-  } else {
-    // Item doesn't exist, add it to the cache. We clone it to prevent
-    // any mutations of the object passed from the UI state.
-    itemCache.set(updatedItem.id, JSON.parse(JSON.stringify(updatedItem)))
-  }
+  // We always store a CLONE to ensure no shared mutations.
+  const clonedUpdate = JSON.parse(JSON.stringify(updatedItem))
+  itemCache.set(updatedItem.id, clonedUpdate)
 
   // If the updated item is a folder and has children, we must also
   // recursively update/add those children to the cache to ensure consistency.
-  // This is crucial for deep updates like fetching all episode titles for a season.
   if (updatedItem.type === 'folder' && Array.isArray(updatedItem.children)) {
     for (const child of updatedItem.children) {
       updateCachedItem(child)
@@ -128,15 +131,18 @@ export function triggerSeasonEpisodeFetch(item: LibraryItem): void {
     (item.mediaType === 'season' || item.mediaType === 'tv') &&
     !item.tmdbEpisodesFetched
   ) {
-    const isVirtual = (item as any).isVirtual === true
-    const physicalParentId = (item as any).physicalParentId
+    const folder = item as MediaFolder
+    // physicalParentId is an optional property for virtual folders.
+    // We check it using a safe cast since we know it's a folder.
+    const physicalParentId = (folder as any).physicalParentId as string | undefined
 
     // If it's a virtual folder, we trigger the fetch on its real parent.
-    const idToFetch = isVirtual && physicalParentId ? physicalParentId : item.id
+    const idToFetch = folder.path.startsWith('virtual://') && physicalParentId
+      ? physicalParentId
+      : folder.id
 
     // This is a fire-and-forget call. The UI will update reactively
     // when the library-item-updated event is received.
     api.getItemDetails(idToFetch)
   }
 }
-

@@ -258,35 +258,35 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-    // Process cast members to get their best acting score.
-    ; (creditsData.cast ?? []).forEach((castMember: any) => {
-      const p = ensurePerson(castMember.id, castMember)
-      p.actingScore = Math.min(p.actingScore, castMember.order)
-      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-      p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-    })
+  // Process cast members to get their best acting score.
+  ;(creditsData.cast ?? []).forEach((castMember: any) => {
+    const p = ensurePerson(castMember.id, castMember)
+    p.actingScore = Math.min(p.actingScore, castMember.order)
+    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
+  })
 
-    // Process crew members to get their best crew score.
-    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
-      let bestJobIndex = Infinity
-      const importantJobsForPerson: string[] = []
+  // Process crew members to get their best crew score.
+  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
+    let bestJobIndex = Infinity
+    const importantJobsForPerson: string[] = []
 
-        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
-          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-          if (index !== -1) {
-            bestJobIndex = Math.min(bestJobIndex, index)
-            importantJobsForPerson.push(jobInfo.job)
-          }
-        })
-
-      // Only add crew if they have an important job.
-      if (bestJobIndex !== Infinity) {
-        const p = ensurePerson(crewMember.id, crewMember)
-        p.crewScore = Math.min(p.crewScore, bestJobIndex)
-        p.jobs.push(...importantJobsForPerson)
-        p.personData = { ...p.personData, ...crewMember }
+    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
+      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+      if (index !== -1) {
+        bestJobIndex = Math.min(bestJobIndex, index)
+        importantJobsForPerson.push(jobInfo.job)
       }
     })
+
+    // Only add crew if they have an important job.
+    if (bestJobIndex !== Infinity) {
+      const p = ensurePerson(crewMember.id, crewMember)
+      p.crewScore = Math.min(p.crewScore, bestJobIndex)
+      p.jobs.push(...importantJobsForPerson)
+      p.personData = { ...p.personData, ...crewMember }
+    }
+  })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
   const finalCast: Person[] = []

@@ -201,7 +201,9 @@ export async function fetchEpisodeDataForContinueWatching(
   show: MediaFolder,
   episode: MediaFile
 ): Promise<LibraryItem[]> {
-  log(`[Continue Watching] fetchEpisodeData triggered for Show: "${show.name}", Episode S${episode.seasonNumber}E${episode.episodeNumber}`)
+  log(
+    `[Continue Watching] fetchEpisodeData triggered for Show: "${show.name}", Episode S${episode.seasonNumber}E${episode.episodeNumber}`
+  )
   if (episode.title && episode.posterPath) return []
   if (!show.tmdbId || !show.tmdbSeasons || pathsService.isRemoteLibrary()) return []
 
@@ -231,9 +233,13 @@ export async function fetchEpisodeDataForContinueWatching(
     if (!settings.tmdbApiKey) return []
     if (seasonFolder) {
       // Check if season is known in TMDB data
-      const seasonKnown = show.tmdbSeasons?.some(s => s.season_number === seasonFolder?.seasonNumber)
+      const seasonKnown = show.tmdbSeasons?.some(
+        (s) => s.season_number === seasonFolder?.seasonNumber
+      )
       if (!seasonKnown) {
-        log(`[Continue Watching] Season ${seasonFolder.seasonNumber} not found in cached metadata. Refetching show seasons...`)
+        log(
+          `[Continue Watching] Season ${seasonFolder.seasonNumber} not found in cached metadata. Refetching show seasons...`
+        )
         await retrieverService.refetchShowSeasons(show, settings, pathsService.getLibraryDataPath())
         // Re-fetch parent to get updated tmdbSeasons
         const updatedShow = repositoryService.getItemById(show.id) as MediaFolder
@@ -287,15 +293,15 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
     if (item.posterPath)
       try {
         await fs.unlink(path.join(imagesDir, item.posterPath))
-      } catch (e) { }
+      } catch (e) {}
     if (item.backdropPath)
       try {
         await fs.unlink(path.join(imagesDir, item.backdropPath))
-      } catch (e) { }
+      } catch (e) {}
     if (item.logoPath)
       try {
         await fs.unlink(path.join(imagesDir, item.logoPath))
-      } catch (e) { }
+      } catch (e) {}
   }
   for (const key of RESETTABLE_METADATA_KEYS) {
     // We check hasOwnProperty because we only want to reset properties that actually exist.
