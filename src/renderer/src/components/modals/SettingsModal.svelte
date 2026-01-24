@@ -1,13 +1,14 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import { formatLayoutString } from '../../../../shared/settings-helpers'
-  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
+  import { type AutocompleteConfig } from '../../lib/autocomplete-manager'
   import { dialogStore } from '../../lib/dialog-store'
   import { createEventDispatcher } from 'svelte'
   import DefaultViewSettingsModal from './DefaultViewSettingsModal.svelte'
   import DefaultLayoutSettingsModal from './DefaultLayoutSettingsModal.svelte'
   import PlayerCommandsModal from './PlayerCommandsModal.svelte'
   import CustomActionsModal from './CustomActionsModal.svelte'
+  import VirtualTagEditor from './_parts/VirtualTagEditor.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   import type { PlayerCommandConfig, CustomActionConfig } from '../../../../shared/types'
   const placeholderText = 'e.g., mpv "{PATH}" or "C:\\VLC\\vlc.exe" "{PATH}"'
@@ -41,7 +42,7 @@
   let libraryDataLocation = $state('') // The path to the library data directory
   let mediaSourcePath = $state('') // The path to the user's media files
   let mediaSourcePathIsRelative = $state(false)
-  let virtualTags = $state<{ id: string; name: string; expression: string }[]>([])
+  let virtualTags = $state<Settings['virtualTags']>([])
 
   // New structured view settings state
   let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
@@ -96,7 +97,7 @@
       showNextUp = settings.showNextUp
       itemDetailBackdropSize = settings.itemDetailBackdropSize
       itemDetailBackdropBlur = settings.itemDetailBackdropBlur
-      virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: crypto.randomUUID() }))
+      virtualTags = (settings.virtualTags ?? []).map((vt) => ({ ...vt, id: vt.id || crypto.randomUUID(), conditions: vt.conditions || [] }))
       libraryDataLocation = settings.libraryLocation
       mediaSourcePath = settings.mediaSourcePath ?? ''
       mediaSourcePathIsRelative = settings.mediaSourcePathIsRelative ?? false
@@ -151,61 +152,11 @@
   })
 
   function addVirtualTag() {
-    virtualTags.push({ id: crypto.randomUUID(), name: '', expression: '' })
-    virtualTags = virtualTags
+    virtualTags = [...(virtualTags || []), { id: crypto.randomUUID(), name: '', conditions: [] }]
   }
 
   function removeVirtualTag(id: string) {
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
-  }
-
-  const autocompleteConfig: AutocompleteConfig = {
-    getSuggestions: (text, cursorPos) => {
-      let wordStart = cursorPos
-      while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
-        wordStart--
-      }
-      const currentWord = text.substring(wordStart, cursorPos)
-
-      if (!currentWord) return []
-
-      const tagsMatch = currentWord.match(/^tags\.(\w*)$/)
-      if (tagsMatch) {
-        const partialKey = tagsMatch[1]
-        return (suggestions.tagKeys ?? [])
-          .filter((key) => key.toLowerCase().startsWith(partialKey.toLowerCase()))
-          .map((key) => `tags.${key}`)
-      } else {
-        return VIRTUAL_TAG_CONTEXT_KEYS.filter((key) =>
-          key.toLowerCase().startsWith(currentWord.toLowerCase())
-        )
-      }
-    },
-    onSelect: (suggestion, node) => {
-      const text = node.value
-      const cursorPos = node.selectionStart ?? 0
-
-      let wordStart = cursorPos
-      while (wordStart > 0 && /\w|\./.test(text[wordStart - 1])) {
-        wordStart--
-      }
-      const before = text.substring(0, wordStart)
-      const after = text.substring(cursorPos)
-
-      const activeTextarea = node as HTMLTextAreaElement
-      const tagId = activeTextarea.dataset.tagId
-      const tag = virtualTags.find((t) => t.id === tagId)
-      if (tag) {
-        tag.expression = `${before}${suggestion}${after}`
-        virtualTags = [...virtualTags]
-
-        queueMicrotask(() => {
-          const newCursorPos = (before + suggestion).length
-          activeTextarea.focus()
-          activeTextarea.setSelectionRange(newCursorPos, newCursorPos)
-        })
-      }
-    }
   }
 
   function handleCancel() {
@@ -218,9 +169,12 @@
       mediaSourcePath !== settings?.mediaSourcePath ||
       mediaSourcePathIsRelative !== settings?.mediaSourcePathIsRelative
 
-    const tagsToSave = virtualTags
-      .map(({ name, expression }) => ({ name, expression }))
-      .filter((vt) => vt.name && vt.expression)
+    // Deep clone to remove Svelte proxies before sending to IPC
+    const plainVirtualTags = JSON.parse(JSON.stringify(virtualTags || []))
+
+    const tagsToSave = plainVirtualTags
+      .map((vt) => ({ ...vt, name: vt.name.trim() }))
+      .filter((vt) => vt.name && vt.conditions.length > 0)
 
     await window.api.saveSettings({
       playerCommands: JSON.parse(JSON.stringify(playerCommands)),
@@ -533,46 +487,15 @@
         {/each}
       {/if}
     {:else if activeTab === 'virtualTags'}
-      <p><b>This feature is a work in progress and is currently slow.</b></p>
-      <div class="help-text">
-        <p>
-          Large numbers of virtual tag definitions or a large library can significantly impact
-          startup and reload performance.
-        </p>
-      </div>
+      <p class="help-text">
+        Virtual tags are calculated automatically based on rules. They are stored in the database for fast searching and filtering.
+      </p>
       <div class="virtual-tags-list">
-        {#each virtualTags as tag (tag.id)}
-          <div class="virtual-tag-item">
-            <div class="virtual-tag-inputs">
-              <input type="text" bind:value={tag.name} placeholder="Tag Name" class="tag-name" />
-              <textarea
-                bind:value={tag.expression}
-                placeholder="JavaScript Expression (e.g., tags.favorite ? 'Yes' : 'No')"
-                class="tag-expression"
-                rows="2"
-                use:autocomplete={autocompleteConfig}
-                data-tag-id={tag.id}
-              ></textarea>
-            </div>
-            <button class="remove-tag" onclick={() => removeVirtualTag(tag.id)} title="Remove Tag"
-              >&times;</button
-            >
-          </div>
+        {#each virtualTags as tag, i (tag.id)}
+          <VirtualTagEditor bind:tag={virtualTags[i]} onDelete={() => removeVirtualTag(tag.id)} />
         {/each}
       </div>
       <button class="secondary" onclick={addVirtualTag}>Add Virtual Tag</button>
-      <div class="help-text">
-        <p>
-          Create tags based on existing data using JavaScript. Your expression can access most
-          properties of a library item, such as:
-          <br />
-          <code>title, name, year, mediaType, genres, tags, path, watched, seasonNumber, etc.</code>
-        </p>
-        <p>
-          Example: <code>genres.includes('Animation') ? 'Animated' : 'Live Action'</code>
-        </p>
-        <p>Changes will be applied to all library items automatically after saving.</p>
-      </div>
     {/if}
   </div>
 </ModalWindow>
@@ -625,8 +548,7 @@
     height: 1.1rem;
     flex-shrink: 0;
   }
-  input[type='text'],
-  textarea.tag-expression {
+  input[type='text'] {
     font-family:
       ui-monospace,
       SFMono-Regular,
@@ -692,36 +614,6 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-  }
-  .virtual-tag-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-  .virtual-tag-inputs {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .tag-name,
-  .tag-expression {
-    width: 100%;
-  }
-  .tag-expression {
-    resize: vertical;
-    min-height: 50px;
-  }
-  .remove-tag {
-    background: none;
-    color: var(--ev-c-text-2);
-    font-size: 1.5rem;
-    padding: 0 0.5rem;
-    margin-top: 0.2rem;
-  }
-  .remove-tag:hover {
-    color: #e81123;
-    background: none;
   }
   .view-config-row {
     display: flex;

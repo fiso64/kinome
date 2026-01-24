@@ -1,341 +1,263 @@
-import Fuse from 'fuse.js'
+import { getDb, runTransaction } from './repository.service'
+import type { SearchIndexEntry } from '../../shared/types'
 
-import type { LibraryItem, SearchIndexEntry } from '../../shared/types'
-import { SEARCH_INDEX_PROPERTIES } from '../../shared/types'
-import { itemMatchesAllTags } from '../../shared/filter'
-
-const SEARCH_RESULT_LIMIT = 50
-
-let searchIndex: SearchIndexEntry[] = []
-const itemMap = new Map<string, LibraryItem>()
-const parentMap = new Map<string, string>() // Map<childId, parentId>
-
-const EXCLUDED_FOLDER_NAMES = [
-  'extras',
-  'featurettes',
-  'specials',
-  'behind the scenes',
-  'deleted scenes',
-  'interviews'
-].map((name) => name.toLowerCase())
-
-/**
- * Calculates a static "importance" score for an item.
- * @param item The item to score.
- * @param parent The item's parent, if it exists.
- * @returns A numeric score.
- */
-function calculateStaticScore(item: LibraryItem, parent?: LibraryItem): number {
-  let score = 0
-  // Major boost for poster
-  if (item.posterPath) score += 100
-  // Minor boost for having a fetched title
-  if (item.title) score += 10
-  // Minor boost for being a folder
-  if (item.type === 'folder') score += 5
-
-  // Soft deduplication: a file whose parent has a poster gets a penalty.
-  if (item.type === 'file' && parent?.posterPath) {
-    score -= 50
-  }
-
-  return score
+// Rebuilds the FTS index from scratch. Useful for migration or corruption recovery.
+export function rebuildSearchIndex() {
+  const db = getDb()
+  console.log('[Search] Rebuilding FTS index...')
+  runTransaction(() => {
+    db.prepare('DELETE FROM items_fts').run()
+    db.prepare(`
+      INSERT INTO items_fts (id, name, title, original_title, overview, people, tags)
+      SELECT 
+        i.id, i.name, 
+        m.title, m.original_title, m.overview, m.people_json, 
+        m.tags_json || ' ' || coalesce(m.virtual_tags_json, '')
+      FROM items i
+      LEFT JOIN metadata m ON i.id = m.item_id
+    `).run()
+  })
+  console.log('[Search] FTS index rebuild complete.')
 }
 
 /**
- * Creates a denormalized, flat search entry from a library item.
- * This function is the key to performance: it creates plain JavaScript
- * object copies of any nested data, ensuring the search index itself
- * is free of proxies and is "IPC-safe" by design.
- * @param item The library item to convert.
- * @param parent The item's parent.
- * @returns A new, plain search index entry.
+ * Initializes the search index. Checks if FTS is populated, and rebuilds if empty but items exist.
  */
-function createSearchIndexEntry(item: LibraryItem, parent?: LibraryItem): SearchIndexEntry {
-  const entry: Partial<SearchIndexEntry> = {}
+export function buildFullSearchIndex(_items?: any[]) {
+  const db = getDb()
+  try {
+    const count = db.prepare('SELECT count(*) as c FROM items_fts').get() as { c: number }
+    const itemCount = db.prepare('SELECT count(*) as c FROM items').get() as { c: number }
 
-  // Copy all relevant properties from the item to the search entry.
-  for (const key of SEARCH_INDEX_PROPERTIES) {
-    if (Object.prototype.hasOwnProperty.call(item, key)) {
-      const value = (item as any)[key]
-      // Deep clone arrays/objects to ensure the index is free of proxies.
-      if (typeof value === 'object' && value !== null) {
-        ; (entry as any)[key] = structuredClone(value)
-      } else {
-        ; (entry as any)[key] = value
-      }
+    if (count.c === 0 && itemCount.c > 0) {
+      console.log('[Search] FTS index is empty but items exist. Triggering rebuild.')
+      rebuildSearchIndex()
     }
-  }
-
-  // Handle special cases and computed properties.
-  entry.title = item.title ?? item.name
-
-  // Extract person names from credits
-  if ('tmdbCredits' in item && item.tmdbCredits) {
-    const personNames = new Set<string>()
-      ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && personNames.add(p.name))
-      ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && personNames.add(p.name))
-    if (personNames.size > 0) {
-      entry.persons = Array.from(personNames)
-    }
-  }
-
-  entry.staticScore = calculateStaticScore(item, parent)
-
-  return entry as SearchIndexEntry
-}
-
-/**
- * Removes an entry from the search index array by its ID.
- */
-export function removeItemFromIndex(itemId: string) {
-  const index = searchIndex.findIndex((i) => i.id === itemId)
-  if (index !== -1) {
-    searchIndex.splice(index, 1)
+  } catch (e) {
+    console.error('[Search] Failed to check/build FTS index:', e)
   }
 }
 
-/**
- * Updates the search index for a batch of items in one pass.
- * @param items The array of LibraryItem objects to update.
- */
-/**
- * Checks if an item is a descendant of any folder in the exclusion list.
- * Travels up the parentMap to find if any ancestor is excluded.
- */
-function isDescendantOfExcluded(itemId: string): boolean {
-  let currentId = itemId
-  while (true) {
-    const item = itemMap.get(currentId)
-    if (!item) break // Should not happen if map is consistent, or we reached root
-
-    if (item.type === 'folder' && EXCLUDED_FOLDER_NAMES.includes(item.name.toLowerCase())) {
-      return true
-    }
-
-    const parentId = parentMap.get(currentId)
-    if (!parentId) break // Root reached
-    currentId = parentId
-  }
-  return false
+export function updateIndexForItems(_items: any[]) {
+  // Handled by SQL triggers. No-op.
 }
 
-/**
- * Updates the search index for a batch of items in one pass.
- * @param items The array of LibraryItem objects to update.
- */
-export function updateIndexForItems(items: LibraryItem[]) {
-  const itemsToUpdate = new Map<string, LibraryItem>()
-  const itemsToRemove = new Set<string>()
-
-  // 1. Update Maps first
-  for (const item of items) {
-    itemMap.set(item.id, item)
-    if (item.parentId) {
-      parentMap.set(item.id, item.parentId)
-    }
-  }
-
-  // 2. Determine status
-  for (const item of items) {
-    if (item.isHidden || isDescendantOfExcluded(item.id)) {
-      itemsToRemove.add(item.id)
-    } else {
-      itemsToUpdate.set(item.id, item)
-    }
-  }
-
-  if (itemsToRemove.size === 0 && itemsToUpdate.size === 0) return
-
-  const newSearchIndex: SearchIndexEntry[] = []
-  const updatedIds = new Set<string>()
-
-  // Rebuild the index by iterating through the old one
-  for (const entry of searchIndex) {
-    if (itemsToRemove.has(entry.id)) {
-      continue // Skip removed items
-    }
-    if (itemsToUpdate.has(entry.id)) {
-      const item = itemsToUpdate.get(entry.id)!
-      const parentId = parentMap.get(item.id)
-      const parent = parentId ? itemMap.get(parentId) : undefined
-      newSearchIndex.push(createSearchIndexEntry(item, parent))
-      updatedIds.add(entry.id)
-    } else {
-      newSearchIndex.push(entry) // Keep existing item
-    }
-  }
-
-  // Add any new items that weren't in the original index
-  for (const [id, item] of itemsToUpdate.entries()) {
-    if (!updatedIds.has(id)) {
-      const parentId = parentMap.get(item.id)
-      const parent = parentId ? itemMap.get(parentId) : undefined
-      newSearchIndex.push(createSearchIndexEntry(item, parent))
-    }
-  }
-
-  searchIndex = newSearchIndex
-  console.log(
-    `[Search Index] Batched update complete. Updated: ${itemsToUpdate.size}, Removed: ${itemsToRemove.size}`
-  )
-}
-
-// Proxy-based change detection has been removed.
-// The library.service is now responsible for explicitly triggering index updates
-// and notifying the renderer.
-
-/**
- * Builds the entire search index from a flat list of all library items.
- * This replaces the recursive traversal which required a loaded tree.
- */
-export function buildFullSearchIndex(allItems: LibraryItem[]) {
-  const startTime = performance.now()
-  searchIndex = []
-  itemMap.clear()
-  parentMap.clear()
-  console.log(
-    `[${new Date().toISOString()}] [Search] Index build initiated for ${allItems.length} items.`
-  )
-
-  // 1. Populate Item Map and Parent Map
-  // We rely on `parentId` which is now populated from SQLite.
-  for (const item of allItems) {
-    itemMap.set(item.id, item)
-    if (item.parentId) {
-      parentMap.set(item.id, item.parentId)
-    }
-  }
-
-  // 2. Build Index with proper scoring and exclusion
-  for (const item of allItems) {
-    if (item.isHidden) continue
-
-    // Check ancestry for exclusion (e.g. content inside 'extras')
-    if (isDescendantOfExcluded(item.id)) {
-      continue
-    }
-
-    const parentId = parentMap.get(item.id)
-    const parent = parentId ? itemMap.get(parentId) : undefined
-    const entry = createSearchIndexEntry(item, parent)
-    searchIndex.push(entry)
-  }
-
-  const endTime = performance.now()
-  const duration = (endTime - startTime).toFixed(2)
-  console.log(
-    `[${new Date().toISOString()}] [Search] Index built with ${searchIndex.length} items in ${duration}ms.`
-  )
-}
-
-/**
- * Recursively removes an item and all its descendants from the in-memory lookup maps and search index.
- * @param item The root item to remove.
- */
-export function removeItemAndDescendantsFromIndex(item: LibraryItem) {
-  function unindexRecursively(currentItem: LibraryItem) {
-    itemMap.delete(currentItem.id)
-    parentMap.delete(currentItem.id)
-    removeItemFromIndex(currentItem.id)
-    if (currentItem.type === 'folder' && currentItem.children) {
-      currentItem.children.forEach(unindexRecursively)
-    }
-  }
-  unindexRecursively(item)
+export function removeItemFromIndex(_itemId: string) {
+  // Handled by SQL triggers. No-op.
 }
 
 function normalizeText(text: string): string {
-  // A simpler normalization for backend search, as tag syntax is already parsed out.
-  return text
-    .toLowerCase()
-    .replace(/[.:_,-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function getRankedResults(query: {
-  text: string
-  tags: { key: string; value: string }[]
-}): { item: SearchIndexEntry; finalScore: number; dynamicScore: number }[] {
-  const hasText = query.text.trim() !== ''
-  const hasTags = query.tags.length > 0
-
-  if (!hasText && !hasTags) {
-    return []
-  }
-
-  // 1. Filter by tags using the shared utility
-  const tagFilteredItems = hasTags
-    ? searchIndex.filter((item) => itemMatchesAllTags(item, query))
-    : searchIndex
-
-  // 2. If no text, sort by static score and return
-  if (!hasText) {
-    return tagFilteredItems
-      .sort((a, b) => b.staticScore - a.staticScore)
-      .map((item) => ({ item, finalScore: item.staticScore, dynamicScore: 0 }))
-  }
-
-  // 3. Use Fuse.js for fuzzy search
-  const fuse = new Fuse(tagFilteredItems, {
-    keys: ['title'],
-    includeScore: true,
-    threshold: 0.4,
-    ignoreLocation: true
-  })
-  const fuseResults = fuse.search(normalizeText(query.text))
-
-  // 4. Combine scores
-  const rankedResults = fuseResults.map((result) => {
-    const matchScore = 1 - (result.score ?? 1)
-    const dynamicScore = matchScore * 50
-    const finalScore = result.item.staticScore + dynamicScore
-    return { item: result.item, finalScore, dynamicScore }
-  })
-
-  // 5. Sort by final score
-  return rankedResults.sort((a, b) => b.finalScore - a.finalScore)
+  // Remove special FTS5 chars to prevent syntax errors
+  return text.replace(/["*]/g, '').trim()
 }
 
 /**
- * Performs a search and returns a ranked list of items for the UI.
- * This is the lean, production-ready version.
+ * Generates trigrams from a string for fuzzy matching.
+ * e.g., "hello" -> "hel", "ell", "llo"
  */
+function toTrigrams(text: string): string[] {
+  if (text.length < 3) return []
+  const trigrams: string[] = []
+  for (let i = 0; i < text.length - 2; i++) {
+    trigrams.push(text.substring(i, i + 3))
+  }
+  return trigrams
+}
+
 export function performSearch(query: {
   text: string
   tags: { key: string; value: string }[]
 }): SearchIndexEntry[] {
-  const ranked = getRankedResults(query)
-  return ranked.map((r) => r.item).slice(0, SEARCH_RESULT_LIMIT)
+  const db = getDb()
+  const { text, tags } = query
+  const params: any = {}
+  let sql = ''
+
+  // 1. Text Search Logic
+  if (text.trim()) {
+    const normalized = normalizeText(text)
+
+    if (normalized.length < 3) {
+      // --- Short Query Strategy (LIKE) ---
+      // Prioritize: Title StartsWith > Title Contains > Name StartsWith > Name Contains
+      sql = `
+          SELECT 
+            i.id, i.type, i.name, i.path,
+            m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
+            m.people_json, m.episode_number, m.virtual_tags_json,
+            u.watched,
+            0 as rank,
+            0 as static_score
+          FROM items i
+          LEFT JOIN metadata m ON i.id = m.item_id
+          LEFT JOIN user_state u ON i.id = u.item_id
+          WHERE (i.name LIKE @likeQuery OR m.title LIKE @likeQuery)
+        `
+      params.likeQuery = `%${normalized}%`
+      params.startQuery = `${normalized.toLowerCase()}%`
+
+      sql += ` ORDER BY 
+          CASE WHEN m.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
+          CASE 
+            WHEN lower(coalesce(m.title, '')) LIKE @startQuery THEN 1 
+            WHEN lower(coalesce(m.title, '')) LIKE @likeQuery THEN 2 
+            WHEN lower(i.name) LIKE @startQuery THEN 3 
+            ELSE 4 
+          END ASC, 
+          m.title ASC, i.name ASC`
+
+    } else {
+      // --- Long Query Strategy (FTS Trigram) ---
+
+      // Base Query Structure
+      const buildFtsQuery = (matchQuery: string) => `
+          SELECT 
+            i.id, i.type, i.name, i.path,
+            m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
+            m.people_json, m.episode_number, m.virtual_tags_json,
+            u.watched,
+            items_fts.rank,
+            0 as static_score
+          FROM items_fts
+          JOIN items i ON items_fts.id = i.id
+          LEFT JOIN metadata m ON i.id = m.item_id
+          LEFT JOIN user_state u ON i.id = u.item_id
+          WHERE items_fts MATCH ${matchQuery}
+        `
+
+      // Columns to search in. We explicitly EXCLUDE 'overview' to avoid noise.
+      const cols = '{title original_title name people tags}'
+
+      // --- Unified Execution Flow ---
+
+      let finalSql = buildFtsQuery('@ftsQuery')
+
+      // Append Tags
+      tags.forEach((tag, idx) => {
+        const pKey = `tagVal${idx}`
+        const tagValue = tag.value.toLowerCase()
+        if (tag.key === 'mediaType') { finalSql += ` AND m.media_type = @${pKey}`; params[pKey] = tagValue }
+        else if (tag.key === 'year') { finalSql += ` AND m.year = @${pKey}`; params[pKey] = parseInt(tagValue) || 0 }
+        else if (tag.key === 'genre') { finalSql += ` AND lower(m.genres_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
+        else if (tag.key === 'person') { finalSql += ` AND lower(m.people_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
+        else {
+          const pValKey = `tagVal${idx}`
+          const pValLikeKey = `tagValLike${idx}`
+          const pPathKey = `tagPath${idx}`
+          params[pValKey] = tagValue
+          params[pValLikeKey] = `%${tagValue}%`
+          params[pPathKey] = `$.${tag.key}`
+          finalSql += ` AND (
+                    lower(json_extract(m.tags_json, @${pPathKey})) = @${pValKey} OR 
+                    lower(json_extract(m.tags_json, @${pPathKey})) LIKE @${pValLikeKey} OR
+                    lower(json_extract(m.virtual_tags_json, @${pPathKey})) = @${pValKey}
+                )`
+        }
+      })
+
+      finalSql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.5, 0.5, 0.5) ASC LIMIT 50`
+
+      // Execute Standard
+      sql = finalSql
+      params.ftsQuery = `${cols} : "${normalized}"`
+
+      try {
+        let results = db.prepare(sql).all(params) as any[]
+
+        // Fuzzy Fallback
+        if (results.length === 0) {
+          const trigrams = toTrigrams(normalized)
+          if (trigrams.length > 0) {
+            const fuzzyMatchQuery = trigrams.map(t => `"${t}"`).join(' OR ')
+            params.ftsQuery = `${cols} : (${fuzzyMatchQuery})`
+            // Re-run with same tag filters (appended to sql already) but new fts param
+            results = db.prepare(sql).all(params) as any[]
+          }
+        }
+
+        return results.map(mapRowToEntry)
+      } catch (e) {
+        console.error('[Search] Execution failed:', e)
+        return []
+      }
+    }
+  } else {
+    // --- No Text Query ---
+    sql = `
+      SELECT 
+        i.id, i.type, i.name, i.path,
+        m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
+        m.people_json, m.episode_number, m.virtual_tags_json,
+        u.watched,
+        0 as rank,
+        0 as static_score
+      FROM items i
+      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN user_state u ON i.id = u.item_id
+      WHERE 1=1
+    `
+    // Append Tags
+    tags.forEach((tag, idx) => {
+      const pKey = `tagVal${idx}`
+      const tagValue = tag.value.toLowerCase()
+      if (tag.key === 'mediaType') { sql += ` AND m.media_type = @${pKey}`; params[pKey] = tagValue }
+      else if (tag.key === 'year') { sql += ` AND m.year = @${pKey}`; params[pKey] = parseInt(tagValue) || 0 }
+      else if (tag.key === 'genre') { sql += ` AND lower(m.genres_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
+      else if (tag.key === 'person') { sql += ` AND lower(m.people_json) LIKE @${pKey}`; params[pKey] = `%"${tagValue}"%` }
+      else {
+        const pValKey = `tagVal${idx}`
+        const pValLikeKey = `tagValLike${idx}`
+        const pPathKey = `tagPath${idx}`
+        params[pValKey] = tagValue
+        params[pValLikeKey] = `%${tagValue}%`
+        params[pPathKey] = `$.${tag.key}`
+        sql += ` AND (
+          lower(json_extract(m.tags_json, @${pPathKey})) = @${pValKey} OR 
+          lower(json_extract(m.tags_json, @${pPathKey})) LIKE @${pValLikeKey} OR
+          lower(json_extract(m.virtual_tags_json, @${pPathKey})) = @${pValKey}
+        )`
+      }
+    })
+
+    sql += ` ORDER BY m.title ASC, i.name ASC LIMIT 50`
+  }
+
+  // Execute for Short/Empty query paths
+  try {
+    const rows = db.prepare(sql).all(params) as any[]
+    return rows.map(mapRowToEntry)
+  } catch (e) {
+    console.error('[Search] Error executing search query:', e)
+    return []
+  }
 }
 
-/**
- * Performs a search and returns detailed data for debugging purposes.
- */
-export function debugPerformSearch(query: {
-  text: string
-  tags: { key: string; value: string }[]
-}): any {
-  const ranked = getRankedResults(query)
+function mapRowToEntry(row: any): SearchIndexEntry {
+  const images = row.images_json ? JSON.parse(row.images_json) : {}
+  const entry = {
+    id: row.id,
+    title: row.title ?? row.name,
+    type: row.type,
+    posterPath: images.poster,
+    overview: row.overview,
+    mediaType: row.media_type,
+    year: row.year,
+    genres: row.genres_json ? JSON.parse(row.genres_json) : [],
+    tags: row.tags_json ? JSON.parse(row.tags_json) : {},
+    virtualTags: row.virtual_tags_json ? JSON.parse(row.virtual_tags_json) : {},
+    watched: Boolean(row.watched),
+    episodeNumber: row.episode_number,
+    isMissing: false,
+    _v: 0,
+    staticScore: 0
+  }
+  const vtCount = entry.virtualTags ? Object.keys(entry.virtualTags).length : 0
+  if (vtCount > 0) {
+    console.log(`[Search] Search result "${entry.title}" has ${vtCount} virtual tags:`, JSON.stringify(entry.virtualTags))
+  }
+  return entry
+}
 
-  // We use `reduce` to transform the array of results into an object.
-  // When console.table receives an object, it uses the object's keys
-  // as the index column, effectively replacing the default '0, 1, 2...' index.
-  const resultsAsObject = ranked
-    .slice(0, SEARCH_RESULT_LIMIT)
-    .reduce((acc: Record<string, unknown>, r) => {
-      // The key for our object is the final score.
-      const key = r.finalScore.toFixed(2)
-      // The value is the row data. We exclude noisy fields for a cleaner table.
-      const { id, posterPath, staticScore, ...restOfItem } = r.item
-      acc[key] = {
-        ...restOfItem,
-        breakdown: `${staticScore} + ${r.dynamicScore.toFixed(2)}`,
-        id // Keep id for reference
-      }
-      return acc
-    }, {})
-
-  return resultsAsObject
+export function debugPerformSearch(query: any) {
+  return performSearch(query)
 }

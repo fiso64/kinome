@@ -103,9 +103,9 @@ def migrate_node(cursor, node, parent_id, root_path_override=None):
             INSERT OR REPLACE INTO metadata (
                 item_id, tmdb_id, media_type, title, original_title, overview,
                 release_date, year, season_number, episode_number,
-                images_json, genres_json, tags_json, people_json,
+                images_json, genres_json, tags_json, virtual_tags_json, people_json,
                 seasons_json, episodes_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             item_id,
             node.get("tmdbId"),
@@ -120,6 +120,7 @@ def migrate_node(cursor, node, parent_id, root_path_override=None):
             json.dumps(images),
             json.dumps(node.get("genres", [])),
             json.dumps(node.get("tags", {})),
+            json.dumps(node.get("virtualTags", {})),
             json.dumps(node.get("tmdbCredits", None)),
             json.dumps(node.get("tmdbSeasons", None)),
             json.dumps(node.get("tmdbEpisodes", None))

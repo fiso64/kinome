@@ -145,7 +145,7 @@ export async function fetchMetadataForLibrary() {
       for (const item of updatedItems) {
         item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
       }
-      searchService.updateIndexForItems(updatedItems)
+      // Note: searchService.updateIndexForItems is handled by DB triggers on repositoryService.updateItem
       const plainItems = JSON.parse(JSON.stringify(updatedItems))
       getTransport().notifyLibraryItemsUpdated(plainItems)
     }
@@ -363,12 +363,8 @@ async function _clearChildrenRecursively(
 }
 
 async function _finalizeMetadataClear(modifiedItems: LibraryItem[]): Promise<LibraryItem[]> {
-  const currentSettings = await settingsService.readSettings()
-  for (const item of modifiedItems) {
-    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, currentSettings)
-  }
   repositoryService.setBulkUpdateStatus(false)
-  // No need to update search index here, it's handled by _finalizeItemUpdate in library.service
+  // Virtual tags are reapplied via _finalizeItemUpdate -> applyVirtualTags logic in library.service
   log(`Finished metadata clear for ${modifiedItems.length} items.`)
   return modifiedItems
 }
@@ -613,7 +609,7 @@ export async function applyTmdbResult(
     repositoryService.setBulkUpdateStatus(false)
   }
   item._v = Date.now()
-  item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+  // Virtual tags will be computed in _finalizeItemUpdate
   return item
 }
 

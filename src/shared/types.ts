@@ -164,6 +164,24 @@ export const DEFAULT_LAYOUTS_CONFIG = {
  */
 export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 
+export type VirtualTagOperator = 'equals' | 'contains' | 'greaterThan' | 'lessThan'
+export type VirtualTagTarget = 'genre' | 'tag' | 'year' | 'title' | 'path' | 'mediaType'
+
+export interface VirtualTagCondition {
+  target: VirtualTagTarget
+  targetKey?: string // For 'tag' target
+  operator: VirtualTagOperator
+  value: string | number
+  result: string
+}
+
+export interface VirtualTagConfig {
+  id: string
+  name: string
+  conditions: VirtualTagCondition[]
+  defaultResult?: string
+}
+
 export interface Settings {
   tmdbApiKey: string
   useLogos: boolean
@@ -171,7 +189,7 @@ export interface Settings {
   grayOutWatched: boolean
   showContinueWatching: boolean
   showNextUp: boolean
-  virtualTags?: { name: string; expression: string }[]
+  virtualTags?: VirtualTagConfig[]
   playerCommands: PlayerCommandConfig[]
   customActions: CustomActionConfig[]
   libraryLocation: string // The path to the library data directory.

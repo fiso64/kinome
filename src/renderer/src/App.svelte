@@ -317,9 +317,9 @@
       // Find the item in the main view stack and update its properties in place.
       const itemInViewStack = currentFolder ? findItemInTree(currentFolder, updatedItem.id) : null
       if (currentFolder?.id === updatedItem.id) {
-        Object.assign(currentFolder, updatedItem)
+        safeMerge(currentFolder, updatedItem)
       } else if (itemInViewStack) {
-        Object.assign(itemInViewStack, updatedItem)
+        safeMerge(itemInViewStack, updatedItem)
       }
 
       // Update search results list, if active.
@@ -493,6 +493,7 @@
     clearItemCache()
     const refreshedRoot = await api.refreshLibrary()
     if (refreshedRoot) {
+      primeCacheWithRoot(refreshedRoot)
       const loadedRoot = await getLoadedItem(refreshedRoot.id)
       if (loadedRoot) {
         viewStack = [loadedRoot as MediaFolder]

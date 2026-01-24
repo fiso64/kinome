@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS metadata (
     genres_json TEXT, -- ["Action", "Sci-Fi"]
     tags_json TEXT,   -- {"resolution": "4k"}
     people_json TEXT, -- { cast: [...], crew: [...] }
+    virtual_tags_json TEXT, -- Calculated virtual tags
     
     -- TV Cached Data
     seasons_json TEXT, -- Cached TMDB seasons array
@@ -92,4 +93,56 @@ CREATE TABLE IF NOT EXISTS folder_settings (
 
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
 );
+
+-- FTS5 Virtual Table for Search using Trigram Tokenizer
+-- Columns are separated to allow weighted ranking (Title > Filename)
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+    id UNINDEXED,
+    title,          -- High weight (Metadata title)
+    original_title, -- Medium weight
+    name,           -- Low weight (Filename/Foldername)
+    overview,       -- Lowest weight
+    people,         -- Indexed for searching by actor/director
+    tags,           -- Indexed for tag search
+    tokenize = 'trigram'
+);
+
+-- Triggers to keep items_fts in sync with items
+CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+  INSERT INTO items_fts (id, name, title, original_title, overview, people, tags) 
+  VALUES (new.id, new.name, NULL, NULL, NULL, NULL, NULL);
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+  DELETE FROM items_fts WHERE id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+  UPDATE items_fts SET name = new.name WHERE id = new.id;
+END;
+
+-- Triggers to keep items_fts in sync with metadata
+CREATE TRIGGER IF NOT EXISTS metadata_ai AFTER INSERT ON metadata BEGIN
+  UPDATE items_fts SET 
+    title = new.title,
+    original_title = new.original_title,
+    overview = new.overview, 
+    people = new.people_json,
+    tags = coalesce(new.tags_json, '') || ' ' || coalesce(new.virtual_tags_json, '')
+  WHERE id = new.item_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_au AFTER UPDATE ON metadata BEGIN
+  UPDATE items_fts SET 
+    title = new.title,
+    original_title = new.original_title,
+    overview = new.overview, 
+    people = new.people_json,
+    tags = coalesce(new.tags_json, '') || ' ' || coalesce(new.virtual_tags_json, '')
+  WHERE id = new.item_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_ad AFTER DELETE ON metadata BEGIN
+  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL, people = NULL, tags = NULL WHERE id = old.item_id;
+END;
 `

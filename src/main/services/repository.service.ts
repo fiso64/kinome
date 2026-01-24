@@ -63,11 +63,17 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   const images = parseJsonSafe<any>(row.images_json, {})
   const genres = parseJsonSafe<string[]>(row.genres_json, [])
   const tags = parseJsonSafe<Record<string, string>>(row.tags_json, {})
+  const virtualTags = parseJsonSafe<Record<string, string>>(row.virtual_tags_json, {})
   const credits = parseJsonSafe(row.people_json, null)
   const seasons = parseJsonSafe(row.seasons_json, null)
   const episodes = parseJsonSafe(row.episodes_json, null)
   const viewSettings = parseJsonSafe<any>(row.view_settings_json, {})
   const scraperSettings = parseJsonSafe<any>(row.scraper_settings_json, {})
+
+  const vtCount = virtualTags ? Object.keys(virtualTags).length : 0
+  if (vtCount > 0) {
+    // log(`[Repo] Loaded ${vtCount} virtual tags for "${row.name}" (ID: ${row.id.substring(0,8)}...)`)
+  }
 
   const base: any = {
     id: row.id,
@@ -96,6 +102,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     logoPath: images.logo,
     genres: genres,
     tags: tags,
+    virtualTags: virtualTags,
     tmdbCredits: credits,
     tmdbSeasons: seasons,
     tmdbEpisodes: episodes,
@@ -349,7 +356,7 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
     // 3. Metadata
     const metadataKeys = [
       'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
-      'genres', 'tags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath'
+      'genres', 'tags', 'virtualTags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath'
     ]
     const hasMetadataUpdates = metadataKeys.some(k => k in updates)
 
@@ -373,6 +380,7 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
 
         genres_json: updates.genres !== undefined ? JSON.stringify(updates.genres) : existing.genres_json,
         tags_json: updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
+        virtual_tags_json: updates.virtualTags !== undefined ? JSON.stringify(updates.virtualTags) : existing.virtual_tags_json,
         people_json: updates.tmdbCredits !== undefined ? JSON.stringify(updates.tmdbCredits) : existing.people_json,
         seasons_json: (updates as any).tmdbSeasons !== undefined ? JSON.stringify((updates as any).tmdbSeasons) : existing.seasons_json,
         episodes_json: (updates as any).tmdbEpisodes !== undefined ? JSON.stringify((updates as any).tmdbEpisodes) : existing.episodes_json,
@@ -382,10 +390,10 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
       db.prepare(`
         INSERT INTO metadata (
           item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
-          genres_json, tags_json, people_json, seasons_json, episodes_json, images_json
+          genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json
         ) VALUES (
           @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
-          @genres_json, @tags_json, @people_json, @seasons_json, @episodes_json, @images_json
+          @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json
         )
         ON CONFLICT(item_id) DO UPDATE SET
           tmdb_id = excluded.tmdb_id,
@@ -397,6 +405,7 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
           episode_number = excluded.episode_number,
           genres_json = excluded.genres_json,
           tags_json = excluded.tags_json,
+          virtual_tags_json = excluded.virtual_tags_json,
           people_json = excluded.people_json,
           seasons_json = excluded.seasons_json,
           episodes_json = excluded.episodes_json,
@@ -464,12 +473,12 @@ export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
   const copy = createTransferableCopy(item)
   if (copy.type === 'folder') {
     // 1. Fetch immediate children
-    copy.children = getChildren(copy.id).filter((c: LibraryItem) => !c.isHidden)
+    copy.children = getChildren(copy.id).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
 
     // 2. Fetch grandchildren (Essential for TV Shows: Show -> Season -> Episodes)
     for (const child of copy.children) {
       if (child.type === 'folder') {
-        child.children = getChildren(child.id).filter((c: LibraryItem) => !c.isHidden)
+        child.children = getChildren(child.id).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
         if (child.children.length === 0) {
           console.log(`[Repo] Warning: No children found for ${child.name} (ID: ${child.id})`)
         } else {

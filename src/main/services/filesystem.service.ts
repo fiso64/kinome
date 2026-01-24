@@ -1,7 +1,7 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { type Dirent } from 'fs'
-import { generateId, runTransaction, getDb, getAllDescendantsAsList } from './repository.service'
+import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
 
 const log = (message: string): void => {
@@ -24,7 +24,7 @@ async function walkAndUpsert(
   // Initialize queue
   if (startPath === mediaSourcePath) {
     // Root case
-    const rootId = generateId('.')
+    const rootId = repositoryService.generateId('.')
     const rootName = path.basename(mediaSourcePath)
 
     // Upsert Root
@@ -39,7 +39,7 @@ async function walkAndUpsert(
   } else {
     // Partial scan case: We need to find the parent ID of the startPath
     const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
-    const id = generateId(relativePath)
+    const id = repositoryService.generateId(relativePath)
     visitedIds.add(id)
     queue.push({ currentPath: startPath, parentId: id }) // Note: We assume the start folder itself is already valid
   }
@@ -67,10 +67,26 @@ async function walkAndUpsert(
       const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
 
       if (isDirectory || isVideoFile) {
+        // Skip common hidden folders and system directories standard practice
+        if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
+
         const fullPath = path.join(currentPath, entry.name)
         const relativePath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-        const id = generateId(relativePath)
+        const id = repositoryService.generateId(relativePath)
         const type = isDirectory ? 'folder' : 'file'
+
+        // Deep Peeking for .ignore: if a directory contains .ignore, skip it entirely.
+        if (isDirectory) {
+          try {
+            const subEntries = await fs.readdir(fullPath)
+            if (subEntries.includes('.ignore')) {
+              log(`Skipping ignored folder: ${relativePath}`)
+              continue
+            }
+          } catch (e) {
+            log(`Failed to peek into directory for .ignore: ${fullPath}`)
+          }
+        }
 
         visitedIds.add(id)
 
@@ -109,7 +125,7 @@ async function walkAndUpsert(
 
     // Execute batch for this directory level
     if (operations.length > 0) {
-      runTransaction(() => {
+      repositoryService.runTransaction(() => {
         operations.forEach(op => op())
       })
     }
@@ -122,7 +138,7 @@ export async function scanDirectory(
   mediaSourcePath: string,
   _rootPath?: string
 ): Promise<MediaFolder | null> {
-  const db = getDb()
+  const db = repositoryService.getDb()
   log(`Starting full scan of ${mediaSourcePath}`)
 
   const visitedIds = await walkAndUpsert(mediaSourcePath, mediaSourcePath, db)
@@ -140,19 +156,17 @@ export async function scanDirectory(
 
   if (missingIds.length > 0) {
     log(`Marking ${missingIds.length} items as missing.`)
-    runTransaction(() => {
+    repositoryService.runTransaction(() => {
       const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
       missingIds.forEach(id => stmt.run(id))
     })
   }
 
-  // Use dynamic require to avoid circular dependency issues at module top level if any
-  const { getRoot } = require('./repository.service')
-  return getRoot()
+  return repositoryService.getRoot()
 }
 
 export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
-  const db = getDb()
+  const db = repositoryService.getDb()
   const rootAbsPath = path.join(mediaSourcePath, node.path)
 
   log(`Syncing subtree: ${node.path}`)
@@ -160,7 +174,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
   // 1. Get all KNOWN descendants of this folder from the DB.
   // This allows us to know what *should* be there.
   // We explicitly use the recursive query capability here.
-  const knownDescendants = getAllDescendantsAsList(node)
+  const knownDescendants = repositoryService.getAllDescendantsAsList(node)
   const knownIds = new Set(knownDescendants.map(d => d.id))
 
   // 2. Walk the FS subtree.
@@ -178,7 +192,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
   // 4. Mark missing.
   if (missingIds.length > 0) {
     log(`Marking ${missingIds.length} items as missing in subtree.`)
-    runTransaction(() => {
+    repositoryService.runTransaction(() => {
       const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
       missingIds.forEach(id => stmt.run(id))
     })
@@ -193,7 +207,7 @@ export function pruneUntouchedMissingItems(_node: MediaFolder) {
 }
 
 export async function verifyImagePaths(_item: any, imagesDir: string) {
-  const db = getDb()
+  const db = repositoryService.getDb()
   const rows = db.prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL').all() as any[]
 
   // Check all images in one pass

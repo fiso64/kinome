@@ -32,21 +32,18 @@ async function _finalizeItemUpdate(
     if (!items || (Array.isArray(items) && items.length === 0)) return
     const itemsArray = Array.isArray(items) ? items : [items]
 
-    // 1. Persist changes to SQLite
-    // This is critical because services like metadata/retriever modify objects in memory.
-    // We use a transaction for performance.
+    const settings = await settingsService.readSettings()
+
+    // 1. Calculate Virtual Tags and Persist changes to SQLite
     repositoryService.runTransaction(() => {
         for (const item of itemsArray) {
+            // Ensure virtual tags are up-to-date in memory before saving
+            item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
             repositoryService.updateItem(item.id, item)
         }
     })
 
-    const settings = await settingsService.readSettings()
-    for (const item of itemsArray) {
-        item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-    }
-
-    searchService.updateIndexForItems(itemsArray)
+    // searchService.updateIndexForItems(itemsArray) - Removed, handled by FTS triggers
 
     const plainItems = JSON.parse(JSON.stringify(itemsArray))
     getTransport().notifyLibraryItemsUpdated(plainItems)
@@ -61,16 +58,17 @@ async function _finalizeItemUpdate(
 
 export async function loadDbIntoMemory(): Promise<void> {
     await repositoryService.loadDb()
-    const allItems = repositoryService.getAllItemsAsList()
-    searchService.buildFullSearchIndex(allItems)
+    searchService.buildFullSearchIndex()
 }
 
 export async function getLibraryRoot(): Promise<MediaFolder | null> {
     const root = repositoryService.getRoot()
     if (!root) return null
     // Pre-load immediate children for the root view to be responsive
-    root.children = repositoryService.getChildren(root.id)
-    return repositoryService.createTransferableCopy(root) as MediaFolder
+    root.children = repositoryService.getChildren(root.id).filter(c => !c.isHidden && !c.isMissing)
+    const item = repositoryService.createTransferableCopy(root) as MediaFolder
+    log(`[Library] getLibraryRoot returning: ${item.name} with ${item.children?.length} preloaded children.`)
+    return item
 }
 
 export async function refreshLibrary(): Promise<MediaFolder | null> {
@@ -86,10 +84,11 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
     const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
     await filesystemService.verifyImagePaths(null, imagesDir)
 
-    const allItems = repositoryService.getAllItemsAsList()
-    searchService.buildFullSearchIndex(allItems)
+    searchService.buildFullSearchIndex()
 
     metadataService.fetchMetadataForLibrary().catch(console.error)
+
+    await reapplyVirtualTagsAfterSettingsChange()
 
     return getLibraryRoot()
 }
@@ -116,7 +115,9 @@ async function _scanAndCreateNewDb(
     }
 
     await filesystemService.scanDirectory(mediaSourcePath)
-    searchService.buildFullSearchIndex(repositoryService.getAllItemsAsList())
+    searchService.buildFullSearchIndex()
+
+    await reapplyVirtualTagsAfterSettingsChange()
 
     return getLibraryRoot()
 }
@@ -269,10 +270,23 @@ export async function getContinueWatchingItems(includeDismissed = false): Promis
 // --- Passthroughs ---
 
 export const getAutocompleteSuggestions = async () => {
+    const settings = await settingsService.readSettings()
     const allItems = repositoryService.getAllItemsAsList()
-    if (allItems.length === 0) return { mediaTypes: [], genres: [], persons: [], tagKeys: [], virtualTagKeys: [], tagValues: {} }
-    const mediaTypes = new Set<string>(), genres = new Set<string>(), persons = new Set<string>(), tagKeys = new Set<string>(), virtualTagKeys = new Set<string>()
+
+    const mediaTypes = new Set<string>()
+    const genres = new Set<string>()
+    const persons = new Set<string>()
+    const tagKeys = new Set<string>()
+    const virtualTagKeys = new Set<string>()
     const tagValues: Record<string, Set<string>> = {}
+
+    // Pre-populate virtualTagKeys from settings to ensure they are always discoverable
+    if (settings.virtualTags) {
+        for (const tag of settings.virtualTags) {
+            virtualTagKeys.add(tag.name.trim())
+        }
+    }
+
     for (const item of allItems) {
         if (item.mediaType) mediaTypes.add(item.mediaType.trim())
         if (item.genres) item.genres.forEach((g) => genres.add(g.trim()))
@@ -285,13 +299,26 @@ export const getAutocompleteSuggestions = async () => {
                 if (key) {
                     tagKeys.add(key.trim())
                     if (!tagValues[key]) tagValues[key] = new Set<string>()
-                    value.split(',').forEach(v => v.trim() && tagValues[key].add(v.trim()))
+                    value.split(',').forEach((v) => v.trim() && tagValues[key].add(v.trim()))
+                }
+            }
+        }
+        if (item.virtualTags) {
+            for (const [key, value] of Object.entries(item.virtualTags)) {
+                if (key) {
+                    virtualTagKeys.add(key.trim())
+                    if (!tagValues[key]) tagValues[key] = new Set<string>()
+                    if (value) tagValues[key].add(value.trim())
                 }
             }
         }
     }
+
     const tagValuesAsArrays: Record<string, string[]> = {}
-    for (const key in tagValues) tagValuesAsArrays[key] = Array.from(tagValues[key]).sort()
+    for (const key in tagValues) {
+        tagValuesAsArrays[key] = Array.from(tagValues[key]).sort()
+    }
+
     return {
         mediaTypes: Array.from(mediaTypes).sort(),
         genres: Array.from(genres).sort(),
@@ -409,7 +436,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
 export const deleteItemFromDb = async (id: string) => {
     const res = repositoryService.deleteItem(id)
     if (res) {
-        searchService.removeItemFromIndex(id)
+        // searchService.removeItemFromIndex(id) - Removed, handled by FTS triggers
         getTransport().notifyLibraryItemDeleted(id)
         return true
     }
@@ -446,7 +473,7 @@ export const handleItemRemovedByPath = async (p: string) => {
     const item = repositoryService.findItemByPath(p)
     if (item) {
         repositoryService.deleteItem(item.id)
-        searchService.removeItemFromIndex(item.id)
+        // searchService.removeItemFromIndex(item.id) - Removed, handled by FTS triggers
         getTransport().notifyLibraryItemDeleted(item.id)
     }
 }
@@ -465,12 +492,14 @@ export const applyInitialFolderSettings = async (settings: { id: string; retriev
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {
-    const allItems = repositoryService.getAllItemsAsList()
     const settings = await settingsService.readSettings()
-    allItems.forEach(item => {
-        item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-    })
-    searchService.updateIndexForItems(allItems)
+
+    // 1. Apply tags in DB massively via SQL
+    virtualTagsService.applyVirtualTags(settings.virtualTags)
+
+    // 2. We need to broadcast the updates.
+    const allItems = repositoryService.getAllItemsAsList()
+
     getTransport().notifyLibraryItemsUpdated(JSON.parse(JSON.stringify(allItems)))
     getTransport().notifyAutocompleteSuggestionsUpdated(await getAutocompleteSuggestions())
 }
