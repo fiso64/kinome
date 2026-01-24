@@ -232,16 +232,12 @@
   {/if}
   <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
     {#if item.backdropPath}
-      <div class="backdrop-wrapper">
-        <div
-          class="backdrop"
-          style="background-image: url('{getAssetUrl(
-            item.backdropPath + (item._v ? `?v=${item._v}` : '')
-          )}')"
-          style:--blur="{settings.itemDetailBackdropBlur}px"
-        ></div>
-        <div class="backdrop-overlay"></div>
-      </div>
+      <img
+        class="backdrop-image"
+        src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
+        alt=""
+        style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
+      />
     {/if}
     <div class="backdrop-overlay"></div>
   </div>
@@ -522,14 +518,14 @@
 
   .backdrop-image,
   .logo-image {
-    opacity: 0;
-    transition: opacity 0.4s ease-in-out;
+    /* opacity: 0; removed to fix visibility issue */
+    /* transition: opacity 0.4s ease-in-out; removed */
     overflow: hidden;
   }
-  .backdrop-image.loaded,
+  /* .backdrop-image.loaded,
   .logo-image.loaded {
     opacity: 1;
-  }
+  } removed */
 
   .backdrop-image {
     width: 100%;

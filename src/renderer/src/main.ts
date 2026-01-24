@@ -1,5 +1,9 @@
 console.log(`[${new Date().toISOString()}] [Renderer] Renderer process entry point.`)
 
+import { webApi } from './lib/web-api'
+// @ts-ignore
+window.api = webApi
+
 import { mount } from 'svelte'
 
 import './assets/main.css'

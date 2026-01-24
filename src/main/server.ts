@@ -11,6 +11,7 @@ import { resolveLibraryPath } from './services/paths.service'
 import { loadDbIntoMemory } from './services/library.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
+import { createServer as createViteServer } from 'vite'
 
 const app = express()
 const server = createServer(app)
@@ -51,13 +52,30 @@ app.use(express.json({ limit: '50mb' }))
 app.get('/api/assets/*relativePath', (req, res) => {
     try {
         const pathParam = req.params.relativePath
-        const relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
-        const fullPath = resolveLibraryPath(relativePath)
+        let relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
+         relativePath = decodeURIComponent(relativePath)
+         
+         // Strip query parameters that might have been encoded into the path
+         // e.g. "image.jpg?v=123" -> "image.jpg"
+         if (relativePath.includes('?')) {
+             relativePath = relativePath.split('?')[0]
+         }
+         
+         // Try resolving as is first
+        let fullPath = resolveLibraryPath(relativePath)
+
+        // If not found, try looking in 'images' subdirectory
+        if (!fs.existsSync(fullPath)) {
+           const imagesPath = resolveLibraryPath(path.join('images', relativePath))
+           if (fs.existsSync(imagesPath)) {
+             fullPath = imagesPath
+           }
+        }
 
         if (fs.existsSync(fullPath)) {
-            res.sendFile(fullPath)
+          res.sendFile(fullPath, { dotfiles: 'allow' })
         } else {
-            res.status(404).send('Not found')
+          res.status(404).send('Not found')
         }
     } catch (_e) {
         res.status(500).send('Error')
@@ -258,6 +276,16 @@ app.post('/api/save-settings', async (req, res) => {
 
 // 5. Initialize Server
 async function start() {
+    // Vite Middleware for Development
+    if (process.env.NODE_ENV !== 'production') {
+        const vite = await createViteServer({
+            server: { middlewareMode: true },
+            appType: 'spa',
+            configFile: path.resolve(__dirname, '../../vite.config.mts')
+        })
+        app.use(vite.middlewares)
+    }
+
     console.log('[Server] Loading database into memory...')
     await loadDbIntoMemory()
 
