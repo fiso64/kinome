@@ -7,61 +7,134 @@ import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../shared
 
 export type ViewStackItem = MediaFolder
 
+interface HistoryState {
+  stackIds: string[]
+  detailId: string | null
+}
+
 // --- State (using Svelte Runes) ---
 
 let viewStack = $state<ViewStackItem[]>([])
 let selectedItemForDetailView = $state<LibraryItem | null>(null)
-let lastDetailItem = $state<LibraryItem | null>(null)
 
 // --- Derived State ---
 
 const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
 const isDetailViewActive = $derived(selectedItemForDetailView !== null)
+// We rely on browser history for "can go back", but visually we want to show the back button
+// if we are not at the root state.
+// Root state is: stack has 1 item (root) AND no detail view.
 const canGoBack = $derived(isDetailViewActive || viewStack.length > 1)
+
+// --- History Helpers ---
+
+function getUrlParams(stack: ViewStackItem[], detail: LibraryItem | null): string {
+  const params = new URLSearchParams()
+  if (detail) {
+    params.set('item', detail.id)
+  } else if (stack.length > 0) {
+    const current = stack[stack.length - 1]
+    if (current.path !== '.') {
+      params.set('folder', current.id)
+    }
+  }
+  const str = params.toString()
+  return str ? `?${str}` : '/'
+}
+
+function getSnapshot(): HistoryState {
+  return {
+    stackIds: viewStack.map((f) => f.id),
+    detailId: selectedItemForDetailView?.id ?? null
+  }
+}
+
+function pushHistoryState() {
+  const state = getSnapshot()
+  const url = getUrlParams(viewStack, selectedItemForDetailView)
+  history.pushState(state, '', url)
+}
+
+function replaceHistoryState() {
+  const state = getSnapshot()
+  const url = getUrlParams(viewStack, selectedItemForDetailView)
+  history.replaceState(state, '', url)
+}
+
+async function restoreFromState(state: HistoryState | null, rootFallback: MediaFolder) {
+  if (state && state.stackIds && Array.isArray(state.stackIds) && state.stackIds.length > 0) {
+    // Restore Stack
+    // We use getLoadedItem to fetch (from cache or api).
+    const loadedItems = await Promise.all(state.stackIds.map((id) => getLoadedItem(id)))
+    const validFolders = loadedItems.filter(
+      (i): i is MediaFolder => !!i && i.type === 'folder'
+    )
+
+    if (validFolders.length > 0) {
+      viewStack = validFolders
+    } else {
+      viewStack = [rootFallback]
+    }
+
+    // Restore Detail
+    if (state.detailId) {
+      const item = await getLoadedItem(state.detailId)
+      selectedItemForDetailView = item
+    } else {
+      selectedItemForDetailView = null
+    }
+  } else {
+    // No valid state, reset to root
+    viewStack = [rootFallback]
+    selectedItemForDetailView = null
+    replaceHistoryState()
+  }
+}
+
+// --- Initialization ---
+
+async function init(root: MediaFolder) {
+  // 1. Setup popstate listener
+  window.addEventListener('popstate', (event) => {
+    restoreFromState(event.state as HistoryState, root)
+  })
+
+  // 2. Handle initial state (page load / refresh)
+  // If we have history.state (from refresh), use it.
+  // If not, but we have URL params (deep link), we might want to construct state (TODO).
+  // For now, if history.state is populated (refresh), we use it.
+  // If not, we default to root.
+  // Note: Modern browsers restore history.state on refresh.
+  await restoreFromState(history.state as HistoryState, root)
+}
 
 // --- Navigation Methods ---
 
 function navigateToRoot(root: MediaFolder): void {
   viewStack = [root]
   selectedItemForDetailView = null
-  lastDetailItem = null
+  pushHistoryState() // Or replace if we want to clear history? Usually navigate to root is a new action.
 }
 
 function pushFolder(folder: MediaFolder): void {
   selectedItemForDetailView = null
-  lastDetailItem = null
   viewStack.push(folder)
+  pushHistoryState()
 }
 
 function openDetailView(item: LibraryItem): void {
   selectedItemForDetailView = item
+  pushHistoryState()
 }
 
 function closeDetailView(): void {
   selectedItemForDetailView = null
+  pushHistoryState()
 }
 
 function goBack(): void {
-  if (!canGoBack) return
-
-  if (selectedItemForDetailView) {
-    if (lastDetailItem) {
-      selectedItemForDetailView = lastDetailItem
-      viewStack.pop()
-      lastDetailItem = null
-    } else {
-      selectedItemForDetailView = null
-    }
-  } else {
-    if (lastDetailItem) {
-      selectedItemForDetailView = lastDetailItem
-      viewStack.pop()
-      viewStack.pop()
-      lastDetailItem = null
-    } else if (viewStack.length > 1) {
-      viewStack.pop()
-    }
-  }
+  // Delegate entirely to browser history
+  history.back()
 }
 
 function drillDown(childFolder: MediaFolder): void {
@@ -73,9 +146,9 @@ function drillDown(childFolder: MediaFolder): void {
 
   const pathToParent = findPathToItem(root, parent.id)
   if (pathToParent.length > 0) {
-    lastDetailItem = parent
     selectedItemForDetailView = null
     viewStack = [...pathToParent, childFolder]
+    pushHistoryState()
   }
 }
 
@@ -109,13 +182,11 @@ async function handleItemClick(
       return
     }
 
-    // Navigate to new detail page
-    lastDetailItem = parent
-    if (parent.type === 'folder') {
-      viewStack.push(parent)
-    }
+    // Navigate to new detail page (e.g. clicking "Next Up" item inside detail view)
+    // We update the detail view directly.
     const processedItem = await api.getItemDetails(loadedItem.id)
     selectedItemForDetailView = processedItem ?? loadedItem
+    pushHistoryState()
     return
   }
 
@@ -126,29 +197,41 @@ async function handleItemClick(
     return
   }
 
-  lastDetailItem = null
   const processedItem = await api.getItemDetails(loadedItem.id)
   selectedItemForDetailView = processedItem ?? loadedItem
+  pushHistoryState()
 }
 
 async function handleDetailSearchItemClick(item: SearchIndexEntry): Promise<void> {
   const loadedItem = await getLoadedItem(item.id)
   if (!loadedItem) return
 
-  lastDetailItem = selectedItemForDetailView
-  if (lastDetailItem?.type === 'folder') {
-    viewStack.push(lastDetailItem as MediaFolder)
+  // Logic: User searched for an item while in detail view.
+  // We want to navigate to that item.
+  // If the current detail view is a folder in the stack, we might want to keep it in stack?
+  // Current logic just replaces detail view.
+  // To keep history clean: we are moving from Item A -> Item B.
+  
+  if (selectedItemForDetailView?.type === 'folder') {
+     // If the previous item was a folder, should we push it to stack?
+     // The original logic did:
+     // if (lastDetailItem?.type === 'folder') viewStack.push(lastDetailItem)
+     // But `selectedItemForDetailView` IS the current one.
+     // If we want to simulate drilling down, we would need to know relationship.
+     // For search, it's usually a jump. Replacing detail view is fine.
   }
 
   const processedItem = await api.getItemDetails(loadedItem.id)
   selectedItemForDetailView = processedItem ?? loadedItem
+  pushHistoryState()
 }
 
 function handleSearchByTag(_key: string, _value: string): void {
-  lastDetailItem = selectedItemForDetailView
+  // When searching by tag from detail view, we go back to the main list (root or current folder)
+  // and apply filter.
+  // Effectively closing detail view.
   selectedItemForDetailView = null
-  // Note: The global search query itself remains in App.svelte for now
-  // as it drives a lot of local UI state there.
+  pushHistoryState()
 }
 
 // --- Exports ---
@@ -166,12 +249,7 @@ export const navStack = {
   set selectedItemForDetailView(i) {
     selectedItemForDetailView = i
   },
-  get lastDetailItem() {
-    return lastDetailItem
-  },
-  set lastDetailItem(v) {
-    lastDetailItem = v
-  },
+  // lastDetailItem removed
   get currentFolder() {
     return currentFolder
   },
@@ -182,6 +260,7 @@ export const navStack = {
     return canGoBack
   },
 
+  init,
   navigateToRoot,
   pushFolder,
   openDetailView,

@@ -86,8 +86,9 @@
       log('Library root received from main process.')
       if (root) {
         primeCacheWithRoot(root)
-        navStack.navigateToRoot(root)
-        log('Root view rendered.')
+        // Initialize navigation (handles history restoration or sets root)
+        await navStack.init(root)
+        log('Root view rendered (or restored).')
       } else {
         log('No library found. Displaying welcome screen.')
       }
