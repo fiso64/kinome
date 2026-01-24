@@ -34,6 +34,13 @@ const isTypingGlobalTag = $derived(isTypingTagHelper(globalQuery.text))
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
+// --- Register with Navigation Store ---
+navStack.registerSearchInterface({
+    getQuery: () => globalQuery,
+    setQuery: (q) => { globalQuery = q },
+    isRestoring: false
+})
+
 // --- Search Effects (Global Logic) ---
 
 // In Svelte 5, these effects will run as long as the store is imported in a component context.
@@ -42,9 +49,27 @@ export function initializeSearchEffects() {
     // --- Global Search Effect ---
     $effect(() => {
         const query = globalQuery
+        
+        if (isGlobalActive && !isTypingGlobalTag) {
+            // Clear detail view before updating history so the snapshot doesn't include the item.
+            // This ensures that if we "back" into this search state later, we don't accidentally restore the detail view on top.
+            if (navStack.selectedItemForDetailView) {
+                navStack.selectedItemForDetailView = null
+            }
+        }
+
+        // Notify navigation stack about query changes to update history
+        // This relies on the 'isTypingTag' check internally in the UI, but here we just pass the raw query state.
+        // We only want to update history if it's not a temporary typing state (like trailing colon), 
+        // but 'globalQuery' is usually bound directly. 
+        // We can check if it's valid for search.
+        if (!isTypingGlobalTag) {
+            navStack.handleSearchUpdate(JSON.parse(JSON.stringify(query)))
+        }
+
         if (isGlobalActive && !isTypingGlobalTag) {
             isPerformingGlobalSearch = true
-            navStack.selectedItemForDetailView = null
+            // navStack.selectedItemForDetailView = null // Already cleared above
             api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
                 searchResults = results
                 isPerformingGlobalSearch = false

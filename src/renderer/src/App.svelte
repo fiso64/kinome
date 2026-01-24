@@ -350,10 +350,6 @@
 
   function goBack(): void {
     appHeaderComponent?.blurSearchInput()
-    if (searchStore.isGlobalActive && !navStack.selectedItemForDetailView) {
-      searchStore.clearGlobal()
-      return
-    }
     navStack.goBack()
   }
 

@@ -9,32 +9,52 @@ import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../shared
 
 export type ViewStackItem = MediaFolder
 
+interface SearchQuery {
+  text: string
+  tags: { key: string; value: string }[]
+}
+
 interface HistoryState {
   stackIds: string[]
   detailId: string | null
   modal?: { type: 'settings' } | { type: 'itemSettings'; itemId: string }
+  searchQuery?: SearchQuery
+}
+
+// --- Integration with Search Store ---
+let searchInterface: {
+  getQuery: () => SearchQuery
+  setQuery: (q: SearchQuery) => void
+  isRestoring: boolean
+} | null = null
+
+export function registerSearchInterface(si: typeof searchInterface) {
+  searchInterface = si
 }
 
 // --- State (using Svelte Runes) ---
 
 let viewStack = $state<ViewStackItem[]>([])
 let selectedItemForDetailView = $state<LibraryItem | null>(null)
-// We track if a modal is open via history to conditionally render the "Back" button or handle "Close"
 let isHistoryModalOpen = $state(false)
 
 // --- Derived State ---
 
 const currentFolder = $derived(viewStack.length > 0 ? viewStack[viewStack.length - 1] : null)
 const isDetailViewActive = $derived(selectedItemForDetailView !== null)
-// Show back button if we are not at root state OR if a history-managed modal is open
 const canGoBack = $derived(isDetailViewActive || viewStack.length > 1 || isHistoryModalOpen)
 
 // --- History Helpers ---
 
+function serializeTags(tags: { key: string; value: string }[]): string {
+  return JSON.stringify(tags)
+}
+
 function getUrlParams(
   stack: ViewStackItem[],
   detail: LibraryItem | null,
-  modal?: HistoryState['modal']
+  modal?: HistoryState['modal'],
+  searchQuery?: SearchQuery
 ): string {
   const params = new URLSearchParams()
   if (detail) {
@@ -53,33 +73,68 @@ function getUrlParams(
     }
   }
 
+  if (searchQuery && (searchQuery.text || searchQuery.tags.length > 0)) {
+    if (searchQuery.text) params.set('q', searchQuery.text)
+    if (searchQuery.tags.length > 0) params.set('tags', serializeTags(searchQuery.tags))
+  }
+
   const str = params.toString()
   return str ? `?${str}` : '/'
 }
 
-function getSnapshot(modal?: HistoryState['modal']): HistoryState {
+function getSnapshot(
+  modal?: HistoryState['modal'],
+  searchQueryOverride?: SearchQuery
+): HistoryState {
+  const rawQuery = searchQueryOverride ?? searchInterface?.getQuery()
   return {
     stackIds: viewStack.map((f) => f.id),
     detailId: selectedItemForDetailView?.id ?? null,
-    modal
+    modal: modal ? JSON.parse(JSON.stringify(modal)) : undefined,
+    // Deep clone to strip Svelte proxies before saving to history
+    searchQuery: rawQuery ? JSON.parse(JSON.stringify(rawQuery)) : undefined
   }
 }
 
-function pushHistoryState(modal?: HistoryState['modal']) {
-  const state = getSnapshot(modal)
-  const url = getUrlParams(viewStack, selectedItemForDetailView, modal)
+function pushHistoryState(modal?: HistoryState['modal'], searchQuery?: SearchQuery) {
+  const state = getSnapshot(modal, searchQuery)
+  const url = getUrlParams(viewStack, selectedItemForDetailView, modal, state.searchQuery)
   history.pushState(state, '', url)
   isHistoryModalOpen = !!modal
 }
 
-function replaceHistoryState(modal?: HistoryState['modal']) {
-  const state = getSnapshot(modal)
-  const url = getUrlParams(viewStack, selectedItemForDetailView, modal)
+function replaceHistoryState(modal?: HistoryState['modal'], searchQuery?: SearchQuery) {
+  const state = getSnapshot(modal, searchQuery)
+  const url = getUrlParams(viewStack, selectedItemForDetailView, modal, state.searchQuery)
   history.replaceState(state, '', url)
   isHistoryModalOpen = !!modal
 }
 
+/**
+ * Called by SearchStore when the user types.
+ * Determines whether to push or replace history based on current search state.
+ */
+function handleSearchUpdate(newQuery: SearchQuery) {
+  if (searchInterface && searchInterface.isRestoring) return
+
+  const currentState = history.state as HistoryState | null
+  const currentSearch = currentState?.searchQuery ?? { text: '', tags: [] }
+
+  const isCurrentEmpty = !currentSearch.text && currentSearch.tags.length === 0
+  const isNewEmpty = !newQuery.text && newQuery.tags.length === 0
+
+  if (isNewEmpty && isCurrentEmpty) return
+
+  if (isCurrentEmpty && !isNewEmpty) {
+    pushHistoryState(currentState?.modal, newQuery)
+  } else {
+    replaceHistoryState(currentState?.modal, newQuery)
+  }
+}
+
 async function restoreFromState(state: HistoryState | null, rootFallback: MediaFolder) {
+  if (searchInterface) searchInterface.isRestoring = true
+
   if (state && state.stackIds && Array.isArray(state.stackIds) && state.stackIds.length > 0) {
     // Restore Stack
     const loadedItems = await Promise.all(state.stackIds.map((id) => getLoadedItem(id)))
@@ -109,21 +164,17 @@ async function restoreFromState(state: HistoryState | null, rootFallback: MediaF
       } else if (state.modal.type === 'itemSettings' && state.modal.itemId) {
         const item = await getLoadedItem(state.modal.itemId)
         if (item) {
-          // Resolve settings to pass default layout, required by ItemSettingsModal
           const settings = await api.getSettings()
           const resolved = resolveViewSettings(item as MediaFolder, settings).settings
           modalStore.open('itemSettings', {
             item,
-            initialTab: 'metadata', // Default tab when restored
+            initialTab: 'metadata',
             defaultLayout: resolved.layout
           })
         }
       }
     } else {
       isHistoryModalOpen = false
-      // Only close if active modal is one that we manage via history
-      // This prevents closing a transient confirmation dialog if a background refresh triggers state restore (rare)
-      // But typically popstate means user navigation.
       if (
         modalStore.activeModal?.type === 'settings' ||
         modalStore.activeModal?.type === 'itemSettings'
@@ -131,30 +182,33 @@ async function restoreFromState(state: HistoryState | null, rootFallback: MediaF
         modalStore.close()
       }
     }
+
+    // Restore Search
+    if (searchInterface) {
+      const query = state.searchQuery ?? { text: '', tags: [] }
+      searchInterface.setQuery(query)
+    }
   } else {
     // No valid state, reset to root
     viewStack = [rootFallback]
     selectedItemForDetailView = null
     isHistoryModalOpen = false
     modalStore.close()
+    if (searchInterface) searchInterface.setQuery({ text: '', tags: [] })
     replaceHistoryState()
   }
+
+  setTimeout(() => {
+    if (searchInterface) searchInterface.isRestoring = false
+  }, 0)
 }
 
 // --- Initialization ---
 
 async function init(root: MediaFolder) {
-  // 1. Setup popstate listener
   window.addEventListener('popstate', (event) => {
     restoreFromState(event.state as HistoryState, root)
   })
-
-  // 2. Handle initial state (page load / refresh)
-  // If we have history.state (from refresh), use it.
-  // If not, but we have URL params (deep link), we might want to construct state (TODO).
-  // For now, if history.state is populated (refresh), we use it.
-  // If not, we default to root.
-  // Note: Modern browsers restore history.state on refresh.
   await restoreFromState(history.state as HistoryState, root)
 }
 
@@ -172,7 +226,6 @@ function pushFolder(folder: MediaFolder): void {
   pushHistoryState()
 }
 
-// Modal Navigation Methods
 function openSettings() {
   modalStore.open('settings')
   pushHistoryState({ type: 'settings' })
@@ -182,7 +235,6 @@ async function openItemSettings(
   item: LibraryItem,
   initialTab: 'metadata' | 'view' | 'folder' | 'settings' = 'metadata'
 ) {
-  // Resolve settings immediately for smooth UI
   const settings = await api.getSettings()
   const resolved = resolveViewSettings(item as MediaFolder, settings).settings
 
@@ -195,12 +247,10 @@ async function openItemSettings(
 }
 
 function closeModal() {
-  // This is the programmatic "back" used by Close buttons on history-managed modals
   history.back()
 }
 
 function goBack(): void {
-  // Delegate entirely to browser history
   history.back()
 }
 
@@ -222,7 +272,6 @@ function drillDown(childFolder: MediaFolder): void {
 async function handleItemClick(
   item: LibraryItem | SearchIndexEntry
 ): Promise<{ action: 'play'; item: LibraryItem } | void> {
-  // If it's a virtual folder from a search result or grouping
   if ((item as any).isVirtual === true) {
     pushFolder(item as MediaFolder)
     return
@@ -231,7 +280,6 @@ async function handleItemClick(
   const loadedItem = await getLoadedItem(item.id)
   if (!loadedItem) return
 
-  // Simple file handling (play if not folder-like)
   if (loadedItem.type === 'file' && !loadedItem.opensAsFolder) {
     return { action: 'play', item: loadedItem }
   }
@@ -239,7 +287,6 @@ async function handleItemClick(
   if (selectedItemForDetailView) {
     const parent = selectedItemForDetailView
 
-    // If clicking own item in detail view
     if (selectedItemForDetailView.id === item.id && item.type === 'file') {
       return { action: 'play', item: loadedItem }
     }
@@ -249,15 +296,12 @@ async function handleItemClick(
       return
     }
 
-    // Navigate to new detail page (e.g. clicking "Next Up" item inside detail view)
-    // We update the detail view directly.
     const processedItem = await api.getItemDetails(loadedItem.id)
     selectedItemForDetailView = processedItem ?? loadedItem
     pushHistoryState()
     return
   }
 
-  // Main view navigation
   const currentFolderClickAction = (navStack.currentFolder as any)?.clickAction ?? 'detail'
   if (loadedItem.type === 'folder' && currentFolderClickAction === 'navigate') {
     pushFolder(loadedItem as MediaFolder)
@@ -273,30 +317,12 @@ async function handleDetailSearchItemClick(item: SearchIndexEntry): Promise<void
   const loadedItem = await getLoadedItem(item.id)
   if (!loadedItem) return
 
-  // Logic: User searched for an item while in detail view.
-  // We want to navigate to that item.
-  // If the current detail view is a folder in the stack, we might want to keep it in stack?
-  // Current logic just replaces detail view.
-  // To keep history clean: we are moving from Item A -> Item B.
-  
-  if (selectedItemForDetailView?.type === 'folder') {
-     // If the previous item was a folder, should we push it to stack?
-     // The original logic did:
-     // if (lastDetailItem?.type === 'folder') viewStack.push(lastDetailItem)
-     // But `selectedItemForDetailView` IS the current one.
-     // If we want to simulate drilling down, we would need to know relationship.
-     // For search, it's usually a jump. Replacing detail view is fine.
-  }
-
   const processedItem = await api.getItemDetails(loadedItem.id)
   selectedItemForDetailView = processedItem ?? loadedItem
   pushHistoryState()
 }
 
 function handleSearchByTag(_key: string, _value: string): void {
-  // When searching by tag from detail view, we go back to the main list (root or current folder)
-  // and apply filter.
-  // Effectively closing detail view.
   selectedItemForDetailView = null
   pushHistoryState()
 }
@@ -339,5 +365,7 @@ export const navStack = {
   drillDown,
   handleItemClick,
   handleDetailSearchItemClick,
-  handleSearchByTag
+  handleSearchByTag,
+  handleSearchUpdate,
+  registerSearchInterface
 }
