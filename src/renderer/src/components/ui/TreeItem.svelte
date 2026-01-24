@@ -2,6 +2,7 @@
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
   import { getLoadedItem, triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  import { getAssetUrl } from '../../lib/api'
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
   // Types are globally available from src/preload/index.d.ts
   let {
@@ -81,9 +82,9 @@
       <div class="icon">
         {#if item.posterPath}
           <img
-            src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+            src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
             alt={item.title ?? item.name}
-            loading="lazy"
+            class="tree-poster"
           />
         {:else}
           {item.type === 'folder' ? '📁' : '🎬'}

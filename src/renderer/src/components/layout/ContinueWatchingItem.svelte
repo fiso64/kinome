@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import { getAssetUrl } from '../../lib/api'
   import { tabNavigationIntent } from '../../lib/view-state-store'
 
   type ContinueWatchingItem = {
@@ -70,9 +71,7 @@
   >
     {#if posterToShow}
       <img
-        src="media-browser-asset://images/{posterToShow}{item.nextEpisode._v
-          ? `?v=${item.nextEpisode._v}`
-          : ''}"
+        src={getAssetUrl(posterToShow + (item.nextEpisode._v ? `?v=${item.nextEpisode._v}` : ''))}
         alt={item.nextEpisode.title ?? item.show.title}
         loading="lazy"
       />

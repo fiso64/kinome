@@ -1,5 +1,4 @@
 import { exec } from 'child_process'
-import { shell } from 'electron'
 import path from 'path'
 import { URL } from 'url'
 import fs, { readdir, stat } from 'fs/promises'
@@ -105,11 +104,20 @@ export async function executeCustomAction(
 export async function revealInExplorer(relativePath: string): Promise<void> {
   const absolutePath = await getAbsolutePath(relativePath)
   if (!absolutePath) return
+
   if (pathsService.isRemotePath(absolutePath)) {
-    shell.openExternal(absolutePath)
-  } else {
-    shell.showItemInFolder(absolutePath)
+    log(`Open URL requested (No-op on server): ${absolutePath}`)
+    return
   }
+
+  log(`Revealing in explorer: ${absolutePath}`)
+  const command = process.platform === 'win32'
+    ? `explorer /select,"${absolutePath}"`
+    : process.platform === 'darwin'
+      ? `open -R "${absolutePath}"`
+      : `xdg-open "${path.dirname(absolutePath)}"`
+
+  exec(command)
 }
 
 export async function trashItem(relativePath: string): Promise<boolean> {
@@ -119,10 +127,12 @@ export async function trashItem(relativePath: string): Promise<boolean> {
   try {
     const absolutePath = await getAbsolutePath(relativePath)
     if (!absolutePath) return false
-    await shell.trashItem(absolutePath)
+
+    log(`Deleteting item (Direct delete on server): ${absolutePath}`)
+    await fs.rm(absolutePath, { recursive: true, force: true })
     return true
   } catch (error) {
-    console.error(`Failed to move item to trash: ${relativePath}`, error)
+    console.error(`Failed to delete item: ${relativePath}`, error)
     // Re-throw to be caught by the transport layer and shown to the user.
     throw error
   }

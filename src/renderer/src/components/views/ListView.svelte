@@ -1,5 +1,6 @@
 <script lang="ts">
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
+  import { getAssetUrl } from '../../lib/api'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -103,7 +104,7 @@
           >
             {#if item.posterPath}
               <img
-                src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
+                src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
                 alt={displayTitle}
                 loading="lazy"
               />

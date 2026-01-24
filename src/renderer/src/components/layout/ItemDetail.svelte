@@ -3,6 +3,7 @@
   import CreditsView from './CreditsView.svelte'
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide } from 'svelte/transition'
+  import { getAssetUrl } from '../../lib/api'
 
   let {
     item,
@@ -187,10 +188,6 @@
   const showRegularContents = $derived(item.type === 'folder' && item.children.length > 0)
 
   // These values help manage the individual image fade-in animations.
-  let isBackdropLoaded = $state(false)
-  let isLogoLoaded = $state(false)
-  let previousBackdropPath = $state<string | null | undefined>(undefined)
-  let previousLogoPath = $state<string | null | undefined>(undefined)
   let previousV = $state<number | undefined>(undefined)
 
   $effect(() => {
@@ -217,16 +214,6 @@
       parentShow = null
     }
 
-    // Also, reset fade-in animation flags if the image source has changed (path or version).
-    // This ensures a smooth transition and bypasses stale browser-side render states.
-    if (item.backdropPath !== previousBackdropPath || item._v !== previousV) {
-      isBackdropLoaded = false
-      previousBackdropPath = item.backdropPath
-    }
-    if (item.logoPath !== previousLogoPath || item._v !== previousV) {
-      isLogoLoaded = false
-      previousLogoPath = item.logoPath
-    }
     previousV = item._v
   })
 </script>
@@ -245,14 +232,16 @@
   {/if}
   <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
     {#if item.backdropPath}
-      <img
-        src="media-browser-asset://images/{item.backdropPath}{item._v ? `?v=${item._v}` : ''}"
-        alt=""
-        class="backdrop-image"
-        class:loaded={isBackdropLoaded}
-        onload={() => (isBackdropLoaded = true)}
-        style="--backdrop-blur: {settings.itemDetailBackdropBlur}px;"
-      />
+      <div class="backdrop-wrapper">
+        <div
+          class="backdrop"
+          style="background-image: url('{getAssetUrl(
+            item.backdropPath + (item._v ? `?v=${item._v}` : '')
+          )}')"
+          style:--blur="{settings.itemDetailBackdropBlur}px"
+        ></div>
+        <div class="backdrop-overlay"></div>
+      </div>
     {/if}
     <div class="backdrop-overlay"></div>
   </div>
@@ -263,10 +252,12 @@
         <div class="poster-column" bind:this={posterColumnElement}>
           <div class="poster">
             {#if item.posterPath}
-              <img
-                src="media-browser-asset://images/{item.posterPath}{item._v ? `?v=${item._v}` : ''}"
-                alt="Poster"
-              />
+              <div class="poster-container">
+                <img
+                  src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
+                  alt="Poster"
+                />
+              </div>
             {:else}
               <div class="icon">
                 {item.type === 'folder' ? '📁' : '📄'}
@@ -288,11 +279,9 @@
             {#if (settings.useLogos ?? true) && item.logoPath}
               <div class="logo-container">
                 <img
-                  src="media-browser-asset://images/{item.logoPath}{item._v ? `?v=${item._v}` : ''}"
+                  src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
                   alt="{item.title ?? item.name} Logo"
                   class="logo-image"
-                  class:loaded={isLogoLoaded}
-                  onload={() => (isLogoLoaded = true)}
                 />
               </div>
             {:else}

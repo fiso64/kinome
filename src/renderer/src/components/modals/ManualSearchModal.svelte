@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getAssetUrl } from '../../lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
 
   let {
@@ -278,9 +279,7 @@
                 <div class="current-image">
                   {#if item.posterPath}
                     <img
-                      src="media-browser-asset://images/{item.posterPath}{item._v
-                        ? `?v=${item._v}`
-                        : ''}"
+                      src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
                       alt="Current Poster"
                     />
                     <button

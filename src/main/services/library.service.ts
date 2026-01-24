@@ -363,6 +363,9 @@ export const getTmdbImages = retrieverService.getTmdbImages
 export const executeCustomAction = actionsService.executeCustomAction
 export const getAbsolutePath = actionsService.getAbsolutePath
 export const getItemProperties = actionsService.getItemProperties
+export const revealInExplorer = actionsService.revealInExplorer
+export const trashItem = actionsService.trashItem
+export const renameItem = actionsService.renameItem
 export const getItemById = async (id: string) => {
   const item = repositoryService.getItemById(id)
   return item ? repositoryService.createTransferableCopy(item) : null

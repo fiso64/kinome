@@ -1,0 +1,275 @@
+import express from 'express'
+import cors from 'cors'
+import { createServer } from 'http'
+import path from 'path'
+import fs from 'fs'
+
+import { initializeStartup } from './services/startup.service'
+import * as libraryService from './services/library.service'
+import * as settingsService from './services/settings.service'
+import { resolveLibraryPath } from './services/paths.service'
+import { loadDbIntoMemory } from './services/library.service'
+import { WebTransport } from './transport/web.transport'
+import { setTransport } from './transport.registry'
+
+const app = express()
+const server = createServer(app)
+const port = process.env.PORT || 3000
+
+// 1. Initialize Services
+// Use the same location as Electron's app.getPath('userData')
+// On Windows: %APPDATA%/media-browser
+// On macOS: ~/Library/Application Support/media-browser
+// On Linux: ~/.config/media-browser
+function getDefaultUserDataPath(): string {
+    const appName = 'media-browser'
+    if (process.platform === 'win32') {
+        return path.join(process.env.APPDATA || '', appName)
+    } else if (process.platform === 'darwin') {
+        return path.join(process.env.HOME || '', 'Library', 'Application Support', appName)
+    } else {
+        return path.join(process.env.HOME || '', '.config', appName)
+    }
+}
+
+const userDataPath = process.env.USER_DATA_PATH || getDefaultUserDataPath()
+if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true })
+}
+
+initializeStartup(userDataPath)
+
+const webTransport = new WebTransport()
+setTransport(webTransport)
+
+// 2. Middleware
+app.use(cors())
+app.use(express.json({ limit: '50mb' }))
+
+// 3. Asset Protocol Replacement
+// Serves images via standard HTTP
+app.get('/api/assets/*relativePath', (req, res) => {
+    try {
+        const pathParam = req.params.relativePath
+        const relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
+        const fullPath = resolveLibraryPath(relativePath)
+
+        if (fs.existsSync(fullPath)) {
+            res.sendFile(fullPath)
+        } else {
+            res.status(404).send('Not found')
+        }
+    } catch (_e) {
+        res.status(500).send('Error')
+    }
+})
+
+// 4. API Endpoints (Mapping ApiClient calls)
+app.post('/api/perform-search', async (req, res) => {
+    const result = await libraryService.performSearch(req.body)
+    res.json(result)
+})
+
+app.get('/api/library-root', async (_req, res) => {
+    const root = await libraryService.getLibraryRoot()
+    res.json(root)
+})
+
+app.get('/api/item-details/:id', async (req, res) => {
+    const details = await libraryService.getItemDetails(req.params.id)
+    res.json(details)
+})
+
+app.get('/api/item-by-id/:id', async (req, res) => {
+    const item = await libraryService.getItemById(req.params.id)
+    res.json(item)
+})
+
+app.get('/api/children/:id', async (req, res) => {
+    const children = await libraryService.getChildren(req.params.id)
+    res.json(children)
+})
+
+app.get('/api/hidden-children/:id', async (req, res) => {
+    const children = await libraryService.getHiddenChildren(req.params.id)
+    res.json(children)
+})
+
+app.get('/api/parent/:id', async (req, res) => {
+    const parent = await libraryService.getParent(req.params.id)
+    res.json(parent)
+})
+
+app.get('/api/autocomplete-suggestions', async (_req, res) => {
+    const suggestions = await libraryService.getAutocompleteSuggestions()
+    res.json(suggestions)
+})
+
+app.post('/api/user-update-item', async (req, res) => {
+    await libraryService.updateItem(req.body, true)
+    res.sendStatus(200)
+})
+
+// --- Control Operations ---
+
+app.post('/api/perform-initial-scan', async (req, res) => {
+    // Path would come from client-side folder picker (TBD)
+    const root = await libraryService.performInitialScan(req.body.path)
+    res.json(root)
+})
+
+app.post('/api/perform-full-rescan', async (req, res) => {
+    const root = await libraryService.performFullRescan(req.body.path)
+    res.json(root)
+})
+
+app.post('/api/refresh-library', async (_req, res) => {
+    const root = await libraryService.refreshLibrary()
+    res.json(root)
+})
+
+// --- Playback ---
+
+app.post('/api/play-file', async (req, res) => {
+    const success = await libraryService.playFile(req.body.file, (opt) => console.log(opt))
+    res.json({ success })
+})
+
+app.post('/api/play-file-with', async (req, res) => {
+    const success = await libraryService.playFileWith(req.body.file, req.body.command, (opt) => console.log(opt))
+    res.json({ success })
+})
+
+// --- Metadata & Images ---
+
+app.post('/api/clear-item-metadata', async (req, res) => {
+    const success = await libraryService.clearItemMetadata(req.body.itemId, req.body.childrenOnly)
+    res.json({ success })
+})
+
+app.post('/api/clear-virtual-folder-metadata', async (req, res) => {
+    const success = await libraryService.clearVirtualFolderMetadata(req.body.itemIds)
+    res.json({ success })
+})
+
+app.post('/api/fetch-credits', async (req, res) => {
+    await libraryService.fetchCredits(req.body.itemId)
+    res.sendStatus(200)
+})
+
+app.post('/api/manual-search', async (req, res) => {
+    const settings = await settingsService.readSettings()
+    const results = await libraryService.manualSearch(req.body.query, req.body.type, settings.tmdbApiKey, req.body.year, req.body.tmdbId)
+    res.json(results)
+})
+
+app.post('/api/get-tmdb-images', async (req, res) => {
+    const settings = await settingsService.readSettings()
+    const results = await libraryService.getTmdbImages(req.body.tmdbId, req.body.mediaType, settings.tmdbApiKey, req.body.language)
+    res.json(results)
+})
+
+app.post('/api/user-apply-tmdb-result', async (req, res) => {
+    await libraryService.applyTmdbResult(req.body.itemId, req.body.result, req.body.mediaType)
+    res.sendStatus(200)
+})
+
+app.post('/api/user-set-image', async (req, res) => {
+    await libraryService.setImage(req.body.itemId, req.body.imageType, req.body.source)
+    res.sendStatus(200)
+})
+
+app.post('/api/remove-image', async (req, res) => {
+    await libraryService.removeImage(req.body.itemId, req.body.imageType)
+    res.sendStatus(200)
+})
+
+// --- Watched State ---
+
+app.post('/api/mark-watched', async (req, res) => {
+    await libraryService.markAsWatched(req.body.itemId)
+    res.sendStatus(200)
+})
+
+app.post('/api/mark-unwatched', async (req, res) => {
+    await libraryService.markAsUnwatched(req.body.itemId)
+    res.sendStatus(200)
+})
+
+app.get('/api/folder-watched-state/:id', async (req, res) => {
+    const state = await libraryService.getFolderWatchedState(req.params.id)
+    res.json({ state })
+})
+
+// --- Continue Watching ---
+
+app.get('/api/continue-watching-items', async (_req, res) => {
+    const items = await libraryService.getContinueWatchingItems()
+    res.json(items)
+})
+
+app.get('/api/continue-watching-for-show/:id', async (req, res) => {
+    const item = await libraryService.getContinueWatchingForShow(req.params.id)
+    res.json(item)
+})
+
+// --- Filesystem Actions ---
+
+app.post('/api/reveal-in-explorer', async (req, res) => {
+    await libraryService.revealInExplorer(req.body.path)
+    res.sendStatus(200)
+})
+
+app.post('/api/trash-item', async (req, res) => {
+    const success = await libraryService.trashItem(req.body.path)
+    res.json({ success })
+})
+
+app.post('/api/delete-item-from-db', async (req, res) => {
+    const success = await libraryService.deleteItemFromDb(req.body.itemId)
+    res.json({ success })
+})
+
+app.post('/api/rename-item', async (req, res) => {
+    const success = await libraryService.renameItem(req.body.oldPath, req.body.newName)
+    res.json({ success })
+})
+
+app.get('/api/item-properties/*itemPath', async (req, res) => {
+    const pathParam = req.params.itemPath
+    const itemPath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
+    const props = await libraryService.getItemProperties(itemPath)
+    res.json(props)
+})
+
+// --- Settings ---
+
+app.get('/api/settings', async (_req, res) => {
+    const settings = await settingsService.readSettings()
+    res.json(settings)
+})
+
+app.post('/api/save-settings', async (req, res) => {
+    await settingsService.saveSettingsChanges(req.body)
+    const newSettings = await settingsService.readSettings()
+    webTransport.notifySettingsUpdated(newSettings)
+    res.json(newSettings)
+})
+
+// 5. Initialize Server
+async function start() {
+    console.log('[Server] Loading database into memory...')
+    await loadDbIntoMemory()
+
+    webTransport.initialize(server)
+
+    server.listen(port, () => {
+        console.log(`[Server] Media Browser Server running at http://localhost:${port}`)
+    })
+}
+
+// Start sequence
+start().catch((err) => {
+    console.error('[Server] Failed to start:', err)
+    process.exit(1)
+})
