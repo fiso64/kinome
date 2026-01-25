@@ -150,7 +150,8 @@ async function restoreFromState(state: HistoryState | null, rootFallback: MediaF
 
     // Restore Detail
     if (state.detailId) {
-      const item = await getLoadedItem(state.detailId)
+      // Use getItemDetails to ensure full structure (including grandchildren for TV) is present
+      const item = await api.getItemDetails(state.detailId)
       selectedItemForDetailView = item
     } else {
       selectedItemForDetailView = null

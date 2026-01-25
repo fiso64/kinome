@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
-import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
-import { RESETTABLE_METADATA_KEYS, VIEW_SETTINGS_KEYS } from '../../shared/types'
+import type { LibraryItem, MediaFolder } from '../../shared/types'
+import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -134,7 +134,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
       retrieve_children_metadata: scraperSettings.retrieve_children_metadata,
       children_type_hint: scraperSettings.children_type_hint,
       process_tv_children: scraperSettings.process_tv_children,
-      children: [] // Always empty by default
+      children: null // Null indicates lazy loading required
     })
   }
 

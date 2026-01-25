@@ -255,21 +255,26 @@ app.post('/api/rename-item', async (req, res) => {
 
 app.get('/api/item-properties/*itemPath', async (req, res) => {
     const pathParam = req.params.itemPath
-    const itemPath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
+    const itemPath = (Array.isArray(pathParam) ? pathParam.join('/') : pathParam) as string
     const props = await libraryService.getItemProperties(itemPath)
     res.json(props)
 })
 
 // --- Settings ---
 
-const streamHandler = async (req: express.Request, res: express.Response) => {
+const streamHandler = async (req: express.Request, res: express.Response): Promise<void> => {
     try {
-        const filePath = await libraryService.getItemPath(req.params.id)
-        if (!filePath) return res.status(404).send('File not found')
+        const id = req.params.id as string
+        const filePath = await libraryService.getItemPath(id)
+        if (!filePath) {
+            res.status(404).send('File not found')
+            return
+        }
 
         // If it's a remote URL, redirect to it
         if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-            return res.redirect(filePath)
+            res.redirect(filePath)
+            return
         }
 
         // Otherwise serve local file
@@ -285,7 +290,10 @@ app.get(['/api/stream/:id', '/api/stream/:id/:filename'], streamHandler)
 app.get('/api/playlist/:id.m3u', async (req, res) => {
     try {
         const playlist = await libraryService.generatePlaylist(req.params.id)
-        if (!playlist || playlist.length === 0) return res.status(404).send('Item not found')
+        if (!playlist || playlist.length === 0) {
+            res.status(404).send('Item not found')
+            return
+        }
 
         const host = req.get('host')
         const protocol = req.protocol
@@ -329,6 +337,21 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
         console.error('Error generating playlist:', e)
         res.sendStatus(500)
     }
+})
+
+app.get('/api/library-media-source-path', async (_req, res) => {
+    const path = await settingsService.getAbsoluteMediaSourcePath()
+    res.json(path)
+})
+
+app.post('/api/resolve-media-source-path', async (req, res) => {
+    const resolved = await settingsService.resolveMediaSourcePath(req.body.path, req.body.isRelative)
+    res.json(resolved)
+})
+
+app.post('/api/execute-custom-action', async (req, res) => {
+    await libraryService.executeCustomAction(req.body.itemId, req.body.commandId, (opt) => console.log(opt))
+    res.sendStatus(200)
 })
 
 app.get('/api/settings', async (_req, res) => {

@@ -52,7 +52,7 @@
         </h2>
         <MediaView
           parentItem={parentForMediaView}
-          items={folder.children}
+          items={folder.children ?? []}
           {onItemClick}
           {onShowContextMenu}
           {suggestions}

@@ -89,6 +89,8 @@
 
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
+  import type { Settings } from 'http2'
+  import type { MediaFolder, LibraryItem, SearchIndexEntry, AutocompleteSuggestions } from '../../../../shared/types'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({
@@ -223,7 +225,7 @@
           {@const parentForMediaView = { ...folder, ...(container?.childViewSettings ?? {}) }}
           <MediaView
             parentItem={parentForMediaView}
-            items={folder.children}
+            items={folder.children ?? []}
             {onItemClick}
             {onShowContextMenu}
             {suggestions}

@@ -100,7 +100,7 @@
 
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
-      {#each item.children as child (child.id)}
+      {#each item.children ?? [] as child (child.id)}
         <TreeItem
           item={child}
           {itemclick}

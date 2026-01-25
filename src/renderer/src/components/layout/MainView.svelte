@@ -128,7 +128,7 @@
               <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
               <MediaView
                 parentItem={currentFolder}
-                items={currentFolder.children}
+                items={currentFolder.children ?? []}
                 searchQuery={filterQuery}
                 onItemClick={(item) => dispatch('itemClick', { item })}
                 onShowContextMenu={(item, e, options) =>

@@ -270,7 +270,7 @@ export interface MediaFolder extends StoredViewSettings {
   name: string
   path: string // Full path to the folder
   type: 'folder'
-  children: LibraryItem[]
+  children: LibraryItem[] | null
 
   // --- View & Behavior Settings (Preserved) ---
   virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>

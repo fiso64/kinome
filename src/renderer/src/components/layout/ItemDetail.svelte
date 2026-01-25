@@ -185,7 +185,9 @@
     resolveViewSettings(item as MediaFolder, settings).settings.layout
   )
 
-  const showRegularContents = $derived(item.type === 'folder' && item.children.length > 0)
+  const showRegularContents = $derived(
+    item.type === 'folder' && item.children && item.children.length > 0
+  )
 
   // These values help manage the individual image fade-in animations.
   let previousV = $state<number | undefined>(undefined)
@@ -416,7 +418,7 @@
           {/if}
           <MediaView
             parentItem={item}
-            items={item.children}
+            items={item.children ?? []}
             {onItemClick}
             layout={contentsLayout}
             onShowContextMenu={showContextMenu}

@@ -11,14 +11,20 @@
   import { notificationStore } from './lib/notification-store.svelte'
   import { autocompleteState } from './lib/autocomplete-manager'
   import AutocompleteMenu from './components/ui/AutocompleteMenu.svelte'
-  import { resolveViewSettings } from '../../shared/settings-helpers'
-  import { isTypingTag as isTypingTagHelper } from './lib/view-helpers'
   import {
     getLoadedItem,
     updateCachedItem,
     clearItemCache,
     primeCacheWithRoot
   } from './lib/item-store'
+  import type {
+    MediaFolder,
+    MediaFile,
+    Settings,
+    AutocompleteSuggestions,
+    LibraryItem,
+    SearchIndexEntry
+  } from '../../shared/types'
   import { findItemInTree, findParentOfItem, replaceItemInTree } from './lib/tree-helpers'
   import { navStack } from './lib/navigation-store.svelte' // Extracted navigation logic
   import { searchStore, initializeSearchEffects } from './lib/search-store.svelte'
@@ -39,10 +45,13 @@
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
     genres: [],
+    persons: [],
     tagKeys: [],
     virtualTagKeys: [],
     tagValues: {}
   })
+
+  let settings = $state<Settings | null>(null)
 
   const groupByKeys = $derived([
     'folder',
@@ -52,7 +61,6 @@
     ...(settings?.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
     ...allAutocompleteSuggestions.tagKeys.map((k) => `tags.${k}`)
   ])
-  let settings = $state<Settings | null>(null)
 
   // --- Global Dialog State ---
   let activeDialogs = $state<Record<string, any>[]>([])
@@ -68,10 +76,6 @@
   const selectedItemForDetailView = $derived(navStack.selectedItemForDetailView)
   const isDetailViewActive = $derived(navStack.isDetailViewActive)
   const canGoBack = $derived(navStack.canGoBack || searchStore.isGlobalActive)
-
-  const currentFolderClickAction = $derived(
-    resolveViewSettings(currentFolder, settings).settings.clickAction
-  )
 
   const folderToConfigureLayout = $derived(
     navStack.selectedItemForDetailView?.type === 'folder'
@@ -134,7 +138,7 @@
   $effect(() => {
     document.documentElement.style.setProperty(
       '--grid-poster-size',
-      `${settings?.gridPosterSize ?? 200}px`
+      `${settings?.defaultLayoutSettings.grid.gridPosterSize ?? 200}px`
     )
   })
 
@@ -338,7 +342,7 @@
     const fromSearch = 'staticScore' in item
     const result = await navStack.handleItemClick(item)
 
-    if (result?.action === 'play') {
+    if (result && result.action === 'play') {
       handlePlayFile(result.item as MediaFile)
     }
 

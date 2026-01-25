@@ -54,7 +54,7 @@
     <h2 class="home-section-title">Library</h2>
     <MediaView
       {parentItem}
-      items={parentItem.children}
+      items={parentItem.children ?? []}
       {onItemClick}
       {onShowContextMenu}
       {suggestions}
