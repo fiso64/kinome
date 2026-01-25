@@ -37,7 +37,20 @@ class WebApiClient implements ApiClient {
         }
 
         if (response.status === 204) return null as any
-        return response.json()
+
+        const text = await response.text()
+        try {
+            // Handle empty body (200 OK with no content)
+            if (!text) return null as any
+            return JSON.parse(text)
+        } catch (e) {
+            // Debugging: Log the actual content that failed to parse
+            console.warn(`[WebApiClient] Non-JSON response received from ${path}. Status: ${response.status}. Body: "${text}"`)
+            
+            // Fallback: If the server sent "OK" (Express sendStatus(200)), treat it as success/void.
+            // If it sent other text, return it as the result.
+            return text as unknown as T
+        }
     }
 
     performSearch(query: { text: string; tags: { key: string; value: string }[] }): Promise<SearchIndexEntry[]> {
@@ -70,6 +83,10 @@ class WebApiClient implements ApiClient {
 
     playFileWith(file: MediaFile, command: string): Promise<boolean> {
         return this.request<{ success: boolean }>('/api/play-file-with', { method: 'POST', body: JSON.stringify({ file, command }) }).then(r => r.success)
+    }
+
+    recordPlayback(itemId: string): Promise<void> {
+        return this.request('/api/record-playback', { method: 'POST', body: JSON.stringify({ itemId }) })
     }
 
     getItemDetails(itemId: string): Promise<LibraryItem | null> {

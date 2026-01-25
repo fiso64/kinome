@@ -315,6 +315,8 @@
     try {
       await navigator.clipboard.writeText(playlistUrl)
       notificationStore.add('Playlist link copied to clipboard!', 'success')
+      // Treat this action as "playing" the file, so update watched status and history
+      await api.recordPlayback(item.id)
     } catch (err) {
       console.error('Failed to copy playlist link', err)
       notificationStore.add('Failed to copy link. Check console.', 'error')

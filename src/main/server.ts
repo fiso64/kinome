@@ -158,6 +158,11 @@ app.post('/api/play-file-with', async (req, res) => {
     res.json({ success })
 })
 
+app.post('/api/record-playback', async (req, res) => {
+    await libraryService.recordPlayback(req.body.itemId)
+    res.sendStatus(204)
+})
+
 // --- Metadata & Images ---
 
 app.post('/api/clear-item-metadata', async (req, res) => {

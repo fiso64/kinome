@@ -100,6 +100,7 @@
           <div
             class="poster"
             class:has-image={!!item.posterPath}
+            class:landscape={item.mediaType === 'episode'}
             class:fixed-aspect-ratio={fixedAspectRatio || !item.posterPath}
           >
             {#if item.posterPath}
@@ -191,16 +192,21 @@
   .poster img {
     display: block;
     height: 100%;
-    width: 100%;
+    width: 100%; /* Fill the container which is sized by aspect-ratio */
     object-fit: contain;
   }
-  /* By default, poster with image has auto width to respect aspect ratio */
+  /* By default, poster with image has explicit aspect ratio based on content type */
   .poster.has-image {
     width: auto;
+    height: 100%;
+    aspect-ratio: 2 / 3; /* Default to vertical */
+    display: block;
+    background-color: transparent;
   }
-  .poster.has-image img {
-    width: auto;
+  .poster.has-image.landscape {
+    aspect-ratio: 16 / 9;
   }
+  
   /* Placeholder icon has a fixed width */
   .poster:not(.has-image) {
     width: 80px;
@@ -210,12 +216,15 @@
   .poster.fixed-aspect-ratio {
     height: 100%;
     width: auto;
-    aspect-ratio: 2 / 3;
+    aspect-ratio: 2 / 3 !important;
     align-self: center;
     container-type: size; /* Enable container queries */
+    display: flex;
+    background-color: var(--color-background);
   }
   .poster.fixed-aspect-ratio img {
-    object-fit: cover; /* Fill the 2:3 container */
+    width: 100%;
+    object-fit: cover;
   }
 
   /* --- Icon Specific Styles --- */

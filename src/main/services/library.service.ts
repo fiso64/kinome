@@ -530,26 +530,36 @@ export const deleteItemFromDb = async (id: string) => {
   }
   return false
 }
+
+export const recordPlayback = async (itemId: string) => {
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return
+
+  repositoryService.updateItem(itemId, { watched: true, lastWatched: Date.now() })
+
+  // Check dismissal logic: If the user plays an episode of a show they previously dismissed,
+  // we assume they are interested again and un-dismiss it.
+  let parent = repositoryService.findParent(itemId)
+  while (parent) {
+    if (parent.type === 'folder' && parent.mediaType === 'tv') {
+      if (parent.nextUpDismissed || parent.continueWatchingDismissed) {
+        repositoryService.updateItem(parent.id, {
+          nextUpDismissed: false,
+          continueWatchingDismissed: false
+        })
+        _finalizeItemUpdate(repositoryService.getItemById(parent.id)!)
+      }
+      break
+    }
+    parent = repositoryService.findParent(parent.id)
+  }
+  _finalizeItemUpdate(repositoryService.getItemById(itemId)!)
+}
+
 export const playFileWith = async (file: MediaFile, cmd: string, cb: ErrorCallback) => {
   const res = await actionsService.playFileWith(file, cmd, cb)
   if (res) {
-    repositoryService.updateItem(file.id, { watched: true, lastWatched: Date.now() })
-    // Check dismissal logic
-    let parent = repositoryService.findParent(file.id)
-    while (parent) {
-      if (parent.type === 'folder' && parent.mediaType === 'tv') {
-        if (parent.nextUpDismissed || parent.continueWatchingDismissed) {
-          repositoryService.updateItem(parent.id, {
-            nextUpDismissed: false,
-            continueWatchingDismissed: false
-          })
-          _finalizeItemUpdate(repositoryService.getItemById(parent.id)!)
-        }
-        break
-      }
-      parent = repositoryService.findParent(parent.id)
-    }
-    _finalizeItemUpdate(repositoryService.getItemById(file.id)!)
+    await recordPlayback(file.id)
   }
   return res
 }

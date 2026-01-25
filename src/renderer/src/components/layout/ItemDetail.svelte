@@ -592,10 +592,16 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
+  .poster-container {
+    width: 100%;
+    height: 100%;
+  }
+
   .poster img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
   }
 
   .poster .icon {

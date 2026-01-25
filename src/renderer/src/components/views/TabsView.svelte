@@ -2,6 +2,7 @@
   import MediaView from '../layout/MediaView.svelte'
   import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
+  import { api } from '../../lib/api'
   import { get } from 'svelte/store'
 
   type VirtualFolder = MediaFolder & {
@@ -69,7 +70,7 @@
     if (!isTvShowContainer) return
 
     // Asynchronously fetch the "Next Up" episode to determine the default tab.
-    window.api.getContinueWatchingForShow(container.id).then((info) => {
+    api.getContinueWatchingForShow(container.id).then((info) => {
       // It's possible for the user to have clicked a tab while we were fetching.
       // Double-check that no tab has been set before we override it.
       if ($activeTabState.has(container.id)) return
@@ -89,8 +90,7 @@
 
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
-  import type { Settings } from 'http2'
-  import type { MediaFolder, LibraryItem, SearchIndexEntry, AutocompleteSuggestions } from '../../../../shared/types'
+  import type { MediaFolder, LibraryItem, SearchIndexEntry, AutocompleteSuggestions, Settings } from '../../../../shared/types'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({

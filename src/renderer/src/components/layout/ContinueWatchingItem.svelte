@@ -114,9 +114,11 @@
       <p class="cw-overview">{item.nextEpisode.overview}</p>
     </div>
   {/if}
-  <button class="dismiss-button" title="Dismiss" onclick={(e) => handleDismiss(e, item.show.id)}
-    >&times;</button
-  >
+  <button class="dismiss-button" title="Dismiss" onclick={(e) => handleDismiss(e, item.show.id)}>
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </svg>
+  </button>
 </div>
 
 <style>
@@ -315,8 +317,6 @@
     background-color: rgba(0, 0, 0, 0.6);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    font-size: 1.5rem;
-    line-height: 1;
     padding: 0;
     display: flex;
     justify-content: center;
