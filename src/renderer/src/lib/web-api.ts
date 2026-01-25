@@ -140,7 +140,7 @@ class WebApiClient implements ApiClient {
     }
 
     applyInitialFolderSettings(settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]): Promise<void> {
-        return this.request('/api/save-settings', { method: 'POST', body: JSON.stringify({ initialFolders: settings }) }) // Placeholder
+        return this.request('/api/apply-initial-folder-settings', { method: 'POST', body: JSON.stringify({ settings }) })
     }
 
     clearItemMetadata(itemId: string, childrenOnly: boolean): Promise<boolean> {

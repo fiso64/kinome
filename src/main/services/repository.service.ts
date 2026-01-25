@@ -76,6 +76,10 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     // log(`[Repo] Loaded ${vtCount} virtual tags for "${row.name}" (ID: ${row.id.substring(0,8)}...)`)
   }
 
+  // Detect if a metadata row actually exists.
+  // In the LEFT JOIN, if there is no matching metadata row, m.item_id will be NULL.
+  const hasMetadata = row.item_id !== null
+
   const base: any = {
     id: row.id,
     parentId: row.parent_id,
@@ -90,8 +94,17 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     isUserEdited: Boolean(row.is_user_edited),
 
     // Metadata
-    tmdbId: row.tmdb_id,
-    mediaType: row.media_type,
+    // Logic:
+    // 1. If no metadata row exists (hasMetadata false) -> undefined (Not Scanned)
+    // 2. If row exists, tmdb_id is NOT NULL -> row.tmdb_id (Found)
+    // 3. If row exists, tmdb_id IS NULL:
+    //    a. If version IS NULL -> undefined (Created by VirtualTags only, Not Scanned)
+    //    b. If version IS NOT NULL -> null (Scanned, but Not Found)
+    tmdbId: hasMetadata 
+      ? (row.tmdb_id !== null ? row.tmdb_id : (row.version !== null ? null : undefined)) 
+      : undefined,
+    
+    mediaType: hasMetadata ? row.media_type : undefined,
     title: row.title,
     originalTitle: row.original_title,
     overview: row.overview,

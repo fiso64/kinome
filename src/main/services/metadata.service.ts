@@ -79,7 +79,6 @@ function buildMemoryTree(items: LibraryItem[]): MediaFolder | null {
 }
 
 export async function fetchMetadataForLibrary() {
-  log('[fetchMetadataForLibrary] TRIGGERED.')
   // Reconstruct the full tree in memory to allow recursive traversal for metadata checking.
   // Using getAllItemsAsList is more efficient than recursively querying children.
   const allItems = repositoryService.getAllItemsAsList()
@@ -201,7 +200,12 @@ export async function fetchMetadataForLibrary() {
       )
       if (item.type === 'folder' && item.mediaType === 'tv')
         tvShowService.processTvShowStructure(item as MediaFolder)
-      if (item.posterPath || item.tmdbId === null) updatedItemsBatch.push(item)
+      
+      // Mark as processed by setting version
+      if (item.posterPath || item.tmdbId === null || item.tmdbId) {
+        item._v = Date.now()
+        updatedItemsBatch.push(item)
+      }
     }
     await processInChunks(newItemsToFetch, 17, task)
     finalizeBatch(updatedItemsBatch)
