@@ -239,17 +239,15 @@
   }
 
   async function handleBrowseMediaSource() {
-    const newPath = await window.api.selectMediaSourceDirectory()
-    if (newPath) {
-      mediaSourcePath = newPath
-    }
+    // Native picker removed.
+    // TODO: Use server file browser in the future.
+    alert('Please enter the server path manually.')
   }
 
   async function handleChangeLibraryDataLocation() {
-    const path = await window.api.selectLibraryDirectory()
-    if (path) {
-      libraryDataLocation = path
-    }
+    // Native picker removed.
+    // TODO: Use server file browser in the future.
+    alert('Please enter the server path manually.')
   }
 </script>
 
@@ -384,9 +382,7 @@
             bind:value={mediaSourcePath}
             placeholder="Enter local path to your media"
           />
-          {#if window.api.capabilities.hasNativeFilePicker}
-            <button class="secondary" onclick={handleBrowseMediaSource}>Browse...</button>
-          {/if}
+          <!-- Browse removed -->
         </div>
         <p class="help-text">
           Resolved Path: <code>{resolvedMediaPath}</code>
@@ -413,9 +409,7 @@
             bind:value={libraryDataLocation}
             placeholder="Enter local path or http(s):// URL"
           />
-          {#if window.api.capabilities.hasNativeFilePicker}
-            <button class="secondary" onclick={handleChangeLibraryDataLocation}>Browse...</button>
-          {/if}
+          <!-- Browse removed -->
         </div>
         <p class="help-text">
           The folder (or URL) where metadata, images, and database files are stored. Changing this

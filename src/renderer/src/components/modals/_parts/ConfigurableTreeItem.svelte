@@ -61,7 +61,7 @@
     </div>
   </div>
 
-  {#if isExpanded && item.children.length > 0}
+  {#if isExpanded && item.children && item.children.length > 0}
     <div class="children" transition:slide|local={{ duration: 150 }}>
       {#each item.children.filter((c) => c.type === 'folder') as child (child.id)}
         <ConfigurableTreeItem item={child as MediaFolder} level={level + 1} bind:settings />

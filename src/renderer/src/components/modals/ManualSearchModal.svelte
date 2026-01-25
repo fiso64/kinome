@@ -109,12 +109,9 @@
     isSettingImage = true
     try {
       if (source.type === 'local') {
-        const localPath = await window.api.selectLocalImage()
-        if (!localPath) {
-          isSettingImage = false
-          return // User cancelled dialog, do nothing further.
-        }
-        await window.api.setImage(item.id, imageType, { type: 'local', path: localPath })
+        // Native picker removed.
+        // TODO: Implement client-side file upload (input type="file")
+        console.warn('Local file selection not implemented (requires upload support).')
       } else {
         await window.api.setImage(item.id, imageType, JSON.parse(JSON.stringify(source)))
       }
@@ -292,16 +289,8 @@
                   {/if}
                 </div>
               </div>
-              {#if window.api.capabilities.hasNativeFilePicker}
-                <button
-                  class="secondary"
-                  onclick={() => handleSetImage('poster', { type: 'local' })}
-                  disabled={isSettingImage}>Choose Local File</button
-                >
-              {:else}
-                <!-- Web Upload TBD -->
-                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
-              {/if}
+              <!-- Web Upload TBD -->
+              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each posters as image (image.file_path)}
@@ -344,15 +333,7 @@
                   {/if}
                 </div>
               </div>
-              {#if window.api.capabilities.hasNativeFilePicker}
-                <button
-                  class="secondary"
-                  onclick={() => handleSetImage('logo', { type: 'local' })}
-                  disabled={isSettingImage}>Choose Local File</button
-                >
-              {:else}
-                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
-              {/if}
+              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each logos as image (image.file_path)}
@@ -395,15 +376,7 @@
                   {/if}
                 </div>
               </div>
-              {#if window.api.capabilities.hasNativeFilePicker}
-                <button
-                  class="secondary"
-                  onclick={() => handleSetImage('backdrop', { type: 'local' })}
-                  disabled={isSettingImage}>Choose Local File</button
-                >
-              {:else}
-                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
-              {/if}
+              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
             </div>
             <div class="image-list backdrop" onwheel={horizontalScroll}>
               {#each backdrops as image (image.file_path)}

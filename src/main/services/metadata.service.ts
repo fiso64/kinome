@@ -51,9 +51,43 @@ function collectItemsToProcess(
   }
 }
 
+function buildMemoryTree(items: LibraryItem[]): MediaFolder | null {
+  const itemMap = new Map<string, LibraryItem>()
+  let root: MediaFolder | null = null
+
+  // 1. Initialize map and children arrays for folders
+  for (const item of items) {
+    if (item.type === 'folder') {
+      (item as MediaFolder).children = []
+    }
+    itemMap.set(item.id, item)
+  }
+
+  // 2. Link children to parents
+  for (const item of items) {
+    if (!item.parentId) {
+      if (item.type === 'folder') root = item as MediaFolder
+    } else {
+      const parent = itemMap.get(item.parentId)
+      if (parent && parent.type === 'folder') {
+        (parent as MediaFolder).children!.push(item)
+      }
+    }
+  }
+
+  return root
+}
+
 export async function fetchMetadataForLibrary() {
-  const dbRoot = repositoryService.getRoot()
+  log('[fetchMetadataForLibrary] TRIGGERED.')
+  // Reconstruct the full tree in memory to allow recursive traversal for metadata checking.
+  // Using getAllItemsAsList is more efficient than recursively querying children.
+  const allItems = repositoryService.getAllItemsAsList()
+  if (allItems.length === 0) return
+
+  const dbRoot = buildMemoryTree(allItems)
   if (!dbRoot) return
+
   const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
   if (!settings.tmdbApiKey) {

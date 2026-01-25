@@ -24,7 +24,6 @@ class WebApiClient implements ApiClient {
         
         this.capabilities = {
             hasWindowControls: false,
-            hasNativeFilePicker: false, // Web browsers cannot use native OS file pickers triggered by JS for server paths
             supportsLocalPlayback: false // Server cannot launch a player on the client's machine
         }
     }
@@ -184,13 +183,6 @@ class WebApiClient implements ApiClient {
         return this.request<{ state: any }>('/api/folder-watched-state/' + encodeURIComponent(folderId)).then(r => r.state)
     }
 
-    selectLocalImage(): Promise<string | null> {
-        // Standard web browsers cannot easily select local file paths.
-        // For now, this would require a file upload or a server-side path picker.
-        console.warn('[WebApiClient] selectLocalImage not fully implemented for web.')
-        return Promise.resolve(null)
-    }
-
     setImage(itemId: string, imageType: 'poster' | 'backdrop' | 'logo', source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }): Promise<void> {
         return this.request('/api/user-set-image', { method: 'POST', body: JSON.stringify({ itemId, imageType, source }) })
     }
@@ -221,14 +213,6 @@ class WebApiClient implements ApiClient {
 
     getItemProperties(path: string): Promise<MediaProperties | null> {
         return this.request(`/api/item-properties/${encodeURIComponent(path)}`)
-    }
-
-    selectLibraryDirectory(): Promise<string | null> {
-        return Promise.resolve(null) // TBD
-    }
-
-    selectMediaSourceDirectory(): Promise<string | null> {
-        return Promise.resolve(null) // TBD
     }
 
     getSettings(): Promise<Settings> {

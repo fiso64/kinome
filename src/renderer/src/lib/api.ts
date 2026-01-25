@@ -73,7 +73,7 @@ export interface ApiClient {
   markAsWatched(itemId: string): Promise<void>
   markAsUnwatched(itemId: string): Promise<void>
   getFolderWatchedState(folderId: string): Promise<'fully' | 'partially' | 'unwatched' | 'none'>
-  selectLocalImage(): Promise<string | null>
+  // Native file picking (selectLocalImage) removed in favor of future client-side upload or server-browser.
   setImage(
     itemId: string,
     imageType: 'poster' | 'backdrop' | 'logo',
@@ -86,8 +86,7 @@ export interface ApiClient {
   deleteItemFromDb(itemId: string): Promise<boolean>
   renameItem(oldPath: string, newName: string): Promise<boolean>
   getItemProperties(path: string): Promise<MediaProperties | null>
-  selectLibraryDirectory(): Promise<string | null>
-  selectMediaSourceDirectory(): Promise<string | null>
+  // Native directory picking (selectLibraryDirectory, selectMediaSourceDirectory) removed.
   getSettings(): Promise<Settings>
   getLibraryMediaSourcePath(): Promise<string | null>
   saveSettings(settings: Partial<Settings>): Promise<void>

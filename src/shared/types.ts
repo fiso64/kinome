@@ -377,11 +377,6 @@ export interface AppCapabilities {
    */
   hasWindowControls: boolean
   /**
-   * Determines if the app can trigger OS-level open/save dialogs.
-   * True for Desktop, False for Web (requires custom UI).
-   */
-  hasNativeFilePicker: boolean
-  /**
    * Indicates if the backend can spawn processes visible to the user (e.g., launching VLC).
    * True for Desktop, False for Web (server execution is invisible/remote).
    */

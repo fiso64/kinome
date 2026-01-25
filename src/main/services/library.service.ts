@@ -580,6 +580,7 @@ export const handleItemRemovedByPath = async (p: string) => {
 export const applyInitialFolderSettings = async (
   settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
 ) => {
+  log(`[applyInitialFolderSettings] Called with ${settings.length} entries.`)
   repositoryService.runTransaction(() => {
     for (const s of settings) {
       repositoryService.updateItem(s.id, {
@@ -588,6 +589,7 @@ export const applyInitialFolderSettings = async (
       })
     }
   })
+  log('[applyInitialFolderSettings] DB updates complete. Triggering metadata fetch.')
   metadataService.fetchMetadataForLibrary().catch(console.error)
 }
 

@@ -365,6 +365,10 @@ app.get('/api/settings', async (_req, res) => {
 })
 
 app.post('/api/save-settings', async (req, res) => {
+    console.log(`[Server] /api/save-settings called with payload keys: ${Object.keys(req.body).join(', ')}`)
+    if ('initialFolders' in req.body) {
+        console.warn('[Server] WARNING: Received "initialFolders" in /api/save-settings. This endpoint may not be configured to handle it.')
+    }
     await settingsService.saveSettingsChanges(req.body)
     const newSettings = await settingsService.readSettings()
     webTransport.notifySettingsUpdated(newSettings)

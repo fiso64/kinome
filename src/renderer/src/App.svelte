@@ -225,8 +225,13 @@
 
       // 4. Update the item in an active modal.
       const activeModal = modalStore.activeModal
-      if (activeModal && 'item' in activeModal.props && activeModal.props.item.id === newItem.id) {
-        activeModal.props.item = newItem
+      if (
+        activeModal &&
+        activeModal.props &&
+        'item' in activeModal.props &&
+        (activeModal.props as any).item.id === newItem.id
+      ) {
+        ;(activeModal.props as any).item = newItem
       }
     }
   }
@@ -366,10 +371,11 @@
   }
 
   async function handleOpenLibrary(): Promise<void> {
-    const path = await api.selectLibraryDirectory()
+    // Native picker removed.
+    // TODO: Implement custom UI to input/browse for library path string
+    const path = prompt('Enter the full server path to the library directory:')
     if (path) {
       await api.saveSettings({ libraryLocation: path })
-      // Reload the entire application to apply the new library path
       window.location.reload()
     }
   }

@@ -71,16 +71,10 @@
         <button class="primary" onclick={() => dispatch('scanLibrary')}
           >Scan New Media Folder</button
         >
-        {#if window.api.capabilities.hasNativeFilePicker}
-          <button class="secondary" onclick={() => dispatch('openLibrary')}
-            >Open Existing Library</button
-          >
-        {:else}
-          <!-- Placeholder for Server Browser implementation -->
-          <button class="secondary" disabled title="Not implemented for Web yet"
-            >Open Existing Library</button
-          >
-        {/if}
+        <!-- Native file picking removed. Future implementation: Server-side file browser. -->
+        <button class="secondary" disabled title="Requires Server File Browser implementation"
+          >Open Existing Library</button
+        >
       </div>
     </div>
   {:else}
