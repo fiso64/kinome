@@ -262,6 +262,75 @@ app.get('/api/item-properties/*itemPath', async (req, res) => {
 
 // --- Settings ---
 
+const streamHandler = async (req: express.Request, res: express.Response) => {
+    try {
+        const filePath = await libraryService.getItemPath(req.params.id)
+        if (!filePath) return res.status(404).send('File not found')
+
+        // If it's a remote URL, redirect to it
+        if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+            return res.redirect(filePath)
+        }
+
+        // Otherwise serve local file
+        res.sendFile(filePath)
+    } catch (e) {
+        console.error('Error serving stream:', e)
+        res.sendStatus(500)
+    }
+}
+
+app.get(['/api/stream/:id', '/api/stream/:id/:filename'], streamHandler)
+
+app.get('/api/playlist/:id.m3u', async (req, res) => {
+    try {
+        const playlist = await libraryService.generatePlaylist(req.params.id)
+        if (!playlist || playlist.length === 0) return res.status(404).send('Item not found')
+
+        const host = req.get('host')
+        const protocol = req.protocol
+
+        let m3uContent = '#EXTM3U\n'
+        for (const item of playlist) {
+            // #EXTINF:duration,title
+            // We use -1 for live/unknown duration
+            let title = item.title || item.name
+            
+            // Format title with Season/Episode info if available
+            const f = item as any
+            if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
+                const s = f.seasonNumber.toString().padStart(2, '0')
+                const e = f.episodeNumber.toString().padStart(2, '0')
+                title = `S${s}E${e} - ${title}`
+            }
+
+            m3uContent += `#EXTINF:-1,${title}\n`
+            
+            // Construct stream URL
+            // We append the filename to the URL to help players detect file extension/type
+            const filename = encodeURIComponent(item.name)
+            m3uContent += `${protocol}://${host}/api/stream/${item.id}/${filename}\n`
+        }
+
+        // Try to generate a nice filename for the playlist itself based on the first item (the requested item)
+        const firstItem = playlist[0] as any
+        let playlistFilename = 'playlist.m3u'
+        if (firstItem && firstItem.mediaType === 'episode' && typeof firstItem.seasonNumber === 'number' && typeof firstItem.episodeNumber === 'number') {
+             const s = firstItem.seasonNumber.toString().padStart(2, '0')
+             const e = firstItem.episodeNumber.toString().padStart(2, '0')
+             // Clean filename slightly
+             playlistFilename = `S${s}E${e}.m3u`
+        }
+
+        res.setHeader('Content-Type', 'audio/x-mpegurl')
+        res.setHeader('Content-Disposition', `attachment; filename="${playlistFilename}"`)
+        res.send(m3uContent)
+    } catch (e) {
+        console.error('Error generating playlist:', e)
+        res.sendStatus(500)
+    }
+})
+
 app.get('/api/settings', async (_req, res) => {
     const settings = await settingsService.readSettings()
     res.json(settings)

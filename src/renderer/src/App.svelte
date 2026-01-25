@@ -5,8 +5,10 @@
   import ModalRoot from './components/layout/ModalRoot.svelte'
   import ContextMenuRoot from './components/layout/ContextMenuRoot.svelte'
   import Dialog from './components/ui/Dialog.svelte'
+  import NotificationContainer from './components/ui/NotificationContainer.svelte'
   import { initializeShortcuts } from './lib/shortcuts'
   import { dialogStore } from './lib/dialog-store'
+  import { notificationStore } from './lib/notification-store.svelte'
   import { autocompleteState } from './lib/autocomplete-manager'
   import AutocompleteMenu from './components/ui/AutocompleteMenu.svelte'
   import { resolveViewSettings } from '../../shared/settings-helpers'
@@ -305,14 +307,14 @@
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    const plainFile: MediaFile = {
-      id: item.id,
-      name: item.name,
-      path: item.path,
-      type: 'file',
-      watched: item.watched
+    const playlistUrl = `${window.location.origin}/api/playlist/${item.id}.m3u`
+    try {
+      await navigator.clipboard.writeText(playlistUrl)
+      notificationStore.add('Playlist link copied to clipboard!', 'success')
+    } catch (err) {
+      console.error('Failed to copy playlist link', err)
+      notificationStore.add('Failed to copy link. Check console.', 'error')
     }
-    await api.playFile(plainFile)
   }
 
   function handleDismissContinueWatching(showId: string) {
@@ -416,6 +418,7 @@
 />
 
 <ContextMenuRoot {settings} onRefresh={handleRefresh} onItemClick={handleItemClick} />
+<NotificationContainer />
 
 {#if activeDialogs.length > 0}
   {@const dialog = activeDialogs[0]}

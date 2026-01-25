@@ -314,35 +314,22 @@
           <input
             type="text"
             id="player-command-display"
-            value={playerCommands[0]?.command ?? ''}
-            oninput={(e) => {
-              const newCommand = (e.target as HTMLInputElement).value
-              if (playerCommands.length > 0) {
-                playerCommands[0].command = newCommand
-              } else {
-                // This case should ideally not happen if defaults are set,
-                // but as a fallback, create a new default command.
-                playerCommands = [
-                  { id: crypto.randomUUID(), name: 'Default Player', command: newCommand }
-                ]
-              }
-              playerCommands = [...playerCommands] // Trigger Svelte reactivity
-            }}
-            placeholder={placeholderText}
-            class:input-empty={!playerCommands[0]?.command}
-            style="flex-grow:1;"
+            value="Copy Playlist URL to Clipboard"
+            disabled
+            style="flex-grow:1; font-style: italic; color: var(--ev-c-text-2);"
           />
           <button
             class="secondary"
-            onclick={() => (activePlayerCommandsModal = true)}
+            disabled
+            title="Not available in Web UI"
             style="height: auto; align-self: stretch;"
           >
             Manage...
           </button>
         </div>
         <p class="help-text">
-          The default player command. Click "Manage..." to add, remove, or reorder multiple player
-          configurations. Use <code>&lbrace;PATH&rbrace;</code> as a placeholder for the file path.
+          In the Web UI, playing a file copies a streamable playlist URL to your clipboard. 
+          Custom player commands are only available in the desktop client application.
         </p>
       </div>
       <div class="form-group">

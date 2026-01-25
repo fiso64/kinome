@@ -607,3 +607,54 @@ export const getFolderWatchedState = async (
   if (watchedCount > 0) return 'partially'
   return 'unwatched'
 }
+
+export async function getItemPath(itemId: string): Promise<string | null> {
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return null
+  return actionsService.getAbsolutePath(item.path)
+}
+
+export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
+  const item = repositoryService.getItemById(itemId)
+  if (!item) return []
+
+  const parent = repositoryService.findParent(itemId)
+  // If no parent (root item?) or item is orphan, just return the item itself
+  if (!parent) return [item]
+
+  // Get all siblings including the item itself
+  const siblings = repositoryService
+    .getChildren(parent.id)
+    .filter((c) => c.type === 'file' && !c.isHidden && !c.isMissing)
+
+  // Sort siblings:
+  // 1. Season/Episode (if available)
+  // 2. Name (Alphabetical)
+  siblings.sort((a, b) => {
+    // Cast to any to access optional properties safely
+    const aS = (a as any).seasonNumber
+    const bS = (b as any).seasonNumber
+    const aE = (a as any).episodeNumber
+    const bE = (b as any).episodeNumber
+
+    // Sort by Season
+    if (aS != null && bS != null && aS !== bS) return aS - bS
+    if (aS != null && bS == null) return -1
+    if (aS == null && bS != null) return 1
+
+    // Sort by Episode
+    if (aE != null && bE != null && aE !== bE) return aE - bE
+    if (aE != null && bE == null) return -1
+    if (aE == null && bE != null) return 1
+
+    // Fallback to Name
+    return a.name.localeCompare(b.name, undefined, { numeric: true })
+  })
+
+  // Find the index of the requested item
+  const index = siblings.findIndex((s) => s.id === itemId)
+  if (index === -1) return [item]
+
+  // Return the item and all subsequent items (Next episodes)
+  return siblings.slice(index)
+}
