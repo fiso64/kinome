@@ -292,11 +292,16 @@
                   {/if}
                 </div>
               </div>
-              <button
-                class="secondary"
-                onclick={() => handleSetImage('poster', { type: 'local' })}
-                disabled={isSettingImage}>Choose Local File</button
-              >
+              {#if window.api.capabilities.hasNativeFilePicker}
+                <button
+                  class="secondary"
+                  onclick={() => handleSetImage('poster', { type: 'local' })}
+                  disabled={isSettingImage}>Choose Local File</button
+                >
+              {:else}
+                <!-- Web Upload TBD -->
+                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
+              {/if}
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each posters as image (image.file_path)}
@@ -339,11 +344,15 @@
                   {/if}
                 </div>
               </div>
-              <button
-                class="secondary"
-                onclick={() => handleSetImage('logo', { type: 'local' })}
-                disabled={isSettingImage}>Choose Local File</button
-              >
+              {#if window.api.capabilities.hasNativeFilePicker}
+                <button
+                  class="secondary"
+                  onclick={() => handleSetImage('logo', { type: 'local' })}
+                  disabled={isSettingImage}>Choose Local File</button
+                >
+              {:else}
+                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
+              {/if}
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each logos as image (image.file_path)}
@@ -386,11 +395,15 @@
                   {/if}
                 </div>
               </div>
-              <button
-                class="secondary"
-                onclick={() => handleSetImage('backdrop', { type: 'local' })}
-                disabled={isSettingImage}>Choose Local File</button
-              >
+              {#if window.api.capabilities.hasNativeFilePicker}
+                <button
+                  class="secondary"
+                  onclick={() => handleSetImage('backdrop', { type: 'local' })}
+                  disabled={isSettingImage}>Choose Local File</button
+                >
+              {:else}
+                <button class="secondary" disabled title="Web upload not implemented yet">Upload File</button>
+              {/if}
             </div>
             <div class="image-list backdrop" onwheel={horizontalScroll}>
               {#each backdrops as image (image.file_path)}

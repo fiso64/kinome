@@ -308,30 +308,43 @@
 
   <div class="tab-content">
     {#if activeTab === 'general'}
-      <div class="form-group">
-        <label for="player-command-display">Default Player Command</label>
-        <div class="path-display-container">
-          <input
-            type="text"
-            id="player-command-display"
-            value="Copy Playlist URL to Clipboard"
-            disabled
-            style="flex-grow:1; font-style: italic; color: var(--ev-c-text-2);"
-          />
-          <button
-            class="secondary"
-            disabled
-            title="Not available in Web UI"
-            style="height: auto; align-self: stretch;"
-          >
-            Manage...
-          </button>
+      {#if window.api.capabilities.supportsLocalPlayback}
+        <div class="form-group">
+          <label>Player Commands</label>
+          <div class="path-display-container">
+            <div class="path-display" style="flex-grow: 1; text-align: center;">
+              {playerCommands.length} command(s) configured
+            </div>
+            <button
+              class="secondary"
+              onclick={() => (activePlayerCommandsModal = true)}
+              style="height: auto; align-self: stretch;"
+            >
+              Manage...
+            </button>
+          </div>
+          <p class="help-text">
+            Configure external players to launch when clicking a file. The first one in the list is the default.
+          </p>
         </div>
-        <p class="help-text">
-          In the Web UI, playing a file copies a streamable playlist URL to your clipboard. 
-          Custom player commands are only available in the desktop client application.
-        </p>
-      </div>
+      {:else}
+        <div class="form-group">
+          <label for="player-command-display">Default Play Action</label>
+          <div class="path-display-container">
+            <input
+              type="text"
+              id="player-command-display"
+              value="Copy Playlist URL to Clipboard"
+              disabled
+              style="flex-grow:1; font-style: italic; color: var(--ev-c-text-2);"
+            />
+          </div>
+          <p class="help-text">
+            Server mode: Playing a file copies a streamable playlist URL to your clipboard. 
+            Launching local applications is only supported in the Desktop Client.
+          </p>
+        </div>
+      {/if}
       <div class="form-group">
         <label>Custom Actions</label>
         <div class="path-display-container">
@@ -371,7 +384,9 @@
             bind:value={mediaSourcePath}
             placeholder="Enter local path to your media"
           />
-          <button class="secondary" onclick={handleBrowseMediaSource}>Browse...</button>
+          {#if window.api.capabilities.hasNativeFilePicker}
+            <button class="secondary" onclick={handleBrowseMediaSource}>Browse...</button>
+          {/if}
         </div>
         <p class="help-text">
           Resolved Path: <code>{resolvedMediaPath}</code>
@@ -398,7 +413,9 @@
             bind:value={libraryDataLocation}
             placeholder="Enter local path or http(s):// URL"
           />
-          <button class="secondary" onclick={handleChangeLibraryDataLocation}>Browse...</button>
+          {#if window.api.capabilities.hasNativeFilePicker}
+            <button class="secondary" onclick={handleChangeLibraryDataLocation}>Browse...</button>
+          {/if}
         </div>
         <p class="help-text">
           The folder (or URL) where metadata, images, and database files are stored. Changing this

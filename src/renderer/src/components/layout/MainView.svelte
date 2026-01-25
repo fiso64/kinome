@@ -67,12 +67,20 @@
       <h2>Welcome to Media Browser</h2>
       <p>To get started, scan a new folder containing your media, or open an existing library.</p>
       <div class="welcome-buttons">
+        <!-- TBD: Scan New Folder for Web requires Server Browser -->
         <button class="primary" onclick={() => dispatch('scanLibrary')}
           >Scan New Media Folder</button
         >
-        <button class="secondary" onclick={() => dispatch('openLibrary')}
-          >Open Existing Library</button
-        >
+        {#if window.api.capabilities.hasNativeFilePicker}
+          <button class="secondary" onclick={() => dispatch('openLibrary')}
+            >Open Existing Library</button
+          >
+        {:else}
+          <!-- Placeholder for Server Browser implementation -->
+          <button class="secondary" disabled title="Not implemented for Web yet"
+            >Open Existing Library</button
+          >
+        {/if}
       </div>
     </div>
   {:else}

@@ -292,7 +292,9 @@
       >
     </div>
   </div>
-  <WindowControls />
+  {#if window.api.capabilities.hasWindowControls}
+    <WindowControls />
+  {/if}
 </header>
 
 <style>

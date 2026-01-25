@@ -411,7 +411,7 @@
       {/if}
     </div>
 
-    {#if item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
+    {#if window.api.capabilities.supportsLocalPlayback && item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
       <div
         class="submenu-container"
         onmouseenter={() => (activeSubmenu = 'play')}
@@ -496,10 +496,12 @@
             style="top: {submenuTop}px;"
             onclick={(e) => e.stopPropagation()}
           >
-            <button class="context-menu-item" onclick={handleReveal}>
-              <span class="icon">📁</span>
-              <span>Show in Explorer</span>
-            </button>
+            {#if window.api.capabilities.supportsLocalPlayback}
+              <button class="context-menu-item" onclick={handleReveal}>
+                <span class="icon">📁</span>
+                <span>Show in Explorer</span>
+              </button>
+            {/if}
             <button class="context-menu-item" onclick={handleRename}>
               <span class="icon">✏️</span>
               <span>Rename...</span>

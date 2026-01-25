@@ -16,10 +16,17 @@ const BASE_URL = 'http://localhost:3000'
 
 class WebApiClient implements ApiClient {
     private socket: Socket
+    public readonly capabilities: AppCapabilities
 
     constructor() {
         this.socket = io(BASE_URL)
         console.log('[WebApiClient] Initialized.')
+        
+        this.capabilities = {
+            hasWindowControls: false,
+            hasNativeFilePicker: false, // Web browsers cannot use native OS file pickers triggered by JS for server paths
+            supportsLocalPlayback: false // Server cannot launch a player on the client's machine
+        }
     }
 
     private async request<T>(path: string, options?: RequestInit): Promise<T> {

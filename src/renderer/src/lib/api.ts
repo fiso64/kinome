@@ -7,10 +7,13 @@ import type {
   SearchIndexEntry,
   TmdbSearchResult,
   TmdbImageResults,
-  MediaProperties
+  MediaProperties,
+  AppCapabilities
 } from '../../../shared/types'
 
 export interface ApiClient {
+  readonly capabilities: AppCapabilities
+
   performSearch(query: {
     text: string
     tags: { key: string; value: string }[]
