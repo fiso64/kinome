@@ -290,7 +290,9 @@
                 </div>
               </div>
               <!-- Web Upload TBD -->
-              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
+              <button class="secondary" disabled title="Upload not implemented yet"
+                >Upload File</button
+              >
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each posters as image (image.file_path)}
@@ -333,7 +335,9 @@
                   {/if}
                 </div>
               </div>
-              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
+              <button class="secondary" disabled title="Upload not implemented yet"
+                >Upload File</button
+              >
             </div>
             <div class="image-list" onwheel={horizontalScroll}>
               {#each logos as image (image.file_path)}
@@ -376,7 +380,9 @@
                   {/if}
                 </div>
               </div>
-              <button class="secondary" disabled title="Upload not implemented yet">Upload File</button>
+              <button class="secondary" disabled title="Upload not implemented yet"
+                >Upload File</button
+              >
             </div>
             <div class="image-list backdrop" onwheel={horizontalScroll}>
               {#each backdrops as image (image.file_path)}

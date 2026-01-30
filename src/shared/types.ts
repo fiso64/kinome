@@ -261,6 +261,8 @@ export interface MediaFile {
   tmdbCreditsFetched?: boolean
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
+  lockedFields?: string[] // Array of field names that are locked (e.g. ['title', 'overview'])
+  ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
 export interface MediaFolder extends StoredViewSettings {
@@ -307,6 +309,8 @@ export interface MediaFolder extends StoredViewSettings {
   nextUpDismissed?: boolean
   _lastSeenLocalMaxSeason?: number
   _lastSeenLocalMaxEpisode?: number
+  lockedFields?: string[] // Array of field names that are locked
+  ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
 export type LibraryItem = MediaFile | MediaFolder

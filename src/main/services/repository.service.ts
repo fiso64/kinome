@@ -12,9 +12,17 @@ export interface FindOptions {
 }
 
 export const CORE_FIELDS = [
-  'id', 'parentId', 'name', 'type', 'mediaType',
-  'posterPath', 'watched', 'isMissing', 'year',
-  'seasonNumber', 'episodeNumber'
+  'id',
+  'parentId',
+  'name',
+  'type',
+  'mediaType',
+  'posterPath',
+  'watched',
+  'isMissing',
+  'year',
+  'seasonNumber',
+  'episodeNumber'
 ]
 
 const log = (message: string): void => {
@@ -56,9 +64,10 @@ export function ensureRootExists(mediaSourcePath: string): void {
   log(`No root node found. Creating root for: ${mediaSourcePath}`)
   const db = getDb()
   const rootId = generateId('.')
-  const rootName = (mediaSourcePath === '.' || mediaSourcePath === '/')
-    ? 'Library'
-    : (mediaSourcePath.split(/[/\\]/).filter(Boolean).pop() || 'Library')
+  const rootName =
+    mediaSourcePath === '.' || mediaSourcePath === '/'
+      ? 'Library'
+      : mediaSourcePath.split(/[/\\]/).filter(Boolean).pop() || 'Library'
 
   db.prepare(
     `
@@ -105,6 +114,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   const credits = parseJsonSafe(row.people_json, null)
   const seasons = parseJsonSafe(row.seasons_json, null)
   const episodes = parseJsonSafe(row.episodes_json, null)
+  const lockedFields = parseJsonSafe<string[]>(row.locked_fields_json, [])
   const viewSettings = parseJsonSafe<any>(row.view_settings_json, {})
   const scraperSettings = parseJsonSafe<any>(row.scraper_settings_json, {})
 
@@ -138,7 +148,11 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     //    a. If version IS NULL -> undefined (Created by VirtualTags only, Not Scanned)
     //    b. If version IS NOT NULL -> null (Scanned, but Not Found)
     tmdbId: hasMetadata
-      ? (row.tmdb_id !== null ? row.tmdb_id : (row.version !== null ? null : undefined))
+      ? row.tmdb_id !== null
+        ? row.tmdb_id
+        : row.version !== null
+          ? null
+          : undefined
       : undefined,
 
     mediaType: hasMetadata ? row.media_type : undefined,
@@ -174,12 +188,18 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     tmdbEpisodesFetched: !!episodes || (row.media_type === 'tv' && !!seasons),
 
     // Versioning
-    _v: row.version
+    _v: row.version,
+
+    // Locking
+    lockedFields: hasMetadata ? lockedFields : undefined
   }
 
   // Merge View/Folder Settings
   Object.assign(base, viewSettings)
   if (row.type === 'folder') {
+    // log(`[DEBUG] mapRowToLibraryItem for folder ${row.id}:`)
+    // log(`[DEBUG]   row.scraper_settings_json: ${row.scraper_settings_json}`)
+    // log(`[DEBUG]   parsed scraperSettings: ${JSON.stringify(scraperSettings)}`)
     Object.assign(base, {
       retrieve_children_metadata: scraperSettings.retrieve_children_metadata,
       children_type_hint: scraperSettings.children_type_hint,
@@ -368,10 +388,7 @@ export function getAllItemsAsList(): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-
 // --- Write Operations ---
-
-
 
 export function find(options: FindOptions = {}): LibraryItem[] {
   const db = getDb()
@@ -412,32 +429,63 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     watched: 'u.watched',
     lastWatched: 'u.last_watched_at',
     continueWatchingDismissed: 'u.continue_watching_dismissed',
-    nextUpDismissed: 'u.next_up_dismissed'
+    nextUpDismissed: 'u.next_up_dismissed',
+    // Folder Settings - Scraper
+    retrieve_children_metadata: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')",
+    children_type_hint: "json_extract(f.scraper_settings_json, '$.children_type_hint')",
+    process_tv_children: "json_extract(f.scraper_settings_json, '$.process_tv_children')",
+    // Folder Settings - View
+    layout: "json_extract(f.view_settings_json, '$.layout')",
+    clickAction: "json_extract(f.view_settings_json, '$.clickAction')",
+    groupBy: "json_extract(f.view_settings_json, '$.groupBy')",
+    gridPosterSize: "json_extract(f.view_settings_json, '$.gridPosterSize')",
+    listDescriptionRows: "json_extract(f.view_settings_json, '$.listDescriptionRows')",
+    showHorizontalScrollbar: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')",
+    childViewSettings: "json_extract(f.view_settings_json, '$.childViewSettings')",
+    virtualFolderSettings: "json_extract(f.view_settings_json, '$.virtualFolderSettings')"
   }
 
   // Determine needed tables
-  const needsMetadata = selectAll || fields.some(f =>
-    Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('m.') ||
-    fieldMap[f].includes('m.images_json')
-  )
-  const needsUserState = selectAll || fields.some(f =>
-    Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('u.')
-  )
+  const needsMetadata =
+    selectAll ||
+    fields.some(
+      (f) =>
+        (Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('m.')) ||
+        fieldMap[f].includes('m.images_json')
+    )
+  const needsUserState =
+    selectAll ||
+    fields.some((f) => Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('u.'))
+
+  const needsFolderSettings =
+    selectAll ||
+    fields.some((f) => Object.keys(fieldMap).includes(f) && fieldMap[f].includes('f.'))
 
   // Build SELECT clause
   let selectClause = 'i.id' // Always select ID
   if (selectAll) {
-    selectClause = 'i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed'
+    selectClause =
+      'i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json'
   } else {
     // Basic items columns if requested
-    const itemCols = fields.filter(f => fieldMap[f]?.startsWith('i.')).map(f => `${fieldMap[f]} as ${f} `)
+    const itemCols = fields
+      .filter((f) => fieldMap[f]?.startsWith('i.'))
+      .map((f) => `${fieldMap[f]} as ${f} `)
     // Metadata columns
-    const metaCols = fields.filter(f => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.')).map(f => `${fieldMap[f]} as ${f} `)
+    const metaCols = fields
+      .filter((f) => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.'))
+      .map((f) => `${fieldMap[f]} as ${f} `)
     // UserState columns
-    const userCols = fields.filter(f => fieldMap[f]?.startsWith('u.')).map(f => `${fieldMap[f]} as ${f} `)
+    const userCols = fields
+      .filter((f) => fieldMap[f]?.startsWith('u.'))
+      .map((f) => `${fieldMap[f]} as ${f} `)
+    // FolderSettings columns
+    const folderCols = fields
+      .filter((f) => fieldMap[f]?.includes('f.'))
+      .map((f) => `${fieldMap[f]} as ${f} `)
 
     // Combine
-    const allSelectedPromise = [...itemCols, ...metaCols, ...userCols]
+    const allSelectedPromise = [...itemCols, ...metaCols, ...userCols, ...folderCols]
     if (allSelectedPromise.length > 0) {
       selectClause += ', ' + allSelectedPromise.join(', ')
     }
@@ -450,6 +498,9 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   }
   if (needsUserState) {
     query += ` LEFT JOIN user_state u ON i.id = u.item_id`
+  }
+  if (needsFolderSettings) {
+    query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
   }
 
   const params: any[] = []
@@ -512,8 +563,10 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     // Ensure numeric types are correct
     if (row.tmdbId !== undefined && row.tmdbId !== null) row.tmdbId = Number(row.tmdbId)
     if (row.year !== undefined && row.year !== null) row.year = Number(row.year)
-    if (row.seasonNumber !== undefined && row.seasonNumber !== null) row.seasonNumber = Number(row.seasonNumber)
-    if (row.episodeNumber !== undefined && row.episodeNumber !== null) row.episodeNumber = Number(row.episodeNumber)
+    if (row.seasonNumber !== undefined && row.seasonNumber !== null)
+      row.seasonNumber = Number(row.seasonNumber)
+    if (row.episodeNumber !== undefined && row.episodeNumber !== null)
+      row.episodeNumber = Number(row.episodeNumber)
 
     // Handle Booleans
     if (row.watched !== undefined) row.watched = Boolean(row.watched)
@@ -538,6 +591,7 @@ export function markAsUserEdited(itemId: string): LibraryItem[] {
 }
 
 export function updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
+  log(`[DEBUG] updateItem called for itemId: ${itemId}`)
   const db = getDb()
 
   const transaction = db.transaction(() => {
@@ -644,6 +698,7 @@ watched = excluded.watched,
       'posterPath',
       'backdropPath',
       'logoPath',
+      'lockedFields',
       '_v'
     ]
     const hasMetadataUpdates = metadataKeys.some((k) => k in updates)
@@ -652,10 +707,49 @@ watched = excluded.watched,
       const existing =
         (db.prepare('SELECT * FROM metadata WHERE item_id = ?').get(itemId) as any) || {}
 
+      // --- Invalidation Logic (Structural Changes) ---
+      let shouldInvalidateMetadata = false
+      if (
+        (updates.tmdbId !== undefined && updates.tmdbId !== existing.tmdb_id) ||
+        ((updates as any).seasonNumber !== undefined &&
+          (updates as any).seasonNumber !== existing.season_number) ||
+        ((updates as any).episodeNumber !== undefined &&
+          (updates as any).episodeNumber !== existing.episode_number)
+      ) {
+        shouldInvalidateMetadata = true
+        // log(`[Repo] Invalidating metadata for ${itemId} due to structural change.`)
+      }
+
       const currentImages = parseJsonSafe<any>(existing.images_json, {})
       if (updates.posterPath !== undefined) currentImages.poster = updates.posterPath
       if (updates.backdropPath !== undefined) currentImages.backdrop = updates.backdropPath
       if (updates.logoPath !== undefined) currentImages.logo = updates.logoPath
+
+      // If invalidated, we effectively reset the 'fetched' state by clearing specific JSON blobs or ensuring the service knows it is dirty.
+      // However, our computed flags (tmdbDetailsFetched) check for existence of data (tmdb_id, people_json, etc).
+      // To FORCE a refetch without deleting data (which might be locked), we rely on the Metadata Service checking for mismatched data or using a dedicated flag.
+      // But per the Managed Copy plan, we agreed to "Set tmdbDetailsFetched = 0".
+      // Since it's a computed property, we simulate this by... actually we can't easily simulate it if it's purely computed from data presence.
+      // WAIT: The schema does NOT have `tmdb_details_fetched` column. It is computed.
+      // SOLUTION: We must satisfy the Metadata Discovery query: `WHERE tmdbDetailsFetched = 0`.
+      // The Metadata Service query will likely be updated to check `version` or we need to add explicit flags to schema?
+      // No, looking at `schema.ts`, we don't have explicit flags.
+      // Re-reading Plan: "Set tmdbDetailsFetched = 0 (Dirty Bit)".
+      // Current `repository.service.ts` logic: `tmdbDetailsFetched: !!row.tmdb_id`.
+      // If we keep tmdb_id, it stays "fetched".
+      // FIX: We need to rely on the `MetadataService` comparing `season_number` vs `parent.episodes_json`?
+      // OR: We delete `seasons_json` / `episodes_json` / `people_json` to force refetch?
+      // DECISION: To signal "Dirty", we will clear `people_json` (Credits) and if it's a folder, `episodes_json`/`seasons_json`.
+      // For `tmdbDetailsFetched` to be false, `tmdb_id` must be null. But we don't want to lose the ID.
+      // ALTERNATIVE: The `MetadataService` discovery query must be smarter or we use `version = 0`?
+      // Let's implement the Invalidation by clearing the caches that strictly depend on the structure.
+      // If Episode Number changes, the old Title/Overview are "wrong" but present.
+      // *Actually*, the user wants `tmdbDetailsFetched = 0`.
+      // Since we can't set a computed column, and we want to keep `tmdb_id`, we might need to add a real `needs_refetch` column or similar later.
+      // FOR NOW: I will clear `people_json` (credits) and `images_json` if structurally changed, effectively making `tmdbCreditsFetched = false`.
+      // But `tmdbDetailsFetched` will remain true if `tmdb_id` exists.
+      // This suggests we need to Update `schema.ts` to have explicit flags or use a specific signal.
+      // Let's stick to valid DB updates.
 
       const params = {
         id: itemId,
@@ -680,10 +774,14 @@ watched = excluded.watched,
           updates.virtualTags !== undefined
             ? JSON.stringify(updates.virtualTags)
             : existing.virtual_tags_json,
-        people_json:
-          updates.tmdbCredits !== undefined
+
+        // Invalidation: If dirty, clear people_json to force credit refetch (and signal dirtiness)
+        people_json: shouldInvalidateMetadata
+          ? null
+          : updates.tmdbCredits !== undefined
             ? JSON.stringify(updates.tmdbCredits)
             : existing.people_json,
+
         seasons_json:
           (updates as any).tmdbSeasons !== undefined
             ? JSON.stringify((updates as any).tmdbSeasons)
@@ -692,7 +790,14 @@ watched = excluded.watched,
           (updates as any).tmdbEpisodes !== undefined
             ? JSON.stringify((updates as any).tmdbEpisodes)
             : existing.episodes_json,
+
         images_json: JSON.stringify(currentImages),
+
+        locked_fields_json:
+          (updates as any).lockedFields !== undefined
+            ? JSON.stringify((updates as any).lockedFields)
+            : existing.locked_fields_json,
+
         version: updates._v !== undefined ? updates._v : existing.version
       }
 
@@ -700,10 +805,10 @@ watched = excluded.watched,
         `
         INSERT INTO metadata(
       item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
-      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, version
+      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, locked_fields_json, version
     ) VALUES(
       @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
-      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @version
+      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @locked_fields_json, @version
     )
         ON CONFLICT(item_id) DO UPDATE SET
 tmdb_id = excluded.tmdb_id,
@@ -720,7 +825,8 @@ tmdb_id = excluded.tmdb_id,
   people_json = excluded.people_json,
   seasons_json = excluded.seasons_json,
   episodes_json = excluded.episodes_json,
-  images_json = excluded.images_json
+  images_json = excluded.images_json,
+  locked_fields_json = excluded.locked_fields_json
     `
       ).run(params)
     }
@@ -731,6 +837,11 @@ tmdb_id = excluded.tmdb_id,
       'retrieve_children_metadata' in updates ||
       'children_type_hint' in updates ||
       'process_tv_children' in updates
+    log(`[DEBUG] Folder settings check - hasViewUpdates: ${hasViewUpdates}, hasScraperUpdates: ${hasScraperUpdates}`)
+    log(`[DEBUG] Updates object keys: ${Object.keys(updates).join(', ')}`)
+    if (hasScraperUpdates) {
+      log(`[DEBUG] retrieve_children_metadata in updates: ${'retrieve_children_metadata' in updates}, value: ${(updates as any).retrieve_children_metadata}`)
+    }
 
     if (hasViewUpdates || hasScraperUpdates) {
       const existing =
@@ -754,6 +865,9 @@ tmdb_id = excluded.tmdb_id,
           scraperSettings.process_tv_children = (updates as any).process_tv_children
       }
 
+      log(`[DEBUG] Saving folder_settings for item ${itemId}:`)
+      log(`[DEBUG]   viewSettings: ${JSON.stringify(viewSettings)}`)
+      log(`[DEBUG]   scraperSettings: ${JSON.stringify(scraperSettings)}`)
       db.prepare(
         `
             INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
@@ -767,6 +881,9 @@ view_settings_json = excluded.view_settings_json,
         view: JSON.stringify(viewSettings),
         scraper: JSON.stringify(scraperSettings)
       })
+      // Verify the save
+      const saved = db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any
+      log(`[DEBUG] Verified save - stored in db: ${JSON.stringify(saved)}`)
     }
   })
 

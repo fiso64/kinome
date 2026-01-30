@@ -48,6 +48,42 @@ function getImagesPath(libraryDataPath: string): string {
   return path.join(libraryDataPath, 'images')
 }
 
+/**
+ * Fetches season episode data directly from the TMDB API.
+ * This is a lightweight utility for flat TV shows where there's no Season folder item.
+ * @param showTmdbId The TMDB ID of the parent TV show.
+ * @param seasonNumber The season number to fetch (usually 1 for flat shows).
+ * @param tmdbApiKey The TMDB API key.
+ * @returns The season data including episodes array, or null if fetch fails.
+ */
+export async function fetchSeasonEpisodes(
+  showTmdbId: number,
+  seasonNumber: number,
+  tmdbApiKey: string
+): Promise<{ episodes: Array<{ episode_number: number; name: string; overview: string; still_path?: string }> } | null> {
+  try {
+    const url = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
+    console.log(`[TMDB] Fetching season ${seasonNumber} episodes for show ${showTmdbId}`)
+    const response = await fetch(url)
+    if (!response.ok) {
+      console.error(`[TMDB] Season fetch failed: ${response.statusText}`)
+      return null
+    }
+    const data = await response.json()
+    return {
+      episodes: (data.episodes || []).map((e: any) => ({
+        episode_number: e.episode_number,
+        name: e.name,
+        overview: e.overview,
+        still_path: e.still_path
+      }))
+    }
+  } catch (error) {
+    console.error(`[TMDB] Error fetching season ${seasonNumber}:`, error)
+    return null
+  }
+}
+
 export async function searchTmdbAndApplyMetadata(
   item: LibraryItem,
   tmdbApiKey: string,
@@ -714,7 +750,9 @@ export async function fetchAndApplyEpisodeData(
       seasonFolder.tmdbEpisodes = tmdbEpisodes
 
       // --- Apply Cached Data to Local Files ---
-      const localEpisodes = (seasonFolder.children || []).filter((c) => c.type === 'file') as MediaFile[]
+      const localEpisodes = (seasonFolder.children || []).filter(
+        (c) => c.type === 'file'
+      ) as MediaFile[]
 
       for (const localEpisode of localEpisodes) {
         if (typeof localEpisode.episodeNumber === 'undefined') continue

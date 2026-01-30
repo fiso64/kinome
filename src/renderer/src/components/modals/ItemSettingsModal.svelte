@@ -4,7 +4,14 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
-  import type { StoredViewSettings } from '../../../../shared/types'
+  import type {
+    StoredViewSettings,
+    MediaFolder,
+    MediaFile,
+    LibraryItem,
+    Settings,
+    AutocompleteSuggestions
+  } from '../../../../shared/types'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -49,10 +56,79 @@
     genres: [],
     tagKeys: [],
     virtualTagKeys: [],
-    tagValues: {}
+    tagValues: {},
+    persons: []
   })
 
+  // --- Initial Data Tracking for Partial Updates ---
+  let initialValues = $state<any>({})
+
+  function captureInitialValues() {
+    initialValues = {
+      title,
+      year,
+      mediaType,
+      overview,
+      genres: JSON.parse(JSON.stringify(genres)),
+      tags: tags.reduce((acc: Record<string, string>, tag) => {
+        if (tag.key) acc[tag.key] = tag.value
+        return acc
+      }, {}),
+      seasonNumber: !isNaN(parseInt(seasonNumber)) ? parseInt(seasonNumber) : undefined,
+      episodeNumber: !isNaN(parseInt(episodeNumber)) ? parseInt(episodeNumber) : undefined,
+      episodeSeasonNumber: !isNaN(parseInt(episodeSeasonNumber))
+        ? parseInt(episodeSeasonNumber)
+        : undefined,
+      selectedLayout,
+      selectedClickAction,
+      selectedGroupBy,
+      gridPosterSize,
+      listDescriptionRows,
+      showHorizontalScrollbar,
+      childViewSettings: childViewSettings ? JSON.parse(JSON.stringify(childViewSettings)) : null,
+      retrieveChildrenMetadata,
+      childrenTypeHint,
+      processTvChildren
+    }
+  }
+
   // --- Metadata State ---
+  async function refreshItemDetails() {
+    if (isVirtual || !item.id) return
+    try {
+      const freshItem = await window.api.getItemDetails(item.id)
+      if (freshItem) {
+        // Update local state with fresh data to correct any stale props
+        title = freshItem.title ?? freshItem.name
+        year = freshItem.year?.toString() ?? ''
+        mediaType = freshItem.mediaType
+        overview = freshItem.overview ?? ''
+        genres = JSON.parse(JSON.stringify(freshItem.genres ?? []))
+        tags = Object.entries(freshItem.tags ?? {}).map(([key, value]) => ({
+          id: crypto.randomUUID(),
+          key,
+          value: value as string
+        }))
+
+        if (freshItem.type === 'folder') {
+          seasonNumber = (freshItem as MediaFolder).seasonNumber?.toString() ?? ''
+        } else if (freshItem.mediaType === 'episode') {
+          episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
+          episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''
+        }
+
+        // After refreshing, re-capture initial values so they reflect the single source of truth
+        captureInitialValues()
+      }
+    } catch (e) {
+      console.error('Failed to refresh details', e)
+    }
+  }
+
+  $effect(() => {
+    refreshItemDetails()
+  })
+
   let title = $state(item.title ?? item.name)
   let year = $state(item.year?.toString() ?? '')
   let mediaType = $state(item.mediaType)
@@ -89,6 +165,9 @@
   let childrenTypeHint = $state(_isFolder ? (item.children_type_hint ?? 'auto') : 'auto')
   let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
 
+  // Capture initial state from props/initialization
+  captureInitialValues()
+
   // --- Actions ---
 
   /**
@@ -107,85 +186,181 @@
   }
 
   async function buildUpdatedItem(): Promise<LibraryItem | null> {
+    const updates: any = { id: item.id }
+    let changed = false
+
+    const hasChanged = (current: any, initial: any): boolean => {
+      if (Array.isArray(current) || (current && typeof current === 'object')) {
+        return JSON.stringify(current) !== JSON.stringify(initial)
+      }
+      return current !== initial
+    }
+
     if (isVirtual && item.physicalParentId) {
       // --- Editing a Virtual Folder ---
-      const physicalParent = await window.api.getItemById(item.physicalParentId)
+      const physicalParent = await (window as any).api.getItemById(item.physicalParentId)
       if (!physicalParent || physicalParent.type !== 'folder') return null
 
-      // Clone parent but exclude children for performance
-      const { children, ...parentWithoutChildren } = physicalParent
-      const updatedParent: MediaFolder = JSON.parse(JSON.stringify(parentWithoutChildren))
-
-      if (!updatedParent.virtualFolderSettings) updatedParent.virtualFolderSettings = {}
-      if (!updatedParent.virtualFolderSettings[item.groupByKey!]) {
-        updatedParent.virtualFolderSettings[item.groupByKey!] = {}
-      }
-      const virtualFolderSettings =
-        updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] ?? {}
-
-      applyViewSettings(virtualFolderSettings)
+      // Prepare settings to save
+      const settingsToSave: Partial<MediaFolder> = {}
+      applyViewSettings(settingsToSave)
 
       // Clone childViewSettings before assigning it
       if (childViewSettings) {
-        ;(virtualFolderSettings as any).childViewSettings = JSON.parse(
-          JSON.stringify(childViewSettings)
-        )
-      } else {
-        delete (virtualFolderSettings as any).childViewSettings
+        ;(settingsToSave as any).childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
       }
 
-      updatedParent.virtualFolderSettings[item.groupByKey!][item.groupByValue!] =
-        virtualFolderSettings
-      return updatedParent
+      // Check if view settings changed
+      if (
+        hasChanged(settingsToSave.layout, initialValues.selectedLayout) ||
+        hasChanged(settingsToSave.clickAction, initialValues.selectedClickAction) ||
+        hasChanged(settingsToSave.groupBy, initialValues.selectedGroupBy) ||
+        hasChanged(settingsToSave.gridPosterSize, initialValues.gridPosterSize) ||
+        hasChanged(settingsToSave.listDescriptionRows, initialValues.listDescriptionRows) ||
+        hasChanged(settingsToSave.showHorizontalScrollbar, initialValues.showHorizontalScrollbar) ||
+        hasChanged(settingsToSave.childViewSettings, initialValues.childViewSettings)
+      ) {
+        // Construct the full path in virtualFolderSettings for the parent
+        const updatedParent: Partial<MediaFolder> = {
+          id: physicalParent.id,
+          virtualFolderSettings: JSON.parse(
+            JSON.stringify(physicalParent.virtualFolderSettings ?? {})
+          )
+        }
+        if (!updatedParent.virtualFolderSettings![item.groupByKey!]) {
+          updatedParent.virtualFolderSettings![item.groupByKey!] = {}
+        }
+        updatedParent.virtualFolderSettings![item.groupByKey!][item.groupByValue!] = settingsToSave
+        return updatedParent as LibraryItem
+      }
+      return null // No changes
     } else {
       // --- Editing a Physical Item ---
-      const { children, ...itemWithoutChildren } = item as MediaFolder
-      const updatedItem: LibraryItem = JSON.parse(JSON.stringify(itemWithoutChildren))
 
-      // Apply metadata changes
-      updatedItem.title = title.trim() ? title.trim() : undefined
+      // 1. Metadata Changes
+      const trimmedTitle = title.trim() ? title.trim() : undefined
+      if (hasChanged(trimmedTitle, initialValues.title)) {
+        updates.title = trimmedTitle
+        changed = true
+      }
+
       const parsedYear = parseInt(year, 10)
-      updatedItem.year = !isNaN(parsedYear) ? parsedYear : undefined
-      updatedItem.mediaType = mediaType
-      updatedItem.overview = overview
-      updatedItem.genres = [...genres]
-      updatedItem.tags = tags.reduce((acc: Record<string, string>, tag) => {
+      const finalYear = !isNaN(parsedYear) ? parsedYear : undefined
+      if (hasChanged(finalYear, initialValues.year)) {
+        updates.year = finalYear
+        changed = true
+      }
+
+      if (hasChanged(mediaType, initialValues.mediaType)) {
+        updates.mediaType = mediaType
+        changed = true
+      }
+
+      if (hasChanged(overview, initialValues.overview)) {
+        updates.overview = overview
+        changed = true
+      }
+
+      if (hasChanged(genres, initialValues.genres)) {
+        updates.genres = [...genres]
+        changed = true
+      }
+
+      const currentTags = tags.reduce((acc: Record<string, string>, tag) => {
         if (tag.key) acc[tag.key] = tag.value
         return acc
       }, {})
+      if (hasChanged(currentTags, initialValues.tags)) {
+        updates.tags = currentTags
+        changed = true
+      }
 
       const parseOptionalInt = (val: string) => (!isNaN(parseInt(val)) ? parseInt(val) : undefined)
-      if (updatedItem.type === 'folder') {
-        if (mediaType === 'season')
-          (updatedItem as MediaFolder).seasonNumber = parseOptionalInt(seasonNumber)
-        else delete (updatedItem as MediaFolder).seasonNumber
+      if (isFolder) {
+        if (mediaType === 'season') {
+          const finalSeasonNumber = parseOptionalInt(seasonNumber)
+          if (hasChanged(finalSeasonNumber, initialValues.seasonNumber)) {
+            updates.seasonNumber = finalSeasonNumber
+            changed = true
+          }
+        }
       } else {
         if (mediaType === 'episode') {
-          ;(updatedItem as MediaFile).seasonNumber = parseOptionalInt(episodeSeasonNumber)
-          ;(updatedItem as MediaFile).episodeNumber = parseOptionalInt(episodeNumber)
-        } else {
-          delete (updatedItem as MediaFile).seasonNumber
-          delete (updatedItem as MediaFile).episodeNumber
+          const finalEpSeason = parseOptionalInt(episodeSeasonNumber)
+          const finalEpNum = parseOptionalInt(episodeNumber)
+          if (hasChanged(finalEpSeason, initialValues.episodeSeasonNumber)) {
+            updates.seasonNumber = finalEpSeason
+            changed = true
+          }
+          if (hasChanged(finalEpNum, initialValues.episodeNumber)) {
+            updates.episodeNumber = finalEpNum
+            changed = true
+          }
         }
       }
 
-      // Apply view and folder changes if it's a folder
-      if (updatedItem.type === 'folder') {
-        applyViewSettings(updatedItem)
+      // 2. View and Folder Setting Changes (for folders)
+      if (isFolder) {
+        const viewSettings: Partial<MediaFolder> = {}
+        applyViewSettings(viewSettings)
 
-        // Clone childViewSettings before assigning it
-        updatedItem.childViewSettings = childViewSettings
+        if (hasChanged(viewSettings.layout, initialValues.selectedLayout)) {
+          updates.layout = viewSettings.layout
+          changed = true
+        }
+        if (hasChanged(viewSettings.clickAction, initialValues.selectedClickAction)) {
+          updates.clickAction = viewSettings.clickAction
+          changed = true
+        }
+        if (hasChanged(viewSettings.groupBy, initialValues.selectedGroupBy)) {
+          updates.groupBy = viewSettings.groupBy
+          changed = true
+        }
+        if (hasChanged(viewSettings.gridPosterSize, initialValues.gridPosterSize)) {
+          updates.gridPosterSize = viewSettings.gridPosterSize
+          changed = true
+        }
+        if (hasChanged(viewSettings.listDescriptionRows, initialValues.listDescriptionRows)) {
+          updates.listDescriptionRows = viewSettings.listDescriptionRows
+          changed = true
+        }
+        if (
+          hasChanged(viewSettings.showHorizontalScrollbar, initialValues.showHorizontalScrollbar)
+        ) {
+          updates.showHorizontalScrollbar = viewSettings.showHorizontalScrollbar
+          changed = true
+        }
+
+        const finalChildViewSettings = childViewSettings
           ? JSON.parse(JSON.stringify(childViewSettings))
           : undefined
+        if (hasChanged(finalChildViewSettings, initialValues.childViewSettings)) {
+          updates.childViewSettings = finalChildViewSettings
+          changed = true
+        }
 
-        updatedItem.retrieve_children_metadata = retrieveChildrenMetadata
-        updatedItem.children_type_hint = childrenTypeHint === 'auto' ? undefined : childrenTypeHint
-        updatedItem.process_tv_children = processTvChildren === true ? undefined : false
+        if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
+          updates.retrieve_children_metadata = retrieveChildrenMetadata
+          changed = true
+        }
+
+        const finalTypeHint =
+          childrenTypeHint === 'auto' || (childrenTypeHint as string) === ''
+            ? undefined
+            : (childrenTypeHint as 'movie' | 'tv')
+        if (hasChanged(finalTypeHint, initialValues.childrenTypeHint)) {
+          updates.children_type_hint = finalTypeHint
+          changed = true
+        }
+
+        const finalProcessTv = processTvChildren === true ? undefined : false
+        if (hasChanged(finalProcessTv, initialValues.processTvChildren)) {
+          updates.process_tv_children = finalProcessTv
+          changed = true
+        }
       }
 
-      updatedItem.isHidden = item.isHidden
-
-      return updatedItem
+      return changed ? (updates as LibraryItem) : null
     }
   }
 

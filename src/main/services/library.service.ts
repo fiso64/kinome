@@ -14,7 +14,7 @@ import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 
 import type { MediaFolder, LibraryItem, MediaFile } from '../../shared/types'
-import { VIEW_SETTINGS_KEYS } from '../../shared/types'
+import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
 import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
@@ -45,7 +45,12 @@ async function _finalizeItemUpdate(
 
   // searchService.updateIndexForItems(itemsArray) - Removed, handled by FTS triggers
 
+  // Prepare broadcast payload with ancestor IDs for targeted query invalidation
   const plainItems = JSON.parse(JSON.stringify(itemsArray))
+  for (const item of plainItems) {
+    const ancestors = repositoryService.getAncestors(item.id)
+    item.ancestorIds = ancestors.map((a) => a.id)
+  }
   getTransport().notifyLibraryItemsUpdated(plainItems)
 
   if (options.updateSuggestions) {
@@ -92,7 +97,7 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
   await filesystemService.scanDirectory(mediaSourcePath)
 
   const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-  await filesystemService.verifyImagePaths(null, imagesDir)
+  await filesystemService.verifyImagePaths(imagesDir)
 
   searchService.buildFullSearchIndex()
 
@@ -389,7 +394,12 @@ export const getHiddenChildren = async (parentId: string): Promise<LibraryItem[]
   const children = repositoryService.getChildren(parentId)
   return children.filter((c) => c.isHidden)
 }
-export const assignSeasonsAndEpisodes = async (_showId: string, _s1: any, _s2: any, _fm: boolean) => {
+export const assignSeasonsAndEpisodes = async (
+  _showId: string,
+  _s1: any,
+  _s2: any,
+  _fm: boolean
+) => {
   // DEPRECATED in V2: Logic moved to ingestion (filesystem.service.ts)
   console.warn('[Library] assignSeasonsAndEpisodes is deprecated in V2. Usage ignored.')
 }
@@ -504,6 +514,44 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
         return
       }
     }
+  }
+
+  // --- Standard Item Update with Robust Locking ---
+  const existing = repositoryService.getItemById(item.id)
+  if (existing && isUser) {
+    let currentLocks = new Set(existing.lockedFields ?? [])
+
+    // 1. Handle explicit lock toggles if provided in payload (Map: { field: boolean })
+    if ((item as any).lockedFields && typeof (item as any).lockedFields === 'object' && !Array.isArray((item as any).lockedFields)) {
+      const explicitLocks = (item as any).lockedFields as Record<string, boolean>
+      for (const [field, isLocked] of Object.entries(explicitLocks)) {
+        if (isLocked) {
+          currentLocks.add(field)
+        } else {
+          currentLocks.delete(field)
+        }
+      }
+      // Delete the map from the item to avoid it being interpreted as the final array by the repository
+      delete (item as any).lockedFields
+    }
+
+    // 2. Automatic Locking for Metadata Fields
+    // If a field is present in the partial update and differs from the DB, we lock it.
+    for (const key of METADATA_KEYS) {
+      const newValue = (item as any)[key]
+      const oldValue = (existing as any)[key]
+
+      if (newValue !== undefined && newValue !== oldValue) {
+        // If the update is specifically trying to revert to Name (Folder Name),
+        // we might want a safeguard, but with partial updates, the frontend only sends
+        // title if the user actively edited it.
+        currentLocks.add(key)
+        log(`[Auto-Lock] Locking field "${key}" for item "${existing.name}" due to user update.`)
+      }
+    }
+
+    // Convert back to array for repository persistence
+    item.lockedFields = Array.from(currentLocks)
   }
 
   // --- Standard Item Update ---

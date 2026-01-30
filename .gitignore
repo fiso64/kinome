@@ -11,6 +11,7 @@ test_comprehensive
 test_data
 test-results
 temp*
+test_user_data
 
 # A common name for Electron Builder output
 /release

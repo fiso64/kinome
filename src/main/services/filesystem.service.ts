@@ -3,7 +3,12 @@ import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
-import { parseSeasonFolder, determineEpisodeNumbers, determineSeasonNumbers } from '../utils/tv-parser'
+import {
+  parseSeasonFolder,
+  determineEpisodeNumbers,
+  determineSeasonNumbers,
+  ParsedTvInfo
+} from '../utils/tv-parser'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -20,12 +25,14 @@ async function walkAndUpsert(
   db: any
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
-  const queue: { currentPath: string; parentId: string | null }[] = []
+  const queue: { currentPath: string; parentId: string | null; parentMediaType?: string }[] = []
 
   // Initialize queue
   if (startPath === mediaSourcePath) {
     const rootId = repositoryService.generateId('.')
     const rootName = path.basename(mediaSourcePath)
+
+    // Upsert Root
     db.prepare(
       `
         INSERT INTO items (id, parent_id, path, name, type, is_missing)
@@ -37,14 +44,20 @@ async function walkAndUpsert(
     visitedIds.add(rootId)
     queue.push({ currentPath: startPath, parentId: rootId })
   } else {
+    // Partial Scan start logic
     const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
     const id = repositoryService.generateId(relativePath)
+
+    // We need to fetch the parent's mediaType to seed the queue correctly if starting mid-tree
+    const parentItem = repositoryService.findParent(id)
+    const parentMediaType = parentItem?.mediaType
+
     visitedIds.add(id)
-    queue.push({ currentPath: startPath, parentId: id })
+    queue.push({ currentPath: startPath, parentId: id, parentMediaType })
   }
 
   while (queue.length > 0) {
-    const { currentPath, parentId } = queue.shift()!
+    const { currentPath, parentId, parentMediaType } = queue.shift()!
     if (!parentId) continue
 
     let entries: Dirent[]
@@ -56,136 +69,208 @@ async function walkAndUpsert(
     }
 
     // ---------------------------------------------------------
-    // PHASE 1: Structural Analysis (Consensus Logic)
+    // Phase 1: Global Gate & Context
     // ---------------------------------------------------------
 
-    // Sort entries to ensure deterministic order for fallbacks
-    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    // 1. Check if the Current Folder allows metadata analysis (The Gate)
+    // We check the DB row for the *current folder* (identified by parentId)
+    // Optimization: We could pass this down, but a DB lookup is safer for consistency.
+    // Context for Kids
+    const isTvContext = parentMediaType === 'tv'
+    const isSeasonContext = parentMediaType === 'season'
 
-    const folderNames = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name)
-    const videoFileNames = entries.filter(e => e.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) && !e.name.startsWith('.')).map(e => e.name)
+    // 1. Check if the Current Folder allows metadata analysis (The Gate)
+    // We check the DB row for the *current folder* (identified by parentId)
+    // Optimization: We could pass this down, but a DB lookup is safer for consistency.
+    const currentFolderRow = db
+      .prepare(
+        'SELECT scraper_settings_json, items.name FROM items LEFT JOIN folder_settings ON items.id = folder_settings.item_id WHERE items.id = ?'
+      )
+      .get(parentId)
+    const scraperSettings = currentFolderRow?.scraper_settings_json
+      ? JSON.parse(currentFolderRow.scraper_settings_json)
+      : {}
 
-    const currentFolderName = path.basename(currentPath)
-    // Only attempt strict parsing for parent context at this level
-    const parentSeasonNumber = parseSeasonFolder(currentFolderName)
-
-    // Compute Metadata Maps
-    // 1. Season Folders
-    const seasonMap = determineSeasonNumbers(folderNames)
-
-    // 2. Episode Files
-    // If we are in a season folder (parentSeasonNumber is not null), we pass it down
-    // otherwise episodes might get assigned season undefined (which is fine, will be null in DB)
-    const episodeMap = determineEpisodeNumbers(videoFileNames, parentSeasonNumber ?? undefined)
-
+    // The Gate: Explicit setting OR implicit structural context (Once inside a show, we keep going)
+    const retrieveChildrenMetadata = scraperSettings.retrieve_children_metadata === true || isTvContext || isSeasonContext
 
     // ---------------------------------------------------------
-    // PHASE 2: Execution (Upsert)
+    // Phase 2: Structural Analysis (TV Parsing)
     // ---------------------------------------------------------
+
+    // In a clean, non-heuristic architecture, we avoid "guessing" types here.
+    // If the parent is ALREADY known as a 'tv' show or a 'season', we apply parsing.
+    // Otherwise, we wait for Phase 2 (Metadata) to identify the show and trigger a re-sync.
+
+    let seasonMap: Map<string, ParsedTvInfo> = new Map()
+    let episodeMap: Map<string, ParsedTvInfo> = new Map()
+
+    if (retrieveChildrenMetadata) {
+      if (isTvContext) {
+        const folderNames = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name)
+        const videoFileNames = entries
+          .filter(
+            (e) =>
+              e.isFile() &&
+              /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) &&
+              !e.name.startsWith('.')
+          )
+          .map((e) => e.name)
+
+        seasonMap = determineSeasonNumbers(folderNames)
+
+        // Flat TV Show Detection:
+        const hasFlatEpisodes = videoFileNames.length > 0 && seasonMap.size === 0
+        const flatSeasonNumber = hasFlatEpisodes ? 1 : undefined
+        episodeMap = determineEpisodeNumbers(videoFileNames, flatSeasonNumber)
+      } else if (isSeasonContext) {
+        const videoFileNames = entries
+          .filter(
+            (e) =>
+              e.isFile() &&
+              /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) &&
+              !e.name.startsWith('.')
+          )
+          .map((e) => e.name)
+
+        const metaRow = db.prepare('SELECT season_number FROM metadata WHERE item_id = ?').get(parentId)
+        episodeMap = determineEpisodeNumbers(videoFileNames, metaRow?.season_number)
+      }
+    }
+
     const operations: (() => void)[] = []
 
     for (const entry of entries) {
+      if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
+
       const isDirectory = entry.isDirectory()
       const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
 
-      if (isDirectory || isVideoFile) {
-        if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
+      if (!isDirectory && !isVideoFile) continue
 
-        const fullPath = path.join(currentPath, entry.name)
-        const relativePath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-        const id = repositoryService.generateId(relativePath)
-        const type = isDirectory ? 'folder' : 'file'
+      const fullPath = path.join(currentPath, entry.name)
+      const relativePath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
+      const id = repositoryService.generateId(relativePath)
+      const type = isDirectory ? 'folder' : 'file'
 
-        if (isDirectory) {
-          try {
-            const subEntries = await fs.readdir(fullPath)
-            if (subEntries.includes('.ignore')) {
-              log(`Skipping ignored folder: ${relativePath}`)
-              continue
-            }
-          } catch (e) {
-            log(`Failed to peek into directory for .ignore: ${fullPath}`)
-          }
+      // Calculate Stats...
+      let stats = { size: 0, mtime: 0, birthtime: 0 }
+      try {
+        const s = await fs.stat(fullPath)
+        stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
+      } catch { }
+
+      // ---------------------------------------------------------
+      // Phase 3: Invariant Enforcement & Write Guard
+      // ---------------------------------------------------------
+
+      let parsedSeason: number | null = null
+      let parsedEpisode: number | null = null
+      let parsedMediaType: string | null = null
+
+      if (retrieveChildrenMetadata) {
+        if (isDirectory && scraperSettings.children_type_hint) {
+          parsedMediaType = scraperSettings.children_type_hint
         }
 
-        visitedIds.add(id)
-
-        let stats = { size: 0, mtime: 0, birthtime: 0 }
-        try {
-          const s = await fs.stat(fullPath)
-          stats = {
-            size: s.size,
-            mtime: Math.floor(s.mtimeMs),
-            birthtime: Math.floor(s.birthtimeMs)
-          }
-        } catch { }
-
-        // TV Show Parsing Logic (Retrieve from pre-calculated maps)
-        let parsedSeason: number | null = null
-        let parsedEpisode: number | null = null
-        let parsedMediaType: string | null = null
-
-        if (isDirectory) {
+        if (isDirectory && isTvContext) {
           const info = seasonMap.get(entry.name)
           if (info) {
             parsedSeason = info.season ?? null
-            parsedMediaType = info.mediaType ?? null
+            parsedMediaType = 'season'
           }
-        } else if (isVideoFile) {
+        } else if (isVideoFile && (isTvContext || isSeasonContext)) {
           const info = episodeMap.get(entry.name)
           if (info) {
             parsedEpisode = info.episode ?? null
             parsedSeason = info.season ?? null
-            parsedMediaType = info.mediaType ?? null
+            parsedMediaType = 'episode'
           }
         }
+      }
 
-        operations.push(() => {
-          // 1. Upsert Items
+      // WRITE GUARD: Check strictly for locks
+      // We need to know if the item ALREADY has locks.
+      // FIX: Also fetch media_type to ensure context is passed down even if not re-parsed this run.
+      const existingMetaRow = db
+        .prepare(
+          'SELECT media_type, locked_fields_json, season_number, episode_number FROM metadata WHERE item_id = ?'
+        )
+        .get(id)
+      const existingLocks = existingMetaRow?.locked_fields_json
+        ? JSON.parse(existingMetaRow.locked_fields_json)
+        : []
+
+      const isSeasonLocked = existingLocks.includes('seasonNumber')
+      const isEpisodeLocked = existingLocks.includes('episodeNumber')
+
+      // Apply Guards
+      if (isSeasonLocked) parsedSeason = existingMetaRow.season_number // Keep existing
+      if (isEpisodeLocked) parsedEpisode = existingMetaRow.episode_number // Keep existing
+
+      visitedIds.add(id)
+
+      operations.push(() => {
+        // 1. Upsert Items
+        db.prepare(
+          `
+            INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
+            VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
+            ON CONFLICT(id) DO UPDATE SET
+              is_missing = 0,
+              parent_id = excluded.parent_id,
+              size = excluded.size,
+              mtime = excluded.mtime
+          `
+        ).run({
+          id,
+          parentId,
+          path: relativePath,
+          name: entry.name,
+          type,
+          size: stats.size,
+          mtime: stats.mtime,
+          birthtime: stats.birthtime
+        })
+
+        // 2. Upsert Metadata (Conditional)
+        if (parsedMediaType) {
+          // Note: We used to have ON CONFLICT DO UPDATE...
+          // With the Write Guard applied (we overwrote parsed variables with existing DB values above),
+          // We can safely blindly update because "parsed" is now "safe".
+          // BUT: If the item didn't exist, we insert.
+          // If it did exist, we update.
+          // AND: We effectively "re-assert" the locked value. This is fine.
           db.prepare(
             `
-              INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
-              VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
-              ON CONFLICT(id) DO UPDATE SET
-                is_missing = 0,
-                parent_id = excluded.parent_id,
-                size = excluded.size,
-                mtime = excluded.mtime
+              INSERT INTO metadata (item_id, media_type, season_number, episode_number)
+              VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
+              ON CONFLICT(item_id) DO UPDATE SET
+                media_type = COALESCE(media_type, excluded.media_type),
+                season_number = COALESCE(season_number, excluded.season_number),
+                episode_number = COALESCE(episode_number, excluded.episode_number)
             `
           ).run({
             id,
-            parentId,
-            path: relativePath,
-            name: entry.name,
-            type,
-            size: stats.size,
-            mtime: stats.mtime,
-            birthtime: stats.birthtime
+            mediaType: parsedMediaType,
+            seasonNumber: parsedSeason,
+            episodeNumber: parsedEpisode
           })
-
-          // 2. Upsert Metadata
-          if (parsedMediaType) {
-            db.prepare(
-              `
-                INSERT INTO metadata (item_id, media_type, season_number, episode_number)
-                VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
-                ON CONFLICT(item_id) DO UPDATE SET
-                  media_type = COALESCE(media_type, excluded.media_type),
-                  season_number = COALESCE(season_number, excluded.season_number),
-                  episode_number = COALESCE(episode_number, excluded.episode_number)
-              `
-            ).run({
-              id,
-              mediaType: parsedMediaType,
-              seasonNumber: parsedSeason,
-              episodeNumber: parsedEpisode
-            })
-          }
-        })
-
-        if (isDirectory) {
-          queue.push({ currentPath: fullPath, parentId: id })
         }
+      })
+
+      if (isDirectory) {
+        // Pass the mediaType down so children know their context
+        // If we identified this folder as a 'season', children handle episodes.
+        // If we identified this as 'tv', children handle seasons.
+        // If neither, undefined.
+        // FIX: Use existing mediaType if available!
+        const effectiveMediaType = parsedMediaType || existingMetaRow?.media_type
+        queue.push({
+          currentPath: fullPath,
+          parentId: id,
+          parentMediaType: effectiveMediaType || undefined // Pass down context!
+        })
       }
     }
 
@@ -200,8 +285,7 @@ async function walkAndUpsert(
 }
 
 export async function scanDirectory(
-  mediaSourcePath: string,
-  _rootPath?: string
+  mediaSourcePath: string
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
   log(`Starting full scan of ${mediaSourcePath}`)
@@ -219,7 +303,7 @@ export async function scanDirectory(
   const allDbIds = db
     .prepare('SELECT id FROM items WHERE is_missing = 0')
     .all()
-    .map((row: any) => row.id)
+    .map((row: { id: string }) => row.id)
   const missingIds = allDbIds.filter((id) => !visitedIds.has(id))
 
   if (missingIds.length > 0) {
@@ -271,18 +355,13 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
   }
 }
 
-export function pruneUntouchedMissingItems(_node: MediaFolder) {
-  // This logic is mostly handled by the is_missing flag now.
-  // If we want to physically delete them from DB:
-  // DELETE FROM items WHERE is_missing = 1 AND is_user_edited = 0
-  // For now we keep them to match previous behavior (soft delete).
-}
 
-export async function verifyImagePaths(_item: any, imagesDir: string) {
+
+export async function verifyImagePaths(imagesDir: string): Promise<void> {
   const db = repositoryService.getDb()
   const rows = db
     .prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL')
-    .all() as any[]
+    .all() as { item_id: string; images_json: string }[]
 
   // Check all images in one pass
   for (const row of rows) {

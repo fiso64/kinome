@@ -145,7 +145,19 @@
       for (const item of updatedItems) {
         queryClient.invalidateQueries({ queryKey: ['item', item.id] })
 
-        // Also invalidate 'continue-watching' if relevnt
+        // Refetch parent's children query so lists re-render
+        if (item.parentId) {
+          queryClient.refetchQueries({ queryKey: ['children', item.parentId] })
+        }
+
+        // Refetch tree queries for all ancestors (e.g., Season and Show when episode updates)
+        if (item.ancestorIds && item.ancestorIds.length > 0) {
+          for (const ancestorId of item.ancestorIds) {
+            queryClient.refetchQueries({ queryKey: ['item', ancestorId, 'tree'] })
+          }
+        }
+
+        // Also invalidate 'continue-watching' if relevant
         if (
           (item.type === 'file' && 'watched' in item) ||
           (item.type === 'folder' && 'continueWatchingDismissed' in item)
@@ -233,24 +245,23 @@
 
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
-    // V2 Logic:
+
+    // Files: trigger play action (copy URL to clipboard)
+    if (item.type === 'file') {
+      await handlePlayFile(item as MediaFile)
+      return
+    }
+
+    // Folders: navigate or open detail based on mediaType
     if (item.type === 'folder' && item.mediaType !== 'tv' && item.mediaType !== 'movie') {
       navStoreV2.navigateToFolder(item.id)
     } else {
-      // If file or rich folder (TV/Movie), open detail
+      // Rich folder (TV/Movie) - open detail
       navStoreV2.openDetail(item.id)
-    }
-    // result logic removed or simplified
-    if (item.type === 'file') {
-      // navStoreV2.openDetail(item.id) // Already handled
     }
 
     if (fromSearch) {
-      // V2 search store results
-      // const clickedIndex = searchStoreV2.searchResults.findIndex((sr) => sr.id === item.id)
-      // if (clickedIndex !== -1) {
-      //   searchStoreV2.highlightedGlobalIndex = clickedIndex
-      // }
+      // V2 search store results - reserved for future use
     }
   }
 

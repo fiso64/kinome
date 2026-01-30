@@ -11,7 +11,7 @@ function add(message: string, type: 'success' | 'error' | 'info' = 'info', durat
   const id = crypto.randomUUID()
   // Svelte 5 proxy push
   notifications.push({ id, message, type })
-  
+
   setTimeout(() => {
     remove(id)
   }, duration)

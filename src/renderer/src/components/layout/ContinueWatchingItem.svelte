@@ -116,7 +116,12 @@
   {/if}
   <button class="dismiss-button" title="Dismiss" onclick={(e) => handleDismiss(e, item.show.id)}>
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      <path
+        d="M2 2L10 10M10 2L2 10"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+      />
     </svg>
   </button>
 </div>

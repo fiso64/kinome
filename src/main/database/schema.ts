@@ -57,14 +57,11 @@ CREATE TABLE IF NOT EXISTS metadata (
     virtual_tags_json TEXT, -- Calculated virtual tags
     
     -- TV Cached Data
-    seasons_json TEXT, -- Cached TMDB seasons array
-    episodes_json TEXT, -- Cached TMDB episodes array
-
-    -- Versioning for cache-busting
-    version INTEGER,
-
-    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
-);
+      seasons_json TEXT, -- For TV Shows: Cache of all seasons from TMDB
+      episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
+      locked_fields_json TEXT, -- Array of locked field names
+      FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+    );
 
 CREATE INDEX IF NOT EXISTS idx_metadata_tmdb_id ON metadata(tmdb_id);
 

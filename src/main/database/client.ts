@@ -38,17 +38,23 @@ export function initializeDatabase(): Database.Database {
       db.prepare(
         'ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0'
       ).run()
-    } catch { }
+    } catch {}
     try {
       db.prepare('ALTER TABLE user_state ADD COLUMN next_up_dismissed INTEGER DEFAULT 0').run()
-    } catch { }
+    } catch {}
     try {
       db.prepare('ALTER TABLE metadata ADD COLUMN version INTEGER').run()
-    } catch { }
+    } catch {}
     // V2 API Migrations
-    try { db.prepare('ALTER TABLE metadata ADD COLUMN media_type TEXT').run() } catch { }
-    try { db.prepare('ALTER TABLE metadata ADD COLUMN season_number INTEGER').run() } catch { }
-    try { db.prepare('ALTER TABLE metadata ADD COLUMN episode_number INTEGER').run() } catch { }
+    try {
+      db.prepare('ALTER TABLE metadata ADD COLUMN media_type TEXT').run()
+    } catch {}
+    try {
+      db.prepare('ALTER TABLE metadata ADD COLUMN season_number INTEGER').run()
+    } catch {}
+    try {
+      db.prepare('ALTER TABLE metadata ADD COLUMN episode_number INTEGER').run()
+    } catch {}
 
     return db
   } catch (error) {

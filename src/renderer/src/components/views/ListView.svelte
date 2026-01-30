@@ -206,7 +206,7 @@
   .poster.has-image.landscape {
     aspect-ratio: 16 / 9;
   }
-  
+
   /* Placeholder icon has a fixed width */
   .poster:not(.has-image) {
     width: 80px;

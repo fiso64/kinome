@@ -118,11 +118,12 @@ export async function revealInExplorer(relativePath: string): Promise<void> {
   }
 
   log(`Revealing in explorer: ${absolutePath}`)
-  const command = process.platform === 'win32'
-    ? `explorer /select,"${absolutePath}"`
-    : process.platform === 'darwin'
-      ? `open -R "${absolutePath}"`
-      : `xdg-open "${path.dirname(absolutePath)}"`
+  const command =
+    process.platform === 'win32'
+      ? `explorer /select,"${absolutePath}"`
+      : process.platform === 'darwin'
+        ? `open -R "${absolutePath}"`
+        : `xdg-open "${path.dirname(absolutePath)}"`
 
   exec(command)
 }
