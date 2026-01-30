@@ -138,7 +138,6 @@
     return aName.localeCompare(bName, undefined, { numeric: true })
   }
 
-  // --- Derived State for different layouts ---
   const { itemsForViews, foldersForTabsOrSections } = $derived.by(() => {
     // 1. Filter first.
     const filteredItems = filterItems(items, stableSearchQuery ?? { text: '', tags: [] })

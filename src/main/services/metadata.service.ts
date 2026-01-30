@@ -17,6 +17,15 @@ const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
 }
 
+function hasMediaFilesRecursive(folder: MediaFolder): boolean {
+  if (!folder.children) return false
+  for (const child of folder.children) {
+    if (child.type === 'file') return true
+    if (child.type === 'folder' && hasMediaFilesRecursive(child as MediaFolder)) return true
+  }
+  return false
+}
+
 function collectItemsToProcess(
   folder: MediaFolder,
   newItems: { item: LibraryItem; hint?: 'movie' | 'tv' }[],
@@ -26,10 +35,16 @@ function collectItemsToProcess(
 ) {
   if (folder.isHidden || folder.isMissing) return
   if (folder.mediaType === 'tv') tvShows.push(folder)
-  if (folder.retrieve_children_metadata && folder.children) {
+
+  // Heuristic: If retrieve setting is undefined, enable it if the subtree contains media files.
+  // This allows "fresh" scans to work automatically without manual configuration.
+  const shouldRetrieve =
+    folder.retrieve_children_metadata ?? hasMediaFilesRecursive(folder)
+
+  if (shouldRetrieve && folder.children) {
     for (const child of folder.children) {
       if (child.isHidden || child.isMissing) continue
-      if (typeof child.tmdbId === 'undefined') {
+      if (typeof child.tmdbId === 'undefined' || child.tmdbId === null) {
         newItems.push({ item: child, hint: folder.children_type_hint })
       } else if (child.tmdbId) {
         if (!child.posterPath) itemsMissingPosters.push(child)
@@ -466,7 +481,10 @@ export async function clearVirtualFolderMetadata(itemIds: string[]): Promise<Lib
 }
 
 export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
-  const needsDetailsFetch = !item.tmdbDetailsFetched && item.tmdbId
+  const needsDetailsFetch =
+    (!item.tmdbDetailsFetched && item.tmdbId) ||
+    (item.mediaType === 'tv' && !item.tmdbSeasons && item.tmdbId)
+
   const needsEpisodeFetch =
     item.type === 'folder' &&
     (item.mediaType === 'tv' || item.mediaType === 'season') &&

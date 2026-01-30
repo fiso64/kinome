@@ -58,6 +58,13 @@ async function _finalizeItemUpdate(
 
 export async function loadDbIntoMemory(): Promise<void> {
   await repositoryService.loadDb()
+
+  // Ensure root exists if we have a configured media source path
+  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
+  if (mediaSourcePath) {
+    repositoryService.ensureRootExists(mediaSourcePath)
+  }
+
   searchService.buildFullSearchIndex()
 }
 

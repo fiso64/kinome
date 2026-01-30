@@ -1,6 +1,6 @@
 <script lang="ts">
   import MediaView from '../layout/MediaView.svelte'
-  import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -33,7 +33,7 @@
   // When the view is rendered, trigger fetches for all visible season folders.
   $effect(() => {
     for (const folder of folders) {
-      triggerSeasonEpisodeFetch(folder)
+      // triggerSeasonEpisodeFetch(folder)
     }
   })
 </script>

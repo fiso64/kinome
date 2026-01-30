@@ -1,5 +1,5 @@
 import type { LibraryItem, SearchIndexEntry } from '../../../shared/types'
-import { getLoadedItem } from './item-store'
+import { api } from './api'
 
 // --- Types ---
 
@@ -31,7 +31,7 @@ async function open(
 
     if ('staticScore' in target) {
         // It's a search result, needs full item loading
-        const fullItem = await getLoadedItem(target.id)
+        const fullItem = await api.getItemV2(target.id)
         if (fullItem) {
             item = fullItem
         } else {

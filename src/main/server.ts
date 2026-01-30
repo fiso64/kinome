@@ -140,7 +140,13 @@ app.post('/api/apply-initial-folder-settings', async (req, res) => {
 
 app.post('/api/perform-initial-scan', async (req, res) => {
     // Path would come from client-side folder picker (TBD)
-    const root = await libraryService.performInitialScan(req.body.path)
+    const { path } = req.body
+    if (!path || typeof path !== 'string') {
+        console.error('[API] /perform-initial-scan: No valid path provided.')
+        res.status(400).send('Path is required')
+        return
+    }
+    const root = await libraryService.performInitialScan(path)
     res.json(root)
 })
 

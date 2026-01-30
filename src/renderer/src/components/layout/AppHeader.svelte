@@ -3,50 +3,60 @@
   import SearchInput from '../ui/SearchInput.svelte'
   import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'
+  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
+  import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
+  import { api } from '../../lib/api'
+  import { createQuery } from '@tanstack/svelte-query'
 
   let {
-    canGoBack,
-    isDetailViewActive,
-    isGlobalSearchActive,
-    currentFolder,
     isRefreshing,
     isScanning,
     isContextMenuVisible,
-    folderToConfigureLayout,
-    suggestions,
-    isPerformingGlobalSearch,
-    globalSearchResults,
-    isPerformingDetailSearch,
-    detailSearchResults,
-    isDetailSearchActive,
-    // Bindings
-    globalSearchQuery = $bindable(),
-    detailViewSearchQuery = $bindable(),
-    highlightedGlobalSearchItemIndex = $bindable(),
-    highlightedDetailSearchItemIndex = $bindable(),
     settings
   }: {
-    canGoBack: boolean
-    isDetailViewActive: boolean
-    isGlobalSearchActive: boolean
-    currentFolder: MediaFolder | null
     isRefreshing: boolean
     isScanning: boolean
     isContextMenuVisible: boolean
-    folderToConfigureLayout: MediaFolder | null
-    suggestions: AutocompleteSuggestions
-    isPerformingGlobalSearch: boolean
-    globalSearchResults: SearchIndexEntry[]
-    isPerformingDetailSearch: boolean
-    detailSearchResults: SearchIndexEntry[]
-    isDetailSearchActive: boolean
-    // Bindings
-    globalSearchQuery: { text: string; tags: { key: string; value: string }[] }
-    detailViewSearchQuery: { text: string; tags: { key: string; value: string }[] }
-    highlightedGlobalSearchItemIndex: number | null
-    highlightedDetailSearchItemIndex: number | null
     settings: Settings | null
   } = $props()
+
+  // --- V2 State ---
+  const canGoBack = $derived(
+    navStoreV2.state.currentFolderId !== null || navStoreV2.state.selectedItemId !== null
+  )
+  const isDetailViewActive = $derived(navStoreV2.isDetailViewActive)
+
+  // Fetch Current Folder for Title
+  const currentFolderQuery = createQuery(() => ({
+    queryKey: ['item', navStoreV2.state.currentFolderId],
+    queryFn: () => api.getItemV2(navStoreV2.state.currentFolderId!),
+    enabled: !!navStoreV2.state.currentFolderId
+  }))
+
+  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
+
+  // Search properties from V2 store
+  const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
+  const isPerformingGlobalSearch = $derived(searchStoreV2.isPerformingGlobalSearch)
+  const globalSearchResults = $derived(searchStoreV2.searchResults)
+  const isPerformingDetailSearch = $derived(searchStoreV2.isPerformingDetailSearch)
+  const detailSearchResults = $derived(searchStoreV2.detailResults)
+  const isDetailSearchActive = $derived(searchStoreV2.isDetailActive)
+
+  // Layout Config Logic (Simplified: if in folder, it's that folder)
+  const folderToConfigureLayout = $derived(
+    navStoreV2.state.currentFolderId ? (currentFolder as MediaFolder) : null
+  )
+
+  // --- Search Bindings ---
+  // In V2, we bind directly to the store objects?
+  // Or we use the store's getters/setters.
+  // Using $bindable on props implies parent control.
+  // Here we want local control synced to store.
+
+  // We can just use the store properties directly in the template if they are mutable Runes?
+  // searchStoreV2 properties like globalQuery are get/set accessors to a Rune.
+  // So binding `bind:query={searchStoreV2.globalQuery}` works if the component accepts binding.
 
   const dispatch = createEventDispatcher<{
     back: void
@@ -91,8 +101,8 @@
     const isDetailContext = isDetailViewActive
     const items = isDetailContext ? detailSearchResults : globalSearchResults
     let highlightedIndex = isDetailContext
-      ? highlightedDetailSearchItemIndex
-      : highlightedGlobalSearchItemIndex
+      ? searchStoreV2.highlightedDetailIndex
+      : searchStoreV2.highlightedGlobalIndex
 
     if (items.length === 0) return
 
@@ -133,9 +143,9 @@
 
     if (newIndex !== highlightedIndex) {
       if (isDetailContext) {
-        highlightedDetailSearchItemIndex = newIndex
+        searchStoreV2.highlightedDetailIndex = newIndex
       } else {
-        highlightedGlobalSearchItemIndex = newIndex
+        searchStoreV2.highlightedGlobalIndex = newIndex
       }
     }
   }
@@ -171,7 +181,7 @@
       <button
         class="back-button"
         class:hidden={!canGoBack}
-        onclick={() => dispatch('back')}
+        onclick={() => navStoreV2.goBack()}
         title="Go back"
       >
         ←
@@ -191,16 +201,16 @@
     <div class="search-container" onkeydown={handleSearchKeyDown}>
       {#if isDetailViewActive}
         <SearchInput
-          bind:query={detailViewSearchQuery}
-          {suggestions}
+          bind:query={searchStoreV2.detailQuery}
+          suggestions={searchStoreV2.isFilterBarVisible ? [] : []}
           bind:element={searchInputEl}
           onfocus={() => (isSearchFocused = true)}
           onblur={handleSearchBlur}
         />
       {:else}
         <SearchInput
-          bind:query={globalSearchQuery}
-          {suggestions}
+          bind:query={searchStoreV2.globalQuery}
+          suggestions={searchStoreV2.isFilterBarVisible ? [] : []}
           bind:element={searchInputEl}
           onfocus={() => (isSearchFocused = true)}
           onblur={handleSearchBlur}

@@ -144,19 +144,15 @@ All endpoints will be polymorphic (handling Movies, Folders, Seasons, etc. unifo
 
 ### Internal Logic & Schema Changes
 
-#### 1. Scanner Ingestion (Crucial Fix)
-The logic currently residing in `tv-show.service.ts` (parsing `S01E01` strings) must be moved to `filesystem.service.ts` or a write-time trigger.
-*   **Change:** When a file is scanned/added, `season_number` and `episode_number` must be written to the `metadata` table immediately.
-*   **Result:** The API does not need to parse names. It simply `SELECT * FROM items ORDER BY episode_number`.
+#### 1. Decoupled Ingestion Logic
+The logic for parsing structure (from `tv_parsing.md`) moves strictly to the `FilesystemService` (Phase 1).
+*   **Change:** `season_number` and `episode_number` are written during the filesystem scan.
+*   **Separation:** These fields represent the **Identity**. The **Description** (Title/Overview) is populated asynchronously.
+*   **API Implication:** The API serves whatever is in the DB. If Phase 2 (Enrichment) hasn't run yet, the API returns the item with `season_number` populated but `title` as null (or filename). The Frontend handles this gracefully (e.g., displaying "Episode 1" as a fallback title).
 
-#### 2. Migration Strategy
-Since existing databases contain items where season/episode data was only calculated on the frontend, a migration is required.
-*   **Migration Job:** On startup, the backend must run a one-time "Structure Re-analysis".
-*   **Logic:**
-    1.  Select all items where `type='file'` AND `episode_number IS NULL`.
-    2.  Run the regex parsers (from the old `tv-show.service.ts`) on the `name` field.
-    3.  Update the DB rows with `season_number` and `episode_number`.
-    4.  Select all items where `type='folder'` (Seasons) and infer `season_number` from the folder name.
+#### 2. User Edit Signals
+*   **Change:** When `PATCH /items/:id` modifies a structural field (`season_number`, `episode_number`, `tmdb_id`), the backend must automatically invalidate the metadata state (`tmdbDetailsFetched = false`).
+*   **Result:** This triggers the Metadata Service to refresh the description, ensuring the Title matches the new Episode Number.
 
 #### 3. Pagination Logic
 *   **Strategy:** We will use **Offset-based pagination** (`LIMIT 50 OFFSET 50`) for Version 2.

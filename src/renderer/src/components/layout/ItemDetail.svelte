@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import CreditsView from './CreditsView.svelte'
+
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide } from 'svelte/transition'
   import { getAssetUrl } from '../../lib/api'

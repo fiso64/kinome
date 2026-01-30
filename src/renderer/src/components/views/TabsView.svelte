@@ -1,6 +1,6 @@
 <script lang="ts">
   import MediaView from '../layout/MediaView.svelte'
-  import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
   import { api } from '../../lib/api'
   import { get } from 'svelte/store'
@@ -90,7 +90,13 @@
 
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
-  import type { MediaFolder, LibraryItem, SearchIndexEntry, AutocompleteSuggestions, Settings } from '../../../../shared/types'
+  import type {
+    MediaFolder,
+    LibraryItem,
+    SearchIndexEntry,
+    AutocompleteSuggestions,
+    Settings
+  } from '../../../../shared/types'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({
@@ -120,7 +126,7 @@
     if (activeTabId) {
       const activeFolder = folders.find((f) => f.id === activeTabId)
       if (activeFolder) {
-        triggerSeasonEpisodeFetch(activeFolder)
+        // triggerSeasonEpisodeFetch(activeFolder)
       }
     }
   })

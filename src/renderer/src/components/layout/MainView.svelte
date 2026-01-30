@@ -4,31 +4,66 @@
   import HomeView from './HomeView.svelte'
   import { createEventDispatcher } from 'svelte'
 
+  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
+  import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
+  import { api } from '../../lib/api'
+  import { createQuery } from '@tanstack/svelte-query'
+
+  import type {
+    Settings,
+    LibraryItem,
+    MediaFolder,
+    MediaFile,
+    SearchIndexEntry
+  } from '../../../../shared/types'
+
   let {
+    settings,
     isScanning,
     continueWatchingItems,
-    currentFolder,
-    isGlobalSearchActive,
-    searchResults,
-    isPerformingSearch,
-    highlightedSearchItemIndex,
-    selectedItemForDetailView,
-    filterQuery,
-    suggestions,
-    settings
+    suggestions
   }: {
-    isScanning: boolean
-    continueWatchingItems: ContinueWatchingItem[]
-    currentFolder: MediaFolder | null
-    isGlobalSearchActive: boolean
-    searchResults: SearchIndexEntry[]
-    isPerformingSearch: boolean
-    highlightedSearchItemIndex: number | null
-    selectedItemForDetailView: LibraryItem | null
-    filterQuery: { text: string; tags: { key: string; value: string }[] }
-    suggestions: AutocompleteSuggestions
     settings: Settings | null
+    isScanning: boolean
+    continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[]
+    suggestions: any
   } = $props()
+
+  // --- V2 State ---
+
+  // 1. Current Folder & Children
+  const currentFolderId = $derived(navStoreV2.state.currentFolderId)
+
+  const currentFolderQuery = createQuery(() => ({
+    queryKey: ['item', currentFolderId],
+    queryFn: () => api.getItemV2(currentFolderId!),
+    enabled: !!currentFolderId
+  }))
+
+  const childrenQuery = createQuery(() => ({
+    queryKey: ['children', currentFolderId],
+    queryFn: () => api.getChildrenV2(currentFolderId!),
+    enabled: !!currentFolderId
+  }))
+
+  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
+  const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
+
+  // 2. Search
+  const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
+  const isPerformingSearch = $derived(searchStoreV2.isPerformingGlobalSearch)
+  const searchResults = $derived(searchStoreV2.searchResults)
+  const highlightedSearchItemIndex = $derived(searchStoreV2.highlightedGlobalIndex)
+  const filterQuery = $derived(searchStoreV2.filterQuery)
+
+  // 3. Detail View
+  const selectedItemId = $derived(navStoreV2.state.selectedItemId)
+  const detailItemQuery = createQuery(() => ({
+    queryKey: ['item', selectedItemId, 'tree'],
+    queryFn: () => api.getItemV2(selectedItemId!, ['tree']),
+    enabled: !!selectedItemId
+  }))
+  const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined) // Can be undefined while loading
 
   const dispatch = createEventDispatcher<{
     scanLibrary: void
@@ -62,7 +97,7 @@
 <div class="content">
   {#if isScanning}
     <!-- Loading state is now implicitly handled by App.svelte's logic -->
-  {:else if !currentFolder && !isGlobalSearchActive}
+  {:else if !currentFolder && !currentFolderId && !isGlobalSearchActive}
     <div class="welcome-screen">
       <h2>Welcome to Media Browser</h2>
       <p>To get started, scan a new folder containing your media, or open an existing library.</p>
@@ -130,12 +165,12 @@
               <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
               <MediaView
                 parentItem={currentFolder}
-                items={currentFolder.children ?? []}
+                items={children}
                 searchQuery={filterQuery}
                 onItemClick={(item) => dispatch('itemClick', { item })}
                 onShowContextMenu={(item, e, options) =>
                   dispatch('showContextMenu', { item, event: e, options })}
-                {suggestions}
+                suggestions={{}}
                 {settings}
               />
             </div>

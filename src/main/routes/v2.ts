@@ -80,12 +80,35 @@ router.get('/items', (req, res) => {
 })
 
 // GET /items/:id
-router.get('/items/:id', (req, res) => {
+router.get('/items/:id', async (req, res) => {
     try {
+        const queryInclude = (req.query.include as string || '').split(',')
+
+        // 1. If 'tree' is requested, use the legacy getItemDetails logic (Fat Item)
+        if (queryInclude.includes('tree')) {
+            const details = await libraryService.getItemDetails(req.params.id)
+            if (!details) return res.status(404).json({ error: 'Item not found' })
+            const serialized = JSON.stringify(details, (key, value) => {
+                if (key === 'children') return value ? `[${value.length}]` : value
+                return value
+            })
+            console.log(`[V2] Sending Tree for ${details.name}: ${serialized.substring(0, 500)}...`)
+            return res.json(details)
+        }
+
         const options = parseFindOptions(req.query)
         // Force ID match
         options.where = { ...options.where, id: req.params.id }
         options.limit = 1
+
+        // 2. For single items (Detail View), we always want essential metadata by default
+        if (!req.query.fields && !req.query.include) {
+            options.fields = [
+                ...repositoryService.CORE_FIELDS,
+                'overview', 'backdropPath', 'logoPath', 'runtime', 'releaseDate',
+                'genres', 'tags', 'virtualTags'
+            ]
+        }
 
         const items = repositoryService.find(options)
         if (items.length === 0) {
@@ -107,12 +130,12 @@ router.get('/items/:id/children', (req, res) => {
 
         // Contextual Sorting (Spec 4.1.2)
         // If sort not specified, check parent type
-        if (!options.orderBy) {
-            const parent = repositoryService.find({
-                where: { id: req.params.id },
-                fields: ['mediaType']
-            })[0]
+        const parent = repositoryService.find({
+            where: { id: req.params.id },
+            fields: ['mediaType']
+        })[0]
 
+        if (!options.orderBy) {
             if (parent) {
                 if (parent.mediaType === 'season') {
                     options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
@@ -126,8 +149,40 @@ router.get('/items/:id/children', (req, res) => {
             }
         }
 
-        const items = repositoryService.find(options)
+        let items = repositoryService.find(options)
+
+        // For TV shows, populate each season's children (episodes) for the tabs view
+        if (parent?.mediaType === 'tv') {
+            items = items.map(season => {
+                if (season.type === 'folder') {
+                    const episodes = repositoryService.find({
+                        where: { parentId: season.id },
+                        orderBy: { field: 'episodeNumber', direction: 'ASC' }
+                    })
+                    return { ...season, children: episodes }
+                }
+                return season
+            })
+        }
+
         res.json(items)
+    } catch (e: any) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
+// GET /items/:id/ancestors
+router.get('/items/:id/ancestors', (req, res) => {
+    try {
+        const ancestors = repositoryService.getAncestors(req.params.id)
+        // Ancestors query includes the item itself (idx 0).
+        // Usually breadcrumbs want everything BEFORE the item.
+        // Let's filter out the item itself if checking IDs, or just return as is and let frontend handle?
+        // Spec says "Ancestors", implying parents.
+        // The recursive query above returns [Root, Parent, Self].
+        // Let's remove Self.
+        const cleanAncestors = ancestors.filter(a => a.id !== req.params.id)
+        res.json(cleanAncestors)
     } catch (e: any) {
         res.status(500).json({ error: e.message })
     }

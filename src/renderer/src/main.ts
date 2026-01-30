@@ -8,11 +8,19 @@ import { mount } from 'svelte'
 
 import './assets/main.css'
 
+console.log('[Renderer] Importing App.svelte...')
 import App from './App.svelte'
 
-const app = mount(App, {
-  target: document.getElementById('app')!
-})
+console.log('[Renderer] Mounting App...')
+let app
+try {
+  app = mount(App, {
+    target: document.getElementById('app')!
+  })
+  console.log('[Renderer] App mounted successfully.')
+} catch (e) {
+  console.error('[Renderer] Failed to mount App:', e)
+}
 
 // Listen for force reload message from main process
 window.api.onForceReloadForNewLibrary(() => {

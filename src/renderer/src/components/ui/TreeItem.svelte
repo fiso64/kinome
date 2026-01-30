@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
-  import { getLoadedItem, triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  // import { getLoadedItem, triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { getAssetUrl } from '../../lib/api'
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
   // Types are globally available from src/preload/index.d.ts
@@ -38,21 +38,14 @@
     // --- Lazy loading logic for folders ---
     // This is now essential as the backend only sends shallow data.
     if (item.type === 'folder' && !isExpanded) {
-      // If children are null, it means they have not been loaded yet.
-      // This check is now reliable because the backend consistently sends shallow objects.
-      if (item.children === null) {
-        // This will now correctly log a "Cache MISS" on the first expand,
-        // then fetch the children.
-        const loadedItem = await getLoadedItem(item.id)
-        // By re-assigning the properties of the item from the now-loaded
-        // version in the cache, we update our local `item` prop.
-        if (loadedItem) {
-          Object.assign(item, loadedItem)
-        }
-      }
-      // If it's a season folder that hasn't had its episode data fetched yet,
-      // trigger the detail fetch.
-      triggerSeasonEpisodeFetch(item)
+      // TODO: Migrate to V2 lazy loading
+      // if (item.children === null) {
+      //   const loadedItem = await getLoadedItem(item.id)
+      //   if (loadedItem) {
+      //     Object.assign(item, loadedItem)
+      //   }
+      // }
+      // triggerSeasonEpisodeFetch(item)
     }
 
     // Toggle expansion state

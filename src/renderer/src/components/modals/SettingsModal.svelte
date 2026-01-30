@@ -163,12 +163,16 @@
     virtualTags = virtualTags.filter((vt) => vt.id !== id)
   }
 
-  import { navStack } from '../../lib/navigation-store.svelte'
+  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
 
   function handleCancel() {
     // If opened via history, use history back. Otherwise (e.g. forced open via code), dispatch close.
-    if (navStack.isHistoryModalOpen) {
-      navStack.closeModal()
+    // If opened via history (V2 stores logic handling this via URL), use history back.
+    // For V2, if settingsModalOpen is true, closeModals() closes it.
+    // If it was pushed to history (modal=settings), history.back() or closeModals() works.
+    // navStoreV2.goBack() handles both closing modal and going back if in deeper view.
+    if (navStoreV2.state.settingsModalOpen) {
+      navStoreV2.closeModals()
     } else {
       dispatch('close')
     }
@@ -322,7 +326,8 @@
             </button>
           </div>
           <p class="help-text">
-            Configure external players to launch when clicking a file. The first one in the list is the default.
+            Configure external players to launch when clicking a file. The first one in the list is
+            the default.
           </p>
         </div>
       {:else}
@@ -338,7 +343,7 @@
             />
           </div>
           <p class="help-text">
-            Server mode: Playing a file copies a streamable playlist URL to your clipboard. 
+            Server mode: Playing a file copies a streamable playlist URL to your clipboard.
             Launching local applications is only supported in the Desktop Client.
           </p>
         </div>

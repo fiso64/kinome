@@ -14,6 +14,20 @@ import type {
 export interface ApiClient {
   readonly capabilities: AppCapabilities
 
+  // V2 Methods
+  findV2(options: {
+    fields?: string[],
+    where?: Record<string, any>,
+    limit?: number,
+    offset?: number,
+    orderBy?: { field: string, direction: 'ASC' | 'DESC' },
+    include?: string[]
+  }): Promise<LibraryItem[]>
+
+  getItemV2(id: string, include?: string[]): Promise<LibraryItem>
+  getChildrenV2(parentId: string, options?: { limit?: number, offset?: number, include?: string[], orderBy?: string }): Promise<LibraryItem[]>
+  getAncestors?: (itemId: string) => Promise<LibraryItem[]>
+
   performSearch(query: {
     text: string
     tags: { key: string; value: string }[]

@@ -189,7 +189,7 @@
     }
   }
 
-  import { navStack } from '../../lib/navigation-store.svelte'
+  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
 
   async function handleSave() {
     const itemToUpdate = await buildUpdatedItem()
@@ -217,8 +217,8 @@
   }
 
   function handleClose() {
-    if (navStack.isHistoryModalOpen) {
-      navStack.closeModal()
+    if (navStoreV2.state.itemSettingsId) {
+      navStoreV2.closeModals()
     } else {
       onClose()
     }
@@ -229,7 +229,12 @@
   })
 </script>
 
-<ModalWindow title={item.title ?? item.name} onClose={handleClose} onSave={handleSave} maxWidth="700px">
+<ModalWindow
+  title={item.title ?? item.name}
+  onClose={handleClose}
+  onSave={handleSave}
+  maxWidth="700px"
+>
   {#snippet header()}
     <div class="tabs">
       {#if !isVirtual}

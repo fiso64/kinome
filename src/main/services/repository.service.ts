@@ -1,4 +1,4 @@
-import crypto from 'crypto'
+﻿import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
@@ -43,6 +43,29 @@ export async function createNewDb(rootNode: MediaFolder | null): Promise<void> {
     // In this architecture, the filesystem service populates the DB.
     // This function acts as a reset signal.
   }
+}
+
+/**
+ * Ensures a root node exists in the database.
+ * If no root node exists, it creates one using the provided media source path.
+ */
+export function ensureRootExists(mediaSourcePath: string): void {
+  const root = getRoot()
+  if (root) return
+
+  log(`No root node found. Creating root for: ${mediaSourcePath}`)
+  const db = getDb()
+  const rootId = generateId('.')
+  const rootName = (mediaSourcePath === '.' || mediaSourcePath === '/')
+    ? 'Library'
+    : (mediaSourcePath.split(/[/\\]/).filter(Boolean).pop() || 'Library')
+
+  db.prepare(
+    `
+    INSERT INTO items (id, parent_id, path, name, type, is_missing)
+    VALUES (?, NULL, '.', ?, 'folder', 0)
+    `
+  ).run(rootId, rootName)
 }
 
 // --- Bulk Updates / Transactions ---
@@ -345,7 +368,10 @@ export function getAllItemsAsList(): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
+
 // --- Write Operations ---
+
+
 
 export function find(options: FindOptions = {}): LibraryItem[] {
   const db = getDb()
@@ -404,11 +430,11 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     selectClause = 'i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed'
   } else {
     // Basic items columns if requested
-    const itemCols = fields.filter(f => fieldMap[f]?.startsWith('i.')).map(f => `${fieldMap[f]} as ${f}`)
+    const itemCols = fields.filter(f => fieldMap[f]?.startsWith('i.')).map(f => `${fieldMap[f]} as ${f} `)
     // Metadata columns
-    const metaCols = fields.filter(f => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.')).map(f => `${fieldMap[f]} as ${f}`)
+    const metaCols = fields.filter(f => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.')).map(f => `${fieldMap[f]} as ${f} `)
     // UserState columns
-    const userCols = fields.filter(f => fieldMap[f]?.startsWith('u.')).map(f => `${fieldMap[f]} as ${f}`)
+    const userCols = fields.filter(f => fieldMap[f]?.startsWith('u.')).map(f => `${fieldMap[f]} as ${f} `)
 
     // Combine
     const allSelectedPromise = [...itemCols, ...metaCols, ...userCols]
@@ -437,7 +463,7 @@ export function find(options: FindOptions = {}): LibraryItem[] {
           conditions.push(`${col} IS NULL`)
         } else if (Array.isArray(value)) {
           if (value.length > 0) {
-            conditions.push(`${col} IN (${value.map(() => '?').join(',')})`)
+            conditions.push(`${col} IN(${value.map(() => '?').join(',')})`)
             params.push(...value)
           } else {
             // IN [] is always false
@@ -450,21 +476,21 @@ export function find(options: FindOptions = {}): LibraryItem[] {
       }
     }
     if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(' AND ')}`
+      query += ` WHERE ${conditions.join(' AND ')} `
     }
   }
 
   if (options.orderBy) {
     const colRaw = fieldMap[options.orderBy.field] || 'i.name'
     // rudimentary injection check or just use safe mapping
-    query += ` ORDER BY ${colRaw} ${options.orderBy.direction}`
+    query += ` ORDER BY ${colRaw} ${options.orderBy.direction} `
   }
 
   if (options.limit) {
-    query += ` LIMIT ?`
+    query += ` LIMIT ? `
     params.push(options.limit)
     if (options.offset) {
-      query += ` OFFSET ?`
+      query += ` OFFSET ? `
       params.push(options.offset)
     }
   }
@@ -477,12 +503,23 @@ export function find(options: FindOptions = {}): LibraryItem[] {
 
   // Lightweight mapper for partial selection
   return rows.map((row: any) => {
-    // If we used aliases in SELECT (as X), row has those keys.
-    // But mapRowToLibraryItem expects DB column names (snake_case).
-    // We should probably just return 'row' cast to LibraryItem since we aliased them to camelCase in the helper?
-    // Yes, my dynamic select logic used `as ${f}` (camelCase).
-    // So `row` already matches LibraryItem shape for those fields.
-    // We just need to handle JSON fields if strictly requested (unlikely in lean mode to request json partials? or maybe genres)
+    // Handle JSON fields if strictly requested and present in the row
+    if (row.posterPath || row.backdropPath || row.logoPath) {
+      // If we aliased them to camelCase, we keep them.
+      // But the frontend expects these to be populated.
+    }
+
+    // Ensure numeric types are correct
+    if (row.tmdbId !== undefined && row.tmdbId !== null) row.tmdbId = Number(row.tmdbId)
+    if (row.year !== undefined && row.year !== null) row.year = Number(row.year)
+    if (row.seasonNumber !== undefined && row.seasonNumber !== null) row.seasonNumber = Number(row.seasonNumber)
+    if (row.episodeNumber !== undefined && row.episodeNumber !== null) row.episodeNumber = Number(row.episodeNumber)
+
+    // Handle Booleans
+    if (row.watched !== undefined) row.watched = Boolean(row.watched)
+    if (row.isMissing !== undefined) row.isMissing = Boolean(row.isMissing)
+    if (row.isHidden !== undefined) row.isHidden = Boolean(row.isHidden)
+
     return row as LibraryItem
   })
 }
@@ -512,12 +549,12 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
     ) {
       db.prepare(
         `
-        UPDATE items SET 
-          is_hidden = COALESCE(@isHidden, is_hidden), 
-          is_missing = COALESCE(@isMissing, is_missing),
-          is_user_edited = COALESCE(@isUserEdited, is_user_edited)
+        UPDATE items SET
+is_hidden = COALESCE(@isHidden, is_hidden),
+  is_missing = COALESCE(@isMissing, is_missing),
+  is_user_edited = COALESCE(@isUserEdited, is_user_edited)
         WHERE id = @id
-      `
+  `
       ).run({
         id: itemId,
         isHidden: updates.isHidden === undefined ? null : updates.isHidden ? 1 : 0,
@@ -540,12 +577,12 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
       const allStates = db.prepare('SELECT * FROM user_state WHERE item_id = ?').all(itemId)
       if (allStates.length > 1) {
         console.warn(
-          `[Repo] WARNING: Multiple user_state rows found for item ${itemId}:`,
+          `[Repo] WARNING: Multiple user_state rows found for item ${itemId}: `,
           allStates
         )
       }
-      console.log(`[Repo] updateItem ${itemId} - Existing State:`, existingState)
-      console.log(`[Repo] updateItem ${itemId} - Updates:`, updates)
+      console.log(`[Repo] updateItem ${itemId} - Existing State: `, existingState)
+      console.log(`[Repo] updateItem ${itemId} - Updates: `, updates)
 
       const val = {
         watched:
@@ -574,14 +611,14 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
 
       db.prepare(
         `
-        INSERT INTO user_state (item_id, watched, last_watched_at, continue_watching_dismissed, next_up_dismissed)
-        VALUES (@id, @watched, @lastWatched, @continueWatchingDismissed, @nextUpDismissed)
+        INSERT INTO user_state(item_id, watched, last_watched_at, continue_watching_dismissed, next_up_dismissed)
+VALUES(@id, @watched, @lastWatched, @continueWatchingDismissed, @nextUpDismissed)
         ON CONFLICT(item_id, user_id) DO UPDATE SET
-          watched = excluded.watched,
-          last_watched_at = excluded.last_watched_at,
-          continue_watching_dismissed = excluded.continue_watching_dismissed,
-          next_up_dismissed = excluded.next_up_dismissed
-      `
+watched = excluded.watched,
+  last_watched_at = excluded.last_watched_at,
+  continue_watching_dismissed = excluded.continue_watching_dismissed,
+  next_up_dismissed = excluded.next_up_dismissed
+    `
       ).run({
         id: itemId,
         watched: val.watched ?? 0,
@@ -661,30 +698,30 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
 
       db.prepare(
         `
-        INSERT INTO metadata (
-          item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
-          genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, version
-        ) VALUES (
-          @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
-          @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @version
-        )
+        INSERT INTO metadata(
+      item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
+      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, version
+    ) VALUES(
+      @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
+      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @version
+    )
         ON CONFLICT(item_id) DO UPDATE SET
-          tmdb_id = excluded.tmdb_id,
-          media_type = excluded.media_type,
-          title = excluded.title,
-          overview = excluded.overview,
-          version = excluded.version,
-          year = excluded.year,
-          season_number = excluded.season_number,
-          episode_number = excluded.episode_number,
-          genres_json = excluded.genres_json,
-          tags_json = excluded.tags_json,
-          virtual_tags_json = excluded.virtual_tags_json,
-          people_json = excluded.people_json,
-          seasons_json = excluded.seasons_json,
-          episodes_json = excluded.episodes_json,
-          images_json = excluded.images_json
-      `
+tmdb_id = excluded.tmdb_id,
+  media_type = excluded.media_type,
+  title = excluded.title,
+  overview = excluded.overview,
+  version = excluded.version,
+  year = excluded.year,
+  season_number = excluded.season_number,
+  episode_number = excluded.episode_number,
+  genres_json = excluded.genres_json,
+  tags_json = excluded.tags_json,
+  virtual_tags_json = excluded.virtual_tags_json,
+  people_json = excluded.people_json,
+  seasons_json = excluded.seasons_json,
+  episodes_json = excluded.episodes_json,
+  images_json = excluded.images_json
+    `
       ).run(params)
     }
 
@@ -719,12 +756,12 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
 
       db.prepare(
         `
-            INSERT INTO folder_settings (item_id, view_settings_json, scraper_settings_json)
-            VALUES (@id, @view, @scraper)
+            INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
+VALUES(@id, @view, @scraper)
             ON CONFLICT(item_id) DO UPDATE SET
-              view_settings_json = excluded.view_settings_json,
-              scraper_settings_json = excluded.scraper_settings_json
-        `
+view_settings_json = excluded.view_settings_json,
+  scraper_settings_json = excluded.scraper_settings_json
+    `
       ).run({
         id: itemId,
         view: JSON.stringify(viewSettings),
@@ -765,12 +802,12 @@ export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
           (c: LibraryItem) => !c.isHidden && !c.isMissing
         )
         if (child.children.length === 0) {
-          console.log(`[Repo] Warning: No children found for ${child.name} (ID: ${child.id})`)
+          console.log(`[Repo] Warning: No children found for ${child.name}(ID: ${child.id})`)
         } else {
           console.log(`[Repo] Found ${child.children.length} children for ${child.name}`)
           if (child.children.length > 0) {
             console.log(
-              `[Repo] Sample Child for ${child.name}:`,
+              `[Repo] Sample Child for ${child.name}: `,
               JSON.stringify(child.children[0], null, 2)
             )
           }

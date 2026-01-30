@@ -106,22 +106,13 @@ export function determineSeasonNumbers(
     }
 
     // 2. Fallback for unnumbered folders
-    // Whether this is desirable is a user choice, but it was requested to be restored.
-    // If we have some unnumbered season folders, we assign them sequentially
-    // starting after the highest existing season number.
     if (remainingFolders.length > 0) {
-        let maxExisting = 0
-        for (const info of results.values()) {
-            if (typeof info.season === 'number') maxExisting = Math.max(maxExisting, info.season)
+        // We NO LONGER assign "season" mediaType to folders that don't match a pattern.
+        // They should stay as generic folders so that TMDB search can identify them as "tv" or "movie".
+        // However, we still track them in remainingFolders if the caller needs them.
+        for (const name of remainingFolders) {
+            // results.set(name, { mediaType: undefined }) // Implicitly undefined
         }
-
-        // Caller must ensure folderNames was sorted input, so remainingFolders preserves that order
-        remainingFolders.forEach((name, index) => {
-            results.set(name, {
-                season: maxExisting + index + 1,
-                mediaType: 'season'
-            })
-        })
     }
 
     return results

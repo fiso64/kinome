@@ -9,6 +9,8 @@ dist
 test/media-browser-test-lib
 test_comprehensive
 test_data
+test-results
+temp*
 
 # A common name for Electron Builder output
 /release
@@ -36,3 +38,5 @@ Thumbs.db
 .eslintcache
 .vite-cache
 .svelte-kit
+
+response.json

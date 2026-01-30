@@ -1,5 +1,6 @@
+
 import { api } from './api'
-import { navStack } from './navigation-store.svelte'
+import { navStoreV2 } from './navigation-store-v2.svelte'
 import { isTypingTag as isTypingTagHelper } from './view-helpers'
 import type { SearchIndexEntry } from '../../../shared/types'
 
@@ -34,42 +35,28 @@ const isTypingGlobalTag = $derived(isTypingTagHelper(globalQuery.text))
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
-// --- Register with Navigation Store ---
-navStack.registerSearchInterface({
-    getQuery: () => globalQuery,
-    setQuery: (q) => { globalQuery = q },
-    isRestoring: false
-})
 
 // --- Search Effects (Global Logic) ---
-
-// In Svelte 5, these effects will run as long as the store is imported in a component context.
 
 export function initializeSearchEffects() {
     // --- Global Search Effect ---
     $effect(() => {
         const query = globalQuery
-        
+
         if (isGlobalActive && !isTypingGlobalTag) {
-            // Clear detail view before updating history so the snapshot doesn't include the item.
-            // This ensures that if we "back" into this search state later, we don't accidentally restore the detail view on top.
-            if (navStack.selectedItemForDetailView) {
-                navStack.selectedItemForDetailView = null
+            // Close detail view via V2 store
+            if (navStoreV2.state.selectedItemId) {
+                navStoreV2.closeDetail()
             }
         }
 
-        // Notify navigation stack about query changes to update history
-        // This relies on the 'isTypingTag' check internally in the UI, but here we just pass the raw query state.
-        // We only want to update history if it's not a temporary typing state (like trailing colon), 
-        // but 'globalQuery' is usually bound directly. 
-        // We can check if it's valid for search.
-        if (!isTypingGlobalTag) {
-            navStack.handleSearchUpdate(JSON.parse(JSON.stringify(query)))
-        }
+        // TODO: Navigation store history update for search?
+        // In V2, we might store search query in URL params too? 
+        // navStoreV2 currently parses folder/item/modal. It doesn't handle search params yet.
+        // For now, we skip history sync for search, or add it to navStoreV2.
 
         if (isGlobalActive && !isTypingGlobalTag) {
             isPerformingGlobalSearch = true
-            // navStack.selectedItemForDetailView = null // Already cleared above
             api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
                 searchResults = results
                 isPerformingGlobalSearch = false
@@ -85,7 +72,7 @@ export function initializeSearchEffects() {
     // --- Detail View Search Effect ---
     $effect(() => {
         const query = detailQuery
-        if (navStack.selectedItemForDetailView && isDetailActive && !isTypingDetailTag) {
+        if (navStoreV2.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
             isPerformingDetailSearch = true
             api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
                 detailResults = results
@@ -114,7 +101,7 @@ export function initializeSearchEffects() {
     let wasFilterVisible = false
     $effect(() => {
         // Hide filter bar when navigating to detail view or global search
-        if (navStack.selectedItemForDetailView || isGlobalActive) {
+        if (navStoreV2.state.selectedItemId || isGlobalActive) {
             if (isFilterBarVisible) {
                 const isFilterEmpty = filterQuery.text.trim() === '' && filterQuery.tags.length === 0
                 if (!isFilterEmpty) wasFilterVisible = true
@@ -130,8 +117,8 @@ export function initializeSearchEffects() {
 
     $effect(() => {
         // Clear main view filter when navigating away from search results
-        // This is a bit of a trick to detect navigation
-        void navStack.currentFolder?.id
+        // Trigger on folder change
+        void navStoreV2.state.currentFolderId
         if (!isGlobalActive) {
             filterQuery = { text: '', tags: [] }
         }
@@ -153,13 +140,15 @@ function clearFilter() {
 }
 
 function searchByTag(key: string, value: string) {
-    navStack.handleSearchByTag(key, value)
+    // Navigate to search results (root) logic is slightly different in V2.
+    // If we are deep, maybe we stay there? 
+    // Usually searching jumps to "Global Search" mode.
     globalQuery = { text: '', tags: [{ key, value }] }
 }
 
 // --- Exported Store Object ---
 
-export const searchStore = {
+export const searchStoreV2 = {
     get globalQuery() { return globalQuery },
     set globalQuery(v) { globalQuery = v },
     get isGlobalActive() { return isGlobalActive },

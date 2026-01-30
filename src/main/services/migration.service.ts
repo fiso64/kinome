@@ -73,4 +73,41 @@ export async function migrateTvStructure(): Promise<void> {
         }
         log(`Migrated ${updateCount} season folders.`)
     })
+
+    // 3. Identify TV Show Folders
+    // A folder is likely a TV show if it contains "Season X" folders or is parent to many episodes
+    const potentialShows = db.prepare(`
+        SELECT i.id, i.name
+        FROM items i
+        LEFT JOIN metadata m ON i.id = m.item_id
+        WHERE i.type = 'folder'
+          AND (m.media_type IS NULL OR m.media_type = 'folder')
+    `).all() as { id: string; name: string }[]
+
+    repositoryService.runTransaction(() => {
+        let updateCount = 0
+        for (const show of potentialShows) {
+            // Check children
+            const childrenMetas = db.prepare(`
+                SELECT m.media_type, m.season_number
+                FROM items i
+                JOIN metadata m ON i.id = m.item_id
+                WHERE i.parent_id = ?
+            `).all(show.id) as { media_type: string; season_number: number | null }[]
+
+            const hasSeasons = childrenMetas.some(m => m.media_type === 'season' || m.season_number !== null)
+            const episodeCount = childrenMetas.filter(m => m.media_type === 'episode').length
+
+            if (hasSeasons || episodeCount > 2) {
+                db.prepare(`
+                    INSERT INTO metadata (item_id, media_type)
+                    VALUES (@id, 'tv')
+                    ON CONFLICT(item_id) DO UPDATE SET
+                       media_type = 'tv'
+                 `).run({ id: show.id })
+                updateCount++
+            }
+        }
+        log(`Identified ${updateCount} TV Shows.`)
+    })
 }

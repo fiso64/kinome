@@ -21,7 +21,7 @@ class WebApiClient implements ApiClient {
     constructor() {
         this.socket = io(BASE_URL)
         console.log('[WebApiClient] Initialized.')
-        
+
         this.capabilities = {
             hasWindowControls: false,
             supportsLocalPlayback: false // Server cannot launch a player on the client's machine
@@ -52,12 +52,59 @@ class WebApiClient implements ApiClient {
         } catch (e) {
             // Debugging: Log the actual content that failed to parse
             console.warn(`[WebApiClient] Non-JSON response received from ${path}. Status: ${response.status}. Body: "${text}"`)
-            
+
             // Fallback: If the server sent "OK" (Express sendStatus(200)), treat it as success/void.
             // If it sent other text, return it as the result.
             return text as unknown as T
         }
     }
+
+    // --- V2 API Methods ---
+
+    /**
+     * Generic V2 Find
+     */
+    findV2(options: {
+        fields?: string[],
+        where?: Record<string, any>,
+        limit?: number,
+        offset?: number,
+        orderBy?: { field: string, direction: 'ASC' | 'DESC' },
+        include?: string[]
+    }): Promise<LibraryItem[]> {
+        const params = new URLSearchParams()
+        if (options.fields) params.set('fields', options.fields.join(','))
+        if (options.limit) params.set('limit', options.limit.toString())
+        if (options.offset) params.set('offset', options.offset.toString())
+        if (options.orderBy) params.set('orderBy', `${options.orderBy.field}:${options.orderBy.direction}`)
+        if (options.include) params.set('include', options.include.join(','))
+
+        if (options.where) {
+            for (const [key, val] of Object.entries(options.where)) {
+                if (val !== undefined && val !== null) params.set(key, String(val))
+            }
+        }
+
+        return this.request(`/api/v2/items?${params.toString()}`)
+    }
+
+    getItemV2(id: string, include: string[] = []): Promise<LibraryItem> {
+        const params = new URLSearchParams()
+        if (include.length > 0) params.set('include', include.join(','))
+        return this.request(`/api/v2/items/${encodeURIComponent(id)}?${params.toString()}`)
+    }
+
+    getChildrenV2(parentId: string, options: { limit?: number, offset?: number, include?: string[], orderBy?: string } = {}): Promise<LibraryItem[]> {
+        const params = new URLSearchParams()
+        if (options.limit) params.set('limit', options.limit.toString())
+        if (options.offset) params.set('offset', options.offset.toString())
+        if (options.include) params.set('include', options.include.join(','))
+        if (options.orderBy) params.set('orderBy', options.orderBy) // Expects "field:DESC" format or let backend decide
+
+        return this.request(`/api/v2/items/${encodeURIComponent(parentId)}/children?${params.toString()}`)
+    }
+
+    // --- Legacy / V1 Methods ---
 
     performSearch(query: { text: string; tags: { key: string; value: string }[] }): Promise<SearchIndexEntry[]> {
         return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
