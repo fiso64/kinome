@@ -45,6 +45,10 @@ export function initializeDatabase(): Database.Database {
     try {
       db.prepare('ALTER TABLE metadata ADD COLUMN version INTEGER').run()
     } catch { }
+    // V2 API Migrations
+    try { db.prepare('ALTER TABLE metadata ADD COLUMN media_type TEXT').run() } catch { }
+    try { db.prepare('ALTER TABLE metadata ADD COLUMN season_number INTEGER').run() } catch { }
+    try { db.prepare('ALTER TABLE metadata ADD COLUMN episode_number INTEGER').run() } catch { }
 
     return db
   } catch (error) {

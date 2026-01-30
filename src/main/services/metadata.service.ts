@@ -5,8 +5,6 @@ import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as retrieverService from './retriever.service'
-import * as searchService from './search.service'
-import * as tvShowService from './tv-show.service'
 import * as virtualTagsService from './virtualTags.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
@@ -28,7 +26,7 @@ function collectItemsToProcess(
 ) {
   if (folder.isHidden || folder.isMissing) return
   if (folder.mediaType === 'tv') tvShows.push(folder)
-  if (folder.retrieve_children_metadata) {
+  if (folder.retrieve_children_metadata && folder.children) {
     for (const child of folder.children) {
       if (child.isHidden || child.isMissing) continue
       if (typeof child.tmdbId === 'undefined') {
@@ -44,9 +42,11 @@ function collectItemsToProcess(
       }
     }
   }
-  for (const child of folder.children) {
-    if (child.type === 'folder') {
-      collectItemsToProcess(child, newItems, itemsMissingPosters, itemsMissingCredits, tvShows)
+  if (folder.children) {
+    for (const child of folder.children) {
+      if (child.type === 'folder') {
+        collectItemsToProcess(child, newItems, itemsMissingPosters, itemsMissingCredits, tvShows)
+      }
     }
   }
 }
@@ -107,8 +107,8 @@ export async function fetchMetadataForLibrary() {
   if (allTvShows.length > 0) {
     log(`[Metadata] Performing local analysis for ${allTvShows.length} TV shows.`)
     for (const show of allTvShows) {
-      tvShowService.processTvShowStructure(show)
-      if (show.tmdbSeasons && show.tmdbDetailsFetched) {
+      // tvShowService.processTvShowStructure(show) // Deprecated: Logic moved to ingestion
+      if (show.tmdbSeasons && show.tmdbDetailsFetched && show.children) {
         const localSeasonNumbers = new Set<number>()
         show.children.forEach((child) => {
           if ('seasonNumber' in child && typeof child.seasonNumber === 'number') {
@@ -136,11 +136,11 @@ export async function fetchMetadataForLibrary() {
           }
         }
       }
-      const seasonFolders = show.children.filter(
+      const seasonFolders = (show.children || []).filter(
         (c) => c.type === 'folder' && c.mediaType === 'season'
       ) as MediaFolder[]
       for (const season of seasonFolders) {
-        if (season.tmdbEpisodes && season.tmdbEpisodesFetched) {
+        if (season.tmdbEpisodes && season.tmdbEpisodesFetched && season.children) {
           const localEpisodes = season.children.filter((c) => c.type === 'file') as MediaFile[]
           const maxLocalEpisode = Math.max(0, ...localEpisodes.map((e) => e.episodeNumber ?? 0))
           const maxCachedEpisode = Math.max(0, ...season.tmdbEpisodes.map((e) => e.episode_number))
@@ -198,9 +198,10 @@ export async function fetchMetadataForLibrary() {
         libraryDataPath,
         hint
       )
-      if (item.type === 'folder' && item.mediaType === 'tv')
-        tvShowService.processTvShowStructure(item as MediaFolder)
-      
+      if (item.type === 'folder' && item.mediaType === 'tv') {
+        // tvShowService.processTvShowStructure(item as MediaFolder)
+      }
+
       // Mark as processed by setting version
       if (item.posterPath || item.tmdbId === null || item.tmdbId) {
         item._v = Date.now()
@@ -251,7 +252,7 @@ export async function fetchEpisodeDataForContinueWatching(
   }
 
   // 2. Process structure to assign seasonNumbers to folders (in-memory)
-  tvShowService.processTvShowStructure(show)
+  // tvShowService.processTvShowStructure(show) // Deprecated
 
   // 3. Find season folder matching the episode's season number
   const seasonFolder = show.children.find(
@@ -331,15 +332,15 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
     if (item.posterPath)
       try {
         await fs.unlink(path.join(imagesDir, item.posterPath))
-      } catch (e) {}
+      } catch (e) { }
     if (item.backdropPath)
       try {
         await fs.unlink(path.join(imagesDir, item.backdropPath))
-      } catch (e) {}
+      } catch (e) { }
     if (item.logoPath)
       try {
         await fs.unlink(path.join(imagesDir, item.logoPath))
-      } catch (e) {}
+      } catch (e) { }
   }
   for (const key of RESETTABLE_METADATA_KEYS) {
     // We check hasOwnProperty because we only want to reset properties that actually exist.
@@ -399,6 +400,7 @@ async function _clearChildrenRecursively(
   imagesDir: string,
   modifiedItems: LibraryItem[]
 ): Promise<void> {
+  if (!folder.children) return
   for (const child of folder.children) {
     await _resetItemMetadata(child, imagesDir)
     modifiedItems.push(child)
@@ -587,13 +589,15 @@ export async function applyTmdbResult(
     if (item.type === 'folder' && mediaType === 'tv') {
       item.tmdbSeasons = null
       item.tmdbEpisodesFetched = false
-      for (const season of item.children) {
-        if (season.type === 'folder' && season.mediaType === 'season') {
-          season.tmdbDetailsFetched = false
-          season.tmdbEpisodesFetched = undefined
-          for (const episode of season.children) {
-            if (episode.type === 'file' && episode.mediaType === 'episode')
-              episode.posterPath = undefined
+      if (item.children) {
+        for (const season of item.children) {
+          if (season.type === 'folder' && season.mediaType === 'season' && season.children) {
+            season.tmdbDetailsFetched = false
+            season.tmdbEpisodesFetched = undefined
+            for (const episode of season.children) {
+              if (episode.type === 'file' && episode.mediaType === 'episode')
+                episode.posterPath = undefined
+            }
           }
         }
       }
@@ -619,12 +623,14 @@ export async function applyTmdbResult(
       }
       item.tmdbDetailsFetched = true
       item.tmdbEpisodesFetched = undefined
-      const episodeFiles = item.children.filter((c) => c.type === 'file') as MediaFile[]
+      const episodeFiles = (item.children || []).filter((c) => c.type === 'file') as MediaFile[]
       if (
         typeof item.seasonNumber === 'number' &&
         !episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')
       ) {
-        tvShowService.assignEpisodesByStrategy(episodeFiles, item.seasonNumber, 'smart')
+        // tvShowService.assignEpisodesByStrategy(episodeFiles, item.seasonNumber, 'smart')
+        // Fallback: simple numeric assignment if needed, or rely on ingestion
+        episodeFiles.forEach((f, i) => f.episodeNumber = i + 1)
       }
       const showFolder = repositoryService.findParent(item.id)
       if (showFolder?.tmdbId && settings.tmdbApiKey) {
@@ -643,7 +649,7 @@ export async function applyTmdbResult(
       item.mediaType = mediaType
       item.title = result.title
       if (item.type === 'folder' && mediaType === 'tv' && item.process_tv_children !== false) {
-        tvShowService.processTvShowStructure(item as MediaFolder)
+        // tvShowService.processTvShowStructure(item as MediaFolder)
       }
       await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
       if (mediaType === 'movie' || mediaType === 'tv')

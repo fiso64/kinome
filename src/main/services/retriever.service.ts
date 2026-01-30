@@ -65,8 +65,9 @@ export async function searchTmdbAndApplyMetadata(
     if (item.type === 'file') {
       endpoint = 'movie'
     } else if (item.type === 'folder') {
-      const videoFiles = item.children.filter((c) => c.type === 'file')
-      const significantSubfolders = item.children.filter(
+      const children = item.children || []
+      const videoFiles = children.filter((c) => c.type === 'file')
+      const significantSubfolders = children.filter(
         (c) => c.type === 'folder' && !SPECIAL_SUBFOLDER_NAMES.includes(c.name.toLowerCase())
       )
 
@@ -258,35 +259,35 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-  // Process cast members to get their best acting score.
-  ;(creditsData.cast ?? []).forEach((castMember: any) => {
-    const p = ensurePerson(castMember.id, castMember)
-    p.actingScore = Math.min(p.actingScore, castMember.order)
-    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-  })
-
-  // Process crew members to get their best crew score.
-  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
-    let bestJobIndex = Infinity
-    const importantJobsForPerson: string[] = []
-
-    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
-      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-      if (index !== -1) {
-        bestJobIndex = Math.min(bestJobIndex, index)
-        importantJobsForPerson.push(jobInfo.job)
-      }
+    // Process cast members to get their best acting score.
+    ; (creditsData.cast ?? []).forEach((castMember: any) => {
+      const p = ensurePerson(castMember.id, castMember)
+      p.actingScore = Math.min(p.actingScore, castMember.order)
+      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+      p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
     })
 
-    // Only add crew if they have an important job.
-    if (bestJobIndex !== Infinity) {
-      const p = ensurePerson(crewMember.id, crewMember)
-      p.crewScore = Math.min(p.crewScore, bestJobIndex)
-      p.jobs.push(...importantJobsForPerson)
-      p.personData = { ...p.personData, ...crewMember }
-    }
-  })
+    // Process crew members to get their best crew score.
+    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
+      let bestJobIndex = Infinity
+      const importantJobsForPerson: string[] = []
+
+        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
+          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+          if (index !== -1) {
+            bestJobIndex = Math.min(bestJobIndex, index)
+            importantJobsForPerson.push(jobInfo.job)
+          }
+        })
+
+      // Only add crew if they have an important job.
+      if (bestJobIndex !== Infinity) {
+        const p = ensurePerson(crewMember.id, crewMember)
+        p.crewScore = Math.min(p.crewScore, bestJobIndex)
+        p.jobs.push(...importantJobsForPerson)
+        p.personData = { ...p.personData, ...crewMember }
+      }
+    })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
   const finalCast: Person[] = []
@@ -522,7 +523,7 @@ export async function applyTvShowData(
     console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
     const tmdbSeasons = item.tmdbSeasons
 
-    const seasonFolders = item.children.filter(
+    const seasonFolders = (item.children || []).filter(
       (c) => c.type === 'folder' && c.mediaType === 'season'
     ) as MediaFolder[]
 
@@ -548,7 +549,7 @@ export async function applyTvShowData(
       }
     } else {
       // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
-      const filesWithSeason = item.children.filter(
+      const filesWithSeason = (item.children || []).filter(
         (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
       ) as MediaFile[]
 
@@ -713,7 +714,7 @@ export async function fetchAndApplyEpisodeData(
       seasonFolder.tmdbEpisodes = tmdbEpisodes
 
       // --- Apply Cached Data to Local Files ---
-      const localEpisodes = seasonFolder.children.filter((c) => c.type === 'file') as MediaFile[]
+      const localEpisodes = (seasonFolder.children || []).filter((c) => c.type === 'file') as MediaFile[]
 
       for (const localEpisode of localEpisodes) {
         if (typeof localEpisode.episodeNumber === 'undefined') continue

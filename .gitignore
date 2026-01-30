@@ -7,6 +7,8 @@ dist
 
 # Test media
 test/media-browser-test-lib
+test_comprehensive
+test_data
 
 # A common name for Electron Builder output
 /release

@@ -43,9 +43,12 @@ initializeStartup(userDataPath)
 const webTransport = new WebTransport()
 setTransport(webTransport)
 
+import v2Router from './routes/v2'
+
 // 2. Middleware
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
+app.use('/api/v2', v2Router)
 
 // 3. Asset Protocol Replacement
 // Serves images via standard HTTP
@@ -53,29 +56,29 @@ app.get('/api/assets/*relativePath', (req, res) => {
     try {
         const pathParam = req.params.relativePath
         let relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
-         relativePath = decodeURIComponent(relativePath)
-         
-         // Strip query parameters that might have been encoded into the path
-         // e.g. "image.jpg?v=123" -> "image.jpg"
-         if (relativePath.includes('?')) {
-             relativePath = relativePath.split('?')[0]
-         }
-         
-         // Try resolving as is first
+        relativePath = decodeURIComponent(relativePath)
+
+        // Strip query parameters that might have been encoded into the path
+        // e.g. "image.jpg?v=123" -> "image.jpg"
+        if (relativePath.includes('?')) {
+            relativePath = relativePath.split('?')[0]
+        }
+
+        // Try resolving as is first
         let fullPath = resolveLibraryPath(relativePath)
 
         // If not found, try looking in 'images' subdirectory
         if (!fs.existsSync(fullPath)) {
-           const imagesPath = resolveLibraryPath(path.join('images', relativePath))
-           if (fs.existsSync(imagesPath)) {
-             fullPath = imagesPath
-           }
+            const imagesPath = resolveLibraryPath(path.join('images', relativePath))
+            if (fs.existsSync(imagesPath)) {
+                fullPath = imagesPath
+            }
         }
 
         if (fs.existsSync(fullPath)) {
-          res.sendFile(fullPath, { dotfiles: 'allow' })
+            res.sendFile(fullPath, { dotfiles: 'allow' })
         } else {
-          res.status(404).send('Not found')
+            res.status(404).send('Not found')
         }
     } catch (_e) {
         res.status(500).send('Error')
@@ -313,7 +316,7 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
             // #EXTINF:duration,title
             // We use -1 for live/unknown duration
             let title = item.title || item.name
-            
+
             // Format title with Season/Episode info if available
             const f = item as any
             if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
@@ -323,7 +326,7 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
             }
 
             m3uContent += `#EXTINF:-1,${title}\n`
-            
+
             // Construct stream URL
             // We append the filename to the URL to help players detect file extension/type
             const filename = encodeURIComponent(item.name)
@@ -334,10 +337,10 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
         const firstItem = playlist[0] as any
         let playlistFilename = 'playlist.m3u'
         if (firstItem && firstItem.mediaType === 'episode' && typeof firstItem.seasonNumber === 'number' && typeof firstItem.episodeNumber === 'number') {
-             const s = firstItem.seasonNumber.toString().padStart(2, '0')
-             const e = firstItem.episodeNumber.toString().padStart(2, '0')
-             // Clean filename slightly
-             playlistFilename = `S${s}E${e}.m3u`
+            const s = firstItem.seasonNumber.toString().padStart(2, '0')
+            const e = firstItem.episodeNumber.toString().padStart(2, '0')
+            // Clean filename slightly
+            playlistFilename = `S${s}E${e}.m3u`
         }
 
         res.setHeader('Content-Type', 'audio/x-mpegurl')

@@ -3,6 +3,7 @@ import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
+import { parseSeasonFolder, determineEpisodeNumbers, determineSeasonNumbers } from '../utils/tv-parser'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -23,11 +24,8 @@ async function walkAndUpsert(
 
   // Initialize queue
   if (startPath === mediaSourcePath) {
-    // Root case
     const rootId = repositoryService.generateId('.')
     const rootName = path.basename(mediaSourcePath)
-
-    // Upsert Root
     db.prepare(
       `
         INSERT INTO items (id, parent_id, path, name, type, is_missing)
@@ -39,17 +37,15 @@ async function walkAndUpsert(
     visitedIds.add(rootId)
     queue.push({ currentPath: startPath, parentId: rootId })
   } else {
-    // Partial scan case: We need to find the parent ID of the startPath
     const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
     const id = repositoryService.generateId(relativePath)
     visitedIds.add(id)
-    queue.push({ currentPath: startPath, parentId: id }) // Note: We assume the start folder itself is already valid
+    queue.push({ currentPath: startPath, parentId: id })
   }
 
-  // Iterative BFS to avoid recursion stack limits and handle transactions neatly
   while (queue.length > 0) {
     const { currentPath, parentId } = queue.shift()!
-    if (!parentId) continue // Should not happen given logic above
+    if (!parentId) continue
 
     let entries: Dirent[]
     try {
@@ -59,9 +55,33 @@ async function walkAndUpsert(
       continue
     }
 
-    if (entries.some((e) => e.name === '.ignore')) continue
+    // ---------------------------------------------------------
+    // PHASE 1: Structural Analysis (Consensus Logic)
+    // ---------------------------------------------------------
 
-    // Prepare batch operations
+    // Sort entries to ensure deterministic order for fallbacks
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+
+    const folderNames = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name)
+    const videoFileNames = entries.filter(e => e.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) && !e.name.startsWith('.')).map(e => e.name)
+
+    const currentFolderName = path.basename(currentPath)
+    // Only attempt strict parsing for parent context at this level
+    const parentSeasonNumber = parseSeasonFolder(currentFolderName)
+
+    // Compute Metadata Maps
+    // 1. Season Folders
+    const seasonMap = determineSeasonNumbers(folderNames)
+
+    // 2. Episode Files
+    // If we are in a season folder (parentSeasonNumber is not null), we pass it down
+    // otherwise episodes might get assigned season undefined (which is fine, will be null in DB)
+    const episodeMap = determineEpisodeNumbers(videoFileNames, parentSeasonNumber ?? undefined)
+
+
+    // ---------------------------------------------------------
+    // PHASE 2: Execution (Upsert)
+    // ---------------------------------------------------------
     const operations: (() => void)[] = []
 
     for (const entry of entries) {
@@ -69,7 +89,6 @@ async function walkAndUpsert(
       const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
 
       if (isDirectory || isVideoFile) {
-        // Skip common hidden folders and system directories standard practice
         if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
 
         const fullPath = path.join(currentPath, entry.name)
@@ -77,7 +96,6 @@ async function walkAndUpsert(
         const id = repositoryService.generateId(relativePath)
         const type = isDirectory ? 'folder' : 'file'
 
-        // Deep Peeking for .ignore: if a directory contains .ignore, skip it entirely.
         if (isDirectory) {
           try {
             const subEntries = await fs.readdir(fullPath)
@@ -100,9 +118,30 @@ async function walkAndUpsert(
             mtime: Math.floor(s.mtimeMs),
             birthtime: Math.floor(s.birthtimeMs)
           }
-        } catch {}
+        } catch { }
+
+        // TV Show Parsing Logic (Retrieve from pre-calculated maps)
+        let parsedSeason: number | null = null
+        let parsedEpisode: number | null = null
+        let parsedMediaType: string | null = null
+
+        if (isDirectory) {
+          const info = seasonMap.get(entry.name)
+          if (info) {
+            parsedSeason = info.season ?? null
+            parsedMediaType = info.mediaType ?? null
+          }
+        } else if (isVideoFile) {
+          const info = episodeMap.get(entry.name)
+          if (info) {
+            parsedEpisode = info.episode ?? null
+            parsedSeason = info.season ?? null
+            parsedMediaType = info.mediaType ?? null
+          }
+        }
 
         operations.push(() => {
+          // 1. Upsert Items
           db.prepare(
             `
               INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
@@ -123,6 +162,25 @@ async function walkAndUpsert(
             mtime: stats.mtime,
             birthtime: stats.birthtime
           })
+
+          // 2. Upsert Metadata
+          if (parsedMediaType) {
+            db.prepare(
+              `
+                INSERT INTO metadata (item_id, media_type, season_number, episode_number)
+                VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
+                ON CONFLICT(item_id) DO UPDATE SET
+                  media_type = COALESCE(media_type, excluded.media_type),
+                  season_number = COALESCE(season_number, excluded.season_number),
+                  episode_number = COALESCE(episode_number, excluded.episode_number)
+              `
+            ).run({
+              id,
+              mediaType: parsedMediaType,
+              seasonNumber: parsedSeason,
+              episodeNumber: parsedEpisode
+            })
+          }
         })
 
         if (isDirectory) {
@@ -131,7 +189,6 @@ async function walkAndUpsert(
       }
     }
 
-    // Execute batch for this directory level
     if (operations.length > 0) {
       repositoryService.runTransaction(() => {
         operations.forEach((op) => op())
@@ -178,6 +235,10 @@ export async function scanDirectory(
 
 export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
   const db = repositoryService.getDb()
+  if (!node.path) {
+    log(`Cannot sync subtree with undefined path: ${node.name}`)
+    return
+  }
   const rootAbsPath = path.join(mediaSourcePath, node.path)
 
   log(`Syncing subtree: ${node.path}`)

@@ -232,7 +232,7 @@ export interface MediaFile {
   id: string // Stable ID (e.g., hash of relative path)
   parentId?: string
   name: string
-  path: string // Full path to the file
+  path?: string // Full path to the file (Optional/Lazy)
   type: 'file'
   watched?: boolean // User state, preserved
   lastWatched?: number // Timestamp of when the item was last played
@@ -268,7 +268,7 @@ export interface MediaFolder extends StoredViewSettings {
   id: string // Stable ID (e.g., hash of relative path)
   parentId?: string
   name: string
-  path: string // Full path to the folder
+  path?: string // Full path to the file (Optional/Lazy)
   type: 'folder'
   children: LibraryItem[] | null
 

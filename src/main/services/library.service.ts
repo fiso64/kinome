@@ -9,7 +9,7 @@ import * as pathsService from './paths.service'
 import * as repositoryService from './repository.service'
 // getDb import was removed to avoid linting errors if unused, or handled via repositoryService export
 import * as filesystemService from './filesystem.service'
-import * as tvShowService from './tv-show.service'
+// import * as tvShowService from './tv-show.service' // Deprecated v2 logic
 import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 
@@ -382,26 +382,9 @@ export const getHiddenChildren = async (parentId: string): Promise<LibraryItem[]
   const children = repositoryService.getChildren(parentId)
   return children.filter((c) => c.isHidden)
 }
-export const assignSeasonsAndEpisodes = async (showId: string, s1: any, s2: any, fm: boolean) => {
-  const show = repositoryService.getItemById(showId) as MediaFolder
-  if (!show) return
-  show.children = repositoryService.getAllDescendantsAsList(show)
-  await tvShowService.assignSeasonsAndEpisodesByStrategy(show, s1, s2)
-  repositoryService.runTransaction(() => {
-    const traverse = (node: LibraryItem) => {
-      repositoryService.updateItem(node.id, node)
-      if (node.type === 'folder' && node.children) node.children.forEach(traverse)
-    }
-    traverse(show)
-  })
-  if (fm) {
-    await retrieverService.refetchShowSeasons(
-      show,
-      await settingsService.readSettings(),
-      pathsService.getLibraryDataPath()
-    )
-  }
-  _finalizeItemUpdate(show)
+export const assignSeasonsAndEpisodes = async (_showId: string, _s1: any, _s2: any, _fm: boolean) => {
+  // DEPRECATED in V2: Logic moved to ingestion (filesystem.service.ts)
+  console.warn('[Library] assignSeasonsAndEpisodes is deprecated in V2. Usage ignored.')
 }
 export const clearItemMetadata = metadataService.clearItemMetadata
 export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMetadata
@@ -621,6 +604,7 @@ export const getFolderWatchedState = async (
 export async function getItemPath(itemId: string): Promise<string | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
+  if (!item.path) return null
   return actionsService.getAbsolutePath(item.path)
 }
 

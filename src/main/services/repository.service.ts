@@ -3,6 +3,20 @@ import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 
+export interface FindOptions {
+  where?: Record<string, any>
+  fields?: string[]
+  orderBy?: { field: string; direction: 'ASC' | 'DESC' }
+  limit?: number
+  offset?: number
+}
+
+export const CORE_FIELDS = [
+  'id', 'parentId', 'name', 'type', 'mediaType',
+  'posterPath', 'watched', 'isMissing', 'year',
+  'seasonNumber', 'episodeNumber'
+]
+
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
 }
@@ -100,10 +114,10 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     // 3. If row exists, tmdb_id IS NULL:
     //    a. If version IS NULL -> undefined (Created by VirtualTags only, Not Scanned)
     //    b. If version IS NOT NULL -> null (Scanned, but Not Found)
-    tmdbId: hasMetadata 
-      ? (row.tmdb_id !== null ? row.tmdb_id : (row.version !== null ? null : undefined)) 
+    tmdbId: hasMetadata
+      ? (row.tmdb_id !== null ? row.tmdb_id : (row.version !== null ? null : undefined))
       : undefined,
-    
+
     mediaType: hasMetadata ? row.media_type : undefined,
     title: row.title,
     originalTitle: row.original_title,
@@ -329,6 +343,148 @@ export function getAllItemsAsList(): LibraryItem[] {
     )
     .all()
   return rows.map(mapRowToLibraryItem)
+}
+
+// --- Write Operations ---
+
+export function find(options: FindOptions = {}): LibraryItem[] {
+  const db = getDb()
+  const requestedFields = options.fields || []
+  // If no fields specified, default to CORE fields (Lean & Lazy) behavior
+  // instead of SELECT *
+  const fields = requestedFields.length > 0 ? requestedFields : CORE_FIELDS
+  const selectAll = false // Deprecated "Select All" default, now we are explicit
+
+  // Helper to map public field names to DB columns
+  // Usage: fieldName -> { table: 'alias', col: 'column_name' }
+  const fieldMap: Record<string, string> = {
+    id: 'i.id',
+    parentId: 'i.parent_id',
+    name: 'i.name',
+    path: 'i.path',
+    type: 'i.type',
+    size: 'i.size',
+    birthtime: 'i.birthtime',
+    mtime: 'i.mtime',
+    isMissing: 'i.is_missing',
+    isHidden: 'i.is_hidden',
+    isUserEdited: 'i.is_user_edited',
+    // Metadata
+    tmdbId: 'm.tmdb_id',
+    mediaType: 'm.media_type',
+    title: 'm.title',
+    originalTitle: 'm.original_title',
+    overview: 'm.overview',
+    releaseDate: 'm.release_date',
+    year: 'm.year',
+    seasonNumber: 'm.season_number',
+    episodeNumber: 'm.episode_number',
+    posterPath: "json_extract(m.images_json, '$.poster')",
+    backdropPath: "json_extract(m.images_json, '$.backdrop')",
+    logoPath: "json_extract(m.images_json, '$.logo')",
+    // User State
+    watched: 'u.watched',
+    lastWatched: 'u.last_watched_at',
+    continueWatchingDismissed: 'u.continue_watching_dismissed',
+    nextUpDismissed: 'u.next_up_dismissed'
+  }
+
+  // Determine needed tables
+  const needsMetadata = selectAll || fields.some(f =>
+    Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('m.') ||
+    fieldMap[f].includes('m.images_json')
+  )
+  const needsUserState = selectAll || fields.some(f =>
+    Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('u.')
+  )
+
+  // Build SELECT clause
+  let selectClause = 'i.id' // Always select ID
+  if (selectAll) {
+    selectClause = 'i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed'
+  } else {
+    // Basic items columns if requested
+    const itemCols = fields.filter(f => fieldMap[f]?.startsWith('i.')).map(f => `${fieldMap[f]} as ${f}`)
+    // Metadata columns
+    const metaCols = fields.filter(f => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.')).map(f => `${fieldMap[f]} as ${f}`)
+    // UserState columns
+    const userCols = fields.filter(f => fieldMap[f]?.startsWith('u.')).map(f => `${fieldMap[f]} as ${f}`)
+
+    // Combine
+    const allSelectedPromise = [...itemCols, ...metaCols, ...userCols]
+    if (allSelectedPromise.length > 0) {
+      selectClause += ', ' + allSelectedPromise.join(', ')
+    }
+  }
+
+  let query = `SELECT ${selectClause} FROM items i`
+
+  if (needsMetadata) {
+    query += ` LEFT JOIN metadata m ON i.id = m.item_id`
+  }
+  if (needsUserState) {
+    query += ` LEFT JOIN user_state u ON i.id = u.item_id`
+  }
+
+  const params: any[] = []
+  if (options.where) {
+    const conditions: string[] = []
+    for (const [key, value] of Object.entries(options.where)) {
+      if (fieldMap[key]) {
+        // Handle special cases or generic mapping
+        const col = fieldMap[key]
+        if (value === null) {
+          conditions.push(`${col} IS NULL`)
+        } else if (Array.isArray(value)) {
+          if (value.length > 0) {
+            conditions.push(`${col} IN (${value.map(() => '?').join(',')})`)
+            params.push(...value)
+          } else {
+            // IN [] is always false
+            conditions.push('1 = 0')
+          }
+        } else {
+          conditions.push(`${col} = ?`)
+          params.push(value)
+        }
+      }
+    }
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`
+    }
+  }
+
+  if (options.orderBy) {
+    const colRaw = fieldMap[options.orderBy.field] || 'i.name'
+    // rudimentary injection check or just use safe mapping
+    query += ` ORDER BY ${colRaw} ${options.orderBy.direction}`
+  }
+
+  if (options.limit) {
+    query += ` LIMIT ?`
+    params.push(options.limit)
+    if (options.offset) {
+      query += ` OFFSET ?`
+      params.push(options.offset)
+    }
+  }
+
+  const rows = db.prepare(query).all(...params)
+
+  if (selectAll) {
+    return rows.map(mapRowToLibraryItem)
+  }
+
+  // Lightweight mapper for partial selection
+  return rows.map((row: any) => {
+    // If we used aliases in SELECT (as X), row has those keys.
+    // But mapRowToLibraryItem expects DB column names (snake_case).
+    // We should probably just return 'row' cast to LibraryItem since we aliased them to camelCase in the helper?
+    // Yes, my dynamic select logic used `as ${f}` (camelCase).
+    // So `row` already matches LibraryItem shape for those fields.
+    // We just need to handle JSON fields if strictly requested (unlikely in lean mode to request json partials? or maybe genres)
+    return row as LibraryItem
+  })
 }
 
 // --- Write Operations ---

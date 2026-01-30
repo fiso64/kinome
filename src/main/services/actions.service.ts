@@ -39,6 +39,13 @@ export async function playFileWith(
     })
     return false
   }
+  if (!file.path) {
+    onError({
+      title: 'Path Error',
+      message: 'File path is missing from the item.'
+    })
+    return false
+  }
   const absolutePath = pathsService.isRemotePath(mediaSourcePath)
     ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
     : path.join(mediaSourcePath, file.path)
@@ -79,7 +86,7 @@ export async function executeCustomAction(
   if (!item) return
   const settings = await settingsService.readSettings()
   const action = settings.customActions.find((a) => a.id === commandId)
-  if (!action) return
+  if (!action || !item.path) return
   const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) return
   const absolutePath = path.join(mediaSourcePath, item.path)
