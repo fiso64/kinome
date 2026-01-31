@@ -39,7 +39,11 @@ async function _finalizeItemUpdate(
     for (const item of itemsArray) {
       // Ensure virtual tags are up-to-date in memory before saving
       item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-      repositoryService.updateItem(item.id, item)
+
+      // Only persist physical items to the database
+      if (!item.id.startsWith('virtual--')) {
+        repositoryService.updateItem(item.id, item)
+      }
     }
   })
 

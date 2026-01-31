@@ -213,19 +213,26 @@
 
     if (isVirtual && item.physicalParentId) {
       // --- Editing a Virtual Folder ---
-      const physicalParent = await (window as any).api.getItemById(item.physicalParentId)
-      if (!physicalParent || physicalParent.type !== 'folder') return null
+      // The backend now handles redirection (library.service.ts:updateItem).
+      // We just need to construct the payload with the modified settings.
 
-      // Prepare settings to save
-      const settingsToSave: Partial<MediaFolder> = {}
-      applyViewSettings(settingsToSave)
-
-      // Clone childViewSettings before assigning it
-      if (childViewSettings) {
-        ;(settingsToSave as any).childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
+      const settingsToSave: any = {
+        id: item.id,
+        isVirtual: true,
+        // Include properties needed for backend parsing if they exist
+        physicalParentId: item.physicalParentId,
+        groupByKey: item.groupByKey,
+        groupByValue: item.groupByValue
       }
 
-      // Check if view settings changed
+      applyViewSettings(settingsToSave)
+
+      if (childViewSettings) {
+        settingsToSave.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
+      }
+
+      // We also need to check for changes to decide if we even send the update.
+      // Comparing against initialValues using the same keys.
       if (
         hasChanged(settingsToSave.layout, initialValues.selectedLayout) ||
         hasChanged(settingsToSave.clickAction, initialValues.selectedClickAction) ||
@@ -235,20 +242,9 @@
         hasChanged(settingsToSave.showHorizontalScrollbar, initialValues.showHorizontalScrollbar) ||
         hasChanged(settingsToSave.childViewSettings, initialValues.childViewSettings)
       ) {
-        // Construct the full path in virtualFolderSettings for the parent
-        const updatedParent: Partial<MediaFolder> = {
-          id: physicalParent.id,
-          virtualFolderSettings: JSON.parse(
-            JSON.stringify(physicalParent.virtualFolderSettings ?? {})
-          )
-        }
-        if (!updatedParent.virtualFolderSettings![item.groupByKey!]) {
-          updatedParent.virtualFolderSettings![item.groupByKey!] = {}
-        }
-        updatedParent.virtualFolderSettings![item.groupByKey!][item.groupByValue!] = settingsToSave
-        return updatedParent as LibraryItem
+        return settingsToSave as LibraryItem
       }
-      return null // No changes
+      return null
     } else {
       // --- Editing a Physical Item ---
 

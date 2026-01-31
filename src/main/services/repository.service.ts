@@ -50,6 +50,7 @@ export function createVirtualItem(id: string): LibraryItem | null {
     isHidden: false,
     isUserEdited: false,
     path: `virtual/${groupByValue}`,
+    isVirtual: true,
     children: [], // Lazy load
     ...appliedSettings // Apply view/scraper settings
   }
