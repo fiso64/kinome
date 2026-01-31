@@ -28,14 +28,6 @@ export interface GroupingSettings {
   groupBy: string
 }
 
-/**
- * A union of all possible layout-specific setting objects.
- */
-type LayoutSpecificSettings =
-  | GridSettings
-  | HorizontalGridSettings
-  | GroupingSettings
-  | ListSettings
 
 /**
  * The single source of truth for layout-specific properties and their ultimate default values.
@@ -94,7 +86,8 @@ export interface StoredViewSettings
  * Represents the final, computed settings object after the full cascade has been applied.
  * It's a complete object ready for the UI to consume.
  */
-export type ResolvedViewSettings = BaseViewSettings & Partial<LayoutSpecificSettings>
+export type ResolvedViewSettings = BaseViewSettings &
+  Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings>
 
 export type ResolutionSource = {
   source: 'item' | 'type' | 'global'
@@ -272,6 +265,7 @@ export interface MediaFolder extends StoredViewSettings {
   path?: string // Full path to the file (Optional/Lazy)
   type: 'folder'
   children: LibraryItem[] | null
+  isVirtual?: boolean // Transient property for virtual folders
 
   // --- View & Behavior Settings (Preserved) ---
   virtualFolderSettings?: Record<string, Partial<MediaFolder>>

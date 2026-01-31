@@ -8,7 +8,7 @@
   import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
   import { api } from '../../lib/api'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { getRequiredFieldsForLayout, getAllRequiredFields } from '../../lib/view-requirements'
+  import { getAllRequiredFields } from '../../lib/view-requirements'
   import { createQuery } from '@tanstack/svelte-query'
   import { itemKeys, childKeys } from '../../lib/queries/query-keys'
 
@@ -56,11 +56,11 @@
   const requiredFields = $derived(getAllRequiredFields(resolvedSettings))
 
   const childrenQuery = createQuery(() => ({
-    queryKey: childKeys.byParent(currentFolderId, requiredFields),
+    queryKey: childKeys.byParent(currentFolderId, requiredFields, resolvedSettings.groupBy),
     queryFn: ({ queryKey }) => {
       const parentId = queryKey[1] as string
-      const { fields } = queryKey[2] as { fields: string[] }
-      return api.getChildrenV2(parentId, { include: fields })
+      const { fields, groupBy } = queryKey[2] as { fields: string[]; groupBy?: string }
+      return api.getChildrenV2(parentId, { include: fields, groupBy })
     },
     enabled: !!currentFolderId
   }))
@@ -198,7 +198,7 @@
                 onItemClick={(item) => dispatch('itemClick', { item })}
                 onShowContextMenu={(item, e, options) =>
                   dispatch('showContextMenu', { item, event: e, options })}
-                suggestions={{}}
+                {suggestions}
                 {settings}
               />
             </div>

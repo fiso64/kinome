@@ -1,6 +1,13 @@
 <script lang="ts">
   import MediaView from '../layout/MediaView.svelte'
   // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
+  import type {
+    MediaFolder,
+    LibraryItem,
+    SearchIndexEntry,
+    AutocompleteSuggestions,
+    Settings
+  } from '../../../../shared/types'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean

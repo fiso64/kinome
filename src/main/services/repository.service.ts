@@ -557,6 +557,15 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     if (def && def.table) usedTables.add(def.table)
   }
 
+  // Also check WHERE clause for dependencies
+  if (options.where) {
+    for (const key of Object.keys(options.where)) {
+      const def = REPOSITORY_SCHEMA[key]
+      if (def && def.table) usedTables.add(def.table)
+    }
+  }
+
+
   // Build SELECT clause
   const selectParts: string[] = []
 
@@ -1000,4 +1009,144 @@ export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
     }
   }
   return copy
+
+}
+
+// --- Grouping Helper ---
+
+
+function getValuesForKey(item: LibraryItem, key: string): string[] {
+  if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
+  if (key === 'genre') return item.genres ?? []
+  if (key === 'year') return item.year ? [item.year.toString()] : []
+  if (key.startsWith('tags.')) {
+    const tagKey = key.substring(5)
+    const tagValue = item.tags?.[tagKey]
+    return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
+  }
+  if (key.startsWith('vt.')) {
+    const vtKey = key.substring(3)
+    const vtValue = item.virtualTags?.[vtKey]
+    return vtValue ? [vtValue] : []
+  }
+  return []
+}
+
+export function getGroups(parentId: string, groupByKey: string, options: FindOptions): LibraryItem[] {
+  // 1. Fetch items
+  // NOTE: We must fetch display fields (CORE_FIELDS) because current Frontend components (SectionsView, TabsView)
+  // expect the groups to be populated with displayable items (poster, title) immediately.
+  const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
+
+  log(`[getGroups] Grouping by ${groupByKey}. Fields to select: ${JSON.stringify(fieldsToSelect)}`)
+
+  const items = find({
+    ...options,
+    fields: fieldsToSelect
+  })
+
+  if (items.length > 0) {
+    log(`[getGroups] First item keys: ${Object.keys(items[0]).join(', ')}`)
+  }
+
+  // 2. Identify Parent (for ID and Settings)
+  let physicalParentId = parentId
+  let parentTokenPath = ''
+  let parentIsVirtual = false
+
+  if (isVirtualId(parentId)) {
+    const { parentId: pid, tokens } = parseVirtualId(parentId)
+    physicalParentId = pid
+    parentTokenPath = tokens.join('/')
+    parentIsVirtual = true
+  } else if (parentId === 'root') {
+    const root = getRoot()
+    if (root) physicalParentId = root.id
+  }
+
+  const parent = getItemById(physicalParentId) as MediaFolder
+
+  // 3. Group Items
+  const groups: Record<string, LibraryItem[]> = {}
+
+  for (const item of items) {
+    const values = getValuesForKey(item, groupByKey)
+    if (values.length === 0) {
+      if (!groups['Uncategorized']) groups['Uncategorized'] = []
+      groups['Uncategorized'].push(item)
+    } else {
+      for (const value of values) {
+        if (!groups[value]) groups[value] = []
+        groups[value].push(item)
+      }
+    }
+  }
+
+  // 4. Synthesize Virtual Folders
+  const virtualFolders: LibraryItem[] = Object.entries(groups).map(([groupValue, groupItems]) => {
+    // Token: "Key:Value"
+    const token = `${groupByKey}:${groupValue}`
+
+    // Full Path Key for Settings: "ParentPath/Key:Value"
+    const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
+
+    // Lookup Settings
+    const virtualSettings = parent && parent.virtualFolderSettings
+      ? parent.virtualFolderSettings[fullSettingsKey] ?? {}
+      : {}
+
+    // Construct Recursive ID
+    let newId = ''
+    if (parentIsVirtual) {
+      newId = `${parentId}--${token}`
+    } else {
+      newId = `virtual--${physicalParentId}--${token}`
+    }
+
+    const virtualFolder: LibraryItem = {
+      id: newId,
+      parentId: parentId,
+      name: groupValue,
+      title: virtualSettings.title ?? groupValue,
+      type: 'folder',
+      mediaType: parent?.mediaType,
+      isMissing: false,
+      isHidden: false,
+      isUserEdited: false,
+      path: `virtual/${fullSettingsKey}`,
+      isVirtual: true,
+      children: groupItems, // Populate children for Sections/Tabs view
+      virtualFolderSettings: parent?.virtualFolderSettings, // Propagate
+      ...virtualSettings
+    }
+
+    return virtualFolder
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+
+  return virtualFolders
+}
+
+/**
+ * Fetches all seasons for a TV Show and populates their episodes.
+ * Uses a recursive strategy (Show -> Season -> Episodes).
+ */
+export function getSeasonsWithEpisodes(showId: string): LibraryItem[] {
+  // 1. Fetch Seasons - optimized to fetch only if parent is indeed the show
+  const seasons = find({
+    where: { parentId: showId },
+    orderBy: { field: 'seasonNumber', direction: 'ASC' }
+  })
+
+  // 2. Fetch Episodes for each Season
+  for (const season of seasons) {
+    if (season.type === 'folder') {
+      const episodes = find({
+        where: { parentId: season.id },
+        orderBy: { field: 'episodeNumber', direction: 'ASC' }
+      })
+      season.children = episodes
+    }
+  }
+
+  return seasons
 }

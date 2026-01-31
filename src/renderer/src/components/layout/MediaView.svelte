@@ -8,6 +8,14 @@
   import { filterItems } from '../../../../shared/filter'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import { isTypingTag as isTypingTagHelper } from '../../lib/view-helpers'
+  import type {
+    LibraryItem,
+    MediaFolder,
+    MediaFile,
+    Settings,
+    AutocompleteSuggestions
+  } from '../../../../shared/types'
+  import type { SearchIndexEntry } from '../../../../shared/types' // Assuming SearchIndexEntry is there or elsewhere
 
   type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -82,23 +90,6 @@
 
   // --- Helpers for data processing ---
 
-  function getValuesForKey(item: DisplayableItem, key: string): string[] {
-    if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
-    if (key === 'genre') return item.genres ?? []
-    if (key === 'year') return item.year ? [item.year.toString()] : []
-    if (key.startsWith('tags.')) {
-      const tagKey = key.substring(5)
-      const tagValue = item.tags?.[tagKey]
-      return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
-    }
-    if (key.startsWith('vt.')) {
-      const vtKey = key.substring(3)
-      const vtValue = item.virtualTags?.[vtKey]
-      return vtValue ? [vtValue] : []
-    }
-    return []
-  }
-
   function compareItems(a: DisplayableItem, b: DisplayableItem): number {
     // The properties 'seasonNumber' and 'episodeNumber' might not exist on SearchIndexEntry
     const aSeason = 'seasonNumber' in a ? (a as any).seasonNumber : undefined
@@ -145,79 +136,12 @@
     // 2. Handle grouping for tabs/sections.
     if (layout === 'tabs' || layout === 'sections') {
       if (groupBy && groupBy !== 'folder') {
-        // Group by metadata (create virtual folders).
-        const groupByKey = groupBy
-        const groups: Record<string, DisplayableItem[]> = {}
-        // console.log(`[MediaView] Grouping ${filteredItems.length} items by "${groupByKey}"`)
-        for (const item of filteredItems) {
-          const values = getValuesForKey(item, groupByKey)
-          if (values.length === 0) {
-            console.log(
-              `[MediaView] Item "${item.title || (item as any).name}" has no values for key "${groupByKey}". Virtual Tags: ${JSON.stringify(item.virtualTags)}`
-            )
-            if (!groups['Uncategorized']) groups['Uncategorized'] = []
-            groups['Uncategorized'].push(item)
-          } else {
-            for (const value of values) {
-              if (!groups[value]) groups[value] = []
-              groups[value].push(item)
-            }
-          }
+        // Server-Side Grouping: The items are already virtual folders.
+        // We just cast them and return.
+        return {
+          itemsForViews: [],
+          foldersForTabsOrSections: filteredItems as VirtualFolder[]
         }
-        // Calculate Parent Token Path for Settings Lookup
-        let parentTokenPath = ''
-        if ((parentItem as any).isVirtual && parentItem.id.startsWith('virtual--')) {
-          const parts = parentItem.id.split('--')
-          if (parts.length > 2) {
-            parentTokenPath = parts.slice(2).join('/')
-          }
-        }
-
-        const vFolders = Object.entries(groups)
-          .map(([groupValue, groupItems]) => {
-            // New Token: "Key:Value"
-            const token = `${groupByKey}:${groupValue}`
-            // Full Path Key: "Parent/Path/Key:Value"
-            const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-
-            // Lookup Settings
-            // Note: virtualFolderSettings is now a flat Record<string, MediaFolder>
-            // We use the full path key to access it.
-            const virtualSettings =
-              (parentItem.virtualFolderSettings as any)?.[fullSettingsKey] ?? {}
-
-            // Construct Recursive ID
-            // If parent is already virtual, we append to its ID.
-            // ID Format: virtual--{physicalParentId}--{token1}--{token2}...
-
-            let newId = ''
-            let physicalParentId = parentItem.id
-
-            if ((parentItem as any).isVirtual && parentItem.id.startsWith('virtual--')) {
-              newId = `${parentItem.id}--${token}` // Append token
-              physicalParentId = parentItem.id.split('--')[1]
-            } else {
-              newId = `virtual--${parentItem.id}--${token}`
-            }
-
-            const virtualFolder: VirtualFolder = {
-              id: newId,
-              name: groupValue,
-              title: virtualSettings.title ?? groupValue,
-              type: 'folder',
-              children: groupItems as LibraryItem[],
-              path: '',
-              isVirtual: true,
-              physicalParentId: physicalParentId,
-              groupByKey: groupByKey,
-              groupByValue: groupValue,
-              ...virtualSettings
-            }
-            return virtualFolder
-          })
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-
-        return { itemsForViews: [], foldersForTabsOrSections: vFolders }
       } else {
         // Group by physical folders, but also create virtual folders for loose files.
         const physicalFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
@@ -354,7 +278,6 @@
         {onItemClick}
         {onShowContextMenu}
         {suggestions}
-        {grayOutWatched}
         {settings}
       />
     {:else if layout === 'sections'}
@@ -364,7 +287,6 @@
         {onItemClick}
         {onShowContextMenu}
         {suggestions}
-        {grayOutWatched}
         {settings}
       />
     {/if}

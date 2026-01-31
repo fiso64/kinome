@@ -27,7 +27,7 @@ export interface ApiClient {
   getItemV2(id: string, include?: string[]): Promise<LibraryItem>
   getChildrenV2(
     parentId: string,
-    options?: { limit?: number; offset?: number; include?: string[]; orderBy?: string }
+    options?: { limit?: number; offset?: number; include?: string[]; orderBy?: string; groupBy?: string }
   ): Promise<LibraryItem[]>
   getAncestors?: (itemId: string) => Promise<LibraryItem[]>
 

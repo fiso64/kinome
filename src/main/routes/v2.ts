@@ -241,25 +241,31 @@ router.get('/items/:id/children', async (req, res) => {
       }
     }
 
-    let items = repositoryService.find(options)
-    console.log(`[V2] /items/${req.params.id}/children: Resolved ID to ${id}. Found ${items.length} items.`)
+    // Check for Grouping
+    // We prioritize the query param 'groupBy' (from UI toggle)
+    // But we might also have a default grouping from settings?
+    // For now, let's rely on the client passing the query param.
+    const groupBy = typeof req.query.groupBy === 'string' ? req.query.groupBy : undefined
 
-    // For TV shows, populate each season's children (episodes) for the tabs view
-    if (parent?.mediaType === 'tv') {
-      items = items.map((season) => {
-        if (season.type === 'folder') {
-          const episodes = repositoryService.find({
-            where: { parentId: season.id },
-            orderBy: { field: 'episodeNumber', direction: 'ASC' },
-            fields: options.fields
-          })
-          return { ...season, children: episodes }
-        }
-        return season
-      })
+    if (groupBy && typeof groupBy === 'string') {
+      // Ensure we don't filter BY the grouping key (which would require table join and specific column)
+      if (options.where && 'groupBy' in options.where) {
+        delete (options.where as any).groupBy
+      }
+
+      const groups = repositoryService.getGroups(id, groupBy, options)
+      return res.json(groups)
     }
 
-    return res.json(items)
+    let children = repositoryService.getChildren(id)
+
+    // Handle TV Shows (Recursive Fetch for Seasons + Episodes)
+    // The Repository Service now handles this efficiently.
+    if (parent && parent.mediaType === 'tv') {
+      children = repositoryService.getSeasonsWithEpisodes(id)
+    }
+
+    return res.json(children)
   } catch (e: any) {
     return res.status(500).json({ error: e.message })
   }

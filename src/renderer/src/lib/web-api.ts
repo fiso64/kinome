@@ -8,7 +8,8 @@ import type {
   SearchIndexEntry,
   TmdbSearchResult,
   TmdbImageResults,
-  MediaProperties
+  MediaProperties,
+  AppCapabilities
 } from '../../../shared/types'
 import type { ApiClient } from './api'
 
@@ -103,7 +104,13 @@ class WebApiClient implements ApiClient {
 
   getChildrenV2(
     parentId: string,
-    options: { limit?: number; offset?: number; include?: string[]; orderBy?: string } = {}
+    options: {
+      limit?: number
+      offset?: number
+      include?: string[]
+      orderBy?: string
+      groupBy?: string
+    } = {}
   ): Promise<LibraryItem[]> {
     if (!parentId || parentId === 'null' || parentId === 'undefined') {
       console.warn(
@@ -114,8 +121,10 @@ class WebApiClient implements ApiClient {
     const params = new URLSearchParams()
     if (options.limit) params.set('limit', options.limit.toString())
     if (options.offset) params.set('offset', options.offset.toString())
-    if (options.include) params.set('include', options.include.join(','))
+    if (options.include && options.include.length > 0)
+      params.set('include', options.include.join(','))
     if (options.orderBy) params.set('orderBy', options.orderBy) // Expects "field:DESC" format or let backend decide
+    if (options.groupBy) params.set('groupBy', options.groupBy)
 
     return this.request(
       `/api/v2/items/${encodeURIComponent(parentId)}/children?${params.toString()}`

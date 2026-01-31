@@ -7,6 +7,6 @@ export const itemKeys = {
 
 export const childKeys = {
     all: ['children'] as const,
-    byParent: (parentId: string | null | undefined, fields: string[] = []) =>
-        [...childKeys.all, parentId, { fields }] as const,
+    byParent: (parentId: string | null | undefined, fields: string[] = [], groupBy?: string) =>
+        [...childKeys.all, parentId, { fields, groupBy }] as const,
 }
