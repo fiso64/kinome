@@ -165,6 +165,8 @@
           queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
         }
       }
+      // Global invalidation for virtual views (which depend on 'children' queries but potentially different IDs)
+      queryClient.invalidateQueries({ queryKey: ['children'] })
     })
     return () => unlistenItemsUpdated()
   })

@@ -13,6 +13,8 @@ import { downloadImage } from '../utils/download'
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
 import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
 
+import { getTransport } from '../transport.registry'
+
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
 }
@@ -196,6 +198,14 @@ export async function fetchMetadataForLibrary() {
         repositoryService.updateItem(item.id, item)
       }
     })
+
+    // Broadcast updates for reactivity
+    const plainItems = JSON.parse(JSON.stringify(newItems.filter(i => i.tmdbId)))
+    for (const item of plainItems) {
+      const ancestors = repositoryService.getAncestors(item.id)
+      item.ancestorIds = ancestors.map((a) => a.id)
+    }
+    getTransport().notifyLibraryItemsUpdated(plainItems)
   }
 
   // Refresh the list of TV shows after identification if new items might have been identified as 'tv'
@@ -223,6 +233,14 @@ export async function fetchMetadataForLibrary() {
             repositoryService.updateItem(m.id, m)
           })
         })
+
+        // Broadcast enrichment updates which now contain ancestor IDs for tree invalidation
+        const plainItems = JSON.parse(JSON.stringify(modified))
+        for (const item of plainItems) {
+          const ancestors = repositoryService.getAncestors(item.id)
+          item.ancestorIds = ancestors.map((a) => a.id)
+        }
+        getTransport().notifyLibraryItemsUpdated(plainItems)
       }
     })
   }
