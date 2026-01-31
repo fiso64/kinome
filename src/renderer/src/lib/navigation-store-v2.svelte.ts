@@ -5,8 +5,7 @@
 interface NavigationState {
   currentFolderId: string // 'root' = Root
   selectedItemId: string | null // For Detail View
-  settingsModalOpen: boolean
-  itemSettingsId: string | null
+  path: string // '/' or '/settings'
 }
 
 // --- State ---
@@ -14,8 +13,7 @@ interface NavigationState {
 let currentState = $state<NavigationState>({
   currentFolderId: 'root',
   selectedItemId: null,
-  settingsModalOpen: false,
-  itemSettingsId: null
+  path: '/'
 })
 
 // --- Derived Helpers ---
@@ -32,14 +30,16 @@ function parseUrl() {
   const params = getUrlParams()
   const folder = params.get('folder')?.trim() || 'root'
   const item = params.get('item')?.trim() || null
-  const modal = params.get('modal')?.trim() || null
-  const modalItem = params.get('modalItemId')?.trim() || null
+  let pathParam = params.get('page')?.trim() || '/'
+
+  if (pathParam !== '/' && !pathParam.startsWith('/')) {
+    pathParam = '/' + pathParam
+  }
 
   currentState = {
     currentFolderId: folder,
     selectedItemId: item,
-    settingsModalOpen: modal === 'settings',
-    itemSettingsId: modal === 'itemSettings' ? modalItem : null
+    path: pathParam
   }
 
   updateUrl(true)
@@ -50,11 +50,7 @@ function updateUrl(replace = false) {
   if (currentState.currentFolderId)
     params.set('folder', currentState.currentFolderId)
   if (currentState.selectedItemId) params.set('item', currentState.selectedItemId)
-  if (currentState.settingsModalOpen) params.set('modal', 'settings')
-  if (currentState.itemSettingsId) {
-    params.set('modal', 'itemSettings')
-    params.set('modalItemId', currentState.itemSettingsId)
-  }
+  if (currentState.path !== '/') params.set('page', 'settings')
 
   const str = params.toString()
   const url = str ? `?${str}` : '/'
@@ -71,17 +67,20 @@ function updateUrl(replace = false) {
 function navigateToFolder(folderId: string) {
   currentState.currentFolderId = folderId
   currentState.selectedItemId = null
+  currentState.path = '/'
   updateUrl()
 }
 
 function navigateToRoot() {
   currentState.currentFolderId = 'root'
   currentState.selectedItemId = null
+  currentState.path = '/'
   updateUrl()
 }
 
 function openDetail(itemId: string) {
   currentState.selectedItemId = itemId
+  currentState.path = '/'
   updateUrl()
 }
 
@@ -90,28 +89,19 @@ function closeDetail() {
   updateUrl() // This "goes back" effectively
 }
 
+function navigateToSettings() {
+  currentState.path = '/settings'
+  updateUrl()
+}
+
 function goBack() {
-  // If modal open, close it
-  if (currentState.settingsModalOpen || currentState.itemSettingsId) {
-    currentState.settingsModalOpen = false
-    currentState.itemSettingsId = null
-    updateUrl()
-    return
+  // If we have history to go back to, use it. This preserves all context (folder, item, page).
+  // Otherwise (e.g. direct link), go to the home screen.
+  if (window.history.length > 1) {
+    history.back()
+  } else {
+    navigateToRoot()
   }
-
-  // If detail view open, close it
-  if (currentState.selectedItemId) {
-    currentState.selectedItemId = null
-    updateUrl()
-    return
-  }
-
-  // If in folder, go to parent?
-  // This requires knowing the parent.
-  // Since we don't have the tree, we rely on the component (AppHeader)
-  // to call `navigateToFolder(parentId)` or just use the browser Back button.
-
-  history.back()
 }
 
 // --- Init ---
@@ -130,12 +120,18 @@ export const navStoreV2 = {
   get isDetailViewActive() {
     return isDetailViewActive
   },
+  get contextItemId() {
+    return currentState.selectedItemId ?? currentState.currentFolderId
+  },
   init,
   navigateToFolder: (folderId: string) => {
     navigateToFolder(folderId)
   },
   navigateToRoot: () => {
     navigateToRoot()
+  },
+  navigateToSettings: () => {
+    navigateToSettings()
   },
   openDetail: (itemId: string) => {
     openDetail(itemId)
@@ -145,19 +141,5 @@ export const navStoreV2 = {
   },
   goBack: () => {
     goBack()
-  },
-  // Modals
-  openSettings: () => {
-    currentState.settingsModalOpen = true
-    updateUrl()
-  },
-  openItemSettings: (id: string) => {
-    currentState.itemSettingsId = id
-    updateUrl()
-  },
-  closeModals: () => {
-    currentState.settingsModalOpen = false
-    currentState.itemSettingsId = null
-    updateUrl()
   }
 }

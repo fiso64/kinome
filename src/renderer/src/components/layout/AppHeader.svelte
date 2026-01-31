@@ -29,21 +29,23 @@
 
   // --- V2 State ---
   const canGoBack = $derived(
-    navStoreV2.state.currentFolderId !== null || navStoreV2.state.selectedItemId !== null
+    (navStoreV2.state.currentFolderId !== 'root' && navStoreV2.state.currentFolderId !== null) ||
+      navStoreV2.state.selectedItemId !== null ||
+      navStoreV2.state.path !== '/'
   )
   const isDetailViewActive = $derived(navStoreV2.isDetailViewActive)
 
-  // Fetch Current Folder for Title
-  const currentFolderQuery = createQuery(() => ({
-    queryKey: itemKeys.details(navStoreV2.state.currentFolderId),
+  // Fetch Context Item for Configuration (Folder or Detail Item)
+  const contextItemQuery = createQuery(() => ({
+    queryKey: itemKeys.details(navStoreV2.contextItemId),
     queryFn: ({ queryKey }) => {
       const id = queryKey[1] as string
       return api.getItemV2(id)
     },
-    enabled: !!navStoreV2.state.currentFolderId
+    enabled: !!navStoreV2.contextItemId
   }))
 
-  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
+  const contextItem = $derived(contextItemQuery.data as MediaFolder | LibraryItem | undefined)
 
   // Search properties from V2 store
   const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
@@ -53,10 +55,8 @@
   const detailSearchResults = $derived(searchStoreV2.detailResults)
   const isDetailSearchActive = $derived(searchStoreV2.isDetailActive)
 
-  // Layout Config Logic (Simplified: if in folder, it's that folder)
-  const folderToConfigureLayout = $derived(
-    navStoreV2.state.currentFolderId ? (currentFolder as MediaFolder) : null
-  )
+  // Layout Config Logic (Simplified: prioritize detail item, fallback to folder)
+  const contextItemToConfigure = $derived(contextItem)
 
   // --- Search Bindings ---
   // In V2, we bind directly to the store objects?
@@ -202,7 +202,7 @@
           {#if isGlobalSearchActive}
             Search Results
           {:else}
-            {currentFolder?.title ?? currentFolder?.name ?? 'Media Browser'}
+            {contextItem?.title ?? contextItem?.name ?? 'Media Browser'}
           {/if}
         </h1>
       {/if}
@@ -237,7 +237,7 @@
               parentItem={searchPopupParentItem}
               onItemClick={(item) => dispatch('detailSearchItemClick', { item })}
               onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
-              highlightedIndex={highlightedDetailSearchItemIndex}
+              highlightedIndex={searchStoreV2.highlightedDetailIndex}
               isPreSorted={true}
               {settings}
               listFixedAspectRatio={true}
@@ -260,7 +260,7 @@
           <span class:reloading={isRefreshing}>⟳</span>
         </button>
       {/if}
-      {#if folderToConfigureLayout}
+      {#if contextItemToConfigure}
         <button
           onclick={() => dispatch('openLayoutSelector')}
           title="Set View Layout"
@@ -284,7 +284,7 @@
           </svg>
         </button>
         <button
-          onclick={(e) => dispatch('showContextMenu', { item: folderToConfigureLayout!, event: e })}
+          onclick={(e) => dispatch('showContextMenu', { item: contextItemToConfigure!, event: e })}
           title="More options..."
           class="more-options-button"
         >
@@ -312,7 +312,7 @@
       >
     </div>
   </div>
-  {#if window.api.capabilities.hasWindowControls}
+  {#if api.capabilities.hasWindowControls}
     <WindowControls />
   {/if}
 </header>

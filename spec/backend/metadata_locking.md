@@ -91,11 +91,15 @@ if (locks.includes('episodeNumber')) {
   - _Child (Unlocked):_ `MetadataService` overwrites child with "The Pilot".
   - _Child (Locked):_ `MetadataService` sees lock. Child remains "My Title".
 
-- **The "Reset" Flow**
-
+- **The "Reset" Flow (Refresh Metadata)**
   - _Action:_ User clicks "Refresh Metadata (Replace All)".
   - _Logic:_ Clear `locked_fields_json` -> Set `tmdbDetailsFetched = 0` -> Trigger Refresh.
   - _Result:_ Child is overwritten with Parent Cache data.
+
+- **The "Fix Match" Flow (Manual Search)**
+  - _Action:_ User applies a new TMDB result via search.
+  - _Logic:_ **CRITICAL:** Clear `locked_fields_json` immediately. Temporary decision, we will have to reevaluate this or at least add a UI warning if any locked fields are present.
+  - _Result:_ Item is completely re-enriched using the new TMDB ID.
 
 - **"Fix Match" on Parent**
 

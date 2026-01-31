@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppHeader from './components/layout/AppHeader.svelte'
   import MainView from './components/layout/MainView.svelte'
+  import SettingsView from './components/layout/SettingsView.svelte'
   import FilterBar from './components/ui/FilterBar.svelte'
   import ModalRoot from './components/layout/ModalRoot.svelte'
   import ContextMenuRoot from './components/layout/ContextMenuRoot.svelte'
@@ -17,6 +18,7 @@
   import { contextMenuStore } from './lib/context-menu-store.svelte'
   import { itemKeys, childKeys } from './lib/queries/query-keys'
   import { api } from './lib/api'
+  import { resolveViewSettings } from '../../shared/settings-helpers'
   import { onMount } from 'svelte'
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
   import type {
@@ -313,7 +315,7 @@
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
-      openSettings: () => navStoreV2.openSettings(),
+      openSettings: () => navStoreV2.navigateToSettings(),
       focusSearch: () => appHeaderComponent?.focusSearchInput(),
       navigateBack: goBack,
       navigateForward: goForward,
@@ -329,12 +331,16 @@
     return () => cleanupShortcuts()
   })
 
-  function openLayoutSelector() {
-    // Layout selector requires context logic. For now, open settings logic updated.
-    // navStoreV2 doesn't have openItemSettings('view').
-    // Implementation:
-    if (navStoreV2.state.currentFolderId) {
-      navStoreV2.openItemSettings(navStoreV2.state.currentFolderId)
+  async function openLayoutSelector() {
+    if (navStoreV2.contextItemId) {
+      const item = await api.getItemV2(navStoreV2.contextItemId)
+      if (item) {
+        modalStore.open('itemSettings', {
+          item,
+          initialTab: 'view',
+          defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+        })
+      }
     }
   }
 
@@ -381,33 +387,39 @@
   {/if}
 
   <main>
-    <AppHeader
-      bind:this={appHeaderComponent}
-      {isRefreshing}
-      {isScanning}
-      isContextMenuVisible={contextMenuStore.isVisible}
-      on:refresh={handleRefresh}
-      on:openSettings={() => navStoreV2.openSettings()}
-      on:openLayoutSelector={openLayoutSelector}
-      on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
-      on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
-      on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
-      {settings}
-    />
+    {#if navStoreV2.state.path !== '/settings'}
+      <AppHeader
+        bind:this={appHeaderComponent}
+        {isRefreshing}
+        {isScanning}
+        isContextMenuVisible={contextMenuStore.isVisible}
+        on:refresh={handleRefresh}
+        on:openSettings={() => navStoreV2.navigateToSettings()}
+        on:openLayoutSelector={openLayoutSelector}
+        on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+        on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
+        on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
+        {settings}
+      />
+    {/if}
 
-    <MainView
-      {isScanning}
-      {continueWatchingItems}
-      {settings}
-      suggestions={allAutocompleteSuggestions}
-      on:scanLibrary={handleScan}
-      on:openLibrary={handleOpenLibrary}
-      on:itemClick={(e) => handleItemClick(e.detail.item)}
-      on:showContextMenu={(e) =>
-        handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-      on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
-      on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
-    />
+    {#if navStoreV2.state.path === '/settings'}
+      <SettingsView bind:settings />
+    {:else}
+      <MainView
+        {isScanning}
+        {continueWatchingItems}
+        {settings}
+        suggestions={allAutocompleteSuggestions}
+        on:scanLibrary={handleScan}
+        on:openLibrary={handleOpenLibrary}
+        on:itemClick={(e) => handleItemClick(e.detail.item)}
+        on:showContextMenu={(e) =>
+          handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+        on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+        on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+      />
+    {/if}
 
     {#if searchStoreV2.isFilterBarVisible}
       <FilterBar

@@ -2,7 +2,6 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '../../lib/context-menu-store.svelte'
   import { modalStore } from '../../lib/modal-store.svelte'
-  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
   import { dialogStore } from '../../lib/dialog-store'
   import { api } from '../../lib/api'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
@@ -129,20 +128,36 @@
     onClose={() => contextMenuStore.close()}
     onOpen={() => onItemClick(item)}
     onEditMetadata={() => {
-      navStoreV2.openItemSettings(item.id)
+      modalStore.open('itemSettings', {
+        item,
+        initialTab: 'metadata',
+        defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+      })
     }}
     onSetLayout={() => {
       if (item.type === 'folder') {
-        navStoreV2.openItemSettings(item.id)
+        modalStore.open('itemSettings', {
+          item,
+          initialTab: 'view',
+          defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+        })
       }
     }}
     onOpenFolderSettings={() => {
       if (item.type === 'folder') {
-        navStoreV2.openItemSettings(item.id)
+        modalStore.open('itemSettings', {
+          item,
+          initialTab: 'folder',
+          defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+        })
       }
     }}
     onOpenFileSettings={() => {
-      navStoreV2.openItemSettings(item.id)
+      modalStore.open('itemSettings', {
+        item,
+        initialTab: 'metadata',
+        defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+      })
     }}
     onManualSearch={() => {
       modalStore.open('manualSearch', {
