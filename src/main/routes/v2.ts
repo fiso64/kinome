@@ -18,8 +18,12 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     // find() logic is: if fields empty -> use CORE. If fields NOT empty -> use fields.
     // So we must manually construct [CORE + Include].
 
+
     // We will import CORE_FIELDS from repository service.
-    options.fields = [...repositoryService.CORE_FIELDS, ...(query.include as string).split(',')]
+    // Use a Set to ensure we don't request duplicate fields (e.g. 'id' which is in CORE and might be requested)
+    const extraFields = (query.include as string).split(',')
+    const uniqueFields = new Set([...repositoryService.CORE_FIELDS, ...extraFields])
+    options.fields = Array.from(uniqueFields)
   }
 
   if (query.limit) {
@@ -82,6 +86,12 @@ router.get('/items', (req, res) => {
 // GET /items/:id
 router.get('/items/:id', async (req, res) => {
   try {
+    if (repositoryService.isVirtualId(req.params.id)) {
+      const virtualItem = repositoryService.createVirtualItem(req.params.id)
+      if (!virtualItem) return res.status(404).json({ error: 'Virtual item not found' })
+      return res.json(virtualItem)
+    }
+
     const queryInclude = ((req.query.include as string) || '').split(',')
 
     // 1. If 'tree' is requested, use the legacy getItemDetails logic (Fat Item)
@@ -133,18 +143,52 @@ router.get('/items/:id', async (req, res) => {
 
     const items = repositoryService.find(options)
     if (items.length === 0) {
-      res.status(404).json({ error: 'Item not found' })
+      return res.status(404).json({ error: 'Item not found' })
     } else {
-      res.json(items[0])
+      return res.json(items[0])
     }
   } catch (e: any) {
-    res.status(500).json({ error: e.message })
+    return res.status(500).json({ error: e.message })
   }
 })
 
 // GET /items/:id/children
 router.get('/items/:id/children', (req, res) => {
   try {
+    if (repositoryService.isVirtualId(req.params.id)) {
+      const { parentId, groupByKey, groupByValue } = repositoryService.parseVirtualId(req.params.id)
+      if (!parentId || !groupByKey || !groupByValue) return res.status(404).json({ error: 'Invalid virtual ID' })
+
+      // Map the grouping key to a filter key that repository.service understands
+      const filterOptions: Record<string, any> = {
+        parentId: parentId
+      }
+
+      if (groupByKey === 'genre' || groupByKey === 'genres') {
+        filterOptions['genres'] = groupByValue
+      } else if (groupByKey.startsWith('vt.') || groupByKey === 'virtualTags') {
+        // e.g. vt.is_animated -> virtualTags.is_animated
+        const key = groupByKey.startsWith('vt.') ? groupByKey.split('.')[1] : null
+        if (key) {
+          filterOptions[`virtualTags.${key}`] = groupByValue
+        }
+      } else if (groupByKey.startsWith('tags.') || groupByKey === 'tags') {
+        // e.g. tags.mood -> tags.mood
+        const key = groupByKey.startsWith('tags.') ? groupByKey.replace('tags.', '') : null
+        if (key) {
+          filterOptions[`tags.${key}`] = groupByValue
+        }
+      }
+
+      // Fetch children with DB-side filtering
+      const options = parseFindOptions(req.query)
+      options.where = { ...options.where, ...filterOptions }
+
+      const filteredChildren = repositoryService.find(options)
+
+      return res.json(filteredChildren)
+    }
+
     const options = parseFindOptions(req.query)
     // Force parentId match
     options.where = { ...options.where, parentId: req.params.id }
@@ -186,9 +230,9 @@ router.get('/items/:id/children', (req, res) => {
       })
     }
 
-    res.json(items)
+    return res.json(items)
   } catch (e: any) {
-    res.status(500).json({ error: e.message })
+    return res.status(500).json({ error: e.message })
   }
 })
 

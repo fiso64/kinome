@@ -382,7 +382,6 @@ import type { Settings } from '../../shared/types'
 export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string): Promise<void> {
   if (!item.tmdbId || !item.mediaType || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) {
     console.log(`Skipping credits fetch for "${item.name}", not a movie or tv show.`)
-    item.tmdbCreditsFetched = true // Mark as "processed" to avoid retries
     return
   }
 
@@ -404,8 +403,8 @@ export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string
     return
   }
 
-  item.tmdbCreditsFetched = true
 }
+
 
 async function _downloadAndApplyImageIfNeeded(
   item: LibraryItem,
@@ -444,9 +443,7 @@ export async function fetchItemDetails(
   libraryDataPath: string
 ): Promise<LibraryItem[]> {
   // Efficiency Rule: Do not re-fetch if already completed
-  if (item.tmdbDetailsFetched) {
-    return [item]
-  }
+
 
   if (!item.tmdbId || !item.mediaType) {
     console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
@@ -530,9 +527,7 @@ export async function fetchItemDetails(
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
 
-    // Mark details as fetched to prevent future redundant calls.
-    // This is the last step in a successful fetch.
-    item.tmdbDetailsFetched = true
+
 
     // --- TV Show Specific Logic ---
     if (
@@ -630,11 +625,9 @@ export async function applyTvShowData(
         }
         // The show is in file mode and we've attempted to fetch all episodes.
         // Mark it as processed.
-        item.tmdbEpisodesFetched = true
+        // If we've reached this point, we have processed the seasons/episodes.
       }
     }
-    // If we've reached this point, we have processed the seasons/episodes.
-    item.tmdbEpisodesFetched = true
   }
   return allModifiedEpisodes
 }
@@ -699,10 +692,6 @@ export async function fetchAndApplyEpisodeData(
       console.log(
         `[TMDB] Skipping episode fetch for S${seasonNumber} as it does not exist in the provided TMDB season list.`
       )
-      seasonFolder.tmdbEpisodesFetched = true
-      // Mark details as fetched too, as we've determined it's not in the provided list
-      // and there's nothing more to fetch based on that context.
-      seasonFolder.tmdbDetailsFetched = true
       return []
     }
   }
@@ -712,8 +701,6 @@ export async function fetchAndApplyEpisodeData(
     console.warn(
       `[TMDB] Season folder "${seasonFolder.name}" (ID: ${seasonFolder.id}) has no valid seasonNumber (${seasonFolder.seasonNumber}). Cannot fetch episodes.`
     )
-    seasonFolder.tmdbEpisodesFetched = true
-    seasonFolder.tmdbDetailsFetched = true
     return [] // Cannot proceed without a valid season number
   }
 
@@ -804,9 +791,7 @@ export async function fetchAndApplyEpisodeData(
     }
   } catch (error) {
     console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
-  } finally {
-    seasonFolder.tmdbEpisodesFetched = true
-    seasonFolder.tmdbDetailsFetched = true
+    console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
   }
   return modifiedEpisodes
 }

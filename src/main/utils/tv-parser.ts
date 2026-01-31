@@ -107,9 +107,9 @@ export function determineSeasonNumbers(folderNames: string[]): Map<string, Parse
     // We NO LONGER assign "season" mediaType to folders that don't match a pattern.
     // They should stay as generic folders so that TMDB search can identify them as "tv" or "movie".
     // However, we still track them in remainingFolders if the caller needs them.
-    for (const name of remainingFolders) {
-      // results.set(name, { mediaType: undefined }) // Implicitly undefined
-    }
+    // for (const name of remainingFolders) {
+    //   // results.set(name, { mediaType: undefined }) // Implicitly undefined
+    // }
   }
 
   return results

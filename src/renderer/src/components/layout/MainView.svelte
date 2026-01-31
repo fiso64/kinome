@@ -7,6 +7,8 @@
   import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
   import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
   import { api } from '../../lib/api'
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
+  import { getRequiredFieldsForLayout } from '../../lib/view-requirements'
   import { createQuery } from '@tanstack/svelte-query'
 
   import type {
@@ -40,13 +42,23 @@
     enabled: !!currentFolderId
   }))
 
+  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
+
+  // 1b. Resolve Layout & View Requirements
+  // We need to know the layout to know which fields to fetch (e.g. 'overview' for list view).
+  const resolvedSettings = $derived(resolveViewSettings(currentFolder, settings).settings)
+  const resolvedLayout = $derived(resolvedSettings.layout)
+  // We also need to know if we are grouping by a metadata field (e.g. virtual tags), as we need to fetch that field.
+  const resolvedGroupBy = $derived((resolvedSettings as any).groupBy)
+
+  const requiredFields = $derived(getRequiredFieldsForLayout(resolvedLayout, resolvedGroupBy))
+
   const childrenQuery = createQuery(() => ({
-    queryKey: ['children', currentFolderId],
-    queryFn: () => api.getChildrenV2(currentFolderId!),
+    queryKey: ['children', currentFolderId, requiredFields], // Include requiredFields in key to refetch when view changes
+    queryFn: () => api.getChildrenV2(currentFolderId!, { include: requiredFields }),
     enabled: !!currentFolderId
   }))
 
-  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 
   // 2. Search

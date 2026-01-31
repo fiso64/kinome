@@ -1,6 +1,6 @@
 Tips for Testing:
 
-1. Use eslint FIRST. 
+1. Use eslint/npm run typecheck FIRST. 
 2. You can use the `curl` command to test the API.
 3. You can use the `sqlite3` command to test the database. I have configured the server to use the library at `./test/media-browser-test-lib/.library/library.db` by default (appdata roaming settings.json points to it, no need to do anything else). Structure of the media-browser-test-lib is as follows:
 

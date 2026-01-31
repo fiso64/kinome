@@ -36,9 +36,8 @@
 
   const showOverviewTab = $derived(!!item.overview)
   const showCreditsSection = $derived(
-    (item.tmdbId && !item.tmdbCreditsFetched) ||
-      (item.tmdbCreditsFetched &&
-        item.tmdbCredits &&
+    (item.tmdbId && !item.tmdbCredits) ||
+      (item.tmdbCredits &&
         (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
   )
 
@@ -51,8 +50,8 @@
       parentShow = null // Reset parent show when item changes
     }
     // If the overview tab is not visible but is selected, switch to credits.
-    // We also check tmdbDetailsFetched to avoid switching tabs during a re-fetch.
-    if (!showOverviewTab && activeInfoTab === 'overview' && item.tmdbDetailsFetched) {
+    // We also check lastRefreshedAt to avoid switching tabs during a re-fetch.
+    if (!showOverviewTab && activeInfoTab === 'overview' && item.lastRefreshedAt) {
       activeInfoTab = 'credits'
     }
   })
@@ -60,12 +59,12 @@
   $effect(() => {
     // On-demand fetching for credits
     if (settings?.creditsDisplay === 'tab') {
-      if (activeInfoTab === 'credits' && !item.tmdbCreditsFetched) {
+      if (activeInfoTab === 'credits' && !item.tmdbCredits) {
         window.api.fetchCredits(item.id)
       }
     } else {
       // Logic for 'shown'/'collapsed'
-      if (isCreditsExpanded && !item.tmdbCreditsFetched) {
+      if (isCreditsExpanded && !item.tmdbCredits) {
         window.api.fetchCredits(item.id)
       }
     }
@@ -358,7 +357,7 @@
                     <div class="tab-content-wrapper">
                       {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
                         <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                      {:else if !item.tmdbCreditsFetched}
+                      {:else if !item.tmdbCredits}
                         <div class="loading-credits">Loading...</div>
                       {:else}
                         <p class="overview no-overview">No credits available for this item.</p>
@@ -456,7 +455,7 @@
               <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
                 {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
                   <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                {:else if !item.tmdbCreditsFetched}
+                {:else if !item.tmdbCredits}
                   <div class="loading-credits">Loading...</div>
                 {/if}
               </div>

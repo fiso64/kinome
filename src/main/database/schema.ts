@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS metadata (
       seasons_json TEXT, -- For TV Shows: Cache of all seasons from TMDB
       episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
       locked_fields_json TEXT, -- Array of locked field names
+      last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
       FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
     );
 

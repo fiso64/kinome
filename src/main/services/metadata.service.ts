@@ -2,6 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 
 import * as repositoryService from './repository.service'
+import * as virtualTagsService from './virtualTags.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as retrieverService from './retriever.service'
@@ -123,26 +124,13 @@ export async function fetchMetadataForLibrary() {
     if (!isMetadataEnabledForItem(item.id)) return false
 
     // 1. New Detection (No TMDB ID)
-    if (!item.tmdbId && !item.tmdbDetailsFetched) return true
+    if (!item.tmdbId && !item.lastRefreshedAt) return true
 
-    // 2. Missing Credits (Movies/TV)
-    if ((item.mediaType === 'movie' || item.mediaType === 'tv') && !item.tmdbCreditsFetched)
-      return true
+    // 2. Stale Metadata (Identified but Dirty)
+    if (item.tmdbId && !item.lastRefreshedAt) return true
 
-    // 3. Missing Full Details (Backdrops/Logos)
-    // Movies might have credits (from search) but be missing backdrops.
-    // We check for `undefined` (never fetched). `null` would mean "fetched but none found".
-    const missingBackdrop = typeof item.backdropPath === 'undefined'
-    if ((item.mediaType === 'movie' || item.mediaType === 'tv') && item.tmdbId && missingBackdrop) {
-      return true
-    }
-
-    // 3. TV Show without Seasons Cache
+    // 3. TV Show without Seasons Cache (Structural Integrity)
     if (item.mediaType === 'tv' && !(item as MediaFolder).tmdbSeasons) return true
-
-    // 4. Managed Copy Targets (Episode/Season with missing data but Valid Parent Logic)
-    // ...
-    // 5. Partial Season Check...
 
     return false
   })
@@ -201,7 +189,10 @@ export async function fetchMetadataForLibrary() {
           await tvShowService.syncTvShowStructure(item as MediaFolder)
         }
 
-        // Atomic Phase 4: Persistence
+        // Atomic Phase 4: Persistence & Stamping
+        item.lastRefreshedAt = Date.now()
+        // Ensure virtual tags are calculated based on the newly discovered metadata
+        item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
         repositoryService.updateItem(item.id, item)
       }
     })
@@ -225,7 +216,12 @@ export async function fetchMetadataForLibrary() {
       // Save changes
       if (modified.length > 0) {
         repositoryService.runTransaction(() => {
-          modified.forEach((m) => repositoryService.updateItem(m.id, m))
+          modified.forEach((m) => {
+            m.lastRefreshedAt = Date.now()
+            // Ensure virtual tags are calculated based on the newly enriched metadata (e.g. genres)
+            m.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(m, settings)
+            repositoryService.updateItem(m.id, m)
+          })
         })
       }
     })
@@ -415,7 +411,7 @@ export async function fetchEpisodeDataForContinueWatching(
         if (updatedShow) show.tmdbSeasons = updatedShow.tmdbSeasons
       }
 
-      if (!seasonFolder.tmdbEpisodesFetched) {
+      if (!seasonFolder.lastRefreshedAt) {
         log(
           `[Continue Watching] Next episode "${episode.name}" is in an unfetched season. Fetching S${seasonFolder.seasonNumber}...`
         )
@@ -429,7 +425,7 @@ export async function fetchEpisodeDataForContinueWatching(
         itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
       }
     } else {
-      if (!show.tmdbEpisodesFetched) {
+      if (!show.lastRefreshedAt) {
         log(
           `[Continue Watching] Next episode "${episode.name}" is a loose file in an unfetched show. Fetching all loose episodes...`
         )
@@ -486,11 +482,9 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
           itemAsRecord[key] = []
           break
 
-        // --- Reset to false ---
-        case 'tmdbDetailsFetched':
-        case 'tmdbEpisodesFetched':
-        case 'tmdbCreditsFetched':
-          itemAsRecord[key] = false
+        // --- Reset to nulls (property will be removed or set to null) ---
+        case 'lastRefreshedAt':
+          itemAsRecord[key] = null
           break
 
         // --- Reset to undefined (property will be removed) ---
@@ -530,15 +524,9 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
 // ... (skipping clearItemMetadata and clearVirtualFolderMetadata unchanged) ...
 
 export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
-  const needsDetailsFetch =
-    (!item.tmdbDetailsFetched && item.tmdbId) ||
-    (item.mediaType === 'tv' && !(item as MediaFolder).tmdbSeasons && item.tmdbId)
+  const needsFetch = item.tmdbId && !item.lastRefreshedAt
 
-  const needsEpisodeFetch =
-    item.type === 'folder' &&
-    (item.mediaType === 'tv' || item.mediaType === 'season') &&
-    !item.tmdbEpisodesFetched
-  if (!needsDetailsFetch && !needsEpisodeFetch) return []
+  if (!needsFetch) return []
 
   if (pathsService.isRemoteLibrary()) {
     log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
@@ -549,28 +537,32 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
   try {
     const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) return []
-    if (needsDetailsFetch) {
-      log(`[Details] Item details missing. Starting full fetch for "${item.name}"`)
+    if (needsFetch) {
+      log(`[Details] Item details stale or missing. Starting full fetch for "${item.name}"`)
       const modified = await retrieverService.fetchItemDetails(
         item,
         settings,
         pathsService.getLibraryDataPath()
       )
-      allModifiedItems.push(...modified)
-    } else if (needsEpisodeFetch && item.type === 'folder') {
+      // Mark as refreshed
+      item.lastRefreshedAt = Date.now()
+      allModifiedItems.push(item, ...modified)
+    } else if (item.type === 'folder') {
       const dbRoot = repositoryService.getRoot()
       if (!dbRoot) throw new Error('Cannot fetch episodes: database root not found.')
       if (item.mediaType === 'season') {
         const showFolder = repositoryService.findParent(item.id)
         if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-          if (!showFolder.tmdbDetailsFetched) {
+          if (!showFolder.lastRefreshedAt) {
             log(`[Details] Parent show "${showFolder.name}" details missing, fetching them first.`)
             const modifiedParent = await retrieverService.fetchItemDetails(
               showFolder,
               settings,
               pathsService.getLibraryDataPath()
             )
-            allModifiedItems.push(...modifiedParent)
+            // Mark parent as refreshed? fetchItemDetails is pure, so we must set it.
+            showFolder.lastRefreshedAt = Date.now()
+            allModifiedItems.push(...modifiedParent, showFolder)
           }
           if (showFolder.tmdbSeasons) {
             log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
@@ -584,18 +576,19 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
               pathsService.getLibraryDataPath(),
               showFolder.tmdbSeasons
             )
+            // item.lastRefreshedAt = Date.now() // fetchAndApplyEpisodeData might imply refresh for season?
+            // Since we are here because !needsFetch (which checks item.lastRefreshedAt) is false...
+            // Wait, this block is inside else if (item.type === 'folder').
+            // Actually, the original code had complex logic for "needsEpisodeFetch".
+            // If we use simple timestamp, we might miss cases where "details are fetched but episodes are not".
+            // But spec says: "The last_refreshed_at timestamp is ONLY updated after a successful, atomic completion of the fetch routine (Details + Credits + Images + Seasons + Episodes)."
+            // So if `lastRefreshedAt` is set, EVERYTHING should be there.
+            // If it is NOT set, we re-run the whole thing.
             allModifiedItems.push(item, ...modifiedEpisodes)
           } else {
-            item.tmdbEpisodesFetched = true
-            log(
-              `[Details] Could not fetch episodes for season "${item.name}" (parent has no season data). Marked as processed to prevent loops.`
-            )
+            // item.lastRefreshedAt = Date.now() // Mark processed?
+            // If we can't fetch, we probably shouldn't stamp it as success.
           }
-        } else {
-          item.tmdbEpisodesFetched = true
-          log(
-            `[Details] Could not fetch episodes for season "${item.name}" (preconditions not met). Marked as processed to prevent loops.`
-          )
         }
       } else if (item.mediaType === 'tv') {
         log(`[Details] TV Show episode data missing. Processing children for "${item.name}"`)
@@ -650,17 +643,14 @@ export async function applyTmdbResult(
     item.posterPath = undefined
     item.backdropPath = undefined
     item.logoPath = undefined
-    item.tmdbDetailsFetched = false
-    item.tmdbCreditsFetched = false
+    item.lastRefreshedAt = null
     item.tmdbCredits = null
     if (item.type === 'folder' && mediaType === 'tv') {
       item.tmdbSeasons = null
-      item.tmdbEpisodesFetched = false
       if (item.children) {
         for (const season of item.children) {
           if (season.type === 'folder' && season.mediaType === 'season' && season.children) {
-            season.tmdbDetailsFetched = false
-            season.tmdbEpisodesFetched = undefined
+            season.lastRefreshedAt = null
             for (const episode of season.children) {
               if (episode.type === 'file' && episode.mediaType === 'episode')
                 episode.posterPath = undefined
@@ -688,20 +678,21 @@ export async function applyTmdbResult(
           console.error('Failed to download season poster', e)
         }
       }
-      item.tmdbDetailsFetched = true
-      item.tmdbEpisodesFetched = undefined
+
+      item.lastRefreshedAt = Date.now()
+
       const episodeFiles = (item.children || []).filter((c) => c.type === 'file') as MediaFile[]
       if (
         typeof item.seasonNumber === 'number' &&
         !episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')
       ) {
-        // tvShowService.assignEpisodesByStrategy(episodeFiles, item.seasonNumber, 'smart')
-        // Fallback: simple numeric assignment if needed, or rely on ingestion
+        // Fallback or smart assignment
         episodeFiles.forEach((f, i) => (f.episodeNumber = i + 1))
       }
+
       const showFolder = repositoryService.findParent(item.id)
       if (showFolder?.tmdbId && settings.tmdbApiKey) {
-        if (!showFolder.tmdbDetailsFetched)
+        if (!showFolder.lastRefreshedAt)
           await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath)
         await retrieverService.fetchAndApplyEpisodeData(
           item,
@@ -715,12 +706,12 @@ export async function applyTmdbResult(
       item.tmdbId = result.id
       item.mediaType = mediaType
       item.title = result.title
-      if (item.type === 'folder' && mediaType === 'tv' && item.process_tv_children !== false) {
-        // tvShowService.processTvShowStructure(item as MediaFolder)
-      }
+      // ...
       await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
       if (mediaType === 'movie' || mediaType === 'tv')
         await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
+
+      item.lastRefreshedAt = Date.now()
     }
   } finally {
     repositoryService.setBulkUpdateStatus(false)
@@ -729,7 +720,6 @@ export async function applyTmdbResult(
   // Virtual tags will be computed in _finalizeItemUpdate
   return item
 }
-
 export async function setImage(
   itemId: string,
   imageType: 'poster' | 'backdrop' | 'logo',

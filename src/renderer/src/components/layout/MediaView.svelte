@@ -232,7 +232,6 @@
               groupByValue: `__season_${seasonNum}__`,
               mediaType: 'season',
               seasonNumber: seasonNum,
-              tmdbEpisodesFetched: parentItem.tmdbEpisodesFetched,
               ...virtualSettings
             }
             allVirtualFolders.push(seasonFolder)
@@ -255,7 +254,6 @@
               physicalParentId: parentItem.id,
               groupByKey: 'folder',
               groupByValue: '__files__',
-              tmdbEpisodesFetched: parentItem.tmdbEpisodesFetched,
               ...virtualSettings
             }
             allVirtualFolders.push(filesFolder)

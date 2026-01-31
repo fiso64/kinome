@@ -3,6 +3,48 @@ import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 
+export const VIRTUAL_ID_PREFIX = 'virtual--'
+
+export function isVirtualId(id: string): boolean {
+  return id.startsWith(VIRTUAL_ID_PREFIX)
+}
+
+export function parseVirtualId(id: string) {
+  const parts = id.split('--')
+  // virtual--{parentId}--{key}--{value}
+  return {
+    prefix: parts[0],
+    parentId: parts[1],
+    groupByKey: parts[2],
+    groupByValue: parts[3]
+  }
+}
+
+export function createVirtualItem(id: string): LibraryItem | null {
+  const { parentId, groupByKey, groupByValue } = parseVirtualId(id)
+  if (!parentId || !groupByKey || !groupByValue) return null
+
+  const parent = getItemById(parentId)
+  if (!parent) return null
+
+  // Synthesize a folder
+  return {
+    id: id,
+    parentId: parentId,
+    name: groupByValue, // e.g. "Animation"
+    type: 'folder',
+    mediaType: parent.mediaType, // Inherit media type (e.g. 'movie' context)
+    isMissing: false,
+    isHidden: false,
+    isUserEdited: false,
+    path: `virtual/${groupByValue}`,
+    // Inherit view settings from parent? Or default?
+    // Probably default or let frontend handle it.
+    // Important: We need to ensure the frontend treats it as a container.
+    children: [] // Lazy load
+  } as LibraryItem
+}
+
 export interface FindOptions {
   where?: Record<string, any>
   fields?: string[]
@@ -190,9 +232,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     nextUpDismissed: Boolean(row.next_up_dismissed),
 
     // Cache Flags
-    tmdbDetailsFetched: !!row.tmdb_id,
-    tmdbCreditsFetched: !!credits,
-    tmdbEpisodesFetched: !!episodes || (row.media_type === 'tv' && !!seasons),
+    lastRefreshedAt: row.last_refreshed_at,
 
     // Versioning
     _v: row.version,
@@ -432,6 +472,9 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     posterPath: "json_extract(m.images_json, '$.poster')",
     backdropPath: "json_extract(m.images_json, '$.backdrop')",
     logoPath: "json_extract(m.images_json, '$.logo')",
+    genres: 'm.genres_json',
+    tags: 'm.tags_json',
+    virtualTags: 'm.virtual_tags_json',
     // User State
     watched: 'u.watched',
     lastWatched: 'u.last_watched_at',
@@ -514,8 +557,8 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   if (options.where) {
     const conditions: string[] = []
     for (const [key, value] of Object.entries(options.where)) {
+      // 1. Direct Column Mapping
       if (fieldMap[key]) {
-        // Handle special cases or generic mapping
         const col = fieldMap[key]
         if (value === null) {
           conditions.push(`${col} IS NULL`)
@@ -524,13 +567,31 @@ export function find(options: FindOptions = {}): LibraryItem[] {
             conditions.push(`${col} IN(${value.map(() => '?').join(',')})`)
             params.push(...value)
           } else {
-            // IN [] is always false
-            conditions.push('1 = 0')
+            conditions.push('1 = 0') // Empty IN mismatch
           }
         } else {
           conditions.push(`${col} = ?`)
           params.push(value)
         }
+      }
+      // 2. Virtual Tags (virtualTags.key)
+      else if (key.startsWith('virtualTags.')) {
+        const tagKey = key.split('.')[1]
+        // SQLite: json_extract(column, '$.key')
+        conditions.push(`json_extract(m.virtual_tags_json, '$.${tagKey}') = ?`)
+        params.push(value)
+      }
+      // 3. Tags (tags.key)
+      else if (key.startsWith('tags.')) {
+        const tagKey = key.split('.')[1]
+        conditions.push(`json_extract(m.tags_json, '$.${tagKey}') = ?`)
+        params.push(value)
+      }
+      // 4. Genres (Exact match in Array)
+      else if (key === 'genre' || key === 'genres') {
+        // SQLite: EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)`)
+        params.push(value)
       }
     }
     if (conditions.length > 0) {
@@ -579,6 +640,29 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     if (row.watched !== undefined) row.watched = Boolean(row.watched)
     if (row.isMissing !== undefined) row.isMissing = Boolean(row.isMissing)
     if (row.isHidden !== undefined) row.isHidden = Boolean(row.isHidden)
+
+    // Handle JSON fields
+    if (typeof row.genres === 'string') {
+      try {
+        row.genres = JSON.parse(row.genres)
+      } catch (e) {
+        row.genres = []
+      }
+    }
+    if (typeof row.tags === 'string') {
+      try {
+        row.tags = JSON.parse(row.tags)
+      } catch (e) {
+        row.tags = {}
+      }
+    }
+    if (typeof row.virtualTags === 'string') {
+      try {
+        row.virtualTags = JSON.parse(row.virtualTags)
+      } catch (e) {
+        row.virtualTags = {}
+      }
+    }
 
     return row as LibraryItem
   })
@@ -706,6 +790,7 @@ watched = excluded.watched,
       'backdropPath',
       'logoPath',
       'lockedFields',
+      'lastRefreshedAt',
       '_v'
     ]
     const hasMetadataUpdates = metadataKeys.some((k) => k in updates)
@@ -732,31 +817,10 @@ watched = excluded.watched,
       if (updates.backdropPath !== undefined) currentImages.backdrop = updates.backdropPath
       if (updates.logoPath !== undefined) currentImages.logo = updates.logoPath
 
-      // If invalidated, we effectively reset the 'fetched' state by clearing specific JSON blobs or ensuring the service knows it is dirty.
-      // However, our computed flags (tmdbDetailsFetched) check for existence of data (tmdb_id, people_json, etc).
-      // To FORCE a refetch without deleting data (which might be locked), we rely on the Metadata Service checking for mismatched data or using a dedicated flag.
-      // But per the Managed Copy plan, we agreed to "Set tmdbDetailsFetched = 0".
-      // Since it's a computed property, we simulate this by... actually we can't easily simulate it if it's purely computed from data presence.
-      // WAIT: The schema does NOT have `tmdb_details_fetched` column. It is computed.
-      // SOLUTION: We must satisfy the Metadata Discovery query: `WHERE tmdbDetailsFetched = 0`.
-      // The Metadata Service query will likely be updated to check `version` or we need to add explicit flags to schema?
-      // No, looking at `schema.ts`, we don't have explicit flags.
-      // Re-reading Plan: "Set tmdbDetailsFetched = 0 (Dirty Bit)".
-      // Current `repository.service.ts` logic: `tmdbDetailsFetched: !!row.tmdb_id`.
-      // If we keep tmdb_id, it stays "fetched".
-      // FIX: We need to rely on the `MetadataService` comparing `season_number` vs `parent.episodes_json`?
-      // OR: We delete `seasons_json` / `episodes_json` / `people_json` to force refetch?
-      // DECISION: To signal "Dirty", we will clear `people_json` (Credits) and if it's a folder, `episodes_json`/`seasons_json`.
-      // For `tmdbDetailsFetched` to be false, `tmdb_id` must be null. But we don't want to lose the ID.
-      // ALTERNATIVE: The `MetadataService` discovery query must be smarter or we use `version = 0`?
-      // Let's implement the Invalidation by clearing the caches that strictly depend on the structure.
       // If Episode Number changes, the old Title/Overview are "wrong" but present.
-      // *Actually*, the user wants `tmdbDetailsFetched = 0`.
-      // Since we can't set a computed column, and we want to keep `tmdb_id`, we might need to add a real `needs_refetch` column or similar later.
-      // FOR NOW: I will clear `people_json` (credits) and `images_json` if structurally changed, effectively making `tmdbCreditsFetched = false`.
-      // But `tmdbDetailsFetched` will remain true if `tmdb_id` exists.
-      // This suggests we need to Update `schema.ts` to have explicit flags or use a specific signal.
-      // Let's stick to valid DB updates.
+      // We set last_refreshed_at = NULL to signal it's dirty.
+      // Ideally the Metadata Service handles the re-fetch.
+
 
       const params = {
         id: itemId,
@@ -782,11 +846,19 @@ watched = excluded.watched,
             ? JSON.stringify(updates.virtualTags)
             : existing.virtual_tags_json,
 
-        // Invalidation: If dirty, clear people_json to force credit refetch (and signal dirtiness)
-        people_json: shouldInvalidateMetadata
+        // Invalidation Logic:
+        // 1. If Invalidated: Set last_refreshed_at = NULL (Dirty)
+        // 2. If Update has explicit lastRefreshedAt: Use it (e.g. Service sets it after fetch)
+        // 3. Else: Keep existing
+        last_refreshed_at: shouldInvalidateMetadata
           ? null
-          : updates.tmdbCredits !== undefined
-            ? JSON.stringify(updates.tmdbCredits)
+          : updates.lastRefreshedAt !== undefined
+            ? updates.lastRefreshedAt
+            : existing.last_refreshed_at,
+
+        people_json:
+          (updates as any).tmdbCredits !== undefined
+            ? JSON.stringify((updates as any).tmdbCredits)
             : existing.people_json,
 
         seasons_json:
@@ -812,10 +884,10 @@ watched = excluded.watched,
         `
         INSERT INTO metadata(
       item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
-      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, locked_fields_json, version
+      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, locked_fields_json, last_refreshed_at, version
     ) VALUES(
       @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
-      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @locked_fields_json, @version
+      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @locked_fields_json, @last_refreshed_at, @version
     )
         ON CONFLICT(item_id) DO UPDATE SET
 tmdb_id = excluded.tmdb_id,
@@ -833,7 +905,8 @@ tmdb_id = excluded.tmdb_id,
   seasons_json = excluded.seasons_json,
   episodes_json = excluded.episodes_json,
   images_json = excluded.images_json,
-  locked_fields_json = excluded.locked_fields_json
+  locked_fields_json = excluded.locked_fields_json,
+  last_refreshed_at = excluded.last_refreshed_at
     `
       ).run(params)
     }

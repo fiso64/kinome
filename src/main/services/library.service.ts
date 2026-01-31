@@ -458,8 +458,7 @@ export const fetchCredits = async (itemId: string) => {
       (await settingsService.readSettings()).tmdbApiKey
     )
     repositoryService.updateItem(item.id, {
-      tmdbCredits: item.tmdbCredits,
-      tmdbCreditsFetched: true
+      tmdbCredits: item.tmdbCredits
     })
     _finalizeItemUpdate(item)
   }

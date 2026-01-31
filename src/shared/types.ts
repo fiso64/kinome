@@ -257,8 +257,7 @@ export interface MediaFile {
   isHidden?: boolean
   isMissing?: boolean
   isUserEdited?: boolean
-  tmdbDetailsFetched?: boolean
-  tmdbCreditsFetched?: boolean
+  lastRefreshedAt?: number | null // Timestamp of last successful full fetch
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   lockedFields?: string[] // Array of field names that are locked (e.g. ['title', 'overview'])
@@ -297,9 +296,7 @@ export interface MediaFolder extends StoredViewSettings {
   isHidden?: boolean
   isMissing?: boolean
   isUserEdited?: boolean
-  tmdbDetailsFetched?: boolean
-  tmdbCreditsFetched?: boolean
-  tmdbEpisodesFetched?: boolean
+  lastRefreshedAt?: number | null // Timestamp of last successful full fetch
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   tmdbSeasons?: TmdbSeason[] | null // For the TV show root, caches the seasons array from TMDB
@@ -490,13 +487,11 @@ export const FOLDER_BEHAVIOR_SETTINGS_KEYS = [
 export const RESETTABLE_METADATA_KEYS = [
   ...METADATA_KEYS,
   // Internal cache state that must be cleared along with metadata
-  'tmdbDetailsFetched',
-  'tmdbEpisodesFetched',
+  'lastRefreshedAt',
   'tmdbSeasons',
   'tmdbEpisodes',
   'virtualTags', // Derived from metadata, so must be reset
   'tmdbCredits',
-  'tmdbCreditsFetched',
   'continueWatchingDismissed',
   'nextUpDismissed',
   '_lastSeenLocalMaxSeason',
