@@ -15,6 +15,7 @@
   import { searchStoreV2, initializeSearchEffects } from './lib/search-store-v2.svelte'
   import { modalStore } from './lib/modal-store.svelte'
   import { contextMenuStore } from './lib/context-menu-store.svelte'
+  import { itemKeys, childKeys } from './lib/queries/query-keys'
   import { api } from './lib/api'
   import { onMount } from 'svelte'
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
@@ -142,28 +143,38 @@
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
       for (const item of updatedItems) {
-        queryClient.invalidateQueries({ queryKey: ['item', item.id] })
+        // Broadly invalidate everything related to this specific item ID across all contexts
+        queryClient.invalidateQueries({
+          queryKey: itemKeys.all,
+          predicate: (query) => query.queryKey[1] === item.id
+        })
 
         // Alias support: If the root folder was updated, also invalidate 'root'
         if (!item.parentId || item.id === rootId) {
-          queryClient.invalidateQueries({ queryKey: ['item', 'root', 'details'] })
-          queryClient.invalidateQueries({ queryKey: ['item', 'root', 'settings'] })
+          queryClient.invalidateQueries({ queryKey: itemKeys.details('root') })
+          queryClient.invalidateQueries({ queryKey: itemKeys.settings('root') })
         }
 
         // Refetch parent's children query so lists re-render
         if (item.parentId) {
-          queryClient.refetchQueries({ queryKey: ['children', item.parentId] })
+          queryClient.refetchQueries({
+            queryKey: childKeys.all,
+            predicate: (query) => query.queryKey[1] === item.parentId
+          })
 
           // Alias support: If parent is root, also invalidate 'children', 'root'
           if (item.parentId === rootId) {
-            queryClient.refetchQueries({ queryKey: ['children', 'root'] })
+            queryClient.refetchQueries({
+              queryKey: childKeys.all,
+              predicate: (query) => query.queryKey[1] === 'root'
+            })
           }
         }
 
         // Refetch tree queries for all ancestors (e.g., Season and Show when episode updates)
         if (item.ancestorIds && item.ancestorIds.length > 0) {
           for (const ancestorId of item.ancestorIds) {
-            queryClient.refetchQueries({ queryKey: ['item', ancestorId, 'tree'] })
+            queryClient.refetchQueries({ queryKey: itemKeys.tree(ancestorId) })
           }
         }
 

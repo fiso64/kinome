@@ -7,6 +7,13 @@
   import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
   import { api } from '../../lib/api'
   import { createQuery } from '@tanstack/svelte-query'
+  import { itemKeys } from '../../lib/queries/query-keys'
+  import type {
+    Settings,
+    MediaFolder,
+    LibraryItem,
+    SearchIndexEntry
+  } from '../../../../shared/types'
 
   let {
     isRefreshing,
@@ -28,8 +35,11 @@
 
   // Fetch Current Folder for Title
   const currentFolderQuery = createQuery(() => ({
-    queryKey: ['item', navStoreV2.state.currentFolderId],
-    queryFn: () => api.getItemV2(navStoreV2.state.currentFolderId!),
+    queryKey: itemKeys.details(navStoreV2.state.currentFolderId),
+    queryFn: ({ queryKey }) => {
+      const id = queryKey[1] as string
+      return api.getItemV2(id)
+    },
     enabled: !!navStoreV2.state.currentFolderId
   }))
 

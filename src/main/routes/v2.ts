@@ -237,7 +237,8 @@ router.get('/items/:id/children', async (req, res) => {
         if (season.type === 'folder') {
           const episodes = repositoryService.find({
             where: { parentId: season.id },
-            orderBy: { field: 'episodeNumber', direction: 'ASC' }
+            orderBy: { field: 'episodeNumber', direction: 'ASC' },
+            fields: options.fields
           })
           return { ...season, children: episodes }
         }

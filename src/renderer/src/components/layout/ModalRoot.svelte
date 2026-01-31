@@ -29,8 +29,10 @@
   const navSettingsOpen = $derived(navStoreV2.state.settingsModalOpen)
   const navItemSettingsId = $derived(navStoreV2.state.itemSettingsId)
 
+  import { itemKeys } from '../../lib/queries/query-keys'
+
   const navItemSettingsQuery = createQuery(() => ({
-    queryKey: ['item', navStoreV2.state.itemSettingsId, 'settings'],
+    queryKey: itemKeys.settings(navStoreV2.state.itemSettingsId),
     queryFn: ({ queryKey }) => {
       const id = queryKey[1] as string
       return api.getItemV2(id)

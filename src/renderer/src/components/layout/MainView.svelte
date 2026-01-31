@@ -8,8 +8,9 @@
   import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
   import { api } from '../../lib/api'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { getRequiredFieldsForLayout } from '../../lib/view-requirements'
+  import { getRequiredFieldsForLayout, getAllRequiredFields } from '../../lib/view-requirements'
   import { createQuery } from '@tanstack/svelte-query'
+  import { itemKeys, childKeys } from '../../lib/queries/query-keys'
 
   import type {
     Settings,
@@ -37,7 +38,7 @@
   const currentFolderId = $derived(navStoreV2.state.currentFolderId)
 
   const currentFolderQuery = createQuery(() => ({
-    queryKey: ['item', currentFolderId, 'details'],
+    queryKey: itemKeys.details(currentFolderId),
     queryFn: ({ queryKey }) => {
       const id = queryKey[1] as string
       return api.getItemV2(id)
@@ -50,15 +51,17 @@
   // 1b. Resolve Layout & View Requirements
   // We need to know the layout to know which fields to fetch (e.g. 'overview' for list view).
   const resolvedSettings = $derived(resolveViewSettings(currentFolder, settings).settings)
-  const resolvedLayout = $derived(resolvedSettings.layout)
-  // We also need to know if we are grouping by a metadata field (e.g. virtual tags), as we need to fetch that field.
-  const resolvedGroupBy = $derived((resolvedSettings as any).groupBy)
+  // We need to know the layout to know which fields to fetch.
 
-  const requiredFields = $derived(getRequiredFieldsForLayout(resolvedLayout, resolvedGroupBy))
+  const requiredFields = $derived(getAllRequiredFields(resolvedSettings))
 
   const childrenQuery = createQuery(() => ({
-    queryKey: ['children', currentFolderId, requiredFields], // Include requiredFields in key to refetch when view changes
-    queryFn: () => api.getChildrenV2(currentFolderId!, { include: requiredFields }),
+    queryKey: childKeys.byParent(currentFolderId, requiredFields),
+    queryFn: ({ queryKey }) => {
+      const parentId = queryKey[1] as string
+      const { fields } = queryKey[2] as { fields: string[] }
+      return api.getChildrenV2(parentId, { include: fields })
+    },
     enabled: !!currentFolderId
   }))
 
@@ -74,8 +77,11 @@
   // 3. Detail View
   const selectedItemId = $derived(navStoreV2.state.selectedItemId)
   const detailItemQuery = createQuery(() => ({
-    queryKey: ['item', selectedItemId, 'tree'],
-    queryFn: () => api.getItemV2(selectedItemId!, ['tree']),
+    queryKey: itemKeys.tree(selectedItemId),
+    queryFn: ({ queryKey }) => {
+      const id = queryKey[1] as string
+      return api.getItemV2(id, ['tree'])
+    },
     enabled: !!selectedItemId
   }))
   const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined) // Can be undefined while loading

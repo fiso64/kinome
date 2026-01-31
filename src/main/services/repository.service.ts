@@ -24,11 +24,23 @@ export function createVirtualItem(id: string): LibraryItem | null {
   const { parentId, groupByKey, groupByValue } = parseVirtualId(id)
   if (!parentId || !groupByKey || !groupByValue) return null
 
-  const parent = getItemById(parentId)
+  const parent = getItemById(parentId) as MediaFolder
   if (!parent) return null
 
+  // Resolve Virtual Folder Settings
+  let appliedSettings: any = {}
+  if (parent.virtualFolderSettings && parent.virtualFolderSettings[groupByKey] && parent.virtualFolderSettings[groupByKey][groupByValue]) {
+    appliedSettings = parent.virtualFolderSettings[groupByKey][groupByValue]
+    log(`[VirtualItem] Applying settings for ${id}: ${JSON.stringify(appliedSettings)}`)
+  } else {
+    log(`[VirtualItem] No settings found for ${id}. Parent has settings? ${!!parent.virtualFolderSettings}`)
+    if (parent.virtualFolderSettings) {
+      log(`[VirtualItem] Parent keys: ${Object.keys(parent.virtualFolderSettings)}. Looking for: ${groupByKey}`)
+    }
+  }
+
   // Synthesize a folder
-  return {
+  const item: LibraryItem = {
     id: id,
     parentId: parentId,
     name: groupByValue, // e.g. "Animation"
@@ -38,11 +50,84 @@ export function createVirtualItem(id: string): LibraryItem | null {
     isHidden: false,
     isUserEdited: false,
     path: `virtual/${groupByValue}`,
-    // Inherit view settings from parent? Or default?
-    // Probably default or let frontend handle it.
-    // Important: We need to ensure the frontend treats it as a container.
-    children: [] // Lazy load
-  } as LibraryItem
+    children: [], // Lazy load
+    ...appliedSettings // Apply view/scraper settings
+  }
+
+  return item
+}
+
+export interface CheckHelper {
+  (row: any, key: string): any
+}
+
+interface RepositoryFieldDef {
+  sql: string
+  table?: 'i' | 'm' | 'u' | 'f' // Dependency table
+  isJson?: boolean
+  parser?: (val: any) => any
+}
+
+// Centralized Schema Definition
+const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
+  // Items Table
+  id: { sql: 'i.id', table: 'i' },
+  parentId: { sql: 'i.parent_id', table: 'i' },
+  name: { sql: 'i.name', table: 'i' },
+  path: { sql: 'i.path', table: 'i' },
+  type: { sql: 'i.type', table: 'i' },
+  size: { sql: 'i.size', table: 'i' },
+  birthtime: { sql: 'i.birthtime', table: 'i' },
+  mtime: { sql: 'i.mtime', table: 'i' },
+  isMissing: { sql: 'i.is_missing', table: 'i', parser: Boolean },
+  isHidden: { sql: 'i.is_hidden', table: 'i', parser: Boolean },
+  isUserEdited: { sql: 'i.is_user_edited', table: 'i', parser: Boolean },
+
+  // Metadata Table
+  tmdbId: { sql: 'm.tmdb_id', table: 'm' },
+  mediaType: { sql: 'm.media_type', table: 'm' },
+  title: { sql: 'm.title', table: 'm' },
+  originalTitle: { sql: 'm.original_title', table: 'm' },
+  overview: { sql: 'm.overview', table: 'm' },
+  releaseDate: { sql: 'm.release_date', table: 'm' },
+  year: { sql: 'm.year', table: 'm' },
+  seasonNumber: { sql: 'm.season_number', table: 'm' },
+  episodeNumber: { sql: 'm.episode_number', table: 'm' },
+  // Images (JSON extraction helpers)
+  posterPath: { sql: "json_extract(m.images_json, '$.poster')", table: 'm' },
+  backdropPath: { sql: "json_extract(m.images_json, '$.backdrop')", table: 'm' },
+  logoPath: { sql: "json_extract(m.images_json, '$.logo')", table: 'm' },
+  // Metadata JSONs
+  genres: { sql: 'm.genres_json', table: 'm', isJson: true },
+  tags: { sql: 'm.tags_json', table: 'm', isJson: true },
+  virtualTags: { sql: 'm.virtual_tags_json', table: 'm', isJson: true },
+  tmdbCredits: { sql: 'm.people_json', table: 'm', isJson: true },
+  tmdbSeasons: { sql: 'm.seasons_json', table: 'm', isJson: true },
+  tmdbEpisodes: { sql: 'm.episodes_json', table: 'm', isJson: true },
+  lockedFields: { sql: 'm.locked_fields_json', table: 'm', isJson: true },
+  lastRefreshedAt: { sql: 'm.last_refreshed_at', table: 'm' },
+  _v: { sql: 'm.version', table: 'm' },
+
+  // User State Table
+  watched: { sql: 'u.watched', table: 'u', parser: Boolean },
+  lastWatched: { sql: 'u.last_watched_at', table: 'u' },
+  continueWatchingDismissed: { sql: 'u.continue_watching_dismissed', table: 'u', parser: Boolean },
+  nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
+
+  // Folder Settings (Scraper)
+  retrieve_children_metadata: { sql: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')", table: 'f', parser: Boolean },
+  children_type_hint: { sql: "json_extract(f.scraper_settings_json, '$.children_type_hint')", table: 'f' },
+  process_tv_children: { sql: "json_extract(f.scraper_settings_json, '$.process_tv_children')", table: 'f', parser: Boolean },
+
+  // Folder Settings (View)
+  layout: { sql: "json_extract(f.view_settings_json, '$.layout')", table: 'f' },
+  clickAction: { sql: "json_extract(f.view_settings_json, '$.clickAction')", table: 'f' },
+  groupBy: { sql: "json_extract(f.view_settings_json, '$.groupBy')", table: 'f' },
+  gridPosterSize: { sql: "json_extract(f.view_settings_json, '$.gridPosterSize')", table: 'f' },
+  listDescriptionRows: { sql: "json_extract(f.view_settings_json, '$.listDescriptionRows')", table: 'f' },
+  showHorizontalScrollbar: { sql: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')", table: 'f' },
+  childViewSettings: { sql: "json_extract(f.view_settings_json, '$.childViewSettings')", table: 'f', isJson: true },
+  virtualFolderSettings: { sql: "json_extract(f.view_settings_json, '$.virtualFolderSettings')", table: 'f', isJson: true }
 }
 
 export interface FindOptions {
@@ -150,132 +235,129 @@ function parseJsonSafe<T>(jsonString: string | null, fallback: T): T {
   }
 }
 
+// Helper to get a value from a row, prioritizing the alias but falling back to raw column name if needed.
+// This supports both "SELECT * ..." (raw names) and "SELECT col as alias ..." (aliases).
+function getRowValue(row: any, alias: string, def: RepositoryFieldDef) {
+  if (row[alias] !== undefined) return row[alias]
+
+  // Fallback for raw column names (e.g. 'tmdb_id' instead of 'tmdbId')
+  // We strip table prefixes: 'm.tmdb_id' -> 'tmdb_id'
+  const rawCol = def.sql.includes('.') ? def.sql.split('.')[1] : def.sql
+  // Handle json_extract cases: "json_extract(..., '$.key')" -> we can't easily fallback unless it was selected as raw.
+  // But SELECT * doesn't return extracted values, it returns the blob.
+
+  if (row[rawCol] !== undefined) return row[rawCol]
+
+  return undefined
+}
+
 function mapRowToLibraryItem(row: any): LibraryItem {
-  if (row.media_type === 'tv' && !row.seasons_json) {
-    // Debug log for missing season data
-    // log(`[Repo] Warning: TV Show "${row.name}" has no seasons_json. Raw: ${Object.keys(row).join(',')}`)
-  }
+  const item: any = {}
 
-  const images = parseJsonSafe<any>(row.images_json, {})
-  const genres = parseJsonSafe<string[]>(row.genres_json, [])
-  const tags = parseJsonSafe<Record<string, string>>(row.tags_json, {})
-  const virtualTags = parseJsonSafe<Record<string, string>>(row.virtual_tags_json, {})
-  const credits = parseJsonSafe(row.people_json, null)
-  const seasons = parseJsonSafe(row.seasons_json, null)
-  const episodes = parseJsonSafe(row.episodes_json, null)
-  const lockedFields = parseJsonSafe<string[]>(row.locked_fields_json, [])
-  const viewSettings = parseJsonSafe<any>(row.view_settings_json, {})
-  const scraperSettings = parseJsonSafe<any>(row.scraper_settings_json, {})
+  // 1. Core Identity & Flat Fields
+  // We iterate the schema to populate the item.
+  for (const [alias, def] of Object.entries(REPOSITORY_SCHEMA)) {
+    let val = getRowValue(row, alias, def)
 
-  // BACKFILL: Bridging "Lean" columns (Spec 4.1.1)
-  // If the JSON blob was not fetched/missing, we check for individually extracted columns.
-  // This ensures V2 API partial selections don't lose structured settings.
-  for (const key of VIEW_SETTINGS_KEYS) {
-    if (viewSettings[key] === undefined && row[key] !== undefined) {
-      viewSettings[key] = row[key]
+    // Special handling for JSON extraction fallback
+    // If val is undefined (not selected explicitly), check if we have the parent JSON blob
+    const isImage = ['posterPath', 'backdropPath', 'logoPath'].includes(alias)
+    if (val === undefined && isImage && row.images_json) {
+      const images = parseJsonSafe(row.images_json, {})
+      const key = alias.replace('Path', '') // posterPath -> poster
+      val = images[key]
+    }
+
+    // Fallback for View/Scraper settings if not selected individually but blob exists
+    // (This covers SELECT * cases where we get view_settings_json but not 'layout' alias)
+    if (val === undefined && def.table === 'f') {
+      if (def.sql.includes('view_settings_json') && row.view_settings_json) {
+        const vs = parseJsonSafe<any>(row.view_settings_json, {})
+        const key = alias // e.g. 'layout'
+        val = vs[key]
+      }
+      else if (def.sql.includes('scraper_settings_json') && row.scraper_settings_json) {
+        const ss = parseJsonSafe<any>(row.scraper_settings_json, {})
+        const key = alias
+        val = ss[key]
+      }
+    }
+
+    // Metadata JSON blobs (genres, tags, etc)
+    // If the schema output is a parsed object, we need to handle parsing here.
+    if (def.isJson) {
+      // If we got a string (from DB text column), parse it.
+      // If we got an object (already parsed or from previous step), leave it.
+      if (typeof val === 'string') {
+        val = parseJsonSafe(val, alias === 'lockedFields' || alias === 'genres' ? [] : {})
+      } else if (val === undefined) {
+        // Default for missing JSON fields
+        val = alias === 'lockedFields' || alias === 'genres' ? [] : (alias === 'tmdbCredits' || alias === 'tmdbSeasons' || alias === 'tmdbEpisodes' ? null : {})
+        // Wait, original mapper used null for credits/seasons matches.
+        if (['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)) val = null
+      }
+    }
+
+    // Generic Parser (Boolean etc)
+    if (val !== undefined && def.parser && val !== null) {
+      val = def.parser(val)
+    }
+
+    // Assign to item
+    if (val !== undefined) {
+      item[alias] = val
     }
   }
 
-  // Scraper settings backfill
-  if (scraperSettings.retrieve_children_metadata === undefined && row.retrieve_children_metadata !== undefined) {
-    scraperSettings.retrieve_children_metadata = Boolean(row.retrieve_children_metadata)
-  }
-  if (scraperSettings.children_type_hint === undefined && row.children_type_hint !== undefined) {
-    scraperSettings.children_type_hint = row.children_type_hint
-  }
-  if (scraperSettings.process_tv_children === undefined && row.process_tv_children !== undefined) {
-    scraperSettings.process_tv_children = Boolean(row.process_tv_children)
-  }
+  // 2. Computed / Logic-heavy fields
 
-  const vtCount = virtualTags ? Object.keys(virtualTags).length : 0
-  if (vtCount > 0) {
-    // log(`[Repo] Loaded ${vtCount} virtual tags for "${row.name}" (ID: ${row.id.substring(0,8)}...)`)
-  }
+  // Note: if using explicit selection, we might not have item_id alias.
+  // But we always select m.item_id if metadata is involved? 
+  // Actually, 'item_id' is not in our schema aliases. It's a join key.
+  // In `find`, we might need to ensure existence check is possible.
+  // Let's assume schema fields like 'tmdbId' are sufficient.
 
-  // Detect if a metadata row actually exists.
-  // In the LEFT JOIN, if there is no matching metadata row, m.item_id will be NULL.
-  const hasMetadata = row.item_id !== null
+  // Re-implement the tri-state tmdbId logic (Found / Not Found / Not Scanned)
+  // Original logic:
+  // if !hasMetadata -> undefined
+  // if hasMetadata:
+  //    if tmdbId != null -> tmdbId
+  //    if tmdbId == null:
+  //       if version == null -> undefined
+  //       else -> null
 
-  const base: any = {
-    id: row.id,
-    parentId: row.parentId !== undefined ? row.parentId : row.parent_id,
-    name: row.name,
-    path: row.path,
-    type: row.type,
-    size: row.size,
-    mtime: row.mtime,
-    birthtime: row.birthtime,
-    isHidden: row.isHidden !== undefined ? Boolean(row.isHidden) : Boolean(row.is_hidden),
-    isMissing: row.isMissing !== undefined ? Boolean(row.isMissing) : Boolean(row.is_missing),
-    isUserEdited: row.isUserEdited !== undefined ? Boolean(row.isUserEdited) : Boolean(row.is_user_edited),
+  // We need 'version' (aliased as _v) and 'tmdbId' to be resolved first.
+  const ver = item._v
+  const tid = item.tmdbId
 
-    // Metadata
-    // Logic:
-    // 1. If no metadata row exists (hasMetadata false) -> undefined (Not Scanned)
-    // 2. If row exists, tmdb_id is NOT NULL -> row.tmdb_id (Found)
-    // 3. If row exists, tmdb_id IS NULL:
-    //    a. If version IS NULL -> undefined (Created by VirtualTags only, Not Scanned)
-    //    b. If version IS NOT NULL -> null (Scanned, but Not Found)
-    tmdbId: hasMetadata
-      ? row.tmdb_id !== null
-        ? row.tmdb_id
-        : row.version !== null
-          ? null
-          : undefined
-      : undefined,
+  // Check if we actually HAVE metadata info from the row (raw item_id from join)
+  const metaJoinId = row.item_id // raw column from SELECT * or explicit join
+  // If we don't have row.item_id, maybe we can infer from presence of other m.* fields?
+  // Safe bet: if we requested metadata (joined), row.item_id should be there. 
+  // But if we selected specific fields, we might not have selected m.item_id.
 
-    mediaType: hasMetadata ? (row.mediaType !== undefined ? row.mediaType : row.media_type) : undefined,
-    title: row.title,
-    originalTitle: row.original_title,
-    overview: row.overview,
-    releaseDate: row.release_date,
-    year: row.year !== undefined ? row.year : row.year_db, // Handle alias vs raw
-    runtime: row.runtime,
-    posterPath: images.poster ?? row.posterPath,
-    backdropPath: images.backdrop ?? row.backdropPath,
-    logoPath: images.logo ?? row.logoPath,
-    genres: genres,
-    tags: tags,
-    virtualTags: virtualTags,
-    tmdbCredits: credits,
-    tmdbSeasons: seasons,
-    tmdbEpisodes: episodes,
+  const actuallyHasMetadata = metaJoinId !== undefined ? metaJoinId !== null : (item.title !== undefined || item._v !== undefined)
 
-    // TV Specific
-    seasonNumber: row.seasonNumber !== undefined ? row.seasonNumber : row.season_number,
-    episodeNumber: row.episodeNumber !== undefined ? row.episodeNumber : row.episode_number,
-
-    // User State
-    watched: Boolean(row.watched),
-    lastWatched: row.last_watched_at,
-    continueWatchingDismissed: Boolean(row.continue_watching_dismissed),
-    nextUpDismissed: Boolean(row.next_up_dismissed),
-
-    // Cache Flags
-    lastRefreshedAt: row.last_refreshed_at,
-
-    // Versioning
-    _v: row.version,
-
-    // Locking
-    lockedFields: hasMetadata ? lockedFields : undefined
+  if (!actuallyHasMetadata) {
+    // If no metadata record exists, these should be undefined
+    item.tmdbId = undefined
+    item.mediaType = undefined
+    item.lockedFields = undefined
+  } else {
+    if (tid === null || tid === undefined) {
+      // Scanned but not found (version exists) vs Not Scanned (version null)
+      // Note: using loose equality for null/undefined check on DB values
+      item.tmdbId = ver != null ? null : undefined
+    }
+    // If tid is present, it's already set.
   }
 
-  // Merge View/Folder Settings
-  Object.assign(base, viewSettings)
-  if (row.type === 'folder') {
-    // log(`[DEBUG] mapRowToLibraryItem for folder ${row.id}:`)
-    // log(`[DEBUG]   row.scraper_settings_json: ${row.scraper_settings_json}`)
-    // log(`[DEBUG]   parsed scraperSettings: ${JSON.stringify(scraperSettings)}`)
-    Object.assign(base, {
-      retrieve_children_metadata: scraperSettings.retrieve_children_metadata,
-      children_type_hint: scraperSettings.children_type_hint,
-      process_tv_children: scraperSettings.process_tv_children,
-      children: null // Null indicates lazy loading required
-    })
+  // 3. Folder specific logic
+  if (item.type === 'folder') {
+    item.children = null // Lazy load signal
   }
 
-  return base as LibraryItem
+  return item as LibraryItem
 }
 
 // --- Read Operations ---
@@ -460,116 +542,47 @@ export function getAllItemsAsList(): LibraryItem[] {
 export function find(options: FindOptions = {}): LibraryItem[] {
   const db = getDb()
   const requestedFields = options.fields || []
-  // If no fields specified, default to CORE fields (Lean & Lazy) behavior
-  // instead of SELECT *
-  const fields = requestedFields.length > 0 ? requestedFields : CORE_FIELDS
-  const selectAll = false // Deprecated "Select All" default, now we are explicit
+  // Default to CORE_FIELDS if no fields specified (Lean & Lazy)
+  const fieldsToSelect = requestedFields.length > 0 ? requestedFields : CORE_FIELDS
 
-  // Helper to map public field names to DB columns
-  // Usage: fieldName -> { table: 'alias', col: 'column_name' }
-  const fieldMap: Record<string, string> = {
-    id: 'i.id',
-    parentId: 'i.parent_id',
-    name: 'i.name',
-    path: 'i.path',
-    type: 'i.type',
-    size: 'i.size',
-    birthtime: 'i.birthtime',
-    mtime: 'i.mtime',
-    isMissing: 'i.is_missing',
-    isHidden: 'i.is_hidden',
-    isUserEdited: 'i.is_user_edited',
-    // Metadata
-    tmdbId: 'm.tmdb_id',
-    mediaType: 'm.media_type',
-    title: 'm.title',
-    originalTitle: 'm.original_title',
-    overview: 'm.overview',
-    releaseDate: 'm.release_date',
-    year: 'm.year',
-    seasonNumber: 'm.season_number',
-    episodeNumber: 'm.episode_number',
-    posterPath: "json_extract(m.images_json, '$.poster')",
-    backdropPath: "json_extract(m.images_json, '$.backdrop')",
-    logoPath: "json_extract(m.images_json, '$.logo')",
-    genres: 'm.genres_json',
-    tags: 'm.tags_json',
-    virtualTags: 'm.virtual_tags_json',
-    // User State
-    watched: 'u.watched',
-    lastWatched: 'u.last_watched_at',
-    continueWatchingDismissed: 'u.continue_watching_dismissed',
-    nextUpDismissed: 'u.next_up_dismissed',
-    // Folder Settings - Scraper
-    retrieve_children_metadata: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')",
-    children_type_hint: "json_extract(f.scraper_settings_json, '$.children_type_hint')",
-    process_tv_children: "json_extract(f.scraper_settings_json, '$.process_tv_children')",
-    // Folder Settings - View
-    layout: "json_extract(f.view_settings_json, '$.layout')",
-    clickAction: "json_extract(f.view_settings_json, '$.clickAction')",
-    groupBy: "json_extract(f.view_settings_json, '$.groupBy')",
-    gridPosterSize: "json_extract(f.view_settings_json, '$.gridPosterSize')",
-    listDescriptionRows: "json_extract(f.view_settings_json, '$.listDescriptionRows')",
-    showHorizontalScrollbar: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')",
-    childViewSettings: "json_extract(f.view_settings_json, '$.childViewSettings')",
-    virtualFolderSettings: "json_extract(f.view_settings_json, '$.virtualFolderSettings')"
+  // Determine needed tables based on schema
+  const usedTables = new Set<string>()
+  for (const alias of fieldsToSelect) {
+    const def = REPOSITORY_SCHEMA[alias]
+    if (def && def.table) usedTables.add(def.table)
   }
 
-  // Determine needed tables
-  const needsMetadata =
-    selectAll ||
-    fields.some(
-      (f) =>
-        (Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('m.')) ||
-        fieldMap[f].includes('m.images_json')
-    )
-  const needsUserState =
-    selectAll ||
-    fields.some((f) => Object.keys(fieldMap).includes(f) && fieldMap[f].startsWith('u.'))
-
-  const needsFolderSettings =
-    selectAll ||
-    fields.some((f) => Object.keys(fieldMap).includes(f) && fieldMap[f].includes('f.'))
-
   // Build SELECT clause
-  let selectClause = 'i.id' // Always select ID
-  if (selectAll) {
-    selectClause =
-      'i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json'
-  } else {
-    // Basic items columns if requested
-    const itemCols = fields
-      .filter((f) => fieldMap[f]?.startsWith('i.'))
-      .map((f) => `${fieldMap[f]} as ${f} `)
-    // Metadata columns
-    const metaCols = fields
-      .filter((f) => fieldMap[f]?.startsWith('m.') || fieldMap[f]?.includes('m.'))
-      .map((f) => `${fieldMap[f]} as ${f} `)
-    // UserState columns
-    const userCols = fields
-      .filter((f) => fieldMap[f]?.startsWith('u.'))
-      .map((f) => `${fieldMap[f]} as ${f} `)
-    // FolderSettings columns
-    const folderCols = fields
-      .filter((f) => fieldMap[f]?.includes('f.'))
-      .map((f) => `${fieldMap[f]} as ${f} `)
+  const selectParts: string[] = []
 
-    // Combine
-    const allSelectedPromise = [...itemCols, ...metaCols, ...userCols, ...folderCols]
-    if (allSelectedPromise.length > 0) {
-      selectClause += ', ' + allSelectedPromise.join(', ')
+  // Always ensure 'i.id' is selected if not requested explicitly (mapper needs it)
+  if (!fieldsToSelect.includes('id')) {
+    fieldsToSelect.unshift('id')
+  }
+
+  // Also 'item_id' from metadata is needed for checking if metadata exists.
+  if (usedTables.has('m')) {
+    selectParts.push('m.item_id')
+  }
+
+  for (const alias of fieldsToSelect) {
+    const def = REPOSITORY_SCHEMA[alias]
+    if (def) {
+      selectParts.push(`${def.sql} AS ${alias}`)
     }
   }
 
+  const selectClause = selectParts.join(', ')
+
   let query = `SELECT ${selectClause} FROM items i`
 
-  if (needsMetadata) {
+  if (usedTables.has('m')) {
     query += ` LEFT JOIN metadata m ON i.id = m.item_id`
   }
-  if (needsUserState) {
+  if (usedTables.has('u')) {
     query += ` LEFT JOIN user_state u ON i.id = u.item_id`
   }
-  if (needsFolderSettings) {
+  if (usedTables.has('f')) {
     query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
   }
 
@@ -577,27 +590,26 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   if (options.where) {
     const conditions: string[] = []
     for (const [key, value] of Object.entries(options.where)) {
-      // 1. Direct Column Mapping
-      if (fieldMap[key]) {
-        const col = fieldMap[key]
+      // 1. Direct Schema Mapping
+      const def = REPOSITORY_SCHEMA[key]
+      if (def) {
         if (value === null) {
-          conditions.push(`${col} IS NULL`)
+          conditions.push(`${def.sql} IS NULL`)
         } else if (Array.isArray(value)) {
           if (value.length > 0) {
-            conditions.push(`${col} IN(${value.map(() => '?').join(',')})`)
+            conditions.push(`${def.sql} IN(${value.map(() => '?').join(',')})`)
             params.push(...value)
           } else {
             conditions.push('1 = 0') // Empty IN mismatch
           }
         } else {
-          conditions.push(`${col} = ?`)
+          conditions.push(`${def.sql} = ?`)
           params.push(value)
         }
       }
       // 2. Virtual Tags (virtualTags.key)
       else if (key.startsWith('virtualTags.')) {
         const tagKey = key.split('.')[1]
-        // SQLite: json_extract(column, '$.key')
         conditions.push(`json_extract(m.virtual_tags_json, '$.${tagKey}') = ?`)
         params.push(value)
       }
@@ -609,7 +621,6 @@ export function find(options: FindOptions = {}): LibraryItem[] {
       }
       // 4. Genres (Exact match in Array)
       else if (key === 'genre' || key === 'genres') {
-        // SQLite: EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)
         conditions.push(`EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)`)
         params.push(value)
       }
@@ -620,8 +631,8 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   }
 
   if (options.orderBy) {
-    const colRaw = fieldMap[options.orderBy.field] || 'i.name'
-    // rudimentary injection check or just use safe mapping
+    const def = REPOSITORY_SCHEMA[options.orderBy.field]
+    const colRaw = def ? def.sql : 'i.name'
     query += ` ORDER BY ${colRaw} ${options.orderBy.direction} `
   }
 
@@ -635,15 +646,9 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   }
 
   const rows = db.prepare(query).all(params)
-
-  if (selectAll) {
-    return rows.map(mapRowToLibraryItem)
-  }
-
-  // Lightweight mapper for partial selection - now uses the unified mapper logic
-  // by ensuring mapRowToLibraryItem handles partial rows gracefully.
   return rows.map(mapRowToLibraryItem)
 }
+
 
 // --- Write Operations ---
 

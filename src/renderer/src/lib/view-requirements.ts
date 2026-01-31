@@ -50,3 +50,29 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
 
     return [...baseFields, ...groupFields]
 }
+
+/**
+ * Recursively collects all required fields from a settings object and its nested childViewSettings.
+ * This handles deep nesting scenarios like Sections -> Tabs -> List.
+ *
+ * @param settings The fully resolved view settings object
+ */
+export function getAllRequiredFields(settings: any): string[] {
+    const fields = new Set<string>()
+
+    function traverse(currentSettings: any) {
+        if (!currentSettings || typeof currentSettings !== 'object') return
+
+        if (currentSettings.layout) {
+            const req = getRequiredFieldsForLayout(currentSettings.layout, currentSettings.groupBy)
+            req.forEach((f) => fields.add(f))
+        }
+
+        if (currentSettings.childViewSettings) {
+            traverse(currentSettings.childViewSettings)
+        }
+    }
+
+    traverse(settings)
+    return Array.from(fields)
+}

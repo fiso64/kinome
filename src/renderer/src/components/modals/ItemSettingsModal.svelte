@@ -111,7 +111,22 @@
         }))
 
         if (freshItem.type === 'folder') {
-          seasonNumber = (freshItem as MediaFolder).seasonNumber?.toString() ?? ''
+          const folder = freshItem as MediaFolder
+          seasonNumber = folder.seasonNumber?.toString() ?? ''
+
+          // Refresh View Settings
+          selectedLayout = folder.layout ?? null
+          selectedClickAction = folder.clickAction ?? null
+          selectedGroupBy = folder.groupBy ?? null
+          gridPosterSize = folder.gridPosterSize ?? null
+          listDescriptionRows = folder.listDescriptionRows ?? null
+          showHorizontalScrollbar = folder.showHorizontalScrollbar ?? null
+          childViewSettings = folder.childViewSettings ?? null
+
+          // Refresh Folder Settings
+          retrieveChildrenMetadata = folder.retrieve_children_metadata ?? false
+          childrenTypeHint = folder.children_type_hint ?? 'auto'
+          processTvChildren = folder.process_tv_children ?? true
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
           episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''
