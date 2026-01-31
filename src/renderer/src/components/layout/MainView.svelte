@@ -37,8 +37,11 @@
   const currentFolderId = $derived(navStoreV2.state.currentFolderId)
 
   const currentFolderQuery = createQuery(() => ({
-    queryKey: ['item', currentFolderId],
-    queryFn: () => api.getItemV2(currentFolderId!),
+    queryKey: ['item', currentFolderId, 'details'],
+    queryFn: ({ queryKey }) => {
+      const id = queryKey[1] as string
+      return api.getItemV2(id)
+    },
     enabled: !!currentFolderId
   }))
 
@@ -103,7 +106,13 @@
       : undefined
   )
 
-  const isRoot = $derived(!isGlobalSearchActive && currentFolder?.path === '.')
+  const isRoot = $derived(
+    !isGlobalSearchActive && (currentFolderId === 'root' || currentFolder?.path === '.')
+  )
+
+  $effect(() => {
+    // Basic root check using the stable 'root' identifier
+  })
 </script>
 
 <div class="content">
@@ -162,6 +171,7 @@
             <HomeView
               {continueWatchingItems}
               parentItem={currentFolder}
+              items={children}
               onItemClick={(item) => dispatch('itemClick', { item })}
               onShowContextMenu={(item, event, options) =>
                 dispatch('showContextMenu', { item, event, options })}

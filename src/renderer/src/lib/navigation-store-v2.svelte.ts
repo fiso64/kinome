@@ -1,9 +1,9 @@
-import { type LibraryItem, type Settings } from '../../../shared/types'
+// No imports needed for this store currently
 
 // --- Types ---
 
 interface NavigationState {
-  currentFolderId: string | null // null = Root
+  currentFolderId: string // 'root' = Root
   selectedItemId: string | null // For Detail View
   settingsModalOpen: boolean
   itemSettingsId: string | null
@@ -12,7 +12,7 @@ interface NavigationState {
 // --- State ---
 
 let currentState = $state<NavigationState>({
-  currentFolderId: null,
+  currentFolderId: 'root',
   selectedItemId: null,
   settingsModalOpen: false,
   itemSettingsId: null
@@ -30,7 +30,7 @@ function getUrlParams(): URLSearchParams {
 
 function parseUrl() {
   const params = getUrlParams()
-  const folder = params.get('folder')?.trim() || null
+  const folder = params.get('folder')?.trim() || 'root'
   const item = params.get('item')?.trim() || null
   const modal = params.get('modal')?.trim() || null
   const modalItem = params.get('modalItemId')?.trim() || null
@@ -41,11 +41,14 @@ function parseUrl() {
     settingsModalOpen: modal === 'settings',
     itemSettingsId: modal === 'itemSettings' ? modalItem : null
   }
+
+  updateUrl(true)
 }
 
 function updateUrl(replace = false) {
   const params = new URLSearchParams()
-  if (currentState.currentFolderId) params.set('folder', currentState.currentFolderId)
+  if (currentState.currentFolderId)
+    params.set('folder', currentState.currentFolderId)
   if (currentState.selectedItemId) params.set('item', currentState.selectedItemId)
   if (currentState.settingsModalOpen) params.set('modal', 'settings')
   if (currentState.itemSettingsId) {
@@ -71,8 +74,8 @@ function navigateToFolder(folderId: string) {
   updateUrl()
 }
 
-function navigateToRoot(rootId: string) {
-  currentState.currentFolderId = rootId
+function navigateToRoot() {
+  currentState.currentFolderId = 'root'
   currentState.selectedItemId = null
   updateUrl()
 }
@@ -128,11 +131,21 @@ export const navStoreV2 = {
     return isDetailViewActive
   },
   init,
-  navigateToFolder,
-  navigateToRoot,
-  openDetail,
-  closeDetail,
-  goBack,
+  navigateToFolder: (folderId: string) => {
+    navigateToFolder(folderId)
+  },
+  navigateToRoot: () => {
+    navigateToRoot()
+  },
+  openDetail: (itemId: string) => {
+    openDetail(itemId)
+  },
+  closeDetail: () => {
+    closeDetail()
+  },
+  goBack: () => {
+    goBack()
+  },
   // Modals
   openSettings: () => {
     currentState.settingsModalOpen = true

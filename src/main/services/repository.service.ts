@@ -167,6 +167,26 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   const viewSettings = parseJsonSafe<any>(row.view_settings_json, {})
   const scraperSettings = parseJsonSafe<any>(row.scraper_settings_json, {})
 
+  // BACKFILL: Bridging "Lean" columns (Spec 4.1.1)
+  // If the JSON blob was not fetched/missing, we check for individually extracted columns.
+  // This ensures V2 API partial selections don't lose structured settings.
+  for (const key of VIEW_SETTINGS_KEYS) {
+    if (viewSettings[key] === undefined && row[key] !== undefined) {
+      viewSettings[key] = row[key]
+    }
+  }
+
+  // Scraper settings backfill
+  if (scraperSettings.retrieve_children_metadata === undefined && row.retrieve_children_metadata !== undefined) {
+    scraperSettings.retrieve_children_metadata = Boolean(row.retrieve_children_metadata)
+  }
+  if (scraperSettings.children_type_hint === undefined && row.children_type_hint !== undefined) {
+    scraperSettings.children_type_hint = row.children_type_hint
+  }
+  if (scraperSettings.process_tv_children === undefined && row.process_tv_children !== undefined) {
+    scraperSettings.process_tv_children = Boolean(row.process_tv_children)
+  }
+
   const vtCount = virtualTags ? Object.keys(virtualTags).length : 0
   if (vtCount > 0) {
     // log(`[Repo] Loaded ${vtCount} virtual tags for "${row.name}" (ID: ${row.id.substring(0,8)}...)`)
@@ -178,16 +198,16 @@ function mapRowToLibraryItem(row: any): LibraryItem {
 
   const base: any = {
     id: row.id,
-    parentId: row.parent_id,
+    parentId: row.parentId !== undefined ? row.parentId : row.parent_id,
     name: row.name,
     path: row.path,
     type: row.type,
     size: row.size,
     mtime: row.mtime,
     birthtime: row.birthtime,
-    isHidden: Boolean(row.is_hidden),
-    isMissing: Boolean(row.is_missing),
-    isUserEdited: Boolean(row.is_user_edited),
+    isHidden: row.isHidden !== undefined ? Boolean(row.isHidden) : Boolean(row.is_hidden),
+    isMissing: row.isMissing !== undefined ? Boolean(row.isMissing) : Boolean(row.is_missing),
+    isUserEdited: row.isUserEdited !== undefined ? Boolean(row.isUserEdited) : Boolean(row.is_user_edited),
 
     // Metadata
     // Logic:
@@ -204,16 +224,16 @@ function mapRowToLibraryItem(row: any): LibraryItem {
           : undefined
       : undefined,
 
-    mediaType: hasMetadata ? row.media_type : undefined,
+    mediaType: hasMetadata ? (row.mediaType !== undefined ? row.mediaType : row.media_type) : undefined,
     title: row.title,
     originalTitle: row.original_title,
     overview: row.overview,
     releaseDate: row.release_date,
-    year: row.year,
+    year: row.year !== undefined ? row.year : row.year_db, // Handle alias vs raw
     runtime: row.runtime,
-    posterPath: images.poster,
-    backdropPath: images.backdrop,
-    logoPath: images.logo,
+    posterPath: images.poster ?? row.posterPath,
+    backdropPath: images.backdrop ?? row.backdropPath,
+    logoPath: images.logo ?? row.logoPath,
     genres: genres,
     tags: tags,
     virtualTags: virtualTags,
@@ -222,8 +242,8 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     tmdbEpisodes: episodes,
 
     // TV Specific
-    seasonNumber: row.season_number,
-    episodeNumber: row.episode_number,
+    seasonNumber: row.seasonNumber !== undefined ? row.seasonNumber : row.season_number,
+    episodeNumber: row.episodeNumber !== undefined ? row.episodeNumber : row.episode_number,
 
     // User State
     watched: Boolean(row.watched),
@@ -614,58 +634,15 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     }
   }
 
-  const rows = db.prepare(query).all(...params)
+  const rows = db.prepare(query).all(params)
 
   if (selectAll) {
     return rows.map(mapRowToLibraryItem)
   }
 
-  // Lightweight mapper for partial selection
-  return rows.map((row: any) => {
-    // Handle JSON fields if strictly requested and present in the row
-    if (row.posterPath || row.backdropPath || row.logoPath) {
-      // If we aliased them to camelCase, we keep them.
-      // But the frontend expects these to be populated.
-    }
-
-    // Ensure numeric types are correct
-    if (row.tmdbId !== undefined && row.tmdbId !== null) row.tmdbId = Number(row.tmdbId)
-    if (row.year !== undefined && row.year !== null) row.year = Number(row.year)
-    if (row.seasonNumber !== undefined && row.seasonNumber !== null)
-      row.seasonNumber = Number(row.seasonNumber)
-    if (row.episodeNumber !== undefined && row.episodeNumber !== null)
-      row.episodeNumber = Number(row.episodeNumber)
-
-    // Handle Booleans
-    if (row.watched !== undefined) row.watched = Boolean(row.watched)
-    if (row.isMissing !== undefined) row.isMissing = Boolean(row.isMissing)
-    if (row.isHidden !== undefined) row.isHidden = Boolean(row.isHidden)
-
-    // Handle JSON fields
-    if (typeof row.genres === 'string') {
-      try {
-        row.genres = JSON.parse(row.genres)
-      } catch (e) {
-        row.genres = []
-      }
-    }
-    if (typeof row.tags === 'string') {
-      try {
-        row.tags = JSON.parse(row.tags)
-      } catch (e) {
-        row.tags = {}
-      }
-    }
-    if (typeof row.virtualTags === 'string') {
-      try {
-        row.virtualTags = JSON.parse(row.virtualTags)
-      } catch (e) {
-        row.virtualTags = {}
-      }
-    }
-
-    return row as LibraryItem
-  })
+  // Lightweight mapper for partial selection - now uses the unified mapper logic
+  // by ensuring mapRowToLibraryItem handles partial rows gracefully.
+  return rows.map(mapRowToLibraryItem)
 }
 
 // --- Write Operations ---

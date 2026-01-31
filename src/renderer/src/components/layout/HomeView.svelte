@@ -1,4 +1,12 @@
 <script lang="ts">
+  import type {
+    MediaFolder,
+    MediaFile,
+    LibraryItem,
+    SearchIndexEntry,
+    AutocompleteSuggestions,
+    Settings
+  } from '../../../../shared/types'
   import ContinueWatching from './ContinueWatching.svelte'
   import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'
@@ -12,13 +20,15 @@
   let {
     continueWatchingItems,
     parentItem,
+    items = [],
     onItemClick,
     onShowContextMenu,
     suggestions,
     settings
   }: {
     continueWatchingItems: ContinueWatchingItem[]
-    parentItem: MediaFolder
+    parentItem: MediaFolder | undefined
+    items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
     onShowContextMenu: (
       item: DisplayableItem,
@@ -36,6 +46,10 @@
   // NOTE: The Continue Watching section below uses native horizontal scrolling.
   // We are deliberately not intercepting the vertical mouse wheel to scroll horizontally,
   // as it can feel jarring and interfere with page scrolling. A visible scrollbar is used instead.
+
+  $effect(() => {
+    console.log(`[HomeView] parentItem:`, parentItem?.name, `items:`, items.length)
+  })
 </script>
 
 <div class="home-view-container">
@@ -50,17 +64,12 @@
     </section>
   {/if}
 
-  <section class="home-section">
-    <h2 class="home-section-title">Library</h2>
-    <MediaView
-      {parentItem}
-      items={parentItem.children ?? []}
-      {onItemClick}
-      {onShowContextMenu}
-      {suggestions}
-      {settings}
-    />
-  </section>
+  {#if parentItem}
+    <section class="home-section">
+      <h2 class="home-section-title">Library</h2>
+      <MediaView {parentItem} {items} {onItemClick} {onShowContextMenu} {suggestions} {settings} />
+    </section>
+  {/if}
 </div>
 
 <style>

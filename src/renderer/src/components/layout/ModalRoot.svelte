@@ -30,9 +30,12 @@
   const navItemSettingsId = $derived(navStoreV2.state.itemSettingsId)
 
   const navItemSettingsQuery = createQuery(() => ({
-    queryKey: ['item', navStoreV2.state.itemSettingsId],
-    queryFn: () => api.getItemV2(navStoreV2.state.itemSettingsId!),
-    enabled: !!navStoreV2.state.itemSettingsId
+    queryKey: ['item', navStoreV2.state.itemSettingsId, 'settings'],
+    queryFn: ({ queryKey }) => {
+      const id = queryKey[1] as string
+      return api.getItemV2(id)
+    },
+    enabled: !!navStoreV2.state.itemSettingsId && navStoreV2.state.itemSettingsId !== 'null'
   }))
 
   const itemSettingsItem = $derived(

@@ -43,6 +43,7 @@
   let isScanning = $state(true)
   let isRefreshing = $state(false)
   let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
+  let rootId = $state<string | null>(null)
 
   initializeSearchEffects()
 
@@ -84,26 +85,29 @@
   onMount(() => {
     log('App mounted. Initializing V2 services...')
 
-    // In V2, we rely on the URL or the store defaults.
+    // In V2, we rely on the URL or the store defaults ('root').
+    // We NO LONGER redirect to the real ID for the root, as the backend now supports
+    // 'root' as a stable alias for queries and invalidation.
     navStoreV2.init()
 
-    // If no folder is selected (root) and no specific item selected, try to load the library root
-    if (!navStoreV2.state.currentFolderId && !navStoreV2.state.selectedItemId) {
-      api.getLibraryRoot().then((root) => {
-        if (root) {
-          navStoreV2.navigateToRoot(root.id)
-        }
-      })
-    }
+    api.getLibraryRoot().then((root) => {
+      if (root) rootId = root.id
+    })
 
     api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
     api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
     api.getSettings().then((s) => (settings = s))
 
-    isScanning = false // Assume initially not scanning unless told otherwise via event?
+    isScanning = false // Reset initial scanning state
+    log(`Initialization complete. isScanning: ${isScanning}`)
 
     const unlistenSuggestions = api.onAutocompleteSuggestionsUpdated((s) => {
       allAutocompleteSuggestions = s
+    })
+
+    const unlistenSettingsUpdated = api.onSettingsPossiblyUpdated((newSettings) => {
+      log('Received settings-possibly-updated event from main process.')
+      settings = newSettings
     })
 
     const unlistenErrors = api.onShowErrorDialog((options) => {
@@ -119,10 +123,6 @@
       }
     })
 
-    const unlistenSettingsUpdated = api.onSettingsPossiblyUpdated((newSettings) => {
-      log('Received settings-possibly-updated event from main process.')
-      settings = newSettings
-    })
     return () => {
       unlistenSuggestions()
       unlistenErrors()
@@ -141,13 +141,23 @@
   $effect(() => {
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
-      // Invalidate queries for changed items
       for (const item of updatedItems) {
         queryClient.invalidateQueries({ queryKey: ['item', item.id] })
+
+        // Alias support: If the root folder was updated, also invalidate 'root'
+        if (!item.parentId || item.id === rootId) {
+          queryClient.invalidateQueries({ queryKey: ['item', 'root', 'details'] })
+          queryClient.invalidateQueries({ queryKey: ['item', 'root', 'settings'] })
+        }
 
         // Refetch parent's children query so lists re-render
         if (item.parentId) {
           queryClient.refetchQueries({ queryKey: ['children', item.parentId] })
+
+          // Alias support: If parent is root, also invalidate 'children', 'root'
+          if (item.parentId === rootId) {
+            queryClient.refetchQueries({ queryKey: ['children', 'root'] })
+          }
         }
 
         // Refetch tree queries for all ancestors (e.g., Season and Show when episode updates)

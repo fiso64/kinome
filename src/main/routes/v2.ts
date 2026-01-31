@@ -51,8 +51,8 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
 
   for (const [key, value] of Object.entries(query)) {
     if (!reserved.includes(key)) {
-      // Handle "null" string as null
-      if (value === 'null') {
+      // Handle "null" or "root" string as null
+      if (value === 'null' || value === 'root') {
         options.where![key] = null
       } else {
         options.where![key] = value
@@ -86,8 +86,15 @@ router.get('/items', (req, res) => {
 // GET /items/:id
 router.get('/items/:id', async (req, res) => {
   try {
-    if (repositoryService.isVirtualId(req.params.id)) {
-      const virtualItem = repositoryService.createVirtualItem(req.params.id)
+    let id = req.params.id
+    if (id === 'root') {
+      const root = await libraryService.getLibraryRoot()
+      if (!root) return res.status(404).json({ error: 'Library root not found' })
+      id = root.id
+    }
+
+    if (repositoryService.isVirtualId(id)) {
+      const virtualItem = repositoryService.createVirtualItem(id)
       if (!virtualItem) return res.status(404).json({ error: 'Virtual item not found' })
       return res.json(virtualItem)
     }
@@ -96,7 +103,7 @@ router.get('/items/:id', async (req, res) => {
 
     // 1. If 'tree' is requested, use the legacy getItemDetails logic (Fat Item)
     if (queryInclude.includes('tree')) {
-      const details = await libraryService.getItemDetails(req.params.id)
+      const details = await libraryService.getItemDetails(id)
       if (!details) return res.status(404).json({ error: 'Item not found' })
       const serialized = JSON.stringify(details, (key, value) => {
         if (key === 'children') return value ? `[${value.length}]` : value
@@ -108,7 +115,7 @@ router.get('/items/:id', async (req, res) => {
 
     const options = parseFindOptions(req.query)
     // Force ID match
-    options.where = { ...options.where, id: req.params.id }
+    options.where = { ...options.where, id }
     options.limit = 1
 
     // 2. For single items (Detail View), we always want essential metadata by default
@@ -153,10 +160,17 @@ router.get('/items/:id', async (req, res) => {
 })
 
 // GET /items/:id/children
-router.get('/items/:id/children', (req, res) => {
+router.get('/items/:id/children', async (req, res) => {
   try {
-    if (repositoryService.isVirtualId(req.params.id)) {
-      const { parentId, groupByKey, groupByValue } = repositoryService.parseVirtualId(req.params.id)
+    let id = req.params.id
+    if (id === 'root') {
+      const root = await libraryService.getLibraryRoot()
+      if (!root) return res.status(404).json({ error: 'Library root not found' })
+      id = root.id
+    }
+
+    if (repositoryService.isVirtualId(id)) {
+      const { parentId, groupByKey, groupByValue } = repositoryService.parseVirtualId(id)
       if (!parentId || !groupByKey || !groupByValue) return res.status(404).json({ error: 'Invalid virtual ID' })
 
       // Map the grouping key to a filter key that repository.service understands
@@ -191,12 +205,12 @@ router.get('/items/:id/children', (req, res) => {
 
     const options = parseFindOptions(req.query)
     // Force parentId match
-    options.where = { ...options.where, parentId: req.params.id }
+    options.where = { ...options.where, parentId: id }
 
     // Contextual Sorting (Spec 4.1.2)
     // If sort not specified, check parent type
     const parent = repositoryService.find({
-      where: { id: req.params.id },
+      where: { id: id },
       fields: ['mediaType']
     })[0]
 
@@ -215,6 +229,7 @@ router.get('/items/:id/children', (req, res) => {
     }
 
     let items = repositoryService.find(options)
+    console.log(`[V2] /items/${req.params.id}/children: Resolved ID to ${id}. Found ${items.length} items.`)
 
     // For TV shows, populate each season's children (episodes) for the tabs view
     if (parent?.mediaType === 'tv') {
@@ -237,19 +252,26 @@ router.get('/items/:id/children', (req, res) => {
 })
 
 // GET /items/:id/ancestors
-router.get('/items/:id/ancestors', (req, res) => {
+router.get('/items/:id/ancestors', async (req, res) => {
   try {
-    const ancestors = repositoryService.getAncestors(req.params.id)
+    let id = req.params.id
+    if (id === 'root') {
+      const root = await libraryService.getLibraryRoot()
+      if (!root) return res.status(404).json({ error: 'Library root not found' })
+      id = root.id
+    }
+
+    const ancestors = repositoryService.getAncestors(id)
     // Ancestors query includes the item itself (idx 0).
     // Usually breadcrumbs want everything BEFORE the item.
     // Let's filter out the item itself if checking IDs, or just return as is and let frontend handle?
     // Spec says "Ancestors", implying parents.
     // The recursive query above returns [Root, Parent, Self].
     // Let's remove Self.
-    const cleanAncestors = ancestors.filter((a) => a.id !== req.params.id)
-    res.json(cleanAncestors)
+    const cleanAncestors = ancestors.filter((a) => a.id !== id)
+    return res.json(cleanAncestors)
   } catch (e: any) {
-    res.status(500).json({ error: e.message })
+    return res.status(500).json({ error: e.message })
   }
 })
 

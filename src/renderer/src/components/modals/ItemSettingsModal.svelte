@@ -96,7 +96,7 @@
   async function refreshItemDetails() {
     if (isVirtual || !item.id) return
     try {
-      const freshItem = await window.api.getItemDetails(item.id)
+      const freshItem = await window.api.getItemV2(item.id)
       if (freshItem) {
         // Update local state with fresh data to correct any stale props
         title = freshItem.title ?? freshItem.name

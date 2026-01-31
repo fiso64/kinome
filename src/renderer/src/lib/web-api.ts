@@ -92,6 +92,10 @@ class WebApiClient implements ApiClient {
   }
 
   getItemV2(id: string, include: string[] = []): Promise<LibraryItem> {
+    if (!id || id === 'null' || id === 'undefined') {
+      console.warn(`[WebApiClient] getItemV2 called with invalid ID: "${id}". Skipping request.`)
+      return Promise.resolve(null as any)
+    }
     const params = new URLSearchParams()
     if (include.length > 0) params.set('include', include.join(','))
     return this.request(`/api/v2/items/${encodeURIComponent(id)}?${params.toString()}`)
@@ -101,6 +105,12 @@ class WebApiClient implements ApiClient {
     parentId: string,
     options: { limit?: number; offset?: number; include?: string[]; orderBy?: string } = {}
   ): Promise<LibraryItem[]> {
+    if (!parentId || parentId === 'null' || parentId === 'undefined') {
+      console.warn(
+        `[WebApiClient] getChildrenV2 called with invalid parentId: "${parentId}". Skipping request.`
+      )
+      return Promise.resolve([])
+    }
     const params = new URLSearchParams()
     if (options.limit) params.set('limit', options.limit.toString())
     if (options.offset) params.set('offset', options.offset.toString())
@@ -400,7 +410,7 @@ class WebApiClient implements ApiClient {
   // --- Real-time updates (Socket.io) ---
 
   onWindowMaximizedStatus(_callback: (isMaximized: boolean) => void): () => void {
-    return () => {}
+    return () => { }
   }
 
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
@@ -426,7 +436,7 @@ class WebApiClient implements ApiClient {
   onShowErrorDialog(
     _callback: (options: { title: string; message: string; detail?: string }) => void
   ): () => void {
-    return () => {}
+    return () => { }
   }
 
   onForceReloadForNewLibrary(callback: () => void): () => void {
