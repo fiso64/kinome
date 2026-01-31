@@ -11,47 +11,51 @@ export function isVirtualId(id: string): boolean {
 
 export function parseVirtualId(id: string) {
   const parts = id.split('--')
-  // virtual--{parentId}--{key}--{value}
+  // virtual--{parentId}--{token1}--{token2}...
   return {
     prefix: parts[0],
     parentId: parts[1],
-    groupByKey: parts[2],
-    groupByValue: parts[3]
+    tokens: parts.slice(2)
   }
 }
 
 export function createVirtualItem(id: string): LibraryItem | null {
-  const { parentId, groupByKey, groupByValue } = parseVirtualId(id)
-  if (!parentId || !groupByKey || !groupByValue) return null
+  const { parentId, tokens } = parseVirtualId(id)
+  if (!parentId || !tokens || tokens.length === 0) return null
 
   const parent = getItemById(parentId) as MediaFolder
   if (!parent) return null
 
   // Resolve Virtual Folder Settings
+  // Key format: "token1/token2/token3"
+  // e.g. "genre:Animation/year:2024"
+  const settingsKey = tokens.join('/')
+
   let appliedSettings: any = {}
-  if (parent.virtualFolderSettings && parent.virtualFolderSettings[groupByKey] && parent.virtualFolderSettings[groupByKey][groupByValue]) {
-    appliedSettings = parent.virtualFolderSettings[groupByKey][groupByValue]
-    log(`[VirtualItem] Applying settings for ${id}: ${JSON.stringify(appliedSettings)}`)
-  } else {
-    log(`[VirtualItem] No settings found for ${id}. Parent has settings? ${!!parent.virtualFolderSettings}`)
-    if (parent.virtualFolderSettings) {
-      log(`[VirtualItem] Parent keys: ${Object.keys(parent.virtualFolderSettings)}. Looking for: ${groupByKey}`)
-    }
+  if (parent.virtualFolderSettings && parent.virtualFolderSettings[settingsKey]) {
+    appliedSettings = parent.virtualFolderSettings[settingsKey]
+    log(`[VirtualItem] Applying settings for ${id} (Key: ${settingsKey}): ${JSON.stringify(appliedSettings)}`)
   }
+
+  // Name is the value of the last token
+  // Token format: "key:value" (e.g. "genre:Animation") or just "value" (legacy fallback, though we're breaking legacy)
+  const lastToken = tokens[tokens.length - 1]
+  const name = lastToken.includes(':') ? lastToken.split(':')[1] : lastToken
 
   // Synthesize a folder
   const item: LibraryItem = {
     id: id,
     parentId: parentId,
-    name: groupByValue, // e.g. "Animation"
+    name: name,
     type: 'folder',
     mediaType: parent.mediaType, // Inherit media type (e.g. 'movie' context)
     isMissing: false,
     isHidden: false,
     isUserEdited: false,
-    path: `virtual/${groupByValue}`,
+    path: `virtual/${tokens.join('/')}`,
     isVirtual: true,
     children: [], // Lazy load
+    virtualFolderSettings: parent.virtualFolderSettings, // Propagate settings for nested lookups
     ...appliedSettings // Apply view/scraper settings
   }
 

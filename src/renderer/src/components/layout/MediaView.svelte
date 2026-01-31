@@ -164,19 +164,51 @@
             }
           }
         }
+        // Calculate Parent Token Path for Settings Lookup
+        let parentTokenPath = ''
+        if ((parentItem as any).isVirtual && parentItem.id.startsWith('virtual--')) {
+          const parts = parentItem.id.split('--')
+          if (parts.length > 2) {
+            parentTokenPath = parts.slice(2).join('/')
+          }
+        }
+
         const vFolders = Object.entries(groups)
           .map(([groupValue, groupItems]) => {
+            // New Token: "Key:Value"
+            const token = `${groupByKey}:${groupValue}`
+            // Full Path Key: "Parent/Path/Key:Value"
+            const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
+
+            // Lookup Settings
+            // Note: virtualFolderSettings is now a flat Record<string, MediaFolder>
+            // We use the full path key to access it.
             const virtualSettings =
-              parentItem.virtualFolderSettings?.[groupByKey]?.[groupValue] ?? {}
+              (parentItem.virtualFolderSettings as any)?.[fullSettingsKey] ?? {}
+
+            // Construct Recursive ID
+            // If parent is already virtual, we append to its ID.
+            // ID Format: virtual--{physicalParentId}--{token1}--{token2}...
+
+            let newId = ''
+            let physicalParentId = parentItem.id
+
+            if ((parentItem as any).isVirtual && parentItem.id.startsWith('virtual--')) {
+              newId = `${parentItem.id}--${token}` // Append token
+              physicalParentId = parentItem.id.split('--')[1]
+            } else {
+              newId = `virtual--${parentItem.id}--${token}`
+            }
+
             const virtualFolder: VirtualFolder = {
-              id: `virtual--${parentItem.id}--${groupByKey}--${groupValue}`,
+              id: newId,
               name: groupValue,
               title: virtualSettings.title ?? groupValue,
               type: 'folder',
               children: groupItems as LibraryItem[],
               path: '',
               isVirtual: true,
-              physicalParentId: parentItem.id,
+              physicalParentId: physicalParentId,
               groupByKey: groupByKey,
               groupByValue: groupValue,
               ...virtualSettings

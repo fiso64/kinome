@@ -1,7 +1,7 @@
 # Spec: Virtual Tags & Dynamic Categorization
 
-**Version:** 1.0
-**Status:** **Implemented**
+**Version:** 2.0
+**Status:** Proposed
 **Related:** `scan_architecture.md`, `api_rewrite.md`, `metadata_locking.md`
 
 ---
@@ -10,12 +10,15 @@
 
 **Virtual Tags** are a system for creating dynamic, rule-based categories (e.g., "Is Anime", "Is 4K") derived from item metadata (Genres, Resolution, Paths). Unlike static tags applied manually by users, Virtual Tags are automatically computed by the system. This spec defines the architecture for defining, calculating, persisting, and querying these tags.
 
+**v2.0 Update:** Introduces **Recursive Virtualization**, allowing users to nest virtual groupings indefinitely (e.g., "Anime" -> "2024" -> "Studio Ghibli").
+
 ## 2. Problem Statement / Motivation
 
 Users need a way to organize content based on dynamic criteria without manually tagging thousands of items.
 -   **Example:** A user wants a "Kids Movies" section. They define a rule: "If Genre contains 'Family' OR 'Animation'".
 -   **Pain Point:** Doing this manually is impossible for large libraries.
 -   **Scalability:** The system must support filtering and grouping purely via database queries for performance (Lean & Lazy Architecture).
+-   **Recursion (v2.0):** Users often want todrill down further once inside a category (e.g., filtering "Kids Movies" by "Year").
 
 ## 3. Goals and Non-Goals
 
@@ -24,6 +27,7 @@ Users need a way to organize content based on dynamic criteria without manually 
 -   **Persistence:** Tags are stored in the database (`virtual_tags_json`) to allow efficient SQL querying, sorting, and indexing.
 -   **Automatic Synchronization:** Tags must automatically update whenever the source data (Genres, Title, Path) changes.
 -   **Database-Side Filtering:** The API must support filtering by virtual tags directly in SQL (e.g., `json_extract(virtual_tags_json, '$.is_anime') = 'Yes'`).
+-   **Infinite Nesting (v2.0):** Support recursive virtual folders (Virtual inside Virtual).
 
 ### Non-Goals
 -   **Complex Code Execution:** Rules are simple metadata comparisons, not arbitrary JavaScript code execution.
@@ -73,41 +77,46 @@ Refactored to "Lean & Lazy" principles (See `api_rewrite.md`).
     WHERE json_extract(m.virtual_tags_json, '$.is_anime') = 'Yes'
     ```
 
-### D. Virtual Folder Settings & Persistence
+### D. Virtual Folder Settings & Persistence (v2.0)
 
-Virtual items (e.g., a "Kids Movies" Section) appear in the UI as folders, meaning users expect to be able to customize their view settings (Grid vs List, Poster Size, etc.). Since virtual items do not exist as rows in the database, we persist their settings **on the Physical Parent**.
+With recursive virtualization, virtual items (e.g., "Anime" -> "2024") still need view settings. Since these items do not exist in the DB, we persist settings on the **Physical Parent**.
 
-#### 1. Data Structure
-The physical parent folder (e.g., the Root folder or a Library) contains a `virtualFolderSettings` (DB column: `virtual_folder_settings_json`) property. This is a nested JSON structure that maps:
-`Grouping Key -> Grouping Value -> Settings Object`
+#### 1. Recursive ID Schema
+We replace the flat `virtual--PARENT--KEY--VALUE` schema with a token-based path.
+
+**Format:** `virtual--{PhysicalParentID}--{Token1}--{Token2}--...`
+*   **Token:** Represents a filter step, encoded safely (e.g., Base64 or URL-safe encoding of `Key:Value`).
+*   **Example (Level 1):** `virtual--123--genre:Animation`
+*   **Example (Level 2):** `virtual--123--genre:Animation--year:2024`
+
+#### 2. Settings Data Structure
+The `virtualFolderSettings` column on the physical parent now stores settings keyed by the **Full Filter Path** instead of a flat grouping key.
+
+`Filter Path -> Settings Object`
 
 **Example:**
-A "Sections" view grouped by `vt.is_animated` has two sections: "Animation" and "Live Action".
-If the user changes the "Animation" section to a 400px Grid, the **Physical Parent** stores:
-
 ```json
 {
-  "vt.is_animated": {
-    "Animation": {
-      "layout": "grid",
-      "gridPosterSize": 400
-    },
-    // "Live Action" (missing) falls back to default settings
+  "genre:Animation": {
+    "layout": "grid",
+    "gridPosterSize": 400
+  },
+  "genre:Animation/year:2024": {
+    "layout": "list",
+    "listDescriptionRows": 3
   }
 }
 ```
 
-#### 2. Update Logic (Redirection)
-The Frontend is agnostic to this complexity. It sends a standard update request for the virtual item.
-
-1.  **Frontend Request:** `PUT /api/items/virtual--PARENT_ID--KEY--VALUE`
-2.  **API Layer:** Calls `libraryService.updateItem(virtualItem)`.
-3.  **Redirection (Backend):** The backend detects the `virtual--` prefix.
-    *   It parses the ID to extract the `Physical Parent ID`, `Grouping Key`, and `Grouping Value`.
-    *   It retrieves the **Physical Parent**.
-    *   It updates the specific slice of the parent's `virtualFolderSettings` JSON.
-    *   It saves the **Physical Parent** to the database.
-    *   **CRITICAL:** It skips trying to save the `virtualItem` row to the DB to avoid Foreign Key errors.
+#### 3. Update Logic (Redirection)
+1.  **Request:** `PUT /api/items/virtual--123--genre:Animation--year:2024`
+2.  **API Layer:** Calls `libraryService.updateItem`.
+3.  **Backend Interceptor:**
+    *   Parses the ID into tokens: `["genre:Animation", "year:2024"]`.
+    *   Constructs the full path key: `"genre:Animation/year:2024"`.
+    *   Updates the JSON on Physical Parent `123`.
+    *   Saves Parent `123` to DB.
+    *   Does **NOT** save the virtual item row.
 
 ## 5. Persistence vs. On-Demand (Unresolved Questions)
 
@@ -126,10 +135,16 @@ The Frontend is agnostic to this complexity. It sends a standard update request 
     -   **Action:** The system triggers a **Full Library Re-evaluation**.
     -   **Logic:** `libraryService.reapplyVirtualTagsAfterSettingsChange()` iterates every item in the DB, recalculates tags, and bulk-updates the `virtual_tags_json` column.
 
-    -   **Solution:** The API intercepts `virtual--` IDs and synthesizes a `LibraryItem` on the fly. Children are fetched by querying the DB with the Virtual Tag filter.
+-   **Path Collision:**
+    -   **Scenario:** A user manually tags items with "Animation" AND defines a Virtual Tag "Animation".
+    -   **Resolution:** Virtual Tags (prefixed `vt.`) are namespaced separately from manual Tags (`tags.`) in the database. Code references must respect this namespace.
 
--   **Nested Virtual Tags (Recursive Virtualization):**
-    -   **Scenario:** A user groups by "Genre" (Virtual), and then inside the "Action" folder, groups again by "Year" (Virtual).
-    -   **Current Status:** **Undefined / Unsupported**.
-    -   **Constraint:** The current ID structure (`virtual--PARENT--KEY--VALUE`) only supports one level of depth relative to a *physical* parent. Nesting virtual folders would require a recursive ID scheme (e.g. `virtual--virtual--...`) which is not currently implemented. Grouping is currently flattened to one level of virtualization per physical view.
+-   **Circular Recursion (v2.0):**
+    -   **Scenario:** Grouping by "Genre" inside a "Genre" view.
+    -   **Resolution:** The UI should prevent grouping by a key that is already present in the current filter stack (Token List).
+
+-   **Performance Depth:**
+    -   **Scenario:** User nests 10 levels deep.
+    -   **Impact:** The ID becomes very long.
+    -   **Mitigation:** Browser URL limits (2kB) are the hard limit. Practically, 3-4 levels is the max useful depth.
 

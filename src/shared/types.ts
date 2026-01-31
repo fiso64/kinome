@@ -274,7 +274,7 @@ export interface MediaFolder extends StoredViewSettings {
   children: LibraryItem[] | null
 
   // --- View & Behavior Settings (Preserved) ---
-  virtualFolderSettings?: Record<string, Record<string, Partial<MediaFolder>>>
+  virtualFolderSettings?: Record<string, Partial<MediaFolder>>
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
   process_tv_children?: boolean // If false, season/episode processing and fetching is disabled

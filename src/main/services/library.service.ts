@@ -481,14 +481,19 @@ export const handleItemRenamed = async (oldPath: string, _newName: string) => {
 }
 export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   // --- Check for Virtual Folder Redirection ---
+  // --- Check for Virtual Folder Redirection ---
   if (item.id.startsWith('virtual--')) {
     log(`Redirection triggered for virtual item: ${item.id}`)
-    const parts = item.id.split('--')
-    const physicalParentId = parts[1] // virtual--{parentId}--{key}--{value}
-    const groupByKey = parts[2]
-    const groupByValue = parts[3]
 
-    if (physicalParentId && groupByKey && groupByValue) {
+    // Manual Parse or use Repository Helper? 
+    // We can just split manually here to keep it self-contained or use the helper if available.
+    // Let's match repository.service logic for consistency.
+    const parts = item.id.split('--')
+    // virtual--{parentId}--{token1}--{token2}...
+    const physicalParentId = parts[1]
+    const tokens = parts.slice(2)
+
+    if (physicalParentId && tokens.length > 0) {
       const parent = repositoryService.getItemById(physicalParentId) as MediaFolder
       if (parent) {
         // Prepare settings to save
@@ -499,10 +504,26 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
           }
         }
 
+        // Key for settings: "token1/token2"
+        const settingsKey = tokens.join('/')
+
         // Update virtual settings on physical parent
         if (!parent.virtualFolderSettings) parent.virtualFolderSettings = {}
-        if (!parent.virtualFolderSettings[groupByKey]) parent.virtualFolderSettings[groupByKey] = {}
-        parent.virtualFolderSettings[groupByKey][groupByValue] = settingsToSave
+
+        // We store it flat in the JSON, keyed by the full path?
+        // Wait, spec said: { "genre:Animation": {...}, "genre:Animation/year:2024": {...} }
+        // The previous implementation was nested: parent.virtualFolderSettings[groupByKey][groupByValue]
+        // This new implementation is FLAT (keyed by path string) or NESTED?
+        // The spec says:
+        // {
+        //   "genre:Animation": { ... },
+        //   "genre:Animation/year:2024": { ... }
+        // }
+        // This looks like a Flat Map where the key is the path string.
+        // My previous implementation was: parent.virtualFolderSettings[groupByKey][groupByValue] (Nested Object)
+        // I am changing the schema here to a Flat Map style for flexibility.
+
+        parent.virtualFolderSettings[settingsKey] = settingsToSave
 
         // Persistence trigger
         repositoryService.updateItem(parent.id, {

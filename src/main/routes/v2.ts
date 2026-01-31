@@ -170,28 +170,41 @@ router.get('/items/:id/children', async (req, res) => {
     }
 
     if (repositoryService.isVirtualId(id)) {
-      const { parentId, groupByKey, groupByValue } = repositoryService.parseVirtualId(id)
-      if (!parentId || !groupByKey || !groupByValue) return res.status(404).json({ error: 'Invalid virtual ID' })
+      const { parentId, tokens } = repositoryService.parseVirtualId(id)
+      if (!parentId || !tokens || tokens.length === 0) return res.status(404).json({ error: 'Invalid virtual ID' })
 
       // Map the grouping key to a filter key that repository.service understands
       const filterOptions: Record<string, any> = {
         parentId: parentId
       }
 
-      if (groupByKey === 'genre' || groupByKey === 'genres') {
-        filterOptions['genres'] = groupByValue
-      } else if (groupByKey.startsWith('vt.') || groupByKey === 'virtualTags') {
-        // e.g. vt.is_animated -> virtualTags.is_animated
-        const key = groupByKey.startsWith('vt.') ? groupByKey.split('.')[1] : null
-        if (key) {
-          filterOptions[`virtualTags.${key}`] = groupByValue
+      // Recursive Token Parsing
+      // tokens = ["genre:Animation", "year:2024"]
+      for (const token of tokens) {
+        // Simple "key:value" splitting.
+        // If value contains ':', we only split on the first one.
+        const separatorIndex = token.indexOf(':')
+        if (separatorIndex === -1) continue // Skip invalid tokens
+
+        const groupByKey = token.substring(0, separatorIndex)
+        const groupByValue = token.substring(separatorIndex + 1)
+
+        if (groupByKey === 'genre' || groupByKey === 'genres') {
+          filterOptions['genres'] = groupByValue
+        } else if (groupByKey.startsWith('vt.') || groupByKey === 'virtualTags') {
+          // e.g. vt.is_animated -> virtualTags.is_animated
+          const key = groupByKey.startsWith('vt.') ? groupByKey.split('.')[1] : null
+          if (key) {
+            filterOptions[`virtualTags.${key}`] = groupByValue
+          }
+        } else if (groupByKey.startsWith('tags.') || groupByKey === 'tags') {
+          // e.g. tags.mood -> tags.mood
+          const key = groupByKey.startsWith('tags.') ? groupByKey.replace('tags.', '') : null
+          if (key) {
+            filterOptions[`tags.${key}`] = groupByValue
+          }
         }
-      } else if (groupByKey.startsWith('tags.') || groupByKey === 'tags') {
-        // e.g. tags.mood -> tags.mood
-        const key = groupByKey.startsWith('tags.') ? groupByKey.replace('tags.', '') : null
-        if (key) {
-          filterOptions[`tags.${key}`] = groupByValue
-        }
+        // TODO: Add support for literal 'year', 'studio', etc. if needed later
       }
 
       // Fetch children with DB-side filtering
