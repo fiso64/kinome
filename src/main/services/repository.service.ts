@@ -90,7 +90,14 @@ export function runTransaction<T>(fn: () => T): T {
   return db.transaction(fn)()
 }
 
-// --- Mappers ---
+// --- Metadata Helpers ---
+
+/**
+ * Checks if a specific field is locked for a library item.
+ */
+export function isFieldLocked(item: LibraryItem, field: string): boolean {
+  return item.lockedFields?.includes(field) ?? false
+}
 
 function parseJsonSafe<T>(jsonString: string | null, fallback: T): T {
   if (!jsonString) return fallback

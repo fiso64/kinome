@@ -1,6 +1,6 @@
 # Spec: Scan Architecture
 
-**Version:** 2.0
+**Version:** 2.1 (Timestamp Model)
 **Status:** Proposed
 **Related:** `tv_parsing.md`, `metadata_locking.md`, `metadata_decoupling.md`
 
@@ -73,34 +73,33 @@ The walker iterates every file on disk.
 The enrichment loop finds items with missing or "dirty" metadata.
 
 1.  **Gate:** Logic runs **ONLY** on children of a folder where `retrieve_children_metadata = true`.
-2.  **Trigger 1 (Identification):** It searches TMDB for unidentified items (`tmdbId` missing).
-    -   **Endpoint Selection (Gated by Parent Type Hint):** The choice of search endpoint is determined by the parent folder's `children_type_hint` setting:
-        -   **If Hint = 'tv'**: Uses the TMDB `/search/tv` endpoint (Faster, more accurate).
+2.  **Trigger 1 (Identification - Atomic Sync):** Identification is a **single-path atomic event** for all media types:
+    -   **Identity (Gated by Parent Type Hint)**:
+        -   **If Hint = 'tv'**: Uses the TMDB `/search/tv` endpoint (Fast & Accurate).
         -   **If Hint = 'movie'**: Uses the TMDB `/search/movie` endpoint.
         -   **If No Hint**: Uses the TMDB `/search/multi` endpoint and filters for movies/TV shows.
-    -   **Result Assignment**: The `mediaType` of the item is assigned based on the result from the endpoint (or the hint itself if the search is narrow).
-    -   **Structural Re-sync**: If an item is newly identified as a TV show, the service **immediately triggers** `tvShowService.syncTvShowStructure`. This ensures seasons and episodes are created in the same scan cycle, eliminating the "One-Scan Lag".
-3.  **Trigger 2 (Details):** It looks for items where:
-    - `mediaType` is set.
-    - Any of the **State Flags** (see below) are `false` (or missing).
+    -   **Enrichment**: Immediately call `/movie/{id}` or `/tv/{id}` to fetch full details (Backdrops, Logos, Genres, Credits). This ensures **"First-Scan Parity"** for both movies and TV shows.
+    -   **Structural Re-sync (TV Only)**: Immediately trigger `tvShowService.syncTvShowStructure` after details are fetched (required for season/episode hierarchy).
+3.  **Trigger 2 (Refresh & Repair):** A secondary pass looks for items that are "Identified" (`tmdb_id` is present) but "Stale" or "Corrupt".
+    -   **Condition:** `last_refreshed_at` is `NULL`.
+    -   **Logic:** This indicates a previous fetch failed, crashed, or the item was manually invalidated by a user edit. The system must attempt to re-fetch details, credits, and images.
 
-### C. State Flags & Eager Fetching
+### C. State Model: Identity vs. Freshness
 
-The system tracks metadata progress via three computed flags. While these flags allow for partial states, the architecture mandates **Eager Fetching** during Phase 2. We do not wait for user navigation to fetch "deep" data (credits/episodes).
+The system does not use boolean "Is Fetched" flags, as these can desynchronize from the actual data (e.g., flag says true, but data is empty due to a crash). Instead, we use two states:
 
-| Flag                  | Condition                            | Logic                                                |
-| :-------------------- | :----------------------------------- | :--------------------------------------------------- |
-| `tmdbDetailsFetched`  | `items.tmdb_id IS NOT NULL`          | Basic details (Title, Overview, Poster) are present. |
-| `tmdbCreditsFetched`  | `metadata.people_json IS NOT NULL`   | Cast & Crew have been populated.                     |
-| `tmdbEpisodesFetched` | `metadata.episodes_json IS NOT NULL` | (TV Only) Season/Episode list is cached.             |
+1.  **Identity (`tmdb_id`):** Determines *what* the item is.
+    -   **Null:** Needs Identification (Search).
+    -   **Set:** Item is Identified.
 
-**Note:** These are **computed properties** derived from the presence of data in the DB, not standalone boolean columns.
+2.  **Freshness (`last_refreshed_at`):** Determines if the metadata is valid/current.
+    -   **Null:** The item is "Dirty". It needs a full metadata fetch (Details + Credits + Images).
+    -   **Timestamp:** The metadata state was synchronized at this time. This includes successful identification, refreshing existing data, OR confirming no match exists. Even if fields like `overview` or `credits` are empty, we trust that the fetch occurred and returned no data.
 
 **Policy:**
 
-- When the enrichment loop picks up an item, it MUST attempt to resolve **ALL missing flags** immediately.
-- A "Healthy" item in a metadata-enabled folder should have all applicable flags set to `true`.
-- These flags function as a progress monitor, not a feature toggle for lazy loading.
+-   The `last_refreshed_at` timestamp is **ONLY** updated after a *successful*, atomic completion of the fetch routine (Details + Credits + Images + (Seasons + Episodes if TV Show)).
+-   If a fetch fails or the server crashes mid-process, the timestamp remains `NULL`. The next scan will automatically retry.
 
 ## 5. Metadata Integrity & Decoupling
 
@@ -112,9 +111,9 @@ Crucially, this architecture supports the **Decoupled Metadata** workflow define
 2.  **User Edit:** User changes DB to `Episode 2` (implicitly locking it).
     - DB `episode_number` becomes `2`.
     - `locked_fields_json` includes `"episodeNumber"`.
-    - `tmdbDetailsFetched` is set to `0` (Dirty).
+    - `last_refreshed_at` is set to `NULL` (Dirty).
 3.  **Re-Scan (Phase 1):** Scanner sees `S01E01.mkv`. Checks locks. Sees lock. **DOES NOT** overwrite DB with `1`. DB remains `2`.
-4.  **Re-Enrich (Phase 2):** Metadata service sees `tmdbDetailsFetched = 0`.
+4.  **Re-Enrich (Phase 2):** Metadata service sees `last_refreshed_at IS NULL`.
     - Refetches metadata for `Episode 2` (not 1).
     - Updates Title to "The Second Episode".
     - **Result:** The file `S01E01.mkv` is now effectively "Episode 2" in the UI, with correct metadata, despite the filename.

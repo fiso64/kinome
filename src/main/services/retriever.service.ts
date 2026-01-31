@@ -2,6 +2,7 @@ import path from 'path'
 import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../../shared/types'
 import { downloadImage } from '../utils/download'
 import { parseTitle } from '../utils/title-parser'
+import * as repositoryService from './repository.service'
 
 const genreCache = new Map<number, string>()
 
@@ -442,6 +443,11 @@ export async function fetchItemDetails(
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string
 ): Promise<LibraryItem[]> {
+  // Efficiency Rule: Do not re-fetch if already completed
+  if (item.tmdbDetailsFetched) {
+    return [item]
+  }
+
   if (!item.tmdbId || !item.mediaType) {
     console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
     return [item]
@@ -503,16 +509,24 @@ export async function fetchItemDetails(
       item.logoPath = null
     }
 
-    // Update other metadata fields
-    item.title = details.title || details.name
-    if (details.overview) {
+    // Update other metadata fields (Conditional on Locks)
+    if (details.title || details.name) {
+      if (!repositoryService.isFieldLocked(item, 'title')) {
+        item.title = details.title || details.name
+      }
+    }
+    if (details.overview && !repositoryService.isFieldLocked(item, 'overview')) {
       item.overview = details.overview
     }
     const date = details.release_date || details.first_air_date
-    if (date) {
+    if (date && !repositoryService.isFieldLocked(item, 'year')) {
       item.year = new Date(date).getFullYear()
     }
-    if (details.genres && Array.isArray(details.genres)) {
+    if (
+      details.genres &&
+      Array.isArray(details.genres) &&
+      !repositoryService.isFieldLocked(item, 'genres')
+    ) {
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
 

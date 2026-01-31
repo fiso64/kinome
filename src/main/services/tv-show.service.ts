@@ -4,7 +4,7 @@ import {
     determineEpisodeNumbers,
     ParsedTvInfo
 } from '../utils/tv-parser'
-import type { MediaFolder, MediaFile, LibraryItem } from '../../shared/types'
+import type { MediaFolder, MediaFile } from '../../shared/types'
 
 /**
  * Syncs the internal season/episode structure of a TV show based on filesystem patterns.
@@ -31,7 +31,7 @@ export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
     for (const folder of folders) {
         const info = seasonMap.get(folder.name)
         if (info && info.mediaType === 'season') {
-            const isLocked = isFieldLocked(folder, 'seasonNumber')
+            const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
             const targetSeason = isLocked ? folder.seasonNumber : info.season
 
             if (!isLocked && folder.seasonNumber !== targetSeason) {
@@ -68,8 +68,8 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
     for (const file of files) {
         const info = episodeMap.get(file.name)
         if (info && info.mediaType === 'episode') {
-            const isSeasonLocked = isFieldLocked(file, 'seasonNumber')
-            const isEpisodeLocked = isFieldLocked(file, 'episodeNumber')
+            const isSeasonLocked = repositoryService.isFieldLocked(file, 'seasonNumber')
+            const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
 
             let changed = false
             if (!isSeasonLocked && info.season !== undefined && file.seasonNumber !== info.season) {
@@ -89,10 +89,3 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
     }
 }
 
-/**
- * Helper to check if a field is locked in an item's metadata.
- */
-function isFieldLocked(item: LibraryItem, field: string): boolean {
-    if (!item.lockedFields) return false
-    return item.lockedFields.includes(field)
-}

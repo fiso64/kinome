@@ -4,7 +4,6 @@ import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
 import {
-  parseSeasonFolder,
   determineEpisodeNumbers,
   determineSeasonNumbers,
   ParsedTvInfo

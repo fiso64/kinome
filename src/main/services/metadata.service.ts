@@ -25,10 +25,6 @@ const log = (message: string): void => {
 //   return false
 // }
 
-// Helper to check if a field is locked
-function isFieldLocked(item: LibraryItem, field: string): boolean {
-  return item.lockedFields?.includes(field) ?? false
-}
 
 // Helper to check if an item's parent has retrieve_children_metadata enabled (The Gate)
 function isMetadataEnabledForItem(itemId: string): boolean {
@@ -64,15 +60,15 @@ async function applyEpisodeMetadataFromCache(
 
     let changed = false
 
-    if (ep.title !== cachedEp.name && !isFieldLocked(ep, 'title')) {
+    if (ep.title !== cachedEp.name && !repositoryService.isFieldLocked(ep, 'title')) {
       ep.title = cachedEp.name
       changed = true
     }
-    if (ep.overview !== cachedEp.overview && !isFieldLocked(ep, 'overview')) {
+    if (ep.overview !== cachedEp.overview && !repositoryService.isFieldLocked(ep, 'overview')) {
       ep.overview = cachedEp.overview
       changed = true
     }
-    if (!ep.posterPath && cachedEp.still_path && !isFieldLocked(ep, 'posterPath')) {
+    if (!ep.posterPath && cachedEp.still_path && !repositoryService.isFieldLocked(ep, 'posterPath')) {
       const posterUrl = `https://image.tmdb.org/t/p/w500${cachedEp.still_path}`
       const posterFileName = `${ep.id}.jpg`
       try {
@@ -186,7 +182,7 @@ export async function fetchMetadataForLibrary() {
         : null
       const typeHint = parent?.children_type_hint
 
-      // Generic Movie/Show search
+      // Unified Atomic Search & Enrichment
       await retrieverService.searchTmdbAndApplyMetadata(
         item,
         settings.tmdbApiKey!,
@@ -194,17 +190,19 @@ export async function fetchMetadataForLibrary() {
         typeHint
       )
 
-      // PERSISTENCE FIX: Save the identified item to the database!
       if (item.tmdbId) {
-        repositoryService.updateItem(item.id, item)
+        // Atomic Phase 2: Immediate Detail Fetch (Parity for Movies)
+        log(`[Metadata] Found ID for "${item.name}". Fetching details...`)
+        await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
 
-        // CLEAN REFACTOR: Trigger structural parsing immediately if identified as TV
+        // Atomic Phase 3: TV Structural Sync (If applicable)
         if (item.mediaType === 'tv') {
-          log(`[Metadata] "${item.name}" identified as TV Show. Syncing structure...`)
+          log(`[Metadata] Identified as TV Show. Syncing structure...`)
           await tvShowService.syncTvShowStructure(item as MediaFolder)
-          // re-fetch allItems if needed? Actually syncTvShowStructure updates DB.
-          // The next loop will see the updated items in the DB if we re-query.
         }
+
+        // Atomic Phase 4: Persistence
+        repositoryService.updateItem(item.id, item)
       }
     })
   }
@@ -243,12 +241,9 @@ export async function fetchMetadataForLibrary() {
   for (const show of tvShows) {
     if (!show.tmdbId) continue
 
-    // 1. Ensure Show Metadata (Seasons Cache)
     const showFolder = show as MediaFolder
-    if (!showFolder.tmdbSeasons || !showFolder.tmdbDetailsFetched) {
-      await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath)
-      repositoryService.updateItem(showFolder.id, showFolder)
-    }
+    // Note: Detail fetch is now primarily handled by the Atomic Sync (Loop A) 
+    // or the Enrichment Pass (Loop B). We proceed directly to structural sync.
 
     // CLEAN REFACTOR: Use the centralized service instead of hacky inline loop
     await tvShowService.syncTvShowStructure(showFolder)
@@ -265,11 +260,11 @@ export async function fetchMetadataForLibrary() {
         let changed = false
 
         // WRITE GUARD: Checks locks before applying Parent Data
-        if (seasonFolder.title !== cachedSeason.name && !isFieldLocked(seasonFolder, 'title')) {
+        if (seasonFolder.title !== cachedSeason.name && !repositoryService.isFieldLocked(seasonFolder, 'title')) {
           seasonFolder.title = cachedSeason.name
           changed = true
         }
-        if (seasonFolder.overview !== cachedSeason.overview && !isFieldLocked(seasonFolder, 'overview')) {
+        if (seasonFolder.overview !== cachedSeason.overview && !repositoryService.isFieldLocked(seasonFolder, 'overview')) {
           seasonFolder.overview = cachedSeason.overview
           changed = true
         }
@@ -288,7 +283,7 @@ export async function fetchMetadataForLibrary() {
 
       let needsRefetch = !seasonFolder.tmdbEpisodes // Basic missing
       if (!needsRefetch) {
-        for (const num of localEpisodeNumbers) {
+        for (const num of Array.from(localEpisodeNumbers)) {
           if (!cachedEpisodeNumbers.has(num || 0)) {
             needsRefetch = true
             break
@@ -626,7 +621,7 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
     repositoryService.setBulkUpdateStatus(false)
   }
 
-  const uniqueItems = [...new Map(allModifiedItems.map((it) => [it.id, it])).values()]
+  const uniqueItems = Array.from(new Map(allModifiedItems.map((it) => [it.id, it])).values())
   const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
   // No need to update search index here, it's handled by _finalizeItemUpdate in library.service
   log(`[Details] Background processing complete for "${item.name}"`)
