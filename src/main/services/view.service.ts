@@ -146,7 +146,6 @@ async function groupItemsRecursive(
                     mediaType: 'season', // Context specific
                     isMissing: false,
                     isHidden: false,
-                    isUserEdited: false,
                     path: `virtual/${fullSettingsKey}`,
                     isVirtual: true,
                     children: filesBySeason.get(seasonNum)!, // Pre-populate children
@@ -187,7 +186,6 @@ async function groupItemsRecursive(
                     mediaType: physicalParent?.mediaType,
                     isMissing: false,
                     isHidden: false,
-                    isUserEdited: false,
                     path: `virtual/${fullSettingsKey}`,
                     isVirtual: true,
                     children: unseasonedFiles,
@@ -256,7 +254,6 @@ async function groupItemsRecursive(
             mediaType: physicalParent?.mediaType,
             isMissing: false,
             isHidden: false,
-            isUserEdited: false,
             path: `virtual/${fullSettingsKey}`,
             isVirtual: true,
             children: [],

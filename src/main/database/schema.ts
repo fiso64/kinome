@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS items (
     -- State Flags (stored as 0 or 1)
     is_hidden INTEGER DEFAULT 0,
     is_missing INTEGER DEFAULT 0,
-    is_user_edited INTEGER DEFAULT 0,
     
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),

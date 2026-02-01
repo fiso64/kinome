@@ -104,7 +104,6 @@ export function buildVirtualItem(id: string, parent: MediaFolder): LibraryItem {
         mediaType: parent.mediaType, // Inherit media type (e.g. 'movie' context)
         isMissing: false,
         isHidden: false,
-        isUserEdited: false,
         path: `virtual/${tokens.join('/')}`,
         isVirtual: true,
         children: [], // Lazy load

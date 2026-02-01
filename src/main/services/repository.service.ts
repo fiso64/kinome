@@ -32,7 +32,6 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   mtime: { sql: 'i.mtime', table: 'i' },
   isMissing: { sql: 'i.is_missing', table: 'i', parser: Boolean },
   isHidden: { sql: 'i.is_hidden', table: 'i', parser: Boolean },
-  isUserEdited: { sql: 'i.is_user_edited', table: 'i', parser: Boolean },
 
   // Metadata Table
   tmdbId: { sql: 'm.tmdb_id', table: 'm' },
@@ -658,12 +657,6 @@ export function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
 
-export function markAsUserEdited(itemId: string): LibraryItem[] {
-  const db = getDb()
-  db.prepare('UPDATE items SET is_user_edited = 1 WHERE id = ?').run(itemId)
-  const item = getItemById(itemId)
-  return item ? [item] : []
-}
 
 export function updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
   log(`[DEBUG] updateItem called for itemId: ${itemId}`)
@@ -673,22 +666,19 @@ export function updateItem(itemId: string, updates: Partial<LibraryItem>): Libra
     // 1. Items Table
     if (
       updates.isHidden !== undefined ||
-      updates.isMissing !== undefined ||
-      updates.isUserEdited !== undefined
+      updates.isMissing !== undefined
     ) {
       db.prepare(
         `
         UPDATE items SET
 is_hidden = COALESCE(@isHidden, is_hidden),
-  is_missing = COALESCE(@isMissing, is_missing),
-  is_user_edited = COALESCE(@isUserEdited, is_user_edited)
+  is_missing = COALESCE(@isMissing, is_missing)
         WHERE id = @id
   `
       ).run({
         id: itemId,
         isHidden: updates.isHidden === undefined ? null : updates.isHidden ? 1 : 0,
-        isMissing: updates.isMissing === undefined ? null : updates.isMissing ? 1 : 0,
-        isUserEdited: updates.isUserEdited === undefined ? null : updates.isUserEdited ? 1 : 0
+        isMissing: updates.isMissing === undefined ? null : updates.isMissing ? 1 : 0
       })
     }
 

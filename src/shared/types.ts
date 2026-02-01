@@ -249,7 +249,6 @@ export interface MediaFile {
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
   isMissing?: boolean
-  isUserEdited?: boolean
   lastRefreshedAt?: number | null // Timestamp of last successful full fetch
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
@@ -289,7 +288,6 @@ export interface MediaFolder extends StoredViewSettings {
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
   isMissing?: boolean
-  isUserEdited?: boolean
   lastRefreshedAt?: number | null // Timestamp of last successful full fetch
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
@@ -438,7 +436,9 @@ export interface TmdbImageResults {
 
 export const METADATA_KEYS = [
   'title',
+  'originalTitle',
   'overview',
+  'releaseDate',
   'posterPath',
   'backdropPath',
   'logoPath',

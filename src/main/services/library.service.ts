@@ -546,7 +546,6 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
           virtualFolderSettings: parent.virtualFolderSettings
         })
 
-        if (isUser) repositoryService.markAsUserEdited(parent.id)
 
         // Propagate update to renderer (both the virtual item's "bare" state and the parent)
         // Note: Renderer's MediaView will re-generate the virtual items from the updated parent.
@@ -608,7 +607,6 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
 
   // --- Standard Item Update ---
   repositoryService.updateItem(item.id, item)
-  if (isUser) repositoryService.markAsUserEdited(item.id)
   _finalizeItemUpdate(item)
 }
 export const deleteItemFromDb = async (id: string) => {

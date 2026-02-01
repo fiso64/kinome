@@ -471,61 +471,52 @@ export async function fetchEpisodeDataForContinueWatching(
   return itemsToUpdate
 }
 
-async function _resetItemMetadata(
+async function _unlinkItemImages(
   item: LibraryItem,
   imagesDir: string,
   options: { respectLocks?: boolean } = { respectLocks: true }
 ) {
-  if (!pathsService.isRemoteLibrary()) {
-    if (item.posterPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath')))
-      try {
-        await fs.unlink(path.join(imagesDir, item.posterPath))
-      } catch { }
-    if (item.backdropPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath')))
-      try {
-        await fs.unlink(path.join(imagesDir, item.backdropPath))
-      } catch { }
-    if (item.logoPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath')))
-      try {
-        await fs.unlink(path.join(imagesDir, item.logoPath))
-      } catch { }
-  }
+  if (pathsService.isRemoteLibrary()) return
+
+  if (item.posterPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath')))
+    try {
+      await fs.unlink(path.join(imagesDir, item.posterPath))
+    } catch { }
+  if (item.backdropPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath')))
+    try {
+      await fs.unlink(path.join(imagesDir, item.backdropPath))
+    } catch { }
+  if (item.logoPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath')))
+    try {
+      await fs.unlink(path.join(imagesDir, item.logoPath))
+    } catch { }
+}
+
+function _resetItemMetadataFields(
+  item: LibraryItem,
+  options: { respectLocks?: boolean } = { respectLocks: true }
+) {
   for (const key of RESETTABLE_METADATA_KEYS) {
-    // We check hasOwnProperty because we only want to reset properties that actually exist.
-    // A property set to `undefined` will not be present.
     if (Object.prototype.hasOwnProperty.call(item, key)) {
       if (options.respectLocks && repositoryService.isFieldLocked(item, key)) {
         continue
       }
       const itemAsRecord = item as Record<string, any>
       switch (key) {
-        // --- Reset to empty objects/arrays ---
         case 'tags':
           itemAsRecord[key] = {}
           break
         case 'genres':
           itemAsRecord[key] = []
           break
-
-        // --- Reset to nulls (property will be removed or set to null) ---
         case 'lastRefreshedAt':
           itemAsRecord[key] = null
           break
-
         case 'lockedFields':
           itemAsRecord[key] = []
           break
-
-        // --- Reset to undefined (property will be removed) ---
-        case 'title':
-        case 'mediaType':
         case 'opensAsFolder':
-        case 'seasonNumber':
-        case 'episodeNumber':
         case 'virtualTags':
-        case 'posterPath':
-        case 'backdropPath':
-        case 'logoPath':
         case 'continueWatchingDismissed':
         case 'nextUpDismissed':
         case '_lastSeenLocalMaxSeason':
@@ -533,13 +524,21 @@ async function _resetItemMetadata(
           itemAsRecord[key] = undefined
           break
 
-        // --- Reset to null (property exists but has no value) ---
         case 'overview':
         case 'tmdbId':
         case 'year':
         case 'tmdbSeasons':
         case 'tmdbEpisodes':
         case 'tmdbCredits':
+        case 'title':
+        case 'originalTitle':
+        case 'releaseDate':
+        case 'mediaType':
+        case 'seasonNumber':
+        case 'episodeNumber':
+        case 'posterPath':
+        case 'backdropPath':
+        case 'logoPath':
           itemAsRecord[key] = null
           break
       }
@@ -658,7 +657,6 @@ export async function applyManualMatch(
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Applying metadata is not available for read-only remote libraries.')
   }
-  repositoryService.markAsUserEdited(itemId)
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
   const settings = await settingsService.readSettings()
@@ -678,7 +676,8 @@ export async function applyManualMatch(
     }
 
     const imagesDir = path.join(libraryDataPath, 'images')
-    await _resetItemMetadata(item, imagesDir, options)
+    await _unlinkItemImages(item, imagesDir, options)
+    _resetItemMetadataFields(item, options)
 
     if (item.type === 'folder' && mediaType === 'tv') {
       item.tmdbSeasons = null
@@ -687,11 +686,13 @@ export async function applyManualMatch(
         // If respectLocks is false (manual match), this will clear their locks too.
         for (const season of item.children) {
           if (season.type === 'folder' && season.mediaType === 'season') {
-            await _resetItemMetadata(season, imagesDir, options)
+            await _unlinkItemImages(season, imagesDir, options)
+            _resetItemMetadataFields(season, options)
             if (season.children) {
               for (const episode of season.children) {
                 if (episode.mediaType === 'episode') {
-                  await _resetItemMetadata(episode, imagesDir, options)
+                  await _unlinkItemImages(episode, imagesDir, options)
+                  _resetItemMetadataFields(episode, options)
                 }
               }
             }
@@ -782,7 +783,6 @@ export async function setImage(
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Setting images is not available for remote libraries.')
   }
-  repositoryService.markAsUserEdited(itemId)
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
   const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
@@ -835,16 +835,37 @@ export async function removeImage(
 
 export async function clearItemMetadata(
   itemId: string,
-  _childrenOnly: boolean
+  childrenOnly: boolean
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
 
-  // Minimal implementation for build fix
-  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-  await _resetItemMetadata(item, imagesDir, { respectLocks: false })
+  const itemsToClear: LibraryItem[] = []
 
-  repositoryService.updateItem(item.id, item)
+  if (!childrenOnly) {
+    itemsToClear.push(item)
+  }
+
+  if (item.type === 'folder') {
+    const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
+    itemsToClear.push(...descendants)
+  }
+
+  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+
+  // 1. Asynchronously unlink images first (cannot be in a transaction due to async)
+  for (const targetItem of itemsToClear) {
+    await _unlinkItemImages(targetItem, imagesDir, { respectLocks: false })
+  }
+
+  // 2. Execute field resets in a synchronous transaction
+  repositoryService.runTransaction(() => {
+    for (const targetItem of itemsToClear) {
+      _resetItemMetadataFields(targetItem, { respectLocks: false })
+      repositoryService.updateItem(targetItem.id, targetItem)
+    }
+  })
+
   return item
 }
 
