@@ -1,3 +1,21 @@
+export const VIDEO_EXTENSIONS = [
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.mov',
+  '.wmv',
+  '.flv',
+  '.webm',
+  '.m4v',
+  '.mpg',
+  '.mpeg'
+]
+
+export function isSupportedVideoFile(fileName: string): boolean {
+  const ext = fileName.toLowerCase().slice((Math.max(0, fileName.lastIndexOf('.')) || Infinity))
+  return VIDEO_EXTENSIONS.includes(ext)
+}
+
 export function parseEpisodeInfo(
   name: string
 ): { season?: number; episode: number; pattern: 'sxxexx' | 'episode_xx' | 'exx' } | null {
@@ -41,12 +59,15 @@ export function determineEpisodeNumbers(
   strategy: 'smart' | 'alphabetic' = 'smart'
 ): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
-  if (fileNames.length === 0) return results
+
+  // Filter for video files first to avoid diluting consensus with .srt/etc.
+  const videoFiles = fileNames.filter(isSupportedVideoFile)
+  if (videoFiles.length === 0) return results
 
   // 1. Try "Consensus" Regex Pattern (Only if strategy is Smart)
   if (strategy === 'smart') {
     const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
-    const allParsedInfo = fileNames.map((name) => ({ name, parsed: parseEpisodeInfo(name) }))
+    const allParsedInfo = videoFiles.map((name) => ({ name, parsed: parseEpisodeInfo(name) }))
 
     for (const currentPattern of patterns) {
       const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
@@ -70,58 +91,70 @@ export function determineEpisodeNumbers(
   }
 
   // 2. Alphabetic Fallback (or explicit Alphabetic strategy)
-  // Note: The caller is responsible for passing in a SORTED list of fileNames for this to work correctly.
-  fileNames.forEach((name, index) => {
-    // Only override if not already set (though logic above returns early on success)
-    if (!results.has(name)) {
+  // Sort and assign based on position among video files
+  videoFiles
+    .slice()
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .forEach((name, index) => {
       results.set(name, {
         episode: index + 1,
-        season: parentSeasonNumber, // Might be undefined, caller handles
+        season: parentSeasonNumber,
         mediaType: 'episode'
       })
-    }
-  })
+    })
 
   return results
 }
 
 /**
- * Assigns season numbers to a list of folder names based on logic.
- * Returns a map of foldername -> ParsedTvInfo
+ * Only assigns season numbers if they match the explicit Season regex (e.g. S01, Season 1).
  */
-export function determineSeasonNumbers(
-  folderNames: string[],
-  strategy: 'smart' | 'alphabetic' = 'smart'
-): Map<string, ParsedTvInfo> {
+export function determineExplicitSeasonNumbers(folderNames: string[]): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
   const foldersToProcess = folderNames.filter(
     (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
   )
 
-  if (strategy === 'smart') {
-    const remainingFolders: string[] = []
-
-    // 1. Regex Parsing
-    for (const name of foldersToProcess) {
-      const sNum = parseSeasonFolder(name)
-      if (sNum !== null) {
-        results.set(name, { season: sNum, mediaType: 'season' })
-      } else {
-        remainingFolders.push(name)
-      }
+  for (const name of foldersToProcess) {
+    const sNum = parseSeasonFolder(name)
+    if (sNum !== null) {
+      results.set(name, { season: sNum, mediaType: 'season' })
     }
-
-    // If we have any successful matches, we return early and ignore unnumbered folders
-    if (results.size > 0) return results
   }
 
-  // 2. Alphabetic Fallback (or explicit Alphabetic strategy)
-  // Sort and assign numerically
+  return results
+}
+
+/**
+ * Assigns season numbers to a list of folder names alphabetically.
+ */
+export function determineAlphabeticSeasonNumbers(folderNames: string[]): Map<string, ParsedTvInfo> {
+  const results = new Map<string, ParsedTvInfo>()
+  const foldersToProcess = folderNames.filter(
+    (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
+  )
+
   foldersToProcess
+    .slice()
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .forEach((name, index) => {
       results.set(name, { season: index + 1, mediaType: 'season' })
     })
 
   return results
+}
+
+/**
+ * Legacy wrapper for old callers. Now delegates to the prioritized building blocks.
+ * Note: Use the building blocks directly for better control.
+ */
+export function determineSeasonNumbers(
+  folderNames: string[],
+  strategy: 'smart' | 'alphabetic' = 'smart'
+): Map<string, ParsedTvInfo> {
+  if (strategy === 'smart') {
+    const explicit = determineExplicitSeasonNumbers(folderNames)
+    if (explicit.size > 0) return explicit
+  }
+  return determineAlphabeticSeasonNumbers(folderNames)
 }
