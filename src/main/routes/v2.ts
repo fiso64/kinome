@@ -3,6 +3,8 @@ import * as repositoryService from '../services/repository.service'
 import * as libraryService from '../services/library.service'
 import * as viewService from '../services/view.service'
 import { isVirtualId, getFiltersFromId } from '../services/virtual-item.factory'
+import { resolveViewSettings } from '../../shared/settings-helpers'
+import { readSettings } from '../services/settings.service'
 
 const router = Router()
 
@@ -13,16 +15,6 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
   if (query.fields) {
     options.fields = (query.fields as string).split(',')
   } else if (query.include) {
-    // Spec 4.1.1: If include is present, add to CORE_FIELDS
-    // We don't have CORE_FIELDS imported yet, but repository.find handles default logic if fields is empty.
-    // But here we want Base + Extra.
-    // So we need to explicitly import CORE_FIELDS or just rely on find knowing what to do?
-    // find() logic is: if fields empty -> use CORE. If fields NOT empty -> use fields.
-    // So we must manually construct [CORE + Include].
-
-
-    // We will import CORE_FIELDS from repository service.
-    // Use a Set to ensure we don't request duplicate fields (e.g. 'id' which is in CORE and might be requested)
     const extraFields = (query.include as string).split(',')
     const uniqueFields = new Set([...repositoryService.CORE_FIELDS, ...extraFields])
     options.fields = Array.from(uniqueFields)
@@ -44,16 +36,10 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     }
   }
 
-  // Generic filtering
-  // Supported filters: parentId, type, mediaType, isMissing, isHidden, tmdbId
-  // We exclude pagination/sorting keys from 'where'
-  // Supported filters: parentId, type, mediaType, isMissing, isHidden, tmdbId
-  // We exclude pagination/sorting keys from 'where'
-  const reserved = ['fields', 'include', 'limit', 'offset', 'orderBy', 'sort', 'order']
+  const reserved = ['fields', 'include', 'limit', 'offset', 'orderBy', 'sort', 'order', 'groupBy']
 
   for (const [key, value] of Object.entries(query)) {
     if (!reserved.includes(key)) {
-      // Handle "null" or "root" string as null
       if (value === 'null' || value === 'root') {
         options.where![key] = null
       } else {
@@ -62,7 +48,6 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     }
   }
 
-  // Handle explicit 'sort' & 'order' params alternative
   if (query.sort && !options.orderBy) {
     options.orderBy = {
       field: query.sort as string,
@@ -74,7 +59,6 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
 }
 
 // GET /items
-// Generic search/list items
 router.get('/items', (req, res) => {
   try {
     const options = parseFindOptions(req.query)
@@ -103,20 +87,13 @@ router.get('/items/:id', async (req, res) => {
 
     const queryInclude = ((req.query.include as string) || '').split(',')
 
-    // 1. If 'tree' is requested, use the legacy getItemDetails logic (Fat Item)
     if (queryInclude.includes('tree')) {
       const details = await libraryService.getItemDetails(id)
       if (!details) return res.status(404).json({ error: 'Item not found' })
-      const serialized = JSON.stringify(details, (key, value) => {
-        if (key === 'children') return value ? `[${value.length}]` : value
-        return value
-      })
-      console.log(`[V2] Sending Tree for ${details.name}: ${serialized.substring(0, 500)}...`)
       return res.json(details)
     }
 
     const options = parseFindOptions(req.query)
-    // Force ID match
     options.where = { ...options.where, id }
     options.limit = 1
 
@@ -171,36 +148,40 @@ router.get('/items/:id/children', async (req, res) => {
       id = root.id
     }
 
+    const options = parseFindOptions(req.query)
+    const settings = await readSettings()
+
+    let finalGroupBy: string | undefined = undefined
+    const rawGroupBy = req.query.groupBy
+
+    if (rawGroupBy === 'auto' || rawGroupBy === undefined) {
+      const item = isVirtualId(id) ? viewService.getVirtualItem(id) : repositoryService.getItemById(id)
+      const resolved = resolveViewSettings(item as any, settings).settings
+      if (['tabs', 'sections'].includes(resolved.layout)) {
+        finalGroupBy = resolved.groupBy
+      }
+    } else if (rawGroupBy !== 'none') {
+      finalGroupBy = rawGroupBy as string
+    }
+
     if (isVirtualId(id)) {
-      console.log(`[V2] Virtual Children Request for ${id}. Query: `, req.query)
-
       const filterOptions = getFiltersFromId(id)
-
-      // Fetch children with DB-side filtering
-      const options = parseFindOptions(req.query)
       options.where = { ...options.where, ...filterOptions }
 
-      const groupBy = typeof req.query.groupBy === 'string' ? req.query.groupBy : undefined
-
-      if (groupBy) {
+      if (finalGroupBy) {
         if (options.where && 'groupBy' in options.where) {
           delete (options.where as any).groupBy
         }
-        const groups = viewService.getGroups(id, groupBy, options)
+        const groups = await viewService.getGroups(id, finalGroupBy, options)
         return res.json(groups)
       }
 
       const filteredChildren = repositoryService.find(options)
-
       return res.json(filteredChildren)
     }
 
-    const options = parseFindOptions(req.query)
-    // Force parentId match
     options.where = { ...options.where, parentId: id }
 
-    // Contextual Sorting (Spec 4.1.2)
-    // If sort not specified, check parent type
     const parent = repositoryService.find({
       where: { id: id },
       fields: ['mediaType']
@@ -220,26 +201,15 @@ router.get('/items/:id/children', async (req, res) => {
       }
     }
 
-    // Check for Grouping
-    // We prioritize the query param 'groupBy' (from UI toggle)
-    // But we might also have a default grouping from settings?
-    // For now, let's rely on the client passing the query param.
-    const groupBy = typeof req.query.groupBy === 'string' ? req.query.groupBy : undefined
-
-    if (groupBy && typeof groupBy === 'string') {
-      // Ensure we don't filter BY the grouping key (which would require table join and specific column)
+    if (finalGroupBy) {
       if (options.where && 'groupBy' in options.where) {
         delete (options.where as any).groupBy
       }
-
-      const groups = viewService.getGroups(id, groupBy, options)
+      const groups = await viewService.getGroups(id, finalGroupBy, options)
       return res.json(groups)
     }
 
     let children = repositoryService.getChildren(id)
-
-    // Handle TV Shows (Recursive Fetch for Seasons + Episodes)
-    // The Repository Service now handles this efficiently.
     if (parent && parent.mediaType === 'tv') {
       children = repositoryService.getSeasonsWithEpisodes(id)
     }
@@ -261,12 +231,6 @@ router.get('/items/:id/ancestors', async (req, res) => {
     }
 
     const ancestors = repositoryService.getAncestors(id)
-    // Ancestors query includes the item itself (idx 0).
-    // Usually breadcrumbs want everything BEFORE the item.
-    // Let's filter out the item itself if checking IDs, or just return as is and let frontend handle?
-    // Spec says "Ancestors", implying parents.
-    // The recursive query above returns [Root, Parent, Self].
-    // Let's remove Self.
     const cleanAncestors = ancestors.filter((a) => a.id !== id)
     return res.json(cleanAncestors)
   } catch (e: any) {
@@ -278,9 +242,6 @@ router.get('/items/:id/ancestors', async (req, res) => {
 // Triggers a filesystem scan
 router.post('/maintenance/scan', async (_req, res) => {
   try {
-    // libraryService.refreshLibrary() handles the scan logic
-    // We accept the async nature, or we can await it?
-    // refreshLibrary awaits the scan.
     await libraryService.refreshLibrary()
     res.json({ success: true })
   } catch (e: any) {

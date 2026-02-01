@@ -59,8 +59,8 @@
     queryKey: childKeys.byParent(currentFolderId, requiredFields, resolvedSettings.groupBy),
     queryFn: ({ queryKey }) => {
       const parentId = queryKey[1] as string
-      const { fields, groupBy } = queryKey[2] as { fields: string[]; groupBy?: string }
-      return api.getChildrenV2(parentId, { include: fields, groupBy })
+      const { fields } = queryKey[2] as { fields: string[] }
+      return api.getChildrenV2(parentId, { include: fields })
     },
     enabled: !!currentFolderId
   }))

@@ -1,6 +1,8 @@
 import { LibraryItem, MediaFolder } from '../../shared/types'
 import { find, getItemById, getRoot, getValuesForKey, FindOptions } from './repository.service'
 import { isVirtualId, parseVirtualId, buildVirtualItem } from './virtual-item.factory'
+import { resolveViewSettings } from '../../shared/settings-helpers'
+import { readSettings } from './settings.service'
 
 // const log = (msg: string) => console.log(`[ViewService] ${msg}`)
 
@@ -21,7 +23,7 @@ export function getVirtualItem(id: string): LibraryItem | null {
     return buildVirtualItem(id, parent)
 }
 
-export function getGroups(parentId: string, groupByKey: string, options: FindOptions): LibraryItem[] {
+export async function getGroups(parentId: string, groupByKey: string, options: FindOptions): Promise<LibraryItem[]> {
     // 1. Fetch items
     const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
 
@@ -66,7 +68,7 @@ export function getGroups(parentId: string, groupByKey: string, options: FindOpt
     }
 
     // 3. Delegate to Recursive Helper
-    return groupItemsRecursive(items, groupByKey, parentId, physicalParent, parentTokenPath, inheritedSettings)
+    return await groupItemsRecursive(items, groupByKey, parentId, physicalParent, parentTokenPath, inheritedSettings)
 }
 
 // Helper to categorize library items
@@ -84,14 +86,14 @@ function categorizeItems(items: LibraryItem[]) {
     return { physicalFolders, files }
 }
 
-function groupItemsRecursive(
+async function groupItemsRecursive(
     items: LibraryItem[],
     groupByKey: string,
     currentParentId: string,
     physicalParent: MediaFolder | null,
     parentTokenPath: string,
     inheritedSettings: any
-): LibraryItem[] {
+): Promise<LibraryItem[]> {
 
     // --- Special Handling for "Folder" Grouping (Mixed Content) ---
     if (groupByKey === 'folder') {
@@ -227,7 +229,9 @@ function groupItemsRecursive(
         }
     }
 
-    const virtualFolders: LibraryItem[] = Object.entries(groups).map(([groupValue, groupItems]) => {
+    const settingsPromise = readSettings()
+
+    const virtualFolders: LibraryItem[] = await Promise.all(Object.entries(groups).map(async ([groupValue, groupItems]) => {
         const token = `${groupByKey}:${groupValue}`
         const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
 
@@ -261,12 +265,16 @@ function groupItemsRecursive(
             ...virtualSettings
         }
 
-        if ((virtualFolder as any).groupBy) {
+        // --- Lookahead Deep Grouping ---
+        const settings = await settingsPromise
+        const resolved = resolveViewSettings(virtualFolder as any, settings).settings
+
+        if (['tabs', 'sections'].includes(resolved.layout) && resolved.groupBy) {
             const nextSettings = (virtualFolder as any).childViewSettings || {}
 
-            virtualFolder.children = groupItemsRecursive(
+            virtualFolder.children = await groupItemsRecursive(
                 groupItems,
-                (virtualFolder as any).groupBy,
+                resolved.groupBy,
                 newId,
                 physicalParent,
                 fullSettingsKey,
@@ -277,7 +285,7 @@ function groupItemsRecursive(
         }
 
         return virtualFolder
-    }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    }))
 
-    return virtualFolders
+    return virtualFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 }
