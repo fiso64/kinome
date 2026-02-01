@@ -304,7 +304,7 @@ class WebApiClient implements ApiClient {
     })
   }
 
-  applyTmdbResult(
+  applyManualMatch(
     itemId: string,
     result: TmdbSearchResult,
     mediaType: 'movie' | 'tv' | 'season'

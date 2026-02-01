@@ -440,7 +440,8 @@ async function _downloadAndApplyImageIfNeeded(
 export async function fetchItemDetails(
   item: LibraryItem,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
-  libraryDataPath: string
+  libraryDataPath: string,
+  options: { respectLocks?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   // Efficiency Rule: Do not re-fetch if already completed
 
@@ -508,21 +509,21 @@ export async function fetchItemDetails(
 
     // Update other metadata fields (Conditional on Locks)
     if (details.title || details.name) {
-      if (!repositoryService.isFieldLocked(item, 'title')) {
+      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'title')) {
         item.title = details.title || details.name
       }
     }
-    if (details.overview && !repositoryService.isFieldLocked(item, 'overview')) {
+    if (details.overview && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview'))) {
       item.overview = details.overview
     }
     const date = details.release_date || details.first_air_date
-    if (date && !repositoryService.isFieldLocked(item, 'year')) {
+    if (date && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'year'))) {
       item.year = new Date(date).getFullYear()
     }
     if (
       details.genres &&
       Array.isArray(details.genres) &&
-      !repositoryService.isFieldLocked(item, 'genres')
+      (!options.respectLocks || !repositoryService.isFieldLocked(item, 'genres'))
     ) {
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
@@ -554,7 +555,8 @@ export async function fetchItemDetails(
 export async function applyTvShowData(
   item: MediaFolder,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
-  libraryDataPath: string
+  libraryDataPath: string,
+  options: { respectLocks?: boolean } = { respectLocks: true }
 ): Promise<MediaFile[]> {
   const imagesDir = getImagesPath(libraryDataPath)
   const allModifiedEpisodes: MediaFile[] = []
@@ -577,8 +579,12 @@ export async function applyTvShowData(
       for (const seasonFolder of seasonFolders) {
         const tmdbSeason = tmdbSeasons.find((s) => s.season_number === seasonFolder.seasonNumber)
         if (tmdbSeason) {
-          seasonFolder.title = tmdbSeason.name
-          seasonFolder.overview = tmdbSeason.overview
+          if (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title')) {
+            seasonFolder.title = tmdbSeason.name
+          }
+          if (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview')) {
+            seasonFolder.overview = tmdbSeason.overview
+          }
           if (tmdbSeason.poster_path) {
             const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
             const posterFileName = `${seasonFolder.id}.jpg`
@@ -619,7 +625,8 @@ export async function applyTvShowData(
             item.tmdbId!,
             settings.tmdbApiKey!,
             libraryDataPath,
-            item.tmdbSeasons
+            item.tmdbSeasons,
+            options
           )
           allModifiedEpisodes.push(...modifiedInSeason)
         }
@@ -678,7 +685,8 @@ export async function fetchAndApplyEpisodeData(
   showTmdbId: number,
   tmdbApiKey: string,
   libraryDataPath: string,
-  tmdbSeasons?: any[] | null // Made optional
+  tmdbSeasons?: any[] | null, // Made optional
+  options: { respectLocks?: boolean } = { respectLocks: true }
 ): Promise<MediaFile[]> {
   const seasonNumber = seasonFolder.seasonNumber ?? 1
   const modifiedEpisodes: MediaFile[] = []
@@ -718,8 +726,12 @@ export async function fetchAndApplyEpisodeData(
 
     // Apply details from the season endpoint to the season folder itself,
     // only if the properties aren't already set (to respect user edits).
-    if (!seasonFolder.title) seasonFolder.title = seasonDetails.name
-    if (!seasonFolder.overview) seasonFolder.overview = seasonDetails.overview
+    if (!seasonFolder.title && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))) {
+      seasonFolder.title = seasonDetails.name
+    }
+    if (!seasonFolder.overview && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview'))) {
+      seasonFolder.overview = seasonDetails.overview
+    }
     if (!seasonFolder.posterPath && seasonDetails.poster_path) {
       const posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`
       const imagesDir = getImagesPath(libraryDataPath)
@@ -763,8 +775,12 @@ export async function fetchAndApplyEpisodeData(
         )
 
         if (tmdbEpisode) {
-          localEpisode.title = tmdbEpisode.name
-          localEpisode.overview = tmdbEpisode.overview
+          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
+            localEpisode.title = tmdbEpisode.name
+          }
+          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
+            localEpisode.overview = tmdbEpisode.overview
+          }
           localEpisode.mediaType = 'episode'
           // Only download if poster is missing.
           if (!localEpisode.posterPath && tmdbEpisode.still_path) {

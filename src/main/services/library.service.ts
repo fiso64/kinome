@@ -410,12 +410,14 @@ export const assignSeasonsAndEpisodes = async (
 export const clearItemMetadata = metadataService.clearItemMetadata
 export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMetadata
 
-export const applyTmdbResult = async (
+export const applyManualMatch = async (
   itemId: string,
   result: any,
-  mediaType: 'movie' | 'tv' | 'season'
+  mediaType: 'movie' | 'tv' | 'season',
+  options: { respectLocks?: boolean } = { respectLocks: true }
 ) => {
-  const item = await metadataService.applyTmdbResult(itemId, result, mediaType)
+  // HARDCODE: We set respectLocks to true first for testing, as requested.
+  const item = await metadataService.applyManualMatch(itemId, result, mediaType, { ...options, respectLocks: true })
   if (item) {
     await _finalizeItemUpdate(item, { updateSuggestions: true })
   }

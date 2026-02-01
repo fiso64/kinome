@@ -75,7 +75,7 @@
     // If we searched for a season, the result is a season object. The type to apply is 'season'.
     // Otherwise, it's the type we searched for.
     const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
-    await window.api.applyTmdbResult(item.id, plainResult, mediaTypeToApply)
+    await window.api.applyManualMatch(item.id, plainResult, mediaTypeToApply)
     // The modal will be closed automatically when the parent receives the item update.
     applyingResultId = null
     onClose()

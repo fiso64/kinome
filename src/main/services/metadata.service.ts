@@ -471,17 +471,21 @@ export async function fetchEpisodeDataForContinueWatching(
   return itemsToUpdate
 }
 
-async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
+async function _resetItemMetadata(
+  item: LibraryItem,
+  imagesDir: string,
+  options: { respectLocks?: boolean } = { respectLocks: true }
+) {
   if (!pathsService.isRemoteLibrary()) {
-    if (item.posterPath)
+    if (item.posterPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath')))
       try {
         await fs.unlink(path.join(imagesDir, item.posterPath))
       } catch { }
-    if (item.backdropPath)
+    if (item.backdropPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath')))
       try {
         await fs.unlink(path.join(imagesDir, item.backdropPath))
       } catch { }
-    if (item.logoPath)
+    if (item.logoPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath')))
       try {
         await fs.unlink(path.join(imagesDir, item.logoPath))
       } catch { }
@@ -490,6 +494,9 @@ async function _resetItemMetadata(item: LibraryItem, imagesDir: string) {
     // We check hasOwnProperty because we only want to reset properties that actually exist.
     // A property set to `undefined` will not be present.
     if (Object.prototype.hasOwnProperty.call(item, key)) {
+      if (options.respectLocks && repositoryService.isFieldLocked(item, key)) {
+        continue
+      }
       const itemAsRecord = item as Record<string, any>
       switch (key) {
         // --- Reset to empty objects/arrays ---
@@ -638,10 +645,11 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
   log(`[Details] Background processing complete for "${item.name}"`)
   return itemsToUpdate
 }
-export async function applyTmdbResult(
+export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
-  mediaType: 'movie' | 'tv' | 'season'
+  mediaType: 'movie' | 'tv' | 'season',
+  options: { respectLocks?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem | null> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Applying metadata is not available for read-only remote libraries.')
@@ -654,15 +662,20 @@ export async function applyTmdbResult(
   if (!settings.tmdbApiKey) return null
   repositoryService.setBulkUpdateStatus(true)
   try {
-    item.overview = null
-    item.year = null
-    item.genres = []
     if (item.type === 'file') item.opensAsFolder = true
     item.posterPath = undefined
     item.backdropPath = undefined
     item.logoPath = undefined
     item.lastRefreshedAt = null
     item.tmdbCredits = null
+
+    if (!options.respectLocks) {
+      item.lockedFields = []
+    }
+
+    const imagesDir = path.join(libraryDataPath, 'images')
+    await _resetItemMetadata(item, imagesDir, options)
+
     if (item.type === 'folder' && mediaType === 'tv') {
       item.tmdbSeasons = null
       if (item.children) {
@@ -679,9 +692,14 @@ export async function applyTmdbResult(
     }
     if (mediaType === 'season' && item.type === 'folder') {
       item.mediaType = 'season'
-      item.title = result.name
-      item.overview = result.overview
-      item.seasonNumber = result.season_number
+      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'title')) {
+        item.title = result.name || result.title
+      }
+      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview')) {
+        item.overview = result.overview
+      }
+      item.seasonNumber = (result as any).season_number
+
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
         const posterDestPath = path.join(
@@ -711,21 +729,31 @@ export async function applyTmdbResult(
       const showFolder = repositoryService.findParent(item.id)
       if (showFolder?.tmdbId && settings.tmdbApiKey) {
         if (!showFolder.lastRefreshedAt)
-          await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath)
+          await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath, options)
         await retrieverService.fetchAndApplyEpisodeData(
-          item,
+          item as MediaFolder,
           showFolder.tmdbId,
           settings.tmdbApiKey,
           libraryDataPath,
-          showFolder.tmdbSeasons
+          showFolder.tmdbSeasons,
+          options
         )
       }
     } else {
       item.tmdbId = result.id
       item.mediaType = mediaType
-      item.title = result.title
-      // ...
-      await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
+      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'title')) {
+        item.title = result.title || result.name
+      }
+      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview')) {
+        item.overview = result.overview
+      }
+      const date = result.release_date || result.first_air_date
+      if (date && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'year'))) {
+        item.year = new Date(date).getFullYear()
+      }
+
+      await retrieverService.fetchItemDetails(item, settings, libraryDataPath, options)
       if (mediaType === 'movie' || mediaType === 'tv')
         await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
 
@@ -735,7 +763,6 @@ export async function applyTmdbResult(
     repositoryService.setBulkUpdateStatus(false)
   }
   item._v = Date.now()
-  // Virtual tags will be computed in _finalizeItemUpdate
   return item
 }
 export async function setImage(

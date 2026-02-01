@@ -220,7 +220,7 @@ app.post('/api/get-tmdb-images', async (req, res) => {
 })
 
 app.post('/api/user-apply-tmdb-result', async (req, res) => {
-  await libraryService.applyTmdbResult(req.body.itemId, req.body.result, req.body.mediaType)
+  await libraryService.applyManualMatch(req.body.itemId, req.body.result, req.body.mediaType)
   res.sendStatus(200)
 })
 

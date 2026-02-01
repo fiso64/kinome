@@ -82,7 +82,7 @@ export interface ApiClient {
     mediaType: 'movie' | 'tv',
     language: string
   ): Promise<TmdbImageResults>
-  applyTmdbResult(
+  applyManualMatch(
     itemId: string,
     result: TmdbSearchResult,
     mediaType: 'movie' | 'tv' | 'season'
