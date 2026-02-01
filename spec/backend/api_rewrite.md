@@ -104,7 +104,10 @@ All endpoints will be polymorphic (handling Movies, Folders, Seasons, etc. unifo
 - **Returns:** `{ items: LibraryItem[], total: number }`
 - **Query Parameters:**
   - `limit`, `offset`: For pagination (Infinite Scroll).
-  - `groupBy`: (e.g., `genre`). If present, the backend performs the grouping and returns items with `type: 'folder'` representing the groups.
+  - `groupBy`: Control the data transformation layer.
+    - `auto` (Default): The backend resolves the item's view settings. If the layout is `sections` or `tabs`, it performs grouping automatically.
+    - `none`: Forces a flat list of children, ignoring any grouping settings. Used for simple pickers or list views.
+    - `[key]`: (e.g., `genre`). Forces grouping by a specific key, overriding persistent settings.
   - `filter`: A string for contextual filtering (e.g., "Matrix").
   - `includeHidden`: boolean. If true, returns items marked `isHidden=1`. Required for Folder Settings management.
   - `include`: A comma-separated list of extra fields to populate in the returned items.
@@ -112,10 +115,13 @@ All endpoints will be polymorphic (handling Movies, Folders, Seasons, etc. unifo
     - **Grid View:** Requests default (minimal payload).
     - **List View:** Requests `?include=overview,genres`.
 - **Backend Logic:**
-  - The SQL query dynamically constructs the `SELECT` clause based on the `include` parameter.
-  - **Crucial:** Columns like `people_json` or `overview` are **not read from disk/DB** unless requested, preserving IO performance.
-  - If the ID belongs to a **Season**, the SQL query automatically includes `ORDER BY episode_number ASC`.
-  - If the ID belongs to a **TV Show**, the SQL query sorts by `season_number ASC`.
+  - **Settings Resolution:** The backend uses the centralized `resolveViewSettings` logic to determine the active `layout` and `groupBy` key for the requested ID.
+  - **State Normalization:** If the resolved `layout` is not `sections` or `tabs`, any `groupBy` setting is ignored (treated as `none`).
+  - **Recursive Transformation:** If grouping is active, the backend performs the transformation and returns items with `type: 'folder'` (Virtual Folders).
+  - **Deep Grouping (Lookahead):** To avoid the "network waterfall", the backend recursively applies grouping to the children of the newly created virtual folders if they also have a grouping policy (e.g. Root > Group By Genre > Child Groups by Year).
+  - **TV Specifics:**
+    - If the ID belongs to a **Season**, the SQL query automatically includes `ORDER BY episode_number ASC`.
+    - If the ID belongs to a **TV Show**, the SQL query sorts by `season_number ASC`.
 
 #### 3. `GET /api/v2/autocomplete` (New)
 
@@ -189,44 +195,40 @@ _Scenario: User right-clicks a "Season 1" tab inside a Show view and selects "Op
     - Because no `?include=` was passed, `overview` and `people` are `undefined` in the children array.
 5.  **Frontend:** Renders the grid of episodes using the minimal data. No client-side sorting or parsing required.
 
-**Example 2: Virtual Grouping via Tabs**
+**Example 2: Server-Resolved Virtual Grouping**
 _Scenario: The library is configured to display as "Tabs", grouped by a custom virtual tag `is_animation`._
 
-1.  **Initialization:**
-    - Frontend requests `GET /api/v2/items/root`.
-    - Response contains settings: `{ layout: 'tabs', groupBy: 'vt.is_animation' }`.
-2.  **Fetch Groups:**
-    - Frontend requests: `GET /api/v2/items/root/children?groupBy=vt.is_animation`
-    - Backend runs distinct query on virtual tags.
-    - Response:
+1.  **Fetch Groups (Implicit Selection):**
+    - Frontend requests: `GET /api/v2/items/root/children` (Note: No `groupBy` param needed).
+    - **Backend Logic**:
+       - Resolves Root settings -> finds `layout: tabs`, `groupBy: vt.is_animation`.
+       - Performs grouping.
+       - Notice "Animation" group has its own `childViewSettings`: `groupBy: mediaType`.
+       - **Recursive Step**: Backend automatically groups children of the "Animation" folder by `mediaType`.
+    - **Response**:
       ```json
       [
         {
-          "id": "virtual:root:vt.is_animation:Yes",
-          "name": "Yes",
+          "id": "virtual--root--vt.is_animation:Yes",
+          "name": "Animation",
           "type": "folder",
-          "mediaType": "virtual"
+          "children": [
+             { "id": "...", "name": "Movies", "type": "folder", "children": [...] },
+             { "id": "...", "name": "TV Shows", "type": "folder", "children": [...] }
+          ]
         },
         {
-          "id": "virtual:root:vt.is_animation:No",
-          "name": "No",
+          "id": "virtual--root--vt.is_animation:No",
+          "name": "Live Action",
           "type": "folder",
-          "mediaType": "virtual"
+          "children": [...]
         }
       ]
       ```
-3.  **Render UI:**
-    - The View component renders two tabs: `[ Yes ]` and `[ No ]`.
-    - It identifies "Yes" as the first tab and activates it.
-4.  **Fetch Content (Lazy):**
-    - Frontend requests: `GET /api/v2/items/virtual:root:vt.is_animation:Yes/children?limit=50`
-    - **Backend Logic:**
-      - Parses ID: Scope=`root`, Key=`vt.is_animation`, Value=`Yes`.
-      - Executes: `SELECT * FROM items WHERE parent_id='root' AND json_extract(virtual_tags, '$.is_animation') = 'Yes' LIMIT 50`.
-    - Response: `ListingItem[]` (Only the animated items).
-5.  **User Action:** User clicks "No" tab.
-    - Frontend requests: `GET /api/v2/items/virtual:root:vt.is_animation:No/children?limit=50`
-    - UI updates the grid.
+2.  **Render UI:**
+    - The `MediaView` component renders a `TabsView`.
+    - `TabsView` receives the pre-nested structure and renders the top-level tabs.
+    - Because the data is already nested, the UI can render the sub-sections (Movies/TV) immediately without additional network requests.
 
 ## 5. Edge Cases & Unresolved Questions
 
