@@ -55,6 +55,38 @@ async function walkAndUpsert(
     queue.push({ currentPath: startPath, parentId: id, parentMediaType })
   }
 
+  // Hoist prepared statements for performance
+  const selectFolderSettingsStmt = db.prepare(
+    'SELECT scraper_settings_json, items.name FROM items LEFT JOIN folder_settings ON items.id = folder_settings.item_id WHERE items.id = ?'
+  )
+  const selectMetadataStmt = db.prepare(
+    'SELECT media_type, locked_fields_json, season_number, episode_number FROM metadata WHERE item_id = ?'
+  )
+  const selectSeasonNumberStmt = db.prepare('SELECT season_number FROM metadata WHERE item_id = ?')
+
+  const upsertItemStmt = db.prepare(
+    `
+      INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
+      VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        is_missing = 0,
+        parent_id = excluded.parent_id,
+        size = excluded.size,
+        mtime = excluded.mtime
+    `
+  )
+
+  const upsertMetadataStmt = db.prepare(
+    `
+      INSERT INTO metadata (item_id, media_type, season_number, episode_number)
+      VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
+      ON CONFLICT(item_id) DO UPDATE SET
+        media_type = COALESCE(media_type, excluded.media_type),
+        season_number = COALESCE(season_number, excluded.season_number),
+        episode_number = COALESCE(episode_number, excluded.episode_number)
+    `
+  )
+
   while (queue.length > 0) {
     const { currentPath, parentId, parentMediaType } = queue.shift()!
     if (!parentId) continue
@@ -68,45 +100,31 @@ async function walkAndUpsert(
     }
 
     // ---------------------------------------------------------
-    // Phase 1: Global Gate & Context
+    // Phase 1: Context Retrieval
     // ---------------------------------------------------------
-
-    // 1. Check if the Current Folder allows metadata analysis (The Gate)
-    // We check the DB row for the *current folder* (identified by parentId)
-    // Optimization: We could pass this down, but a DB lookup is safer for consistency.
-    // Context for Kids
     const isTvContext = parentMediaType === 'tv'
     const isSeasonContext = parentMediaType === 'season'
 
-    // 1. Check if the Current Folder allows metadata analysis (The Gate)
-    // We check the DB row for the *current folder* (identified by parentId)
-    // Optimization: We could pass this down, but a DB lookup is safer for consistency.
-    const currentFolderRow = db
-      .prepare(
-        'SELECT scraper_settings_json, items.name FROM items LEFT JOIN folder_settings ON items.id = folder_settings.item_id WHERE items.id = ?'
-      )
-      .get(parentId)
-    const scraperSettings = currentFolderRow?.scraper_settings_json
-      ? JSON.parse(currentFolderRow.scraper_settings_json)
-      : {}
+    const currentFolderRow = selectFolderSettingsStmt.get(parentId)
+    const scraperSettings = repositoryService.parseJsonSafe<any>(
+      currentFolderRow?.scraper_settings_json,
+      {}
+    )
 
-    // The Gate: Explicit setting OR implicit structural context (Once inside a show, we keep going)
-    const retrieveChildrenMetadata = scraperSettings.retrieve_children_metadata === true || isTvContext || isSeasonContext
+    const retrieveChildrenMetadata =
+      scraperSettings.retrieve_children_metadata === true || isTvContext || isSeasonContext
 
     // ---------------------------------------------------------
     // Phase 2: Structural Analysis (TV Parsing)
     // ---------------------------------------------------------
-
-    // In a clean, non-heuristic architecture, we avoid "guessing" types here.
-    // If the parent is ALREADY known as a 'tv' show or a 'season', we apply parsing.
-    // Otherwise, we wait for Phase 2 (Metadata) to identify the show and trigger a re-sync.
-
     let seasonMap: Map<string, ParsedTvInfo> = new Map()
     let episodeMap: Map<string, ParsedTvInfo> = new Map()
 
     if (retrieveChildrenMetadata) {
       if (isTvContext) {
-        const folderNames = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name)
+        const folderNames = entries
+          .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+          .map((e) => e.name)
         const videoFileNames = entries
           .filter(
             (e) =>
@@ -118,7 +136,7 @@ async function walkAndUpsert(
 
         seasonMap = determineSeasonNumbers(folderNames)
 
-        // Flat TV Show Detection:
+        // Flat TV Show Detection
         const hasFlatEpisodes = videoFileNames.length > 0 && seasonMap.size === 0
         const flatSeasonNumber = hasFlatEpisodes ? 1 : undefined
         episodeMap = determineEpisodeNumbers(videoFileNames, flatSeasonNumber)
@@ -132,7 +150,7 @@ async function walkAndUpsert(
           )
           .map((e) => e.name)
 
-        const metaRow = db.prepare('SELECT season_number FROM metadata WHERE item_id = ?').get(parentId)
+        const metaRow = selectSeasonNumberStmt.get(parentId)
         episodeMap = determineEpisodeNumbers(videoFileNames, metaRow?.season_number)
       }
     }
@@ -152,7 +170,7 @@ async function walkAndUpsert(
       const id = repositoryService.generateId(relativePath)
       const type = isDirectory ? 'folder' : 'file'
 
-      // Calculate Stats...
+      // Stats retrieval
       let stats = { size: 0, mtime: 0, birthtime: 0 }
       try {
         const s = await fs.stat(fullPath)
@@ -162,7 +180,6 @@ async function walkAndUpsert(
       // ---------------------------------------------------------
       // Phase 3: Invariant Enforcement & Write Guard
       // ---------------------------------------------------------
-
       let parsedSeason: number | null = null
       let parsedEpisode: number | null = null
       let parsedMediaType: string | null = null
@@ -188,40 +205,22 @@ async function walkAndUpsert(
         }
       }
 
-      // WRITE GUARD: Check strictly for locks
-      // We need to know if the item ALREADY has locks.
-      // FIX: Also fetch media_type to ensure context is passed down even if not re-parsed this run.
-      const existingMetaRow = db
-        .prepare(
-          'SELECT media_type, locked_fields_json, season_number, episode_number FROM metadata WHERE item_id = ?'
-        )
-        .get(id)
-      const existingLocks = existingMetaRow?.locked_fields_json
-        ? JSON.parse(existingMetaRow.locked_fields_json)
-        : []
+      const existingMetaRow = selectMetadataStmt.get(id)
+      const existingLocks = repositoryService.parseJsonSafe<string[]>(
+        existingMetaRow?.locked_fields_json,
+        []
+      )
 
       const isSeasonLocked = existingLocks.includes('seasonNumber')
       const isEpisodeLocked = existingLocks.includes('episodeNumber')
 
-      // Apply Guards
-      if (isSeasonLocked) parsedSeason = existingMetaRow.season_number // Keep existing
-      if (isEpisodeLocked) parsedEpisode = existingMetaRow.episode_number // Keep existing
+      if (isSeasonLocked) parsedSeason = existingMetaRow.season_number
+      if (isEpisodeLocked) parsedEpisode = existingMetaRow.episode_number
 
       visitedIds.add(id)
 
       operations.push(() => {
-        // 1. Upsert Items
-        db.prepare(
-          `
-            INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
-            VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
-            ON CONFLICT(id) DO UPDATE SET
-              is_missing = 0,
-              parent_id = excluded.parent_id,
-              size = excluded.size,
-              mtime = excluded.mtime
-          `
-        ).run({
+        upsertItemStmt.run({
           id,
           parentId,
           path: relativePath,
@@ -232,24 +231,8 @@ async function walkAndUpsert(
           birthtime: stats.birthtime
         })
 
-        // 2. Upsert Metadata (Conditional)
         if (parsedMediaType) {
-          // Note: We used to have ON CONFLICT DO UPDATE...
-          // With the Write Guard applied (we overwrote parsed variables with existing DB values above),
-          // We can safely blindly update because "parsed" is now "safe".
-          // BUT: If the item didn't exist, we insert.
-          // If it did exist, we update.
-          // AND: We effectively "re-assert" the locked value. This is fine.
-          db.prepare(
-            `
-              INSERT INTO metadata (item_id, media_type, season_number, episode_number)
-              VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
-              ON CONFLICT(item_id) DO UPDATE SET
-                media_type = COALESCE(media_type, excluded.media_type),
-                season_number = COALESCE(season_number, excluded.season_number),
-                episode_number = COALESCE(episode_number, excluded.episode_number)
-            `
-          ).run({
+          upsertMetadataStmt.run({
             id,
             mediaType: parsedMediaType,
             seasonNumber: parsedSeason,
@@ -259,16 +242,11 @@ async function walkAndUpsert(
       })
 
       if (isDirectory) {
-        // Pass the mediaType down so children know their context
-        // If we identified this folder as a 'season', children handle episodes.
-        // If we identified this as 'tv', children handle seasons.
-        // If neither, undefined.
-        // FIX: Use existing mediaType if available!
         const effectiveMediaType = parsedMediaType || existingMetaRow?.media_type
         queue.push({
           currentPath: fullPath,
           parentId: id,
-          parentMediaType: effectiveMediaType || undefined // Pass down context!
+          parentMediaType: (effectiveMediaType as string) || undefined
         })
       }
     }

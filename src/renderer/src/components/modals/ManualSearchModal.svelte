@@ -61,6 +61,34 @@
   let backdrops = $state<TmdbImage[]>([])
   let logos = $state<TmdbImage[]>([])
 
+  // --- Hydration & Refresh Logic ---
+  // The 'item' prop is static. We use localOverrides to store:
+  // 1. Initial hydration of missing fields (logoPath, backdropPath)
+  // 2. Updates after we modify the item (new _v, new paths)
+  let localOverrides = $state<Partial<LibraryItem>>({})
+
+  $effect(() => {
+    // Initial Hydration
+    const id = item.id
+    // We only need to hydrate if we haven't already.
+    // But since 'item' prop doesn't change, this effect runs once on mount.
+    window.api.getItemV2(id, ['logoPath', 'backdropPath']).then((fullItem) => {
+      // Only update if we don't have overrides yet (to avoid overwriting user actions if they happened fast)
+      // Actually, merging is safer.
+      localOverrides = {
+        ...localOverrides,
+        logoPath: fullItem.logoPath,
+        backdropPath: fullItem.backdropPath
+      }
+    })
+  })
+
+  // Merge prop item with local overrides. Overrides take precedence.
+  const localItem = $derived({
+    ...item,
+    ...localOverrides
+  })
+
   async function performSearch() {
     if ((!searchQuery.trim() && !searchTmdbId.trim()) || isSearching) return
     isSearching = true
@@ -75,20 +103,20 @@
     // If we searched for a season, the result is a season object. The type to apply is 'season'.
     // Otherwise, it's the type we searched for.
     const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
-    await window.api.applyManualMatch(item.id, plainResult, mediaTypeToApply)
+    await window.api.applyManualMatch(localItem.id, plainResult, mediaTypeToApply)
     // The modal will be closed automatically when the parent receives the item update.
     applyingResultId = null
     onClose()
   }
 
   async function fetchImages() {
-    if (!item.tmdbId || !item.mediaType || isFetchingArtwork) return
+    if (!localItem.tmdbId || !localItem.mediaType || isFetchingArtwork) return
     isFetchingArtwork = true
     // Clear old results before fetching new ones
     posters = []
     backdrops = []
     logos = []
-    const images = await window.api.getTmdbImages(item.tmdbId, item.mediaType, imageLang)
+    const images = await window.api.getTmdbImages(localItem.tmdbId, localItem.mediaType, imageLang)
     posters = images.posters
     backdrops = images.backdrops
     logos = images.logos
@@ -97,8 +125,8 @@
 
   async function handleRemoveImage(imageType: 'poster' | 'backdrop' | 'logo') {
     isSettingImage = true
-    await window.api.removeImage(item.id, imageType)
-    // The onLibraryItemUpdated listener will handle the UI refresh.
+    await window.api.removeImage(localItem.id, imageType)
+    await refreshLocalItem()
     isSettingImage = false
   }
 
@@ -110,15 +138,36 @@
     try {
       if (source.type === 'local') {
         // Native picker removed.
-        // TODO: Implement client-side file upload (input type="file")
         console.warn('Local file selection not implemented (requires upload support).')
       } else {
-        await window.api.setImage(item.id, imageType, JSON.parse(JSON.stringify(source)))
+        await window.api.setImage(localItem.id, imageType, JSON.parse(JSON.stringify(source)))
+        await refreshLocalItem()
       }
       // The global onLibraryItemUpdated listener in App.svelte will now
       // update the 'item' prop, and this modal's view will update reactively.
     } finally {
       isSettingImage = false
+    }
+  }
+
+  // Reloads the item data to reflect changes (new _v, new paths)
+  async function refreshLocalItem() {
+    try {
+      // Fetch all potential artwork fields
+      const fresh = await window.api.getItemV2(localItem.id, [
+        'logoPath',
+        'backdropPath',
+        'posterPath'
+      ])
+      localOverrides = {
+        ...localOverrides,
+        logoPath: fresh.logoPath,
+        backdropPath: fresh.backdropPath,
+        posterPath: fresh.posterPath,
+        _v: fresh._v
+      }
+    } catch (err) {
+      console.error('Failed to refresh item after update:', err)
     }
   }
 
@@ -137,13 +186,13 @@
       searchType = initialType
 
       // 1. Always prefill the title as the default.
-      searchQuery = item.title ?? item.name
+      searchQuery = localItem.title ?? localItem.name
       // Ensure ID field is empty by default.
       searchTmdbId = ''
 
       // 2. Special case for seasons: if parent has TMDB ID, use it and clear the title.
       if (initialType === 'season') {
-        const parent = await window.api.getParent(item.id)
+        const parent = await window.api.getParent(localItem.id)
         if (parent?.tmdbId) {
           searchTmdbId = parent.tmdbId.toString()
           searchQuery = '' // Clear text query because we are searching by ID
@@ -262,7 +311,11 @@
             <option value="none">All (No Language)</option>
           </select>
         </div>
-        <button class="primary" onclick={fetchImages} disabled={isFetchingArtwork || !item.tmdbId}>
+        <button
+          class="primary"
+          onclick={fetchImages}
+          disabled={isFetchingArtwork || !localItem.tmdbId}
+        >
           {#if isFetchingArtwork}Finding...{:else}Find Artwork{/if}
         </button>
       </div>
@@ -274,9 +327,11 @@
             <div class="current-artwork-wrapper">
               <div class="current-image-container">
                 <div class="current-image">
-                  {#if item.posterPath}
+                  {#if localItem.posterPath}
                     <img
-                      src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
+                      src={getAssetUrl(
+                        localItem.posterPath + (localItem._v ? `?v=${localItem._v}` : '')
+                      )}
                       alt="Current Poster"
                     />
                     <button
@@ -318,11 +373,11 @@
             <div class="current-artwork-wrapper">
               <div class="current-image-container">
                 <div class="current-image logo">
-                  {#if item.logoPath}
+                  {#if localItem.logoPath}
                     <img
-                      src="media-browser-asset://images/{item.logoPath}{item._v
-                        ? `?v=${item._v}`
-                        : ''}"
+                      src={getAssetUrl(
+                        localItem.logoPath + (localItem._v ? `?v=${localItem._v}` : '')
+                      )}
                       alt="Current Logo"
                     />
                     <button
@@ -363,11 +418,11 @@
             <div class="current-artwork-wrapper backdrop">
               <div class="current-image-container">
                 <div class="current-image backdrop">
-                  {#if item.backdropPath}
+                  {#if localItem.backdropPath}
                     <img
-                      src="media-browser-asset://images/{item.backdropPath}{item._v
-                        ? `?v=${item._v}`
-                        : ''}"
+                      src={getAssetUrl(
+                        localItem.backdropPath + (localItem._v ? `?v=${localItem._v}` : '')
+                      )}
                       alt="Current Backdrop"
                     />
                     <button

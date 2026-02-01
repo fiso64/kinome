@@ -3,64 +3,9 @@ import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 
-export const VIRTUAL_ID_PREFIX = 'virtual--'
 
-export function isVirtualId(id: string): boolean {
-  return id.startsWith(VIRTUAL_ID_PREFIX)
-}
 
-export function parseVirtualId(id: string) {
-  const parts = id.split('--')
-  // virtual--{parentId}--{token1}--{token2}...
-  return {
-    prefix: parts[0],
-    parentId: parts[1],
-    tokens: parts.slice(2)
-  }
-}
 
-export function createVirtualItem(id: string): LibraryItem | null {
-  const { parentId, tokens } = parseVirtualId(id)
-  if (!parentId || !tokens || tokens.length === 0) return null
-
-  const parent = getItemById(parentId) as MediaFolder
-  if (!parent) return null
-
-  // Resolve Virtual Folder Settings
-  // Key format: "token1/token2/token3"
-  // e.g. "genre:Animation/year:2024"
-  const settingsKey = tokens.join('/')
-
-  let appliedSettings: any = {}
-  if (parent.virtualFolderSettings && parent.virtualFolderSettings[settingsKey]) {
-    appliedSettings = parent.virtualFolderSettings[settingsKey]
-    log(`[VirtualItem] Applying settings for ${id} (Key: ${settingsKey}): ${JSON.stringify(appliedSettings)}`)
-  }
-
-  // Name is the value of the last token
-  // Token format: "key:value" (e.g. "genre:Animation") or just "value" (legacy fallback, though we're breaking legacy)
-  const lastToken = tokens[tokens.length - 1]
-  const name = lastToken.includes(':') ? lastToken.split(':')[1] : lastToken
-
-  // Synthesize a folder
-  const item: LibraryItem = {
-    id: id,
-    parentId: parentId,
-    name: name,
-    type: 'folder',
-    mediaType: parent.mediaType, // Inherit media type (e.g. 'movie' context)
-    isMissing: false,
-    isHidden: false,
-    isUserEdited: false,
-    path: `virtual/${tokens.join('/')}`,
-    isVirtual: true,
-    children: [], // Lazy load
-    virtualFolderSettings: parent.virtualFolderSettings, // Propagate settings for nested lookups
-    ...appliedSettings // Apply view/scraper settings
-  }
-
-  return item
-}
 
 export interface CheckHelper {
   (row: any, key: string): any
@@ -71,6 +16,7 @@ interface RepositoryFieldDef {
   table?: 'i' | 'm' | 'u' | 'f' // Dependency table
   isJson?: boolean
   parser?: (val: any) => any
+  getValue?: (item: LibraryItem) => string[] // Symmetrical logic for in-memory grouping
 }
 
 // Centralized Schema Definition
@@ -90,12 +36,20 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
 
   // Metadata Table
   tmdbId: { sql: 'm.tmdb_id', table: 'm' },
-  mediaType: { sql: 'm.media_type', table: 'm' },
+  mediaType: {
+    sql: 'm.media_type',
+    table: 'm',
+    getValue: (item) => item.mediaType ? [item.mediaType] : []
+  },
   title: { sql: 'm.title', table: 'm' },
   originalTitle: { sql: 'm.original_title', table: 'm' },
   overview: { sql: 'm.overview', table: 'm' },
   releaseDate: { sql: 'm.release_date', table: 'm' },
-  year: { sql: 'm.year', table: 'm' },
+  year: {
+    sql: 'm.year',
+    table: 'm',
+    getValue: (item) => item.year ? [item.year.toString()] : []
+  },
   seasonNumber: { sql: 'm.season_number', table: 'm' },
   episodeNumber: { sql: 'm.episode_number', table: 'm' },
   // Images (JSON extraction helpers)
@@ -103,7 +57,12 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   backdropPath: { sql: "json_extract(m.images_json, '$.backdrop')", table: 'm' },
   logoPath: { sql: "json_extract(m.images_json, '$.logo')", table: 'm' },
   // Metadata JSONs
-  genres: { sql: 'm.genres_json', table: 'm', isJson: true },
+  genres: {
+    sql: 'm.genres_json',
+    table: 'm',
+    isJson: true,
+    getValue: (item) => item.genres ?? []
+  },
   tags: { sql: 'm.tags_json', table: 'm', isJson: true },
   virtualTags: { sql: 'm.virtual_tags_json', table: 'm', isJson: true },
   tmdbCredits: { sql: 'm.people_json', table: 'm', isJson: true },
@@ -135,6 +94,11 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   virtualFolderSettings: { sql: "json_extract(f.view_settings_json, '$.virtualFolderSettings')", table: 'f', isJson: true }
 }
 
+export function isValidField(field: string): boolean {
+  return REPOSITORY_SCHEMA[field] !== undefined
+}
+
+
 export interface FindOptions {
   where?: Record<string, any>
   fields?: string[]
@@ -154,7 +118,9 @@ export const CORE_FIELDS = [
   'isMissing',
   'year',
   'seasonNumber',
-  'episodeNumber'
+  'episodeNumber',
+  'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
+  '_v'      // Required for image cache busting
 ]
 
 const log = (message: string): void => {
@@ -231,10 +197,15 @@ export function isFieldLocked(item: LibraryItem, field: string): boolean {
   return item.lockedFields?.includes(field) ?? false
 }
 
-function parseJsonSafe<T>(jsonString: string | null, fallback: T): T {
+/**
+ * Safely parse JSON strings with a fallback value.
+ * Ensures the result is never null if a non-null fallback is provided.
+ */
+export function parseJsonSafe<T>(jsonString: string | null, fallback: T): T {
   if (!jsonString) return fallback
   try {
-    return JSON.parse(jsonString)
+    const parsed = JSON.parse(jsonString)
+    return parsed === null ? fallback : parsed
   } catch (e) {
     return fallback
   }
@@ -294,12 +265,29 @@ function mapRowToLibraryItem(row: any): LibraryItem {
       // If we got a string (from DB text column), parse it.
       // If we got an object (already parsed or from previous step), leave it.
       if (typeof val === 'string') {
-        val = parseJsonSafe(val, alias === 'lockedFields' || alias === 'genres' ? [] : {})
+        const isArray = ['lockedFields', 'genres'].includes(alias)
+        const isNullable = ['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)
+        const fallback = isArray ? [] : isNullable ? null : {}
+
+        val = parseJsonSafe(val, fallback)
+
+        // Sanity Check / Auto-Heal:
+        // If we expected a nullable array but got an object (e.g. from previous {} fallback bug), force it to null.
+        if (
+          (alias === 'tmdbSeasons' || alias === 'tmdbEpisodes') &&
+          val !== null &&
+          !Array.isArray(val)
+        ) {
+          val = null
+        }
       } else if (val === undefined) {
         // Default for missing JSON fields
-        val = alias === 'lockedFields' || alias === 'genres' ? [] : (alias === 'tmdbCredits' || alias === 'tmdbSeasons' || alias === 'tmdbEpisodes' ? null : {})
-        // Wait, original mapper used null for credits/seasons matches.
-        if (['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)) val = null
+        val =
+          alias === 'lockedFields' || alias === 'genres'
+            ? []
+            : alias === 'tmdbCredits' || alias === 'tmdbSeasons' || alias === 'tmdbEpisodes'
+              ? null
+              : {}
       }
     }
 
@@ -870,7 +858,7 @@ watched = excluded.watched,
 
         locked_fields_json:
           (updates as any).lockedFields !== undefined
-            ? JSON.stringify((updates as any).lockedFields)
+            ? JSON.stringify((updates as any).lockedFields || [])
             : existing.locked_fields_json,
 
         version: updates._v !== undefined ? updates._v : existing.version
@@ -1015,116 +1003,36 @@ export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
 // --- Grouping Helper ---
 
 
-function getValuesForKey(item: LibraryItem, key: string): string[] {
-  if (key === 'mediaType') return item.mediaType ? [item.mediaType] : []
-  if (key === 'genre') return item.genres ?? []
-  if (key === 'year') return item.year ? [item.year.toString()] : []
+export function getValuesForKey(item: LibraryItem, key: string): string[] {
+  // 1. Resolve Shorthand
+  const normalizedKey = key === 'genre' ? 'genres' : key
+
+  // 2. Schema-driven extraction
+  const def = REPOSITORY_SCHEMA[normalizedKey]
+  if (def?.getValue) return def.getValue(item)
+
+  // 3. Dynamic JSON Key Extraction (tags.*, vt.*)
   if (key.startsWith('tags.')) {
     const tagKey = key.substring(5)
     const tagValue = item.tags?.[tagKey]
     return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
   }
+
   if (key.startsWith('vt.')) {
     const vtKey = key.substring(3)
     const vtValue = item.virtualTags?.[vtKey]
     return vtValue ? [vtValue] : []
   }
+
   return []
 }
 
-export function getGroups(parentId: string, groupByKey: string, options: FindOptions): LibraryItem[] {
-  // 1. Fetch items
-  // NOTE: We must fetch display fields (CORE_FIELDS) because current Frontend components (SectionsView, TabsView)
-  // expect the groups to be populated with displayable items (poster, title) immediately.
-  const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
 
-  log(`[getGroups] Grouping by ${groupByKey}. Fields to select: ${JSON.stringify(fieldsToSelect)}`)
 
-  const items = find({
-    ...options,
-    fields: fieldsToSelect
-  })
 
-  if (items.length > 0) {
-    log(`[getGroups] First item keys: ${Object.keys(items[0]).join(', ')}`)
-  }
 
-  // 2. Identify Parent (for ID and Settings)
-  let physicalParentId = parentId
-  let parentTokenPath = ''
-  let parentIsVirtual = false
 
-  if (isVirtualId(parentId)) {
-    const { parentId: pid, tokens } = parseVirtualId(parentId)
-    physicalParentId = pid
-    parentTokenPath = tokens.join('/')
-    parentIsVirtual = true
-  } else if (parentId === 'root') {
-    const root = getRoot()
-    if (root) physicalParentId = root.id
-  }
 
-  const parent = getItemById(physicalParentId) as MediaFolder
-
-  // 3. Group Items
-  const groups: Record<string, LibraryItem[]> = {}
-
-  for (const item of items) {
-    const values = getValuesForKey(item, groupByKey)
-    if (values.length === 0) {
-      if (!groups['Uncategorized']) groups['Uncategorized'] = []
-      groups['Uncategorized'].push(item)
-    } else {
-      for (const value of values) {
-        if (!groups[value]) groups[value] = []
-        groups[value].push(item)
-      }
-    }
-  }
-
-  // 4. Synthesize Virtual Folders
-  const virtualFolders: LibraryItem[] = Object.entries(groups).map(([groupValue, groupItems]) => {
-    // Token: "Key:Value"
-    const token = `${groupByKey}:${groupValue}`
-
-    // Full Path Key for Settings: "ParentPath/Key:Value"
-    const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-
-    // Lookup Settings
-    const virtualSettings = parent && parent.virtualFolderSettings
-      ? parent.virtualFolderSettings[fullSettingsKey] ?? {}
-      : {}
-
-    // Construct Recursive ID
-    let newId = ''
-    if (parentIsVirtual) {
-      newId = `${parentId}--${token}`
-    } else {
-      newId = `virtual--${physicalParentId}--${token}`
-    }
-
-    const virtualFolder: LibraryItem = {
-      id: newId,
-      parentId: parentId,
-      name: groupValue,
-      title: virtualSettings.title ?? groupValue,
-      type: 'folder',
-      mediaType: parent?.mediaType,
-      isMissing: false,
-      isHidden: false,
-      isUserEdited: false,
-      path: `virtual/${fullSettingsKey}`,
-      isVirtual: true,
-      children: groupItems, // Populate children for Sections/Tabs view
-      virtualFolderSettings: parent?.virtualFolderSettings, // Propagate
-      ...virtualSettings
-    }
-
-    return virtualFolder
-  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-
-  return virtualFolders
-}
 
 /**
  * Fetches all seasons for a TV Show and populates their episodes.

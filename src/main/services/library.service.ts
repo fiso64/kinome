@@ -432,14 +432,16 @@ export const setImage = async (
 ) => {
   const item = await metadataService.setImage(itemId, imageType, source)
   if (item) {
-    await _finalizeItemUpdate(item, { updateSuggestions: false })
+    // Use unified update path to ensure fields are locked automatically
+    await updateItem(item, true)
   }
 }
 
 export const removeImage = async (itemId: string, imageType: 'poster' | 'backdrop' | 'logo') => {
   const item = await metadataService.removeImage(itemId, imageType)
   if (item) {
-    await _finalizeItemUpdate(item, { updateSuggestions: false })
+    // Use unified update path to ensure fields are locked automatically
+    await updateItem(item, true)
   }
 }
 export const getContinueWatchingForShow = async (showId: string) => {

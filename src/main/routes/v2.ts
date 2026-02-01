@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import * as repositoryService from '../services/repository.service'
 import * as libraryService from '../services/library.service'
+import * as viewService from '../services/view.service'
+import { isVirtualId, getFiltersFromId } from '../services/virtual-item.factory'
 
 const router = Router()
 
@@ -93,8 +95,8 @@ router.get('/items/:id', async (req, res) => {
       id = root.id
     }
 
-    if (repositoryService.isVirtualId(id)) {
-      const virtualItem = repositoryService.createVirtualItem(id)
+    if (isVirtualId(id)) {
+      const virtualItem = viewService.getVirtualItem(id)
       if (!virtualItem) return res.status(404).json({ error: 'Virtual item not found' })
       return res.json(virtualItem)
     }
@@ -169,47 +171,24 @@ router.get('/items/:id/children', async (req, res) => {
       id = root.id
     }
 
-    if (repositoryService.isVirtualId(id)) {
-      const { parentId, tokens } = repositoryService.parseVirtualId(id)
-      if (!parentId || !tokens || tokens.length === 0) return res.status(404).json({ error: 'Invalid virtual ID' })
+    if (isVirtualId(id)) {
+      console.log(`[V2] Virtual Children Request for ${id}. Query: `, req.query)
 
-      // Map the grouping key to a filter key that repository.service understands
-      const filterOptions: Record<string, any> = {
-        parentId: parentId
-      }
-
-      // Recursive Token Parsing
-      // tokens = ["genre:Animation", "year:2024"]
-      for (const token of tokens) {
-        // Simple "key:value" splitting.
-        // If value contains ':', we only split on the first one.
-        const separatorIndex = token.indexOf(':')
-        if (separatorIndex === -1) continue // Skip invalid tokens
-
-        const groupByKey = token.substring(0, separatorIndex)
-        const groupByValue = token.substring(separatorIndex + 1)
-
-        if (groupByKey === 'genre' || groupByKey === 'genres') {
-          filterOptions['genres'] = groupByValue
-        } else if (groupByKey.startsWith('vt.') || groupByKey === 'virtualTags') {
-          // e.g. vt.is_animated -> virtualTags.is_animated
-          const key = groupByKey.startsWith('vt.') ? groupByKey.split('.')[1] : null
-          if (key) {
-            filterOptions[`virtualTags.${key}`] = groupByValue
-          }
-        } else if (groupByKey.startsWith('tags.') || groupByKey === 'tags') {
-          // e.g. tags.mood -> tags.mood
-          const key = groupByKey.startsWith('tags.') ? groupByKey.replace('tags.', '') : null
-          if (key) {
-            filterOptions[`tags.${key}`] = groupByValue
-          }
-        }
-        // TODO: Add support for literal 'year', 'studio', etc. if needed later
-      }
+      const filterOptions = getFiltersFromId(id)
 
       // Fetch children with DB-side filtering
       const options = parseFindOptions(req.query)
       options.where = { ...options.where, ...filterOptions }
+
+      const groupBy = typeof req.query.groupBy === 'string' ? req.query.groupBy : undefined
+
+      if (groupBy) {
+        if (options.where && 'groupBy' in options.where) {
+          delete (options.where as any).groupBy
+        }
+        const groups = viewService.getGroups(id, groupBy, options)
+        return res.json(groups)
+      }
 
       const filteredChildren = repositoryService.find(options)
 
@@ -253,7 +232,7 @@ router.get('/items/:id/children', async (req, res) => {
         delete (options.where as any).groupBy
       }
 
-      const groups = repositoryService.getGroups(id, groupBy, options)
+      const groups = viewService.getGroups(id, groupBy, options)
       return res.json(groups)
     }
 
