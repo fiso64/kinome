@@ -152,16 +152,25 @@ export async function searchTmdbAndApplyMetadata(
 
       // TODO: Check if/how/when data gets truncated for TMDB search results vs detail results.
       // For now, we are trusting the search result data to be sufficient for library browsing.
-      item.title = result.title || result.name // 'title' for movie, 'name' for tv
-      item.overview = result.overview
+      if (!repositoryService.isFieldLocked(item, 'title')) {
+        item.title = result.title || result.name // 'title' for movie, 'name' for tv
+      }
+      if (!repositoryService.isFieldLocked(item, 'overview')) {
+        item.overview = result.overview
+      }
       if (item.type === 'file') {
         item.opensAsFolder = true
       }
       const date = result.release_date || result.first_air_date
-      if (date) {
+      if (date && !repositoryService.isFieldLocked(item, 'year')) {
         item.year = new Date(date).getFullYear()
       }
-      if (result.genre_ids && Array.isArray(result.genre_ids) && genreCache.size > 0) {
+      if (
+        result.genre_ids &&
+        Array.isArray(result.genre_ids) &&
+        genreCache.size > 0 &&
+        !repositoryService.isFieldLocked(item, 'genres')
+      ) {
         item.genres = result.genre_ids
           .map((id: number) => genreCache.get(id))
           .filter((name): name is string => !!name)
@@ -797,10 +806,16 @@ export async function fetchAndApplyEpisodeData(
             }
           }
         } else {
-          // If no matching TMDB episode, clear any old metadata.
-          localEpisode.title = undefined
-          localEpisode.overview = undefined
-          localEpisode.posterPath = undefined
+          // If no matching TMDB episode, clear any old metadata, but respect locks during regular scans.
+          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
+            localEpisode.title = undefined
+          }
+          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
+            localEpisode.overview = undefined
+          }
+          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'posterPath')) {
+            localEpisode.posterPath = undefined
+          }
         }
         modifiedEpisodes.push(localEpisode)
       }

@@ -416,8 +416,10 @@ export const applyManualMatch = async (
   mediaType: 'movie' | 'tv' | 'season',
   options: { respectLocks?: boolean } = { respectLocks: true }
 ) => {
-  // HARDCODE: We set respectLocks to true first for testing, as requested.
-  const item = await metadataService.applyManualMatch(itemId, result, mediaType, { ...options, respectLocks: true })
+  const item = await metadataService.applyManualMatch(itemId, result, mediaType, {
+    ...options,
+    respectLocks: false
+  })
   if (item) {
     await _finalizeItemUpdate(item, { updateSuggestions: true })
   }

@@ -512,6 +512,10 @@ async function _resetItemMetadata(
           itemAsRecord[key] = null
           break
 
+        case 'lockedFields':
+          itemAsRecord[key] = []
+          break
+
         // --- Reset to undefined (property will be removed) ---
         case 'title':
         case 'mediaType':
@@ -679,12 +683,17 @@ export async function applyManualMatch(
     if (item.type === 'folder' && mediaType === 'tv') {
       item.tmdbSeasons = null
       if (item.children) {
+        // Recursively reset seasons and episodes.
+        // If respectLocks is false (manual match), this will clear their locks too.
         for (const season of item.children) {
-          if (season.type === 'folder' && season.mediaType === 'season' && season.children) {
-            season.lastRefreshedAt = null
-            for (const episode of season.children) {
-              if (episode.type === 'file' && episode.mediaType === 'episode')
-                episode.posterPath = undefined
+          if (season.type === 'folder' && season.mediaType === 'season') {
+            await _resetItemMetadata(season, imagesDir, options)
+            if (season.children) {
+              for (const episode of season.children) {
+                if (episode.mediaType === 'episode') {
+                  await _resetItemMetadata(episode, imagesDir, options)
+                }
+              }
             }
           }
         }
@@ -833,7 +842,7 @@ export async function clearItemMetadata(
 
   // Minimal implementation for build fix
   const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-  await _resetItemMetadata(item, imagesDir)
+  await _resetItemMetadata(item, imagesDir, { respectLocks: false })
 
   repositoryService.updateItem(item.id, item)
   return item

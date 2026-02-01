@@ -480,6 +480,7 @@ export const FOLDER_BEHAVIOR_SETTINGS_KEYS = [
  */
 export const RESETTABLE_METADATA_KEYS = [
   ...METADATA_KEYS,
+  'lockedFields',
   // Internal cache state that must be cleared along with metadata
   'lastRefreshedAt',
   'tmdbSeasons',
