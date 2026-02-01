@@ -3,12 +3,6 @@ import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
-import {
-  determineExplicitSeasonNumbers,
-  determineEpisodeNumbers,
-  isSupportedVideoFile,
-  ParsedTvInfo
-} from '../utils/tv-parser'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -25,7 +19,7 @@ async function walkAndUpsert(
   db: any
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
-  const queue: { currentPath: string; parentId: string | null; parentMediaType?: string | null }[] = []
+  const queue: { currentPath: string; parentId: string | null }[] = []
 
   // Initialize queue
   if (startPath === mediaSourcePath) {
@@ -48,22 +42,13 @@ async function walkAndUpsert(
     const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
     const id = repositoryService.generateId(relativePath)
 
-    // We need to fetch the parent's mediaType to seed the queue correctly if starting mid-tree
-    const parentItem = repositoryService.findParent(id)
-    const parentMediaType = parentItem?.mediaType
-
-    visitedIds.add(id)
-    queue.push({ currentPath: startPath, parentId: id, parentMediaType })
+    queue.push({ currentPath: startPath, parentId: id })
   }
 
   // Hoist prepared statements for performance
   const selectFolderSettingsStmt = db.prepare(
     'SELECT scraper_settings_json, items.name FROM items LEFT JOIN folder_settings ON items.id = folder_settings.item_id WHERE items.id = ?'
   )
-  const selectMetadataStmt = db.prepare(
-    'SELECT media_type, locked_fields_json, season_number, episode_number FROM metadata WHERE item_id = ?'
-  )
-  const selectSeasonNumberStmt = db.prepare('SELECT season_number FROM metadata WHERE item_id = ?')
 
   const upsertItemStmt = db.prepare(
     `
@@ -89,7 +74,7 @@ async function walkAndUpsert(
   )
 
   while (queue.length > 0) {
-    const { currentPath, parentId, parentMediaType } = queue.shift()!
+    const { currentPath, parentId } = queue.shift()!
     if (!parentId) continue
 
     let entries: Dirent[]
@@ -103,9 +88,6 @@ async function walkAndUpsert(
     // ---------------------------------------------------------
     // Phase 1: Context Retrieval
     // ---------------------------------------------------------
-    const isTvContext = parentMediaType === 'tv'
-    const isSeasonContext = parentMediaType === 'season'
-
     const currentFolderRow = selectFolderSettingsStmt.get(parentId)
     const scraperSettings = repositoryService.parseJsonSafe<any>(
       currentFolderRow?.scraper_settings_json,
@@ -115,45 +97,6 @@ async function walkAndUpsert(
     const retrieveChildrenMetadata =
       scraperSettings.retrieve_children_metadata !== false
 
-    // ---------------------------------------------------------
-    // Phase 2: Structural Analysis (TV Parsing)
-    // ---------------------------------------------------------
-    let seasonMap: Map<string, ParsedTvInfo> = new Map()
-    let episodeMap: Map<string, ParsedTvInfo> = new Map()
-
-    if (retrieveChildrenMetadata) {
-      if (isTvContext) {
-        const folderNames = entries
-          .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-          .map((e) => e.name)
-        const videoFileNames = entries
-          .filter((e) => e.isFile() && isSupportedVideoFile(e.name) && !e.name.startsWith('.'))
-          .map((e) => e.name)
-
-        // Stage 1: Explicit Seasons (Regex match)
-        seasonMap = determineExplicitSeasonNumbers(folderNames)
-
-        if (seasonMap.size === 0) {
-          // Stage 2: Flat Structure (Video files in root)
-          if (videoFileNames.length > 0) {
-            episodeMap = determineEpisodeNumbers(videoFileNames, 1)
-          } else {
-            // Stage 3: Alphabetic Fallback (Generic folder names)
-            // Note: Scanner doesn't strictly need to do this as Metadata Service will.
-            // But we keep it for immediate visual feedback if possible.
-            // Actually, let's NOT do alphabetic fallback in scanner to keep it fast and less "guessy".
-            // metadataService.fetchMetadataForLibrary() will handle the more complex cases.
-          }
-        }
-      } else if (isSeasonContext) {
-        const videoFileNames = entries
-          .filter((e) => e.isFile() && isSupportedVideoFile(e.name) && !e.name.startsWith('.'))
-          .map((e) => e.name)
-
-        const metaRow = selectSeasonNumberStmt.get(parentId)
-        episodeMap = determineEpisodeNumbers(videoFileNames, metaRow?.season_number)
-      }
-    }
 
     const operations: (() => void)[] = []
 
@@ -180,42 +123,13 @@ async function walkAndUpsert(
       // ---------------------------------------------------------
       // Phase 3: Invariant Enforcement & Write Guard
       // ---------------------------------------------------------
-      let parsedSeason: number | null = null
-      let parsedEpisode: number | null = null
       let parsedMediaType: string | null = null
 
       if (retrieveChildrenMetadata) {
         if (isDirectory && scraperSettings.children_type_hint) {
           parsedMediaType = scraperSettings.children_type_hint
         }
-
-        if (isDirectory && isTvContext) {
-          const info = seasonMap.get(entry.name)
-          if (info) {
-            parsedSeason = info.season ?? null
-            parsedMediaType = 'season'
-          }
-        } else if (isVideoFile && (isTvContext || isSeasonContext)) {
-          const info = episodeMap.get(entry.name)
-          if (info) {
-            parsedEpisode = info.episode ?? null
-            parsedSeason = info.season ?? null
-            parsedMediaType = 'episode'
-          }
-        }
       }
-
-      const existingMetaRow = selectMetadataStmt.get(id)
-      const existingLocks = repositoryService.parseJsonSafe<string[]>(
-        existingMetaRow?.locked_fields_json,
-        []
-      )
-
-      const isSeasonLocked = existingLocks.includes('seasonNumber')
-      const isEpisodeLocked = existingLocks.includes('episodeNumber')
-
-      if (isSeasonLocked) parsedSeason = existingMetaRow.season_number
-      if (isEpisodeLocked) parsedEpisode = existingMetaRow.episode_number
 
       visitedIds.add(id)
 
@@ -235,18 +149,16 @@ async function walkAndUpsert(
           upsertMetadataStmt.run({
             id,
             mediaType: parsedMediaType,
-            seasonNumber: parsedSeason,
-            episodeNumber: parsedEpisode
+            seasonNumber: null,
+            episodeNumber: null
           })
         }
       })
 
       if (isDirectory) {
-        const effectiveMediaType = parsedMediaType || existingMetaRow?.media_type
         queue.push({
           currentPath: fullPath,
-          parentId: id,
-          parentMediaType: (effectiveMediaType as string) || undefined
+          parentId: id
         })
       }
     }
