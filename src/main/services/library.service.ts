@@ -529,6 +529,16 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
         // My previous implementation was: parent.virtualFolderSettings[groupByKey][groupByValue] (Nested Object)
         // I am changing the schema here to a Flat Map style for flexibility.
 
+        // Apply Normalization: groupBy is only valid for 'tabs' and 'sections'
+        if (settingsToSave.layout && !['tabs', 'sections'].includes(settingsToSave.layout)) {
+          // @ts-ignore
+          settingsToSave.groupBy = null
+        }
+        if (settingsToSave.childViewSettings?.layout && !['tabs', 'sections'].includes(settingsToSave.childViewSettings.layout)) {
+          // @ts-ignore
+          settingsToSave.childViewSettings.groupBy = null
+        }
+
         parent.virtualFolderSettings[settingsKey] = settingsToSave
 
         // Persistence trigger
@@ -582,6 +592,18 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
 
     // Convert back to array for repository persistence
     item.lockedFields = Array.from(currentLocks)
+  }
+
+  // --- Normalization ---
+  // Ensure groupBy is null if the layout doesn't support it
+  const anyItem = item as any
+  const isGroupingLayout = ['tabs', 'sections'].includes(anyItem.layout as string)
+  if (anyItem.layout !== undefined && !isGroupingLayout) {
+    anyItem.groupBy = null
+  }
+  // Also normalize childViewSettings if present
+  if (anyItem.childViewSettings?.layout && !['tabs', 'sections'].includes(anyItem.childViewSettings.layout)) {
+    anyItem.childViewSettings.groupBy = null
   }
 
   // --- Standard Item Update ---

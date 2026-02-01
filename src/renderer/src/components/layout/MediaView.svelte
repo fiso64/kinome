@@ -13,18 +13,12 @@
     MediaFolder,
     MediaFile,
     Settings,
-    AutocompleteSuggestions
+    AutocompleteSuggestions,
+    SearchIndexEntry
   } from '../../../../shared/types'
-  import type { SearchIndexEntry } from '../../../../shared/types' // Assuming SearchIndexEntry is there or elsewhere
 
   type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
-  type VirtualFolder = MediaFolder & {
-    isVirtual: boolean
-    physicalParentId: string
-    groupByKey: string
-    groupByValue: string
-  }
 
   let {
     parentItem,
@@ -39,7 +33,7 @@
     settings,
     listFixedAspectRatio = false
   }: {
-    parentItem?: MediaFolder | VirtualFolder
+    parentItem?: MediaFolder
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
     layout?: Layout
@@ -129,101 +123,39 @@
     return aName.localeCompare(bName, undefined, { numeric: true })
   }
 
+  // --- Data Processing ---
+  // The API (and Query) now handles grouping.
+  // We simply filter (search/tags) and then sort for simple views.
+
   const { itemsForViews, foldersForTabsOrSections } = $derived.by(() => {
     // 1. Filter first.
     const filteredItems = filterItems(items, stableSearchQuery ?? { text: '', tags: [] })
 
-    // 2. Handle grouping for tabs/sections.
+    // 2. Separate Folders (which may be Virtual Groups from backend) vs Loose Items
     if (layout === 'tabs' || layout === 'sections') {
-      if (groupBy && groupBy !== 'folder') {
-        // Server-Side Grouping: The items are already virtual folders.
-        // We just cast them and return.
-        return {
-          itemsForViews: [],
-          foldersForTabsOrSections: filteredItems as VirtualFolder[]
-        }
-      } else {
-        // Group by physical folders, but also create virtual folders for loose files.
-        const physicalFolders = [...filteredItems.filter((item) => item.type === 'folder')].sort(
-          compareItems
-        ) as MediaFolder[]
+      // For these layouts, we expect the input `items` to ALREADY be grouped (virtual folders)
+      // if a groupBy setting is active.
+      // Or they are just physical subfolders.
 
-        const looseFiles = filteredItems.filter((item) => item.type === 'file') as LibraryItem[]
-        const allVirtualFolders: VirtualFolder[] = []
+      // If we have a groupBy, the backend returns Virtual Folders.
+      // We just treat them as folders.
+      const folders = filteredItems.filter((i) => i.type === 'folder') as MediaFolder[]
 
-        if (looseFiles.length > 0 && parentItem) {
-          const filesBySeason = new Map<number, LibraryItem[]>()
-          const unseasonedFiles: LibraryItem[] = []
-
-          // 1. Categorize all loose files
-          for (const file of looseFiles) {
-            const seasonNum = 'seasonNumber' in file ? (file as MediaFile).seasonNumber : undefined
-            if (seasonNum !== undefined && seasonNum !== null) {
-              if (!filesBySeason.has(seasonNum)) {
-                filesBySeason.set(seasonNum, [])
-              }
-              filesBySeason.get(seasonNum)!.push(file)
-            } else {
-              unseasonedFiles.push(file)
-            }
-          }
-
-          // 2. Create sorted virtual folders for each season
-          const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
-          for (const seasonNum of sortedSeasonNumbers) {
-            const groupByValue = `__season_${seasonNum}__`
-            const virtualSettings =
-              parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
-
-            const seasonFolder: VirtualFolder = {
-              id: `virtual--${parentItem.id}--season--${seasonNum}`,
-              name: `Season ${seasonNum}`,
-              title: virtualSettings.title ?? `Season ${seasonNum}`,
-              type: 'folder',
-              children: filesBySeason.get(seasonNum)!,
-              path: '',
-              isVirtual: true,
-              physicalParentId: parentItem.id,
-              groupByKey: 'folder',
-              groupByValue: `__season_${seasonNum}__`,
-              mediaType: 'season',
-              seasonNumber: seasonNum,
-              ...virtualSettings
-            }
-            allVirtualFolders.push(seasonFolder)
-          }
-
-          // 3. Create a virtual folder for any remaining "unseasoned" files
-          if (unseasonedFiles.length > 0) {
-            const groupByValue = '__files__'
-            const virtualSettings =
-              parentItem.virtualFolderSettings?.['folder']?.[groupByValue] ?? {}
-
-            const filesFolder: VirtualFolder = {
-              id: `virtual--${parentItem.id}--files`,
-              name: 'Files',
-              title: virtualSettings.title ?? 'Files',
-              type: 'folder',
-              children: unseasonedFiles,
-              path: '',
-              isVirtual: true,
-              physicalParentId: parentItem.id,
-              groupByKey: 'folder',
-              groupByValue: '__files__',
-              ...virtualSettings
-            }
-            allVirtualFolders.push(filesFolder)
-          }
-        }
-
-        const finalFolders = [...allVirtualFolders, ...physicalFolders]
-        return { itemsForViews: [], foldersForTabsOrSections: finalFolders }
+      // If we still have loose files here, it means they are NOT grouped or 'groupBy' is off.
+      // In that case, we can't really show them in Tabs/Sections properly unless we wrap them??
+      // But typically Tabs/Sections implies we want to see Groups.
+      // If we have mixed content (some folders, some files) and NO groupBy,
+      // TabsView usually expects 'folders'.
+      // Current behavior: just return folders.
+      return {
+        itemsForViews: [],
+        foldersForTabsOrSections: folders.sort(compareItems) as MediaFolder[]
       }
     }
 
-    // 3. Handle simple views (grid, list, tree): just sort items.
+    // 3. Simple Views (Grid, List, Tree)
+    // Just sort everything.
     const sortedItems = isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)
-
     return { itemsForViews: sortedItems, foldersForTabsOrSections: [] }
   })
 </script>

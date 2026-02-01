@@ -41,6 +41,21 @@ export function getFiltersFromId(id: string): Record<string, any> {
         // 1. Handle Shorthand / Normalization
         if (key === 'genre' || key === 'genres') {
             filters['genres'] = value
+        } else if (key === 'folder') {
+            // Handle Mixed Content Grouping (Seasons/files)
+            if (value.startsWith('__season_')) {
+                const seasonNum = parseInt(value.replace('__season_', '').replace('__', ''), 10)
+                if (!isNaN(seasonNum)) {
+                    filters['seasonNumber'] = seasonNum
+                }
+            } else if (value === '__files__') {
+                // 'Files' usually means things without a season number or explicity unseasoned?
+                // For now, let's assume it means seasonNumber is null
+                // BUT repository.find might not support explicit null check via typical query?
+                // v2.ts parser handles 'null' string.
+                // We'll set it to null.
+                filters['seasonNumber'] = null
+            }
         } else if (key === 'virtualTags' || key.startsWith('vt.')) {
             const tagKey = key.startsWith('vt.') ? key.split('.')[1] : null
             if (tagKey) {

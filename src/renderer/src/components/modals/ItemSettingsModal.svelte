@@ -356,7 +356,7 @@
 
         const finalChildViewSettings = childViewSettings
           ? JSON.parse(JSON.stringify(childViewSettings))
-          : undefined
+          : null
         if (hasChanged(finalChildViewSettings, initialValues.childViewSettings)) {
           updates.childViewSettings = finalChildViewSettings
           changed = true
