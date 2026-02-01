@@ -12,6 +12,7 @@ import { loadDbIntoMemory } from './services/library.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
 import { createServer as createViteServer } from 'vite'
+import type { MediaFile } from '../shared/types'
 
 const app = express()
 const server = createServer(app)
@@ -313,7 +314,13 @@ app.get('/api/item-properties/*itemPath', async (req, res) => {
 const streamHandler = async (req: express.Request, res: express.Response): Promise<void> => {
   try {
     const id = req.params.id as string
-    const filePath = await libraryService.getItemPath(id)
+    const item = (await libraryService.getItemById(id)) as MediaFile | null
+    if (!item || !item.path) {
+      res.status(404).send('File not found')
+      return
+    }
+
+    const filePath = await libraryService.getAbsolutePath(item.path)
     if (!filePath) {
       res.status(404).send('File not found')
       return
@@ -321,12 +328,41 @@ const streamHandler = async (req: express.Request, res: express.Response): Promi
 
     // If it's a remote URL, redirect to it
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      // Remote Redirects: Check lastWatched and record playback before redirecting
+      const lastWatched = item.lastWatched || 0
+      if (Date.now() - lastWatched > 60000) {
+        libraryService.recordPlayback(id).catch((err) => {
+          console.error(`[Server] Failed to record playback for remote item ${id}:`, err)
+        })
+      }
       res.redirect(filePath)
       return
     }
 
     // Otherwise serve local file
-    res.sendFile(filePath)
+    // We use the callback to ensure playback is only recorded if the initial stream setup 
+    // was successful (no Range errors, etc.).
+    res.sendFile(filePath, (err) => {
+      if (!err && res.statusCode < 400) {
+        // Debounce/Throttle: Fetch the item one last time to check the most recent lastWatched 
+        // value from the DB. This prevents redundant updates from multiple concurrent range 
+        // requests without needing a separate in-memory map.
+        libraryService.getItemById(id).then((freshItem) => {
+          const lastWatched = freshItem?.lastWatched || 0
+          if (Date.now() - lastWatched > 60000) {
+            libraryService.recordPlayback(id).catch((recordErr) => {
+              console.error(`[Server] Failed to record playback for item ${id}:`, recordErr)
+            })
+          }
+        })
+      } else if (err) {
+        // Only log errors if headers haven't been sent yet (actual failure to start)
+        // SendStream errors like RangeNotSatisfiable happen immediately.
+        if (!res.headersSent) {
+          console.error(`[Server] Error starting stream for item ${id}:`, err)
+        }
+      }
+    })
   } catch (e) {
     console.error('Error serving stream:', e)
     res.sendStatus(500)

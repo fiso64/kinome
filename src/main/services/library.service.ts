@@ -719,11 +719,7 @@ export const recordPlayback = async (itemId: string) => {
 }
 
 export const playFileWith = async (file: MediaFile, cmd: string, cb: ErrorCallback) => {
-  const res = await actionsService.playFileWith(file, cmd, cb)
-  if (res) {
-    await recordPlayback(file.id)
-  }
-  return res
+  return await actionsService.playFileWith(file, cmd, cb)
 }
 export const playFile = async (file: MediaFile, cb: ErrorCallback) => {
   const settings = await settingsService.readSettings()
