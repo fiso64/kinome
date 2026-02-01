@@ -552,77 +552,44 @@ function _resetItemMetadataFields(
 // ... (skipping clearItemMetadata and clearVirtualFolderMetadata unchanged) ...
 
 export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
-  const needsFetch = item.tmdbId && !item.lastRefreshedAt
+  const needsNetworkFetch = !!(item.tmdbId && !item.lastRefreshedAt)
+  log(`[Details] manual fetch check for "${item.name}" (id: ${item.id}). needsNetworkFetch=${needsNetworkFetch}, tmdbId=${item.tmdbId}, lastRefreshedAt=${item.lastRefreshedAt}`)
 
-  if (!needsFetch) return []
+  // GATE A: If it's a file (movie/episode) and it's already clean, exit immediately.
+  if (item.type === 'file' && !needsNetworkFetch) {
+    return []
+  }
 
   if (pathsService.isRemoteLibrary()) {
     log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
     return []
   }
+
   repositoryService.setBulkUpdateStatus(true)
   const allModifiedItems: LibraryItem[] = []
   try {
     const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) return []
-    if (needsFetch) {
+    const libraryDataPath = pathsService.getLibraryDataPath()
+
+    // 1. Network Fetch (If needed/dirty)
+    if (needsNetworkFetch) {
       log(`[Details] Item details stale or missing. Starting full fetch for "${item.name}"`)
       const modified = await retrieverService.fetchItemDetails(
         item,
         settings,
-        pathsService.getLibraryDataPath()
+        libraryDataPath
       )
       // Mark as refreshed
       item.lastRefreshedAt = Date.now()
       allModifiedItems.push(item, ...modified)
-    } else if (item.type === 'folder') {
-      const dbRoot = repositoryService.getRoot()
-      if (!dbRoot) throw new Error('Cannot fetch episodes: database root not found.')
-      if (item.mediaType === 'season') {
-        const showFolder = repositoryService.findParent(item.id)
-        if (showFolder && showFolder.tmdbId && showFolder.process_tv_children !== false) {
-          if (!showFolder.lastRefreshedAt) {
-            log(`[Details] Parent show "${showFolder.name}" details missing, fetching them first.`)
-            const modifiedParent = await retrieverService.fetchItemDetails(
-              showFolder,
-              settings,
-              pathsService.getLibraryDataPath()
-            )
-            // Mark parent as refreshed? fetchItemDetails is pure, so we must set it.
-            showFolder.lastRefreshedAt = Date.now()
-            allModifiedItems.push(...modifiedParent, showFolder)
-          }
-          if (showFolder.tmdbSeasons) {
-            log(`[Details] Season episodes missing. Fetching for "${item.name}"`)
-            // Populate children so retriever can find the local files
-            item.children = repositoryService.getChildren(item.id)
+    }
 
-            const modifiedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
-              item,
-              showFolder.tmdbId,
-              settings.tmdbApiKey,
-              pathsService.getLibraryDataPath(),
-              showFolder.tmdbSeasons
-            )
-            // item.lastRefreshedAt = Date.now() // fetchAndApplyEpisodeData might imply refresh for season?
-            // Since we are here because !needsFetch (which checks item.lastRefreshedAt) is false...
-            // Wait, this block is inside else if (item.type === 'folder').
-            // Actually, the original code had complex logic for "needsEpisodeFetch".
-            // If we use simple timestamp, we might miss cases where "details are fetched but episodes are not".
-            // But spec says: "The last_refreshed_at timestamp is ONLY updated after a successful, atomic completion of the fetch routine (Details + Credits + Images + Seasons + Episodes)."
-            // So if `lastRefreshedAt` is set, EVERYTHING should be there.
-            // If it is NOT set, we re-run the whole thing.
-            allModifiedItems.push(item, ...modifiedEpisodes)
-          } else {
-            // item.lastRefreshedAt = Date.now() // Mark processed?
-            // If we can't fetch, we probably shouldn't stamp it as success.
-          }
-        }
-      } else if (item.mediaType === 'tv') {
-        log(`[Details] TV Show episode data missing. Processing children for "${item.name}"`)
-        // Populate children (Seasons/Episodes) so retriever can process them
+    // 2. Structural Sync (For folders)
+    if (item.type === 'folder') {
+      if (item.mediaType === 'tv') {
+        // Ensure children are populated for applyTvShowData
         item.children = repositoryService.getChildren(item.id)
-        // Also populate grandchildren if necessary (for "File Mode" or deep structures)
         for (const child of item.children) {
           if (child.type === 'folder') {
             child.children = repositoryService.getChildren(child.id)
@@ -632,22 +599,26 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
         const modifiedChildren = await retrieverService.applyTvShowData(
           item,
           settings,
-          pathsService.getLibraryDataPath()
+          libraryDataPath
         )
-        allModifiedItems.push(item, ...modifiedChildren)
+        allModifiedItems.push(...modifiedChildren)
       }
     }
-    item._v = Date.now()
+
+    // 3. Finalize
+    if (allModifiedItems.length > 0) {
+      log(`[Details] Background processing complete for "${item.name}". ${allModifiedItems.length} items modified.`)
+      return allModifiedItems
+    }
+  } catch (error) {
+    console.error(`Error in backgroundFetchAndApplyDetails for "${item.name}":`, error)
   } finally {
     repositoryService.setBulkUpdateStatus(false)
   }
 
-  const uniqueItems = Array.from(new Map(allModifiedItems.map((it) => [it.id, it])).values())
-  const itemsToUpdate = uniqueItems.length > 0 ? uniqueItems : [item]
-  // No need to update search index here, it's handled by _finalizeItemUpdate in library.service
-  log(`[Details] Background processing complete for "${item.name}"`)
-  return itemsToUpdate
+  return []
 }
+
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,

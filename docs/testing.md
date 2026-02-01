@@ -8,24 +8,35 @@ Tips for Testing:
 ├── .library
 │   ├── .ignore
 │   ├── images
-│   │   ├── ....
+│   │   ├── ...
 │   ├── library-settings.json
 │   ├── library.db
 │   ├── library.db-shm
 │   └── library.db-wal
+├── .library.bak
+│   ├── ... (use this to restore the library if it gets messed up)
 ├── Breaking Bad
+│   ├── Extras
+│   │   └── file.mkv
 │   ├── S01
 │   │   ├── e01.mkv
 │   │   ├── e02.mkv
 │   │   └── e03.mkv
-│   └── S02
-│       ├── e01.mkv
-│       ├── e02.mkv
-│       └── e03.mkv
+│   ├── S02
+│   │   ├── e01.mkv
+│   │   ├── e02.mkv
+│   │   └── e03.mkv
+│   └── file.mkv
 ├── Death Note
+│   ├── Extras
+│   │   └── file.mkv
+│   ├── Other Folder
+│   │   └── file.mkv
 │   ├── e01.mkv
 │   ├── e02.mkv
-│   └── e03.mkv
+│   ├── e03.mkv
+│   ├── ending-not-an-episode.mkv
+│   └── not-an-episode.srt
 ├── Spirited Away
 │   └── movie.mkv
 └── The Godfather

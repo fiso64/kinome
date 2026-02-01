@@ -9,7 +9,7 @@ import * as pathsService from './paths.service'
 import * as repositoryService from './repository.service'
 // getDb import was removed to avoid linting errors if unused, or handled via repositoryService export
 import * as filesystemService from './filesystem.service'
-// import * as tvShowService from './tv-show.service' // Deprecated v2 logic
+import * as tvShowService from './tv-show.service'
 import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 
@@ -25,6 +25,39 @@ type ErrorCallback = (options: { title: string; message: string; detail?: string
 
 // --- Helpers ---
 
+/**
+ * Deeply compares two objects for equality based on specific metadata and user state keys.
+ * Returns true if they are effectively the same.
+ */
+function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
+  // 1. Check Metadata Keys
+  for (const key of METADATA_KEYS) {
+    const k = key as keyof LibraryItem
+    const v1 = JSON.stringify(existing[k])
+    const v2 = JSON.stringify(updated[k])
+    if (v1 !== v2) return false
+  }
+
+  // 2. Check User State Keys
+  const USER_KEYS: (keyof LibraryItem)[] = [
+    'watched',
+    'lastWatched',
+    'continueWatchingDismissed',
+    'nextUpDismissed'
+  ]
+  for (const key of USER_KEYS) {
+    if (existing[key] !== updated[key]) return false
+  }
+
+  // 3. Check Folder Settings
+  for (const key of VIEW_SETTINGS_KEYS) {
+    const k = key as keyof LibraryItem
+    if (JSON.stringify(existing[k]) !== JSON.stringify(updated[k])) return false
+  }
+
+  return true
+}
+
 async function _finalizeItemUpdate(
   items: LibraryItem | LibraryItem[],
   options: { updateSuggestions?: boolean } = {}
@@ -33,28 +66,45 @@ async function _finalizeItemUpdate(
   const itemsArray = Array.isArray(items) ? items : [items]
 
   const settings = await settingsService.readSettings()
+  const modifiedItems: LibraryItem[] = []
 
-  // 1. Calculate Virtual Tags and Persist changes to SQLite
+  // 1. Process items and detect real changes
   repositoryService.runTransaction(() => {
     for (const item of itemsArray) {
-      // Ensure virtual tags are up-to-date in memory before saving
-      item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+      // Calculate virtual tags (always do this as they depend on external settings)
+      const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+      const virtualTagsChanged = JSON.stringify(item.virtualTags) !== JSON.stringify(newVirtualTags)
+      item.virtualTags = newVirtualTags
 
-      // Only persist physical items to the database
-      if (!item.id.startsWith('virtual--')) {
-        repositoryService.updateItem(item.id, item)
+      const existing = repositoryService.getItemById(item.id)
+      const hasRealChanges = !existing || !isItemDataSame(existing, item) || virtualTagsChanged
+
+      if (hasRealChanges) {
+        // Only bump version if something actually changed
+        item._v = Date.now()
+
+        // Persist physical items to database
+        if (!item.id.startsWith('virtual--')) {
+          repositoryService.updateItem(item.id, item)
+        }
+        modifiedItems.push(item)
       }
     }
   })
 
-  // searchService.updateIndexForItems(itemsArray) - Removed, handled by FTS triggers
+  if (modifiedItems.length === 0) {
+    // If no real changes occurred, exit early to break any potential loops
+    return
+  }
 
-  // Prepare broadcast payload with ancestor IDs for targeted query invalidation
-  const plainItems = JSON.parse(JSON.stringify(itemsArray))
+  // 2. Prepare broadcast payload for changed items only
+  const plainItems = JSON.parse(JSON.stringify(modifiedItems))
   for (const item of plainItems) {
     const ancestors = repositoryService.getAncestors(item.id)
     item.ancestorIds = ancestors.map((a) => a.id)
   }
+
+  log(`Broadcasting updates for ${modifiedItems.length} items.`)
   getTransport().notifyLibraryItemsUpdated(plainItems)
 
   if (options.updateSuggestions) {
@@ -399,13 +449,37 @@ export const getHiddenChildren = async (parentId: string): Promise<LibraryItem[]
   return children.filter((c) => c.isHidden)
 }
 export const assignSeasonsAndEpisodes = async (
-  _showId: string,
-  _s1: any,
-  _s2: any,
-  _fm: boolean
+  showId: string,
+  seasonStrategy: 'smart' | 'alphabetic',
+  episodeStrategy: 'smart' | 'alphabetic',
+  fetchMetadata: boolean
 ) => {
-  // DEPRECATED in V2: Logic moved to ingestion (filesystem.service.ts)
-  console.warn('[Library] assignSeasonsAndEpisodes is deprecated in V2. Usage ignored.')
+  log(
+    `[Library] manual assignment triggered for show ${showId}. Strategies: S=${seasonStrategy}, E=${episodeStrategy}, Fetch=${fetchMetadata}`
+  )
+
+  const show = repositoryService.getItemById(showId) as MediaFolder
+  if (!show || show.mediaType !== 'tv') {
+    throw new Error(`Item ${showId} is not a valid TV Show.`)
+  }
+
+  // 1. Sync Structure
+  await tvShowService.syncTvShowStructure(show, seasonStrategy, episodeStrategy)
+
+  // 2. Fetch Metadata if requested
+  if (fetchMetadata) {
+    // We pass the "show" item to backgroundFetchAndApplyDetails.
+    // This will identify dirty episodes (due to number changes) and fetch them.
+    const modified = await metadataService.backgroundFetchAndApplyDetails(show)
+    if (modified && modified.length > 0) {
+      // CRITICAL: We must finalize the updates because backgroundFetchAndApplyDetails
+      // no longer bumps versions or broadcasts internally (to prevent loops).
+      // This saves the newly fetched metadata to the DB and notifies the UI.
+      await _finalizeItemUpdate(modified)
+    }
+  }
+
+  log(`[Library] Assignment complete for show ${showId}.`)
 }
 export const clearItemMetadata = metadataService.clearItemMetadata
 export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMetadata

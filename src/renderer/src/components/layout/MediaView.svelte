@@ -11,7 +11,6 @@
   import type {
     LibraryItem,
     MediaFolder,
-    MediaFile,
     Settings,
     AutocompleteSuggestions,
     SearchIndexEntry
@@ -52,8 +51,8 @@
 
   const grayOutWatched = $derived(settings?.grayOutWatched ?? true)
 
-  const { layout, groupBy, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } =
-    $derived.by(() => {
+  const { layout, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } = $derived.by(
+    () => {
       // Resolve settings using the centralized helper function.
       const resolved = resolveViewSettings(parentItem, settings).settings
 
@@ -65,12 +64,12 @@
 
       return {
         layout: resolved.layout,
-        groupBy: resolved.groupBy,
         gridPosterSize: resolved.gridPosterSize,
         listDescriptionRows: resolved.listDescriptionRows,
         showHorizontalScrollbar: (resolved as any).showHorizontalScrollbar
       }
-    })
+    }
+  )
 
   // --- Search Query Stability ---
   // This prevents the view from re-filtering while the user is in the middle of typing a tag.
@@ -144,9 +143,6 @@
       // If we still have loose files here, it means they are NOT grouped or 'groupBy' is off.
       // In that case, we can't really show them in Tabs/Sections properly unless we wrap them??
       // But typically Tabs/Sections implies we want to see Groups.
-      // If we have mixed content (some folders, some files) and NO groupBy,
-      // TabsView usually expects 'folders'.
-      // Current behavior: just return folders.
       return {
         itemsForViews: [],
         foldersForTabsOrSections: folders.sort(compareItems) as MediaFolder[]

@@ -11,7 +11,11 @@ import type { MediaFolder, MediaFile } from '../../shared/types'
  * This should be called after a folder is identified as a TV Show, or during a rescan
  * of an existing TV Show.
  */
-export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
+export async function syncTvShowStructure(
+    show: MediaFolder,
+    seasonStrategy: 'smart' | 'alphabetic' = 'smart',
+    episodeStrategy: 'smart' | 'alphabetic' = 'smart'
+): Promise<void> {
     if (show.mediaType !== 'tv') return
 
     // 1. Get current children from DB
@@ -23,7 +27,7 @@ export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
     const fileNames = files.map((f) => f.name)
 
     // 2. Identify Seasons
-    const seasonMap = determineSeasonNumbers(folderNames)
+    const seasonMap = determineSeasonNumbers(folderNames, seasonStrategy)
 
     // 3. Process Season Folders
     const seasonsToProcess: MediaFolder[] = []
@@ -36,6 +40,10 @@ export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
 
             if (!isLocked && folder.seasonNumber !== targetSeason) {
                 folder.seasonNumber = targetSeason
+                // Invalidate metadata if number changed so that rich data (overview, poster) is refetched
+                folder.title = null
+                folder.overview = null
+                folder.posterPath = null
             }
             folder.mediaType = 'season'
             repositoryService.updateItem(folder.id, folder)
@@ -46,7 +54,7 @@ export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
     // 4. Handle Flat Structure vs Season Folders
     if (seasonsToProcess.length === 0 && files.length > 0) {
         // Flat TV show (episodes directly in root) - Assign all to Season 1
-        const episodeMap = determineEpisodeNumbers(fileNames, 1)
+        const episodeMap = determineEpisodeNumbers(fileNames, 1, episodeStrategy)
         _applyEpisodeMap(files, episodeMap)
     } else {
         // Process episodes inside detected season folders
@@ -55,7 +63,7 @@ export async function syncTvShowStructure(show: MediaFolder): Promise<void> {
             const seasonFiles = seasonChildren.filter((c) => c.type === 'file') as MediaFile[]
             const seasonFileNames = seasonFiles.map((f) => f.name)
 
-            const episodeMap = determineEpisodeNumbers(seasonFileNames, seasonFolder.seasonNumber)
+            const episodeMap = determineEpisodeNumbers(seasonFileNames, seasonFolder.seasonNumber, episodeStrategy)
             _applyEpisodeMap(seasonFiles, episodeMap)
         }
     }
@@ -78,6 +86,10 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
             }
             if (!isEpisodeLocked && info.episode !== undefined && file.episodeNumber !== info.episode) {
                 file.episodeNumber = info.episode
+                // Invalidate metadata for new episode number
+                file.title = null
+                file.overview = null
+                file.posterPath = null
                 changed = true
             }
 

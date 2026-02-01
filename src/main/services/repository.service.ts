@@ -2,6 +2,7 @@
 import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
+import * as groupingService from './grouping.service'
 
 
 
@@ -960,34 +961,23 @@ export function createTransferableCopy(item: LibraryItem): LibraryItem {
   return JSON.parse(JSON.stringify(item))
 }
 
-export function createForDetailViewCopy(item: LibraryItem): LibraryItem {
+export async function createForDetailViewCopy(item: LibraryItem): Promise<LibraryItem> {
   const copy = createTransferableCopy(item)
   if (copy.type === 'folder') {
-    // 1. Fetch immediate children
-    copy.children = getChildren(copy.id).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
+    // Apply virtualization (Grouping)
+    copy.children = await groupingService.groupItemsForDetailView(copy)
 
-    // 2. Fetch grandchildren (Essential for TV Shows: Show -> Season -> Episodes)
-    for (const child of copy.children) {
-      if (child.type === 'folder') {
+    // Fetch grandchildren (Essential for physical Season -> Episode structure)
+    // Virtual items already have their children populated by the grouping service.
+    for (const child of copy.children || []) {
+      if (child.type === 'folder' && !child.isVirtual) {
         child.children = getChildren(child.id).filter(
           (c: LibraryItem) => !c.isHidden && !c.isMissing
         )
-        if (child.children.length === 0) {
-          console.log(`[Repo] Warning: No children found for ${child.name}(ID: ${child.id})`)
-        } else {
-          console.log(`[Repo] Found ${child.children.length} children for ${child.name}`)
-          if (child.children.length > 0) {
-            console.log(
-              `[Repo] Sample Child for ${child.name}: `,
-              JSON.stringify(child.children[0], null, 2)
-            )
-          }
-        }
       }
     }
   }
   return copy
-
 }
 
 // --- Grouping Helper ---

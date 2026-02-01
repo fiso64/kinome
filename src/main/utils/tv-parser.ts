@@ -26,9 +26,9 @@ export function parseSeasonFolder(name: string): number | null {
 const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes', 'nc']
 
 export interface ParsedTvInfo {
-  season?: number
-  episode?: number
-  mediaType?: 'season' | 'episode'
+  season?: number | null
+  episode?: number | null
+  mediaType?: 'season' | 'episode' | null
 }
 
 /**
@@ -37,36 +37,39 @@ export interface ParsedTvInfo {
  */
 export function determineEpisodeNumbers(
   fileNames: string[],
-  parentSeasonNumber?: number
+  parentSeasonNumber?: number | null,
+  strategy: 'smart' | 'alphabetic' = 'smart'
 ): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
   if (fileNames.length === 0) return results
 
-  // 1. Try "Consensus" Regex Pattern
-  const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
-  const allParsedInfo = fileNames.map((name) => ({ name, parsed: parseEpisodeInfo(name) }))
+  // 1. Try "Consensus" Regex Pattern (Only if strategy is Smart)
+  if (strategy === 'smart') {
+    const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
+    const allParsedInfo = fileNames.map((name) => ({ name, parsed: parseEpisodeInfo(name) }))
 
-  for (const currentPattern of patterns) {
-    const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
-    const mismatches = allParsedInfo.length - matches.length
+    for (const currentPattern of patterns) {
+      const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
+      const mismatches = allParsedInfo.length - matches.length
 
-    // Tolerance: If mismatches are low (<= 2) and matches are sufficient (>= 3), or perfect match
-    if (mismatches === 0 || (mismatches <= 2 && matches.length >= 3)) {
-      // Apply this pattern
-      matches.forEach(({ name, parsed }) => {
-        if (parsed) {
-          results.set(name, {
-            episode: parsed.episode,
-            season: parsed.season ?? parentSeasonNumber,
-            mediaType: 'episode'
-          })
-        }
-      })
-      return results
+      // Tolerance: If mismatches are low (<= 2) and matches are sufficient (>= 3), or perfect match
+      if (mismatches === 0 || (mismatches <= 2 && matches.length >= 3)) {
+        // Apply this pattern
+        matches.forEach(({ name, parsed }) => {
+          if (parsed) {
+            results.set(name, {
+              episode: parsed.episode,
+              season: parsed.season ?? parentSeasonNumber,
+              mediaType: 'episode'
+            })
+          }
+        })
+        return results
+      }
     }
   }
 
-  // 2. Alphabetic Fallback (if no high-confidence consensus)
+  // 2. Alphabetic Fallback (or explicit Alphabetic strategy)
   // Note: The caller is responsible for passing in a SORTED list of fileNames for this to work correctly.
   fileNames.forEach((name, index) => {
     // Only override if not already set (though logic above returns early on success)
@@ -86,31 +89,39 @@ export function determineEpisodeNumbers(
  * Assigns season numbers to a list of folder names based on logic.
  * Returns a map of foldername -> ParsedTvInfo
  */
-export function determineSeasonNumbers(folderNames: string[]): Map<string, ParsedTvInfo> {
+export function determineSeasonNumbers(
+  folderNames: string[],
+  strategy: 'smart' | 'alphabetic' = 'smart'
+): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
-  const remainingFolders: string[] = []
+  const foldersToProcess = folderNames.filter(
+    (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
+  )
 
-  // 1. Regex Parsing
-  for (const name of folderNames) {
-    if (SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())) continue
+  if (strategy === 'smart') {
+    const remainingFolders: string[] = []
 
-    const sNum = parseSeasonFolder(name)
-    if (sNum !== null) {
-      results.set(name, { season: sNum, mediaType: 'season' })
-    } else {
-      remainingFolders.push(name)
+    // 1. Regex Parsing
+    for (const name of foldersToProcess) {
+      const sNum = parseSeasonFolder(name)
+      if (sNum !== null) {
+        results.set(name, { season: sNum, mediaType: 'season' })
+      } else {
+        remainingFolders.push(name)
+      }
     }
+
+    // If we have any successful matches, we return early and ignore unnumbered folders
+    if (results.size > 0) return results
   }
 
-  // 2. Fallback for unnumbered folders
-  if (remainingFolders.length > 0) {
-    // We NO LONGER assign "season" mediaType to folders that don't match a pattern.
-    // They should stay as generic folders so that TMDB search can identify them as "tv" or "movie".
-    // However, we still track them in remainingFolders if the caller needs them.
-    // for (const name of remainingFolders) {
-    //   // results.set(name, { mediaType: undefined }) // Implicitly undefined
-    // }
-  }
+  // 2. Alphabetic Fallback (or explicit Alphabetic strategy)
+  // Sort and assign numerically
+  foldersToProcess
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .forEach((name, index) => {
+      results.set(name, { season: index + 1, mediaType: 'season' })
+    })
 
   return results
 }

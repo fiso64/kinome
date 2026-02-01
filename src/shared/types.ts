@@ -231,18 +231,18 @@ export interface MediaFile {
   lastWatched?: number // Timestamp of when the item was last played
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
-  title?: string
+  title?: string | null
   overview?: string | null
   posterPath?: string | null // e.g. 'xxxx.jpg'
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
-  mediaType?: 'movie' | 'tv' | 'episode'
+  mediaType?: 'movie' | 'tv' | 'episode' | null
   year?: number | null
-  genres?: string[]
-  tags?: Record<string, string>
-  seasonNumber?: number
-  episodeNumber?: number
+  genres?: string[] | null
+  tags?: Record<string, string> | null
+  seasonNumber?: number | null
+  episodeNumber?: number | null
   opensAsFolder?: boolean // This behavior is tied to having metadata, so it's reset
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
 
@@ -273,17 +273,17 @@ export interface MediaFolder extends StoredViewSettings {
   process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
-  title?: string
+  title?: string | null
   overview?: string | null
   posterPath?: string | null // e.g. 'xxxx.jpg'
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
-  mediaType?: 'movie' | 'tv' | 'season'
+  mediaType?: 'movie' | 'tv' | 'season' | null
   year?: number | null
-  genres?: string[]
-  tags?: Record<string, string>
-  seasonNumber?: number // For season folders
+  genres?: string[] | null
+  tags?: Record<string, string> | null
+  seasonNumber?: number | null // For season folders
 
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
@@ -302,7 +302,35 @@ export interface MediaFolder extends StoredViewSettings {
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
-export type LibraryItem = MediaFile | MediaFolder
+export interface BaseLibraryItem extends StoredViewSettings {
+  id: string
+  parentId?: string
+  name: string
+  path?: string
+  type: 'file' | 'folder'
+  mediaType?: 'movie' | 'tv' | 'season' | 'episode' | null
+  title?: string | null
+  overview?: string | null
+  posterPath?: string | null
+  backdropPath?: string | null
+  logoPath?: string | null
+  tmdbId?: number | null
+  year?: number | null
+  genres?: string[] | null
+  tags?: Record<string, string> | null
+  virtualTags?: Record<string, string>
+  seasonNumber?: number | null
+  episodeNumber?: number | null
+  watched?: boolean
+  lastWatched?: number
+  continueWatchingDismissed?: boolean
+  nextUpDismissed?: boolean
+  lastRefreshedAt?: number | null
+  lockedFields?: string[]
+  _v?: number
+}
+
+export type LibraryItem = (MediaFile | MediaFolder) & BaseLibraryItem
 
 export interface PlayerCommandConfig {
   id: string

@@ -181,6 +181,22 @@ app.post('/api/record-playback', async (req, res) => {
 
 // --- Metadata & Images ---
 
+app.post('/api/assign-seasons-and-episodes', async (req, res) => {
+  const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = req.body
+  try {
+    await libraryService.assignSeasonsAndEpisodes(
+      showId,
+      seasonStrategy,
+      episodeStrategy,
+      fetchMetadata
+    )
+    res.json({ success: true })
+  } catch (error: any) {
+    console.error('[API] Failed to assign seasons:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 app.post('/api/clear-item-metadata', async (req, res) => {
   const success = await libraryService.clearItemMetadata(req.body.itemId, req.body.childrenOnly)
   res.json({ success })

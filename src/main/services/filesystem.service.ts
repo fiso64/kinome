@@ -24,7 +24,7 @@ async function walkAndUpsert(
   db: any
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
-  const queue: { currentPath: string; parentId: string | null; parentMediaType?: string }[] = []
+  const queue: { currentPath: string; parentId: string | null; parentMediaType?: string | null }[] = []
 
   // Initialize queue
   if (startPath === mediaSourcePath) {

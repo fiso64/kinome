@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import * as repositoryService from '../services/repository.service'
 import * as libraryService from '../services/library.service'
-import * as viewService from '../services/view.service'
+import * as groupingService from '../services/grouping.service'
 import { isVirtualId, getFiltersFromId } from '../services/virtual-item.factory'
 import { resolveViewSettings } from '../../shared/settings-helpers'
 import { readSettings } from '../services/settings.service'
@@ -80,7 +80,7 @@ router.get('/items/:id', async (req, res) => {
     }
 
     if (isVirtualId(id)) {
-      const virtualItem = viewService.getVirtualItem(id)
+      const virtualItem = groupingService.getVirtualItem(id)
       if (!virtualItem) return res.status(404).json({ error: 'Virtual item not found' })
       return res.json(virtualItem)
     }
@@ -155,7 +155,7 @@ router.get('/items/:id/children', async (req, res) => {
     const rawGroupBy = req.query.groupBy
 
     if (rawGroupBy === 'auto' || rawGroupBy === undefined) {
-      const item = isVirtualId(id) ? viewService.getVirtualItem(id) : repositoryService.getItemById(id)
+      const item = isVirtualId(id) ? groupingService.getVirtualItem(id) : repositoryService.getItemById(id)
       const resolved = resolveViewSettings(item as any, settings).settings
       if (['tabs', 'sections'].includes(resolved.layout)) {
         finalGroupBy = resolved.groupBy
@@ -172,7 +172,7 @@ router.get('/items/:id/children', async (req, res) => {
         if (options.where && 'groupBy' in options.where) {
           delete (options.where as any).groupBy
         }
-        const groups = await viewService.getGroups(id, finalGroupBy, options)
+        const groups = await groupingService.getGroups(id, finalGroupBy, options)
         return res.json(groups)
       }
 
@@ -205,7 +205,7 @@ router.get('/items/:id/children', async (req, res) => {
       if (options.where && 'groupBy' in options.where) {
         delete (options.where as any).groupBy
       }
-      const groups = await viewService.getGroups(id, finalGroupBy, options)
+      const groups = await groupingService.getGroups(id, finalGroupBy, options)
       return res.json(groups)
     }
 
