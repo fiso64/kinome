@@ -4,8 +4,9 @@ import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import type { MediaFolder } from '../../shared/types'
 import {
+  determineExplicitSeasonNumbers,
   determineEpisodeNumbers,
-  determineSeasonNumbers,
+  isSupportedVideoFile,
   ParsedTvInfo
 } from '../utils/tv-parser'
 
@@ -112,7 +113,7 @@ async function walkAndUpsert(
     )
 
     const retrieveChildrenMetadata =
-      scraperSettings.retrieve_children_metadata === true || isTvContext || isSeasonContext
+      scraperSettings.retrieve_children_metadata !== false
 
     // ---------------------------------------------------------
     // Phase 2: Structural Analysis (TV Parsing)
@@ -126,28 +127,27 @@ async function walkAndUpsert(
           .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
           .map((e) => e.name)
         const videoFileNames = entries
-          .filter(
-            (e) =>
-              e.isFile() &&
-              /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) &&
-              !e.name.startsWith('.')
-          )
+          .filter((e) => e.isFile() && isSupportedVideoFile(e.name) && !e.name.startsWith('.'))
           .map((e) => e.name)
 
-        seasonMap = determineSeasonNumbers(folderNames)
+        // Stage 1: Explicit Seasons (Regex match)
+        seasonMap = determineExplicitSeasonNumbers(folderNames)
 
-        // Flat TV Show Detection
-        const hasFlatEpisodes = videoFileNames.length > 0 && seasonMap.size === 0
-        const flatSeasonNumber = hasFlatEpisodes ? 1 : undefined
-        episodeMap = determineEpisodeNumbers(videoFileNames, flatSeasonNumber)
+        if (seasonMap.size === 0) {
+          // Stage 2: Flat Structure (Video files in root)
+          if (videoFileNames.length > 0) {
+            episodeMap = determineEpisodeNumbers(videoFileNames, 1)
+          } else {
+            // Stage 3: Alphabetic Fallback (Generic folder names)
+            // Note: Scanner doesn't strictly need to do this as Metadata Service will.
+            // But we keep it for immediate visual feedback if possible.
+            // Actually, let's NOT do alphabetic fallback in scanner to keep it fast and less "guessy".
+            // metadataService.fetchMetadataForLibrary() will handle the more complex cases.
+          }
+        }
       } else if (isSeasonContext) {
         const videoFileNames = entries
-          .filter(
-            (e) =>
-              e.isFile() &&
-              /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name) &&
-              !e.name.startsWith('.')
-          )
+          .filter((e) => e.isFile() && isSupportedVideoFile(e.name) && !e.name.startsWith('.'))
           .map((e) => e.name)
 
         const metaRow = selectSeasonNumberStmt.get(parentId)
