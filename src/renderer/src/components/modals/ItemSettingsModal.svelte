@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
@@ -141,7 +142,11 @@
   }
 
   $effect(() => {
-    refreshItemDetails()
+    // Only track item change (e.g. ID or refreshed object from parent)
+    const id = item.id
+    untrack(() => {
+      refreshItemDetails()
+    })
   })
 
   let title = $state(item.title ?? item.name)
@@ -205,10 +210,17 @@
     let changed = false
 
     const hasChanged = (current: any, initial: any): boolean => {
-      if (Array.isArray(current) || (current && typeof current === 'object')) {
-        return JSON.stringify(current) !== JSON.stringify(initial)
+      // Treat null and undefined as equal for change detection
+      const normalizedCurrent = current === undefined || current === null ? null : current
+      const normalizedInitial = initial === undefined || initial === null ? null : initial
+
+      if (
+        Array.isArray(normalizedCurrent) ||
+        (normalizedCurrent && typeof normalizedCurrent === 'object')
+      ) {
+        return JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedInitial)
       }
-      return current !== initial
+      return normalizedCurrent !== normalizedInitial
     }
 
     if (isVirtual && item.physicalParentId) {

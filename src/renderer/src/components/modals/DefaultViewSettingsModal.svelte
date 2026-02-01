@@ -1,7 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
-  import type { StoredViewSettings } from '../../../../shared/types'
+  import type { StoredViewSettings, Settings } from '../../../../shared/types'
   let {
     typeKey,
     title,
@@ -30,6 +30,7 @@
   let gridPosterSize = $state(initialSettings.gridPosterSize)
   let listDescriptionRows = $state(initialSettings.listDescriptionRows)
   let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
+  let childViewSettings = $state(initialSettings.childViewSettings || null)
 
   function handleSave() {
     const newSettings: StoredViewSettings = {
@@ -38,16 +39,12 @@
       groupBy: selectedGroupBy,
       gridPosterSize: gridPosterSize,
       listDescriptionRows: listDescriptionRows,
-      showHorizontalScrollbar: showHorizontalScrollbar
+      showHorizontalScrollbar: showHorizontalScrollbar,
+      childViewSettings: childViewSettings
     }
-    // Remove undefined/null keys to keep stored settings clean
-    Object.keys(newSettings).forEach(
-      (key) =>
-        (newSettings[key as keyof StoredViewSettings] === undefined ||
-          newSettings[key as keyof StoredViewSettings] === null) &&
-        delete newSettings[key as keyof StoredViewSettings]
-    )
-
+    // We don't clean null values here anymore. We allow them to propagate
+    // as "reset" signals so that the parent merger can properly remove
+    // existing overrides. Final cleanup happens in the parent or at save time.
     onSave(newSettings)
     onClose()
   }
@@ -63,6 +60,7 @@
     bind:gridPosterSize
     bind:listDescriptionRows
     bind:showHorizontalScrollbar
+    bind:childViewSettings
     {groupByKeys}
     {availableLayouts}
     {showClickAction}

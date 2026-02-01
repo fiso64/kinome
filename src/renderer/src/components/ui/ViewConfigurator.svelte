@@ -3,7 +3,10 @@
   import {
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
     ALL_VIEW_OVERRIDE_KEYS,
-    DEFAULT_LAYOUTS_CONFIG
+    DEFAULT_LAYOUTS_CONFIG,
+    type MediaFolder,
+    type StoredViewSettings,
+    type Settings
   } from '../../../../shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '../../../../shared/types'
   import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
@@ -63,13 +66,13 @@
     typeKey?: DefaultLayoutKey
     settings: Settings | null
     // Config props
-    availableLayouts?: ('grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+    availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
     showClickAction?: boolean
     groupByKeys?: string[]
     configMode?: boolean
-    initialConfigLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    initialConfigLayout?: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     // Bindings
-    selectedLayout?: 'grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    selectedLayout?: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
     gridPosterSize?: number | null
@@ -409,7 +412,15 @@
     title="Configure Child Layout"
     initialSettings={childViewSettings ?? {}}
     onClose={() => (isChildSettingsModalOpen = false)}
-    onSave={(newSettings) => (childViewSettings = newSettings)}
+    onSave={(newSettings) => {
+      const merged = { ...(childViewSettings ?? {}), ...newSettings }
+      Object.keys(merged).forEach((key) => {
+        if (merged[key as keyof StoredViewSettings] === null) {
+          delete merged[key as keyof StoredViewSettings]
+        }
+      })
+      childViewSettings = merged
+    }}
     typeKey="_default"
     {settings}
     {groupByKeys}
