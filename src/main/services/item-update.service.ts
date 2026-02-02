@@ -62,6 +62,10 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
     return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
 }
 
+// TODO: As the library grows, the 'persons' list can become very large.
+// In the future, consider splitting suggestions into two phases:
+// 1. Fetching keys (genre, tag, etc.)
+// 2. Fetching values for a specific key (e.g. /api/suggestions/:key)
 export const getAutocompleteSuggestions = async () => {
     const settings = await settingsService.readSettings()
     const allItems = repositoryService.getAllItemsAsList()

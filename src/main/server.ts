@@ -3,6 +3,7 @@ import cors from 'cors'
 import { createServer } from 'http'
 import path from 'path'
 import fs from 'fs'
+import compression from 'compression'
 
 import { initializeStartup } from './services/startup.service'
 import * as libraryService from './services/library.service'
@@ -48,6 +49,9 @@ import v2Router from './routes/v2'
 
 // 2. Middleware
 app.use(cors())
+// Enable Gzip compression for all responses
+// TODO: Think if/when this is needed.
+app.use(compression())
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/v2', v2Router)
 
