@@ -1,17 +1,15 @@
 <script lang="ts">
-  import { autocompleteState } from '../../lib/autocomplete-manager'
+  import { autocompleteState, type AutocompleteItem } from '../../lib/autocomplete-manager'
 
   let {
     suggestions,
     position,
     onSelect,
-    onClose,
     activeIndex
   }: {
-    suggestions: string[]
+    suggestions: AutocompleteItem[]
     position: { top: number; left: number; inputTop: number }
-    onSelect: (suggestion: string) => void
-    onClose: () => void
+    onSelect: (suggestion: AutocompleteItem) => void
     activeIndex: number
   } = $props()
 
@@ -44,6 +42,30 @@
       menuElement.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     }
   })
+
+  function renderLabel(item: AutocompleteItem) {
+    if (!item.matches || item.matches.length === 0) return item.label
+
+    const segments: { text: string; highlight: boolean }[] = []
+    let lastIndex = 0
+
+    // Sort matches just in case
+    const sortedMatches = [...item.matches].sort((a, b) => a[0] - b[0])
+
+    for (const [start, end] of sortedMatches) {
+      if (start > lastIndex) {
+        segments.push({ text: item.label.substring(lastIndex, start), highlight: false })
+      }
+      segments.push({ text: item.label.substring(start, end), highlight: true })
+      lastIndex = end
+    }
+
+    if (lastIndex < item.label.length) {
+      segments.push({ text: item.label.substring(lastIndex), highlight: false })
+    }
+
+    return segments
+  }
 </script>
 
 <div
@@ -52,14 +74,21 @@
   {style}
   onmousedown={(e) => e.preventDefault()}
 >
-  {#each suggestions as suggestion, i (suggestion)}
+  {#each suggestions as suggestion, i (suggestion.label)}
+    {@const rendered = renderLabel(suggestion)}
     <button
       class="suggestion-item"
       class:active={i === activeIndex}
       onclick={() => onSelect(suggestion)}
       onmouseenter={() => autocompleteState.update((s) => ({ ...s, activeIndex: i }))}
     >
-      {suggestion}
+      {#if typeof rendered === 'string'}
+        {rendered}
+      {:else}
+        {#each rendered as segment}
+          <span class:highlight={segment.highlight}>{segment.text}</span>
+        {/each}
+      {/if}
     </button>
   {/each}
 </div>
@@ -87,10 +116,16 @@
     text-align: left;
     cursor: pointer;
     font-size: 0.9rem;
+    font-weight: 400; /* Ensure thin by default */
   }
   .suggestion-item:hover,
   .suggestion-item.active {
     background-color: var(--ev-c-gray-2);
+  }
+
+  .highlight {
+    color: var(--ev-c-brand-light, #646cff); /* Brighter brand color */
+    font-weight: 800; /* Make it pop more */
   }
 
   /* --- Custom Scrollbar --- */

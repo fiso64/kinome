@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
+  import type { AutocompleteSuggestions } from '../../../../shared/types'
+  import {
+    autocomplete,
+    type AutocompleteConfig,
+    getFuzzySuggestions,
+    type AutocompleteItem
+  } from '../../lib/autocomplete-manager'
 
   type Tag = { id: string; key: string; value: string }
 
@@ -43,18 +49,19 @@
         // Key context
         const key = text.trim()
         const allKeys = suggestions.tagKeys ?? []
-        if (!key) return allKeys
-        return allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
+        return getFuzzySuggestions(allKeys, key)
       } else {
         // Value context
         const key = text.substring(0, colonIndex).trim()
         const value = text.substring(colonIndex + 1).trimStart()
         const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
-        return source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
+        return getFuzzySuggestions(source, value)
       }
     },
-    onSelect: (suggestion, node) => {
-      const text = node.value
+    onSelect: (item: AutocompleteItem, node: HTMLElement) => {
+      const input = node as HTMLInputElement
+      const suggestion = item.label
+      const text = input.value
       const colonIndex = text.indexOf(':')
 
       if (colonIndex === -1) {
@@ -65,7 +72,7 @@
         const key = text.substring(0, colonIndex).trim()
         addTag(key, suggestion)
       }
-      queueMicrotask(() => node.focus())
+      queueMicrotask(() => input.focus())
     },
     triggerOnFocus: true
   }

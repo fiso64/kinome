@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { autocomplete, type AutocompleteConfig } from '../../lib/autocomplete-manager'
+  import {
+    autocomplete,
+    type AutocompleteConfig,
+    getFuzzySuggestions,
+    type AutocompleteItem
+  } from '../../lib/autocomplete-manager'
 
   let { genres = $bindable(), suggestions }: { genres: string[]; suggestions: string[] } = $props()
 
@@ -31,13 +36,11 @@
 
   const autocompleteConfig: AutocompleteConfig = {
     getSuggestions: (text) => {
-      const currentTerm = text.trim()
-      if (!currentTerm) return suggestions // Show all on focus
-      return suggestions.filter((s) => s.toLowerCase().startsWith(currentTerm.toLowerCase()))
+      return getFuzzySuggestions(suggestions, text)
     },
-    onSelect: (suggestion, node) => {
-      addGenre(suggestion)
-      queueMicrotask(() => node.focus())
+    onSelect: (item: AutocompleteItem, node) => {
+      addGenre(item.label)
+      queueMicrotask(() => (node as HTMLInputElement).focus())
     },
     triggerOnFocus: true
   }

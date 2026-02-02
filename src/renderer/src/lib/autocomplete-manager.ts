@@ -2,11 +2,16 @@ import { writable, get } from 'svelte/store'
 
 const SUGGESTION_LIMIT = 50
 
+export interface AutocompleteItem {
+  label: string
+  matches: [number, number][] // Array of [start, end] indices for highlighting
+}
+
 export interface AutocompleteState {
   show: boolean
-  suggestions: string[]
+  suggestions: AutocompleteItem[]
   position: { top: number; left: number; inputTop: number }
-  onSelect: (suggestion: string) => void
+  onSelect: (suggestion: AutocompleteItem) => void
   activeIndex: number
   targetNode: HTMLElement | null
 }
@@ -14,17 +19,58 @@ export interface AutocompleteState {
 export const autocompleteState = writable<AutocompleteState>({
   show: false,
   suggestions: [],
-  position: { top: 0, left: 0 },
-  onSelect: () => {},
+  position: { top: 0, left: 0, inputTop: 0 },
+  onSelect: () => { },
   activeIndex: 0,
   targetNode: null
 })
 
 // Action configuration
 export interface AutocompleteConfig {
-  getSuggestions: (text: string, cursorPosition: number) => string[]
-  onSelect: (suggestion: string, node: HTMLElement) => void
+  getSuggestions: (text: string, cursorPosition: number) => AutocompleteItem[]
+  onSelect: (suggestion: AutocompleteItem, node: HTMLElement) => void
   triggerOnFocus?: boolean
+}
+
+/**
+ * Fuzzy matching utility that prioritizes "starts with" and ranks by match index.
+ * Returns AutocompleteItem with highlight segments.
+ */
+export function getFuzzySuggestions(items: string[], query: string): AutocompleteItem[] {
+  const lowerQuery = query.toLowerCase().trim()
+
+  if (!lowerQuery) {
+    return items.map((item) => ({ label: item, matches: [] }))
+  }
+
+  const results: { item: string; index: number; score: number }[] = []
+
+  for (const item of items) {
+    const lowerItem = item.toLowerCase()
+    const index = lowerItem.indexOf(lowerQuery)
+
+    if (index !== -1) {
+      // Logic for ranking:
+      // 1. Starts with query (score 0-1)
+      // 2. Contains query (score 2+)
+      let score = index === 0 ? 0 : index + 1
+
+      // Boost for exact case match if it's start-of-word or similar?
+      // For now keep it simple: lower index = better score.
+      results.push({ item, index, score })
+    }
+  }
+
+  // Sort by score (asc), then alphabetically
+  results.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score
+    return a.item.localeCompare(b.item)
+  })
+
+  return results.map((res) => ({
+    label: res.item,
+    matches: [[res.index, res.index + lowerQuery.length]]
+  }))
 }
 
 let textMirror: HTMLSpanElement | null = null

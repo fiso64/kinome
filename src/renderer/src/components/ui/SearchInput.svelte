@@ -1,8 +1,11 @@
 <script lang="ts">
+  import type { AutocompleteSuggestions } from '../../../../shared/types'
   import {
     autocomplete,
     type AutocompleteConfig,
-    autocompleteState
+    autocompleteState,
+    getFuzzySuggestions,
+    type AutocompleteItem
   } from '../../lib/autocomplete-manager'
 
   // This constant centralizes the "special" keys that have their own suggestion lists.
@@ -82,16 +85,18 @@
           person: suggestions.persons ?? []
         }
         const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
-        return source.filter((s) => s.toLowerCase().startsWith(value.toLowerCase()))
+        return getFuzzySuggestions(source, value)
       } else if (keyMatch) {
         const key = keyMatch[1]
         const allKeys = SUGGESTION_KEYS.all(suggestions)
-        return allKeys.filter((s) => s.toLowerCase().startsWith(key.toLowerCase()))
+        return getFuzzySuggestions(allKeys, key)
       }
       return []
     },
-    onSelect: (suggestion, node) => {
-      const textUpToCursor = node.value.substring(0, node.selectionStart ?? 0)
+    onSelect: (item: AutocompleteItem, node: HTMLElement) => {
+      const input = node as HTMLInputElement
+      const suggestion = item.label
+      const textUpToCursor = input.value.substring(0, input.selectionStart ?? 0)
       const keyMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]*)$/)
       const valueMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
 
@@ -102,13 +107,13 @@
         autocompleteState.update((s) => ({ ...s, show: false }))
       } else if (keyMatch) {
         // Key selected
-        const textBefore = node.value.substring(0, keyMatch.index)
-        const textAfter = node.value.substring(node.selectionStart ?? 0)
+        const textBefore = input.value.substring(0, keyMatch.index)
+        const textAfter = input.value.substring(input.selectionStart ?? 0)
         query.text = `${textBefore}:${suggestion}:${textAfter}`
         queueMicrotask(() => {
           const newCursorPos = (textBefore + `:${suggestion}:`).length
-          node.focus()
-          node.setSelectionRange(newCursorPos, newCursorPos)
+          input.focus()
+          input.setSelectionRange(newCursorPos, newCursorPos)
         })
       }
     }
