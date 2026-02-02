@@ -201,6 +201,7 @@ router.get('/items/:id/children', async (req, res) => {
       }
     }
 
+
     if (finalGroupBy) {
       if (options.where && 'groupBy' in options.where) {
         delete (options.where as any).groupBy
@@ -209,9 +210,19 @@ router.get('/items/:id/children', async (req, res) => {
       return res.json(groups)
     }
 
-    let children = repositoryService.getChildren(id)
+    // FIX: Removed legacy getChildren call which forced a "SELECT *".
+    // Instead, we use the options object which contains the specific fields requested.
+
+    let children: any[]
+
     if (parent && parent.mediaType === 'tv') {
-      children = repositoryService.getSeasonsWithEpisodes(id)
+      // Pass the fields down to the recursive fetcher
+      children = repositoryService.getSeasonsWithEpisodes(id, options.fields)
+    } else {
+      // Use the generic lean find.
+      // We must explicitly add the parentId filter here since getChildren(id) implied it.
+      options.where = { ...options.where, parentId: id }
+      children = repositoryService.find(options)
     }
 
     return res.json(children)

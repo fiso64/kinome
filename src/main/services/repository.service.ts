@@ -282,15 +282,9 @@ function mapRowToLibraryItem(row: any): LibraryItem {
         ) {
           val = null
         }
-      } else if (val === undefined) {
-        // Default for missing JSON fields
-        val =
-          alias === 'lockedFields' || alias === 'genres'
-            ? []
-            : alias === 'tmdbCredits' || alias === 'tmdbSeasons' || alias === 'tmdbEpisodes'
-              ? null
-              : {}
       }
+      // FIX: Removed the 'else if (val === undefined)' block. 
+      // This ensures that if the field wasn't fetched, it stays undefined and is omitted from the JSON.
     }
 
     // Generic Parser (Boolean etc)
@@ -348,9 +342,11 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   }
 
   // 3. Folder specific logic
-  if (item.type === 'folder') {
-    item.children = null // Lazy load signal
-  }
+  // FIX: Removed explicit assignment of children = null.
+  // This allows the field to be undefined (omitted) unless explicitly populated later.
+  // if (item.type === 'folder') {
+  //   item.children = null 
+  // }
 
   return item as LibraryItem
 }
@@ -1016,29 +1012,26 @@ export function getValuesForKey(item: LibraryItem, key: string): string[] {
 }
 
 
-
-
-
-
-
-
 /**
  * Fetches all seasons for a TV Show and populates their episodes.
  * Uses a recursive strategy (Show -> Season -> Episodes).
+ * UPDATED: Accepts fields array to ensure lean fetching.
  */
-export function getSeasonsWithEpisodes(showId: string): LibraryItem[] {
-  // 1. Fetch Seasons - optimized to fetch only if parent is indeed the show
+export function getSeasonsWithEpisodes(showId: string, fields: string[] = []): LibraryItem[] {
+  // 1. Fetch Seasons - apply field filtering
   const seasons = find({
     where: { parentId: showId },
-    orderBy: { field: 'seasonNumber', direction: 'ASC' }
+    orderBy: { field: 'seasonNumber', direction: 'ASC' },
+    fields: fields.length > 0 ? fields : undefined
   })
 
-  // 2. Fetch Episodes for each Season
+  // 2. Fetch Episodes for each Season - apply field filtering
   for (const season of seasons) {
     if (season.type === 'folder') {
       const episodes = find({
         where: { parentId: season.id },
-        orderBy: { field: 'episodeNumber', direction: 'ASC' }
+        orderBy: { field: 'episodeNumber', direction: 'ASC' },
+        fields: fields.length > 0 ? fields : undefined
       })
       season.children = episodes
     }

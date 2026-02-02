@@ -34,11 +34,18 @@ export function resolveViewSettings(
 
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
+
+    const defaultLayout = item?.layout ?? 'grid';
+
+    // Only apply specific settings for the active layout, just like the real logic
+    const layoutConfig = LAYOUT_SPECIFIC_SETTINGS_CONFIG[defaultLayout] ?? {};
+
     const fallbackResolution: ResolutionInfo = {
       settings: {
         layout: item?.layout ?? 'grid',
         clickAction: item?.clickAction ?? 'detail',
-        ...fallbackSpecifics
+        // ...fallbackSpecifics 
+        ...layoutConfig // Use specific config instead
       },
       sources: {}
     }
@@ -95,7 +102,7 @@ export function resolveViewSettings(
   // 3. Get the list of layout-specific keys for the now-resolved layout.
   const layoutConfig =
     LAYOUT_SPECIFIC_SETTINGS_CONFIG[
-      resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
+    resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
     ] ?? {}
   const specificKeys = Object.keys(layoutConfig)
   const resolvedSpecific: Record<string, any> = {}
