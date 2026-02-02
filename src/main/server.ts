@@ -280,6 +280,16 @@ app.get('/api/continue-watching-for-show/:id', async (req, res) => {
   res.json(item)
 })
 
+app.post('/api/dismiss-continue-watching', async (req, res) => {
+  await libraryService.setContinueWatchingDismissed(req.body.itemId)
+  res.sendStatus(200)
+})
+
+app.post('/api/dismiss-next-up', async (req, res) => {
+  await libraryService.setNextUpDismissed(req.body.itemId)
+  res.sendStatus(200)
+})
+
 // --- Filesystem Actions ---
 
 app.post('/api/reveal-in-explorer', async (req, res) => {

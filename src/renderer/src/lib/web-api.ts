@@ -229,14 +229,14 @@ class WebApiClient implements ApiClient {
   }
 
   setContinueWatchingDismissed(showId: string): Promise<void> {
-    return this.request('/api/mark-watched', {
+    return this.request('/api/dismiss-continue-watching', {
       method: 'POST',
       body: JSON.stringify({ itemId: showId })
-    }) // Map to mark watched for now
+    })
   }
 
   setNextUpDismissed(showId: string): Promise<void> {
-    return this.request('/api/mark-watched', {
+    return this.request('/api/dismiss-next-up', {
       method: 'POST',
       body: JSON.stringify({ itemId: showId })
     })

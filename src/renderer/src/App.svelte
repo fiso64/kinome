@@ -183,9 +183,12 @@
         // Also invalidate 'continue-watching' if relevant
         if (
           (item.type === 'file' && 'watched' in item) ||
-          (item.type === 'folder' && 'continueWatchingDismissed' in item)
+          (item.type === 'folder' &&
+            ('continueWatchingDismissed' in item || 'nextUpDismissed' in item))
         ) {
           queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
+          // FIX: Manually update the local state variable if needed
+          api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
         }
       }
       // Global invalidation for virtual views (which depend on 'children' queries but potentially different IDs)
