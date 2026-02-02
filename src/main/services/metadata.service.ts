@@ -419,27 +419,42 @@ export async function applyManualMatch(
     // This is required because syncTvShowStructure reads from the DB, not memory.
     await updateIfChangedAndBroadcast(item)
 
-    const structuralChanges: LibraryItem[] = []
+    // 2. TRIGGER BACKGROUND ENRICHMENT
+    // We return early so the UI can close the modal, while the heavy work runs in the background.
+    const runBackgroundEnrichment = async () => {
+      repositoryService.setBulkUpdateStatus(true)
+      try {
+        const structuralChanges: LibraryItem[] = []
+        // 1.7 Structural Sync (Manual Fix Match Special Case)
+        // If we just manually assigned a Season, we MUST re-run the Show's structural analysis
+        // so that episodes are re-numbered according to this new locked season number.
+        if (mediaType === 'season' && item.parentId) {
+          const parent = repositoryService.getItemById(item.parentId)
+          if (parent && parent.mediaType === 'tv') {
+            const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder, 'smart', 'smart', {
+              force: true
+            })
+            structuralChanges.push(...modified)
+          }
+        }
 
-    // 1.7 Structural Sync (Manual Fix Match Special Case)
-    // If we just manually assigned a Season, we MUST re-run the Show's structural analysis
-    // so that episodes are re-numbered according to this new locked season number.
-    if (mediaType === 'season' && item.parentId) {
-      const parent = repositoryService.getItemById(item.parentId)
-      if (parent && parent.mediaType === 'tv') {
-        const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder, 'smart', 'smart', { force: true })
-        structuralChanges.push(...modified)
+        // 2. RUN ORCHESTRATOR
+        await handleItemUpdate(item, { force: true })
+      } catch (err) {
+        console.error(`[Manual Match] Background enrichment failed for "${item.name}":`, err)
+      } finally {
+        repositoryService.setBulkUpdateStatus(wasBulkUpdating)
       }
     }
 
-    // 2. RUN ORCHESTRATOR
-    const orchestratorChanges = await handleItemUpdate(item, { force: true })
-    return [...structuralChanges, ...orchestratorChanges]
+    runBackgroundEnrichment()
+
+    // Return the primed item immediately to satisfy the RPC call and trigger UI updates
+    return [item]
   } catch (err) {
-    console.error(`[Manual Match] Failed for "${item.name}":`, err)
-    return []
-  } finally {
+    console.error(`[Manual Match] Priming failed for "${itemId}":`, err)
     repositoryService.setBulkUpdateStatus(wasBulkUpdating)
+    return []
   }
 }
 export async function setImage(

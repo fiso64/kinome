@@ -317,7 +317,10 @@ export const assignSeasonsAndEpisodes = async (
 
   // 2. Fetch Metadata if requested (Internal persistence handled)
   if (fetchMetadata) {
-    await metadataService.backgroundFetchAndApplyDetails(show, { force: true })
+    // Run enrichment in the background to allow the UI to close immediately
+    metadataService.backgroundFetchAndApplyDetails(show, { force: true }).catch((err) => {
+      console.error(`[Library] Background assignment enrichment failed for "${show.name}":`, err)
+    })
   }
 
   log(`[Library] Assignment complete for show ${showId}.`)
