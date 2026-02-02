@@ -146,6 +146,7 @@ export const searchStoreV2 = {
     return navStoreV2.state.globalQuery
   },
   set globalQuery(v) {
+    console.log('[searchStoreV2] set globalQuery', v)
     // This setter is mainly for svelte bindings (bind:query)
     navStoreV2.setGlobalSearch(v, { closeDetail: true })
   },
@@ -172,6 +173,7 @@ export const searchStoreV2 = {
     return detailQuery
   },
   set detailQuery(v) {
+    console.log('[searchStoreV2] set detailQuery', v)
     detailQuery = v
   },
   get isDetailActive() {

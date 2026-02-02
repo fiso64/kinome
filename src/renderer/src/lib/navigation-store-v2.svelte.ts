@@ -163,8 +163,17 @@ export const navStoreV2 = {
 
     const shouldReplace = options.replace ?? hasSearchInUrl
 
+    console.log('[navStoreV2] setGlobalSearch:', {
+      hasSearchInUrl,
+      shouldReplace,
+      query,
+      closeDetail: options.closeDetail,
+      stack: new Error().stack?.split('\n')[2]?.trim()
+    })
+
     currentState.globalQuery = query
     if (options.closeDetail && currentState.selectedItemId) {
+      console.log('[navStoreV2] setGlobalSearch is CLOSING DETAIL VIEW')
       currentState.selectedItemId = null
     }
     updateUrl(shouldReplace)

@@ -12,7 +12,9 @@
     "svelte-check": "svelte-check --tsconfig ./tsconfig.json",
     "typecheck": "npm run typecheck:node && npm run svelte-check",
     "dev": "tsx src/main/server.ts",
-    "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\""
+    "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\"",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
