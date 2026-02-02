@@ -80,27 +80,52 @@ export const getAutocompleteSuggestions = async () => {
     }
 
     for (const item of allItems) {
-        if (item.mediaType) mediaTypes.add(item.mediaType.trim())
-        if (item.genres) item.genres.forEach((g) => genres.add(g.trim()))
+        if (item.mediaType) {
+            const mt = item.mediaType.trim()
+            mediaTypes.add(mt)
+            if (!tagValues['mediaType']) tagValues['mediaType'] = new Set<string>()
+            tagValues['mediaType'].add(mt)
+        }
+        if (item.genres) {
+            item.genres.forEach((g) => {
+                const genre = g.trim()
+                genres.add(genre)
+                if (!tagValues['genre']) tagValues['genre'] = new Set<string>()
+                tagValues['genre'].add(genre)
+            })
+        }
+        if (item.year) {
+            const yearStr = item.year.toString()
+            if (!tagValues['year']) tagValues['year'] = new Set<string>()
+            tagValues['year'].add(yearStr)
+        }
         if (item.tmdbCredits) {
-            ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
-                ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && persons.add(p.name.trim()))
+            const collectPerson = (name: string) => {
+                const p = name.trim()
+                persons.add(p)
+                if (!tagValues['person']) tagValues['person'] = new Set<string>()
+                tagValues['person'].add(p)
+            }
+                ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && collectPerson(p.name))
+                ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && collectPerson(p.name))
         }
         if (item.tags) {
             for (const [key, value] of Object.entries(item.tags)) {
-                if (key) {
-                    tagKeys.add(key.trim())
-                    if (!tagValues[key]) tagValues[key] = new Set<string>()
-                    value.split(',').forEach((v) => v.trim() && tagValues[key].add(v.trim()))
+                const k = key.trim()
+                if (k) {
+                    tagKeys.add(k)
+                    if (!tagValues[k]) tagValues[k] = new Set<string>()
+                    value.split(',').forEach((v) => v.trim() && tagValues[k].add(v.trim()))
                 }
             }
         }
         if (item.virtualTags) {
             for (const [key, value] of Object.entries(item.virtualTags)) {
-                if (key) {
-                    virtualTagKeys.add(key.trim())
-                    if (!tagValues[key]) tagValues[key] = new Set<string>()
-                    if (value) tagValues[key].add(value.trim())
+                const k = key.trim()
+                if (k) {
+                    virtualTagKeys.add(k)
+                    if (!tagValues[k]) tagValues[k] = new Set<string>()
+                    if (value) tagValues[k].add(value.trim())
                 }
             }
         }

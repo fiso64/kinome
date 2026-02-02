@@ -402,6 +402,7 @@
         on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
         on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
         {settings}
+        suggestions={allAutocompleteSuggestions}
       />
     {/if}
 

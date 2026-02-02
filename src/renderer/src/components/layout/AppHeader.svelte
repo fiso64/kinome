@@ -12,19 +12,22 @@
     Settings,
     MediaFolder,
     LibraryItem,
-    SearchIndexEntry
+    SearchIndexEntry,
+    AutocompleteSuggestions
   } from '../../../../shared/types'
 
   let {
     isRefreshing,
     isScanning,
     isContextMenuVisible,
-    settings
+    settings,
+    suggestions
   }: {
     isRefreshing: boolean
     isScanning: boolean
     isContextMenuVisible: boolean
     settings: Settings | null
+    suggestions: AutocompleteSuggestions
   } = $props()
 
   // --- V2 State ---
@@ -211,7 +214,7 @@
       {#if isDetailViewActive}
         <SearchInput
           bind:query={searchStoreV2.detailQuery}
-          suggestions={searchStoreV2.isFilterBarVisible ? [] : []}
+          {suggestions}
           bind:element={searchInputEl}
           onfocus={() => (isSearchFocused = true)}
           onblur={handleSearchBlur}
@@ -219,7 +222,7 @@
       {:else}
         <SearchInput
           bind:query={searchStoreV2.globalQuery}
-          suggestions={searchStoreV2.isFilterBarVisible ? [] : []}
+          {suggestions}
           bind:element={searchInputEl}
           onfocus={() => (isSearchFocused = true)}
           onblur={handleSearchBlur}
