@@ -92,12 +92,17 @@ export async function syncTvShowStructure(
             ) as MediaFile[]
             const seasonFileNames = seasonFiles.map((f) => f.name)
 
+            // OPTIMIZATION: If the season folder's number is locked, use it for all children
+            // and tell the parser it's a fixed season context.
+            const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
+            const effectiveSeasonNumber = isSeasonLocked ? seasonFolder.seasonNumber : seasonFolder.seasonNumber
+
             const episodeMap = determineEpisodeNumbers(
                 seasonFileNames,
-                seasonFolder.seasonNumber,
+                effectiveSeasonNumber,
                 episodeStrategy
             )
-            allModified.push(..._applyEpisodeMap(seasonFiles, episodeMap))
+            allModified.push(..._applyEpisodeMap(seasonFiles, episodeMap, isSeasonLocked ? effectiveSeasonNumber : undefined))
         }
     }
 
@@ -107,7 +112,11 @@ export async function syncTvShowStructure(
 /**
  * Applies parsed episode info to a list of media files.
  */
-function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvInfo>): MediaFile[] {
+function _applyEpisodeMap(
+    files: MediaFile[],
+    episodeMap: Map<string, ParsedTvInfo>,
+    forcedSeasonNumber?: number | null
+): MediaFile[] {
     const modified: MediaFile[] = []
     for (const file of files) {
         const info = episodeMap.get(file.name)
@@ -116,8 +125,10 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
             const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
 
             let changed = false
-            if (!isSeasonLocked && info.season !== undefined && file.seasonNumber !== info.season) {
-                file.seasonNumber = info.season
+            const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
+
+            if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
+                file.seasonNumber = targetSeason
                 changed = true
             }
             if (

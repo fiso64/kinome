@@ -432,10 +432,16 @@ async function _downloadAndApplyImageIfNeeded(
   const itemAsAny = item as any
   const key: 'posterPath' | 'backdropPath' | 'logoPath' = `${imageType}Path`
 
-  // Do not overwrite if a path is already set (or explicitly cleared by the user).
-  if (typeof itemAsAny[key] !== 'undefined') {
+  // Adhere to Idempotency AND Locking.
+  // 1. If it has a value (truthy string), keep it (Optimization).
+  // 2. If it is locked (true), keep it (User Intent).
+  // 3. If it is null/undefined AND unlocked, download it.
+  if (itemAsAny[key] || repositoryService.isFieldLocked(item, key)) {
+    console.log(`[TMDB] Skipping ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`)
     return
   }
+
+  console.log(`[TMDB] Downloading ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`)
 
   if (tmdbPath) {
     const imageUrl = `${imageUrlPrefix}${tmdbPath}`
@@ -553,8 +559,6 @@ export async function fetchItemDetails(
       details.seasons
     ) {
       item.tmdbSeasons = details.seasons // Cache the full season data
-      const modifiedChildren = await applyTvShowData(item as MediaFolder, settings, libraryDataPath)
-      modifiedItems.push(...modifiedChildren)
     } else if (item.type === 'folder' && item.mediaType === 'season' && details.episodes) {
       // Manual Season level update: episodes are likely present in the response
       const modifiedChildren = await fetchAndApplyEpisodeData(
@@ -596,9 +600,9 @@ export async function applyTvShowData(
     ) {
       console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
       const tmdbSeasons = item.tmdbSeasons
-      const children = item.children || repositoryService.getChildren(item.id)
+      const children = repositoryService.getChildren(item.id) // Get fresh children after structural sync
       const seasonFolders = children.filter(
-        (c) => c.type === 'folder' && c.mediaType === 'season'
+        (c) => c.type === 'folder' && c.mediaType === 'season' && typeof c.seasonNumber === 'number'
       ) as MediaFolder[]
 
       if (seasonFolders.length > 0) {
@@ -652,14 +656,14 @@ export async function applyTvShowData(
         }
       } else {
         // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
-        const children = item.children || repositoryService.getChildren(item.id)
+        const children = repositoryService.getChildren(item.id)
         const filesWithSeason = children.filter(
-          (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
+          (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber === 'number'
         ) as MediaFile[]
 
         if (filesWithSeason.length > 0) {
           // Group files by season number to handle multiple seasons in one folder
-          const seasonsToFetch = new Set(filesWithSeason.map((f) => f.seasonNumber!))
+          const seasonsToFetch = new Set(filesWithSeason.map((f) => f.seasonNumber as number))
 
           for (const seasonNum of seasonsToFetch) {
             const fakeSeasonFolder: MediaFolder = {

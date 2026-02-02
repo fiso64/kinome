@@ -303,7 +303,8 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
     }
 
     // 2. Conditional Enrichment (Full details fetch)
-    if (item.tmdbId && !item.lastRefreshedAt) {
+    // SKIP for seasons: They are enriched in Managed Copy (Phase 4) using the TV/Season endpoint.
+    if (item.tmdbId && !item.lastRefreshedAt && item.mediaType !== 'season') {
       log(`[Orchestrator] Enrichment needed for "${item.name}" (id: ${item.id})`)
       const modified = await retrieverService.fetchItemDetails(
         item,
@@ -383,8 +384,7 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
-  mediaType: 'movie' | 'tv' | 'season',
-  _options: { respectLocks?: boolean } = { respectLocks: true }
+  mediaType: 'movie' | 'tv' | 'season'
 ): Promise<LibraryItem[]> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Applying metadata is not available for read-only remote libraries.')
@@ -406,15 +406,28 @@ export async function applyManualMatch(
 
     // 1. PRIME: Clear current identity and freshness to trigger the orchestrator
     // We use targetedClear to ensure hierarchy is reset correctly without a blind full recursive wipe.
-    await clearItemMetadata(itemId, { targetedClear: true })
+    const clearedItem = await clearItemMetadata(itemId, { targetedClear: true })
+
+    if (!clearedItem) return [] // Safety check
+
+    // Use this fresh reference for the rest of the function
+    const item = clearedItem
 
     if (mediaType === 'season' && typeof result.season_number === 'number') {
       item.seasonNumber = result.season_number
     }
-
     item.tmdbId = result.id
     item.mediaType = mediaType
     item.lastRefreshedAt = null // Ensure orchestrator runs enrichment
+
+    // 1.5 LOCKING: Defend the manual match from being overwritten by structural sync
+    if (!item.lockedFields) item.lockedFields = []
+    if (!item.lockedFields.includes('tmdbId')) {
+      item.lockedFields.push('tmdbId')
+    }
+    if (mediaType === 'season' && !item.lockedFields.includes('seasonNumber')) {
+      item.lockedFields.push('seasonNumber')
+    }
 
     // 2. RUN ORCHESTRATOR
     return await handleItemUpdate(item)

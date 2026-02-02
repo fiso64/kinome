@@ -2,7 +2,7 @@
 
 **Version:** 2.1 (Partial Updates + Auto-Locking)
 **Status:** Proposed
-**Related:** `scan_architecture.md`, `../frontend/metadata_and_settings_edits.md`
+**Related:** `scan_architecture.md`, `manual_assignment.md`, `../frontend/metadata_and_settings_edits.md`
 
 ---
 
@@ -96,16 +96,8 @@ if (locks.includes('episodeNumber')) {
   - _Logic:_ Clear `locked_fields_json` -> Set `tmdbDetailsFetched = 0` -> Trigger Refresh.
   - _Result:_ Child is overwritten with Parent Cache data.
 
-- **The "Fix Match" Flow (Manual Search)**
-  - _Action:_ User applies a new TMDB result via search.
-  - _Logic:_ **CRITICAL:** Clear `locked_fields_json` immediately. Temporary decision, we will have to reevaluate this or at least add a UI warning if any locked fields are present.
-  - _Result:_ Item is completely re-enriched using the new TMDB ID.
-
-- **"Fix Match" on Parent**
-
-  - _Scenario:_ User changes the TMDB ID of the **Show**.
-  - _Result:_ The `episodes_json` blob is completely replaced.
-  - _Child Impact:_ User edits on episodes (e.g., "My Custom Title") are **preserved** because they live on the child item. Structure (Season 1, Ep 1) remains valid, but the _fallback_ data underneath changes instantly. This is a massive feature.
+- **The "Fix Match" Flow**
+  - See [manual_assignment.md](manual_assignment.md) for details on how manual matches interact with locking.
 
 - **Orphaned Edits**
   - _Scenario:_ User edits `S01E01` (Title="My Title"). Then renames file to `S02E01`.

@@ -490,13 +490,9 @@ export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMeta
 export const applyManualMatch = async (
   itemId: string,
   result: any,
-  mediaType: 'movie' | 'tv' | 'season',
-  options: { respectLocks?: boolean } = { respectLocks: true }
+  mediaType: 'movie' | 'tv' | 'season'
 ) => {
-  const modifiedItems = await metadataService.applyManualMatch(itemId, result, mediaType, {
-    ...options,
-    respectLocks: false
-  })
+  const modifiedItems = await metadataService.applyManualMatch(itemId, result, mediaType)
   if (modifiedItems.length > 0) {
     await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
   }
