@@ -212,7 +212,14 @@
     const hasChanged = (current: any, initial: any): boolean => {
       // Treat null and undefined as equal for change detection
       const normalizedCurrent = current === undefined || current === null ? null : current
-      const normalizedInitial = initial === undefined || initial === null ? null : initial
+      let normalizedInitial = initial === undefined || initial === null ? null : initial
+
+      // If initial is a string but current is a number, try to compare numeric values
+      // This prevents false changes when state is stringified for input fields.
+      if (typeof normalizedCurrent === 'number' && typeof normalizedInitial === 'string') {
+        const parsed = parseInt(normalizedInitial, 10)
+        if (!isNaN(parsed)) normalizedInitial = parsed
+      }
 
       if (
         Array.isArray(normalizedCurrent) ||
@@ -394,10 +401,11 @@
     let needsRefresh = false
     if (itemToUpdate) {
       const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
+      console.log(`[ItemSettingsModal] [TRACE] Sending userUpdateItem:`, itemToUpdate)
       await window.api.userUpdateItem(itemToUpdate)
       if (
         itemToUpdate.type === 'folder' &&
-        itemToUpdate.retrieve_children_metadata &&
+        (itemToUpdate as any).retrieve_children_metadata &&
         !wasEnabled
       ) {
         needsRefresh = true

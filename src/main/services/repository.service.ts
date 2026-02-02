@@ -896,11 +896,15 @@ tmdb_id = excluded.tmdb_id,
       'retrieve_children_metadata' in updates ||
       'children_type_hint' in updates ||
       'process_tv_children' in updates
-    log(`[DEBUG] Folder settings check - hasViewUpdates: ${hasViewUpdates}, hasScraperUpdates: ${hasScraperUpdates}`)
-    log(`[DEBUG] Updates object keys: ${Object.keys(updates).join(', ')}`)
+    log(
+      `[Repo] [TRACE] Folder settings check - hasViewUpdates: ${hasViewUpdates}, hasScraperUpdates: ${hasScraperUpdates}`
+    )
     if (hasScraperUpdates) {
-      log(`[DEBUG] retrieve_children_metadata in updates: ${'retrieve_children_metadata' in updates}, value: ${(updates as any).retrieve_children_metadata}`)
+      log(
+        `[Repo] [TRACE] Scraper update detected: rcm=${(updates as any).retrieve_children_metadata}, cth=${(updates as any).children_type_hint}, ptc=${(updates as any).process_tv_children}`
+      )
     }
+    log(`[Repo] [TRACE] Updates object keys: ${Object.keys(updates).join(', ')}`)
 
     if (hasViewUpdates || hasScraperUpdates) {
       const existing =
