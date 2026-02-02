@@ -56,6 +56,7 @@ function getComparisonSnapshot(item: LibraryItem | null | undefined) {
 
 /**
  * Robust comparison function using deep snapshots.
+ * IMPORTANT: Careful not to use this for partial updates (without merging first), as it will always return false.
  */
 export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
     return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
@@ -132,12 +133,24 @@ export async function updateIfChangedAndBroadcast(
 
     repositoryService.runTransaction(() => {
         for (const item of itemsArray) {
-            const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-            const virtualTagsChanged = JSON.stringify(item.virtualTags) !== JSON.stringify(newVirtualTags)
+            const existing = repositoryService.getItemById(item.id)
+
+            // 1. Construct the hypothetical "Next State"
+            // We merge the partial update 'item' over the 'existing' full object.
+            // This fills in the missing holes in the partial update with current DB data.
+            const nextState = existing ? { ...existing, ...item } : item
+
+            // 2. Recalculate Virtual Tags on the FULL state
+            // This fixes the bug where tags were lost because partial updates missed dependency fields (e.g. genres)
+            const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(nextState, settings)
+
+            // Apply the calculated tags to both our comparison object AND the payload
+            nextState.virtualTags = newVirtualTags
             item.virtualTags = newVirtualTags
 
-            const existing = repositoryService.getItemById(item.id)
-            const hasRealChanges = !existing || !isItemDataSame(existing, item) || virtualTagsChanged
+            // 3. Detect Changes using the robust snapshot comparison
+            // Now we compare Full Object (Existing) vs Full Object (Next State)
+            const hasRealChanges = !existing || !isItemDataSame(existing, nextState)
 
             if (hasRealChanges) {
                 item._v = Date.now()
