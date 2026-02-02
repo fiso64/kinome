@@ -314,7 +314,8 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
 
     // 3. Structural Sync (For TV Shows)
     // Runs every time to ensure hierarchy matches disk, even if details are fresh.
-    if (item.type === 'folder' && item.mediaType === 'tv') {
+    // Respects process_tv_children flag.
+    if (item.type === 'folder' && item.mediaType === 'tv' && (item as MediaFolder).process_tv_children !== false) {
       log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
       const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
       allModifiedItems.push(...modified)
@@ -322,7 +323,8 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
 
     // 4. Managed Copy (TV Hierarchy propagation)
     // Ensures episodes get their names/posters from the show/season cache.
-    if (item.mediaType === 'tv' || item.mediaType === 'season') {
+    // Respects process_tv_children flag.
+    if ((item.mediaType === 'tv' || item.mediaType === 'season') && (item as any).process_tv_children !== false) {
       log(`[Orchestrator] Managed Copy for ${item.mediaType} "${item.name}"`)
       const modified = await retrieverService.applyTvShowData(
         item as MediaFolder,

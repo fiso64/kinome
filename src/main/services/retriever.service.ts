@@ -689,7 +689,7 @@ export async function applyTvShowData(
     if (item.type === 'folder' && item.mediaType === 'season') {
       // Scenario C: Individual Season update
       const show = repositoryService.findParent(item.id) as MediaFolder
-      if (show && show.tmdbId) {
+      if (show && show.tmdbId && show.process_tv_children !== false) {
         console.log(`[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`)
         const modifiedInSeason = await fetchAndApplyEpisodeData(
           item as MediaFolder,

@@ -19,7 +19,7 @@ export async function syncTvShowStructure(
     seasonStrategy: 'smart' | 'alphabetic' = 'smart',
     episodeStrategy: 'smart' | 'alphabetic' = 'smart'
 ): Promise<LibraryItem[]> {
-    if (show.mediaType !== 'tv') return []
+    if (show.mediaType !== 'tv' || show.process_tv_children === false) return []
 
     const allModified: LibraryItem[] = []
 
