@@ -703,8 +703,10 @@ is_hidden = COALESCE(@isHidden, is_hidden),
           allStates
         )
       }
-      console.log(`[Repo] updateItem ${itemId} - Existing State: `, existingState)
-      console.log(`[Repo] updateItem ${itemId} - Updates: `, updates)
+
+      console.log(`[Repo] updateItem ${itemId}`)
+      // console.log(`[Repo] updateItem ${itemId} - Existing State: `, existingState)
+      // console.log(`[Repo] updateItem ${itemId} - Updates: `, updates)
 
       const val = {
         watched:

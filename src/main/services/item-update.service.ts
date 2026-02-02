@@ -1,53 +1,64 @@
+import equal from 'fast-deep-equal'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as virtualTagsService from './virtualTags.service'
 import { getTransport } from '../transport.registry'
 import type { LibraryItem } from '../../shared/types'
-import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
 
 const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Item Update Service] ${message}`)
 }
 
 /**
- * Deeply compares two objects for equality based on specific metadata and user state keys.
+ * Creates a "content-only" snapshot for change detection.
+ * Excludes volatile system fields and deep relations to prevent false positives.
+ */
+function getComparisonSnapshot(item: LibraryItem | null | undefined) {
+    if (!item) return null
+
+    // Destructure to separate DATA from SYSTEM NOISE
+    const {
+        // 1. System/DB Fields (Auto-managed or Volatile)
+        _v,
+        _internalId,
+        addedAt,
+        updatedAt,
+        createdAt,
+
+        // 2. Filesystem Stats (Handled by scanner, not service-level broadcast-triggers)
+        mtime,
+        size,
+        birthtime,
+
+        // 3. Relational Data (CRITICAL TO EXCLUDE)
+        // Children are separate entities; changing them shouldn't mark parent as dirty
+        children,
+
+        // 4. Runtime/Broadcast Fields
+        ancestorIds,
+        isVirtual,
+
+        // The rest is actual content (metadata, user state, settings, etc.)
+        ...data
+    } = item as any
+
+    return {
+        ...data,
+        // Normalize Locked Fields (sort so order doesn't matter)
+        lockedFields: (data.lockedFields || []).slice().sort(),
+
+        // Normalize Dates (compare timestamps)
+        // These fields are sometimes number, sometimes string, sometimes Date in JS
+        lastWatched: data.lastWatched ? new Date(data.lastWatched).getTime() : null,
+        lastRefreshedAt: data.lastRefreshedAt ? new Date(data.lastRefreshedAt).getTime() : null
+    }
+}
+
+/**
+ * Robust comparison function using deep snapshots.
  */
 export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
-    // 1. Check Metadata Keys
-    for (const key of METADATA_KEYS) {
-        const k = key as keyof LibraryItem
-        const v1 = JSON.stringify(existing[k])
-        const v2 = JSON.stringify(updated[k])
-        if (v1 !== v2) return false
-    }
-
-    // 2. Check User State Keys
-    const USER_KEYS: (keyof LibraryItem)[] = [
-        'watched',
-        'lastWatched',
-        'continueWatchingDismissed',
-        'nextUpDismissed'
-    ]
-    for (const key of USER_KEYS) {
-        if (existing[key] !== updated[key]) return false
-    }
-
-    // 3. Check Folder Settings
-    for (const key of VIEW_SETTINGS_KEYS) {
-        const k = key as keyof LibraryItem
-        if (JSON.stringify(existing[k]) !== JSON.stringify(updated[k])) return false
-    }
-
-    // 4. Check Locking
-    const locks1 = JSON.stringify((existing.lockedFields || []).sort())
-    const locks2 = JSON.stringify((updated.lockedFields || []).sort())
-    if (locks1 !== locks2) return false
-
-    // 5. Check System Flags
-    if (existing.isHidden !== updated.isHidden) return false
-    if (existing.isMissing !== updated.isMissing) return false
-
-    return true
+    return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
 }
 
 export const getAutocompleteSuggestions = async () => {
@@ -134,6 +145,8 @@ export async function updateIfChangedAndBroadcast(
                     repositoryService._updateItem(item.id, item)
                 }
                 modifiedItems.push(item)
+            } else {
+                console.log(`[Item Update Service] Item ${item.id} has no real changes. Skipping update and broadcast.`)
             }
         }
     })

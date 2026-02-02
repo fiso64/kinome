@@ -758,7 +758,7 @@ export async function fetchAndApplyEpisodeData(
   libraryDataPath: string,
   tmdbSeasons: TmdbSeason[] | undefined,
   options: { respectLocks?: boolean; seasonDetails?: any } = { respectLocks: true }
-): Promise<MediaFile[]> {
+): Promise<LibraryItem[]> {
   const seasonNumber = seasonFolder.seasonNumber
   if (seasonNumber === null || typeof seasonNumber === 'undefined') {
     console.warn(
@@ -768,11 +768,9 @@ export async function fetchAndApplyEpisodeData(
   }
 
   console.log(`[TMDB] fetchAndApplyEpisodeData for "${seasonFolder.name}" (S${seasonNumber}). showTmdbId=${showTmdbId}`)
-  const modifiedEpisodes: MediaFile[] = []
+  const modifiedItems: LibraryItem[] = []
 
   // If tmdbSeasons is provided, check if the season exists in it.
-  // If not provided (e.g., manual season match where parent show data isn't fully loaded),
-  // we proceed assuming the season number on seasonFolder is valid for an API attempt.
   if (tmdbSeasons) {
     const seasonExistsInProvidedList = tmdbSeasons.some((s) => s.season_number === seasonNumber)
     if (!seasonExistsInProvidedList) {
@@ -782,56 +780,51 @@ export async function fetchAndApplyEpisodeData(
       return []
     }
   }
-  // If tmdbSeasons is not provided (e.g., manual match where parent show processing is disabled),
-  // we proceed to try fetching, relying on the seasonFolder.seasonNumber.
+
   if (typeof seasonFolder.seasonNumber !== 'number') {
     console.warn(
       `[TMDB] Season folder "${seasonFolder.name}" (ID: ${seasonFolder.id}) has no valid seasonNumber (${seasonFolder.seasonNumber}). Cannot fetch episodes.`
     )
-    return [] // Cannot proceed without a valid season number
+    return []
   }
 
   try {
-    const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
-    console.log(
-      `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
-    )
+    let tmdbEpisodes = seasonFolder.tmdbEpisodes
 
-    const response = await fetch(episodeApiUrl)
-    if (!response.ok) {
-      throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
-    }
-    const seasonDetails = await response.json()
+    // FRESHNESS GUARD: Only fetch if lastRefreshedAt is null.
+    // This is the single source of truth for whether we need to call the API.
+    if (!seasonFolder.lastRefreshedAt) {
+      const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
+      console.log(
+        `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
+      )
 
-    // Apply details from the season endpoint to the season folder itself,
-    // only if the properties aren't already set (to respect user edits).
-    if (!seasonFolder.title && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))) {
-      seasonFolder.title = seasonDetails.name
-    }
-    if (!seasonFolder.overview && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview'))) {
-      seasonFolder.overview = seasonDetails.overview
-    }
-    if (!seasonFolder.posterPath && seasonDetails.poster_path) {
-      const posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`
-      const imagesDir = getImagesPath(libraryDataPath)
-      const posterFileName = `${seasonFolder.id}.jpg`
-      const posterDestPath = path.join(imagesDir, posterFileName)
-      try {
-        await downloadImage(posterUrl, posterDestPath)
-        seasonFolder.posterPath = posterFileName
-      } catch {
-        /* ignore download error */
+      const response = await fetch(episodeApiUrl)
+      if (!response.ok) {
+        throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
       }
-    }
+      const seasonDetails = await response.json()
 
-    const tmdbEpisodesApi = seasonDetails.episodes
+      // Apply metadata to season folder itself
+      if (!seasonFolder.title && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))) {
+        seasonFolder.title = seasonDetails.name
+      }
+      if (!seasonFolder.overview && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview'))) {
+        seasonFolder.overview = seasonDetails.overview
+      }
+      if (!seasonFolder.posterPath && seasonDetails.poster_path) {
+        const posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`
+        const imagesDir = getImagesPath(libraryDataPath)
+        const posterFileName = `${seasonFolder.id}.jpg`
+        const posterDestPath = path.join(imagesDir, posterFileName)
+        try {
+          await downloadImage(posterUrl, posterDestPath)
+          seasonFolder.posterPath = posterFileName
+        } catch { /* ignore */ }
+      }
 
-    if (!tmdbEpisodesApi || tmdbEpisodesApi.length === 0) {
-      console.log(`[TMDB] No episode data found for season ${seasonNumber}. Caching empty array.`)
-      seasonFolder.tmdbEpisodes = []
-    } else {
-      // --- Cache Curated Episode Data ---
-      const tmdbEpisodes = tmdbEpisodesApi.map(
+      const tmdbEpisodesApi = seasonDetails.episodes || []
+      tmdbEpisodes = tmdbEpisodesApi.map(
         (e: any): TmdbEpisode => ({
           episode_number: e.episode_number,
           name: e.name,
@@ -839,62 +832,63 @@ export async function fetchAndApplyEpisodeData(
           still_path: e.still_path
         })
       )
+
       seasonFolder.tmdbEpisodes = tmdbEpisodes
+      seasonFolder.lastRefreshedAt = Date.now()
+      modifiedItems.push(seasonFolder)
+    } else {
+      console.log(`[TMDB] Using cached episode data for "${seasonFolder.name}" (S${seasonNumber}).`)
+    }
 
-      // --- Apply Cached Data to Local Files ---
-      const children = seasonFolder.children || repositoryService.getChildren(seasonFolder.id)
-      const localEpisodes = children.filter(
-        (c) => c.type === 'file'
-      ) as MediaFile[]
-      console.log(`[TMDB] Local episodes count for season ${seasonFolder.name}: ${localEpisodes.length}`)
+    if (!tmdbEpisodes || tmdbEpisodes.length === 0) {
+      console.log(`[TMDB] No episode data found/cached for season ${seasonNumber}.`)
+      return modifiedItems
+    }
 
-      for (const localEpisode of localEpisodes) {
-        if (typeof localEpisode.episodeNumber === 'undefined') continue
+    // --- Apply Cached/New Data to Local Files ---
+    const children = seasonFolder.children || repositoryService.getChildren(seasonFolder.id)
+    const localEpisodes = children.filter((c) => c.type === 'file') as MediaFile[]
 
-        const tmdbEpisode = tmdbEpisodes.find(
-          (e) => e.episode_number === localEpisode.episodeNumber
-        )
+    for (const localEpisode of localEpisodes) {
+      if (typeof localEpisode.episodeNumber === 'undefined') continue
 
-        if (tmdbEpisode) {
-          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
-            localEpisode.title = tmdbEpisode.name
-          }
-          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
-            localEpisode.overview = tmdbEpisode.overview
-          }
-          localEpisode.mediaType = 'episode'
-          // Only download if poster is missing.
-          if (!localEpisode.posterPath && tmdbEpisode.still_path) {
-            const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
-            const imagesDir = getImagesPath(libraryDataPath)
-            const posterFileName = `${localEpisode.id}.jpg`
-            const posterDestPath = path.join(imagesDir, posterFileName)
-            try {
-              await downloadImage(posterUrl, posterDestPath)
-              localEpisode.posterPath = posterFileName
-            } catch {
-              /* ignore download error */
-            }
-          }
-        } else {
-          // If no matching TMDB episode, clear any old metadata, but respect locks during regular scans.
-          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
-            localEpisode.title = undefined
-          }
-          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
-            localEpisode.overview = undefined
-          }
-          if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'posterPath')) {
-            localEpisode.posterPath = undefined
-          }
+      const tmdbEpisode = tmdbEpisodes.find((e) => e.episode_number === localEpisode.episodeNumber)
+
+      if (tmdbEpisode) {
+        if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
+          localEpisode.title = tmdbEpisode.name
         }
-        modifiedEpisodes.push(localEpisode)
+        if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
+          localEpisode.overview = tmdbEpisode.overview
+        }
+        localEpisode.mediaType = 'episode'
+        if (!localEpisode.posterPath && tmdbEpisode.still_path) {
+          const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+          const imagesDir = getImagesPath(libraryDataPath)
+          const posterFileName = `${localEpisode.id}.jpg`
+          const posterDestPath = path.join(imagesDir, posterFileName)
+          try {
+            await downloadImage(posterUrl, posterDestPath)
+            localEpisode.posterPath = posterFileName
+          } catch { /* ignore */ }
+        }
+      } else {
+        if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
+          localEpisode.title = undefined
+        }
+        if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'overview')) {
+          localEpisode.overview = undefined
+        }
+        if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'posterPath')) {
+          localEpisode.posterPath = undefined
+        }
       }
+      modifiedItems.push(localEpisode)
     }
   } catch (error) {
-    console.error(`Error fetching episode data for season ${seasonNumber}:`, error)
+    console.error(`Error in fetchAndApplyEpisodeData for season ${seasonNumber}:`, error)
   }
-  return modifiedEpisodes
+  return modifiedItems
 }
 
 export async function manualSearch(
