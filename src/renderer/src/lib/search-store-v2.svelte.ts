@@ -1,7 +1,9 @@
+import { untrack } from 'svelte'
 import { api } from './api'
 import { navStoreV2 } from './navigation-store-v2.svelte'
 import { isTypingTag as isTypingTagHelper } from './view-helpers'
 import type { SearchIndexEntry } from '../../../shared/types'
+import { serializeSearchQuery, deserializeSearchQuery } from './search-query-helpers'
 
 // --- Types ---
 
@@ -48,10 +50,15 @@ export function initializeSearchEffects() {
       }
     }
 
-    // TODO: Navigation store history update for search?
-    // In V2, we might store search query in URL params too?
-    // navStoreV2 currently parses folder/item/modal. It doesn't handle search params yet.
-    // For now, we skip history sync for search, or add it to navStoreV2.
+    // Sync Store -> URL
+    // We untrack the check of navStore state to avoid circularity if it changes
+    untrack(() => {
+      const serialized = serializeSearchQuery(query)
+      const currentSerialized = navStoreV2.state.searchQuery
+      if (serialized !== currentSerialized) {
+        navStoreV2.setSearchQuery(serialized || null, true)
+      }
+    })
 
     if (isGlobalActive && !isTypingGlobalTag) {
       isPerformingGlobalSearch = true
@@ -65,6 +72,19 @@ export function initializeSearchEffects() {
       isPerformingGlobalSearch = false
       highlightedGlobalIndex = null
     }
+  })
+
+  // --- URL to Store Sync Effect (Popstate support) ---
+  $effect(() => {
+    const urlQuery = navStoreV2.state.searchQuery
+
+    // We untrack the globalQuery to ONLY trigger when the URL changes
+    untrack(() => {
+      const currentQuerySerialized = serializeSearchQuery(globalQuery)
+      if (urlQuery !== currentQuerySerialized) {
+        globalQuery = deserializeSearchQuery(urlQuery)
+      }
+    })
   })
 
   // --- Detail View Search Effect ---

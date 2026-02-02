@@ -6,6 +6,7 @@ interface NavigationState {
   currentFolderId: string // 'root' = Root
   selectedItemId: string | null // For Detail View
   path: string // '/' or '/settings'
+  searchQuery: string | null // For Global Search
 }
 
 // --- State ---
@@ -13,7 +14,8 @@ interface NavigationState {
 let currentState = $state<NavigationState>({
   currentFolderId: 'root',
   selectedItemId: null,
-  path: '/'
+  path: '/',
+  searchQuery: null
 })
 
 // --- Derived Helpers ---
@@ -30,6 +32,7 @@ function parseUrl() {
   const params = getUrlParams()
   const folder = params.get('folder')?.trim() || 'root'
   const item = params.get('item')?.trim() || null
+  const query = params.get('q')?.trim() || null
   let pathParam = params.get('page')?.trim() || '/'
 
   if (pathParam !== '/' && !pathParam.startsWith('/')) {
@@ -39,7 +42,8 @@ function parseUrl() {
   currentState = {
     currentFolderId: folder,
     selectedItemId: item,
-    path: pathParam
+    path: pathParam,
+    searchQuery: query
   }
 
   updateUrl(true)
@@ -47,9 +51,9 @@ function parseUrl() {
 
 function updateUrl(replace = false) {
   const params = new URLSearchParams()
-  if (currentState.currentFolderId)
-    params.set('folder', currentState.currentFolderId)
+  if (currentState.currentFolderId) params.set('folder', currentState.currentFolderId)
   if (currentState.selectedItemId) params.set('item', currentState.selectedItemId)
+  if (currentState.searchQuery) params.set('q', currentState.searchQuery)
   if (currentState.path !== '/') params.set('page', 'settings')
 
   const str = params.toString()
@@ -68,6 +72,7 @@ function navigateToFolder(folderId: string) {
   currentState.currentFolderId = folderId
   currentState.selectedItemId = null
   currentState.path = '/'
+  currentState.searchQuery = null // Clear search on folder change
   updateUrl()
 }
 
@@ -75,6 +80,7 @@ function navigateToRoot() {
   currentState.currentFolderId = 'root'
   currentState.selectedItemId = null
   currentState.path = '/'
+  currentState.searchQuery = null // Clear search on root
   updateUrl()
 }
 
@@ -141,5 +147,9 @@ export const navStoreV2 = {
   },
   goBack: () => {
     goBack()
+  },
+  setSearchQuery: (q: string | null, replace = true) => {
+    currentState.searchQuery = q
+    updateUrl(replace)
   }
 }

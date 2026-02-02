@@ -48,8 +48,6 @@
   let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
   let rootId = $state<string | null>(null)
 
-  initializeSearchEffects()
-
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
     genres: [],
@@ -383,7 +381,6 @@
       suggestions={$autocompleteState.suggestions}
       position={$autocompleteState.position}
       onSelect={$autocompleteState.onSelect}
-      onClose={() => autocompleteState.update((s) => ({ ...s, show: false }))}
       activeIndex={$autocompleteState.activeIndex}
     />
   {/if}
