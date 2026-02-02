@@ -481,7 +481,10 @@ export const assignSeasonsAndEpisodes = async (
 
   log(`[Library] Assignment complete for show ${showId}.`)
 }
-export const clearItemMetadata = metadataService.clearItemMetadata
+export const clearItemMetadata = (
+  itemId: string,
+  childrenOnly: boolean
+) => metadataService.clearItemMetadata(itemId, { childrenOnly })
 export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMetadata
 
 export const applyManualMatch = async (
@@ -490,12 +493,12 @@ export const applyManualMatch = async (
   mediaType: 'movie' | 'tv' | 'season',
   options: { respectLocks?: boolean } = { respectLocks: true }
 ) => {
-  const item = await metadataService.applyManualMatch(itemId, result, mediaType, {
+  const modifiedItems = await metadataService.applyManualMatch(itemId, result, mediaType, {
     ...options,
     respectLocks: false
   })
-  if (item) {
-    await _finalizeItemUpdate(item, { updateSuggestions: true })
+  if (modifiedItems.length > 0) {
+    await _finalizeItemUpdate(modifiedItems, { updateSuggestions: true })
   }
 }
 

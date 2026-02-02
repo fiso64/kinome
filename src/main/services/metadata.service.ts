@@ -36,86 +36,15 @@ function isMetadataEnabledForItem(itemId: string): boolean {
   return parent.retrieve_children_metadata === true
 }
 
-// Cached episode type for reuse
-type CachedEpisode = {
-  episode_number: number
-  name: string
-  overview: string | null
-  still_path?: string | null
-}
-
-/**
- * Applies cached TMDB episode data to local episode items (Managed Copy).
- * Handles title, overview, and still image download with field lock checks.
- * Returns the list of modified episodes for persistence.
- */
-async function applyEpisodeMetadataFromCache(
-  episodes: MediaFile[],
-  cachedEpisodes: CachedEpisode[],
-  libraryDataPath: string
-): Promise<MediaFile[]> {
-  const updates: MediaFile[] = []
-  const imagesDir = path.join(libraryDataPath, 'images')
-
-  for (const ep of episodes) {
-    const cachedEp = cachedEpisodes.find((e) => e.episode_number === ep.episodeNumber)
-    if (!cachedEp) continue
-
-    let changed = false
-
-    if (ep.title !== cachedEp.name && !repositoryService.isFieldLocked(ep, 'title')) {
-      ep.title = cachedEp.name
-      changed = true
-    }
-    if (ep.overview !== cachedEp.overview && !repositoryService.isFieldLocked(ep, 'overview')) {
-      ep.overview = cachedEp.overview
-      changed = true
-    }
-    if (!ep.posterPath && cachedEp.still_path && !repositoryService.isFieldLocked(ep, 'posterPath')) {
-      const posterUrl = `https://image.tmdb.org/t/p/w500${cachedEp.still_path}`
-      const posterFileName = `${ep.id}.jpg`
-      try {
-        await downloadImage(posterUrl, path.join(imagesDir, posterFileName))
-        ep.posterPath = posterFileName
-        changed = true
-      } catch { /* ignore download error */ }
-    }
-
-    if (changed) updates.push(ep)
-  }
-
-  return updates
-}
 
 export async function fetchMetadataForLibrary() {
   const settings = await settingsService.readSettings()
-  const libraryDataPath = pathsService.getLibraryDataPath()
-
   if (!settings.tmdbApiKey) {
     console.warn('Metadata fetch skipped: No TMDB API key.')
     return
   }
 
-  // ---------------------------------------------------------
-  // Phase 1: Discovery (The "Dirty Bit" Query)
-  // ---------------------------------------------------------
-  // We query items that are missing critical metadata or have been invalidated.
-  // Note: We used to build a memory tree. Now we use SQL power.
-  // We need items where:
-  // 1. tmdb_id IS NULL (New items)
-  // 2. people_json IS NULL (Credits missing/invalidated)
-  // 3. media_type='tv' AND seasons_json IS NULL
-  // 4. media_type='season' AND episodes_json IS NULL (optional, mostly driven by show)
-  // 5. media_type='episode' AND (title IS NULL OR overview IS NULL) -- Managed Copy Targets
-
-  // Actually, the simplest check is the computed flags we previously relied on.
-  // But those flags are computed in JS mapRowToLibraryItem.
-  // We can replicate the logic in SQL or select broadly and filter in JS.
-  // Let's Select broadly: Items with NO tmdb_id OR items with particular NULLs.
-  // Optimization: Select ALL items and filter in JS using the robust `LibraryItem` types?
-  // Only 10k items? JS is fine. 100k? SQL is better.
-  // Let's use `getAllItemsAsList` and filter, consistent with previous approach but FLATTENED.
-
+  // 1. Discovery: Find items that need identification or enrichment
   const allItems = repositoryService.getAllItemsAsList()
   if (allItems.length === 0) return
 
@@ -125,256 +54,44 @@ export async function fetchMetadataForLibrary() {
     // GATE: Only process items whose parent has retrieve_children_metadata enabled
     if (!isMetadataEnabledForItem(item.id)) return false
 
-    // 1. New Detection (No TMDB ID)
+    // Needs Identification
     if (!item.tmdbId && !item.lastRefreshedAt) return true
 
-    // 2. Stale Metadata (Identified but Dirty)
-    if (item.tmdbId && !item.lastRefreshedAt) return true
+    // Needs Enrichment (Details/Images/Structural sync)
+    // We also run the orchestrator if lastRefreshedAt is NULL (Dirty flag)
+    if (!item.lastRefreshedAt) return true
 
-    // 3. TV Show without Seasons Cache (Structural Integrity)
+    // TV Show Structural Integrity Check
     if (item.mediaType === 'tv' && !(item as MediaFolder).tmdbSeasons) return true
 
     return false
   })
 
-  // Discovery of TV shows happens partially before and partially after identification
-  let tvShows = allItems.filter((i) => i.mediaType === 'tv' && isMetadataEnabledForItem(i.id))
+  if (itemsToProcess.length === 0) {
+    log('[Metadata] No items need update.')
+    return
+  }
 
-  // ---------------------------------------------------------
-  // Phase 2: Processing Loop
-  // ---------------------------------------------------------
+  log(`[Metadata] Starting update for ${itemsToProcess.length} items using Unified Orchestrator.`)
 
-  // Separate into types for efficiency
-  const newItems = itemsToProcess.filter((i) => !i.tmdbId)
-  const enrichmentItems = itemsToProcess.filter((i) => i.tmdbId) // Already identified, needs data
+  // 2. Processing: Use the Orchestrator for each dirty item
+  // We use chunks to avoid overwhelming the network/API
+  await processInChunks(itemsToProcess, 5, async (item) => {
+    // Optimization: If it's an episode or season, we only call orchestrator 
+    // if it's "orphan" or if we want to force its individual update.
+    // However, calling handleItemUpdate is safe as it skips work if already fresh.
+    const modifiedItems = await handleItemUpdate(item)
 
-  // A. New Item Identification
-  if (newItems.length > 0) {
-    log(`[Metadata] Identification needed for ${newItems.length} items.`)
-    await processInChunks(newItems, 5, async (item) => {
-      // Heuristic: If Parent is TV, and we are a Season folder, we don't Search TMDB.
-      // We WAIT for the Parent to tell us what we are (or we infer from Parent).
-      // If Parent is Season, we are Episode.
-
-      // But wait, `searchTmdbAndApplyMetadata` handles "Identification".
-      // If we are definitely an Episode (mediaType='episode'), we should SKIP search and use Managed Copy.
-      // The issue: In Phase 1 Scan, we forced `mediaType='episode'`.
-      // So here `item.mediaType` is 'episode'.
-
-      if (item.mediaType === 'episode' || item.mediaType === 'season') {
-        // Skip ID Search check, handled in Managed Copy phase
-        return
+    if (modifiedItems.length > 0) {
+      // Broadcast updates
+      const plainItems = JSON.parse(JSON.stringify(modifiedItems))
+      for (const m of plainItems) {
+        const ancestors = repositoryService.getAncestors(m.id)
+        m.ancestorIds = ancestors.map((a) => a.id)
       }
-
-      // Identification with parent hint
-      const parent = item.parentId
-        ? (repositoryService.getItemById(item.parentId) as MediaFolder)
-        : null
-      const typeHint = parent?.children_type_hint
-
-      // Unified Atomic Search & Enrichment
-      await retrieverService.searchTmdbAndApplyMetadata(
-        item,
-        settings.tmdbApiKey!,
-        libraryDataPath,
-        typeHint
-      )
-
-      if (item.tmdbId) {
-        // Atomic Phase 2: Immediate Detail Fetch (Parity for Movies)
-        log(`[Metadata] Found ID for "${item.name}". Fetching details...`)
-        await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
-
-        // Atomic Phase 3: TV Structural Sync (If applicable)
-        if (item.mediaType === 'tv') {
-          log(`[Metadata] Identified as TV Show. Syncing structure...`)
-          await tvShowService.syncTvShowStructure(item as MediaFolder)
-        }
-
-        // Atomic Phase 4: Persistence & Stamping
-        item.lastRefreshedAt = Date.now()
-        // Ensure virtual tags are calculated based on the newly discovered metadata
-        item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-        repositoryService.updateItem(item.id, item)
-      }
-    })
-
-    // Broadcast updates for reactivity
-    const plainItems = JSON.parse(JSON.stringify(newItems.filter(i => i.tmdbId)))
-    for (const item of plainItems) {
-      const ancestors = repositoryService.getAncestors(item.id)
-      item.ancestorIds = ancestors.map((a) => a.id)
+      getTransport().notifyLibraryItemsUpdated(plainItems)
     }
-    getTransport().notifyLibraryItemsUpdated(plainItems)
-  }
-
-  // Refresh the list of TV shows after identification if new items might have been identified as 'tv'
-  if (newItems.length > 0) {
-    tvShows = allItems.filter((i) => i.mediaType === 'tv' && isMetadataEnabledForItem(i.id))
-  }
-
-  // Refresh the list after identification (Mutated in place or re-fetch?)
-  // `searchTmdbAndApplyMetadata` updates the object in memory AND writes to DB.
-  // So `item` ref is updated.
-
-  // B. Enrichment Loop (Restored)
-  if (enrichmentItems.length > 0) {
-    log(`[Metadata] Enriching ${enrichmentItems.length} items (Fetching details/images).`)
-    await processInChunks(enrichmentItems, 5, async (item) => {
-      // Fetch full details (images, runtime, etc.)
-      const modified = await retrieverService.fetchItemDetails(item, settings, libraryDataPath)
-      // Save changes
-      if (modified.length > 0) {
-        repositoryService.runTransaction(() => {
-          modified.forEach((m) => {
-            m.lastRefreshedAt = Date.now()
-            // Ensure virtual tags are calculated based on the newly enriched metadata (e.g. genres)
-            m.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(m, settings)
-            repositoryService.updateItem(m.id, m)
-          })
-        })
-
-        // Broadcast enrichment updates which now contain ancestor IDs for tree invalidation
-        const plainItems = JSON.parse(JSON.stringify(modified))
-        for (const item of plainItems) {
-          const ancestors = repositoryService.getAncestors(item.id)
-          item.ancestorIds = ancestors.map((a) => a.id)
-        }
-        getTransport().notifyLibraryItemsUpdated(plainItems)
-      }
-    })
-  }
-
-  // C. Managed Copy (TV Hierarchy)
-  // This iteration covers both "EnrichmentItems" (that were TV shows) and "NewItems".
-
-  // We need a fresh view of "Dirty" state.
-  // Let's effectively re-evaluate or just process items we suspect are dirty?
-  // Let's iterate all known TV Shows to enforcing Hierarchy consistency (The Managed Copy).
-
-  for (const show of tvShows) {
-    if (!show.tmdbId) continue
-
-    const showFolder = show as MediaFolder
-    // Note: Detail fetch is now primarily handled by the Atomic Sync (Loop A) 
-    // or the Enrichment Pass (Loop B). We proceed directly to structural sync.
-
-    // CLEAN REFACTOR: Use the centralized service instead of hacky inline loop
-    await tvShowService.syncTvShowStructure(showFolder)
-
-    // Re-fetch folders to ensure we have the newly updated season mediaTypes
-    const showChildren = repositoryService.getChildren(show.id)
-    const seasons = showChildren.filter((i) => i.mediaType === 'season') as MediaFolder[]
-
-    for (const seasonFolder of seasons) {
-      // Resolve Metadata from Show Cache
-      const cachedSeason = showFolder.tmdbSeasons?.find((s) => s.season_number === seasonFolder.seasonNumber)
-
-      if (cachedSeason) {
-        let changed = false
-
-        // WRITE GUARD: Checks locks before applying Parent Data
-        if (seasonFolder.title !== cachedSeason.name && !repositoryService.isFieldLocked(seasonFolder, 'title')) {
-          seasonFolder.title = cachedSeason.name
-          changed = true
-        }
-        if (seasonFolder.overview !== cachedSeason.overview && !repositoryService.isFieldLocked(seasonFolder, 'overview')) {
-          seasonFolder.overview = cachedSeason.overview
-          changed = true
-        }
-
-        if (changed) repositoryService.updateItem(seasonFolder.id, seasonFolder)
-      }
-
-      // 3. Ensure Season Metadata (Episodes Cache)
-      const episodes = repositoryService.getChildren(seasonFolder.id).filter((i) => i.mediaType === 'episode')
-
-      // Check for "New Episode" vs "Cached List"
-      const localEpisodeNumbers = new Set(episodes.map((e) => (e as MediaFile).episodeNumber))
-      const cachedEpisodeNumbers = new Set(
-        seasonFolder.tmdbEpisodes?.map((e) => e.episode_number) || []
-      )
-
-      let needsRefetch = !seasonFolder.tmdbEpisodes // Basic missing
-      if (!needsRefetch) {
-        for (const num of Array.from(localEpisodeNumbers)) {
-          if (!cachedEpisodeNumbers.has(num || 0)) {
-            needsRefetch = true
-            break
-          }
-        }
-      }
-
-      if (needsRefetch) {
-        log(`[Metadata] Fetching Episodes for Season ${seasonFolder.seasonNumber} (Missing/Partial)...`)
-        const fetchedEpisodes = await retrieverService.fetchAndApplyEpisodeData(
-          seasonFolder,
-          showFolder.tmdbId!,
-          settings.tmdbApiKey!,
-          libraryDataPath,
-          showFolder.tmdbSeasons
-        )
-        repositoryService.runTransaction(() => {
-          repositoryService.updateItem(seasonFolder.id, seasonFolder)
-          fetchedEpisodes.forEach((e) => repositoryService.updateItem(e.id, e))
-        })
-      }
-
-      // 4. Managed Copy: Season -> Episodes
-      if (seasonFolder.tmdbEpisodes) {
-        const updates = await applyEpisodeMetadataFromCache(
-          episodes as MediaFile[],
-          seasonFolder.tmdbEpisodes,
-          libraryDataPath
-        )
-        if (updates.length > 0) {
-          repositoryService.runTransaction(() => {
-            updates.forEach((u) => repositoryService.updateItem(u.id, u))
-          })
-        }
-      }
-    }
-
-    // --- FLAT TV SHOW HANDLING ---
-    const directEpisodes = showChildren.filter((i) => i.mediaType === 'episode')
-
-    if (directEpisodes.length > 0 && seasons.length === 0) {
-      log(`[Metadata] Flat TV Show detected: "${showFolder.name}" with ${directEpisodes.length} direct episodes.`)
-      const cachedSeason1 = showFolder.tmdbSeasons?.find((s) => s.season_number === 1)
-
-      if (cachedSeason1) {
-        let cachedEpisodes: Array<{ episode_number: number; name: string; overview: string; still_path?: string }> | null = null
-        try {
-          const seasonData = await retrieverService.fetchSeasonEpisodes(
-            showFolder.tmdbId!,
-            1,
-            settings.tmdbApiKey!
-          )
-          cachedEpisodes = seasonData?.episodes || null
-        } catch (err) {
-          log(`[Metadata] Failed to fetch Season 1 episodes: ${err}`)
-        }
-
-        if (cachedEpisodes && cachedEpisodes.length > 0) {
-          const updates = await applyEpisodeMetadataFromCache(
-            directEpisodes as MediaFile[],
-            cachedEpisodes,
-            libraryDataPath
-          )
-          if (updates.length > 0) {
-            log(`[Metadata] Applying episode metadata to ${updates.length} flat episodes.`)
-            repositoryService.runTransaction(() => {
-              updates.forEach((u) => repositoryService.updateItem(u.id, u))
-            })
-          }
-        }
-      }
-    }
-  }
-
-  // C. Missing Credits/Posters (Cleanup)
-  // Re-query "itemsMissingCredits" from the updated list or separate loop
-  // ... (Existing logic for posters/credits is fine to keep or simplify)
+  })
 
   await repositoryService.writeDb()
   log('[Metadata] Run complete.')
@@ -438,7 +155,8 @@ export async function fetchEpisodeDataForContinueWatching(
           show.tmdbId,
           settings.tmdbApiKey,
           pathsService.getLibraryDataPath(),
-          show.tmdbSeasons
+          show.tmdbSeasons ?? undefined,
+          { respectLocks: true }
         )
         itemsToUpdate = [seasonFolder, ...modifiedEpisodes]
       }
@@ -551,200 +269,161 @@ function _resetItemMetadataFields(
 
 // ... (skipping clearItemMetadata and clearVirtualFolderMetadata unchanged) ...
 
-export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
-  const needsNetworkFetch = !!(item.tmdbId && !item.lastRefreshedAt)
-  log(`[Details] manual fetch check for "${item.name}" (id: ${item.id}). needsNetworkFetch=${needsNetworkFetch}, tmdbId=${item.tmdbId}, lastRefreshedAt=${item.lastRefreshedAt}`)
+/**
+ * The Unified Orchestrator: handleItemUpdate
+ * Orchestrates the entire scan/analysis/metadata fetch flow for a single item.
+ * Ensuring identification, enrichment, structural sync, and managed copy run in order.
+ */
+export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]> {
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
+  const allModifiedItems: LibraryItem[] = [item]
 
-  // GATE A: If it's a file (movie/episode) and it's already clean, exit immediately.
-  if (item.type === 'file' && !needsNetworkFetch) {
-    return []
-  }
+  if (pathsService.isRemoteLibrary()) return []
 
-  if (pathsService.isRemoteLibrary()) {
-    log(`[Details] Skipping metadata fetch for "${item.name}" on remote read-only library.`)
-    return []
-  }
-
+  // Ensure Bulk Update mode is on to prevent redundant DB writes/broadcasts
+  const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
-  const allModifiedItems: LibraryItem[] = []
-  try {
-    const settings = await settingsService.readSettings()
-    if (!settings.tmdbApiKey) return []
-    const libraryDataPath = pathsService.getLibraryDataPath()
 
-    // 1. Network Fetch (If needed/dirty)
-    if (needsNetworkFetch) {
-      log(`[Details] Item details stale or missing. Starting full fetch for "${item.name}"`)
+  try {
+    // 1. Identification (If missing)
+    if (!item.tmdbId && !item.lastRefreshedAt) {
+      log(`[Orchestrator] Identification needed for "${item.name}" (id: ${item.id})`)
+      const parent = item.parentId
+        ? (repositoryService.getItemById(item.parentId) as MediaFolder)
+        : null
+      const typeHint = parent?.children_type_hint
+
+      await retrieverService.searchTmdbAndApplyMetadata(
+        item,
+        settings.tmdbApiKey!,
+        libraryDataPath,
+        typeHint
+      )
+    }
+
+    // 2. Conditional Enrichment (Full details fetch)
+    if (item.tmdbId && !item.lastRefreshedAt) {
+      log(`[Orchestrator] Enrichment needed for "${item.name}" (id: ${item.id})`)
       const modified = await retrieverService.fetchItemDetails(
         item,
         settings,
-        libraryDataPath
+        libraryDataPath,
+        { respectLocks: true }
       )
-      // Mark as refreshed
-      item.lastRefreshedAt = Date.now()
-      allModifiedItems.push(item, ...modified)
-    }
-
-    // 2. Structural Sync (For folders)
-    if (item.type === 'folder') {
-      if (item.mediaType === 'tv') {
-        // Ensure children are populated for applyTvShowData
-        item.children = repositoryService.getChildren(item.id)
-        for (const child of item.children) {
-          if (child.type === 'folder') {
-            child.children = repositoryService.getChildren(child.id)
-          }
+      allModifiedItems.push(...modified)
+      // Credits fetch happens inside identification or details? 
+      // retrieverService.fetchItemDetails doesn't seem to fetch credits. 
+      // retrieverService.searchTmdbAndApplyMetadata DOES fetch credits.
+      // Let's ensure credits are always there if refreshed.
+      if (item.mediaType === 'movie' || item.mediaType === 'tv') {
+        if (!item.tmdbCredits) {
+          await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey!)
         }
-
-        const modifiedChildren = await retrieverService.applyTvShowData(
-          item,
-          settings,
-          libraryDataPath
-        )
-        allModifiedItems.push(...modifiedChildren)
       }
     }
 
-    // 3. Finalize
-    if (allModifiedItems.length > 0) {
-      log(`[Details] Background processing complete for "${item.name}". ${allModifiedItems.length} items modified.`)
-      return allModifiedItems
+    // 3. Structural Sync (For TV Shows)
+    // Runs every time to ensure hierarchy matches disk, even if details are fresh.
+    if (item.type === 'folder' && item.mediaType === 'tv') {
+      log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
+      const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
+      allModifiedItems.push(...modified)
     }
+
+    // 4. Managed Copy (TV Hierarchy propagation)
+    // Ensures episodes get their names/posters from the show/season cache.
+    if (item.mediaType === 'tv' || item.mediaType === 'season') {
+      log(`[Orchestrator] Managed Copy for ${item.mediaType} "${item.name}"`)
+      const modified = await retrieverService.applyTvShowData(
+        item as MediaFolder,
+        settings,
+        libraryDataPath
+      )
+      allModifiedItems.push(...modified)
+    }
+
+    // 5. Finalize
+    const now = Date.now()
+    item.lastRefreshedAt = now
+    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+
+    // Atomic persistence
+    repositoryService.runTransaction(() => {
+      for (const m of allModifiedItems) {
+        m.lastRefreshedAt = now
+        repositoryService.updateItem(m.id, m)
+      }
+    })
+
+    return allModifiedItems
   } catch (error) {
-    console.error(`Error in backgroundFetchAndApplyDetails for "${item.name}":`, error)
+    console.error(`[Orchestrator] Error handling update for "${item.name}":`, error)
+    return []
   } finally {
-    repositoryService.setBulkUpdateStatus(false)
+    repositoryService.setBulkUpdateStatus(wasBulkUpdating)
+  }
+}
+
+export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
+  const needsRefresh = !item.lastRefreshedAt
+  const isTV = item.type === 'folder' && item.mediaType === 'tv'
+
+  log(`[Details] check for "${item.name}". needsRefresh=${needsRefresh}, isTV=${isTV}`)
+
+  // GATE: If it's a file and it's already clean, exit.
+  if (item.type === 'file' && !needsRefresh) {
+    return []
   }
 
-  return []
+  // Use the orchestrator
+  return await handleItemUpdate(item)
 }
 
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
   mediaType: 'movie' | 'tv' | 'season',
-  options: { respectLocks?: boolean } = { respectLocks: true }
-): Promise<LibraryItem | null> {
+  _options: { respectLocks?: boolean } = { respectLocks: true }
+): Promise<LibraryItem[]> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Applying metadata is not available for read-only remote libraries.')
   }
   const item = repositoryService.getItemById(itemId)
-  if (!item) return null
+  if (!item) return []
   const settings = await settingsService.readSettings()
-  const libraryDataPath = pathsService.getLibraryDataPath()
-  if (!settings.tmdbApiKey) return null
+  // const libraryDataPath = pathsService.getLibraryDataPath()
+  if (!settings.tmdbApiKey) return []
+
+  log(`[Manual Match] Applying ${mediaType} match to "${item.name}" (id: ${itemId})`)
+
+  // Ensure Bulk Update mode is on
+  const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
+
   try {
-    if (item.type === 'file') item.opensAsFolder = true
-    item.posterPath = undefined
-    item.backdropPath = undefined
-    item.logoPath = undefined
-    item.lastRefreshedAt = null
-    item.tmdbCredits = null
+    // const imagesDir = path.join(libraryDataPath, 'images')
 
-    if (!options.respectLocks) {
-      item.lockedFields = []
+    // 1. PRIME: Clear current identity and freshness to trigger the orchestrator
+    // We use targetedClear to ensure hierarchy is reset correctly without a blind full recursive wipe.
+    await clearItemMetadata(itemId, { targetedClear: true })
+
+    if (mediaType === 'season' && typeof result.season_number === 'number') {
+      item.seasonNumber = result.season_number
     }
 
-    const imagesDir = path.join(libraryDataPath, 'images')
-    await _unlinkItemImages(item, imagesDir, options)
-    _resetItemMetadataFields(item, options)
+    item.tmdbId = result.id
+    item.mediaType = mediaType
+    item.lastRefreshedAt = null // Ensure orchestrator runs enrichment
 
-    if (item.type === 'folder' && mediaType === 'tv') {
-      item.tmdbSeasons = null
-      if (item.children) {
-        // Recursively reset seasons and episodes.
-        // If respectLocks is false (manual match), this will clear their locks too.
-        for (const season of item.children) {
-          if (season.type === 'folder' && season.mediaType === 'season') {
-            await _unlinkItemImages(season, imagesDir, options)
-            _resetItemMetadataFields(season, options)
-            if (season.children) {
-              for (const episode of season.children) {
-                if (episode.mediaType === 'episode') {
-                  await _unlinkItemImages(episode, imagesDir, options)
-                  _resetItemMetadataFields(episode, options)
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    if (mediaType === 'season' && item.type === 'folder') {
-      item.mediaType = 'season'
-      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'title')) {
-        item.title = result.name || result.title
-      }
-      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview')) {
-        item.overview = result.overview
-      }
-      item.seasonNumber = (result as any).season_number
-
-      if (result.poster_path) {
-        const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
-        const posterDestPath = path.join(
-          pathsService.getLibraryDataPath(),
-          'images',
-          `${item.id}.jpg`
-        )
-        try {
-          await downloadImage(posterUrl, posterDestPath)
-          item.posterPath = `${item.id}.jpg`
-        } catch (e) {
-          console.error('Failed to download season poster', e)
-        }
-      }
-
-      item.lastRefreshedAt = Date.now()
-
-      const episodeFiles = (item.children || []).filter((c) => c.type === 'file') as MediaFile[]
-      if (
-        typeof item.seasonNumber === 'number' &&
-        !episodeFiles.some((ef) => typeof ef.episodeNumber !== 'undefined')
-      ) {
-        // Fallback or smart assignment
-        episodeFiles.forEach((f, i) => (f.episodeNumber = i + 1))
-      }
-
-      const showFolder = repositoryService.findParent(item.id)
-      if (showFolder?.tmdbId && settings.tmdbApiKey) {
-        if (!showFolder.lastRefreshedAt)
-          await retrieverService.fetchItemDetails(showFolder, settings, libraryDataPath, options)
-        await retrieverService.fetchAndApplyEpisodeData(
-          item as MediaFolder,
-          showFolder.tmdbId,
-          settings.tmdbApiKey,
-          libraryDataPath,
-          showFolder.tmdbSeasons,
-          options
-        )
-      }
-    } else {
-      item.tmdbId = result.id
-      item.mediaType = mediaType
-      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'title')) {
-        item.title = result.title || result.name
-      }
-      if (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview')) {
-        item.overview = result.overview
-      }
-      const date = result.release_date || result.first_air_date
-      if (date && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'year'))) {
-        item.year = new Date(date).getFullYear()
-      }
-
-      await retrieverService.fetchItemDetails(item, settings, libraryDataPath, options)
-      if (mediaType === 'movie' || mediaType === 'tv')
-        await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey)
-
-      item.lastRefreshedAt = Date.now()
-    }
+    // 2. RUN ORCHESTRATOR
+    return await handleItemUpdate(item)
+  } catch (err) {
+    console.error(`[Manual Match] Failed for "${item.name}":`, err)
+    return []
   } finally {
-    repositoryService.setBulkUpdateStatus(false)
+    repositoryService.setBulkUpdateStatus(wasBulkUpdating)
   }
-  item._v = Date.now()
-  return item
 }
 export async function setImage(
   itemId: string,
@@ -804,22 +483,57 @@ export async function removeImage(
   return item
 }
 
+/**
+ * Clears metadata for an item and potentially its hierarchy.
+ * 
+ * @param itemId The unique ID of the item to clear.
+ * @param options Configuration for the clearing operation:
+ *  - childrenOnly: If true, clears all descendants but leaves the targeted item's metadata intact.
+ *  - targetedClear: If true, clears the item itself. If it's a TV show or Season, it also resets
+ *    the metadata for the immediate hierarchy (Seasons and Episodes) to ensure identity consistency
+ *    during manual assignment. Unlike a full recursive wipe, this targets only standard TV entities.
+ */
 export async function clearItemMetadata(
   itemId: string,
-  childrenOnly: boolean
+  options: { childrenOnly?: boolean; targetedClear?: boolean } = {}
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
 
   const itemsToClear: LibraryItem[] = []
 
-  if (!childrenOnly) {
+  if (options.childrenOnly) {
+    if (item.type === 'folder') {
+      const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
+      itemsToClear.push(...descendants)
+    }
+  } else if (options.targetedClear) {
     itemsToClear.push(item)
-  }
-
-  if (item.type === 'folder') {
-    const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
-    itemsToClear.push(...descendants)
+    if (item.type === 'folder') {
+      const children = repositoryService.getChildren(item.id)
+      if (item.mediaType === 'tv') {
+        // Clear direct seasons and all episodes (direct and under seasons)
+        for (const child of children) {
+          if (child.mediaType === 'season' || child.mediaType === 'episode') {
+            itemsToClear.push(child)
+            if (child.type === 'folder') {
+              const episodes = repositoryService.getChildren(child.id)
+              itemsToClear.push(...episodes.filter((e) => e.mediaType === 'episode'))
+            }
+          }
+        }
+      } else if (item.mediaType === 'season') {
+        // Clear direct episodes
+        itemsToClear.push(...children.filter((c) => c.mediaType === 'episode'))
+      }
+    }
+  } else {
+    // Default: Clear item and ALL descendants recursively
+    itemsToClear.push(item)
+    if (item.type === 'folder') {
+      const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
+      itemsToClear.push(...descendants)
+    }
   }
 
   const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')

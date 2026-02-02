@@ -6,7 +6,7 @@ import {
     isSupportedVideoFile,
     ParsedTvInfo
 } from '../utils/tv-parser'
-import type { MediaFolder, MediaFile } from '../../shared/types'
+import type { MediaFolder, MediaFile, LibraryItem } from '../../shared/types'
 
 /**
  * Syncs the internal season/episode structure of a TV show based on filesystem patterns.
@@ -17,8 +17,10 @@ export async function syncTvShowStructure(
     show: MediaFolder,
     seasonStrategy: 'smart' | 'alphabetic' = 'smart',
     episodeStrategy: 'smart' | 'alphabetic' = 'smart'
-): Promise<void> {
-    if (show.mediaType !== 'tv') return
+): Promise<LibraryItem[]> {
+    if (show.mediaType !== 'tv') return []
+
+    const allModified: LibraryItem[] = []
 
     // 1. Fetch immediate children
     const children = repositoryService.getChildren(show.id)
@@ -29,23 +31,17 @@ export async function syncTvShowStructure(
     let seasonMap = new Map<string, ParsedTvInfo>()
     let isFlatShow = false
 
-    // --- Hierarchy Strategy (as per spec/backend/tv_parsing.md) ---
-
+    // --- Hierarchy Strategy ---
     if (seasonStrategy === 'smart') {
-        // Stage 1: Explicit Seasons (Regex match like 'Season 1' or 'S01')
         seasonMap = determineExplicitSeasonNumbers(folders.map((f) => f.name))
-
         if (seasonMap.size === 0) {
-            // Stage 2: Flat Structure (Video files in root)
             if (videoFiles.length > 0) {
                 isFlatShow = true
             } else {
-                // Stage 3: Alphabetic Fallback (Generic folder names like 'Part 1', 'Other')
                 seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
             }
         }
     } else {
-        // Explicitly forced alphabetic strategy
         seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
     }
 
@@ -58,15 +54,23 @@ export async function syncTvShowStructure(
                 const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
                 const targetSeason = isLocked ? folder.seasonNumber : info.season
 
+                let changedForFolder = false
                 if (!isLocked && folder.seasonNumber !== targetSeason) {
                     folder.seasonNumber = targetSeason
-                    // Invalidate metadata if number changed so that rich data (overview, poster) is refetched
                     folder.title = null
                     folder.overview = null
                     folder.posterPath = null
+                    changedForFolder = true
                 }
-                folder.mediaType = 'season'
-                repositoryService.updateItem(folder.id, folder)
+                if (folder.mediaType !== 'season') {
+                    folder.mediaType = 'season'
+                    changedForFolder = true
+                }
+
+                if (changedForFolder) {
+                    repositoryService.updateItem(folder.id, folder)
+                    allModified.push(folder)
+                }
                 seasonsToProcess.push(folder)
             }
         }
@@ -74,15 +78,13 @@ export async function syncTvShowStructure(
 
     // 3. Process Episodes
     if (isFlatShow) {
-        // Flat TV show (episodes directly in root) - Assign all to Season 1
         const episodeMap = determineEpisodeNumbers(
             videoFiles.map((f) => f.name),
             1,
             episodeStrategy
         )
-        _applyEpisodeMap(videoFiles, episodeMap)
+        allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
     } else {
-        // Process episodes inside detected season folders
         for (const seasonFolder of seasonsToProcess) {
             const seasonChildren = repositoryService.getChildren(seasonFolder.id)
             const seasonFiles = seasonChildren.filter(
@@ -95,15 +97,18 @@ export async function syncTvShowStructure(
                 seasonFolder.seasonNumber,
                 episodeStrategy
             )
-            _applyEpisodeMap(seasonFiles, episodeMap)
+            allModified.push(..._applyEpisodeMap(seasonFiles, episodeMap))
         }
     }
+
+    return allModified
 }
 
 /**
  * Applies parsed episode info to a list of media files.
  */
-function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvInfo>): void {
+function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvInfo>): MediaFile[] {
+    const modified: MediaFile[] = []
     for (const file of files) {
         const info = episodeMap.get(file.name)
         if (info && info.mediaType === 'episode') {
@@ -121,7 +126,6 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
                 file.episodeNumber !== info.episode
             ) {
                 file.episodeNumber = info.episode
-                // Invalidate metadata for new episode number
                 file.title = null
                 file.overview = null
                 file.posterPath = null
@@ -131,7 +135,9 @@ function _applyEpisodeMap(files: MediaFile[], episodeMap: Map<string, ParsedTvIn
             if (changed || file.mediaType !== 'episode') {
                 file.mediaType = 'episode'
                 repositoryService.updateItem(file.id, file)
+                modified.push(file)
             }
         }
     }
+    return modified
 }

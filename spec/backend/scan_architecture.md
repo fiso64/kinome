@@ -64,27 +64,58 @@ The walker iterates every file on disk.
     - **Gate:** Logic runs **ONLY** on children of a folder where `retrieve_children_metadata = true`.
     - **Trigger:** The scanner **no longer guesses** types. It only triggers structural parsing if the folder is **already identified as TV** (`mediaType === 'tv'`) in the database.
     - **Delegation:** This logic is delegated to the centralized `tv-show.service.ts`.
-    - **Invariant 1 (TV Show):** A folder can be assigned `media_type = 'tv'` **ONLY IF** its parent has `retrieve_children_metadata = true`.
-    - **Invariant 2 (Season/Episode):** A folder/file can be assigned `media_type = 'season'` or `'episode'` **ONLY IF** its ancestor is identified as a TV Show.
+    - **Invariants for Automatic Metadata Assignment:**
+        1. **Assignment Gate (Movie/TV):** An item can only receive a `tv` or `movie` type automatically if its parent has `retrieve_children_metadata = true`.
+        2. **Season Gate:** A folder can only receive `season` type automatically if its parent is already identified as `tv`.
+        3. **Episode Gate:** A file can only receive `episode` type automatically if its parent is identified as `tv` or `season`.
+        4. **Structural Sync Restriction:** Structural sync (recursive assignment of seasons and episodes) is **ONLY** run on items already identified as `tv`.
     - **Locking Integration:** Before writing determined numbers, it **MUST** check `spec/metadata_locking.md` (Write Guard).
 
 ### B. Phase 2: Enrichment (The Metadata Service)
 
-The enrichment loop finds items with missing or "dirty" metadata.
+The enrichment loop finds items with missing or "dirty" metadata. It delegates the heavy lifting to the **Unified Orchestrator** (see Section 6).
 
 1.  **Gate:** Logic runs **ONLY** on children of a folder where `retrieve_children_metadata = true`.
-2.  **Trigger 1 (Identification - Atomic Sync):** Identification is a **single-path atomic event** for all media types:
-    -   **Identity (Gated by Parent Type Hint)**:
-        -   **If Hint = 'tv'**: Uses the TMDB `/search/tv` endpoint (Fast & Accurate).
-        -   **If Hint = 'movie'**: Uses the TMDB `/search/movie` endpoint.
-        -   **If No Hint**: Uses the TMDB `/search/multi` endpoint and filters for movies/TV shows.
-    -   **Enrichment**: Immediately call `/movie/{id}` or `/tv/{id}` to fetch full details (Backdrops, Logos, Genres, Credits). This ensures **"First-Scan Parity"** for both movies and TV shows.
-    -   **Structural Re-sync (TV Only)**: Immediately trigger `tvShowService.syncTvShowStructure` after details are fetched (required for season/episode hierarchy).
-3.  **Trigger 2 (Refresh & Repair):** A secondary pass looks for items that are "Identified" (`tmdb_id` is present) but "Stale" or "Corrupt".
-    -   **Condition:** `last_refreshed_at` is `NULL`.
-    -   **Logic:** This indicates a previous fetch failed, crashed, or the item was manually invalidated by a user edit. The system must attempt to re-fetch details, credits, and images.
+2.  **Trigger 1 (Identification):** If `tmdb_id` is MISSING.
+3.  **Trigger 2 (Refresh & Repair):** If `tmdb_id` is PRESENT but `last_refreshed_at` is NULL.
 
-### C. State Model: Identity vs. Freshness
+---
+
+## 5. The Unified Orchestrator: `handleItemUpdate`
+
+To ensure robustness and keep the code DRY, both the **Scanner** (background enrichment) and **Manual Assignment** (user-triggered) must call the same orchestration function.
+
+### A. Orchestration Flow
+
+The function `handleItemUpdate` (residing in `metadata.service.ts`) executes the following pipeline:
+
+1.  **Check Identity:** If `tmdb_id` is missing, run **Identification** (TMDB Search) and apply result labels.
+    - **Identity (Gated by Parent Type Hint)**:
+        - **If Hint = 'tv'**: Uses the TMDB `/search/tv` endpoint (Fast & Accurate).
+        - **If Hint = 'movie'**: Uses the TMDB `/search/movie` endpoint.
+        - **If No Hint**: Uses the TMDB `/search/multi` endpoint and filters for movies/TV shows.
+2.  **Conditional Enrichment:**
+    - **Trigger:** If `last_refreshed_at` is `NULL` (item is "dirty" or newly identified).
+    - **Action:** Fetch full details from TMDB (backdrops, logos, genres, credits).
+3.  **Structural Sync (TV Only):**
+    - **Trigger:** If `mediaType === 'tv'`.
+    - **Action:** Delegate to `tvShowService.syncTvShowStructure`. This identifies season folders and episode files.
+4.  **Managed Copy (TV/Season Only):**
+    - **Trigger:** If `mediaType === 'tv'` or `'season'`.
+    - **Action:** Runs `retrieverService.applyTvShowData`. This ensures metadata (including episode titles and posters) is correctly pushed down the hierarchy from the cached show/season results.
+5.  **Finalize:**
+    - Calculate **Virtual Tags**.
+    - Set `last_refreshed_at = Date.now()`.
+    - Persist to Database.
+    - **Broadcast** changes to the UI.
+
+### B. Invariants
+
+- **Dry Run for Existing Items:** If called on an item that is already identified (`tmdb_id` set) and fresh (`last_refreshed_at` set), the orchestrator may still run **Structural Sync** (Step 3) to ensure hierarchy matches disk, but should skip Step 2 (Network Fetch).
+- **Manual Assignment Invalidation:** Manual assignment logic MUST clear `last_refreshed_at` (set to `NULL`) and `tmdb_id` (if changing result) before calling the orchestrator. This "primes" the orchestrator to perform a full repair.
+- **Image Cleanup:** When `tmdb_id` changes or is cleared, existing local images (`posterPath`, etc.) MUST be unlinked before the new fetch begins.
+
+## 6. State Model: Identity vs. Freshness
 
 The system does not use boolean "Is Fetched" flags, as these can desynchronize from the actual data (e.g., flag says true, but data is empty due to a crash). Instead, we use two states:
 
@@ -101,7 +132,7 @@ The system does not use boolean "Is Fetched" flags, as these can desynchronize f
 -   The `last_refreshed_at` timestamp is **ONLY** updated after a *successful*, atomic completion of the fetch routine (Details + Credits + Images + (Seasons + Episodes if TV Show)).
 -   If a fetch fails or the server crashes mid-process, the timestamp remains `NULL`. The next scan will automatically retry.
 
-## 5. Metadata Integrity & Decoupling
+## 7. Metadata Integrity & Decoupling
 
 Crucially, this architecture supports the **Decoupled Metadata** workflow defined in `spec/metadata_decoupling.md`.
 

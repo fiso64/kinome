@@ -1,5 +1,13 @@
 import path from 'path'
-import type { LibraryItem, MediaFile, MediaFolder, Person, TmdbEpisode } from '../../shared/types'
+import type {
+  LibraryItem,
+  MediaFile,
+  MediaFolder,
+  Person,
+  Settings,
+  TmdbEpisode,
+  TmdbSeason
+} from '../../shared/types'
 import { downloadImage } from '../utils/download'
 import { parseTitle } from '../utils/title-parser'
 import * as repositoryService from './repository.service'
@@ -386,8 +394,6 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
   item.tmdbCredits = { cast: finalCast, crew: finalCrew }
 }
 
-import type { Settings } from '../../shared/types'
-
 export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string): Promise<void> {
   if (!item.tmdbId || !item.mediaType || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) {
     console.log(`Skipping credits fetch for "${item.name}", not a movie or tv show.`)
@@ -547,7 +553,18 @@ export async function fetchItemDetails(
       details.seasons
     ) {
       item.tmdbSeasons = details.seasons // Cache the full season data
-      const modifiedChildren = await applyTvShowData(item, settings, libraryDataPath)
+      const modifiedChildren = await applyTvShowData(item as MediaFolder, settings, libraryDataPath)
+      modifiedItems.push(...modifiedChildren)
+    } else if (item.type === 'folder' && item.mediaType === 'season' && details.episodes) {
+      // Manual Season level update: episodes are likely present in the response
+      const modifiedChildren = await fetchAndApplyEpisodeData(
+        item as MediaFolder,
+        (item as any).showTmdbId || details.id, // Fallback if showId is missing on item?
+        settings.tmdbApiKey!,
+        libraryDataPath,
+        undefined, // tmdbSeasons not available at this level, will be fetched by function
+        { ...options, seasonDetails: details }
+      )
       modifiedItems.push(...modifiedChildren)
     }
   } catch (error) {
@@ -579,8 +596,8 @@ export async function applyTvShowData(
     ) {
       console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
       const tmdbSeasons = item.tmdbSeasons
-
-      const seasonFolders = (item.children || []).filter(
+      const children = item.children || repositoryService.getChildren(item.id)
+      const seasonFolders = children.filter(
         (c) => c.type === 'folder' && c.mediaType === 'season'
       ) as MediaFolder[]
 
@@ -635,7 +652,8 @@ export async function applyTvShowData(
         }
       } else {
         // Scenario B: "File Mode". Find all seasons present in loose files and fetch data for each.
-        const filesWithSeason = (item.children || []).filter(
+        const children = item.children || repositoryService.getChildren(item.id)
+        const filesWithSeason = children.filter(
           (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber !== 'undefined'
         ) as MediaFile[]
 
@@ -663,6 +681,24 @@ export async function applyTvShowData(
         }
       }
     }
+
+    if (item.type === 'folder' && item.mediaType === 'season') {
+      // Scenario C: Individual Season update
+      const show = repositoryService.findParent(item.id) as MediaFolder
+      if (show && show.tmdbId) {
+        console.log(`[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`)
+        const modifiedInSeason = await fetchAndApplyEpisodeData(
+          item as MediaFolder,
+          show.tmdbId,
+          settings.tmdbApiKey!,
+          libraryDataPath,
+          show.tmdbSeasons ?? undefined,
+          options
+        )
+        allModifiedItems.push(...modifiedInSeason)
+      }
+    }
+
     return allModifiedItems
   } catch (error) {
     console.error(`Error in applyTvShowData for "${item.name}":`, error)
@@ -716,10 +752,17 @@ export async function fetchAndApplyEpisodeData(
   showTmdbId: number,
   tmdbApiKey: string,
   libraryDataPath: string,
-  tmdbSeasons?: any[] | null, // Made optional
-  options: { respectLocks?: boolean } = { respectLocks: true }
+  tmdbSeasons: TmdbSeason[] | undefined,
+  options: { respectLocks?: boolean; seasonDetails?: any } = { respectLocks: true }
 ): Promise<MediaFile[]> {
-  const seasonNumber = seasonFolder.seasonNumber ?? 1
+  const seasonNumber = seasonFolder.seasonNumber
+  if (seasonNumber === null || typeof seasonNumber === 'undefined') {
+    console.warn(
+      `[TMDB] fetchAndApplyEpisodeData for "${seasonFolder.name}" failed: seasonNumber is missing.`
+    )
+    return []
+  }
+
   console.log(`[TMDB] fetchAndApplyEpisodeData for "${seasonFolder.name}" (S${seasonNumber}). showTmdbId=${showTmdbId}`)
   const modifiedEpisodes: MediaFile[] = []
 
@@ -795,7 +838,8 @@ export async function fetchAndApplyEpisodeData(
       seasonFolder.tmdbEpisodes = tmdbEpisodes
 
       // --- Apply Cached Data to Local Files ---
-      const localEpisodes = (seasonFolder.children || []).filter(
+      const children = seasonFolder.children || repositoryService.getChildren(seasonFolder.id)
+      const localEpisodes = children.filter(
         (c) => c.type === 'file'
       ) as MediaFile[]
       console.log(`[TMDB] Local episodes count for season ${seasonFolder.name}: ${localEpisodes.length}`)
