@@ -49,7 +49,6 @@
 
   // Search properties from V2 store
   const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
-  const isPerformingGlobalSearch = $derived(searchStoreV2.isPerformingGlobalSearch)
   const globalSearchResults = $derived(searchStoreV2.searchResults)
   const isPerformingDetailSearch = $derived(searchStoreV2.isPerformingDetailSearch)
   const detailSearchResults = $derived(searchStoreV2.detailResults)
@@ -250,20 +249,20 @@
     </div>
 
     <div class="header-right">
-      {#if !isDetailViewActive}
-        <button
-          onclick={() => dispatch('refresh')}
-          disabled={isRefreshing || isScanning}
-          title="Refresh Library (F5)"
-          class="refresh-button"
-        >
-          <span class:reloading={isRefreshing}>⟳</span>
-        </button>
-      {/if}
+      <button
+        onclick={() => dispatch('refresh')}
+        disabled={isRefreshing || isScanning}
+        title="Refresh Library (F5)"
+        aria-label="Refresh Library"
+        class="refresh-button"
+      >
+        <span class:reloading={isRefreshing}>⟳</span>
+      </button>
       {#if contextItemToConfigure}
         <button
           onclick={() => dispatch('openLayoutSelector')}
           title="Set View Layout"
+          aria-label="Set View Layout"
           class="layout-button"
         >
           <svg
@@ -286,6 +285,7 @@
         <button
           onclick={(e) => dispatch('showContextMenu', { item: contextItemToConfigure!, event: e })}
           title="More options..."
+          aria-label="More options"
           class="more-options-button"
         >
           <svg
