@@ -142,6 +142,51 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   await updateIfChangedAndBroadcast(itemsToUpdate)
 }
 
+async function checkAndUndismissShow(
+  showId: string,
+  newlyWatchedEpisodes: MediaFile[]
+): Promise<MediaFolder | null> {
+  const show = repositoryService.getItemById(showId) as MediaFolder
+  if (!show || show.mediaType !== 'tv') return null
+
+  // Optimization: If not dismissed, don't waste time calculating logic
+  if (!show.nextUpDismissed && !show.continueWatchingDismissed) return null
+
+  // Condition 1: Must be a NEW watch
+  if (newlyWatchedEpisodes.length === 0) return null
+
+  // Condition 2: Must be the GREATEST episode among all watched episodes
+
+  // Get all episodes for this show (flattened list)
+  const descendants = repositoryService.getAllDescendantsAsList(show)
+  const allEpisodes = descendants.filter(
+    (d) => d.type === 'file' && d.mediaType === 'episode'
+  ) as MediaFile[]
+
+  // Helper to convert S01E01 to comparable integer 10001
+  const getComparable = (ep: MediaFile) => (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+  // Find the max comparable of the NEWLY watched episodes
+  const maxNewVal = newlyWatchedEpisodes.reduce((max, curr) => {
+    return Math.max(max, getComparable(curr))
+  }, 0)
+
+  // Find the max comparable of ALL watched episodes (including the ones we just updated in memory)
+  const maxWatchedVal = allEpisodes.reduce((max, curr) => {
+    if (!curr.watched) return max
+    return Math.max(max, getComparable(curr))
+  }, 0)
+
+  // If the new episode is the greatest (or tied for greatest), un-dismiss
+  if (maxNewVal >= maxWatchedVal) {
+    show.nextUpDismissed = false
+    show.continueWatchingDismissed = false
+    return show
+  }
+
+  return null
+}
+
 export async function markAsWatched(itemId: string): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
@@ -149,10 +194,38 @@ export async function markAsWatched(itemId: string): Promise<void> {
   const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
   const itemsToUpdate = [item, ...descendants]
 
+  // Track which episodes are being flipped from Unwatched -> Watched
+  const newlyWatchedEpisodes: MediaFile[] = []
+
   for (const i of itemsToUpdate) {
     if (i.type === 'file') {
+      if (!i.watched && i.mediaType === 'episode') {
+        newlyWatchedEpisodes.push(i as MediaFile)
+      }
       i.watched = true
       i.lastWatched = Date.now()
+    }
+  }
+
+  // --- Logic for Un-Dismissing ---
+  // Find the parent Show to run checks against
+  let parent =
+    item.type === 'folder' && item.mediaType === 'tv'
+      ? (item as MediaFolder)
+      : repositoryService.findParent(item.id)
+
+  // Traverse up if we selected a Season or Episode
+  while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
+    parent = repositoryService.findParent(parent.id)
+  }
+
+  if (parent) {
+    const showToUpdate = await checkAndUndismissShow(parent.id, newlyWatchedEpisodes)
+    if (showToUpdate) {
+      // Ensure we don't duplicate the show in the update list if it was the target
+      if (!itemsToUpdate.find((i) => i.id === showToUpdate.id)) {
+        itemsToUpdate.push(showToUpdate)
+      }
     }
   }
 
@@ -536,24 +609,25 @@ export const recordPlayback = async (itemId: string) => {
 
   const modifiedItems: LibraryItem[] = []
 
+  // Check if it was NEW before we mark it
+  const isNewWatch = !item.watched
+
   // Update item state
   item.watched = true
   item.lastWatched = Date.now()
   modifiedItems.push(item)
 
-  // Check dismissal logic: If the user plays an episode of a show they previously dismissed,
-  // we assume they are interested again and un-dismiss it.
+  // --- Logic for Un-Dismissing ---
   let parent = repositoryService.findParent(itemId)
-  while (parent) {
-    if (parent.type === 'folder' && parent.mediaType === 'tv') {
-      if (parent.nextUpDismissed || parent.continueWatchingDismissed) {
-        parent.nextUpDismissed = false
-        parent.continueWatchingDismissed = false
-        modifiedItems.push(parent)
-      }
-      break
-    }
+  while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
     parent = repositoryService.findParent(parent.id)
+  }
+
+  if (parent && isNewWatch && item.mediaType === 'episode') {
+    const showToUpdate = await checkAndUndismissShow(parent.id, [item as MediaFile])
+    if (showToUpdate) {
+      modifiedItems.push(showToUpdate)
+    }
   }
 
   await updateIfChangedAndBroadcast(modifiedItems)
