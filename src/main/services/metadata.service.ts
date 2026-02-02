@@ -262,7 +262,7 @@ function _resetItemMetadataFields(
  * Orchestrates the entire scan/analysis/metadata fetch flow for a single item.
  * Ensuring identification, enrichment, structural sync, and managed copy run in order.
  */
-export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]> {
+export async function handleItemUpdate(item: LibraryItem, options: { force?: boolean } = {}): Promise<LibraryItem[]> {
   const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
   const allModifiedItems: LibraryItem[] = [item]
@@ -314,8 +314,8 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
 
     // 3. Structural Sync (For TV Shows)
     // Runs every time to ensure hierarchy matches disk, even if details are fresh.
-    // Respects process_tv_children flag.
-    if (item.type === 'folder' && item.mediaType === 'tv' && (item as MediaFolder).process_tv_children !== false) {
+    // Respects process_tv_children flag (unless forced).
+    if (item.type === 'folder' && item.mediaType === 'tv' && ((item as MediaFolder).process_tv_children !== false || options.force)) {
       log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
       const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
       allModifiedItems.push(...modified)
@@ -323,13 +323,14 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
 
     // 4. Managed Copy (TV Hierarchy propagation)
     // Ensures episodes get their names/posters from the show/season cache.
-    // Respects process_tv_children flag.
-    if ((item.mediaType === 'tv' || item.mediaType === 'season') && (item as any).process_tv_children !== false) {
+    // Respects process_tv_children flag (unless forced).
+    if ((item.mediaType === 'tv' || item.mediaType === 'season') && ((item as any).process_tv_children !== false || options.force)) {
       log(`[Orchestrator] Managed Copy for ${item.mediaType} "${item.name}"`)
       const modified = await retrieverService.applyTvShowData(
         item as MediaFolder,
         settings,
-        libraryDataPath
+        libraryDataPath,
+        { respectLocks: true, force: options.force }
       )
       allModifiedItems.push(...modified)
     }
@@ -351,7 +352,7 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
   }
 }
 
-export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise<LibraryItem[]> {
+export async function backgroundFetchAndApplyDetails(item: LibraryItem, options: { force?: boolean } = {}): Promise<LibraryItem[]> {
   const needsRefresh = !item.lastRefreshedAt
   const isTV = item.type === 'folder' && item.mediaType === 'tv'
 
@@ -363,7 +364,7 @@ export async function backgroundFetchAndApplyDetails(item: LibraryItem): Promise
   }
 
   // Use the orchestrator
-  return await handleItemUpdate(item)
+  return await handleItemUpdate(item, options)
 }
 
 export async function applyManualMatch(

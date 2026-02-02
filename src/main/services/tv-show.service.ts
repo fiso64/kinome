@@ -17,9 +17,10 @@ import { updateIfChangedAndBroadcast } from './item-update.service'
 export async function syncTvShowStructure(
     show: MediaFolder,
     seasonStrategy: 'smart' | 'alphabetic' = 'smart',
-    episodeStrategy: 'smart' | 'alphabetic' = 'smart'
+    episodeStrategy: 'smart' | 'alphabetic' = 'smart',
+    options: { force?: boolean } = {}
 ): Promise<LibraryItem[]> {
-    if (show.mediaType !== 'tv' || show.process_tv_children === false) return []
+    if (show.mediaType !== 'tv' || (show.process_tv_children === false && !options.force)) return []
 
     const allModified: LibraryItem[] = []
 

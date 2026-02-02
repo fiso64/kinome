@@ -10,25 +10,29 @@
 
 This specification defines the architecture of the scanner, which is responsible for ingesting files from the disk and retrieving metadata. Unlike systems like Jellyfin which mandate a specific folder structure (e.g. `Movies/` and `TV/`), this media server is **"Filesystem-First"**. It respects the user's arbitrary nested folder structure and only applies "Smart Parsing" (TV logic) and "Enrichment" (TMDB) when explicitly enabled or heuristically detected.
 
-## 2. Core Concept: "Retrieve Children Metadata" Gate
+## 2. Gates Gate
+
+**Control Scope:** These flags **only blocks automated background tasks** (Scans). They do **not** block manual user actions (e.g. "Assign Seasons/Episodes", "Manual Search").
+
+### Retrieve Children Metadata
 
 The boolean flag `retrieve_children_metadata` (set on a folder) is the **Master Switch** for the scanner. It generally defaults to `false` for root/container folders and `true` for content roots.
 
 - **IF `retrieve_children_metadata` is FALSE:** The scanner performs a "Dumb Scan". It syncs files and folders to the DB but runs **NO** local analysis (no TV parsing) and fetches **NO** external metadata.
 - **IF `retrieve_children_metadata` is TRUE:** The scanner enables "Smart Features" for the **direct children** of that folder.
 
-### Why?
+#### Why?
 
 This prevents the scanner from wasting resources analyzing container folders (e.g., trying to parse a folder named "Action Movies" as a TV Show) or structure indicators (e.g. `S01`) in unexpected places.
 
-## 2.1 Item-Level Toggle: "Process TV Children"
+### Process TV Children
 
 While the parent folder controls if discovery happens at all, a folder already identified as a TV Show has its own secondary toggle: `process_tv_children`.
 
-- **IF `process_tv_children` is TRUE (Default):** The orchestrator performs structural analysis (assigning S/E numbers) and propagates metadata to descendants.
-- **IF `process_tv_children` is FALSE:** The folder is treated as a "Flat Collection". The show itself gets metadata, but the system will NOT try to group its contents into seasons or episodes, and will NOT fetch metadata for individual files.
+- **IF `process_tv_children` is TRUE (Default):** The orchestrator performs structural analysis (assigning S/E numbers) and propagates metadata to descendants during background scans.
+- **IF `process_tv_children` is FALSE:** Background scans skip structural analysis and metadata propagation for children. The folder is treated as a "Flat Collection". The show itself gets metadata, but the system will NOT automatically try to group its contents into seasons or episodes.
 
-### Examples
+## Examples
 
 **Example A: Mixed Root (Flat)**
 
@@ -67,9 +71,9 @@ The walker iterates every file on disk.
     - Every file/folder is upserted to `items`.
     - Basic stats (size, mtime) are updated.
 
-2.  **Structural Analysis (TV Parsing):** (Non-Heuristic)
+2.    - **Structural Analysis (TV Parsing):** (Non-Heuristic)
     - **Gate 1 (Master):** Logic runs **ONLY** on children of a folder where `retrieve_children_metadata = true`.
-    - **Gate 2 (Fine-grained):** Logic runs **ONLY** if `process_tv_children !== false` on the show item.
+    - **Gate 2 (Fine-grained):** Automated logic runs **ONLY** if `process_tv_children !== false` on the show item (Manual actions can override this).
     - **Trigger:** The scanner **no longer guesses** types. It only triggers structural parsing if the folder is **already identified as TV** (`mediaType === 'tv'`) in the database.
     - **Delegation:** This logic is delegated to the centralized `tv-show.service.ts`.
     - **Invariants for Automatic Metadata Assignment:**
@@ -106,10 +110,10 @@ The function `handleItemUpdate` (residing in `metadata.service.ts`) executes the
     - **Trigger:** If `last_refreshed_at` is `NULL` (item is "dirty" or newly identified).
     - **Action:** Fetch full details from TMDB (backdrops, logos, genres, credits).
 3.  **Structural Sync (TV Only):**
-    - **Trigger:** If `mediaType === 'tv'` AND `process_tv_children !== false`.
+    - **Trigger:** If `mediaType === 'tv'` AND (`process_tv_children !== false` OR `manual_override`).
     - **Action:** Delegate to `tvShowService.syncTvShowStructure`. This identifies season folders and episode files.
 4.  **Managed Copy (TV/Season Only):**
-    - **Trigger:** If (`mediaType === 'tv'` or `'season'`) AND `process_tv_children !== false`.
+    - **Trigger:** If (`mediaType === 'tv'` or `'season'`) AND (`process_tv_children !== false` OR `manual_override`).
     - **Action:** Runs `retrieverService.applyTvShowData`. This ensures metadata (including episode titles and posters) is correctly pushed down the hierarchy from the cached show/season results.
 5.  **Finalize:**
     - Calculate **Virtual Tags**.

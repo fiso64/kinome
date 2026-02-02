@@ -313,11 +313,11 @@ export const assignSeasonsAndEpisodes = async (
   }
 
   // 1. Sync Structure (Internal persistence handled)
-  await tvShowService.syncTvShowStructure(show, seasonStrategy, episodeStrategy)
+  await tvShowService.syncTvShowStructure(show, seasonStrategy, episodeStrategy, { force: true })
 
   // 2. Fetch Metadata if requested (Internal persistence handled)
   if (fetchMetadata) {
-    await metadataService.backgroundFetchAndApplyDetails(show)
+    await metadataService.backgroundFetchAndApplyDetails(show, { force: true })
   }
 
   log(`[Library] Assignment complete for show ${showId}.`)

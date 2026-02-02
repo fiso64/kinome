@@ -586,7 +586,7 @@ export async function applyTvShowData(
   item: MediaFolder,
   settings: Pick<Settings, 'tmdbApiKey' | 'useLogos'>,
   libraryDataPath: string,
-  options: { respectLocks?: boolean } = { respectLocks: true }
+  options: { respectLocks?: boolean; force?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   const imagesDir = getImagesPath(libraryDataPath)
   const allModifiedItems: LibraryItem[] = []
@@ -595,7 +595,7 @@ export async function applyTvShowData(
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
-      item.process_tv_children !== false &&
+      (item.process_tv_children !== false || options.force) &&
       item.tmdbSeasons
     ) {
       console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
@@ -645,7 +645,7 @@ export async function applyTvShowData(
             item.tmdbId!,
             settings.tmdbApiKey!,
             libraryDataPath,
-            item.tmdbSeasons,
+            tmdbSeasons,
             options
           )
           allModifiedItems.push(...modifiedInSeason)
@@ -689,7 +689,7 @@ export async function applyTvShowData(
     if (item.type === 'folder' && item.mediaType === 'season') {
       // Scenario C: Individual Season update
       const show = repositoryService.findParent(item.id) as MediaFolder
-      if (show && show.tmdbId && show.process_tv_children !== false) {
+      if (show && show.tmdbId && (show.process_tv_children !== false || options.force)) {
         console.log(`[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`)
         const modifiedInSeason = await fetchAndApplyEpisodeData(
           item as MediaFolder,
@@ -757,7 +757,7 @@ export async function fetchAndApplyEpisodeData(
   tmdbApiKey: string,
   libraryDataPath: string,
   tmdbSeasons: TmdbSeason[] | undefined,
-  options: { respectLocks?: boolean; seasonDetails?: any } = { respectLocks: true }
+  options: { respectLocks?: boolean; seasonDetails?: any; force?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   const seasonNumber = seasonFolder.seasonNumber
   if (seasonNumber === null || typeof seasonNumber === 'undefined') {
@@ -793,7 +793,8 @@ export async function fetchAndApplyEpisodeData(
 
     // FRESHNESS GUARD: Only fetch if lastRefreshedAt is null.
     // This is the single source of truth for whether we need to call the API.
-    if (!seasonFolder.lastRefreshedAt) {
+    // Manual 'force' bypasses this.
+    if (!seasonFolder.lastRefreshedAt || options.force) {
       const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
       console.log(
         `[TMDB] Fetching episodes for "${seasonFolder.name}" (S${seasonNumber}) from ${episodeApiUrl}`
