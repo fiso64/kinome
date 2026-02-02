@@ -413,6 +413,11 @@ export interface AutocompleteSuggestions {
   tagValues: Record<string, string[]>
 }
 
+export interface SearchQuery {
+  text: string
+  tags: { key: string; value: string }[]
+}
+
 export interface SearchIndexEntry {
   id: string
   title: string // This will be the primary display and search title (item.title ?? item.name)

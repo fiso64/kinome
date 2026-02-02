@@ -1,4 +1,5 @@
-// No imports needed for this store currently
+import type { SearchQuery } from '../../../shared/types'
+import { serializeSearchQuery, deserializeSearchQuery } from './search-query-helpers'
 
 // --- Types ---
 
@@ -6,7 +7,7 @@ interface NavigationState {
   currentFolderId: string // 'root' = Root
   selectedItemId: string | null // For Detail View
   path: string // '/' or '/settings'
-  searchQuery: string | null // For Global Search
+  globalQuery: SearchQuery // Unified source of truth for global search
 }
 
 // --- State ---
@@ -15,7 +16,7 @@ let currentState = $state<NavigationState>({
   currentFolderId: 'root',
   selectedItemId: null,
   path: '/',
-  searchQuery: null
+  globalQuery: { text: '', tags: [] }
 })
 
 // --- Derived Helpers ---
@@ -32,7 +33,8 @@ function parseUrl() {
   const params = getUrlParams()
   const folder = params.get('folder')?.trim() || 'root'
   const item = params.get('item')?.trim() || null
-  const query = params.get('q')?.trim() || null
+  const queryStr = params.get('q')?.trim() || null
+  const queryObj = deserializeSearchQuery(queryStr)
   let pathParam = params.get('page')?.trim() || '/'
 
   if (pathParam !== '/' && !pathParam.startsWith('/')) {
@@ -43,17 +45,19 @@ function parseUrl() {
     currentFolderId: folder,
     selectedItemId: item,
     path: pathParam,
-    searchQuery: query
+    globalQuery: queryObj
   }
-
-  updateUrl(true)
 }
 
 function updateUrl(replace = false) {
   const params = new URLSearchParams()
+  // Always set folder if it exists, including 'root' to maintain context
   if (currentState.currentFolderId) params.set('folder', currentState.currentFolderId)
   if (currentState.selectedItemId) params.set('item', currentState.selectedItemId)
-  if (currentState.searchQuery) params.set('q', currentState.searchQuery)
+
+  const queryStr = serializeSearchQuery(currentState.globalQuery)
+  if (queryStr) params.set('q', queryStr)
+
   if (currentState.path !== '/') params.set('page', 'settings')
 
   const str = params.toString()
@@ -72,7 +76,7 @@ function navigateToFolder(folderId: string) {
   currentState.currentFolderId = folderId
   currentState.selectedItemId = null
   currentState.path = '/'
-  currentState.searchQuery = null // Clear search on folder change
+  currentState.globalQuery = { text: '', tags: [] } // Clear search on folder change
   updateUrl()
 }
 
@@ -80,7 +84,7 @@ function navigateToRoot() {
   currentState.currentFolderId = 'root'
   currentState.selectedItemId = null
   currentState.path = '/'
-  currentState.searchQuery = null // Clear search on root
+  currentState.globalQuery = { text: '', tags: [] } // Clear search on root
   updateUrl()
 }
 
@@ -148,8 +152,21 @@ export const navStoreV2 = {
   goBack: () => {
     goBack()
   },
-  setSearchQuery: (q: string | null, replace = true) => {
-    currentState.searchQuery = q
-    updateUrl(replace)
+  /**
+   * Updates the global search query.
+   * @param query The new search query object.
+   * @param options Configuration for history behavior and side effects.
+   */
+  setGlobalSearch: (query: SearchQuery, options: { replace?: boolean; closeDetail?: boolean } = {}) => {
+    const params = getUrlParams()
+    const hasSearchInUrl = params.has('q')
+
+    const shouldReplace = options.replace ?? hasSearchInUrl
+
+    currentState.globalQuery = query
+    if (options.closeDetail && currentState.selectedItemId) {
+      currentState.selectedItemId = null
+    }
+    updateUrl(shouldReplace)
   }
 }

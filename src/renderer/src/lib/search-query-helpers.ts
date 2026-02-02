@@ -1,4 +1,4 @@
-import type { SearchQuery } from './search-store-v2.svelte'
+import type { SearchQuery } from '../../../shared/types'
 
 /**
  * Serializes a SearchQuery object into a string for use in URL parameters.
@@ -33,7 +33,8 @@ export function deserializeSearchQuery(q: string | null): SearchQuery {
 
     if (matches.length > 0) {
         // The part before the first tag is the generic text.
-        text = q.substring(0, matches[0].index).trim()
+        // We DON'T trim here to avoid jumping cursors during typing.
+        text = q.substring(0, matches[0].index)
 
         for (let i = 0; i < matches.length; i++) {
             const key = matches[i][1]

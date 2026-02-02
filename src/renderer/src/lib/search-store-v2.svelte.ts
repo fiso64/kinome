@@ -1,20 +1,11 @@
-import { untrack } from 'svelte'
 import { api } from './api'
 import { navStoreV2 } from './navigation-store-v2.svelte'
 import { isTypingTag as isTypingTagHelper } from './view-helpers'
-import type { SearchIndexEntry } from '../../../shared/types'
-import { serializeSearchQuery, deserializeSearchQuery } from './search-query-helpers'
+import type { SearchIndexEntry, SearchQuery } from '../../../shared/types'
+import { serializeSearchQuery } from './search-query-helpers'
 
-// --- Types ---
+// --- State (Local-only search views) ---
 
-export interface SearchQuery {
-  text: string
-  tags: { key: string; value: string }[]
-}
-
-// --- State ---
-
-let globalQuery = $state<SearchQuery>({ text: '', tags: [] })
 let searchResults = $state<SearchIndexEntry[]>([])
 let highlightedGlobalIndex = $state<number | null>(null)
 let isPerformingGlobalSearch = $state(false)
@@ -30,36 +21,37 @@ let filterFocusKey = $state(0)
 
 // --- Derived ---
 
-const isGlobalActive = $derived(globalQuery.text.trim() !== '' || globalQuery.tags.length > 0)
-const isTypingGlobalTag = $derived(isTypingTagHelper(globalQuery.text))
+const isGlobalActive = $derived(
+  navStoreV2.state.globalQuery.text.trim() !== '' ||
+  navStoreV2.state.globalQuery.tags.length > 0
+)
+const isTypingGlobalTag = $derived(isTypingTagHelper(navStoreV2.state.globalQuery.text))
 
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
-// --- Search Effects (Global Logic) ---
+// --- Search Effects ---
 
 export function initializeSearchEffects() {
-  // --- Global Search Effect ---
+  // --- Global Search: Sync and Perform ---
   $effect(() => {
-    const query = globalQuery
+    // Atomic access to globalQuery to track all changes
+    const query = navStoreV2.state.globalQuery
+    const serialized = serializeSearchQuery(query)
 
-    if (isGlobalActive && !isTypingGlobalTag) {
-      // Close detail view via V2 store
-      if (navStoreV2.state.selectedItemId) {
-        navStoreV2.closeDetail()
-      }
+    // Check if URL and State are out of sync. 
+    // This only happens when the user types (state changes first).
+    // On popstate, parseUrl updates state synchronously, so they match here.
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlQuery = urlParams.get('q') || ''
+
+    if (serialized !== urlQuery) {
+      navStoreV2.setGlobalSearch(query, {
+        closeDetail: !isTypingGlobalTag
+      })
     }
 
-    // Sync Store -> URL
-    // We untrack the check of navStore state to avoid circularity if it changes
-    untrack(() => {
-      const serialized = serializeSearchQuery(query)
-      const currentSerialized = navStoreV2.state.searchQuery
-      if (serialized !== currentSerialized) {
-        navStoreV2.setSearchQuery(serialized || null, true)
-      }
-    })
-
+    // Perform the actual search
     if (isGlobalActive && !isTypingGlobalTag) {
       isPerformingGlobalSearch = true
       api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
@@ -72,19 +64,6 @@ export function initializeSearchEffects() {
       isPerformingGlobalSearch = false
       highlightedGlobalIndex = null
     }
-  })
-
-  // --- URL to Store Sync Effect (Popstate support) ---
-  $effect(() => {
-    const urlQuery = navStoreV2.state.searchQuery
-
-    // We untrack the globalQuery to ONLY trigger when the URL changes
-    untrack(() => {
-      const currentQuerySerialized = serializeSearchQuery(globalQuery)
-      if (urlQuery !== currentQuerySerialized) {
-        globalQuery = deserializeSearchQuery(urlQuery)
-      }
-    })
   })
 
   // --- Detail View Search Effect ---
@@ -135,7 +114,6 @@ export function initializeSearchEffects() {
 
   $effect(() => {
     // Clear main view filter when navigating away from search results
-    // Trigger on folder change
     void navStoreV2.state.currentFolderId
     if (!isGlobalActive) {
       filterQuery = { text: '', tags: [] }
@@ -146,7 +124,7 @@ export function initializeSearchEffects() {
 // --- Methods ---
 
 function clearGlobal() {
-  globalQuery = { text: '', tags: [] }
+  navStoreV2.setGlobalSearch({ text: '', tags: [] }, { replace: true })
 }
 
 function clearDetail() {
@@ -158,20 +136,18 @@ function clearFilter() {
 }
 
 function searchByTag(key: string, value: string) {
-  // Navigate to search results (root) logic is slightly different in V2.
-  // If we are deep, maybe we stay there?
-  // Usually searching jumps to "Global Search" mode.
-  globalQuery = { text: '', tags: [{ key, value }] }
+  navStoreV2.setGlobalSearch({ text: '', tags: [{ key, value }] }, { replace: false, closeDetail: true })
 }
 
 // --- Exported Store Object ---
 
 export const searchStoreV2 = {
   get globalQuery() {
-    return globalQuery
+    return navStoreV2.state.globalQuery
   },
   set globalQuery(v) {
-    globalQuery = v
+    // This setter is mainly for svelte bindings (bind:query)
+    navStoreV2.setGlobalSearch(v, { closeDetail: true })
   },
   get isGlobalActive() {
     return isGlobalActive

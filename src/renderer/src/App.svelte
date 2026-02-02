@@ -315,10 +315,16 @@
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
-      openSettings: () => navStoreV2.navigateToSettings(),
+      openSettings: () => {
+        navStoreV2.navigateToSettings()
+      },
       focusSearch: () => appHeaderComponent?.focusSearchInput(),
-      navigateBack: goBack,
-      navigateForward: goForward,
+      navigateBack: () => {
+        goBack()
+      },
+      navigateForward: () => {
+        goForward()
+      },
       reloadLibrary: handleRefresh,
       showAndFocusFilterBar: () => {
         if (searchStoreV2.isFilterBarVisible) {
