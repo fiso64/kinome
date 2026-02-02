@@ -51,6 +51,7 @@ import v2Router from './routes/v2'
 app.use(cors())
 // Enable Gzip compression for all responses
 // TODO: Think if/when this is needed.
+// TODO: Is it even working?
 app.use(compression())
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/v2', v2Router)
@@ -473,7 +474,7 @@ app.post('/api/save-settings', async (req, res) => {
 
 // 5. Initialize Server
 async function start() {
-  // Vite Middleware for Development
+  // DEVELOPMENT: Use Vite Middleware
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -481,6 +482,22 @@ async function start() {
       configFile: path.resolve(__dirname, '../../vite.config.mts')
     })
     app.use(vite.middlewares)
+  }
+
+  // PRODUCTION: Serve the built static files
+  else {
+    // 1. Determine where 'pnpm run build' output the files.
+    // Based on your package.json, it is likely 'out/renderer' or 'dist'.
+    const distPath = path.resolve(__dirname, '../../out/renderer')
+
+    // 2. Serve static assets (JS, CSS, Images)
+    app.use(express.static(distPath))
+
+    // 3. SPA Fallback: If a request doesn't match an API or a static file,
+    // send index.html so the frontend router can take over.
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'))
+    })
   }
 
   console.log('[Server] Loading database into memory...')

@@ -14,7 +14,8 @@
     "dev": "tsx src/main/server.ts",
     "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "tsx src/main/server.ts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
