@@ -58,28 +58,7 @@ function getComparisonSnapshot(item: LibraryItem | null | undefined) {
  * Robust comparison function using deep snapshots.
  */
 export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
-    const snap1 = getComparisonSnapshot(existing)
-    const snap2 = getComparisonSnapshot(updated)
-
-    const isSame = equal(snap1, snap2)
-
-    if (!isSame && snap1 && snap2) {
-        // [TRACE] Determine exactly what changed
-        const diffs: string[] = []
-        const allKeys = new Set([...Object.keys(snap1), ...Object.keys(snap2)])
-        for (const key of allKeys) {
-            const v1 = (snap1 as any)[key]
-            const v2 = (snap2 as any)[key]
-            if (!equal(v1, v2)) {
-                diffs.push(`${key}: ${JSON.stringify(v1)} -> ${JSON.stringify(v2)}`)
-            }
-        }
-        if (diffs.length > 0) {
-            console.log(`[Item Update Service] [TRACE] Diffs for ${existing.id}:`, diffs.join(', '))
-        }
-    }
-
-    return isSame
+    return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
 }
 
 export const getAutocompleteSuggestions = async () => {

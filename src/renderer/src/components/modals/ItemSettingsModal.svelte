@@ -211,23 +211,20 @@
 
     const hasChanged = (current: any, initial: any): boolean => {
       // Treat null and undefined as equal for change detection
-      const normalizedCurrent = current === undefined || current === null ? null : current
-      let normalizedInitial = initial === undefined || initial === null ? null : initial
+      const n1 = current === undefined || current === null ? null : current
+      const n2 = initial === undefined || initial === null ? null : initial
 
-      // If initial is a string but current is a number, try to compare numeric values
-      // This prevents false changes when state is stringified for input fields.
-      if (typeof normalizedCurrent === 'number' && typeof normalizedInitial === 'string') {
-        const parsed = parseInt(normalizedInitial, 10)
-        if (!isNaN(parsed)) normalizedInitial = parsed
+      // Handle numeric comparisons (strings from inputs vs numbers from data)
+      const isNumeric = (v: any) =>
+        typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))
+      if (isNumeric(n1) && isNumeric(n2)) {
+        return parseInt(n1.toString(), 10) !== parseInt(n2.toString(), 10)
       }
 
-      if (
-        Array.isArray(normalizedCurrent) ||
-        (normalizedCurrent && typeof normalizedCurrent === 'object')
-      ) {
-        return JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedInitial)
+      if (Array.isArray(n1) || (n1 && typeof n1 === 'object')) {
+        return JSON.stringify(n1) !== JSON.stringify(n2)
       }
-      return normalizedCurrent !== normalizedInitial
+      return n1 !== n2
     }
 
     if (isVirtual && item.physicalParentId) {
@@ -376,14 +373,14 @@
 
         const finalTypeHint =
           childrenTypeHint === 'auto' || (childrenTypeHint as string) === ''
-            ? undefined
+            ? 'auto'
             : (childrenTypeHint as 'movie' | 'tv')
         if (hasChanged(finalTypeHint, initialValues.childrenTypeHint)) {
           updates.children_type_hint = finalTypeHint
           changed = true
         }
 
-        const finalProcessTv = processTvChildren === true ? undefined : false
+        const finalProcessTv = processTvChildren === true ? true : false
         if (hasChanged(finalProcessTv, initialValues.processTvChildren)) {
           updates.process_tv_children = finalProcessTv
           changed = true
@@ -401,7 +398,7 @@
     let needsRefresh = false
     if (itemToUpdate) {
       const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
-      console.log(`[ItemSettingsModal] [TRACE] Sending userUpdateItem:`, itemToUpdate)
+      console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
       await window.api.userUpdateItem(itemToUpdate)
       if (
         itemToUpdate.type === 'folder' &&
