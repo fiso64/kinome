@@ -427,13 +427,13 @@ export async function applyManualMatch(
     if (mediaType === 'season' && item.parentId) {
       const parent = repositoryService.getItemById(item.parentId)
       if (parent && parent.mediaType === 'tv') {
-        const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder)
+        const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder, 'smart', 'smart', { force: true })
         structuralChanges.push(...modified)
       }
     }
 
     // 2. RUN ORCHESTRATOR
-    const orchestratorChanges = await handleItemUpdate(item)
+    const orchestratorChanges = await handleItemUpdate(item, { force: true })
     return [...structuralChanges, ...orchestratorChanges]
   } catch (err) {
     console.error(`[Manual Match] Failed for "${item.name}":`, err)
