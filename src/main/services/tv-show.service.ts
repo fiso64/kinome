@@ -7,6 +7,7 @@ import {
     ParsedTvInfo
 } from '../utils/tv-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '../../shared/types'
+import { updateIfChangedAndBroadcast } from './item-update.service'
 
 /**
  * Syncs the internal season/episode structure of a TV show based on filesystem patterns.
@@ -68,7 +69,6 @@ export async function syncTvShowStructure(
                 }
 
                 if (changedForFolder) {
-                    repositoryService.updateItem(folder.id, folder)
                     allModified.push(folder)
                 }
                 seasonsToProcess.push(folder)
@@ -104,6 +104,11 @@ export async function syncTvShowStructure(
             )
             allModified.push(..._applyEpisodeMap(seasonFiles, episodeMap, isSeasonLocked ? effectiveSeasonNumber : undefined))
         }
+    }
+
+    // Finalize all structural changes at once to minimize IPC overhead
+    if (allModified.length > 0) {
+        await updateIfChangedAndBroadcast(allModified)
     }
 
     return allModified
@@ -145,7 +150,6 @@ function _applyEpisodeMap(
 
             if (changed || file.mediaType !== 'episode') {
                 file.mediaType = 'episode'
-                repositoryService.updateItem(file.id, file)
                 modified.push(file)
             }
         }

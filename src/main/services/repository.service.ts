@@ -661,7 +661,7 @@ export function generateId(relativePath: string): string {
 }
 
 
-export function updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
+export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
   log(`[DEBUG] updateItem called for itemId: ${itemId}`)
   const db = getDb()
 

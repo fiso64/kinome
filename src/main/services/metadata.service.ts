@@ -9,11 +9,10 @@ import * as retrieverService from './retriever.service'
 import * as tvShowService from './tv-show.service'
 import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
+import { updateIfChangedAndBroadcast } from './item-update.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
 import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
-
-import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
@@ -86,13 +85,7 @@ export async function fetchMetadataForLibrary() {
     const modifiedItems = await handleItemUpdate(item)
 
     if (modifiedItems.length > 0) {
-      // Broadcast updates
-      const plainItems = JSON.parse(JSON.stringify(modifiedItems))
-      for (const m of plainItems) {
-        const ancestors = repositoryService.getAncestors(m.id)
-        m.ancestorIds = ancestors.map((a) => a.id)
-      }
-      getTransport().notifyLibraryItemsUpdated(plainItems)
+      await updateIfChangedAndBroadcast(modifiedItems)
     }
   })
 
@@ -179,14 +172,6 @@ export async function fetchEpisodeDataForContinueWatching(
   } catch (err) {
     console.error('[Continue Watching] Failed to fetch data:', err)
   } finally {
-    // Persist changes to DB so they are available immediately
-    if (itemsToUpdate.length > 0) {
-      repositoryService.runTransaction(() => {
-        for (const item of itemsToUpdate) {
-          repositoryService.updateItem(item.id, item)
-        }
-      })
-    }
     repositoryService.setBulkUpdateStatus(wasBulkUpdating)
   }
   return itemsToUpdate
@@ -352,13 +337,8 @@ export async function handleItemUpdate(item: LibraryItem): Promise<LibraryItem[]
     item.lastRefreshedAt = now
     item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
 
-    // Atomic persistence
-    repositoryService.runTransaction(() => {
-      for (const m of allModifiedItems) {
-        m.lastRefreshedAt = now
-        repositoryService.updateItem(m.id, m)
-      }
-    })
+    // Finalize all changes
+    await updateIfChangedAndBroadcast(allModifiedItems)
 
     return allModifiedItems
   } catch (error) {
@@ -434,7 +414,7 @@ export async function applyManualMatch(
 
     // 1.6 Persistence: Save locks/identity to DB immediately.
     // This is required because syncTvShowStructure reads from the DB, not memory.
-    repositoryService.updateItem(item.id, item)
+    await updateIfChangedAndBroadcast(item)
 
     const structuralChanges: LibraryItem[] = []
 
@@ -577,13 +557,12 @@ export async function clearItemMetadata(
     await _unlinkItemImages(targetItem, imagesDir, { respectLocks: false })
   }
 
-  // 2. Execute field resets in a synchronous transaction
-  repositoryService.runTransaction(() => {
-    for (const targetItem of itemsToClear) {
-      _resetItemMetadataFields(targetItem, { respectLocks: false })
-      repositoryService.updateItem(targetItem.id, targetItem)
-    }
-  })
+  // 2. Execute field resets
+  for (const targetItem of itemsToClear) {
+    _resetItemMetadataFields(targetItem, { respectLocks: false })
+  }
+
+  await updateIfChangedAndBroadcast(itemsToClear)
 
   return item
 }
