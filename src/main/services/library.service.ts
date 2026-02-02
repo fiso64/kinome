@@ -55,6 +55,16 @@ function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
     if (JSON.stringify(existing[k]) !== JSON.stringify(updated[k])) return false
   }
 
+  // 4. Check Locking (Crucial for manual edits)
+  // We sort arrays to ensure order doesn't cause false positives, though exact match is usually fine
+  const locks1 = JSON.stringify((existing.lockedFields || []).sort())
+  const locks2 = JSON.stringify((updated.lockedFields || []).sort())
+  if (locks1 !== locks2) return false
+
+  // 5. Check System Flags
+  if (existing.isHidden !== updated.isHidden) return false
+  if (existing.isMissing !== updated.isMissing) return false
+
   return true
 }
 
@@ -197,14 +207,10 @@ export const performFullRescan = (path: string) => _scanAndCreateNewDb(path, 'Fu
 
 // --- Items ---
 
+// This must be read-only.
 export async function getItemDetails(itemId: string): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) throw new Error(`Item ${itemId} not found.`)
-
-  metadataService
-    .backgroundFetchAndApplyDetails(item)
-    .then(async (modified) => await _finalizeItemUpdate(modified, { updateSuggestions: true }))
-    .catch(console.error)
 
   return repositoryService.createForDetailViewCopy(item)
 }

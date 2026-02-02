@@ -107,11 +107,13 @@ export interface FindOptions {
   offset?: number
 }
 
+// TODO: Slim down to avoid bloat, and audit the codebase for any implicit dependencies.
 export const CORE_FIELDS = [
   'id',
   'parentId',
   'name',
   'type',
+  'title',
   'mediaType',
   'posterPath',
   'watched',

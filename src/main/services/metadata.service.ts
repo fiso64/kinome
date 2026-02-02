@@ -61,8 +61,11 @@ export async function fetchMetadataForLibrary() {
     // We also run the orchestrator if lastRefreshedAt is NULL (Dirty flag)
     if (!item.lastRefreshedAt) return true
 
-    // TV Show Structural Integrity Check
-    if (item.mediaType === 'tv' && !(item as MediaFolder).tmdbSeasons) return true
+    // TV Show Structural Integrity Check (Dynamic Container)
+    // TV Shows are processed every time because they are dynamic containers.
+    // The orchestrator handles the internal freshness check for network calls,
+    // but must always run Structural Sync and Managed Copy.
+    if (item.mediaType === 'tv') return true
 
     return false
   })
@@ -429,8 +432,26 @@ export async function applyManualMatch(
       item.lockedFields.push('seasonNumber')
     }
 
+    // 1.6 Persistence: Save locks/identity to DB immediately.
+    // This is required because syncTvShowStructure reads from the DB, not memory.
+    repositoryService.updateItem(item.id, item)
+
+    const structuralChanges: LibraryItem[] = []
+
+    // 1.7 Structural Sync (Manual Fix Match Special Case)
+    // If we just manually assigned a Season, we MUST re-run the Show's structural analysis
+    // so that episodes are re-numbered according to this new locked season number.
+    if (mediaType === 'season' && item.parentId) {
+      const parent = repositoryService.getItemById(item.parentId)
+      if (parent && parent.mediaType === 'tv') {
+        const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder)
+        structuralChanges.push(...modified)
+      }
+    }
+
     // 2. RUN ORCHESTRATOR
-    return await handleItemUpdate(item)
+    const orchestratorChanges = await handleItemUpdate(item)
+    return [...structuralChanges, ...orchestratorChanges]
   } catch (err) {
     console.error(`[Manual Match] Failed for "${item.name}":`, err)
     return []

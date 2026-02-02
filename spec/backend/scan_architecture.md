@@ -68,7 +68,7 @@ The walker iterates every file on disk.
         1. **Assignment Gate (Movie/TV):** An item can only receive a `tv` or `movie` type automatically if its parent has `retrieve_children_metadata = true`.
         2. **Season Gate:** A folder can only receive `season` type automatically if its parent is already identified as `tv`.
         3. **Episode Gate:** A file can only receive `episode` type automatically if its parent is identified as `tv` or `season`.
-        4. **Structural Sync Restriction:** Structural sync (recursive assignment of seasons and episodes) is **ONLY** run on items already identified as `tv`.
+        4. **Structural Sync Restriction:** Structural sync (recursive assignment of seasons and episodes) is **ONLY** run on items already identified as `tv`. It is specifically **NOT** run on items identified as `season` (at the season level) to prevent redundant tree walking and ensure that the parent show remains the single source of truth for the hierarchy.
     - **Locking Integration:** Before writing determined numbers, it **MUST** check `spec/metadata_locking.md` (Write Guard).
 
 ### B. Phase 2: Enrichment (The Metadata Service)

@@ -100,7 +100,7 @@
       const freshItem = await window.api.getItemV2(item.id)
       if (freshItem) {
         // Update local state with fresh data to correct any stale props
-        title = freshItem.title ?? freshItem.name
+        title = freshItem.title ?? ''
         year = freshItem.year?.toString() ?? ''
         mediaType = freshItem.mediaType
         overview = freshItem.overview ?? ''
@@ -149,7 +149,7 @@
     })
   })
 
-  let title = $state(item.title ?? item.name)
+  let title = $state(item.title ?? '')
   let year = $state(item.year?.toString() ?? '')
   let mediaType = $state(item.mediaType)
   let overview = $state(item.overview ?? '')
@@ -427,12 +427,7 @@
   })
 </script>
 
-<ModalWindow
-  title={item.title ?? item.name}
-  onClose={handleClose}
-  onSave={handleSave}
-  maxWidth="700px"
->
+<ModalWindow title={title || item.name} onClose={handleClose} onSave={handleSave} maxWidth="700px">
   {#snippet header()}
     <div class="tabs">
       {#if !isVirtual}

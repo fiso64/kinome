@@ -1,6 +1,7 @@
 <script lang="ts">
   import GenreInput from '../../../ui/GenreInput.svelte'
   import TagInput from '../../../ui/TagInput.svelte'
+  import type { LibraryItem, AutocompleteSuggestions } from '../../../../../../shared/types'
 
   let {
     item,
@@ -30,6 +31,11 @@
 </script>
 
 <div class="content">
+  <div class="form-group">
+    <label for="filename">{item.type === 'folder' ? 'Folder Name' : 'Filename'}</label>
+    <input type="text" id="filename" value={item.name} readonly class="readonly-input" />
+  </div>
+
   <div class="form-row">
     <div class="form-group" style="flex-grow: 1;">
       <label for="title">Title</label>
@@ -161,5 +167,12 @@
   .number-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
+  }
+  .readonly-input {
+    background-color: var(--color-background-mute);
+    cursor: default;
+    color: var(--ev-c-text-2);
+    border-color: transparent;
+    opacity: 0.8;
   }
 </style>

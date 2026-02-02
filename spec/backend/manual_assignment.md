@@ -59,7 +59,11 @@ The new identity (provided by the user via the Search UI) is applied.
 The item (now "dirty" and "identified") is passed to `handleItemUpdate`.
 
 1.  **Enrichment**: The orchestrator sees the new `tmdbId` and `lastRefreshedAt: null`. It fetches new images, overviews, and credits.
-2.  **Structural Integrity**: For TV items, it runs a structural scan. Crucially, this scan **respects existing locks** defined in Phase 2.
+2.  **Structural Integrity**: For TV items, it runs a structural scan. 
+
+    > [!IMPORTANT]
+    > **Season Update Propagation**: If a **Season** is manually matched, the system **MUST** save the identity/locks to the database and then trigger a structural sync on the **Parent TV Show**. This is required because `syncTvShowStructure` only runs at the show level and needs the locked season identity in the DB to correctly re-number child episodes.
+
 3.  **Managed Copy**: Pushes the new metadata down the hierarchy.
 4.  **Atomic Broadcast**: Returns all changed items to the UI.
 
