@@ -432,7 +432,7 @@ export async function applyManualMatch(
           const parent = repositoryService.getItemById(item.parentId)
           if (parent && parent.mediaType === 'tv') {
             const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder, 'smart', 'smart', {
-              force: true
+              scopedToId: item.id
             })
             structuralChanges.push(...modified)
           }

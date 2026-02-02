@@ -18,9 +18,15 @@ export async function syncTvShowStructure(
     show: MediaFolder,
     seasonStrategy: 'smart' | 'alphabetic' = 'smart',
     episodeStrategy: 'smart' | 'alphabetic' = 'smart',
-    options: { force?: boolean } = {}
+    options: { force?: boolean; scopedToId?: string } = {}
 ): Promise<LibraryItem[]> {
-    if (show.mediaType !== 'tv' || (show.process_tv_children === false && !options.force)) return []
+    const processingDisabled = show.process_tv_children === false
+    const isTargeted = !!options.scopedToId
+    const isForced = !!options.force
+
+    // Guard: Exit if not TV, or if disabled AND neither forced nor targeted.
+    if (show.mediaType !== 'tv') return []
+    if (processingDisabled && !isForced && !isTargeted) return []
 
     const allModified: LibraryItem[] = []
 
@@ -51,6 +57,11 @@ export async function syncTvShowStructure(
     const seasonsToProcess: MediaFolder[] = []
     if (!isFlatShow) {
         for (const folder of folders) {
+            // SCOPE CHECK: If a target ID is provided, skip any folder that isn't the target.
+            if (isTargeted && folder.id !== options.scopedToId) {
+                continue
+            }
+
             const info = seasonMap.get(folder.name)
             if (info && info.mediaType === 'season') {
                 const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
@@ -79,12 +90,16 @@ export async function syncTvShowStructure(
 
     // 3. Process Episodes
     if (isFlatShow) {
-        const episodeMap = determineEpisodeNumbers(
-            videoFiles.map((f) => f.name),
-            1,
-            episodeStrategy
-        )
-        allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
+        // Flat shows (files in root) cannot be scoped to a Season Folder ID effectively 
+        // in this context, so we skip if scopedToId is set (implying a folder target).
+        if (!isTargeted) {
+            const episodeMap = determineEpisodeNumbers(
+                videoFiles.map((f) => f.name),
+                1,
+                episodeStrategy
+            )
+            allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
+        }
     } else {
         for (const seasonFolder of seasonsToProcess) {
             const seasonChildren = repositoryService.getChildren(seasonFolder.id)
