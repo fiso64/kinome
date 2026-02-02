@@ -20,10 +20,6 @@ const server = createServer(app)
 const port = process.env.PORT || 3000
 
 // 1. Initialize Services
-// Use the same location as Electron's app.getPath('userData')
-// On Windows: %APPDATA%/media-browser
-// On macOS: ~/Library/Application Support/media-browser
-// On Linux: ~/.config/media-browser
 function getDefaultUserDataPath(): string {
   const appName = 'media-browser'
   if (process.platform === 'win32') {
@@ -49,31 +45,28 @@ import v2Router from './routes/v2'
 
 // 2. Middleware
 app.use(cors())
-// Enable Gzip compression for all responses
-// TODO: Think if/when this is needed.
-// TODO: Is it even working?
 app.use(compression())
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/v2', v2Router)
 
 // 3. Asset Protocol Replacement
-// Serves images via standard HTTP
-app.get('/api/assets/*relativePath', (req, res) => {
+// FIX: Use a Regex Literal object. Strings like '/api/assets/(.*)' fail in Express 5.
+// Matches /api/assets/ followed by anything. Capture group is in req.params[0].
+app.get(/^\/api\/assets\/(.*)/, (req, res) => {
   try {
-    const pathParam = req.params.relativePath
+    const pathParam = req.params[0] as string
     let relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
+
+    // Express regex params might be encoded or decoded depending on context, 
+    // safe decode here to ensure filesystem compatibility.
     relativePath = decodeURIComponent(relativePath)
 
-    // Strip query parameters that might have been encoded into the path
-    // e.g. "image.jpg?v=123" -> "image.jpg"
     if (relativePath.includes('?')) {
       relativePath = relativePath.split('?')[0]
     }
 
-    // Try resolving as is first
     let fullPath = resolveLibraryPath(relativePath)
 
-    // If not found, try looking in 'images' subdirectory
     if (!fs.existsSync(fullPath)) {
       const imagesPath = resolveLibraryPath(path.join('images', relativePath))
       if (fs.existsSync(imagesPath)) {
@@ -91,7 +84,7 @@ app.get('/api/assets/*relativePath', (req, res) => {
   }
 })
 
-// 4. API Endpoints (Mapping ApiClient calls)
+// 4. API Endpoints
 app.post('/api/perform-search', async (req, res) => {
   const result = await libraryService.performSearch(req.body)
   res.json(result)
@@ -145,7 +138,6 @@ app.post('/api/apply-initial-folder-settings', async (req, res) => {
 // --- Control Operations ---
 
 app.post('/api/perform-initial-scan', async (req, res) => {
-  // Path would come from client-side folder picker (TBD)
   const { path } = req.body
   if (!path || typeof path !== 'string') {
     console.error('[API] /perform-initial-scan: No valid path provided.')
@@ -317,8 +309,9 @@ app.post('/api/rename-item', async (req, res) => {
   res.json({ success })
 })
 
-app.get('/api/item-properties/*itemPath', async (req, res) => {
-  const pathParam = req.params.itemPath
+// FIX: Replaced string wildcard with Regex. Matches /api/item-properties/ followed by anything.
+app.get(/^\/api\/item-properties\/(.*)/, async (req, res) => {
+  const pathParam = req.params[0]
   const itemPath = (Array.isArray(pathParam) ? pathParam.join('/') : pathParam) as string
   const props = await libraryService.getItemProperties(itemPath)
   res.json(props)
@@ -341,9 +334,7 @@ const streamHandler = async (req: express.Request, res: express.Response): Promi
       return
     }
 
-    // If it's a remote URL, redirect to it
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      // Remote Redirects: Check lastWatched and record playback before redirecting
       const lastWatched = item.lastWatched || 0
       if (Date.now() - lastWatched > 60000) {
         libraryService.recordPlayback(id).catch((err) => {
@@ -354,14 +345,8 @@ const streamHandler = async (req: express.Request, res: express.Response): Promi
       return
     }
 
-    // Otherwise serve local file
-    // We use the callback to ensure playback is only recorded if the initial stream setup 
-    // was successful (no Range errors, etc.).
     res.sendFile(filePath, (err) => {
       if (!err && res.statusCode < 400) {
-        // Debounce/Throttle: Fetch the item one last time to check the most recent lastWatched 
-        // value from the DB. This prevents redundant updates from multiple concurrent range 
-        // requests without needing a separate in-memory map.
         libraryService.getItemById(id).then((freshItem) => {
           const lastWatched = freshItem?.lastWatched || 0
           if (Date.now() - lastWatched > 60000) {
@@ -371,8 +356,6 @@ const streamHandler = async (req: express.Request, res: express.Response): Promi
           }
         })
       } else if (err) {
-        // Only log errors if headers haven't been sent yet (actual failure to start)
-        // SendStream errors like RangeNotSatisfiable happen immediately.
         if (!res.headersSent) {
           console.error(`[Server] Error starting stream for item ${id}:`, err)
         }
@@ -399,11 +382,7 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
 
     let m3uContent = '#EXTM3U\n'
     for (const item of playlist) {
-      // #EXTINF:duration,title
-      // We use -1 for live/unknown duration
       let title = item.title || item.name
-
-      // Format title with Season/Episode info if available
       const f = item as any
       if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
         const s = f.seasonNumber.toString().padStart(2, '0')
@@ -412,14 +391,10 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
       }
 
       m3uContent += `#EXTINF:-1,${title}\n`
-
-      // Construct stream URL
-      // We append the filename to the URL to help players detect file extension/type
       const filename = encodeURIComponent(item.name)
       m3uContent += `${protocol}://${host}/api/stream/${item.id}/${filename}\n`
     }
 
-    // Try to generate a nice filename for the playlist itself based on the first item (the requested item)
     const firstItem = playlist[0] as any
     let playlistFilename = 'playlist.m3u'
     if (
@@ -430,7 +405,6 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
     ) {
       const s = firstItem.seasonNumber.toString().padStart(2, '0')
       const e = firstItem.episodeNumber.toString().padStart(2, '0')
-      // Clean filename slightly
       playlistFilename = `S${s}E${e}.m3u`
     }
 
@@ -474,7 +448,6 @@ app.post('/api/save-settings', async (req, res) => {
 
 // 5. Initialize Server
 async function start() {
-  // DEVELOPMENT: Use Vite Middleware
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -483,19 +456,15 @@ async function start() {
     })
     app.use(vite.middlewares)
   }
-
   // PRODUCTION: Serve the built static files
   else {
-    // 1. Determine where 'pnpm run build' output the files.
-    // Based on your package.json, it is likely 'out/renderer' or 'dist'.
     const distPath = path.resolve(__dirname, '../../out/renderer')
-
-    // 2. Serve static assets (JS, CSS, Images)
     app.use(express.static(distPath))
 
-    // 3. SPA Fallback: If a request doesn't match an API or a static file,
-    // send index.html so the frontend router can take over.
-    app.get('*', (_req, res) => {
+    // FIX: Match-All Regex for SPA fallback
+    // The previous string '*' is invalid in Express 5.
+    // Regex matches anything, ensuring index.html handles the route.
+    app.get(/.*/, (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'))
     })
   }
@@ -510,7 +479,6 @@ async function start() {
   })
 }
 
-// Start sequence
 start().catch((err) => {
   console.error('[Server] Failed to start:', err)
   process.exit(1)

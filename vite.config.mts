@@ -1,9 +1,16 @@
+// vite.config.mts
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import path from 'path'
 
 export default defineConfig({
   root: 'src/renderer',
+  base: './', // Ensures relative paths for assets in production
+  build: {
+    // Output to the folder your server.ts expects
+    outDir: path.resolve(__dirname, 'out/renderer'),
+    emptyOutDir: true
+  },
   plugins: [
     svelte({
       onwarn: (warning, handler) => {

@@ -46,12 +46,14 @@ export async function loadDbIntoMemory(): Promise<void> {
 export async function getLibraryRoot(): Promise<MediaFolder | null> {
   const root = repositoryService.getRoot()
   if (!root) return null
-  // Pre-load immediate children for the root view to be responsive
-  root.children = repositoryService.getChildren(root.id).filter((c) => !c.isHidden && !c.isMissing)
+
+  // FIX: Remove eager children loading. 
+  // The frontend V2 architecture requests children separately via /children endpoint.
+  // This prevents double-fetching and massive payloads on startup.
+  root.children = []
+
   const item = repositoryService.createTransferableCopy(root) as MediaFolder
-  log(
-    `[Library] getLibraryRoot returning: ${item.name} with ${item.children?.length} preloaded children.`
-  )
+  log(`[Library] getLibraryRoot returning: ${item.name} (Lean)`)
   return item
 }
 
