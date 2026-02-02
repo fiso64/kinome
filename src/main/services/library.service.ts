@@ -532,12 +532,19 @@ export const getContinueWatchingForShow = async (showId: string) => {
   return found || null
 }
 export const setContinueWatchingDismissed = async (showId: string) => {
-  repositoryService.updateItem(showId, { continueWatchingDismissed: true })
-  _finalizeItemUpdate(repositoryService.getItemById(showId)!)
+  const item = repositoryService.getItemById(showId)
+  if (item) {
+    item.continueWatchingDismissed = true
+    _finalizeItemUpdate(item)
+  }
 }
 export const setNextUpDismissed = async (showId: string) => {
-  repositoryService.updateItem(showId, { nextUpDismissed: true, continueWatchingDismissed: true })
-  _finalizeItemUpdate(repositoryService.getItemById(showId)!)
+  const item = repositoryService.getItemById(showId)
+  if (item) {
+    item.nextUpDismissed = true
+    item.continueWatchingDismissed = true
+    _finalizeItemUpdate(item)
+  }
 }
 export const fetchCredits = async (itemId: string) => {
   const item = repositoryService.getItemById(itemId)
@@ -546,9 +553,6 @@ export const fetchCredits = async (itemId: string) => {
       item,
       (await settingsService.readSettings()).tmdbApiKey
     )
-    repositoryService.updateItem(item.id, {
-      tmdbCredits: item.tmdbCredits
-    })
     _finalizeItemUpdate(item)
   }
 }
@@ -620,12 +624,6 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
 
         parent.virtualFolderSettings[settingsKey] = settingsToSave
 
-        // Persistence trigger
-        repositoryService.updateItem(parent.id, {
-          virtualFolderSettings: parent.virtualFolderSettings
-        })
-
-
         // Propagate update to renderer (both the virtual item's "bare" state and the parent)
         // Note: Renderer's MediaView will re-generate the virtual items from the updated parent.
         await _finalizeItemUpdate([parent, item])
@@ -685,7 +683,6 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   }
 
   // --- Standard Item Update ---
-  repositoryService.updateItem(item.id, item)
   _finalizeItemUpdate(item)
 }
 export const deleteItemFromDb = async (id: string) => {
@@ -702,7 +699,12 @@ export const recordPlayback = async (itemId: string) => {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
 
-  repositoryService.updateItem(itemId, { watched: true, lastWatched: Date.now() })
+  const modifiedItems: LibraryItem[] = []
+
+  // Update item state
+  item.watched = true
+  item.lastWatched = Date.now()
+  modifiedItems.push(item)
 
   // Check dismissal logic: If the user plays an episode of a show they previously dismissed,
   // we assume they are interested again and un-dismiss it.
@@ -710,17 +712,16 @@ export const recordPlayback = async (itemId: string) => {
   while (parent) {
     if (parent.type === 'folder' && parent.mediaType === 'tv') {
       if (parent.nextUpDismissed || parent.continueWatchingDismissed) {
-        repositoryService.updateItem(parent.id, {
-          nextUpDismissed: false,
-          continueWatchingDismissed: false
-        })
-        _finalizeItemUpdate(repositoryService.getItemById(parent.id)!)
+        parent.nextUpDismissed = false
+        parent.continueWatchingDismissed = false
+        modifiedItems.push(parent)
       }
       break
     }
     parent = repositoryService.findParent(parent.id)
   }
-  _finalizeItemUpdate(repositoryService.getItemById(itemId)!)
+
+  await _finalizeItemUpdate(modifiedItems)
 }
 
 export const playFileWith = async (file: MediaFile, cmd: string, cb: ErrorCallback) => {
