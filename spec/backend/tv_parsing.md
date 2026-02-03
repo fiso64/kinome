@@ -42,6 +42,9 @@ The following folder names are **skipped** during TV structure parsing. They are
 - `Extras`, `Specials`, `Deleted Scenes`, `Featurettes`, `NC`, `Behind the Scenes`
 - **Any folder containing a `.ignore` file.**
 
+> [!IMPORTANT]
+> **Manual Override Priority**: If a folder has been manually assigned as `mediaType = 'season'` (e.g., via "Fix Match"), it will be processed even if its name appears in the ignored list above. This ensures that user-defined structures always win over automatic heuristics.
+
 ---
 
 ### Algorithm: Syncing TV Structure

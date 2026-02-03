@@ -63,9 +63,11 @@ export async function syncTvShowStructure(
             }
 
             const info = seasonMap.get(folder.name)
-            if (info && info.mediaType === 'season') {
+            const isManuallyAssignedSeason = folder.mediaType === 'season'
+
+            if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
                 const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
-                const targetSeason = isLocked ? folder.seasonNumber : info.season
+                const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
 
                 let changedForFolder = false
                 if (!isLocked && folder.seasonNumber !== targetSeason) {

@@ -532,55 +532,69 @@ export async function clearItemMetadata(
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
 
-  const itemsToClear: LibraryItem[] = []
+  const itemsToFullClear: LibraryItem[] = []
+  const itemsToUpdate: LibraryItem[] = []
 
   if (options.childrenOnly) {
     if (item.type === 'folder') {
       const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
-      itemsToClear.push(...descendants)
+      itemsToFullClear.push(...descendants)
+
+      // Surgical cleanup on the parent
+      const parentAsRecord = item as any
+      parentAsRecord.tmdbSeasons = null
+      parentAsRecord.tmdbEpisodes = null
+      parentAsRecord._lastSeenLocalMaxSeason = undefined
+      parentAsRecord._lastSeenLocalMaxEpisode = undefined
+      parentAsRecord._v = Date.now()
     }
   } else if (options.targetedClear) {
-    itemsToClear.push(item)
+    itemsToFullClear.push(item)
     if (item.type === 'folder') {
       const children = repositoryService.getChildren(item.id)
       if (item.mediaType === 'tv') {
         // Clear direct seasons and all episodes (direct and under seasons)
         for (const child of children) {
           if (child.mediaType === 'season' || child.mediaType === 'episode') {
-            itemsToClear.push(child)
+            itemsToFullClear.push(child)
             if (child.type === 'folder') {
               const episodes = repositoryService.getChildren(child.id)
-              itemsToClear.push(...episodes.filter((e) => e.mediaType === 'episode'))
+              itemsToFullClear.push(...episodes.filter((e) => e.mediaType === 'episode'))
             }
           }
         }
       } else if (item.mediaType === 'season') {
         // Clear direct episodes
-        itemsToClear.push(...children.filter((c) => c.mediaType === 'episode'))
+        itemsToFullClear.push(...children.filter((c) => c.mediaType === 'episode'))
       }
     }
   } else {
     // Default: Clear item and ALL descendants recursively
-    itemsToClear.push(item)
+    itemsToFullClear.push(item)
     if (item.type === 'folder') {
       const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
-      itemsToClear.push(...descendants)
+      itemsToFullClear.push(...descendants)
     }
   }
 
+  // Final list for DB update includes the item itself plus everything destined for full clear
+  itemsToUpdate.push(item, ...itemsToFullClear)
+  // Ensure we don't have duplicates
+  const uniqueItemsToUpdate = Array.from(new Set(itemsToUpdate))
+
   const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
 
-  // 1. Asynchronously unlink images first (cannot be in a transaction due to async)
-  for (const targetItem of itemsToClear) {
+  // 1. Asynchronously unlink images first (Full Clear list only!)
+  for (const targetItem of itemsToFullClear) {
     await _unlinkItemImages(targetItem, imagesDir, { respectLocks: false })
   }
 
-  // 2. Execute field resets
-  for (const targetItem of itemsToClear) {
+  // 2. Execute field resets (Full Clear list only!)
+  for (const targetItem of itemsToFullClear) {
     _resetItemMetadataFields(targetItem, { respectLocks: false })
   }
 
-  await updateIfChangedAndBroadcast(itemsToClear)
+  await updateIfChangedAndBroadcast(uniqueItemsToUpdate)
 
   return item
 }
