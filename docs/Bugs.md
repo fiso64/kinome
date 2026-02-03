@@ -31,7 +31,7 @@ The reason you currently see 3 requests is likely because of the **Configuration
 2.  **Request 2:** Root loads. `getAllRequiredFields` runs on the recursive object above -> Fetches `posterPath, virtualTags, mediaType`.
 3.  **Request 3:** Likely a reactivity side-effect where the `groupBy` change triggers a query key update before the `fields` update is fully processed, or vice versa.
 
-**The Fix:**
+**The Fix:** 
 Ensure `childrenQuery` is `enabled: !!currentFolder` (Dependent Query).
 This forces the frontend to wait until it has the recursive `rootSettings` map (Step 1) before it attempts to traverse it (Step 2) and fetch data (Step 4).
 ```
