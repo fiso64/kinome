@@ -53,14 +53,17 @@
   const resolvedSettings = $derived(resolveViewSettings(currentFolder, settings).settings)
   // We need to know the layout to know which fields to fetch.
 
-  const requiredFields = $derived(getAllRequiredFields(resolvedSettings))
+  const requiredFields = $derived.by(() => {
+    // CRITICAL: We pass currentFolder here because getAllRequiredFields needs to see .virtualFolderSettings
+    return getAllRequiredFields({ ...currentFolder, ...resolvedSettings })
+  })
 
   const childrenQuery = createQuery(() => ({
     queryKey: childKeys.byParent(currentFolderId, requiredFields, resolvedSettings.groupBy),
     queryFn: ({ queryKey }) => {
       const parentId = queryKey[1] as string
-      const { fields } = queryKey[2] as { fields: string[] }
-      return api.getChildrenV2(parentId, { include: fields })
+      const { fields, groupBy } = queryKey[2] as { fields: string[]; groupBy: string }
+      return api.getChildrenV2(parentId, { include: fields, groupBy })
     },
     enabled: !!currentFolderId
   }))

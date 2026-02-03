@@ -44,7 +44,7 @@
 <div class="sections-view">
   {#if folders.length > 0}
     {#each folders as folder (folder.id)}
-      {@const parentForMediaView = { ...folder, ...(container?.childViewSettings ?? {}) }}
+      {@const parentForMediaView = { ...folder, ...container?.childViewSettings }}
       <section class="content-section">
         <h2
           class="section-title"

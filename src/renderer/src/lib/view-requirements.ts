@@ -71,6 +71,10 @@ export function getAllRequiredFields(settings: any): string[] {
         if (currentSettings.childViewSettings) {
             traverse(currentSettings.childViewSettings)
         }
+
+        if (currentSettings.virtualFolderSettings) {
+            Object.values(currentSettings.virtualFolderSettings).forEach((v) => traverse(v))
+        }
     }
 
     traverse(settings)

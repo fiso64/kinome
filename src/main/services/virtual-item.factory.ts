@@ -108,7 +108,6 @@ export function buildVirtualItem(id: string, parent: MediaFolder): LibraryItem {
         isVirtual: true,
         children: [], // Lazy load
         virtualFolderSettings: parent.virtualFolderSettings, // Propagate settings for nested lookups
-        ...(parent.childViewSettings || {}), // Inherit generic child view settings (e.g. layout, groupBy)
         ...appliedSettings // Apply specific override (takes precedence)
     }
 

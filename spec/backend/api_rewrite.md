@@ -203,8 +203,7 @@ _Scenario: The library is configured to display as "Tabs", grouped by a custom v
     - **Backend Logic**:
        - Resolves Root settings -> finds `layout: tabs`, `groupBy: vt.is_animation`.
        - Performs grouping.
-       - Notice "Animation" group has its own `childViewSettings`: `groupBy: mediaType`.
-       - **Recursive Step**: Backend automatically groups children of the "Animation" folder by `mediaType`.
+       - **Contextual Recursion (v2.1 Fix)**: The backend uses the parent's `childViewSettings` hint (`groupBy: mediaType`) as a local logical variable to drive sub-grouping. It does **not** bake these settings into the "Animation" folder's identity, ensuring it remains clean for navigation.
     - **Response**:
       ```json
       [

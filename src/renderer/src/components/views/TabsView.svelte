@@ -4,6 +4,7 @@
   import MediaView from '../layout/MediaView.svelte'
   // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
+  import type { AutocompleteSuggestions, Settings } from '../../../../shared/types'
   import { api } from '../../lib/api'
   import { get } from 'svelte/store'
 
@@ -223,7 +224,7 @@
     {#if folders.length > 0}
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
-          {@const parentForMediaView = { ...folder, ...(container?.childViewSettings ?? {}) }}
+          {@const parentForMediaView = { ...folder, ...container?.childViewSettings }}
           <MediaView
             parentItem={parentForMediaView}
             items={folder.children ?? []}

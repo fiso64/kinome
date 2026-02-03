@@ -113,6 +113,10 @@ async function groupItemsRecursive(
     parentTokenPath: string,
     inheritedSettings: any
 ): Promise<LibraryItem[]> {
+    // We use effectiveSettings for internal logic (like determining if we should keep grouping recursively),
+    // but we do NOT bake them into the item objects themselves.
+    const effectiveSettings = { ...inheritedSettings }
+
     // --- Special Handling for "Folder" Grouping (Mixed Content / TV virtualization) ---
     if (groupByKey === 'folder') {
         const { physicalFolders, files: looseFiles } = categorizeItems(items)
@@ -169,7 +173,6 @@ async function groupItemsRecursive(
                     children: filesBySeason.get(seasonNum)!,
                     virtualFolderSettings: physicalParent?.virtualFolderSettings,
                     seasonNumber: seasonNum,
-                    ...inheritedSettings,
                     ...virtualSettings,
                     groupByKey: 'folder',
                     groupByValue: groupValue
@@ -209,7 +212,6 @@ async function groupItemsRecursive(
                     isVirtual: true,
                     children: unseasonedFiles,
                     virtualFolderSettings: physicalParent?.virtualFolderSettings,
-                    ...inheritedSettings,
                     ...virtualSettings,
                     groupByKey: 'folder',
                     groupByValue: groupValue
@@ -274,19 +276,24 @@ async function groupItemsRecursive(
                 isVirtual: true,
                 children: [],
                 virtualFolderSettings: physicalParent?.virtualFolderSettings,
-                ...inheritedSettings,
                 ...virtualSettings
             }
 
             const settings = await settingsPromise
-            const resolved = resolveViewSettings(virtualFolder as any, settings).settings
+            // Use the hint from the parent (inheritedSettings) to decide how to process THIS folder's children,
+            // but keep the virtualFolder object clean of those hints for its own identity.
+            const effectiveResolution = resolveViewSettings(
+                { ...inheritedSettings, ...virtualSettings, ...virtualFolder } as any,
+                settings
+            ).settings
 
-            if (['tabs', 'sections'].includes(resolved.layout) && resolved.groupBy) {
-                const nextSettings = (virtualFolder as any).childViewSettings || {}
+            if (['tabs', 'sections'].includes(effectiveResolution.layout) && effectiveResolution.groupBy) {
+                // If this level is ALSO grouping, we pass its childViewSettings down.
+                const nextSettings = (virtualFolder as any).childViewSettings || effectiveResolution.childViewSettings || {}
 
                 virtualFolder.children = await groupItemsRecursive(
                     groupItems,
-                    resolved.groupBy,
+                    effectiveResolution.groupBy,
                     newId,
                     physicalParent,
                     fullSettingsKey,

@@ -87,7 +87,9 @@ export interface StoredViewSettings
  * It's a complete object ready for the UI to consume.
  */
 export type ResolvedViewSettings = BaseViewSettings &
-  Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings>
+  Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings> & {
+    childViewSettings?: StoredViewSettings
+  }
 
 export type ResolutionSource = {
   source: 'item' | 'type' | 'global'
@@ -275,6 +277,8 @@ export interface MediaFolder extends StoredViewSettings {
   retrieve_children_metadata?: boolean
   children_type_hint?: 'movie' | 'tv'
   process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
+  groupByKey?: string
+  groupByValue?: string
 
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string | null
