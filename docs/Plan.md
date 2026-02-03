@@ -37,6 +37,7 @@
 - `[ ]` Retrieve and save more local metadata using ffmpeg (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc. 
   - `[ ]` Make it all searchable and accessible in virtual tag definitions like every other piece of metadata.
 - `[ ]` A "Notes" text field? Or star rating field? Or custom field definitions? 
+- `[ ]` Dev: Actually add comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 
 ## Future
 
