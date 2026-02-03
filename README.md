@@ -22,9 +22,9 @@ See Plan.md for more details.
 
 ## Development Plan / Roadmap
 
-[**Plan.md**](./docs/temp/Plan.md)
-[**Bugs**](./docs/temp/Bugs.md)
-[**Specs**](./spec/)
+- [**Plan.md**](./docs/temp/Plan.md)
+- [**Bugs**](./docs/temp/Bugs.md)
+- [**Specs**](./spec/)
 
 ## Recommended IDE Setup
 
