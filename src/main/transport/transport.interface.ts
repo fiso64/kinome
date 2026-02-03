@@ -3,7 +3,7 @@ import type { AutocompleteSuggestions, LibraryItem, Settings } from '../../share
 /**
  * Defines the contract for a transport layer.
  * A transport layer is responsible for communicating state changes from the core services
- * to the client (e.g., an Electron renderer process or a web browser).
+ * to the client (e.g., a web browser or desktop client).
  */
 export interface ITransport {
   /**

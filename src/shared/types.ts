@@ -398,12 +398,12 @@ export interface Database {
 export interface AppCapabilities {
   /**
    * Determines if the custom Minimize/Maximize/Close buttons should be rendered.
-   * True for Desktop (Electron), False for Web.
+   * True for Desktop clients, False for generic Web browsers.
    */
   hasWindowControls: boolean
   /**
    * Indicates if the backend can spawn processes visible to the user (e.g., launching VLC).
-   * True for Desktop, False for Web (server execution is invisible/remote).
+   * True for Desktop/Local setups, False for remote Web access.
    */
   supportsLocalPlayback: boolean
 }
