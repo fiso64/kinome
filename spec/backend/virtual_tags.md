@@ -1,7 +1,7 @@
 # Spec: Virtual Tags & Dynamic Categorization
 
 **Version:** 2.0
-**Status:** Proposed
+**Status:** Implemented
 **Related:** `scan_architecture.md`, `api_rewrite.md`, `metadata_locking.md`
 
 ---

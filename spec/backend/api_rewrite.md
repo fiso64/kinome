@@ -1,7 +1,7 @@
 # Spec: API Redesign v2 ("Lean & Lazy")
 
 **Version:** 2.1
-**Status:** Proposed
+**Status:** Implemented
 
 ---
 

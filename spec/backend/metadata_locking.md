@@ -1,7 +1,7 @@
 # Spec: Metadata Locking & User Edits ("Field-Level Persistence")
 
 **Version:** 2.1 (Partial Updates + Auto-Locking)
-**Status:** Proposed
+**Status:** Implemented
 **Related:** `scan_architecture.md`, `manual_assignment.md`, `../frontend/metadata_and_settings_edits.md`
 
 ---

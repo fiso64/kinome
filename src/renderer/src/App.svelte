@@ -286,7 +286,9 @@
     }
 
     if (fromSearch) {
-      // V2 search store results - reserved for future use
+      appHeaderComponent?.blurSearchInput()
+      searchStoreV2.clearDetail()
+      searchStoreV2.clearGlobal()
     }
   }
 

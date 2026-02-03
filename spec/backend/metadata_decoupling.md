@@ -1,7 +1,7 @@
 # Spec: Database Structure & Metadata Decoupling
 
 **Version:** 1.0
-**Status:** **Proposed**
+**Status:** Implemented
 **Related:** `scan_architecture.md`, `metadata_locking.md`, `api_rewrite.md`, `tv_parsing.md`
 
 ---

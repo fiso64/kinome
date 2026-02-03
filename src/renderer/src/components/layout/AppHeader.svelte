@@ -36,7 +36,6 @@
       navStoreV2.state.selectedItemId !== null ||
       navStoreV2.state.path !== '/'
   )
-  const isDetailViewActive = $derived(navStoreV2.isDetailViewActive)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
   const contextItemQuery = createQuery(() => ({
@@ -110,7 +109,7 @@
       return
     }
 
-    const isDetailContext = isDetailViewActive
+    const isDetailContext = navStoreV2.isDetailViewActive
     const items = isDetailContext ? detailSearchResults : globalSearchResults
     let highlightedIndex = isDetailContext
       ? searchStoreV2.highlightedDetailIndex
@@ -185,9 +184,20 @@
         } as MediaFolder)
       : undefined
   )
+
+  $effect(() => {
+    console.log('[AppHeader] Visibility Check:', {
+      isDetailViewActive: navStoreV2.isDetailViewActive,
+      isSearchFocused,
+      selectedItemId: navStoreV2.state.selectedItemId,
+      isGlobalSearchActive,
+      globalQuery: JSON.parse(JSON.stringify(searchStoreV2.globalQuery)),
+      detailQuery: JSON.parse(JSON.stringify(searchStoreV2.detailQuery))
+    })
+  })
 </script>
 
-<header class:in-detail-view={isDetailViewActive}>
+<header class:in-detail-view={navStoreV2.isDetailViewActive}>
   <div class="header-content" class:no-drag={isContextMenuVisible}>
     <div class="header-left">
       <button
@@ -199,7 +209,7 @@
         ←
       </button>
       <!-- In detail view, the title is handled by the component itself -->
-      {#if !isDetailViewActive}
+      {#if !navStoreV2.isDetailViewActive}
         <h1>
           {#if isGlobalSearchActive}
             Search Results
@@ -211,8 +221,8 @@
     </div>
 
     <div class="search-container" onkeydown={handleSearchKeyDown}>
-      {#key isDetailViewActive}
-        {#if isDetailViewActive}
+      {#key navStoreV2.isDetailViewActive}
+        {#if navStoreV2.isDetailViewActive}
           <SearchInput
             bind:query={searchStoreV2.detailQuery}
             {suggestions}
@@ -231,7 +241,7 @@
         {/if}
       {/key}
 
-      {#if isSearchFocused && isDetailViewActive}
+      {#if isSearchFocused && navStoreV2.isDetailViewActive}
         <div class="search-dropdown">
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
             <div class="dropdown-status">Searching...</div>

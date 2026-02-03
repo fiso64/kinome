@@ -138,7 +138,11 @@
     <input
       bind:this={element}
       bind:value={query.text}
-      oninput={null}
+      oninput={(e) => {
+        // Correcting the oninput handler to update query.text
+        query.text = (e.target as HTMLInputElement).value
+        console.log('[SearchInput] oninput updated query.text to:', query.text)
+      }}
       onkeydown={handleKeyDown}
       placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
       class="search-input-field"

@@ -21,7 +21,7 @@ let currentState = $state<NavigationState>({
 
 // --- Derived Helpers ---
 
-const isDetailViewActive = $derived(currentState.selectedItemId !== null)
+// --- Derived Helpers removed, using direct getters in navStoreV2 ---
 
 // --- URL Parsing & Synchronization ---
 
@@ -47,6 +47,7 @@ function parseUrl() {
     path: pathParam,
     globalQuery: queryObj
   }
+  console.log('[navStoreV2] parseUrl Result:', JSON.parse(JSON.stringify(currentState)))
 }
 
 function updateUrl(replace = false) {
@@ -89,12 +90,14 @@ function navigateToRoot() {
 }
 
 function openDetail(itemId: string) {
+  console.log('[navStoreV2] openDetail called with:', itemId)
   currentState.selectedItemId = itemId
   currentState.path = '/'
   updateUrl()
 }
 
 function closeDetail() {
+  console.log('[navStoreV2] closeDetail called')
   currentState.selectedItemId = null
   updateUrl() // This "goes back" effectively
 }
@@ -128,7 +131,7 @@ export const navStoreV2 = {
     return currentState
   },
   get isDetailViewActive() {
-    return isDetailViewActive
+    return currentState.selectedItemId !== null
   },
   get contextItemId() {
     return currentState.selectedItemId ?? currentState.currentFolderId
@@ -163,8 +166,10 @@ export const navStoreV2 = {
 
     const shouldReplace = options.replace ?? hasSearchInUrl
 
+    console.log('[navStoreV2] setGlobalSearch:', { query, options })
     currentState.globalQuery = query
     if (options.closeDetail && currentState.selectedItemId) {
+      console.log('[navStoreV2] setGlobalSearch is CLEARING selectedItemId!')
       currentState.selectedItemId = null
     }
     updateUrl(shouldReplace)

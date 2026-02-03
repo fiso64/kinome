@@ -1,7 +1,7 @@
 # Spec: Scan Architecture
 
 **Version:** 2.1 (Timestamp Model)
-**Status:** Proposed
+**Status:** Implemented
 **Related:** `tv_parsing.md`, `metadata_locking.md`, `metadata_decoupling.md`
 
 ---

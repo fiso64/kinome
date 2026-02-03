@@ -1,7 +1,7 @@
 # Spec: TV Structure Parsing (Phase 1 Logic)
 
 **Version:** 3.0 (Centralized & Triggered)
-**Status:** Approved
+**Status:** Implemented
 **Related:** `scan_architecture.md`, `tv-show.service.ts`
 
 ---
