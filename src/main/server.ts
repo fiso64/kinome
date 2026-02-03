@@ -45,6 +45,22 @@ setTransport(webTransport)
 import v2Router from './routes/v2'
 
 // 2. Middleware
+app.use((req, _res, next) => {
+  if (req.path.startsWith('/api/')) {
+    const start = Date.now()
+    const ip = req.ip || req.socket.remoteAddress || 'unknown'
+    console.log(`[API] [REQUEST] ${req.method} ${req.path} from ${ip}`)
+
+    // Hook into response finish to log status and time
+    _res.on('finish', () => {
+      const duration = Date.now() - start
+      console.log(`[API] [RESPONSE] ${req.method} ${req.path} - Status: ${_res.statusCode} (${duration}ms)`)
+    })
+  }
+
+  next()
+})
+
 app.use(cors())
 app.use(compression())
 app.use(express.json({ limit: '50mb' }))
