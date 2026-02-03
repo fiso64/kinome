@@ -16,12 +16,13 @@
   } from '../../../../shared/types'
   import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
   import { modalStore } from '../../lib/modal-store.svelte'
+  import { authStore } from '../../lib/auth-store.svelte'
 
   let { settings = $bindable() }: { settings: Settings | null } = $props()
 
   type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
-  let activeTab: 'general' | 'library' | 'view' | 'virtualTags' = $state('general')
+  let activeTab: 'general' | 'library' | 'view' | 'virtualTags' | 'accounts' = $state('general')
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
   let activeLayoutSettingsModal = $state(false)
   let activePlayerCommandsModal = $state(false)
@@ -41,6 +42,13 @@
   let libraryDataLocation = $state('')
   let mediaSourcePath = $state('')
   let mediaSourcePathIsRelative = $state(false)
+  let allowUnauthenticated = $state(false)
+  let serverPort = $state(3000)
+  let allowedIPs = $state<string[]>([])
+
+  let newPassword = $state('')
+  let confirmPassword = $state('')
+  let passwordMessage = $state({ text: '', type: 'info' })
   let virtualTags = $state<Settings['virtualTags']>([])
 
   let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
@@ -86,6 +94,9 @@
       libraryDataLocation = s.libraryLocation
       mediaSourcePath = s.mediaSourcePath ?? ''
       mediaSourcePathIsRelative = s.mediaSourcePathIsRelative ?? false
+      allowUnauthenticated = s.allowUnauthenticated ?? false
+      serverPort = s.serverPort ?? 3000
+      allowedIPs = s.allowedIPs ?? []
 
       defaultLayoutSettings = JSON.parse(JSON.stringify(s.defaultLayoutSettings))
       defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
@@ -112,7 +123,7 @@
       }
     })
 
-    const TABS = ['general', 'library', 'view', 'virtualTags'] as const
+    const TABS = ['general', 'accounts', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
       if (activeViewSettingsModal || activeLayoutSettingsModal) return
 
@@ -162,6 +173,9 @@
       libraryLocation: libraryDataLocation,
       mediaSourcePath,
       mediaSourcePathIsRelative,
+      allowUnauthenticated,
+      serverPort,
+      allowedIPs,
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
         : undefined,
@@ -196,6 +210,32 @@
 
     handleBack()
   }
+
+  async function handleChangePassword() {
+    if (!newPassword) {
+      passwordMessage = { text: 'Password cannot be empty', type: 'error' }
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      passwordMessage = { text: 'Passwords do not match', type: 'error' }
+      return
+    }
+
+    try {
+      await api.changePassword(newPassword)
+      passwordMessage = { text: 'Password changed successfully. Logging out...', type: 'success' }
+      newPassword = ''
+      confirmPassword = ''
+
+      // Force logout and reload after a short delay
+      setTimeout(() => {
+        authStore.logout()
+        window.location.reload()
+      }, 2000)
+    } catch (err) {
+      passwordMessage = { text: 'Failed to change password', type: 'error' }
+    }
+  }
 </script>
 
 <div class="settings-view">
@@ -214,6 +254,9 @@
     <div class="tabs">
       <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
         >General</button
+      >
+      <button class:active={activeTab === 'accounts'} onclick={() => (activeTab = 'accounts')}
+        >Accounts</button
       >
       <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
         >Library</button
@@ -436,6 +479,68 @@
           >
             + Add Virtual Tag
           </button>
+        </div>
+      {:else if activeTab === 'accounts'}
+        <div class="form-section">
+          <h2>Authentication</h2>
+          <div class="form-group checkbox-group">
+            <label class="checkbox-label" for="allow-unauthenticated">
+              <input
+                type="checkbox"
+                id="allow-unauthenticated"
+                bind:checked={allowUnauthenticated}
+              />
+              <span>Allow unauthenticated access to the library</span>
+            </label>
+            <p class="help-text">
+              If enabled, anyone can browse and play your media without logging in.
+            </p>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h2>Manage Accounts</h2>
+          <div class="account-item">
+            <div class="account-info">
+              <div class="account-avatar">A</div>
+              <div class="account-details">
+                <span class="account-name">Admin</span>
+                <span class="account-role">Administrator</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="password-change-box">
+            <h3>Change Admin Password</h3>
+            <div class="form-group">
+              <label for="new-password">New Password</label>
+              <input
+                type="password"
+                id="new-password"
+                bind:value={newPassword}
+                placeholder="Enter new password"
+              />
+            </div>
+            <div class="form-group">
+              <label for="confirm-password">Confirm Password</label>
+              <input
+                type="password"
+                id="confirm-password"
+                bind:value={confirmPassword}
+                placeholder="Confirm new password"
+              />
+            </div>
+            {#if passwordMessage.text}
+              <p
+                class="message"
+                class:success={passwordMessage.type === 'success'}
+                class:error={passwordMessage.type === 'error'}
+              >
+                {passwordMessage.text}
+              </p>
+            {/if}
+            <button class="secondary" onclick={handleChangePassword}>Update Password</button>
+          </div>
         </div>
       {/if}
     </div>
@@ -661,5 +766,80 @@
     border: 1px solid var(--color-border);
     padding: 0.5rem 1rem;
     border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text);
+  }
+
+  .account-item {
+    padding: 1rem;
+    background-color: var(--color-background-soft);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .account-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .account-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+  }
+
+  .account-details {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .account-name {
+    font-weight: 600;
+  }
+
+  .account-role {
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+  }
+
+  .password-change-box {
+    margin-top: 1rem;
+    padding: 1.5rem;
+    background-color: var(--color-background-mute);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .password-change-box h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--color-text);
+  }
+
+  .message {
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  .message.success {
+    color: #4caf50;
+  }
+
+  .message.error {
+    color: #f44336;
   }
 </style>

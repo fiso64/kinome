@@ -132,7 +132,10 @@ async function readRawSettings(): Promise<Settings> {
     searchResultView: { layout: 'list', listDescriptionRows: 5 },
     searchPopupView: { layout: 'list', listDescriptionRows: 2 },
     itemDetailBackdropSize: 'small',
-    itemDetailBackdropBlur: 4
+    itemDetailBackdropBlur: 4,
+    allowUnauthenticated: false,
+    serverPort: 3000,
+    allowedIPs: []
   }
 
   // --- Start with defaults ---
@@ -238,7 +241,18 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
   const oldSettings = await readSettings()
 
   // Create a copy, excluding libraryLocation as it's handled separately.
-  const { libraryLocation: discardedLibLoc, ...settingsForCurrentLibrary } = settingsToSave
+  const {
+    libraryLocation: discardedLibLoc,
+    allowUnauthenticated,
+    serverPort,
+    allowedIPs,
+    ...settingsForCurrentLibrary
+  } = settingsToSave
+
+  // Update global settings if provided
+  if (allowUnauthenticated !== undefined || serverPort !== undefined || allowedIPs !== undefined) {
+    await writeGlobalSettings({ allowUnauthenticated, serverPort, allowedIPs })
+  }
 
   // Handle media path relativity conversion
   const newRelativity = settingsForCurrentLibrary.mediaSourcePathIsRelative

@@ -171,7 +171,7 @@ export async function updateIfChangedAndBroadcast(
 
             // 2. Recalculate Virtual Tags on the FULL state
             // This fixes the bug where tags were lost because partial updates missed dependency fields (e.g. genres)
-            const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(nextState, settings)
+            const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(nextState as LibraryItem, settings)
 
             // Apply the calculated tags to both our comparison object AND the payload
             nextState.virtualTags = newVirtualTags
@@ -179,7 +179,7 @@ export async function updateIfChangedAndBroadcast(
 
             // 3. Detect Changes using the robust snapshot comparison
             // Now we compare Full Object (Existing) vs Full Object (Next State)
-            const hasRealChanges = !existing || !isItemDataSame(existing, nextState)
+            const hasRealChanges = !existing || !isItemDataSame(existing, nextState as LibraryItem)
 
             if (hasRealChanges) {
                 item._v = Date.now()

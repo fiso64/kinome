@@ -12,6 +12,7 @@ import type {
   AppCapabilities
 } from '../../../shared/types'
 import type { ApiClient } from './api'
+import { authStore } from './auth-store.svelte'
 
 const BASE_URL = 'http://localhost:3000'
 
@@ -35,11 +36,15 @@ class WebApiClient implements ApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(authStore.token ? { 'Authorization': `Bearer ${authStore.token}` } : {}),
         ...options?.headers
       }
     })
 
     if (!response.ok) {
+      if (response.status === 401) {
+        authStore.logout()
+      }
       throw new Error(`API Error: ${response.statusText}`)
     }
 
@@ -393,6 +398,13 @@ class WebApiClient implements ApiClient {
 
   saveSettings(settings: Partial<Settings>): Promise<void> {
     return this.request('/api/save-settings', { method: 'POST', body: JSON.stringify(settings) })
+  }
+
+  changePassword(password: string): Promise<void> {
+    return this.request('/api/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    })
   }
 
   resolveMediaSourcePath(args: { path: string; isRelative: boolean }): Promise<string> {

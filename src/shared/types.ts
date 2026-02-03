@@ -186,6 +186,10 @@ export interface Settings {
   playerCommands: PlayerCommandConfig[]
   customActions: CustomActionConfig[]
   libraryLocation: string // The path to the library data directory.
+  adminPasswordHash?: string
+  allowUnauthenticated?: boolean
+  serverPort?: number
+  allowedIPs?: string[]
   mediaSourcePath?: string
   mediaSourcePathIsRelative?: boolean
   // Global defaults for layout-specific properties
@@ -545,3 +549,17 @@ export const SEARCH_INDEX_PROPERTIES = [
   'isMissing',
   '_v'
 ] as const
+
+export interface LoginRequest {
+  password?: string
+  setup?: boolean // If true, we are setting up the admin password
+}
+
+export interface AuthResponse {
+  success: boolean
+  token?: string
+  isAdmin: boolean
+  needsSetup: boolean
+  allowUnauthenticated: boolean
+  authenticated: boolean
+}

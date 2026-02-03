@@ -17,8 +17,10 @@
   import { modalStore } from './lib/modal-store.svelte'
   import { contextMenuStore } from './lib/context-menu-store.svelte'
   import { itemKeys, childKeys } from './lib/queries/query-keys'
-  import { api } from './lib/api'
+  import { getPlaylistUrl, api } from './lib/api'
   import { resolveViewSettings } from '../../shared/settings-helpers'
+  import { authStore } from './lib/auth-store.svelte'
+  import LoginPage from './components/layout/LoginPage.svelte'
   import { onMount } from 'svelte'
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
   import type {
@@ -84,24 +86,10 @@
   initializeSearchEffects()
 
   onMount(() => {
-    log('App mounted. Initializing V2 services...')
+    log('App mounted. Waiting for auth...')
 
-    // In V2, we rely on the URL or the store defaults ('root').
-    // We NO LONGER redirect to the real ID for the root, as the backend now supports
-    // 'root' as a stable alias for queries and invalidation.
-    navStoreV2.init()
-
-    api.getLibraryRoot().then((root) => {
-      if (root) rootId = root.id
-    })
-
-    api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
-    api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s))
-    api.getSettings().then((s) => (settings = s))
-
-    isScanning = false // Reset initial scanning state
-    log(`Initialization complete. isScanning: ${isScanning}`)
-
+    // Global event listeners are fine to register early, they won't
+    // trigger until the server emits something anyway.
     const unlistenSuggestions = api.onAutocompleteSuggestionsUpdated((s) => {
       allAutocompleteSuggestions = s
     })
@@ -128,6 +116,44 @@
       unlistenSuggestions()
       unlistenErrors()
       unlistenSettingsUpdated()
+    }
+  })
+
+  // --- Authenticated Initialization ---
+  let hasInitialized = $state(false)
+  $effect(() => {
+    if (authStore.isAuthenticated && !hasInitialized) {
+      log('User authenticated. Starting initial data fetch...')
+      hasInitialized = true
+
+      navStoreV2.init()
+
+      const handleError = (err: any) => console.error('[App] Init fetch failed:', err)
+
+      api
+        .getLibraryRoot()
+        .then((root) => {
+          if (root) rootId = root.id
+        })
+        .catch(handleError)
+
+      api
+        .getContinueWatchingItems()
+        .then((items) => (continueWatchingItems = items))
+        .catch(handleError)
+
+      api
+        .getAutocompleteSuggestions()
+        .then((s) => (allAutocompleteSuggestions = s))
+        .catch(handleError)
+
+      api
+        .getSettings()
+        .then((s) => (settings = s))
+        .catch(handleError)
+
+      isScanning = false // Reset initial scanning state
+      log(`Initialization complete. isScanning: ${isScanning}`)
     }
   })
 
@@ -242,7 +268,7 @@
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    const playlistUrl = `${window.location.origin}/api/playlist/${item.id}.m3u`
+    const playlistUrl = getPlaylistUrl(item.id)
     try {
       await navigator.clipboard.writeText(playlistUrl)
       notificationStore.add('Playlist link copied to clipboard!', 'success')
@@ -361,76 +387,84 @@
   />
 {/if}
 
-<QueryClientProvider client={queryClient}>
-  <ModalRoot
-    bind:settings
-    {groupByKeys}
-    onRefresh={handleRefresh}
-    onApplyInitialSettings={handleApplyInitialSettings}
-  />
-
-  <ContextMenuRoot {settings} onRefresh={handleRefresh} onItemClick={handleItemClick} />
-  <NotificationContainer />
-
-  {#if $autocompleteState.show}
-    <AutocompleteMenu
-      suggestions={$autocompleteState.suggestions}
-      position={$autocompleteState.position}
-      onSelect={$autocompleteState.onSelect}
-      activeIndex={$autocompleteState.activeIndex}
+{#if authStore.isChecking}
+  <div class="loading-screen">
+    <div class="spinner"></div>
+  </div>
+{:else if !authStore.isAuthenticated}
+  <LoginPage />
+{:else}
+  <QueryClientProvider client={queryClient}>
+    <ModalRoot
+      bind:settings
+      {groupByKeys}
+      onRefresh={handleRefresh}
+      onApplyInitialSettings={handleApplyInitialSettings}
     />
-  {/if}
 
-  <main>
-    {#if navStoreV2.state.path !== '/settings'}
-      <AppHeader
-        bind:this={appHeaderComponent}
-        {isRefreshing}
-        {isScanning}
-        isContextMenuVisible={contextMenuStore.isVisible}
-        on:refresh={handleRefresh}
-        on:openSettings={() => navStoreV2.navigateToSettings()}
-        on:openLayoutSelector={openLayoutSelector}
-        on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
-        on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
-        on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
-        {settings}
-        suggestions={allAutocompleteSuggestions}
+    <ContextMenuRoot {settings} onRefresh={handleRefresh} onItemClick={handleItemClick} />
+    <NotificationContainer />
+
+    {#if $autocompleteState.show}
+      <AutocompleteMenu
+        suggestions={$autocompleteState.suggestions}
+        position={$autocompleteState.position}
+        onSelect={$autocompleteState.onSelect}
+        activeIndex={$autocompleteState.activeIndex}
       />
     {/if}
 
-    {#if navStoreV2.state.path === '/settings'}
-      <SettingsView bind:settings />
-    {:else}
-      <MainView
-        {isScanning}
-        {continueWatchingItems}
-        {settings}
-        suggestions={allAutocompleteSuggestions}
-        on:scanLibrary={handleScan}
-        on:openLibrary={handleOpenLibrary}
-        on:itemClick={(e) => handleItemClick(e.detail.item)}
-        on:showContextMenu={(e) =>
-          handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-        on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
-        on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
-      />
-    {/if}
+    <main>
+      {#if navStoreV2.state.path !== '/settings'}
+        <AppHeader
+          bind:this={appHeaderComponent}
+          {isRefreshing}
+          {isScanning}
+          isContextMenuVisible={contextMenuStore.isVisible}
+          on:refresh={handleRefresh}
+          on:openSettings={() => navStoreV2.navigateToSettings()}
+          on:openLayoutSelector={openLayoutSelector}
+          on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+          on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
+          on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
+          {settings}
+          suggestions={allAutocompleteSuggestions}
+        />
+      {/if}
 
-    {#if searchStoreV2.isFilterBarVisible}
-      <FilterBar
-        suggestions={allAutocompleteSuggestions}
-        bind:query={searchStoreV2.filterQuery}
-        focusKey={searchStoreV2.filterFocusKey}
-        onClose={() => {
-          searchStoreV2.isFilterBarVisible = false
-          // Clear the filter state when it's manually closed.
-          searchStoreV2.clearFilter()
-        }}
-      />
-    {/if}
-  </main>
-</QueryClientProvider>
+      {#if navStoreV2.state.path === '/settings'}
+        <SettingsView bind:settings />
+      {:else}
+        <MainView
+          {isScanning}
+          {continueWatchingItems}
+          {settings}
+          suggestions={allAutocompleteSuggestions}
+          on:scanLibrary={handleScan}
+          on:openLibrary={handleOpenLibrary}
+          on:itemClick={(e) => handleItemClick(e.detail.item)}
+          on:showContextMenu={(e) =>
+            handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+          on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+          on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+        />
+      {/if}
+
+      {#if searchStoreV2.isFilterBarVisible}
+        <FilterBar
+          suggestions={allAutocompleteSuggestions}
+          bind:query={searchStoreV2.filterQuery}
+          focusKey={searchStoreV2.filterFocusKey}
+          onClose={() => {
+            searchStoreV2.isFilterBarVisible = false
+            // Clear the filter state when it's manually closed.
+            searchStoreV2.clearFilter()
+          }}
+        />
+      {/if}
+    </main>
+  </QueryClientProvider>
+{/if}
 
 <style>
   main {
@@ -440,5 +474,29 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .loading-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    background: #0f0f13;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border-top-color: #6366f1;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

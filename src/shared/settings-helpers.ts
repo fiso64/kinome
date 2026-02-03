@@ -27,10 +27,6 @@ export function resolveViewSettings(
   settings: Settings | null,
   ignoreLayers: Set<DefaultLayoutKey> = new Set()
 ): ResolutionInfo {
-  const fallbackSpecifics = Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG).reduce(
-    (acc, val) => ({ ...acc, ...val }),
-    {}
-  )
 
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {

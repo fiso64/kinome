@@ -107,6 +107,7 @@ export interface ApiClient {
   getSettings(): Promise<Settings>
   getLibraryMediaSourcePath(): Promise<string | null>
   saveSettings(settings: Partial<Settings>): Promise<void>
+  changePassword(password: string): Promise<void>
   resolveMediaSourcePath(args: { path: string; isRelative: boolean }): Promise<string>
   minimizeWindow(): void
   toggleMaximizeWindow(): void
@@ -129,13 +130,25 @@ import { webApi } from './web-api'
 
 const BASE_URL = 'http://localhost:3000'
 
+import { authStore } from './auth-store.svelte'
+
 /**
  * Returns a full HTTP URL for a library asset.
  * Replaces the old media-browser-asset:// protocol.
  */
 export function getAssetUrl(relativePath: string): string {
   if (!relativePath) return ''
-  return `${BASE_URL}/api/assets/${encodeURIComponent(relativePath)}`
+  const url = `${BASE_URL}/api/assets/${encodeURIComponent(relativePath)}`
+  return authStore.token ? `${url}?token=${authStore.token}` : url
+}
+
+/**
+ * Returns a full HTTP URL for a playlist.
+ */
+export function getPlaylistUrl(itemId: string): string {
+  if (!itemId) return ''
+  const url = `${BASE_URL}/api/playlist/${itemId}.m3u`
+  return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 
 export const api: ApiClient = webApi

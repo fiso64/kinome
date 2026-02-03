@@ -13,7 +13,8 @@ import { loadDbIntoMemory } from './services/library.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
 import { createServer as createViteServer } from 'vite'
-import type { MediaFile } from '../shared/types'
+import type { MediaFile, LoginRequest } from '../shared/types'
+import * as authService from './services/auth.service'
 
 const app = express()
 const server = createServer(app)
@@ -47,7 +48,104 @@ import v2Router from './routes/v2'
 app.use(cors())
 app.use(compression())
 app.use(express.json({ limit: '50mb' }))
+
+// --- Auth Middleware ---
+const authMiddleware = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const settings = await settingsService.readSettings()
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown'
+
+  // 1. IP Filtering
+  if (settings.allowedIPs && settings.allowedIPs.length > 0) {
+    const isAllowed = settings.allowedIPs.some(allowed => {
+      if (allowed.includes('/')) {
+        return clientIp === allowed
+      }
+      return clientIp === allowed || clientIp === `::ffff:${allowed}`
+    })
+
+    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1'
+
+    if (!isAllowed && !isLocal) {
+      console.warn(`[SEC] [IP_BLOCKED] Path: ${req.path}, IP: ${clientIp}`)
+      res.status(403).send('Forbidden: IP not allowed')
+      return
+    }
+  }
+
+  // 2. Auth Check
+  if (settings.allowUnauthenticated) {
+    return next()
+  }
+
+  // Public endpoints
+  const publicPaths = ['/login', '/check-auth', '/setup-admin']
+  if (publicPaths.includes(req.path)) {
+    return next()
+  }
+
+  // Check token in Header or Query (for streams)
+  const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.query.token as string)
+
+  if (token && authService.validateToken(token)) {
+    return next()
+  }
+
+  console.warn(`[SEC] [UNAUTHORIZED] Path: ${req.path}, IP: ${clientIp}, Reason: ${token ? 'Invalid Token' : 'Missing Token'}`)
+  res.status(401).send('Unauthorized')
+}
+
+app.use('/api', authMiddleware)
 app.use('/api/v2', v2Router)
+
+// --- Auth Endpoints ---
+
+app.get('/api/check-auth', async (req, res) => {
+  const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.query.token as string)
+
+  const isValid = token ? authService.validateToken(token) : false
+  const state = await authService.getAuthState()
+
+  // If we have a token but it's invalid, we should probably tell the client
+  // But the main thing is whether the client IS currently authenticated.
+  res.json({
+    ...state,
+    authenticated: state.allowUnauthenticated || isValid
+  })
+})
+
+app.post('/api/login', async (req, res) => {
+  const { password } = req.body as LoginRequest
+  if (!password) {
+    res.status(400).json({ success: false, message: 'Password required' })
+    return
+  }
+  const token = await authService.login(password)
+  if (token) {
+    res.json({ success: true, token })
+  } else {
+    res.status(401).json({ success: false, message: 'Invalid password' })
+  }
+})
+
+app.post('/api/setup-admin', async (req, res) => {
+  try {
+    const { password, unauthenticated } = req.body as any
+    const result = await authService.setupAdmin(password, unauthenticated)
+    res.json(result)
+  } catch (error: any) {
+    res.status(400).json({ success: false, message: error.message })
+  }
+})
+
+app.post('/api/change-password', async (req, res) => {
+  const { password } = req.body
+  if (!password) {
+    res.status(400).json({ success: false, message: 'Password required' })
+    return
+  }
+  await authService.updateAdminPassword(password)
+  res.json({ success: true })
+})
 
 // 3. Asset Protocol Replacement
 // FIX: Use a Regex Literal object. Strings like '/api/assets/(.*)' fail in Express 5.
@@ -392,7 +490,9 @@ app.get('/api/playlist/:id.m3u', async (req, res) => {
 
       m3uContent += `#EXTINF:-1,${title}\n`
       const filename = encodeURIComponent(item.name)
-      m3uContent += `${protocol}://${host}/api/stream/${item.id}/${filename}\n`
+      const token = req.query.token as string
+      const streamUrl = `${protocol}://${host}/api/stream/${item.id}/${filename}`
+      m3uContent += token ? `${streamUrl}?token=${token}\n` : `${streamUrl}\n`
     }
 
     const firstItem = playlist[0] as any
@@ -436,14 +536,18 @@ app.post('/api/execute-custom-action', async (req, res) => {
 
 app.get('/api/settings', async (_req, res) => {
   const settings = await settingsService.readSettings()
-  res.json(settings)
+  const sanitized = { ...settings }
+  delete sanitized.adminPasswordHash
+  res.json(sanitized)
 })
 
 app.post('/api/save-settings', async (req, res) => {
   await settingsService.saveSettingsChanges(req.body)
   const newSettings = await settingsService.readSettings()
-  webTransport.notifySettingsUpdated(newSettings)
-  res.json(newSettings)
+  const sanitized = { ...newSettings }
+  delete sanitized.adminPasswordHash
+  webTransport.notifySettingsUpdated(sanitized as any)
+  res.json(sanitized)
 })
 
 // 5. Initialize Server
@@ -474,8 +578,11 @@ async function start() {
 
   webTransport.initialize(server)
 
-  server.listen(port, () => {
-    console.log(`[Server] Media Browser Server running at http://localhost:${port}`)
+  const settings = await settingsService.readSettings()
+  const finalPort = settings.serverPort || port
+
+  server.listen(finalPort, () => {
+    console.log(`[Server] Media Browser Server running at http://localhost:${finalPort}`)
   })
 }
 
