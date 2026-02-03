@@ -138,7 +138,8 @@ import { authStore } from './auth-store.svelte'
  */
 export function getAssetUrl(relativePath: string): string {
   if (!relativePath) return ''
-  const url = `${BASE_URL}/api/assets/${encodeURIComponent(relativePath)}`
+  // Use relative path to leverage Vite proxy in dev and normal routing in prod
+  const url = `/api/assets/${encodeURIComponent(relativePath)}`
   return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 
@@ -147,7 +148,7 @@ export function getAssetUrl(relativePath: string): string {
  */
 export function getPlaylistUrl(itemId: string): string {
   if (!itemId) return ''
-  const url = `${BASE_URL}/api/playlist/${itemId}.m3u`
+  const url = `/api/playlist/${itemId}`
   return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 

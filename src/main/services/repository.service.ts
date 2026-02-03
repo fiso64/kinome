@@ -645,7 +645,7 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     }
   }
 
-  const rows = db.prepare(query).all(params) as any[]
+  const rows = db.prepare(query).all(...params) as any[]
   return rows.map(mapRowToLibraryItem)
 }
 

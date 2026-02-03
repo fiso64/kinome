@@ -1,15 +1,15 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import fs from 'fs'
 import * as pathsService from '../services/paths.service'
 import { SCHEMA_SQL } from './schema'
 
-let db: Database.Database | null = null
+let db: Database | null = null
 
 /**
  * Initializes the database connection.
  * If the database file does not exist, it creates it and runs the schema.
  */
-export function initializeDatabase(): Database.Database {
+export function initializeDatabase(): Database {
   if (db) return db
 
   if (pathsService.isRemoteLibrary()) {
@@ -24,36 +24,35 @@ export function initializeDatabase(): Database.Database {
   console.log(`[Database] Connecting to ${dbPath}`)
 
   try {
-    db = new Database(dbPath)
+    // Bun's Database automatically creates the file if it doesn't exist by default.
+    db = new Database(dbPath, { create: true })
 
     // Performance optimizations
-    db.pragma('journal_mode = WAL') // Better concurrency
-    db.pragma('synchronous = NORMAL') // Faster writes with reasonable safety
-    db.pragma('foreign_keys = ON') // Enforce constraints
+    db.run('PRAGMA journal_mode = WAL') // Better concurrency
+    db.run('PRAGMA synchronous = NORMAL') // Faster writes with reasonable safety
+    db.run('PRAGMA foreign_keys = ON') // Enforce constraints
 
     applySchema()
 
     // Auto-migration for dismissal flags
     try {
-      db.prepare(
-        'ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0'
-      ).run()
+      db.run('ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0')
     } catch { }
     try {
-      db.prepare('ALTER TABLE user_state ADD COLUMN next_up_dismissed INTEGER DEFAULT 0').run()
+      db.run('ALTER TABLE user_state ADD COLUMN next_up_dismissed INTEGER DEFAULT 0')
     } catch { }
     try {
-      db.prepare('ALTER TABLE metadata ADD COLUMN version INTEGER').run()
+      db.run('ALTER TABLE metadata ADD COLUMN version INTEGER')
     } catch { }
     // V2 API Migrations
     try {
-      db.prepare('ALTER TABLE metadata ADD COLUMN media_type TEXT').run()
+      db.run('ALTER TABLE metadata ADD COLUMN media_type TEXT')
     } catch { }
     try {
-      db.prepare('ALTER TABLE metadata ADD COLUMN season_number INTEGER').run()
+      db.run('ALTER TABLE metadata ADD COLUMN season_number INTEGER')
     } catch { }
     try {
-      db.prepare('ALTER TABLE metadata ADD COLUMN episode_number INTEGER').run()
+      db.run('ALTER TABLE metadata ADD COLUMN episode_number INTEGER')
     } catch { }
 
     return db
@@ -76,7 +75,7 @@ function applySchema() {
   }
 }
 
-export function getDb(): Database.Database {
+export function getDb(): Database {
   if (!db) {
     throw new Error('Database not initialized. Call initializeDatabase() first.')
   }

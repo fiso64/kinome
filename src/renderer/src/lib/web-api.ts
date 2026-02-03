@@ -1,4 +1,3 @@
-import { io, Socket } from 'socket.io-client'
 import type {
   Settings,
   MediaFile,
@@ -14,19 +13,62 @@ import type {
 import type { ApiClient } from './api'
 import { authStore } from './auth-store.svelte'
 
-const BASE_URL = 'http://localhost:3000'
+const BASE_URL = ''
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 
 class WebApiClient implements ApiClient {
-  private socket: Socket
+  private ws: WebSocket | null = null
+  private eventHandlers: Map<string, Set<(data: any) => void>> = new Map()
   public readonly capabilities: AppCapabilities
 
   constructor() {
-    this.socket = io(BASE_URL)
+    this.connectWS()
     console.log('[WebApiClient] Initialized.')
 
     this.capabilities = {
       hasWindowControls: false,
       supportsLocalPlayback: false // Server cannot launch a player on the client's machine
+    }
+  }
+
+  private connectWS() {
+    console.log('[WebApiClient] Connecting to WebSocket...')
+    this.ws = new WebSocket(WS_URL)
+
+    this.ws.onopen = () => {
+      console.log('[WebApiClient] WebSocket connected.')
+    }
+
+    this.ws.onmessage = (event) => {
+      try {
+        const { type, data } = JSON.parse(event.data)
+        const handlers = this.eventHandlers.get(type)
+        if (handlers) {
+          handlers.forEach((handler) => handler(data))
+        }
+      } catch (e) {
+        console.error('[WebApiClient] Failed to parse WS message:', e)
+      }
+    }
+
+    this.ws.onclose = () => {
+      console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
+      setTimeout(() => this.connectWS(), 3000)
+    }
+
+    this.ws.onerror = (error) => {
+      console.error('[WebApiClient] WebSocket error:', error)
+      this.ws?.close()
+    }
+  }
+
+  private on(event: string, callback: (data: any) => void): () => void {
+    if (!this.eventHandlers.has(event)) {
+      this.eventHandlers.set(event, new Set())
+    }
+    this.eventHandlers.get(event)!.add(callback)
+    return () => {
+      this.eventHandlers.get(event)?.delete(callback)
     }
   }
 
@@ -428,30 +470,24 @@ class WebApiClient implements ApiClient {
     return Promise.resolve(false)
   }
 
-  // --- Real-time updates (Socket.io) ---
+  // --- Real-time updates (Native WS) ---
 
   onWindowMaximizedStatus(_callback: (isMaximized: boolean) => void): () => void {
     return () => { }
   }
 
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
-    const handler = (itemId: string) => callback(itemId)
-    this.socket.on('library-item-deleted', handler)
-    return () => this.socket.off('library-item-deleted', handler)
+    return this.on('library-item-deleted', callback)
   }
 
   onLibraryItemsUpdated(callback: (items: LibraryItem[]) => void): () => void {
-    const handler = (items: LibraryItem[]) => callback(items)
-    this.socket.on('library-items-updated', handler)
-    return () => this.socket.off('library-items-updated', handler)
+    return this.on('library-items-updated', callback)
   }
 
   onAutocompleteSuggestionsUpdated(
     callback: (suggestions: AutocompleteSuggestions) => void
   ): () => void {
-    const handler = (suggestions: AutocompleteSuggestions) => callback(suggestions)
-    this.socket.on('autocomplete-suggestions-updated', handler)
-    return () => this.socket.off('autocomplete-suggestions-updated', handler)
+    return this.on('autocomplete-suggestions-updated', callback)
   }
 
   onShowErrorDialog(
@@ -461,15 +497,11 @@ class WebApiClient implements ApiClient {
   }
 
   onForceReloadForNewLibrary(callback: () => void): () => void {
-    const handler = () => callback()
-    this.socket.on('force-reload-for-new-library', handler)
-    return () => this.socket.off('force-reload-for-new-library', handler)
+    return this.on('force-reload-for-new-library', callback)
   }
 
   onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void {
-    const handler = (newSettings: Settings) => callback(newSettings)
-    this.socket.on('settings-possibly-updated', handler)
-    return () => this.socket.off('settings-possibly-updated', handler)
+    return this.on('settings-possibly-updated', callback)
   }
 }
 

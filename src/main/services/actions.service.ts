@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+// Bun native child process handling via Bun.spawn
 import path from 'path'
 import { URL } from 'url'
 import fs, { readdir, stat } from 'fs/promises'
@@ -50,16 +50,9 @@ export async function playFileWith(
     ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
     : path.join(mediaSourcePath, file.path)
   const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
-  log(`Executing: ${commandToExecute}`)
-  exec(commandToExecute, (error) => {
-    if (error) {
-      onError({
-        title: 'Player Error',
-        message: 'Failed to launch the external player.',
-        detail: `Command: ${commandToExecute}\nError: ${error.message}`
-      })
-    }
-  })
+  log(`Executing (NOT IMPLEMENTED): ${commandToExecute}`)
+
+  // This used to be an electron app, where the client and server ran on the same machine. It does not make any sense to launch a video player on the server. We do nothing for now. 
 
   // The responsibility of updating the watched state is moved to the orchestrator (library.service).
   return true
@@ -97,13 +90,15 @@ export async function executeCustomAction(
     .replace(/{type}/g, item.mediaType ?? '')
     .replace(/{year}/g, item.year?.toString() ?? '')
   log(`Executing custom action: ${commandToExecute}`)
-  exec(commandToExecute, (error) => {
-    if (error) {
-      onError({
-        title: 'Custom Action Error',
-        message: 'Failed to execute the custom command.',
-        detail: `Command: ${commandToExecute}\nError: ${error.message}`
-      })
+  Bun.spawn(commandToExecute.split(' '), {
+    onExit(_proc: any, exitCode: any, _signalCode: any, error: any) {
+      if (error || exitCode !== 0) {
+        onError({
+          title: 'Custom Action Error',
+          message: 'Failed to execute the custom command.',
+          detail: `Command: ${commandToExecute}\nError: ${error?.message || 'Exit code ' + exitCode}`
+        })
+      }
     }
   })
 }
@@ -116,16 +111,16 @@ export async function revealInExplorer(relativePath: string): Promise<void> {
     log(`Open URL requested (No-op on server): ${absolutePath}`)
     return
   }
-
+  // TODO: Again, this does not make any sense on the server.
   log(`Revealing in explorer: ${absolutePath}`)
-  const command =
+  const commandArray =
     process.platform === 'win32'
-      ? `explorer /select,"${absolutePath}"`
+      ? ['explorer', '/select,' + absolutePath]
       : process.platform === 'darwin'
-        ? `open -R "${absolutePath}"`
-        : `xdg-open "${path.dirname(absolutePath)}"`
+        ? ['open', '-R', absolutePath]
+        : ['xdg-open', path.dirname(absolutePath)]
 
-  exec(command)
+  Bun.spawn(commandArray)
 }
 
 export async function trashItem(relativePath: string): Promise<boolean> {

@@ -1,9 +1,8 @@
-import express from 'express'
-import cors from 'cors'
-import { createServer } from 'http'
+import { Elysia, t } from 'elysia'
+import { cors } from '@elysiajs/cors'
+import { staticPlugin } from '@elysiajs/static'
 import path from 'path'
 import fs from 'fs'
-import compression from 'compression'
 
 import { initializeStartup } from './services/startup.service'
 import * as libraryService from './services/library.service'
@@ -12,15 +11,12 @@ import { resolveLibraryPath } from './services/paths.service'
 import { loadDbIntoMemory } from './services/library.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
-import { createServer as createViteServer } from 'vite'
-import type { MediaFile, LoginRequest } from '../shared/types'
 import * as authService from './services/auth.service'
-
-const app = express()
-const server = createServer(app)
-const port = process.env.PORT || 3000
+import { v2Routes } from './routes/v2.elysia'
 
 // 1. Initialize Services
+const port = process.env.PORT || 3000
+
 function getDefaultUserDataPath(): string {
   const appName = 'media-browser'
   if (process.platform === 'win32') {
@@ -42,564 +38,363 @@ initializeStartup(userDataPath)
 const webTransport = new WebTransport()
 setTransport(webTransport)
 
-import v2Router from './routes/v2'
-
-// 2. Middleware
-app.use((req, _res, next) => {
-  const url = req.originalUrl
-  if (url.startsWith('/api/') && !url.startsWith('/api/assets')) {
-    const start = Date.now()
-    const ip = req.ip || req.socket.remoteAddress || 'unknown'
-    console.log(`[API] [REQUEST] ${req.method} ${url} from ${ip}`)
-
-    // Hook into response finish to log status and time
-    _res.on('finish', () => {
-      const duration = Date.now() - start
-      console.log(`[API] [RESPONSE] ${req.method} ${url} - Status: ${_res.statusCode} (${duration}ms)`)
-    })
-  }
-
-  next()
-})
-
-app.use(cors())
-app.use(compression())
-app.use(express.json({ limit: '50mb' }))
-
-// --- Auth Middleware ---
-const authMiddleware = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const settings = await settingsService.readSettings()
-  const clientIp = req.ip || req.socket.remoteAddress || 'unknown'
-
-  // 1. IP Filtering
-  if (settings.allowedIPs && settings.allowedIPs.length > 0) {
-    const isAllowed = settings.allowedIPs.some(allowed => {
-      if (allowed.includes('/')) {
-        return clientIp === allowed
-      }
-      return clientIp === allowed || clientIp === `::ffff:${allowed}`
-    })
-
-    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1'
-
-    if (!isAllowed && !isLocal) {
-      console.warn(`[SEC] [IP_BLOCKED] Path: ${req.path}, IP: ${clientIp}`)
-      res.status(403).send('Forbidden: IP not allowed')
-      return
+// 2. Setup Elysia App
+const app = new Elysia()
+  .use(cors())
+  // Logger Middleware
+  .onBeforeHandle(({ request }) => {
+    const url = new URL(request.url).pathname
+    if (url.startsWith('/api/') && !url.startsWith('/api/assets')) {
+      (request as any)._startTime = Date.now()
+      console.log(`[API] [REQUEST] ${request.method} ${url}`)
     }
-  }
-
-  // 2. Auth Check
-  if (settings.allowUnauthenticated) {
-    return next()
-  }
-
-  // Public endpoints
-  const publicPaths = ['/login', '/check-auth', '/setup-admin']
-  if (publicPaths.includes(req.path)) {
-    return next()
-  }
-
-  // Check token in Header or Query (for streams)
-  const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.query.token as string)
-
-  if (token && authService.validateToken(token)) {
-    return next()
-  }
-
-  console.warn(`[SEC] [UNAUTHORIZED] Path: ${req.path}, IP: ${clientIp}, Reason: ${token ? 'Invalid Token' : 'Missing Token'}`)
-  res.status(401).send('Unauthorized')
-}
-
-app.use('/api', authMiddleware)
-app.use('/api/v2', v2Router)
-
-// --- Auth Endpoints ---
-
-app.get('/api/check-auth', async (req, res) => {
-  const token = (req.headers['authorization'] as string)?.replace('Bearer ', '') || (req.query.token as string)
-
-  const isValid = token ? authService.validateToken(token) : false
-  const state = await authService.getAuthState()
-
-  // If we have a token but it's invalid, we should probably tell the client
-  // But the main thing is whether the client IS currently authenticated.
-  res.json({
-    ...state,
-    authenticated: state.allowUnauthenticated || isValid
   })
-})
+  .onAfterHandle(({ request, set }) => {
+    const url = new URL(request.url).pathname
+    if (url.startsWith('/api/') && !url.startsWith('/api/assets')) {
+      const duration = Date.now() - ((request as any)._startTime || Date.now())
+      console.log(`[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`)
+    }
+  })
+  // Auth Middleware
+  .derive(async ({ request, set }) => {
+    const url = new URL(request.url).pathname
+    if (!url.startsWith('/api')) return {}
 
-app.post('/api/login', async (req, res) => {
-  const { password } = req.body as LoginRequest
-  if (!password) {
-    res.status(400).json({ success: false, message: 'Password required' })
-    return
-  }
-  const token = await authService.login(password)
-  if (token) {
-    res.json({ success: true, token })
-  } else {
-    res.status(401).json({ success: false, message: 'Invalid password' })
-  }
-})
+    const settings = await settingsService.readSettings()
 
-app.post('/api/setup-admin', async (req, res) => {
-  try {
-    const { password, unauthenticated } = req.body as any
-    const result = await authService.setupAdmin(password, unauthenticated)
-    res.json(result)
-  } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message })
-  }
-})
-
-app.post('/api/change-password', async (req, res) => {
-  const { password } = req.body
-  if (!password) {
-    res.status(400).json({ success: false, message: 'Password required' })
-    return
-  }
-  await authService.updateAdminPassword(password)
-  res.json({ success: true })
-})
-
-// 3. Asset Protocol Replacement
-// FIX: Use a Regex Literal object. Strings like '/api/assets/(.*)' fail in Express 5.
-// Matches /api/assets/ followed by anything. Capture group is in req.params[0].
-app.get(/^\/api\/assets\/(.*)/, (req, res) => {
-  try {
-    const pathParam = req.params[0] as string
-    let relativePath = Array.isArray(pathParam) ? pathParam.join('/') : pathParam
-
-    // Express regex params might be encoded or decoded depending on context, 
-    // safe decode here to ensure filesystem compatibility.
-    relativePath = decodeURIComponent(relativePath)
-
-    if (relativePath.includes('?')) {
-      relativePath = relativePath.split('?')[0]
+    // Auth Check Logic
+    const isPublic = ['/api/login', '/api/check-auth', '/api/setup-admin', '/api/assets'].some(p => url.startsWith(p))
+    if (settings.allowUnauthenticated || isPublic) {
+      return { authenticated: true }
     }
 
-    let fullPath = resolveLibraryPath(relativePath)
+    // Check token
+    const authHeader = request.headers.get('authorization')
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : new URL(request.url).searchParams.get('token')
 
-    if (!fs.existsSync(fullPath)) {
-      const imagesPath = resolveLibraryPath(path.join('images', relativePath))
-      if (fs.existsSync(imagesPath)) {
-        fullPath = imagesPath
+    if (token && authService.validateToken(token)) {
+      return { authenticated: true }
+    }
+
+    // If not authenticated and not public, throw error or set status
+    if (url.startsWith('/api') && !isPublic) {
+      set.status = 401
+      throw new Error('Unauthorized')
+    }
+
+    return { authenticated: false }
+  })
+  // WebSocket
+  .ws('/ws', {
+    open(ws) {
+      console.log(`[WebTransport] Client connected: ${ws.id}`)
+      ws.subscribe('broadcast')
+    },
+    close(ws) {
+      console.log(`[WebTransport] Client disconnected: ${ws.id}`)
+    }
+  })
+  // Assets (High-performance streaming)
+  .get('/api/assets/*', async ({ params, set }) => {
+    try {
+      let relativePath = decodeURIComponent(params['*'])
+      if (relativePath.includes('?')) {
+        relativePath = relativePath.split('?')[0]
       }
-    }
 
-    if (fs.existsSync(fullPath)) {
-      res.sendFile(fullPath, { dotfiles: 'allow' })
-    } else {
-      res.status(404).send('Not found')
-    }
-  } catch (_e) {
-    res.status(500).send('Error')
-  }
-})
+      let fullPath = resolveLibraryPath(relativePath)
 
-// 4. API Endpoints
-app.post('/api/perform-search', async (req, res) => {
-  const result = await libraryService.performSearch(req.body)
-  res.json(result)
-})
-
-app.get('/api/library-root', async (_req, res) => {
-  const root = await libraryService.getLibraryRoot()
-  res.json(root)
-})
-
-app.get('/api/item-details/:id', async (req, res) => {
-  const details = await libraryService.getItemDetails(req.params.id)
-  res.json(details)
-})
-
-app.get('/api/item-by-id/:id', async (req, res) => {
-  const item = await libraryService.getItemById(req.params.id)
-  res.json(item)
-})
-
-app.get('/api/children/:id', async (req, res) => {
-  const children = await libraryService.getChildren(req.params.id)
-  res.json(children)
-})
-
-app.get('/api/hidden-children/:id', async (req, res) => {
-  const children = await libraryService.getHiddenChildren(req.params.id)
-  res.json(children)
-})
-
-app.get('/api/parent/:id', async (req, res) => {
-  const parent = await libraryService.getParent(req.params.id)
-  res.json(parent)
-})
-
-app.get('/api/autocomplete-suggestions', async (_req, res) => {
-  const suggestions = await libraryService.getAutocompleteSuggestions()
-  res.json(suggestions)
-})
-
-app.post('/api/user-update-item', async (req, res) => {
-  await libraryService.updateItem(req.body, true)
-  res.sendStatus(200)
-})
-
-app.post('/api/apply-initial-folder-settings', async (req, res) => {
-  await libraryService.applyInitialFolderSettings(req.body.settings)
-  res.sendStatus(200)
-})
-
-// --- Control Operations ---
-
-app.post('/api/perform-initial-scan', async (req, res) => {
-  const { path } = req.body
-  if (!path || typeof path !== 'string') {
-    console.error('[API] /perform-initial-scan: No valid path provided.')
-    res.status(400).send('Path is required')
-    return
-  }
-  const root = await libraryService.performInitialScan(path)
-  res.json(root)
-})
-
-app.post('/api/perform-full-rescan', async (req, res) => {
-  const root = await libraryService.performFullRescan(req.body.path)
-  res.json(root)
-})
-
-app.post('/api/refresh-library', async (_req, res) => {
-  const root = await libraryService.refreshLibrary()
-  res.json(root)
-})
-
-// --- Playback ---
-
-app.post('/api/play-file', async (req, res) => {
-  const success = await libraryService.playFile(req.body.file, (opt) => console.log(opt))
-  res.json({ success })
-})
-
-app.post('/api/play-file-with', async (req, res) => {
-  const success = await libraryService.playFileWith(req.body.file, req.body.command, (opt) =>
-    console.log(opt)
-  )
-  res.json({ success })
-})
-
-app.post('/api/record-playback', async (req, res) => {
-  await libraryService.recordPlayback(req.body.itemId)
-  res.sendStatus(204)
-})
-
-// --- Metadata & Images ---
-
-app.post('/api/assign-seasons-and-episodes', async (req, res) => {
-  const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = req.body
-  try {
-    await libraryService.assignSeasonsAndEpisodes(
-      showId,
-      seasonStrategy,
-      episodeStrategy,
-      fetchMetadata
-    )
-    res.json({ success: true })
-  } catch (error: any) {
-    console.error('[API] Failed to assign seasons:', error)
-    res.status(500).json({ error: error.message })
-  }
-})
-
-app.post('/api/clear-item-metadata', async (req, res) => {
-  const success = await libraryService.clearItemMetadata(req.body.itemId, req.body.childrenOnly)
-  res.json({ success })
-})
-
-app.post('/api/clear-virtual-folder-metadata', async (req, res) => {
-  const success = await libraryService.clearVirtualFolderMetadata(req.body.itemIds)
-  res.json({ success })
-})
-
-app.post('/api/fetch-credits', async (req, res) => {
-  await libraryService.fetchCredits(req.body.itemId)
-  res.sendStatus(200)
-})
-
-app.post('/api/manual-search', async (req, res) => {
-  const settings = await settingsService.readSettings()
-  const results = await libraryService.manualSearch(
-    req.body.query,
-    req.body.type,
-    settings.tmdbApiKey,
-    req.body.year,
-    req.body.tmdbId
-  )
-  res.json(results)
-})
-
-app.post('/api/get-tmdb-images', async (req, res) => {
-  const settings = await settingsService.readSettings()
-  const results = await libraryService.getTmdbImages(
-    req.body.tmdbId,
-    req.body.mediaType,
-    settings.tmdbApiKey,
-    req.body.language
-  )
-  res.json(results)
-})
-
-app.post('/api/user-apply-tmdb-result', async (req, res) => {
-  await libraryService.applyManualMatch(req.body.itemId, req.body.result, req.body.mediaType)
-  res.sendStatus(200)
-})
-
-app.post('/api/user-set-image', async (req, res) => {
-  await libraryService.setImage(req.body.itemId, req.body.imageType, req.body.source)
-  res.sendStatus(200)
-})
-
-app.post('/api/remove-image', async (req, res) => {
-  await libraryService.removeImage(req.body.itemId, req.body.imageType)
-  res.sendStatus(200)
-})
-
-// --- Watched State ---
-
-app.post('/api/mark-watched', async (req, res) => {
-  await libraryService.markAsWatched(req.body.itemId)
-  res.sendStatus(200)
-})
-
-app.post('/api/mark-unwatched', async (req, res) => {
-  await libraryService.markAsUnwatched(req.body.itemId)
-  res.sendStatus(200)
-})
-
-app.get('/api/folder-watched-state/:id', async (req, res) => {
-  const state = await libraryService.getFolderWatchedState(req.params.id)
-  res.json({ state })
-})
-
-// --- Continue Watching ---
-
-app.get('/api/continue-watching-items', async (_req, res) => {
-  const items = await libraryService.getContinueWatchingItems()
-  res.json(items)
-})
-
-app.get('/api/continue-watching-for-show/:id', async (req, res) => {
-  const item = await libraryService.getContinueWatchingForShow(req.params.id)
-  res.json(item)
-})
-
-app.post('/api/dismiss-continue-watching', async (req, res) => {
-  await libraryService.setContinueWatchingDismissed(req.body.itemId)
-  res.sendStatus(200)
-})
-
-app.post('/api/dismiss-next-up', async (req, res) => {
-  await libraryService.setNextUpDismissed(req.body.itemId)
-  res.sendStatus(200)
-})
-
-// --- Filesystem Actions ---
-
-app.post('/api/reveal-in-explorer', async (req, res) => {
-  await libraryService.revealInExplorer(req.body.path)
-  res.sendStatus(200)
-})
-
-app.post('/api/trash-item', async (req, res) => {
-  const success = await libraryService.trashItem(req.body.path)
-  res.json({ success })
-})
-
-app.post('/api/delete-item-from-db', async (req, res) => {
-  const success = await libraryService.deleteItemFromDb(req.body.itemId)
-  res.json({ success })
-})
-
-app.post('/api/rename-item', async (req, res) => {
-  const success = await libraryService.renameItem(req.body.oldPath, req.body.newName)
-  res.json({ success })
-})
-
-// FIX: Replaced string wildcard with Regex. Matches /api/item-properties/ followed by anything.
-app.get(/^\/api\/item-properties\/(.*)/, async (req, res) => {
-  const pathParam = req.params[0]
-  const itemPath = (Array.isArray(pathParam) ? pathParam.join('/') : pathParam) as string
-  const props = await libraryService.getItemProperties(itemPath)
-  res.json(props)
-})
-
-// --- Settings ---
-
-const streamHandler = async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    const id = req.params.id as string
-    const item = (await libraryService.getItemById(id)) as MediaFile | null
-    if (!item || !item.path) {
-      res.status(404).send('File not found')
-      return
-    }
-
-    const filePath = await libraryService.getAbsolutePath(item.path)
-    if (!filePath) {
-      res.status(404).send('File not found')
-      return
-    }
-
-    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      const lastWatched = item.lastWatched || 0
-      if (Date.now() - lastWatched > 60000) {
-        libraryService.recordPlayback(id).catch((err) => {
-          console.error(`[Server] Failed to record playback for remote item ${id}:`, err)
-        })
-      }
-      res.redirect(filePath)
-      return
-    }
-
-    res.sendFile(filePath, (err) => {
-      if (!err && res.statusCode < 400) {
-        libraryService.getItemById(id).then((freshItem) => {
-          const lastWatched = freshItem?.lastWatched || 0
-          if (Date.now() - lastWatched > 60000) {
-            libraryService.recordPlayback(id).catch((recordErr) => {
-              console.error(`[Server] Failed to record playback for item ${id}:`, recordErr)
-            })
-          }
-        })
-      } else if (err) {
-        if (!res.headersSent) {
-          console.error(`[Server] Error starting stream for item ${id}:`, err)
+      if (!fs.existsSync(fullPath)) {
+        const imagesPath = resolveLibraryPath(path.join('images', relativePath))
+        if (fs.existsSync(imagesPath)) {
+          fullPath = imagesPath
         }
       }
+
+      if (fs.existsSync(fullPath)) {
+        return Bun.file(fullPath)
+      } else {
+        set.status = 404
+        return 'Not found'
+      }
+    } catch (e) {
+      set.status = 500
+      return 'Error'
+    }
+  })
+  // API Routes
+  .group('/api', app => app
+    .get('/check-auth', async ({ request }) => {
+      const authHeader = request.headers.get('authorization')
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : new URL(request.url).searchParams.get('token')
+
+      const isValid = token ? authService.validateToken(token) : false
+      const state = await authService.getAuthState()
+
+      return {
+        ...state,
+        authenticated: state.allowUnauthenticated || isValid
+      }
     })
-  } catch (e) {
-    console.error('Error serving stream:', e)
-    res.sendStatus(500)
-  }
+    .post('/login', async ({ body }: { body: any }) => {
+      const { password } = body
+      if (!password) {
+        return { success: false, message: 'Password required' }
+      }
+      const token = await authService.login(password)
+      if (token) {
+        return { success: true, token }
+      } else {
+        return { success: false, message: 'Invalid password' }
+      }
+    })
+    .post('/setup-admin', async ({ body }: { body: any }) => {
+      try {
+        const { password, unauthenticated } = body
+        return await authService.setupAdmin(password, unauthenticated)
+      } catch (error: any) {
+        return { success: false, message: error.message }
+      }
+    })
+    .post('/change-password', async ({ body }: { body: any }) => {
+      const { password } = body
+      if (!password) {
+        return { success: false, message: 'Password required' }
+      }
+      await authService.updateAdminPassword(password)
+      return { success: true }
+    })
+    // Library Endpoints
+    .post('/perform-search', ({ body }: { body: any }) => libraryService.performSearch(body))
+    .get('/library-root', () => libraryService.getLibraryRoot())
+    .get('/item-details/:id', ({ params }) => libraryService.getItemDetails(params.id))
+    .get('/item-by-id/:id', ({ params }) => libraryService.getItemById(params.id))
+    .get('/children/:id', ({ params }) => libraryService.getChildren(params.id))
+    .get('/hidden-children/:id', ({ params }) => libraryService.getHiddenChildren(params.id))
+    .get('/parent/:id', ({ params }) => libraryService.getParent(params.id))
+    .get('/autocomplete-suggestions', () => libraryService.getAutocompleteSuggestions())
+    .post('/user-update-item', async ({ body }: { body: any }) => {
+      await libraryService.updateItem(body, true)
+      return 'OK'
+    })
+    .post('/apply-initial-folder-settings', async ({ body }: { body: any }) => {
+      await libraryService.applyInitialFolderSettings(body.settings)
+      return 'OK'
+    })
+    .post('/perform-initial-scan', async ({ body, set }: { body: any, set: any }) => {
+      const { path } = body
+      if (!path || typeof path !== 'string') {
+        set.status = 400
+        return 'Path is required'
+      }
+      return libraryService.performInitialScan(path)
+    })
+    .post('/perform-full-rescan', ({ body }: { body: any }) => libraryService.performFullRescan(body.path))
+    .post('/refresh-library', () => libraryService.refreshLibrary())
+    .post('/play-file', ({ body }: { body: any }) => libraryService.playFile(body.file, (opt) => console.log(opt)))
+    .post('/play-file-with', ({ body }: { body: any }) => libraryService.playFileWith(body.file, body.command, (opt) => console.log(opt)))
+    .post('/record-playback', async ({ body }: { body: any }) => {
+      await libraryService.recordPlayback(body.itemId)
+      return 'OK'
+    })
+    .post('/assign-seasons-and-episodes', async ({ body, set }: { body: any, set: any }) => {
+      const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = body
+      try {
+        await libraryService.assignSeasonsAndEpisodes(showId, seasonStrategy, episodeStrategy, fetchMetadata)
+        return { success: true }
+      } catch (error: any) {
+        set.status = 500
+        return { error: error.message }
+      }
+    })
+    .post('/clear-item-metadata', ({ body }: { body: any }) => libraryService.clearItemMetadata(body.itemId, body.childrenOnly))
+    .post('/clear-virtual-folder-metadata', ({ body }: { body: any }) => libraryService.clearVirtualFolderMetadata(body.itemIds))
+    .post('/fetch-credits', async ({ body }: { body: any }) => {
+      await libraryService.fetchCredits(body.itemId)
+      return 'OK'
+    })
+    .post('/manual-search', async ({ body }: { body: any }) => {
+      const settings = await settingsService.readSettings()
+      return libraryService.manualSearch(body.query, body.type, settings.tmdbApiKey, body.year, body.tmdbId)
+    })
+    .post('/get-tmdb-images', async ({ body }: { body: any }) => {
+      const settings = await settingsService.readSettings()
+      return libraryService.getTmdbImages(body.tmdbId, body.mediaType, settings.tmdbApiKey, body.language)
+    })
+    .post('/user-apply-tmdb-result', async ({ body }: { body: any }) => {
+      await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
+      return 'OK'
+    })
+    .post('/user-set-image', async ({ body }: { body: any }) => {
+      await libraryService.setImage(body.itemId, body.imageType, body.source)
+      return 'OK'
+    })
+    .post('/remove-image', async ({ body }: { body: any }) => {
+      await libraryService.removeImage(body.itemId, body.imageType)
+      return 'OK'
+    })
+    .post('/mark-watched', async ({ body }: { body: any }) => {
+      await libraryService.markAsWatched(body.itemId)
+      return 'OK'
+    })
+    .post('/mark-unwatched', async ({ body }: { body: any }) => {
+      await libraryService.markAsUnwatched(body.itemId)
+      return 'OK'
+    })
+    .get('/folder-watched-state/:id', async ({ params }) => {
+      const state = await libraryService.getFolderWatchedState(params.id)
+      return { state }
+    })
+    .get('/continue-watching-items', () => libraryService.getContinueWatchingItems())
+    .get('/continue-watching-for-show/:id', ({ params }) => libraryService.getContinueWatchingForShow(params.id))
+    .post('/dismiss-continue-watching', async ({ body }: { body: any }) => {
+      await libraryService.setContinueWatchingDismissed(body.itemId)
+      return 'OK'
+    })
+    .post('/dismiss-next-up', async ({ body }: { body: any }) => {
+      await libraryService.setNextUpDismissed(body.itemId)
+      return 'OK'
+    })
+    .post('/reveal-in-explorer', async ({ body }: { body: any }) => {
+      await libraryService.revealInExplorer(body.path)
+      return 'OK'
+    })
+    .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.path))
+    .post('/delete-item-from-db', ({ body }: { body: any }) => libraryService.deleteItemFromDb(body.itemId))
+    .post('/rename-item', ({ body }: { body: any }) => libraryService.renameItem(body.oldPath, body.newName))
+    .get('/item-properties/*', async ({ params }) => {
+      const itemPath = decodeURIComponent(params['*'])
+      return libraryService.getItemProperties(itemPath)
+    })
+    // Streaming
+    .get('/stream/:id', async ({ params, set }) => {
+      const item = await libraryService.getItemById(params.id) as any
+      if (!item || !item.path) {
+        set.status = 404
+        return 'File not found'
+      }
+      const filePath = await libraryService.getAbsolutePath(item.path)
+      if (!filePath) {
+        set.status = 404
+        return 'File not found'
+      }
+      if (filePath.startsWith('http')) {
+        return Response.redirect(filePath)
+      }
+      return Bun.file(filePath)
+    })
+    .get('/stream/:id/:filename', async ({ params, set }) => {
+      const item = await libraryService.getItemById(params.id) as any
+      if (!item || !item.path) {
+        set.status = 404
+        return 'File not found'
+      }
+      const filePath = await libraryService.getAbsolutePath(item.path)
+      if (!filePath) {
+        set.status = 404
+        return 'File not found'
+      }
+      return Bun.file(filePath)
+    })
+    .get('/playlist/:id', async ({ params, query, request, set }) => {
+      try {
+        const id = params.id.endsWith('.m3u') ? params.id.slice(0, -4) : params.id
+        const playlist = await libraryService.generatePlaylist(id)
+        if (!playlist || playlist.length === 0) {
+          set.status = 404
+          return 'Item not found'
+        }
+
+        const url = new URL(request.url)
+        const host = url.host
+        const protocol = url.protocol
+
+        let m3uContent = '#EXTM3U\n'
+        for (const item of playlist) {
+          let title = item.title || item.name
+          const f = item as any
+          if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
+            const s = f.seasonNumber.toString().padStart(2, '0')
+            const e = f.episodeNumber.toString().padStart(2, '0')
+            title = `S${s}E${e} - ${title}`
+          }
+
+          m3uContent += `#EXTINF:-1,${title}\n`
+          const filename = encodeURIComponent(item.name)
+          const token = query.token as string
+          const streamUrl = `${protocol}//${host}/api/stream/${item.id}/${filename}`
+          m3uContent += token ? `${streamUrl}?token=${token}\n` : `${streamUrl}\n`
+        }
+
+        set.headers['Content-Type'] = 'audio/x-mpegurl'
+        return m3uContent
+      } catch (e) {
+        set.status = 500
+        return 'Error'
+      }
+    })
+    .get('/library-media-source-path', () => settingsService.getAbsoluteMediaSourcePath())
+    .post('/resolve-media-source-path', ({ body }: { body: any }) => settingsService.resolveMediaSourcePath(body.path, body.isRelative))
+    .post('/execute-custom-action', async ({ body }: { body: any }) => {
+      await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt))
+      return 'OK'
+    })
+    .get('/settings', async () => {
+      const settings = await settingsService.readSettings()
+      const sanitized = { ...settings }
+      delete (sanitized as any).adminPasswordHash
+      return sanitized
+    })
+    .post('/save-settings', async ({ body }: { body: any }) => {
+      await settingsService.saveSettingsChanges(body)
+      const newSettings = await settingsService.readSettings()
+      const sanitized = { ...newSettings }
+      delete (sanitized as any).adminPasswordHash
+      webTransport.notifySettingsUpdated(sanitized as any)
+      return sanitized
+    })
+    .use(v2Routes)
+  )
+
+// 3. Static Files (Production only)
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.resolve((import.meta as any).dir, '../../out/renderer')
+  app.use(staticPlugin({
+    assets: distPath,
+    prefix: '/'
+  }))
+  // Fallback to index.html for SPA
+  app.get('*', () => Bun.file(path.join(distPath, 'index.html')))
 }
 
-app.get(['/api/stream/:id', '/api/stream/:id/:filename'], streamHandler)
-
-app.get('/api/playlist/:id.m3u', async (req, res) => {
-  try {
-    const playlist = await libraryService.generatePlaylist(req.params.id)
-    if (!playlist || playlist.length === 0) {
-      res.status(404).send('Item not found')
-      return
-    }
-
-    const host = req.get('host')
-    const protocol = req.protocol
-
-    let m3uContent = '#EXTM3U\n'
-    for (const item of playlist) {
-      let title = item.title || item.name
-      const f = item as any
-      if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
-        const s = f.seasonNumber.toString().padStart(2, '0')
-        const e = f.episodeNumber.toString().padStart(2, '0')
-        title = `S${s}E${e} - ${title}`
-      }
-
-      m3uContent += `#EXTINF:-1,${title}\n`
-      const filename = encodeURIComponent(item.name)
-      const token = req.query.token as string
-      const streamUrl = `${protocol}://${host}/api/stream/${item.id}/${filename}`
-      m3uContent += token ? `${streamUrl}?token=${token}\n` : `${streamUrl}\n`
-    }
-
-    const firstItem = playlist[0] as any
-    let playlistFilename = 'playlist.m3u'
-    if (
-      firstItem &&
-      firstItem.mediaType === 'episode' &&
-      typeof firstItem.seasonNumber === 'number' &&
-      typeof firstItem.episodeNumber === 'number'
-    ) {
-      const s = firstItem.seasonNumber.toString().padStart(2, '0')
-      const e = firstItem.episodeNumber.toString().padStart(2, '0')
-      playlistFilename = `S${s}E${e}.m3u`
-    }
-
-    res.setHeader('Content-Type', 'audio/x-mpegurl')
-    res.setHeader('Content-Disposition', `attachment; filename="${playlistFilename}"`)
-    res.send(m3uContent)
-  } catch (e) {
-    console.error('Error generating playlist:', e)
-    res.sendStatus(500)
-  }
-})
-
-app.get('/api/library-media-source-path', async (_req, res) => {
-  const path = await settingsService.getAbsoluteMediaSourcePath()
-  res.json(path)
-})
-
-app.post('/api/resolve-media-source-path', async (req, res) => {
-  const resolved = await settingsService.resolveMediaSourcePath(req.body.path, req.body.isRelative)
-  res.json(resolved)
-})
-
-app.post('/api/execute-custom-action', async (req, res) => {
-  await libraryService.executeCustomAction(req.body.itemId, req.body.commandId, (opt) =>
-    console.log(opt)
-  )
-  res.sendStatus(200)
-})
-
-app.get('/api/settings', async (_req, res) => {
-  const settings = await settingsService.readSettings()
-  const sanitized = { ...settings }
-  delete sanitized.adminPasswordHash
-  res.json(sanitized)
-})
-
-app.post('/api/save-settings', async (req, res) => {
-  await settingsService.saveSettingsChanges(req.body)
-  const newSettings = await settingsService.readSettings()
-  const sanitized = { ...newSettings }
-  delete sanitized.adminPasswordHash
-  webTransport.notifySettingsUpdated(sanitized as any)
-  res.json(sanitized)
-})
-
-// 5. Initialize Server
-async function start() {
+// 4. Start Server
+app.get('/', ({ set }) => {
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-      configFile: path.resolve(__dirname, '../../vite.config.mts')
-    })
-    app.use(vite.middlewares)
+    return `
+      <html>
+        <head><title>Media Browser Backend</title></head>
+        <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #121212; color: #fff;">
+          <h1>🦊 Media Browser Backend is running</h1>
+          <p>This is the API server. To view the app, open <a href="http://localhost:5173" style="color: #4facfe;">http://localhost:5173</a> (Vite Dev Server).</p>
+        </body>
+      </html>
+    `
   }
-  // PRODUCTION: Serve the built static files
-  else {
-    const distPath = path.resolve(__dirname, '../../out/renderer')
-    app.use(express.static(distPath))
+  set.status = 404
+  return 'Not found'
+})
 
-    // FIX: Match-All Regex for SPA fallback
-    // The previous string '*' is invalid in Express 5.
-    // Regex matches anything, ensuring index.html handles the route.
-    app.get(/.*/, (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'))
-    })
-  }
-
+async function start() {
   console.log('[Server] Loading database into memory...')
   await loadDbIntoMemory()
 
-  webTransport.initialize(server)
-
   const settings = await settingsService.readSettings()
-  const finalPort = settings.serverPort || port
+  const finalPort = settings.serverPort || Number(port)
 
-  server.listen(finalPort, () => {
-    console.log(`[Server] Media Browser Server running at http://localhost:${finalPort}`)
+  app.listen(finalPort, (server) => {
+    webTransport.initialize(server)
+    console.log(`🦊 Elysia is running at http://${server?.hostname}:${server?.port}`)
   })
 }
 

@@ -94,7 +94,7 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
       const placeholders = itemIds.map(() => '?').join(',')
       db.prepare(
         `UPDATE metadata SET virtual_tags_json = '{}' WHERE item_id IN (${placeholders})`
-      ).run(itemIds)
+      ).run(...itemIds)
     } else {
       db.prepare(`UPDATE metadata SET virtual_tags_json = '{}'`).run()
     }
@@ -116,7 +116,7 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
     if (itemIds && itemIds.length > 0) {
       db.prepare(
         `INSERT OR IGNORE INTO metadata (item_id) VALUES ${itemIds.map(() => '(?)').join(',')}`
-      ).run(itemIds)
+      ).run(...itemIds)
     } else {
       db.prepare(`INSERT OR IGNORE INTO metadata (item_id) SELECT id FROM items`).run()
     }
@@ -126,7 +126,7 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
     if (itemIds && itemIds.length > 0) {
       const placeholders = itemIds.map(() => '?').join(',')
       sql += ` WHERE item_id IN (${placeholders})`
-      const info = db.prepare(sql).run(itemIds)
+      const info = db.prepare(sql).run(...itemIds)
       log(`Applied virtual tags to ${info.changes} metadata rows using SQL.`)
     } else {
       // Full update
