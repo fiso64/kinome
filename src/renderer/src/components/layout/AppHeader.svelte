@@ -211,25 +211,27 @@
     </div>
 
     <div class="search-container" onkeydown={handleSearchKeyDown}>
-      {#if isDetailViewActive}
-        <SearchInput
-          bind:query={searchStoreV2.detailQuery}
-          {suggestions}
-          bind:element={searchInputEl}
-          onfocus={() => (isSearchFocused = true)}
-          onblur={handleSearchBlur}
-        />
-      {:else}
-        <SearchInput
-          bind:query={searchStoreV2.globalQuery}
-          {suggestions}
-          bind:element={searchInputEl}
-          onfocus={() => (isSearchFocused = true)}
-          onblur={handleSearchBlur}
-        />
-      {/if}
+      {#key isDetailViewActive}
+        {#if isDetailViewActive}
+          <SearchInput
+            bind:query={searchStoreV2.detailQuery}
+            {suggestions}
+            bind:element={searchInputEl}
+            onfocus={() => (isSearchFocused = true)}
+            onblur={handleSearchBlur}
+          />
+        {:else}
+          <SearchInput
+            bind:query={searchStoreV2.globalQuery}
+            {suggestions}
+            bind:element={searchInputEl}
+            onfocus={() => (isSearchFocused = true)}
+            onblur={handleSearchBlur}
+          />
+        {/if}
+      {/key}
 
-      {#if isDetailViewActive && (isDetailSearchActive || isPerformingDetailSearch) && isSearchFocused}
+      {#if isSearchFocused && isDetailViewActive}
         <div class="search-dropdown">
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
             <div class="dropdown-status">Searching...</div>
@@ -244,7 +246,7 @@
               {settings}
               listFixedAspectRatio={true}
             />
-          {:else if !isPerformingDetailSearch}
+          {:else if !isPerformingDetailSearch && searchStoreV2.detailQuery.text.trim().length > 0}
             <div class="dropdown-status">No results found.</div>
           {/if}
         </div>

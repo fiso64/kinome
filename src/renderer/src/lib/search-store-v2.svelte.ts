@@ -46,9 +46,14 @@ export function initializeSearchEffects() {
     const urlQuery = urlParams.get('q') || ''
 
     if (serialized !== urlQuery) {
-      navStoreV2.setGlobalSearch(query, {
-        closeDetail: !isTypingGlobalTag
-      })
+      // Safeguard: only trigger navigation if we are NOT in detail view.
+      // If we ARE in detail view, URL changes for 'q' should usually be 
+      // ignored or handled differently (e.g. if the user actually clicked a search result).
+      if (!navStoreV2.isDetailViewActive) {
+        navStoreV2.setGlobalSearch(query, {
+          closeDetail: !isTypingGlobalTag
+        })
+      }
     }
 
     // Perform the actual search
@@ -146,7 +151,6 @@ export const searchStoreV2 = {
     return navStoreV2.state.globalQuery
   },
   set globalQuery(v) {
-    console.log('[searchStoreV2] set globalQuery', v)
     // This setter is mainly for svelte bindings (bind:query)
     navStoreV2.setGlobalSearch(v, { closeDetail: true })
   },
@@ -173,7 +177,6 @@ export const searchStoreV2 = {
     return detailQuery
   },
   set detailQuery(v) {
-    console.log('[searchStoreV2] set detailQuery', v)
     detailQuery = v
   },
   get isDetailActive() {
