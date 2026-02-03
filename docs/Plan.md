@@ -13,7 +13,7 @@
 - [ ] Dev: Actually add comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 
 ### 🎬 Playback & Transcoding
-- [ ] Transcoding support (look into jellyfin's implementation).
+- [ ] Transcoding and transmuxing support (look into jellyfin's implementation).
 - [ ] Refine players.
   - [X] Watched status should no longer be updated when an item is merely clicked in the ui (e.g. copy to clipboard action). Instead, we update watch status only when we start streaming the item (backend should detect a stream automatically). This will also fix the issue where playing the next file in an external player (mpv, vlc) does not mark the next file as watched (have to manually mark as watched in the ui).
   - [ ] Add support for mpv.conf or other types of player config files in the media directory. How to handle them?
@@ -21,7 +21,7 @@
   - [ ] Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
     - [ ] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
   - [ ] Web player
-- [ ] Cast support (DLNA / UPnP, Chromecast, AirPlay). (requires: transcoding/transmuxing support, maybe a web player)
+- [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
 
 ### 🎨 UI/UX & Customization
 - [ ] Improve and polish UI everywhere.
