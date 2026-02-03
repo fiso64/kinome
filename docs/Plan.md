@@ -22,8 +22,11 @@
   - `[ ]` Remove the top toolbar, replace by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
   - `[ ]` Think of some convenient browser-compatible shortcuts for common actions.
   - `[ ]` Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
-  - `[ ]` Make it display good on different screen sizes.
   - `[ ]` Command palette.
+- `[ ]` True cross-platform support.
+  - `[ ]` Make the UI display good on different screen sizes.
+  - `[ ]` TV app. 
+  - `[ ]` Revive electron app (built-in server + thin client)?
 - `[ ]` Optimization
   - `[ ]` Migrate to bun.
     - `[ ]` Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
@@ -51,4 +54,3 @@
     2. A downloader/streamer plugin will be required to play any items not in the local library (e.g.: a https stream plugin returning https stream link(s), torrent downloader plugin returning results from a particular tracker). Downloader plugins should also allow one to permanently add a movie/show to the local library. In the spirit of the app, we should make it use an external torrent client (user-configured, similar to existing video player configuration) instead of a built-in one, if possible.
     3. If possible, make Stremio plugins work out of the box with media-browser.
     4. The existing local files searching and playing logic might be refactored into yet another searcher and "streamer" plugin respectively.
-- `[ ]` **True Cross-Platform:** TV app? Revive electron thin client?
