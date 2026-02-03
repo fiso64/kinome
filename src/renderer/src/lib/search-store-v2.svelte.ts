@@ -75,7 +75,6 @@ export function initializeSearchEffects() {
   $effect(() => {
     const query = detailQuery
     if (navStoreV2.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
-      console.log('[searchStoreV2] Detail search trigger:', JSON.parse(JSON.stringify(query)))
       isPerformingDetailSearch = true
       api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
         detailResults = results

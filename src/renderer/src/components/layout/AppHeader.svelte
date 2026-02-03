@@ -54,7 +54,6 @@
   const globalSearchResults = $derived(searchStoreV2.searchResults)
   const isPerformingDetailSearch = $derived(searchStoreV2.isPerformingDetailSearch)
   const detailSearchResults = $derived(searchStoreV2.detailResults)
-  const isDetailSearchActive = $derived(searchStoreV2.isDetailActive)
 
   // Layout Config Logic (Simplified: prioritize detail item, fallback to folder)
   const contextItemToConfigure = $derived(contextItem)
@@ -184,17 +183,6 @@
         } as MediaFolder)
       : undefined
   )
-
-  $effect(() => {
-    console.log('[AppHeader] Visibility Check:', {
-      isDetailViewActive: navStoreV2.isDetailViewActive,
-      isSearchFocused,
-      selectedItemId: navStoreV2.state.selectedItemId,
-      isGlobalSearchActive,
-      globalQuery: JSON.parse(JSON.stringify(searchStoreV2.globalQuery)),
-      detailQuery: JSON.parse(JSON.stringify(searchStoreV2.detailQuery))
-    })
-  })
 </script>
 
 <header class:in-detail-view={navStoreV2.isDetailViewActive}>
@@ -249,8 +237,9 @@
             <MediaView
               items={detailSearchResults}
               parentItem={searchPopupParentItem}
-              onItemClick={(item) => dispatch('detailSearchItemClick', { item })}
-              onShowContextMenu={(item, e) => dispatch('showContextMenu', { item, event: e })}
+              onItemClick={(item) => dispatch('globalSearchItemClick', { item: item as any })}
+              onShowContextMenu={(item, e) =>
+                dispatch('showContextMenu', { item: item as any, event: e })}
               highlightedIndex={searchStoreV2.highlightedDetailIndex}
               isPreSorted={true}
               {settings}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
   import { getAssetUrl } from '../../lib/api'
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -70,11 +71,6 @@
 <div class="media-list" bind:this={listElement}>
   {#if items.length > 0}
     {#each items as item, i (item.id)}
-      <!-- {@const _debug = console.log(`[ListView] Item: ${item.name}`, {
-        title: item.title,
-        poster: item.posterPath,
-        id: item.id
-      })} -->
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
       {@const displayTitle =
         'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null

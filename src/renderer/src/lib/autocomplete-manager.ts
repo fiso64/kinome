@@ -144,7 +144,7 @@ export function autocomplete(
         inputTop: nodeRect.top
       }
 
-      const wrappedOnSelect = (suggestion: string) => {
+      const wrappedOnSelect = (suggestion: AutocompleteItem) => {
         // 1. Call the component's original onSelect logic.
         config.onSelect(suggestion, node)
 
