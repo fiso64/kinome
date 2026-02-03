@@ -19,7 +19,7 @@
   - [ ] Add support for mpv.conf or other types of player config files in the media directory. How to handle them?
   - [ ] Look at the percentage watched to determine if an item is watched or not, instead of setting immediately on play. Look into how jellyfin does it.
   - [ ] Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
-    - [ ] For this feature to work, user will have to install a protocol handler on their device. Make this process user-friendly.
+    - [ ] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
   - [ ] Web player
 - [ ] Cast support (Chromecast, AirPlay).
 
