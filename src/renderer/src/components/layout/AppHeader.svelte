@@ -31,11 +31,7 @@
   } = $props()
 
   // --- V2 State ---
-  const canGoBack = $derived(
-    (navStoreV2.state.currentFolderId !== 'root' && navStoreV2.state.currentFolderId !== null) ||
-      navStoreV2.state.selectedItemId !== null ||
-      navStoreV2.state.path !== '/'
-  )
+  const canGoBack = $derived(navStoreV2.canGoBack)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
   const contextItemQuery = createQuery(() => ({
@@ -100,12 +96,6 @@
     const autocompleteMenu = document.querySelector('.autocomplete-menu')
     if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
       return // Let autocomplete handle its own keyboard events
-    }
-
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      searchInputEl?.blur()
-      return
     }
 
     const isDetailContext = navStoreV2.isDetailViewActive

@@ -320,7 +320,31 @@
 
   function goBack(): void {
     appHeaderComponent?.blurSearchInput()
-    navStoreV2.goBack()
+    if (navStoreV2.canGoBack) {
+      navStoreV2.goBack()
+    }
+  }
+
+  function handleEscape(): void {
+    appHeaderComponent?.blurSearchInput()
+
+    if (searchStoreV2.isGlobalActive) {
+      searchStoreV2.clearGlobal()
+      return
+    }
+
+    if (navStoreV2.isDetailViewActive) {
+      if (searchStoreV2.isDetailActive) {
+        searchStoreV2.clearDetail()
+        return
+      }
+      navStoreV2.closeDetail()
+      return
+    }
+
+    if (navStoreV2.canGoBack) {
+      navStoreV2.goBack()
+    }
   }
 
   function goForward(): void {
@@ -348,6 +372,9 @@
       },
       navigateForward: () => {
         goForward()
+      },
+      escapeAction: () => {
+        handleEscape()
       }
     })
     return () => cleanupShortcuts()

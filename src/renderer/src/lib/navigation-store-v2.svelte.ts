@@ -133,6 +133,13 @@ export const navStoreV2 = {
   get contextItemId() {
     return currentState.selectedItemId ?? currentState.currentFolderId
   },
+  get canGoBack() {
+    return (
+      (currentState.currentFolderId !== 'root' && currentState.currentFolderId !== null) ||
+      currentState.selectedItemId !== null ||
+      currentState.path !== '/'
+    )
+  },
   init,
   navigateToFolder: (folderId: string) => {
     navigateToFolder(folderId)

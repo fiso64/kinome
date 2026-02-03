@@ -1,6 +1,7 @@
 interface ShortcutActions {
   navigateBack: () => void
   navigateForward: () => void
+  escapeAction: () => void
 }
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
@@ -11,11 +12,16 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
 
     // --- Shortcuts that should NOT fire when typing in an input ---
     if (isInput) {
+      if (event.key === 'Escape') {
+        actions.escapeAction()
+      }
       return
     }
 
-    if (
-      event.key === 'Escape' ||
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      actions.escapeAction()
+    } else if (
       event.key === 'BrowserBack' ||
       (event.altKey && event.key === 'ArrowLeft')
     ) {
