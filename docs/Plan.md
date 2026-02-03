@@ -54,6 +54,7 @@
     - [ ] Ensure everything is secured. Also ensure that the copied stream URLs still work.
     - [ ] Etc. (again, look how jellyfin does it).
   - [ ] Support for multiple accounts.
+    - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
 
 ### 📱 Platform Support
 - [ ] Make the web UI display good on different screen sizes.
