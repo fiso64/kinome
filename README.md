@@ -22,8 +22,8 @@ See Plan.md for more details.
 
 ## Development Plan / Roadmap
 
-- [**Plan.md**](./docs/temp/Plan.md)
-- [**Bugs**](./docs/temp/Bugs.md)
+- [**Plan.md**](./docs/Plan.md)
+- [**Bugs**](./docs/Bugs.md)
 - [**Specs**](./spec/)
 
 ## Recommended IDE Setup
