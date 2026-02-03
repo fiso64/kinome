@@ -24,6 +24,7 @@
   - `[ ]` Make it display good on different screen sizes.
   - `[ ]` Command palette.
 - `[ ]` Optimization
+  - `[ ]` Migrate to bun.
   - `[ ]` Optimize the backend to be super fast for all reasonable scenarios.
   - `[ ]` Optimize the frontend to load super quickly.
 - `[ ]` Account and Authentication support
