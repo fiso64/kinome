@@ -19,7 +19,8 @@
         "src/shared/*"
       ]
     },
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "composite": true
   },
   "include": [
     "src/renderer/src/env.d.ts",

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+
   import TreeItem from '../ui/TreeItem.svelte'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry

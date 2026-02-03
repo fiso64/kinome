@@ -29,7 +29,7 @@ export async function cacheGenreLists(tmdbApiKey: string): Promise<void> {
       return fetch(url)
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to fetch ${type} genres.`)
-          return res.json()
+          return res.json() as Promise<any>
         })
         .then((data) => {
           for (const genre of data.genres) {
@@ -78,7 +78,7 @@ export async function fetchSeasonEpisodes(
       console.error(`[TMDB] Season fetch failed: ${response.statusText}`)
       return null
     }
-    const data = await response.json()
+    const data = (await response.json()) as any
     return {
       episodes: (data.episodes || []).map((e: any) => ({
         episode_number: e.episode_number,
@@ -139,7 +139,7 @@ export async function searchTmdbAndApplyMetadata(
       return
     }
 
-    const searchResults = await searchResponse.json()
+    const searchResults = (await searchResponse.json()) as any
     const firstResultTitle =
       searchResults.results?.[0]?.title ?? searchResults.results?.[0]?.name ?? 'None'
     console.log(
@@ -149,8 +149,8 @@ export async function searchTmdbAndApplyMetadata(
     // For 'multi' search, filter out people results.
     const result = (
       endpoint === 'multi'
-        ? searchResults.results?.filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
-        : searchResults.results
+        ? ((searchResults as any).results || []).filter((r: any) => r.media_type === 'movie' || r.media_type === 'tv')
+        : (searchResults as any).results
     )?.[0]
 
     if (result) {
@@ -181,7 +181,7 @@ export async function searchTmdbAndApplyMetadata(
       ) {
         item.genres = result.genre_ids
           .map((id: number) => genreCache.get(id))
-          .filter((name): name is string => !!name)
+          .filter((name: any): name is string => !!name)
       }
 
       // Download the poster from the search result.
@@ -231,7 +231,7 @@ export async function refetchPoster(
     if (!response.ok) {
       throw new Error(`TMDB detail fetch failed for poster: ${response.statusText}`)
     }
-    const details = await response.json()
+    const details = (await response.json()) as any
 
     if (details.poster_path) {
       const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
@@ -410,7 +410,7 @@ export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string
     if (!response.ok) {
       throw new Error(`TMDB credits fetch failed: ${response.statusText}`)
     }
-    const credits = await response.json()
+    const credits = (await response.json()) as any
     applyCreditsToItem(item, credits)
   } catch (error) {
     console.error(`Error fetching credits for "${item.name}":`, error)
@@ -483,7 +483,7 @@ export async function fetchItemDetails(
     if (!response.ok) {
       throw new Error(`TMDB detail fetch failed: ${response.statusText}`)
     }
-    const details = await response.json()
+    const details = (await response.json()) as any
 
     // --- Images ---
     await _downloadAndApplyImageIfNeeded(
@@ -507,8 +507,8 @@ export async function fetchItemDetails(
     if (settings.useLogos) {
       const logos = details.images?.logos
       const bestLogo =
-        logos?.find((l) => l.iso_639_1 === 'en') ||
-        logos?.find((l) => l.iso_639_1 === null) ||
+        logos?.find((l: any) => l.iso_639_1 === 'en') ||
+        logos?.find((l: any) => l.iso_639_1 === null) ||
         logos?.[0]
       if (bestLogo) {
         const extension = path.extname(bestLogo.file_path)
@@ -727,7 +727,7 @@ export async function refetchShowSeasons(
     if (!response.ok) {
       throw new Error(`TMDB detail fetch failed: ${response.statusText}`)
     }
-    const details = await response.json()
+    const details = (await response.json()) as any
     if (details.seasons) {
       show.tmdbSeasons = details.seasons
       modifiedItems.push(show)
@@ -804,7 +804,7 @@ export async function fetchAndApplyEpisodeData(
       if (!response.ok) {
         throw new Error(`TMDB episode fetch failed: ${response.statusText}`)
       }
-      const seasonDetails = await response.json()
+      const seasonDetails = (await response.json()) as any
 
       // Apply metadata to season folder itself
       if (!seasonFolder.title && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))) {
@@ -908,7 +908,7 @@ export async function manualSearch(
     try {
       const response = await fetch(detailUrl)
       if (!response.ok) throw new Error(await response.text())
-      const details = await response.json()
+      const details = (await response.json()) as any
 
       if (type === 'season') {
         if (!details.seasons || details.seasons.length === 0) {
@@ -960,7 +960,7 @@ export async function manualSearch(
     try {
       const tvSearchResponse = await fetch(tvSearchUrl)
       if (!tvSearchResponse.ok) throw new Error(await tvSearchResponse.text())
-      const tvSearchResults = await tvSearchResponse.json()
+      const tvSearchResults = (await tvSearchResponse.json()) as any
       const show = tvSearchResults.results?.[0]
 
       if (!show) {
@@ -973,7 +973,7 @@ export async function manualSearch(
       console.log(`[TMDB] [Season Search] Step 2: Fetching show details from: ${showDetailsUrl}`)
       const showDetailsResponse = await fetch(showDetailsUrl)
       if (!showDetailsResponse.ok) throw new Error(await showDetailsResponse.text())
-      const showDetails = await showDetailsResponse.json()
+      const showDetails = (await showDetailsResponse.json()) as any
 
       if (!showDetails.seasons || showDetails.seasons.length === 0) {
         console.log(`[TMDB] [Season Search] Show "${show.name}" has no season information.`)
@@ -981,7 +981,7 @@ export async function manualSearch(
       }
 
       // 3. Return a list of seasons, formatted like other search results
-      return showDetails.seasons.map((s) => ({
+      return (showDetails.seasons as any[]).map((s: any) => ({
         id: s.id, // The season's unique ID
         title: s.name, // For consistency in the search result object
         name: s.name,
@@ -1011,9 +1011,9 @@ export async function manualSearch(
       console.error(`TMDB manual search failed for "${query}": ${searchResponse.statusText}`)
       return []
     }
-    const searchResults = await searchResponse.json()
+    const searchResults = (await searchResponse.json()) as any
     // Return a curated list of results
-    return searchResults.results.map((r) => ({
+    return (searchResults.results as any[]).map((r: any) => ({
       id: r.id,
       title: r.title || r.name,
       year: r.release_date
@@ -1050,7 +1050,7 @@ export async function getTmdbImages(
       console.error(`TMDB image fetch failed for "${tmdbId}": ${response.statusText}`)
       return { posters: [], backdrops: [], logos: [] }
     }
-    const images = await response.json()
+    const images = (await response.json()) as any
     // Helper to remove duplicates by file_path, as the TMDB API can sometimes
     // return the same image for different language fallbacks.
     const deduplicateByFilePath = (arr: any[]): any[] => {

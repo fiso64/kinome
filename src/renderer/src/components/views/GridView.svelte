@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
   import { getAssetUrl } from '../../lib/api'
   type DisplayableItem = LibraryItem | SearchIndexEntry

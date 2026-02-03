@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+
   import MediaView from '../layout/MediaView.svelte'
   // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
@@ -90,13 +92,6 @@
 
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
-  import type {
-    MediaFolder,
-    LibraryItem,
-    SearchIndexEntry,
-    AutocompleteSuggestions,
-    Settings
-  } from '../../../../shared/types'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({

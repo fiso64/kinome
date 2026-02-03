@@ -241,7 +241,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
     // If val is undefined (not selected explicitly), check if we have the parent JSON blob
     const isImage = ['posterPath', 'backdropPath', 'logoPath'].includes(alias)
     if (val === undefined && isImage && row.images_json) {
-      const images = parseJsonSafe(row.images_json, {})
+      const images = parseJsonSafe(row.images_json, {}) as any
       const key = alias.replace('Path', '') // posterPath -> poster
       val = images[key]
     }
@@ -450,7 +450,7 @@ export function getChildren(parentId: string): LibraryItem[] {
     ORDER BY i.name ASC
   `
     )
-    .all(parentId)
+    .all(parentId) as any[]
 
   return rows.map(mapRowToLibraryItem)
 }
@@ -477,7 +477,7 @@ export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
     )
-    .all(node.id)
+    .all(node.id) as any[]
 
   return rows.map(mapRowToLibraryItem)
 }
@@ -507,7 +507,7 @@ export function getAncestors(itemId: string): LibraryItem[] {
     ORDER BY a.level ASC -- Immediate parent first
   `
     )
-    .all(itemId, itemId)
+    .all(itemId, itemId) as any[]
 
   return rows.map(mapRowToLibraryItem)
 }
@@ -524,7 +524,7 @@ export function getAllItemsAsList(): LibraryItem[] {
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
     )
-    .all()
+    .all() as any[]
   return rows.map(mapRowToLibraryItem)
 }
 
@@ -645,7 +645,7 @@ export function find(options: FindOptions = {}): LibraryItem[] {
     }
   }
 
-  const rows = db.prepare(query).all(params)
+  const rows = db.prepare(query).all(params) as any[]
   return rows.map(mapRowToLibraryItem)
 }
 

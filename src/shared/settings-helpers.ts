@@ -34,7 +34,7 @@ export function resolveViewSettings(
     const defaultLayout = item?.layout ?? 'grid';
 
     // Only apply specific settings for the active layout, just like the real logic
-    const layoutConfig = LAYOUT_SPECIFIC_SETTINGS_CONFIG[defaultLayout] ?? {};
+    const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[defaultLayout] ?? {};
 
     const fallbackResolution: ResolutionInfo = {
       settings: {

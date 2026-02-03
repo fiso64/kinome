@@ -189,10 +189,9 @@ export async function scanDirectory(
   // 2. Filter in JS (Set difference).
   // 3. Batch update missing.
 
-  const allDbIds = db
+  const allDbIds = (db
     .prepare('SELECT id FROM items WHERE is_missing = 0')
-    .all()
-    .map((row: { id: string }) => row.id)
+    .all() as { id: string }[]).map((row) => row.id)
   const missingIds = allDbIds.filter((id) => !visitedIds.has(id))
 
   if (missingIds.length > 0) {
