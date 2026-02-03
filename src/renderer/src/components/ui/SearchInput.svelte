@@ -138,7 +138,7 @@
     <input
       bind:this={element}
       bind:value={query.text}
-      use:autocomplete={autocompleteConfig}
+      oninput={null}
       onkeydown={handleKeyDown}
       placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
       class="search-input-field"
