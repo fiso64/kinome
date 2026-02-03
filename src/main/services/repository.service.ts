@@ -675,9 +675,9 @@ is_hidden = COALESCE(@isHidden, is_hidden),
         WHERE id = @id
   `
       ).run({
-        id: itemId,
-        isHidden: updates.isHidden === undefined ? null : updates.isHidden ? 1 : 0,
-        isMissing: updates.isMissing === undefined ? null : updates.isMissing ? 1 : 0
+        '@id': itemId,
+        '@isHidden': updates.isHidden === undefined ? null : updates.isHidden ? 1 : 0,
+        '@isMissing': updates.isMissing === undefined ? null : updates.isMissing ? 1 : 0
       })
     }
 
@@ -740,11 +740,11 @@ watched = excluded.watched,
   next_up_dismissed = excluded.next_up_dismissed
     `
       ).run({
-        id: itemId,
-        watched: val.watched ?? 0,
-        lastWatched: val.lastWatched,
-        continueWatchingDismissed: val.cwd ?? 0,
-        nextUpDismissed: val.nud ?? 0
+        '@id': itemId,
+        '@watched': val.watched ?? 0,
+        '@lastWatched': val.lastWatched,
+        '@continueWatchingDismissed': val.cwd ?? 0,
+        '@nextUpDismissed': val.nud ?? 0
       })
     }
 
@@ -798,61 +798,57 @@ watched = excluded.watched,
 
 
       const params = {
-        id: itemId,
-        tmdb_id: updates.tmdbId !== undefined ? updates.tmdbId : existing.tmdb_id,
-        media_type: updates.mediaType !== undefined ? updates.mediaType : existing.media_type,
-        title: updates.title !== undefined ? updates.title : existing.title,
-        overview: updates.overview !== undefined ? updates.overview : existing.overview,
-        year: updates.year !== undefined ? updates.year : existing.year,
-        season_number:
+        '@id': itemId,
+        '@tmdb_id': updates.tmdbId !== undefined ? updates.tmdbId : existing.tmdb_id,
+        '@media_type': updates.mediaType !== undefined ? updates.mediaType : existing.media_type,
+        '@title': updates.title !== undefined ? updates.title : existing.title,
+        '@overview': updates.overview !== undefined ? updates.overview : existing.overview,
+        '@year': updates.year !== undefined ? updates.year : existing.year,
+        '@season_number':
           (updates as any).seasonNumber !== undefined
             ? (updates as any).seasonNumber
             : existing.season_number,
-        episode_number:
+        '@episode_number':
           (updates as any).episodeNumber !== undefined
             ? (updates as any).episodeNumber
             : existing.episode_number,
 
-        genres_json:
+        '@genres_json':
           updates.genres !== undefined ? JSON.stringify(updates.genres) : existing.genres_json,
-        tags_json: updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
-        virtual_tags_json:
+        '@tags_json': updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
+        '@virtual_tags_json':
           updates.virtualTags !== undefined
             ? JSON.stringify(updates.virtualTags)
             : existing.virtual_tags_json,
 
-        // Invalidation Logic:
-        // 1. If Invalidated: Set last_refreshed_at = NULL (Dirty)
-        // 2. If Update has explicit lastRefreshedAt: Use it (e.g. Service sets it after fetch)
-        // 3. Else: Keep existing
-        last_refreshed_at: shouldInvalidateMetadata
+        '@last_refreshed_at': shouldInvalidateMetadata
           ? null
           : updates.lastRefreshedAt !== undefined
             ? updates.lastRefreshedAt
             : existing.last_refreshed_at,
 
-        people_json:
+        '@people_json':
           (updates as any).tmdbCredits !== undefined
             ? JSON.stringify((updates as any).tmdbCredits)
             : existing.people_json,
 
-        seasons_json:
+        '@seasons_json':
           (updates as any).tmdbSeasons !== undefined
             ? JSON.stringify((updates as any).tmdbSeasons)
             : existing.seasons_json,
-        episodes_json:
+        '@episodes_json':
           (updates as any).tmdbEpisodes !== undefined
             ? JSON.stringify((updates as any).tmdbEpisodes)
             : existing.episodes_json,
 
-        images_json: JSON.stringify(currentImages),
+        '@images_json': JSON.stringify(currentImages),
 
-        locked_fields_json:
+        '@locked_fields_json':
           (updates as any).lockedFields !== undefined
             ? JSON.stringify((updates as any).lockedFields || [])
             : existing.locked_fields_json,
 
-        version: updates._v !== undefined ? updates._v : existing.version
+        '@version': updates._v !== undefined ? updates._v : existing.version
       }
 
       db.prepare(
@@ -936,9 +932,9 @@ view_settings_json = excluded.view_settings_json,
   scraper_settings_json = excluded.scraper_settings_json
     `
       ).run({
-        id: itemId,
-        view: JSON.stringify(viewSettings),
-        scraper: JSON.stringify(scraperSettings)
+        '@id': itemId,
+        '@view': JSON.stringify(viewSettings),
+        '@scraper': JSON.stringify(scraperSettings)
       })
       // Verify the save
       const saved = db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any

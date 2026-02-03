@@ -135,22 +135,22 @@ async function walkAndUpsert(
 
       operations.push(() => {
         upsertItemStmt.run({
-          id,
-          parentId,
-          path: relativePath,
-          name: entry.name,
-          type,
-          size: stats.size,
-          mtime: stats.mtime,
-          birthtime: stats.birthtime
+          '@id': id,
+          '@parentId': parentId,
+          '@path': relativePath,
+          '@name': entry.name,
+          '@type': type,
+          '@size': stats.size,
+          '@mtime': stats.mtime,
+          '@birthtime': stats.birthtime
         })
 
         if (parsedMediaType) {
           upsertMetadataStmt.run({
-            id,
-            mediaType: parsedMediaType,
-            seasonNumber: null,
-            episodeNumber: null
+            '@id': id,
+            '@mediaType': parsedMediaType,
+            '@seasonNumber': null,
+            '@episodeNumber': null
           })
         }
       })

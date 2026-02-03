@@ -95,8 +95,8 @@ export function performSearch(query: {
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE (i.name LIKE @likeQuery OR m.title LIKE @likeQuery)
         `
-      params.likeQuery = `%${normalized}%`
-      params.startQuery = `${normalized.toLowerCase()}%`
+      params['@likeQuery'] = `%${normalized}%`
+      params['@startQuery'] = `${normalized.toLowerCase()}%`
 
       sql += ` ORDER BY 
           CASE WHEN m.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
@@ -135,31 +135,31 @@ export function performSearch(query: {
 
       // Append Tags
       tags.forEach((tag, idx) => {
-        const pKey = `tagVal${idx}`
+        const pKey = `@tagVal${idx}`
         const tagValue = tag.value.toLowerCase()
         if (tag.key === 'mediaType') {
-          finalSql += ` AND m.media_type = @${pKey}`
+          finalSql += ` AND m.media_type = ${pKey}`
           params[pKey] = tagValue
         } else if (tag.key === 'year') {
-          finalSql += ` AND m.year = @${pKey}`
+          finalSql += ` AND m.year = ${pKey}`
           params[pKey] = parseInt(tagValue) || 0
         } else if (tag.key === 'genre') {
-          finalSql += ` AND lower(m.genres_json) LIKE @${pKey}`
+          finalSql += ` AND lower(m.genres_json) LIKE ${pKey}`
           params[pKey] = `%"${tagValue}"%`
         } else if (tag.key === 'person') {
-          finalSql += ` AND lower(m.people_json) LIKE @${pKey}`
+          finalSql += ` AND lower(m.people_json) LIKE ${pKey}`
           params[pKey] = `%"${tagValue}"%`
         } else {
-          const pValKey = `tagVal${idx}`
-          const pValLikeKey = `tagValLike${idx}`
-          const pPathKey = `tagPath${idx}`
+          const pValKey = `@tagVal${idx}`
+          const pValLikeKey = `@tagValLike${idx}`
+          const pPathKey = `@tagPath${idx}`
           params[pValKey] = tagValue
           params[pValLikeKey] = `%${tagValue}%`
           params[pPathKey] = `$.${tag.key}`
           finalSql += ` AND (
-                    lower(json_extract(m.tags_json, @${pPathKey})) = @${pValKey} OR 
-                    lower(json_extract(m.tags_json, @${pPathKey})) LIKE @${pValLikeKey} OR
-                    lower(json_extract(m.virtual_tags_json, @${pPathKey})) = @${pValKey}
+                    lower(json_extract(m.tags_json, ${pPathKey})) = ${pValKey} OR 
+                    lower(json_extract(m.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
+                    lower(json_extract(m.virtual_tags_json, ${pPathKey})) = ${pValKey}
                 )`
         }
       })
@@ -168,7 +168,7 @@ export function performSearch(query: {
 
       // Execute Standard
       sql = finalSql
-      params.ftsQuery = `${cols} : "${normalized}"`
+      params['@ftsQuery'] = `${cols} : "${normalized}"`
 
       try {
         let results = db.prepare(sql).all(params) as any[]
@@ -178,7 +178,7 @@ export function performSearch(query: {
           const trigrams = toTrigrams(normalized)
           if (trigrams.length > 0) {
             const fuzzyMatchQuery = trigrams.map((t) => `"${t}"`).join(' OR ')
-            params.ftsQuery = `${cols} : (${fuzzyMatchQuery})`
+            params['@ftsQuery'] = `${cols} : (${fuzzyMatchQuery})`
             // Re-run with same tag filters (appended to sql already) but new fts param
             results = db.prepare(sql).all(params) as any[]
           }
@@ -207,31 +207,31 @@ export function performSearch(query: {
     `
     // Append Tags
     tags.forEach((tag, idx) => {
-      const pKey = `tagVal${idx}`
+      const pKey = `@tagVal${idx}`
       const tagValue = tag.value.toLowerCase()
       if (tag.key === 'mediaType') {
-        sql += ` AND m.media_type = @${pKey}`
+        sql += ` AND m.media_type = ${pKey}`
         params[pKey] = tagValue
       } else if (tag.key === 'year') {
-        sql += ` AND m.year = @${pKey}`
+        sql += ` AND m.year = ${pKey}`
         params[pKey] = parseInt(tagValue) || 0
       } else if (tag.key === 'genre') {
-        sql += ` AND lower(m.genres_json) LIKE @${pKey}`
+        sql += ` AND lower(m.genres_json) LIKE ${pKey}`
         params[pKey] = `%"${tagValue}"%`
       } else if (tag.key === 'person') {
-        sql += ` AND lower(m.people_json) LIKE @${pKey}`
+        sql += ` AND lower(m.people_json) LIKE ${pKey}`
         params[pKey] = `%"${tagValue}"%`
       } else {
-        const pValKey = `tagVal${idx}`
-        const pValLikeKey = `tagValLike${idx}`
-        const pPathKey = `tagPath${idx}`
+        const pValKey = `@tagVal${idx}`
+        const pValLikeKey = `@tagValLike${idx}`
+        const pPathKey = `@tagPath${idx}`
         params[pValKey] = tagValue
         params[pValLikeKey] = `%${tagValue}%`
         params[pPathKey] = `$.${tag.key}`
         sql += ` AND (
-          lower(json_extract(m.tags_json, @${pPathKey})) = @${pValKey} OR 
-          lower(json_extract(m.tags_json, @${pPathKey})) LIKE @${pValLikeKey} OR
-          lower(json_extract(m.virtual_tags_json, @${pPathKey})) = @${pValKey}
+          lower(json_extract(m.tags_json, ${pPathKey})) = ${pValKey} OR 
+          lower(json_extract(m.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
+          lower(json_extract(m.virtual_tags_json, ${pPathKey})) = ${pValKey}
         )`
       }
     })
