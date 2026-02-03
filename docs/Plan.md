@@ -9,6 +9,7 @@
   - `[ ]` Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
     - `[ ]` For this feature to work, user will have to install a protocol handler on their device. Make this process user-friendly.
   - `[ ]` Web player
+- `[ ]` Transcoding support
 - `[ ]` Monitor option: Rescan on startup and watch filesystem for changes, rescan on change.
   - `[X]` Need to ensure rescan is non-destructive, always. (Probably already the case, see `spec/backend/metadata_locking.md`)
 - `[ ]` More UI and virtual tag configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
