@@ -25,6 +25,7 @@
   - `[ ]` Command palette.
 - `[ ]` Optimization
   - `[ ]` Migrate to bun.
+    - `[ ]` Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
   - `[ ]` Optimize the backend to be super fast for all reasonable scenarios.
   - `[ ]` Optimize the frontend to load super quickly.
 - `[ ]` Account and Authentication support
