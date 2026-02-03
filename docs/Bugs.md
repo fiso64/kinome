@@ -1,14 +1,5 @@
 # Fix me
 
-## search bar in detail view bug
-1. navigate to http://localhost:3000/
-2. open any detail view item
-3. type `t` in the search bar
-  - the full page search ui will appear
-  - expected: search results ui popup (not page), which doesn't modify browser history or url.
-
-## Search bar autocomplete suggestions are broken again.
-Search bar autocomplete suggestions are broken again. They do not appear at all when I type `:`. No errors in the logs. Frontend DOES request autocomplete-suggestions from server and they are correctly returned.
 
 ## Triple children request on page load
 When loading root view which is set to be grouped by sections, two layers deep like so:
@@ -39,10 +30,6 @@ Must debug this first. request 3 is clearly just a guess. We don't know what cau
 
 ## getChildren
 Audit all usage of getChildren (incredibly bloated)
-
-## Fix shortcuts in web version and context menu
-- right clicking a second time should show the native browser context menu
-- we should disable all reserved shortcuts in the web version (ctrl+f, alt+d, etc).
 
 # Lower priority issues
 - Some actions (like moving an item to trash) trigger an expensive full rescan which is wasteful. Find all such actions and make them more targeted.

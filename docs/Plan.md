@@ -10,6 +10,7 @@
   - [ ] Consider migrating to another db for concurrent writes (e.g. postgres). Not sure if necessary.
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
+    - [ ] Pagination everywhere (but still have it scroll like infinitely seamlessly).
 - [ ] Dev: Actually add comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 
 ### 🎬 Playback & Transcoding
@@ -29,10 +30,11 @@
   - [ ] Think of some convenient browser-compatible shortcuts for common actions.
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
+- [ ] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
+  - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
+  - [ ] A "Recently Added" section implemented as a virtual folder.
 - [ ] More UI and virtual tag configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
   - [ ] See how Jellyfin's home view looks and add customization options to be able to recreate this state.
-    - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling configuration?)
-    - [ ] A "Recently Added" section. Decide if its logic should be hardcoded or implemented as a built-in virtual tag of some kind.
 - [ ] Improve navigation and user action performance as much as possible. Remove all lag and jitter.
 - [ ] Revive the custom actions feature. Support both client-side and server-side action definitions.
 
@@ -46,7 +48,7 @@
 ### 🔐 Auth & Multi-User
 - [ ] Account and Authentication support
   - [ ] Start with support for authentication for the default account. Secure all endpoints. Look into how jellyfin does it.
-    - [ ] Add common server-related configuration like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
+    - [ ] Add common server-related settings like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
     - [ ] A nice /login page.
     - [ ] Browser caching of auth token.
     - [ ] Ensure everything is secured. Also ensure that the copied stream URLs still work.
