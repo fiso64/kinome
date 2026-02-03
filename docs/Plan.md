@@ -26,6 +26,7 @@
 - `[ ]` Optimization
   - `[ ]` Migrate to bun.
     - `[ ]` Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
+  - `[ ]` Consider migrating to another db for concurrent writes (e.g. postgres). Not sure if necessary.
   - `[ ]` Optimize the backend to be super fast for all reasonable scenarios.
   - `[ ]` Optimize the frontend to load super quickly.
 - `[ ]` Account and Authentication support
