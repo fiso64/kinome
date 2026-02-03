@@ -13,7 +13,7 @@ While `SettingsModal.svelte` correctly disables the configuration of player comm
 - **"Show in Explorer":**
   - **Issue:** This calls `api.revealInExplorer`, which triggers a system command (`explorer.exe`, `open`, `xdg-open`) on the backend.
   - **Result:** This opens a file manager window on the server's desktop. If the server is headless, this fails silently or errors. If it's a desktop server, it pops up a window away from the user.
-  - **Fix:** This feature should be hidden in the web client.
+  - **Fix:** This feature should be hidden in the web client. Preferably: Replace by a button that downloads the file.
 
 ### 2. Client-Side File Picking (The "Upload" Gap)
 
