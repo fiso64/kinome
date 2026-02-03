@@ -21,7 +21,7 @@
   - [ ] Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
     - [ ] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
   - [ ] Web player
-- [ ] Cast support (Chromecast, AirPlay).
+- [ ] Cast support (Chromecast, AirPlay). (requires: transcoding/transmuxing support, maybe a web player)
 
 ### 🎨 UI/UX & Customization
 - [ ] Improve and polish UI everywhere.
