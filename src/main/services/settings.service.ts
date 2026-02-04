@@ -430,15 +430,20 @@ export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
 
 export async function resolveMediaSourcePath(
   mediaPath: string,
-  isRelative: boolean
+  isRelative: boolean,
+  baseLibraryPath?: string
 ): Promise<string> {
   if (!isRelative || isRemotePath(mediaPath) || path.isAbsolute(mediaPath)) {
     return mediaPath
   }
 
-  const libraryPath = getLibraryDataPath()
-  if (isRemoteLibrary()) {
-    const parentUrl = new URL('..', libraryPath)
+  const libraryPath = baseLibraryPath || getLibraryDataPath()
+  const isRemote = isRemotePath(libraryPath)
+
+  if (isRemote) {
+    // Normalize libraryPath to have a trailing slash for URL resolution
+    const normalizedLibraryPath = libraryPath.endsWith('/') ? libraryPath : libraryPath + '/'
+    const parentUrl = new URL('..', normalizedLibraryPath)
     return new URL(mediaPath, parentUrl).toString()
   } else {
     return resolvePath(dirname(libraryPath), mediaPath)

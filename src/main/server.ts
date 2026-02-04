@@ -397,8 +397,7 @@ const app = new Elysia()
         return { error: e.message || 'Error' }
       }
     })
-    .get('/library-media-source-path', async () => ({ path: await settingsService.getAbsoluteMediaSourcePath() }))
-    .post('/resolve-media-source-path', async ({ body }: { body: any }) => ({ path: await settingsService.resolveMediaSourcePath(body.path, body.isRelative) }))
+    .post('/resolve-media-source-path', async ({ body }: { body: any }) => ({ path: await settingsService.resolveMediaSourcePath(body.path, body.isRelative, body.libraryLocation) }))
     .post('/execute-custom-action', async ({ body }: { body: any }) => {
       await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt))
       return { success: true }

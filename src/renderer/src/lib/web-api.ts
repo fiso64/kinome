@@ -454,9 +454,6 @@ class WebApiClient implements ApiClient {
     return this.request('/api/settings')
   }
 
-  getLibraryMediaSourcePath(): Promise<string | null> {
-    return this.request<{ path: string | null }>('/api/library-media-source-path').then((r) => r.path)
-  }
 
   saveSettings(settings: Partial<Settings>): Promise<void> {
     return this.request('/api/save-settings', { method: 'POST', body: JSON.stringify(settings) })
@@ -474,7 +471,11 @@ class WebApiClient implements ApiClient {
     return this.request(url)
   }
 
-  resolveMediaSourcePath(args: { path: string; isRelative: boolean }): Promise<string> {
+  resolveMediaSourcePath(args: {
+    path: string
+    isRelative: boolean
+    libraryLocation?: string
+  }): Promise<string> {
     return this.request<{ path: string }>('/api/resolve-media-source-path', {
       method: 'POST',
       body: JSON.stringify(args)

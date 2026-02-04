@@ -14,26 +14,29 @@
   let resolvedMediaPath = $state('Resolving...')
 
   $effect(() => {
-    let cancelled = false
-    const resolve = async () => {
-      if (!mediaSourcePath.trim()) {
-        if (!cancelled) resolvedMediaPath = 'Not set'
-        return
-      }
+    const path = mediaSourcePath
+    const isRelative = mediaSourcePathIsRelative
+    const libLoc = libraryLocation
+
+    if (!path.trim()) {
+      resolvedMediaPath = 'Not set'
+      return
+    }
+
+    const timeout = setTimeout(async () => {
       try {
         const resolved = await api.resolveMediaSourcePath({
-          path: mediaSourcePath,
-          isRelative: mediaSourcePathIsRelative
+          path,
+          isRelative,
+          libraryLocation: libLoc
         })
-        if (!cancelled) resolvedMediaPath = resolved
+        resolvedMediaPath = resolved
       } catch (e) {
-        if (!cancelled) resolvedMediaPath = 'Error resolving path'
+        resolvedMediaPath = 'Error resolving path'
       }
-    }
-    resolve()
-    return () => {
-      cancelled = true
-    }
+    }, 100)
+
+    return () => clearTimeout(timeout)
   })
 </script>
 

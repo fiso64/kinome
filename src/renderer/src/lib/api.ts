@@ -111,10 +111,9 @@ export interface ApiClient {
   getItemProperties(path: string): Promise<MediaProperties | null>
   // Native directory picking (selectLibraryDirectory, selectMediaSourceDirectory) removed.
   getSettings(): Promise<Settings>
-  getLibraryMediaSourcePath(): Promise<string | null>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
-  resolveMediaSourcePath(args: { path: string; isRelative: boolean }): Promise<string>
+  resolveMediaSourcePath(args: { path: string; isRelative: boolean; libraryLocation?: string }): Promise<string>
   minimizeWindow(): void
   toggleMaximizeWindow(): void
   closeWindow(): void

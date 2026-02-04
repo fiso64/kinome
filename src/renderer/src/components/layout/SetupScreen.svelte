@@ -14,6 +14,31 @@
   let mediaSourcePathIsRelative = $state(false)
   let isSaving = $state(false)
   let error = $state('')
+  let resolvedPath = $state('')
+
+  $effect(() => {
+    // Capture reactive values synchronously to ensure Svelte tracks them as dependencies
+    const path = mediaSourcePath
+    const isRelative = mediaSourcePathIsRelative
+    const libLoc = libraryLocation
+
+    if (step === 'media' && path.trim()) {
+      const timeout = setTimeout(async () => {
+        try {
+          resolvedPath = await api.resolveMediaSourcePath({
+            path,
+            isRelative,
+            libraryLocation: libLoc
+          })
+        } catch {
+          resolvedPath = 'Error resolving path'
+        }
+      }, 100)
+      return () => clearTimeout(timeout)
+    } else {
+      resolvedPath = ''
+    }
+  })
 
   onMount(async () => {
     // Check current settings to see if we have a location but no DB
@@ -158,12 +183,6 @@
           </button>
         </div>
       {:else}
-        {#if mediaSourcePath}
-          <p class="info-message">
-            Existing library settings found. Verify the media source path below to continue.
-          </p>
-        {/if}
-
         <div class="form-group">
           <label for="media-source-path">Media Source Path</label>
           <input
@@ -173,7 +192,13 @@
             placeholder="Enter local path (e.g., C:/Movies)"
             autofocus
           />
-          <p class="help-text">The root directory where your media files are stored.</p>
+          <p class="help-text">
+            The root directory where your media files are stored.
+            {#if resolvedPath}
+              <br />
+              Current resolved path: <code>{resolvedPath}</code>
+            {/if}
+          </p>
         </div>
 
         <div class="form-group checkbox-group">
@@ -342,13 +367,17 @@
     margin: 0;
   }
 
-  .info-message {
-    color: var(--color-primary);
-    font-size: 0.9rem;
-    background-color: rgba(99, 102, 241, 0.1);
-    padding: 0.75rem;
-    border-radius: 6px;
-    border: 1px solid rgba(99, 102, 241, 0.2);
-    margin: 0;
+  code {
+    background-color: var(--color-background-mute);
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+    color: var(--color-text-dim);
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
   }
 </style>
