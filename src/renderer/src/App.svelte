@@ -16,14 +16,20 @@
   import { searchStoreV2, initializeSearchEffects } from './lib/search-store-v2.svelte'
   import { modalStore } from './lib/modal-store.svelte'
   import { contextMenuStore } from './lib/context-menu-store.svelte'
-  import { itemKeys, childKeys } from './lib/queries/query-keys'
+  import {
+    itemKeys,
+    childKeys,
+    continueWatchingKeys,
+    setGlobalRootId,
+    isIdMatch
+  } from './lib/queries/query-keys'
   import { QueryThrottler } from './lib/query-throttler'
   import { getPlaylistUrl, api } from './lib/api'
   import { resolveViewSettings } from '../../shared/settings-helpers'
   import { authStore } from './lib/auth-store.svelte'
   import LoginPage from './components/layout/LoginPage.svelte'
   import { onMount } from 'svelte'
-  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
+  import { QueryClient, QueryClientProvider, createQuery } from '@tanstack/svelte-query'
   import type {
     Settings,
     MediaFolder,
@@ -59,7 +65,6 @@
   let isScanning = $derived(isFastUpdating)
   let libraryStatus = $state<LibraryStatus | null>(null)
   let isRefreshing = $state(false)
-  let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
   let rootId = $state<string | null>(null)
 
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
@@ -72,16 +77,6 @@
   })
 
   let settings = $state<Settings | null>(null)
-
-  let continueWatchingTimeout: any
-  const debouncedRefreshContinueWatching = () => {
-    if (continueWatchingTimeout) clearTimeout(continueWatchingTimeout)
-    continueWatchingTimeout = setTimeout(() => {
-      if (!settings?.showContinueWatching) return
-      log('Debounced refresh of continue-watching items.')
-      api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
-    }, 500)
-  }
 
   const groupByKeys = $derived([
     'folder',
@@ -134,8 +129,9 @@
       if (!isFastUpdating) {
         log('All background library tasks finished, flushing throttled updates.')
         queryThrottler.flush()
-        // Final truth sync for all children lists
+        // Final truth sync for all children lists and continue watching
         queryClient.invalidateQueries({ queryKey: childKeys.all })
+        queryClient.invalidateQueries({ queryKey: continueWatchingKeys.all })
       }
     })
 
@@ -172,7 +168,10 @@
       // Prioritize getLibraryRoot to show SetupScreen instantly if needed
       api.getLibraryRoot().then((status) => {
         libraryStatus = status
-        if (status.root) rootId = status.root.id
+        if (status.root) {
+          rootId = status.root.id
+          setGlobalRootId(rootId)
+        }
 
         if (status.status !== 'ready') {
           // If library is not ready, we don't need to wait for other data to show setup screen
@@ -182,7 +181,6 @@
       })
 
       Promise.allSettled([
-        api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
         api.getSettings().then((s) => (settings = s))
       ]).then(() => {
@@ -196,12 +194,14 @@
     log('Refreshing library status...')
     const status = await api.getLibraryRoot()
     libraryStatus = status
-    if (status.root) rootId = status.root.id
+    if (status.root) {
+      rootId = status.root.id
+      setGlobalRootId(rootId)
+    }
 
     // Also refresh other state if library is now ready
     if (status.status === 'ready') {
       Promise.allSettled([
-        api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
         api.getSettings().then((s) => (settings = s))
       ])
@@ -227,38 +227,29 @@
       for (const item of updatedItems) {
         // --- 1. Surgical Patching (Instant & Silent) ---
 
-        // Update individual item detail view
-        queryClient.setQueryData(itemKeys.details(item.id), (old: any) =>
-          old ? { ...old, ...item } : item
+        // A. Update the item itself wherever it appears as a primary entity (Details, Tree, Settings)
+        // We use setQueriesData with a prefix to hit ['item', id, 'details'], ['item', id, 'tree'], etc.
+        queryClient.setQueriesData({ queryKey: [...itemKeys.all, item.id] }, (old: any) =>
+          old ? { ...old, ...item } : old
         )
 
-        // Patch any active children lists where this item resides
-        if (item.parentId) {
-          queryClient.setQueriesData(
-            {
-              queryKey: childKeys.all,
-              predicate: (query) => query.queryKey[1] === item.parentId
-            },
-            (oldData: any) => {
-              if (!Array.isArray(oldData)) return oldData
-              const index = oldData.findIndex((i) => i.id === item.id)
-              if (index !== -1) {
-                const newData = [...oldData]
-                newData[index] = { ...oldData[index], ...item }
-                return newData
-              }
-              // If not found in the list, we don't optimistically insert yet
-              // (Throttled refetch handles discovery below)
-              return oldData
-            }
-          )
-
-          parentIdsToRefetch.add(item.parentId)
-
-          // Alias support for root
-          if (item.parentId === rootId) {
-            parentIdsToRefetch.add('root')
+        // B. Patch any active children lists where this item might be a member.
+        // We scan EVERY children query. This handles Root, Nesting, and Virtual folders agnostically.
+        queryClient.setQueriesData({ queryKey: childKeys.all }, (oldData: any) => {
+          if (!Array.isArray(oldData)) return oldData
+          const index = oldData.findIndex((i) => i.id === item.id)
+          if (index !== -1) {
+            const newData = [...oldData]
+            newData[index] = { ...oldData[index], ...item }
+            return newData
           }
+          return oldData
+        })
+
+        // --- 2. Collection for Throttled Truth Sync ---
+        // We still refetch to ensure sorting/filtering/structural integrity after the silent patch.
+        if (item.parentId) {
+          parentIdsToRefetch.add(item.parentId)
         }
 
         // --- 2. Collection for Throttled Truth Sync ---
@@ -290,8 +281,7 @@
       })
 
       if (refreshContinueWatching) {
-        queryThrottler.throttleRefetch(['continue-watching'], isFastUpdating)
-        debouncedRefreshContinueWatching()
+        queryThrottler.throttleRefetch(continueWatchingKeys.all, isFastUpdating)
       }
     })
     return () => unlistenItemsUpdated()
@@ -343,7 +333,11 @@
 
   function handleDismissContinueWatching(showId: string) {
     api.setContinueWatchingDismissed(showId)
-    continueWatchingItems = continueWatchingItems.filter((cw) => cw.show.id !== showId)
+    // Optimistic cache update
+    queryClient.setQueryData(continueWatchingKeys.all, (old: any) => {
+      if (!Array.isArray(old)) return old
+      return old.filter((cw) => cw.show.id !== showId)
+    })
   }
 
   async function handleApplyInitialSettings(
@@ -516,7 +510,6 @@
         <MainView
           {isScanning}
           {libraryStatus}
-          {continueWatchingItems}
           {settings}
           suggestions={allAutocompleteSuggestions}
           onStatusUpdate={refreshLibraryStatus}

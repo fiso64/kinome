@@ -7,7 +7,7 @@ import type { QueryClient, QueryKey } from '@tanstack/svelte-query'
 export class QueryThrottler {
     private pendingUpdates = new Map<string, { timer: any; execute: () => void }>()
     private lastExecutionTimes = new Map<string, number>()
-    private defaultInterval = 20000 // 20 seconds
+    private defaultInterval = 5000 // 5 seconds
 
     constructor(private queryClient: QueryClient) { }
 
@@ -28,9 +28,8 @@ export class QueryThrottler {
             this.clearTimer(keyString)
         }
 
-        // Outside of scan mode: Execute immediately (or with a very short debounce)
+        // Outside of scan mode: Execute immediately
         if (!shouldThrottle) {
-            // Clear any pending throttled updates since we're switching to "instant" mode
             this.clearTimer(keyString)
             execute()
             return
@@ -46,7 +45,6 @@ export class QueryThrottler {
 
         // Trailing Edge: Schedule or reschedule a final update
         if (this.pendingUpdates.has(keyString)) {
-            // Already scheduled, let it run at its original time
             return
         }
 

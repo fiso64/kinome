@@ -11,7 +11,8 @@
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import { getAllRequiredFields } from '../../lib/view-requirements'
   import { createQuery } from '@tanstack/svelte-query'
-  import { itemKeys, childKeys } from '../../lib/queries/query-keys'
+  import { itemKeys, childKeys, continueWatchingKeys } from '../../lib/queries/query-keys'
+  import { authStore } from '../../lib/auth-store.svelte'
 
   import type {
     Settings,
@@ -27,14 +28,12 @@
     settings,
     isScanning,
     libraryStatus,
-    continueWatchingItems,
     suggestions,
     onStatusUpdate
   }: {
     settings: Settings | null
     isScanning: boolean
     libraryStatus: LibraryStatus | null
-    continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[]
     suggestions: any
     onStatusUpdate?: () => void
   } = $props()
@@ -76,6 +75,18 @@
   }))
 
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
+
+  const continueWatchingQuery = createQuery(() => ({
+    queryKey: continueWatchingKeys.all,
+    queryFn: () => api.getContinueWatchingItems(),
+    enabled:
+      !!settings?.showContinueWatching &&
+      !!authStore.isAuthenticated &&
+      libraryStatus?.status === 'ready',
+    staleTime: 1000 * 60 * 2 // 2 minutes
+  }))
+
+  const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
   // 2. Search
   const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
