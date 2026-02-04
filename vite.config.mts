@@ -1,13 +1,11 @@
-// vite.config.mts
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import path from 'path'
 
 export default defineConfig({
   root: 'src/renderer',
-  base: './', // Ensures relative paths for assets in production
+  base: './',
   build: {
-    // Output to the folder your server.ts expects
     outDir: path.resolve(__dirname, 'out/renderer'),
     emptyOutDir: true
   },
@@ -26,14 +24,14 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
+    port: 3000, // Frontend now owns port 3000
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3001', // Backend is moved here
         changeOrigin: true
       },
       '/ws': {
-        target: 'ws://localhost:3000',
+        target: 'ws://localhost:3001', // Backend is moved here
         ws: true
       }
     },

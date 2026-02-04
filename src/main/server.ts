@@ -450,7 +450,7 @@ if (process.env.NODE_ENV === 'production') {
         <head><title>Media Browser Backend</title></head>
         <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #121212; color: #fff;">
           <h1>🦊 Media Browser Backend is running</h1>
-          <p>This is the API server. To view the app, open <a href="http://localhost:5173" style="color: #4facfe;">http://localhost:5173</a> (Vite Dev Server).</p>
+          <p>This is the API server. To view the app, open <a href="http://localhost:3000" style="color: #4facfe;">http://localhost:3000</a> (Vite Dev Server).</p>
         </body>
       </html>
     `
@@ -462,13 +462,19 @@ async function start() {
   await loadDbIntoMemory()
 
   const settings = await settingsService.readSettings()
-  const finalPort = settings.serverPort || Number(port)
+
+  // In production, respect the user's settings.
+  // In development, respect the PORT env var (3001) to let Vite own port 3000.
+  const finalPort = process.env.NODE_ENV === 'production'
+    ? (settings.serverPort || 3000)
+    : (process.env.PORT || 3001)
 
   app.listen(finalPort, (server) => {
     webTransport.initialize(server)
     console.log(`🦊 Elysia is running at http://${server?.hostname}:${server?.port}`)
   })
 }
+
 
 start().catch((err) => {
   console.error('[Server] Failed to start:', err)
