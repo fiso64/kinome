@@ -1,8 +1,8 @@
 <script lang="ts">
+  import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
   import { createEventDispatcher } from 'svelte'
   import { getAssetUrl } from '../../lib/api'
   import { tabNavigationIntent } from '../../lib/view-state-store'
-  import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 
   type ContinueWatchingItem = {
     show: MediaFolder
