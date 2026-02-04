@@ -4,7 +4,8 @@
   import { modalStore } from '../../lib/modal-store.svelte'
   import { useQueryClient } from '@tanstack/svelte-query'
 
-  let { onComplete }: { onComplete: () => void } = $props()
+  let { onComplete, onStatusUpdate }: { onComplete: () => void; onStatusUpdate?: () => void } =
+    $props()
   const queryClient = useQueryClient()
 
   let step: 'library' | 'media' = $state('library')
@@ -97,6 +98,9 @@
 
       // Invalidate queries so that MainView realizes the library is ready
       queryClient.invalidateQueries()
+
+      // Notify parent to refresh libraryStatus state
+      if (onStatusUpdate) onStatusUpdate()
 
       if (root) {
         modalStore.open('initialFolderSettings', { root })

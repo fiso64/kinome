@@ -24,13 +24,17 @@
   let {
     settings,
     isScanning,
+    libraryStatus,
     continueWatchingItems,
-    suggestions
+    suggestions,
+    onStatusUpdate
   }: {
     settings: Settings | null
     isScanning: boolean
+    libraryStatus: LibraryStatus | null
     continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[]
     suggestions: any
+    onStatusUpdate?: () => void
   } = $props()
 
   // --- V2 State ---
@@ -44,7 +48,7 @@
       const id = queryKey[1] as string
       return api.getItemV2(id)
     },
-    enabled: !!currentFolderId
+    enabled: !!currentFolderId && libraryStatus?.status === 'ready'
   }))
 
   const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
@@ -66,7 +70,7 @@
       const { fields, groupBy } = queryKey[2] as { fields: string[]; groupBy: string }
       return api.getChildrenV2(parentId, { include: fields, groupBy })
     },
-    enabled: !!currentFolderId
+    enabled: !!currentFolderId && libraryStatus?.status === 'ready'
   }))
 
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
@@ -128,8 +132,8 @@
 <div class="content">
   {#if isScanning}
     <!-- Loading state is now implicitly handled by App.svelte's logic -->
-  {:else if (settings && !settings.libraryLocation) || (!currentFolder && currentFolderId === 'root' && currentFolderQuery.isError) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
-    <SetupScreen onComplete={() => window.location.reload()} />
+  {:else if (libraryStatus && libraryStatus.status !== 'ready') || (settings && !settings.libraryLocation) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
+    <SetupScreen onComplete={() => window.location.reload()} {onStatusUpdate} />
   {:else}
     <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->

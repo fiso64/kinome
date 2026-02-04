@@ -130,11 +130,19 @@
 
       navStoreV2.init()
 
+      // Prioritize getLibraryRoot to show SetupScreen instantly if needed
+      api.getLibraryRoot().then((status) => {
+        libraryStatus = status
+        if (status.root) rootId = status.root.id
+
+        if (status.status !== 'ready') {
+          // If library is not ready, we don't need to wait for other data to show setup screen
+          isScanning = false
+          log(`Library not ready (${status.status}). Ending initial scan state early.`)
+        }
+      })
+
       Promise.allSettled([
-        api.getLibraryRoot().then((status) => {
-          libraryStatus = status
-          if (status.root) rootId = status.root.id
-        }),
         api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
         api.getSettings().then((s) => (settings = s))
@@ -144,6 +152,22 @@
       })
     }
   })
+
+  async function refreshLibraryStatus() {
+    log('Refreshing library status...')
+    const status = await api.getLibraryRoot()
+    libraryStatus = status
+    if (status.root) rootId = status.root.id
+
+    // Also refresh other state if library is now ready
+    if (status.status === 'ready') {
+      Promise.allSettled([
+        api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
+        api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getSettings().then((s) => (settings = s))
+      ])
+    }
+  }
 
   // This effect is reactive and will update the global default CSS variable whenever the settings change
   $effect(() => {
@@ -431,6 +455,7 @@
           {continueWatchingItems}
           {settings}
           suggestions={allAutocompleteSuggestions}
+          onStatusUpdate={refreshLibraryStatus}
           on:itemClick={(e) => handleItemClick(e.detail.item)}
           on:showContextMenu={(e) =>
             handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
