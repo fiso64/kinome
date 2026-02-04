@@ -21,7 +21,7 @@ See Plan.md for more details.
 - [**Specs**](./spec/)
 
 ## General Development Info 
-- We don't care about database migrations. Breaking changes are allowed and expected in order to maintain momentum.
+- No migration code (whether database or json files). Breaking changes are allowed and expected in order to maintain momentum.
 - No hacks, no tech debt. Solutions must be implemented cleanly. Always prefer an architecturally clean and performant refactor over a hacky patch. 
 - Performance should be considered for homeserver scale, but not for Netflix scale (i.e. ~tens of thousands of items instead of millions).
 - Must maintain the [spec files](./spec/) as the source of truth. Prefer to create spec files first before implementing.
