@@ -180,6 +180,7 @@
   )
 
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
+  import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
   const contentsLayout = $derived(
     resolveViewSettings(item as MediaFolder, settings).settings.layout

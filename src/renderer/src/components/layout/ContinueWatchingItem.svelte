@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import { getAssetUrl } from '../../lib/api'
   import { tabNavigationIntent } from '../../lib/view-state-store'
+  import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 
   type ContinueWatchingItem = {
     show: MediaFolder
@@ -302,6 +303,7 @@
     margin: 0;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: var(--description-rows, 3);
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -309,6 +311,7 @@
 
   .cw-item.horizontal .cw-overview {
     -webkit-line-clamp: 2;
+    line-clamp: var(--description-rows, 3);
     margin-top: 0.5rem;
   }
 

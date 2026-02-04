@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import { registerModalKeyHandler } from '../../../lib/modal-keyboard-manager'
 
   let {
