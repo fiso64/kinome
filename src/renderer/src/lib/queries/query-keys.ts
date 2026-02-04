@@ -4,7 +4,7 @@ export const setGlobalRootId = (id: string | null) => {
     currentRootId = id
 }
 
-const normalizeId = (id: string | null | undefined) => {
+export const normalizeId = (id: string | null | undefined) => {
     if (!id) return id
     if (currentRootId && id === currentRootId) return 'root'
     return id

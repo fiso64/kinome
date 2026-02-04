@@ -21,6 +21,7 @@
     childKeys,
     continueWatchingKeys,
     setGlobalRootId,
+    normalizeId,
     isIdMatch
   } from './lib/queries/query-keys'
   import { QueryThrottler } from './lib/query-throttler'
@@ -228,7 +229,8 @@
 
         // A. Update the item itself wherever it appears as a primary entity (Details, Tree, Settings)
         // We use setQueriesData with a prefix to hit ['item', id, 'details'], ['item', id, 'tree'], etc.
-        queryClient.setQueriesData({ queryKey: [...itemKeys.all, item.id] }, (old: any) =>
+        const normalizedId = normalizeId(item.id)
+        queryClient.setQueriesData({ queryKey: [...itemKeys.all, normalizedId] }, (old: any) =>
           old ? { ...old, ...item } : old
         )
 
@@ -285,7 +287,8 @@
     const unlisten = api.onLibraryItemDeleted((deletedItemId) => {
       log(`Received deletion event for item ${deletedItemId}`)
       // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: ['item', deletedItemId] })
+      const normalizedId = normalizeId(deletedItemId)
+      queryClient.invalidateQueries({ queryKey: ['item', normalizedId] })
       // If we are looking at this item, go back?
       if (
         navStoreV2.state.currentFolderId === deletedItemId ||
