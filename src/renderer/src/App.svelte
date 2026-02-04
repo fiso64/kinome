@@ -63,6 +63,16 @@
 
   let settings = $state<Settings | null>(null)
 
+  let continueWatchingTimeout: any
+  const debouncedRefreshContinueWatching = () => {
+    if (continueWatchingTimeout) clearTimeout(continueWatchingTimeout)
+    continueWatchingTimeout = setTimeout(() => {
+      if (!settings?.showContinueWatching) return
+      log('Debounced refresh of continue-watching items.')
+      api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+    }, 500)
+  }
+
   const groupByKeys = $derived([
     'folder',
     'mediaType',
@@ -180,39 +190,31 @@
   $effect(() => {
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
+
+      const itemIdsToInvalidate = new Set<string>()
+      const parentIdsToRefetch = new Set<string>()
+      const ancestorIdsToRefetch = new Set<string>()
+      let refreshContinueWatching = false
+      let refreshRoot = false
+
       for (const item of updatedItems) {
         // Broadly invalidate everything related to this specific item ID across all contexts
-        queryClient.invalidateQueries({
-          queryKey: itemKeys.all,
-          predicate: (query) => query.queryKey[1] === item.id
-        })
+        itemIdsToInvalidate.add(item.id)
 
         // Alias support: If the root folder was updated, also invalidate 'root'
         if (!item.parentId || item.id === rootId) {
-          queryClient.invalidateQueries({ queryKey: itemKeys.details('root') })
-          queryClient.invalidateQueries({ queryKey: itemKeys.settings('root') })
+          refreshRoot = true
         }
 
         // Refetch parent's children query so lists re-render
         if (item.parentId) {
-          queryClient.refetchQueries({
-            queryKey: childKeys.all,
-            predicate: (query) => query.queryKey[1] === item.parentId
-          })
-
-          // Alias support: If parent is root, also invalidate 'children', 'root'
-          if (item.parentId === rootId) {
-            queryClient.refetchQueries({
-              queryKey: childKeys.all,
-              predicate: (query) => query.queryKey[1] === 'root'
-            })
-          }
+          parentIdsToRefetch.add(item.parentId)
         }
 
         // Refetch tree queries for all ancestors (e.g., Season and Show when episode updates)
         if (item.ancestorIds && item.ancestorIds.length > 0) {
           for (const ancestorId of item.ancestorIds) {
-            queryClient.refetchQueries({ queryKey: itemKeys.tree(ancestorId) })
+            ancestorIdsToRefetch.add(ancestorId)
           }
         }
 
@@ -222,11 +224,50 @@
           (item.type === 'folder' &&
             ('continueWatchingDismissed' in item || 'nextUpDismissed' in item))
         ) {
-          queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
-          // FIX: Manually update the local state variable if needed
-          api.getContinueWatchingItems().then((items) => (continueWatchingItems = items))
+          refreshContinueWatching = true
         }
       }
+
+      // Execute invalidations per item
+      itemIdsToInvalidate.forEach((id) => {
+        queryClient.invalidateQueries({
+          queryKey: itemKeys.all,
+          predicate: (query) => query.queryKey[1] === id
+        })
+
+        if (refreshRoot && id === rootId) {
+          queryClient.invalidateQueries({ queryKey: itemKeys.details('root') })
+          queryClient.invalidateQueries({ queryKey: itemKeys.settings('root') })
+        }
+      })
+
+      // Execute refetches per parent
+      parentIdsToRefetch.forEach((parentId) => {
+        queryClient.refetchQueries({
+          queryKey: childKeys.all,
+          predicate: (query) => query.queryKey[1] === parentId
+        })
+
+        // Alias support: If parent is root, also invalidate 'children', 'root'
+        if (parentId === rootId) {
+          queryClient.refetchQueries({
+            queryKey: childKeys.all,
+            predicate: (query) => query.queryKey[1] === 'root'
+          })
+        }
+      })
+
+      // Execute refetches per ancestor
+      ancestorIdsToRefetch.forEach((ancestorId) => {
+        queryClient.refetchQueries({ queryKey: itemKeys.tree(ancestorId) })
+      })
+
+      // Global invalidations
+      if (refreshContinueWatching) {
+        queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
+        debouncedRefreshContinueWatching()
+      }
+
       // Global invalidation for virtual views (which depend on 'children' queries but potentially different IDs)
       queryClient.invalidateQueries({ queryKey: ['children'] })
     })
