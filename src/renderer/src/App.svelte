@@ -29,7 +29,8 @@
     MediaFile,
     LibraryItem,
     AutocompleteSuggestions,
-    SearchIndexEntry
+    SearchIndexEntry,
+    LibraryStatus
   } from '../../shared/types'
 
   const queryClient = new QueryClient({
@@ -46,6 +47,7 @@
   }
 
   let isScanning = $state(true)
+  let libraryStatus = $state<LibraryStatus | null>(null)
   let isRefreshing = $state(false)
   let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
   let rootId = $state<string | null>(null)
@@ -130,6 +132,7 @@
 
       Promise.allSettled([
         api.getLibraryRoot().then((status) => {
+          libraryStatus = status
           if (status.root) rootId = status.root.id
         }),
         api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
@@ -424,6 +427,7 @@
       {:else}
         <MainView
           {isScanning}
+          {libraryStatus}
           {continueWatchingItems}
           {settings}
           suggestions={allAutocompleteSuggestions}

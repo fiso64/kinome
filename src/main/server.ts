@@ -395,20 +395,56 @@ const app = new Elysia()
     .use(v2Routes)
   )
 
-// 3. Static Files (Production only)
+// ... (imports and middleware setup remain the same) ...
+
+// 3. Static Files & Frontend Serving
 if (process.env.NODE_ENV === 'production') {
-  const distPath = path.resolve((import.meta as any).dir, '../../out/renderer')
+  // --- PRODUCTION PATH DETECTION STRATEGY ---
+  // Strategy 1: Look next to the executable (Production / Single Binary)
+  // process.execPath is the path to the running binary
+  const exeDir = path.dirname(process.execPath)
+  const pathSibling = path.join(exeDir, 'out', 'renderer')
+
+  // Strategy 2: Look relative to source (Development / bun run with NODE_ENV=production)
+  // import.meta.dir is src/main
+  const sourceDir = (import.meta as any).dir
+  const pathDev = path.resolve(sourceDir, '../../out/renderer')
+
+  let distPath = ''
+
+  if (fs.existsSync(pathSibling)) {
+    console.log(`[Server] Detected production layout. Serving from: ${pathSibling}`)
+    distPath = pathSibling
+  } else if (fs.existsSync(pathDev)) {
+    console.log(`[Server] Detected development layout. Serving from: ${pathDev}`)
+    distPath = pathDev
+  } else {
+    console.error('[Server] CRITICAL: Could not locate frontend assets.')
+    // Default to sibling to allow the app to boot, though UI will 404
+    distPath = pathSibling
+  }
+
+  // Serve static assets (js, css, images)
   app.use(staticPlugin({
     assets: distPath,
     prefix: '/'
   }))
-  // Fallback to index.html for SPA
-  app.get('*', () => Bun.file(path.join(distPath, 'index.html')))
-}
 
-// 4. Start Server
-app.get('/', ({ set }) => {
-  if (process.env.NODE_ENV !== 'production') {
+  // SPA Fallback & Root Handler for Production
+  // This wildcard handles '/' and any client-side routes (e.g. /settings)
+  app.get('*', () => {
+    const indexPath = path.join(distPath, 'index.html')
+    if (!fs.existsSync(indexPath)) {
+      return new Response("Frontend not found. Please ensure 'out/renderer' exists next to the executable.", { status: 404 })
+    }
+    return Bun.file(indexPath)
+  })
+
+} else {
+  // --- DEVELOPMENT MODE ---
+  // Only define this specific '/' handler in development.
+  // In production, the '*' handler above covers it.
+  app.get('/', () => {
     return `
       <html>
         <head><title>Media Browser Backend</title></head>
@@ -418,10 +454,8 @@ app.get('/', ({ set }) => {
         </body>
       </html>
     `
-  }
-  set.status = 404
-  return 'Not found'
-})
+  })
+}
 
 async function start() {
   console.log('[Server] Loading database into memory...')

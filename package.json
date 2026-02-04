@@ -18,7 +18,10 @@
     "build": "bunx --bun vite build",
     "preview": "bunx --bun vite preview",
     "start": "NODE_ENV=production bun src/main/server.ts",
-    "prod": "bun run build; bun run start"
+    "prod": "bun run build; bun run start",
+    "publish:linux-arm": "bun scripts/publish.ts --target=linux-arm64",
+    "publish:linux-x64": "bun scripts/publish.ts --target=linux-x64",
+    "publish:win": "bun scripts/publish.ts --target=windows-x64"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
