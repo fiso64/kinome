@@ -220,7 +220,6 @@
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
 
-      const parentIdsToRefetch = new Set<string>()
       const ancestorIdsToRefetch = new Set<string>()
       let refreshContinueWatching = false
 
@@ -247,12 +246,6 @@
         })
 
         // --- 2. Collection for Throttled Truth Sync ---
-        // We still refetch to ensure sorting/filtering/structural integrity after the silent patch.
-        if (item.parentId) {
-          parentIdsToRefetch.add(item.parentId)
-        }
-
-        // --- 2. Collection for Throttled Truth Sync ---
 
         if (item.ancestorIds && item.ancestorIds.length > 0) {
           for (const ancestorId of item.ancestorIds) {
@@ -269,12 +262,12 @@
         }
       }
 
-      // Execute throttled refetches
-      parentIdsToRefetch.forEach((parentId) => {
-        // We use byParent to match the exact keys used in MainView
-        // but the throttler will handle all queries starting with this key
-        queryThrottler.throttleRefetch([...childKeys.all, parentId], isFastUpdating)
-      })
+      // --- 3. Execute Throttled Sync (Structural Truth) ---
+
+      // IMPORTANT NOTE: Invalidating ALL active children queries is potentially expensive,
+      // but it ensures 100% structural robustness (sorting, grouping, virtual moves).
+      // We haven't experienced performance problems with this YET...
+      queryThrottler.throttleRefetch(childKeys.all, isFastUpdating)
 
       ancestorIdsToRefetch.forEach((ancestorId) => {
         queryThrottler.throttleRefetch(itemKeys.tree(ancestorId), isFastUpdating)
