@@ -1,6 +1,6 @@
 # media-browser (better name pending)
 
-Client-server media browser and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, etc.
+Client-server media browser and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, streams media.
 
 ## Goals
 - More customizable
