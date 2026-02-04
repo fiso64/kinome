@@ -8,7 +8,8 @@ import type {
   TmdbSearchResult,
   TmdbImageResults,
   MediaProperties,
-  AppCapabilities
+  AppCapabilities,
+  LibraryStatus
 } from '../../../shared/types'
 import type { ApiClient } from './api'
 import { authStore } from './auth-store.svelte'
@@ -194,11 +195,8 @@ class WebApiClient implements ApiClient {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) }) // Same endpoint for now
   }
 
-  getLibraryRoot(): Promise<MediaFolder | null> {
-    return this.request('/api/library-root')
-  }
 
-  performInitialScan(path?: string): Promise<MediaFolder | null> {
+  performInitialScan(path: string): Promise<MediaFolder | null> {
     return this.request('/api/perform-initial-scan', {
       method: 'POST',
       body: JSON.stringify({ path })
@@ -394,6 +392,28 @@ class WebApiClient implements ApiClient {
     })
   }
 
+  uploadImage(
+    itemId: string,
+    imageType: 'poster' | 'backdrop' | 'logo',
+    file: File
+  ): Promise<void> {
+    const formData = new FormData()
+    formData.append('itemId', itemId)
+    formData.append('imageType', imageType)
+    formData.append('file', file)
+
+    // Manual fetch because this.request handles JSON by default
+    return fetch('/api/upload-image', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        ...(authStore.token ? { 'Authorization': `Bearer ${authStore.token}` } : {})
+      }
+    }).then((res) => {
+      if (!res.ok) throw new Error('Upload failed')
+    })
+  }
+
   executeCustomAction(itemId: string, commandId: string): Promise<void> {
     return this.request('/api/execute-custom-action', {
       method: 'POST',
@@ -435,7 +455,7 @@ class WebApiClient implements ApiClient {
   }
 
   getLibraryMediaSourcePath(): Promise<string | null> {
-    return this.request('/api/library-media-source-path')
+    return this.request<{ path: string | null }>('/api/library-media-source-path').then((r) => r.path)
   }
 
   saveSettings(settings: Partial<Settings>): Promise<void> {
@@ -449,11 +469,16 @@ class WebApiClient implements ApiClient {
     })
   }
 
+  getLibraryRoot(path?: string): Promise<LibraryStatus> {
+    const url = path ? `/api/library-root?path=${encodeURIComponent(path)}` : '/api/library-root'
+    return this.request(url)
+  }
+
   resolveMediaSourcePath(args: { path: string; isRelative: boolean }): Promise<string> {
-    return this.request('/api/resolve-media-source-path', {
+    return this.request<{ path: string }>('/api/resolve-media-source-path', {
       method: 'POST',
       body: JSON.stringify(args)
-    })
+    }).then((r) => r.path)
   }
 
   // --- No-ops for web mode ---

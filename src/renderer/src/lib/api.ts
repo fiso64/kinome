@@ -8,7 +8,8 @@ import type {
   TmdbSearchResult,
   TmdbImageResults,
   MediaProperties,
-  AppCapabilities
+  AppCapabilities,
+  LibraryStatus
 } from '../../../shared/types'
 
 export interface ApiClient {
@@ -39,8 +40,8 @@ export interface ApiClient {
     text: string
     tags: { key: string; value: string }[]
   }): Promise<Record<string, unknown>>
-  getLibraryRoot(): Promise<MediaFolder | null>
-  performInitialScan(): Promise<MediaFolder | null>
+  getLibraryRoot(path?: string): Promise<LibraryStatus>
+  performInitialScan(path: string): Promise<MediaFolder | null>
   performFullRescan(newPath: string): Promise<MediaFolder | null>
   refreshLibrary(): Promise<MediaFolder | null>
   playFile(file: MediaFile): Promise<boolean>
@@ -97,6 +98,11 @@ export interface ApiClient {
     source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
   ): Promise<void>
   removeImage(itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void>
+  uploadImage(
+    itemId: string,
+    imageType: 'poster' | 'backdrop' | 'logo',
+    file: File
+  ): Promise<void>
   executeCustomAction(itemId: string, commandId: string): Promise<void>
   revealInExplorer(path: string): void
   trashItem(path: string): Promise<boolean>

@@ -12,12 +12,13 @@ import * as filesystemService from './filesystem.service'
 import * as tvShowService from './tv-show.service'
 import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
+import { closeDatabase } from '../database/client'
 import {
   updateIfChangedAndBroadcast,
   getAutocompleteSuggestions as fetchAutocompleteSuggestions
 } from './item-update.service'
 
-import type { MediaFolder, LibraryItem, MediaFile } from '../../shared/types'
+import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
 import { getTransport } from '../transport.registry'
 
@@ -34,27 +35,58 @@ type ErrorCallback = (options: { title: string; message: string; detail?: string
 export async function loadDbIntoMemory(): Promise<void> {
   await repositoryService.loadDb()
 
-  // Ensure root exists if we have a configured media source path
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (mediaSourcePath) {
-    repositoryService.ensureRootExists(mediaSourcePath)
-  }
-
   searchService.buildFullSearchIndex()
 }
 
-export async function getLibraryRoot(): Promise<MediaFolder | null> {
+export async function switchToLibrary(newPath: string): Promise<void> {
+  log(`Switching library data location to: ${newPath}`)
+
+  // 1. Close current database connection
+  closeDatabase()
+
+  // 2. Update paths service
+  pathsService.setLibraryDataPath(newPath)
+
+  // 3. Re-initialize database at the new location
+  await loadDbIntoMemory()
+
+  log(`Successfully switched library to ${newPath}`)
+}
+
+export async function getLibraryRoot(providedPath?: string): Promise<LibraryStatus> {
+  const currentSettings = await settingsService.readSettings()
+  const pathToCheck = providedPath || currentSettings.libraryLocation
+
+  if (!pathToCheck) {
+    return { status: 'no_location' }
+  }
+
+  const discovery = await settingsService.checkLibraryExists(pathToCheck)
+
+  if (!discovery.settingsExists) {
+    return { status: 'no_settings' }
+  }
+
+  if (!discovery.dbExists) {
+    return { status: 'db_missing', settings: discovery.settings }
+  }
+
+  // If DB exists, the root should exist (discovery.dbExists now checks for root)
   const root = repositoryService.getRoot()
-  if (!root) return null
+  if (!root) {
+    // This should technically not happen if discovery.dbExists is true, 
+    // but we handle it for safety.
+    return { status: 'db_missing', settings: discovery.settings }
+  }
 
-  // FIX: Remove eager children loading. 
-  // The frontend V2 architecture requests children separately via /children endpoint.
-  // This prevents double-fetching and massive payloads on startup.
   root.children = []
-
   const item = repositoryService.createTransferableCopy(root) as MediaFolder
-  log(`[Library] getLibraryRoot returning: ${item.name} (Lean)`)
-  return item
+
+  return {
+    status: 'ready',
+    root: item,
+    settings: discovery.settings
+  }
 }
 
 export async function refreshLibrary(): Promise<MediaFolder | null> {
@@ -77,7 +109,7 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
 
   await reapplyVirtualTagsAfterSettingsChange()
 
-  return getLibraryRoot()
+  return (await getLibraryRoot()).root || null
 }
 
 async function _scanAndCreateNewDb(
@@ -102,12 +134,16 @@ async function _scanAndCreateNewDb(
     await repositoryService.createNewDb(null)
   }
 
-  await filesystemService.scanDirectory(mediaSourcePath)
+  await filesystemService.scanDirectory(mediaSourcePath, { skipMetadata: true })
   searchService.buildFullSearchIndex()
 
   await reapplyVirtualTagsAfterSettingsChange()
 
-  return getLibraryRoot()
+  const status = await getLibraryRoot()
+  const root = status.root
+  if (!root) return null
+
+  return repositoryService.getFullFolderTree(root)
 }
 
 export const performInitialScan = (path: string) => _scanAndCreateNewDb(path, 'Initial Scan')
@@ -430,6 +466,24 @@ export const removeImage = async (itemId: string, imageType: 'poster' | 'backdro
   const item = await metadataService.removeImage(itemId, imageType)
   if (item) {
     // Use unified update path to ensure fields are locked automatically
+    await updateItem(item, true)
+  }
+}
+
+export const uploadImage = async (
+  itemId: string,
+  imageType: 'poster' | 'backdrop' | 'logo',
+  file: File
+) => {
+  const buffer = await file.arrayBuffer()
+  const item = await metadataService.setImage(itemId, imageType, {
+    type: 'local',
+    path: '', // Not used if we pass the buffer
+    buffer: Buffer.from(buffer),
+    originalName: file.name
+  } as any)
+
+  if (item) {
     await updateItem(item, true)
   }
 }

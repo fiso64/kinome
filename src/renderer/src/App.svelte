@@ -128,32 +128,17 @@
 
       navStoreV2.init()
 
-      const handleError = (err: any) => console.error('[App] Init fetch failed:', err)
-
-      api
-        .getLibraryRoot()
-        .then((root) => {
-          if (root) rootId = root.id
-        })
-        .catch(handleError)
-
-      api
-        .getContinueWatchingItems()
-        .then((items) => (continueWatchingItems = items))
-        .catch(handleError)
-
-      api
-        .getAutocompleteSuggestions()
-        .then((s) => (allAutocompleteSuggestions = s))
-        .catch(handleError)
-
-      api
-        .getSettings()
-        .then((s) => (settings = s))
-        .catch(handleError)
-
-      isScanning = false // Reset initial scanning state
-      log(`Initialization complete. isScanning: ${isScanning}`)
+      Promise.allSettled([
+        api.getLibraryRoot().then((status) => {
+          if (status.root) rootId = status.root.id
+        }),
+        api.getContinueWatchingItems().then((items) => (continueWatchingItems = items)),
+        api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getSettings().then((s) => (settings = s))
+      ]).then(() => {
+        isScanning = false
+        log(`Initialization complete. isScanning: ${isScanning}`)
+      })
     }
   })
 
@@ -241,20 +226,6 @@
     return () => unlisten()
   })
 
-  async function handleScan(): Promise<void> {
-    isScanning = true
-    navStoreV2.closeDetail()
-    // V2: Query invlidations happen automatically via events or we force them
-    const newRoot = await api.performInitialScan()
-    if (newRoot) {
-      // Force refresh root
-      queryClient.invalidateQueries({ queryKey: ['item', newRoot.id] })
-      // navStoreV2.navigateToRoot(newRoot.id) // Should be implied if init runs
-      modalStore.open('initialFolderSettings', { root: newRoot })
-    }
-    isScanning = false
-  }
-
   async function handleRefresh(): Promise<void> {
     if (isRefreshing || isScanning) return
     isRefreshing = true
@@ -288,10 +259,9 @@
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ) {
     await api.applyInitialFolderSettings(settings)
-    const root = await api.getLibraryRoot()
-    if (root) {
-      // navStoreV2 should handle this
-    }
+    // Instead of reloading, just refresh the data
+    queryClient.invalidateQueries({ queryKey: itemKeys.all })
+    queryClient.invalidateQueries({ queryKey: childKeys.all })
   }
 
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
@@ -349,16 +319,6 @@
 
   function goForward(): void {
     // This can be implemented in the future to handle forward navigation.
-  }
-
-  async function handleOpenLibrary(): Promise<void> {
-    // Native picker removed.
-    // TODO: Implement custom UI to input/browse for library path string
-    const path = prompt('Enter the full server path to the library directory:')
-    if (path) {
-      await api.saveSettings({ libraryLocation: path })
-      window.location.reload()
-    }
   }
 
   function handleSearchByTag(key: string, value: string): void {
@@ -467,8 +427,6 @@
           {continueWatchingItems}
           {settings}
           suggestions={allAutocompleteSuggestions}
-          on:scanLibrary={handleScan}
-          on:openLibrary={handleOpenLibrary}
           on:itemClick={(e) => handleItemClick(e.detail.item)}
           on:showContextMenu={(e) =>
             handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}

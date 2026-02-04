@@ -89,7 +89,9 @@ export async function executeCustomAction(
     .replace(/{title}/g, title)
     .replace(/{type}/g, item.mediaType ?? '')
     .replace(/{year}/g, item.year?.toString() ?? '')
-  log(`Executing custom action: ${commandToExecute}`)
+  log(`[SERVER-ONLY ACTION] Executing custom action: ${commandToExecute}`)
+  log(`Custom actions are currently disabled for remote clients and logged as NO-OP.`)
+  /*
   Bun.spawn(commandToExecute.split(' '), {
     onExit(_proc: any, exitCode: any, _signalCode: any, error: any) {
       if (error || exitCode !== 0) {
@@ -101,6 +103,7 @@ export async function executeCustomAction(
       }
     }
   })
+  */
 }
 
 export async function revealInExplorer(relativePath: string): Promise<void> {

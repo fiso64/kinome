@@ -1,0 +1,350 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { api } from '../../lib/api'
+  import { modalStore } from '../../lib/modal-store.svelte'
+  import { useQueryClient } from '@tanstack/svelte-query'
+
+  let { onComplete }: { onComplete: () => void } = $props()
+  const queryClient = useQueryClient()
+
+  let step: 'library' | 'media' = $state('library')
+  let libraryLocation = $state('')
+  let mediaSourcePath = $state('')
+  let mediaSourcePathIsRelative = $state(false)
+  let isSaving = $state(false)
+  let error = $state('')
+
+  onMount(async () => {
+    // Check current settings to see if we have a location but no DB
+    try {
+      const settings = await api.getSettings()
+      if (settings.libraryLocation) {
+        libraryLocation = settings.libraryLocation
+        await checkStateAndNavigate(libraryLocation)
+      }
+    } catch (err) {
+      // Ignore if settings fetch fails during setup
+    }
+  })
+
+  async function checkStateAndNavigate(path: string) {
+    isSaving = true
+    try {
+      const result = await api.getLibraryRoot(path)
+
+      // If settings exist, always pre-fill them
+      if (result.settings) {
+        mediaSourcePath = result.settings.mediaSourcePath || ''
+        mediaSourcePathIsRelative = result.settings.mediaSourcePathIsRelative || false
+      }
+
+      if (result.status === 'ready') {
+        // Full library exists (JSON + DB)!
+        if (step === 'library') {
+          // If we are at the first step and everything is there, just save location and finish
+          await api.saveSettings({ libraryLocation: path })
+          onComplete()
+        }
+      } else if (result.status === 'db_missing') {
+        // Library settings exist but DB is missing (or JSON exists but no DB)
+        // Proceed to Step 2 to (re)configure media source and scan
+        step = 'media'
+      } else {
+        // Nothing exists at this path (no_settings or no_location)
+        if (step === 'library') {
+          step = 'media'
+        }
+      }
+    } catch (err: any) {
+      error = err.message || 'Failed to check library location.'
+    } finally {
+      isSaving = false
+    }
+  }
+
+  async function handleLibraryContinue() {
+    if (!libraryLocation.trim()) {
+      error = 'Library Location is required.'
+      return
+    }
+    error = ''
+    await checkStateAndNavigate(libraryLocation)
+  }
+
+  async function handleMediaSave() {
+    if (!mediaSourcePath.trim()) {
+      error = 'Media Source Path is required.'
+      return
+    }
+    error = ''
+    isSaving = true
+    try {
+      // 1. Save all settings
+      await api.saveSettings({
+        libraryLocation,
+        mediaSourcePath,
+        mediaSourcePathIsRelative
+      })
+
+      // 2. Resolve path for initial scan
+      const resolved = await api.resolveMediaSourcePath({
+        path: mediaSourcePath,
+        isRelative: mediaSourcePathIsRelative
+      })
+
+      // 3. Perform scan and open folder settings modal
+      const root = await api.performInitialScan(resolved)
+
+      // Invalidate queries so that MainView realizes the library is ready
+      queryClient.invalidateQueries()
+
+      if (root) {
+        modalStore.open('initialFolderSettings', { root })
+      } else {
+        onComplete()
+      }
+    } catch (err: any) {
+      error = err.message || 'Failed to save settings.'
+    } finally {
+      isSaving = false
+    }
+  }
+</script>
+
+<div class="setup-screen">
+  <div class="setup-container">
+    <header>
+      <h1>Welcome to Media Browser</h1>
+      <p>
+        {#if step === 'library'}
+          Set up your library data location.
+        {:else}
+          Configure your media source directory.
+        {/if}
+      </p>
+    </header>
+
+    <div class="setup-content">
+      {#if step === 'library'}
+        <div class="form-group">
+          <label for="library-data-location">Library Data Location</label>
+          <input
+            type="text"
+            id="library-data-location"
+            bind:value={libraryLocation}
+            placeholder="Path or URL"
+            autofocus
+          />
+          <p class="help-text">
+            The local directory (or server URL) where metadata, images, and the database are stored.
+          </p>
+        </div>
+
+        {#if error}
+          <p class="error-message">{error}</p>
+        {/if}
+
+        <div class="actions">
+          <button
+            class="primary"
+            onclick={handleLibraryContinue}
+            disabled={isSaving || !libraryLocation.trim()}
+          >
+            {#if isSaving}Checking...{:else}Continue{/if}
+          </button>
+        </div>
+      {:else}
+        {#if mediaSourcePath}
+          <p class="info-message">
+            Existing library settings found. Verify the media source path below to continue.
+          </p>
+        {/if}
+
+        <div class="form-group">
+          <label for="media-source-path">Media Source Path</label>
+          <input
+            type="text"
+            id="media-source-path"
+            bind:value={mediaSourcePath}
+            placeholder="Enter local path (e.g., C:/Movies)"
+            autofocus
+          />
+          <p class="help-text">The root directory where your media files are stored.</p>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label class="checkbox-label" for="path-is-relative">
+            <input type="checkbox" id="path-is-relative" bind:checked={mediaSourcePathIsRelative} />
+            <span>Path is relative to library data location</span>
+          </label>
+          <p class="help-text">
+            Enable this if your media files are stored inside your library data directory.
+          </p>
+        </div>
+
+        {#if error}
+          <p class="error-message">{error}</p>
+        {/if}
+
+        <div class="actions">
+          <button class="secondary" onclick={() => (step = 'library')} disabled={isSaving}>
+            Back
+          </button>
+          <button
+            class="primary"
+            onclick={handleMediaSave}
+            disabled={isSaving || !mediaSourcePath.trim()}
+          >
+            {#if isSaving}Saving...{:else}Save & Scan{/if}
+          </button>
+        </div>
+      {/if}
+    </div>
+  </div>
+</div>
+
+<style>
+  .setup-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--color-background);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 50;
+  }
+
+  .setup-container {
+    width: 100%;
+    max-width: 600px;
+    background-color: var(--color-background-soft);
+    padding: 3rem;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--color-border-soft);
+  }
+
+  header {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  header h1 {
+    font-size: 2rem;
+    margin: 0 0 0.5rem;
+  }
+
+  header p {
+    color: var(--color-text-dim);
+    margin: 0;
+  }
+
+  .setup-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .form-group label {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  input[type='text'] {
+    padding: 0.75rem;
+    background-color: var(--color-background-mute);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 1rem;
+    width: 100%;
+  }
+
+  .help-text {
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+    margin: 0;
+  }
+
+  .checkbox-group {
+    gap: 1rem;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  button {
+    padding: 0.8rem 2rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  button.primary {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  button.primary:hover:not(:disabled) {
+    background-color: var(--color-primary-soft);
+    transform: translateY(-1px);
+  }
+
+  button.secondary {
+    background-color: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+
+  button.secondary:hover:not(:disabled) {
+    background-color: var(--color-background-mute);
+  }
+
+  .error-message {
+    color: #ef4444;
+    font-size: 0.9rem;
+    background-color: rgba(239, 68, 68, 0.1);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    margin: 0;
+  }
+
+  .info-message {
+    color: var(--color-primary);
+    font-size: 0.9rem;
+    background-color: rgba(99, 102, 241, 0.1);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    margin: 0;
+  }
+</style>

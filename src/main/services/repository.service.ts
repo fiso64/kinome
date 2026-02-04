@@ -369,10 +369,34 @@ export function getRoot(): MediaFolder | null {
     LIMIT 1
   `
     )
-    .get()
+    .get() as any
 
   if (!row) return null
   return mapRowToLibraryItem(row) as MediaFolder
+}
+
+/**
+ * Builds a full tree structure for a folder and its descendants.
+ */
+export function getFullFolderTree(root: MediaFolder): MediaFolder {
+  const allItems = getAllDescendantsAsList(root)
+  const itemMap = new Map<string, LibraryItem>()
+  itemMap.set(root.id, root)
+  root.children = []
+
+  for (const item of allItems) {
+    itemMap.set(item.id, item)
+    if (item.type === 'folder') item.children = []
+  }
+
+  for (const item of allItems) {
+    const parent = item.parentId ? itemMap.get(item.parentId) : null
+    if (parent && parent.type === 'folder') {
+      if (!parent.children) parent.children = []
+      parent.children.push(item)
+    }
+  }
+  return root
 }
 
 export function getItemById(id: string): LibraryItem | null {

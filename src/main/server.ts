@@ -167,7 +167,6 @@ const app = new Elysia()
     })
     // Library Endpoints
     .post('/perform-search', ({ body }: { body: any }) => libraryService.performSearch(body))
-    .get('/library-root', () => libraryService.getLibraryRoot())
     .get('/item-details/:id', ({ params }) => libraryService.getItemDetails(params.id))
     .get('/item-by-id/:id', ({ params }) => libraryService.getItemById(params.id))
     .get('/children/:id', ({ params }) => libraryService.getChildren(params.id))
@@ -176,17 +175,17 @@ const app = new Elysia()
     .get('/autocomplete-suggestions', () => libraryService.getAutocompleteSuggestions())
     .post('/user-update-item', async ({ body }: { body: any }) => {
       await libraryService.updateItem(body, true)
-      return 'OK'
+      return { success: true }
     })
     .post('/apply-initial-folder-settings', async ({ body }: { body: any }) => {
       await libraryService.applyInitialFolderSettings(body.settings)
-      return 'OK'
+      return { success: true }
     })
     .post('/perform-initial-scan', async ({ body, set }: { body: any, set: any }) => {
       const { path } = body
       if (!path || typeof path !== 'string') {
         set.status = 400
-        return 'Path is required'
+        return { error: 'Path is required' }
       }
       return libraryService.performInitialScan(path)
     })
@@ -196,7 +195,7 @@ const app = new Elysia()
     .post('/play-file-with', ({ body }: { body: any }) => libraryService.playFileWith(body.file, body.command, (opt) => console.log(opt)))
     .post('/record-playback', async ({ body }: { body: any }) => {
       await libraryService.recordPlayback(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .post('/assign-seasons-and-episodes', async ({ body, set }: { body: any, set: any }) => {
       const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = body
@@ -212,7 +211,7 @@ const app = new Elysia()
     .post('/clear-virtual-folder-metadata', ({ body }: { body: any }) => libraryService.clearVirtualFolderMetadata(body.itemIds))
     .post('/fetch-credits', async ({ body }: { body: any }) => {
       await libraryService.fetchCredits(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .post('/manual-search', async ({ body }: { body: any }) => {
       const settings = await settingsService.readSettings()
@@ -224,23 +223,36 @@ const app = new Elysia()
     })
     .post('/user-apply-tmdb-result', async ({ body }: { body: any }) => {
       await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
-      return 'OK'
+      return { success: true }
     })
     .post('/user-set-image', async ({ body }: { body: any }) => {
       await libraryService.setImage(body.itemId, body.imageType, body.source)
-      return 'OK'
+      return { success: true }
     })
     .post('/remove-image', async ({ body }: { body: any }) => {
       await libraryService.removeImage(body.itemId, body.imageType)
-      return 'OK'
+      return { success: true }
+    })
+    .post('/upload-image', async ({ body, set }: { body: any, set: any }) => {
+      try {
+        const { itemId, imageType, file } = body as { itemId: string; imageType: string; file: File }
+        if (!file) throw new Error('No file uploaded')
+
+        // Use libraryService to handle the logic of where to save and how to update the DB
+        await libraryService.uploadImage(itemId, imageType as any, file)
+        return { success: true }
+      } catch (error: any) {
+        set.status = 500
+        return { error: error.message }
+      }
     })
     .post('/mark-watched', async ({ body }: { body: any }) => {
       await libraryService.markAsWatched(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .post('/mark-unwatched', async ({ body }: { body: any }) => {
       await libraryService.markAsUnwatched(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .get('/folder-watched-state/:id', async ({ params }) => {
       const state = await libraryService.getFolderWatchedState(params.id)
@@ -250,15 +262,15 @@ const app = new Elysia()
     .get('/continue-watching-for-show/:id', ({ params }) => libraryService.getContinueWatchingForShow(params.id))
     .post('/dismiss-continue-watching', async ({ body }: { body: any }) => {
       await libraryService.setContinueWatchingDismissed(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .post('/dismiss-next-up', async ({ body }: { body: any }) => {
       await libraryService.setNextUpDismissed(body.itemId)
-      return 'OK'
+      return { success: true }
     })
     .post('/reveal-in-explorer', async ({ body }: { body: any }) => {
       await libraryService.revealInExplorer(body.path)
-      return 'OK'
+      return { success: true }
     })
     .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.path))
     .post('/delete-item-from-db', ({ body }: { body: any }) => libraryService.deleteItemFromDb(body.itemId))
@@ -269,7 +281,7 @@ const app = new Elysia()
     })
     // Streaming
     .get('/stream/:id', async ({ params, set }) => {
-      const item = await libraryService.getItemById(params.id) as any
+      const item = (await libraryService.getItemById(params.id)) as any
       if (!item || !item.path) {
         set.status = 404
         return 'File not found'
@@ -282,6 +294,21 @@ const app = new Elysia()
       if (filePath.startsWith('http')) {
         return Response.redirect(filePath)
       }
+      return Bun.file(filePath)
+    })
+    .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
+      const item = (await libraryService.getItemById(params.id)) as any
+      if (!item || !item.path) {
+        set.status = 404
+        return 'File not found'
+      }
+      const filePath = await libraryService.getAbsolutePath(item.path)
+      if (!filePath) {
+        set.status = 404
+        return 'File not found'
+      }
+      const fileName = path.basename(filePath)
+      set.headers['Content-Disposition'] = `attachment; filename="${fileName}"`
       return Bun.file(filePath)
     })
     .get('/stream/:id/:filename', async ({ params, set }) => {
@@ -329,31 +356,42 @@ const app = new Elysia()
 
         set.headers['Content-Type'] = 'audio/x-mpegurl'
         return m3uContent
-      } catch (e) {
+      } catch (e: any) {
         set.status = 500
-        return 'Error'
+        return { error: e.message || 'Error' }
       }
     })
-    .get('/library-media-source-path', () => settingsService.getAbsoluteMediaSourcePath())
-    .post('/resolve-media-source-path', ({ body }: { body: any }) => settingsService.resolveMediaSourcePath(body.path, body.isRelative))
+    .get('/library-media-source-path', async () => ({ path: await settingsService.getAbsoluteMediaSourcePath() }))
+    .post('/resolve-media-source-path', async ({ body }: { body: any }) => ({ path: await settingsService.resolveMediaSourcePath(body.path, body.isRelative) }))
     .post('/execute-custom-action', async ({ body }: { body: any }) => {
       await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt))
-      return 'OK'
+      return { success: true }
     })
     .get('/settings', async () => {
       const settings = await settingsService.readSettings()
       const sanitized = { ...settings }
       delete (sanitized as any).adminPasswordHash
+      // Strip player commands for web clients to prevent launching on server
+      sanitized.playerCommands = []
       return sanitized
     })
     .post('/save-settings', async ({ body }: { body: any }) => {
+      const oldSettings = await settingsService.readSettings()
       await settingsService.saveSettingsChanges(body)
+
+      // If library location changed, re-initialize the server's data source
+      // but only if it's a local path (remote settings handles its own data).
+      if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
+        await libraryService.switchToLibrary(body.libraryLocation)
+      }
+
       const newSettings = await settingsService.readSettings()
       const sanitized = { ...newSettings }
       delete (sanitized as any).adminPasswordHash
       webTransport.notifySettingsUpdated(sanitized as any)
       return sanitized
     })
+    .get('/library-root', ({ query }) => libraryService.getLibraryRoot(query.path as string))
     .use(v2Routes)
   )
 

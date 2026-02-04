@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { LibraryItem, TmdbSearchResult, TmdbImage } from '../../../../shared/types'
   import { getAssetUrl } from '../../lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
 
@@ -11,17 +12,6 @@
     onClose: () => void
     initialTab?: 'match' | 'artwork'
   } = $props()
-
-  type SearchResult = {
-    id: number // show or season id
-    title: string // show or season name
-    year: number | null // show year or season air date year
-    poster_path: string
-    overview: string
-    name?: string // a property on season objects
-    season_number?: number
-  }
-  type TmdbImage = { file_path: string; [key: string]: any }
 
   let activeTab: 'match' | 'artwork' = $state(initialTab)
 
@@ -51,8 +41,8 @@
     return 'movie'
   }
 
-  let searchType: 'movie' | 'tv' | 'season' = $state(getInitialSearchType())
-  let searchResults = $state<SearchResult[]>([])
+  let searchType: 'movie' | 'tv' | 'season' = $state('movie')
+  let searchResults = $state<TmdbSearchResult[]>([])
   let searchInput = $state<HTMLInputElement | undefined>(undefined)
 
   // Artwork tab state
@@ -96,7 +86,7 @@
     isSearching = false
   }
 
-  async function applyResult(result: SearchResult) {
+  async function applyResult(result: TmdbSearchResult) {
     applyingResultId = result.id
     // De-proxy the reactive Svelte object before sending it over IPC
     const plainResult = JSON.parse(JSON.stringify(result))
@@ -109,6 +99,12 @@
     onClose()
   }
 
+  function getYear(result: TmdbSearchResult): string {
+    const date = result.release_date || result.first_air_date
+    if (!date) return 'N/A'
+    return date.split('-')[0]
+  }
+
   async function fetchImages() {
     if (!localItem.tmdbId || !localItem.mediaType || isFetchingArtwork) return
     isFetchingArtwork = true
@@ -116,7 +112,12 @@
     posters = []
     backdrops = []
     logos = []
-    const images = await window.api.getTmdbImages(localItem.tmdbId, localItem.mediaType, imageLang)
+    const tmdbMediaType = (localItem.mediaType === 'movie' ? 'movie' : 'tv') as 'movie' | 'tv'
+    const images = await window.api.getTmdbImages(
+      localItem.tmdbId as number,
+      tmdbMediaType,
+      imageLang
+    )
     posters = images.posters
     backdrops = images.backdrops
     logos = images.logos
@@ -137,8 +138,22 @@
     isSettingImage = true
     try {
       if (source.type === 'local') {
-        // Native picker removed.
-        console.warn('Local file selection not implemented (requires upload support).')
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = 'image/*'
+        input.onchange = async (e: any) => {
+          const file = e.target.files?.[0]
+          if (file) {
+            isSettingImage = true
+            try {
+              await window.api.uploadImage(localItem.id, imageType, file)
+              await refreshLocalItem()
+            } finally {
+              isSettingImage = false
+            }
+          }
+        }
+        input.click()
       } else {
         await window.api.setImage(localItem.id, imageType, JSON.parse(JSON.stringify(source)))
         await refreshLocalItem()
@@ -281,7 +296,7 @@
                     <span class="episode-count">({result.episode_count} episodes)</span>
                   {/if}
                 {:else}
-                  {result.title ?? result.name} ({result.year ?? 'N/A'})
+                  {result.title ?? result.name} ({getYear(result)})
                 {/if}
               </h3>
               <p>{result.overview}</p>

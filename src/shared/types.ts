@@ -159,6 +159,14 @@ export const DEFAULT_LAYOUTS_CONFIG = {
  */
 export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 
+export type LibraryStatusType = 'ready' | 'no_location' | 'db_missing' | 'no_settings'
+
+export interface LibraryStatus {
+  status: LibraryStatusType
+  settings?: Partial<Settings>
+  root?: MediaFolder
+}
+
 export type VirtualTagOperator = 'equals' | 'contains' | 'greaterThan' | 'lessThan'
 export type VirtualTagTarget = 'genre' | 'tag' | 'year' | 'title' | 'path' | 'mediaType'
 

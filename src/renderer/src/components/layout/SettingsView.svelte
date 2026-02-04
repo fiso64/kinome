@@ -7,6 +7,7 @@
   import PlayerCommandsModal from '../modals/PlayerCommandsModal.svelte'
   import CustomActionsModal from '../modals/CustomActionsModal.svelte'
   import VirtualTagEditor from '../modals/_parts/VirtualTagEditor.svelte'
+  import LibrarySettingsForm from '../settings/LibrarySettingsForm.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
   import type {
     PlayerCommandConfig,
@@ -53,8 +54,6 @@
 
   let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
-
-  let resolvedMediaPath = $state('Resolving...')
 
   let suggestions = $state<AutocompleteSuggestions>({
     mediaTypes: [],
@@ -103,25 +102,6 @@
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
-
-    $effect(() => {
-      let cancelled = false
-      const resolve = async () => {
-        if (!mediaSourcePath.trim()) {
-          if (!cancelled) resolvedMediaPath = 'Not set'
-          return
-        }
-        const resolved = await api.resolveMediaSourcePath({
-          path: mediaSourcePath,
-          isRelative: mediaSourcePathIsRelative
-        })
-        if (!cancelled) resolvedMediaPath = resolved
-      }
-      resolve()
-      return () => {
-        cancelled = true
-      }
-    })
 
     const TABS = ['general', 'accounts', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -199,7 +179,11 @@
         ]
       })
       if (choice === 'full_rescan') {
-        const root = await api.performFullRescan(resolvedMediaPath)
+        const resolved = await api.resolveMediaSourcePath({
+          path: mediaSourcePath,
+          isRelative: mediaSourcePathIsRelative
+        })
+        const root = await api.performFullRescan(resolved)
         if (root) {
           modalStore.open('initialFolderSettings', { root })
         }
@@ -326,47 +310,11 @@
       {:else if activeTab === 'library'}
         <div class="form-section">
           <h2>Storage Locations</h2>
-          <div class="form-group">
-            <label for="media-source-path">Media Source Path</label>
-            <input
-              type="text"
-              id="media-source-path"
-              bind:value={mediaSourcePath}
-              placeholder="Enter local path (e.g., C:/Movies)"
-            />
-            <p class="help-text">
-              The root directory where your media files are stored.
-              {#if resolvedMediaPath && resolvedMediaPath !== 'Not set'}
-                Current resolved path: <code>{resolvedMediaPath}</code>
-              {/if}
-            </p>
-          </div>
-          <div class="form-group checkbox-group">
-            <label class="checkbox-label" for="path-is-relative">
-              <input
-                type="checkbox"
-                id="path-is-relative"
-                bind:checked={mediaSourcePathIsRelative}
-              />
-              <span>Path is relative to library data location</span>
-            </label>
-            <p class="help-text">
-              Enable this if your media files are stored inside your library data directory.
-            </p>
-          </div>
-          <div class="form-group">
-            <label for="library-data-location">Library Data Location</label>
-            <input
-              type="text"
-              id="library-data-location"
-              bind:value={libraryDataLocation}
-              placeholder="Path or URL"
-            />
-            <p class="help-text">
-              The local directory (or server URL) where metadata, images, and the database are
-              stored. Changing this requires an app restart.
-            </p>
-          </div>
+          <LibrarySettingsForm
+            bind:mediaSourcePath
+            bind:mediaSourcePathIsRelative
+            bind:libraryLocation={libraryDataLocation}
+          />
         </div>
       {:else if activeTab === 'view'}
         <div class="form-section">

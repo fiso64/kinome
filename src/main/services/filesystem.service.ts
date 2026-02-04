@@ -16,7 +16,8 @@ const log = (message: string): void => {
 async function walkAndUpsert(
   startPath: string,
   mediaSourcePath: string,
-  db: any
+  db: any,
+  options: { skipMetadata?: boolean } = {}
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
   const queue: { currentPath: string; parentId: string | null }[] = []
@@ -95,7 +96,7 @@ async function walkAndUpsert(
     )
 
     const retrieveChildrenMetadata =
-      scraperSettings.retrieve_children_metadata !== false
+      !options.skipMetadata && scraperSettings.retrieve_children_metadata !== false
 
 
     const operations: (() => void)[] = []
@@ -174,12 +175,15 @@ async function walkAndUpsert(
 }
 
 export async function scanDirectory(
-  mediaSourcePath: string
+  mediaSourcePath: string,
+  options: { skipMetadata?: boolean } = {}
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
-  log(`Starting full scan of ${mediaSourcePath}`)
+  log(`Starting full scan of ${mediaSourcePath}${options.skipMetadata ? ' (metadata skipped)' : ''}`)
 
-  const visitedIds = await walkAndUpsert(mediaSourcePath, mediaSourcePath, db)
+  repositoryService.ensureRootExists(mediaSourcePath)
+
+  const visitedIds = await walkAndUpsert(mediaSourcePath, mediaSourcePath, db, options)
 
   // Full Scan cleanup:
   // Any item in the DB that was NOT visited is missing.
@@ -222,7 +226,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
   const knownIds = new Set(knownDescendants.map((d) => d.id))
 
   // 2. Walk the FS subtree.
-  const visitedIds = await walkAndUpsert(rootAbsPath, mediaSourcePath, db)
+  const visitedIds = await walkAndUpsert(rootAbsPath, mediaSourcePath, db, { skipMetadata: false })
 
   // 3. Calculate missing WITHIN this subtree.
   // Missing = Known in DB - Found on Disk

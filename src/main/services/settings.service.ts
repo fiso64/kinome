@@ -1,5 +1,6 @@
 import path, { dirname, relative, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
+import { Database } from 'bun:sqlite'
 import type { Settings } from '../../shared/types'
 import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
 import {
@@ -55,6 +56,60 @@ async function readSettingsFile(filePath: string): Promise<Partial<Settings>> {
   } catch (e) {
     // This catches fs errors (e.g. file not found), network errors, and JSON parsing errors.
     return {}
+  }
+}
+
+/**
+ * Checks if a library exists at the given path.
+ * A library is considered to exist if it has a library-settings.json file.
+ */
+export async function checkLibraryExists(libraryPath: string): Promise<{
+  exists: boolean
+  settingsExists: boolean
+  dbExists: boolean
+  settings?: Partial<Settings>
+}> {
+  if (!libraryPath) return { exists: false, settingsExists: false, dbExists: false }
+
+  let settingsFileUrl = ''
+  let dbFileUrl = ''
+  const isRemote = isRemotePath(libraryPath)
+  if (isRemote) {
+    const baseUrl = libraryPath.endsWith('/') ? libraryPath : libraryPath + '/'
+    settingsFileUrl = new URL(LIBRARY_SETTINGS_FILE_NAME, baseUrl).toString()
+    dbFileUrl = new URL('library.db', baseUrl).toString()
+  } else {
+    settingsFileUrl = path.join(libraryPath, LIBRARY_SETTINGS_FILE_NAME)
+    dbFileUrl = path.join(libraryPath, 'library.db')
+  }
+
+  const settings = await readSettingsFile(settingsFileUrl)
+  const settingsExists = Object.keys(settings).length > 0
+  let dbExists = false
+  if (!isRemote) {
+    try {
+      await fs.access(dbFileUrl)
+      // Check if it's a valid DB with a root
+      const db = new Database(dbFileUrl, { readonly: true })
+      try {
+        const row = db.query('SELECT 1 FROM items WHERE parent_id IS NULL LIMIT 1').get()
+        dbExists = !!row
+      } finally {
+        db.close()
+      }
+    } catch {
+      dbExists = false
+    }
+  } else {
+    // For remote, we assume if settings exist, it's a library.
+    dbExists = settingsExists
+  }
+
+  return {
+    exists: settingsExists || dbExists,
+    settingsExists,
+    dbExists,
+    settings: settingsExists ? settings : undefined
   }
 }
 
@@ -242,7 +297,7 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   // Create a copy, excluding libraryLocation as it's handled separately.
   const {
-    libraryLocation: discardedLibLoc,
+    libraryLocation,
     allowUnauthenticated,
     serverPort,
     allowedIPs,
@@ -250,8 +305,13 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
   } = settingsToSave
 
   // Update global settings if provided
-  if (allowUnauthenticated !== undefined || serverPort !== undefined || allowedIPs !== undefined) {
-    await writeGlobalSettings({ allowUnauthenticated, serverPort, allowedIPs })
+  if (
+    libraryLocation !== undefined ||
+    allowUnauthenticated !== undefined ||
+    serverPort !== undefined ||
+    allowedIPs !== undefined
+  ) {
+    await writeGlobalSettings({ libraryLocation, allowUnauthenticated, serverPort, allowedIPs })
   }
 
   // Handle media path relativity conversion

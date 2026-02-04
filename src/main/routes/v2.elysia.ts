@@ -66,12 +66,16 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
     .get('/items/:id', async ({ params: { id: rawId }, query, set }) => {
         let id = rawId
         if (id === 'root') {
-            const root = await libraryService.getLibraryRoot()
-            if (!root) {
+            const status = await libraryService.getLibraryRoot()
+            if (status.status !== 'ready') {
                 set.status = 404
-                return { error: 'Library root not found' }
+                return {
+                    error: 'root_missing',
+                    message: `Library not ready: ${status.status}`,
+                    ...status
+                }
             }
-            id = root.id
+            id = status.root!.id
         }
 
         if (isVirtualId(id)) {
@@ -134,12 +138,16 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
     .get('/items/:id/children', async ({ params: { id: rawId }, query, set }) => {
         let id = rawId
         if (id === 'root') {
-            const root = await libraryService.getLibraryRoot()
-            if (!root) {
+            const status = await libraryService.getLibraryRoot()
+            if (status.status !== 'ready') {
                 set.status = 404
-                return { error: 'Library root not found' }
+                return {
+                    error: 'root_missing',
+                    message: `Library not ready: ${status.status}`,
+                    ...status
+                }
             }
-            id = root.id
+            id = status.root!.id
         }
 
         const options = parseFindOptions(query)
@@ -213,12 +221,16 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
     .get('/items/:id/ancestors', async ({ params: { id: rawId }, set }) => {
         let id = rawId
         if (id === 'root') {
-            const root = await libraryService.getLibraryRoot()
-            if (!root) {
+            const status = await libraryService.getLibraryRoot()
+            if (status.status !== 'ready') {
                 set.status = 404
-                return { error: 'Library root not found' }
+                return {
+                    error: 'root_missing',
+                    message: `Library not ready: ${status.status}`,
+                    ...status
+                }
             }
-            id = root.id
+            id = status.root!.id
         }
 
         const ancestors = repositoryService.getAncestors(id)

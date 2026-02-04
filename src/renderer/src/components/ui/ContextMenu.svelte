@@ -183,6 +183,13 @@
     onClose()
   }
 
+  function handleDownload() {
+    if (item.id) {
+      window.open(`/api/download/${item.id}`, '_blank')
+    }
+    onClose()
+  }
+
   function handleDeleteItemFromDb() {
     onDeleteItemFromDb()
     onClose()
@@ -441,35 +448,44 @@
     {/if}
   </div>
 
-  {#if window.api.capabilities.supportsLocalPlayback && item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
-    <div
-      class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'play')}
-      onmouseleave={() => (activeSubmenu = null)}
-    >
-      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-        <span class="icon">▶️</span>
-        <span>Play with...</span>
-        <span class="submenu-arrow">▸</span>
+  <div class="context-menu-section border-top">
+    {#if item.type === 'file' && !isVirtual && !item.isMissing}
+      <button class="context-menu-item" onclick={handleDownload}>
+        <span class="icon">⬇️</span>
+        <span>Download File</span>
       </button>
+    {/if}
 
-      {#if activeSubmenu === 'play'}
-        <div
-          bind:this={submenuElement}
-          class="context-menu submenu"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
-          onclick={(e) => e.stopPropagation()}
-        >
-          {#each settings.playerCommands as player}
-            <button class="context-menu-item" onclick={() => handlePlayWith(player.command)}>
-              <span>{player.name}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {/if}
+    {#if window.api.capabilities.supportsLocalPlayback && item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
+      <div
+        class="submenu-container"
+        onmouseenter={() => (activeSubmenu = 'play')}
+        onmouseleave={() => (activeSubmenu = null)}
+      >
+        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+          <span class="icon">▶️</span>
+          <span>Play with...</span>
+          <span class="submenu-arrow">▸</span>
+        </button>
+
+        {#if activeSubmenu === 'play'}
+          <div
+            bind:this={submenuElement}
+            class="context-menu submenu"
+            class:on-left={submenuOnLeft}
+            style="top: {submenuTop}px;"
+            onclick={(e) => e.stopPropagation()}
+          >
+            {#each settings.playerCommands as player}
+              <button class="context-menu-item" onclick={() => handlePlayWith(player.command)}>
+                <span>{player.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   {#if !isVirtual && item.path && settings?.customActions && settings.customActions.length > 0}
     <div

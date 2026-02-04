@@ -2,6 +2,7 @@
   import MediaView from './MediaView.svelte'
   import ItemDetail from './ItemDetail.svelte'
   import HomeView from './HomeView.svelte'
+  import SetupScreen from './SetupScreen.svelte'
   import { createEventDispatcher } from 'svelte'
 
   import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
@@ -127,21 +128,8 @@
 <div class="content">
   {#if isScanning}
     <!-- Loading state is now implicitly handled by App.svelte's logic -->
-  {:else if !currentFolder && !currentFolderId && !isGlobalSearchActive}
-    <div class="welcome-screen">
-      <h2>Welcome to Media Browser</h2>
-      <p>To get started, scan a new folder containing your media, or open an existing library.</p>
-      <div class="welcome-buttons">
-        <!-- TBD: Scan New Folder for Web requires Server Browser -->
-        <button class="primary" onclick={() => dispatch('scanLibrary')}
-          >Scan New Media Folder</button
-        >
-        <!-- Native file picking removed. Future implementation: Server-side file browser. -->
-        <button class="secondary" disabled title="Requires Server File Browser implementation"
-          >Open Existing Library</button
-        >
-      </div>
-    </div>
+  {:else if (settings && !settings.libraryLocation) || (!currentFolder && currentFolderId === 'root' && currentFolderQuery.isError) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
+    <SetupScreen onComplete={() => window.location.reload()} />
   {:else}
     <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
@@ -294,7 +282,6 @@
     flex-shrink: 0;
   }
 
-  .welcome-screen,
   .status-text {
     flex-grow: 1;
     display: flex;
@@ -304,14 +291,5 @@
     gap: 1rem;
     padding: 2rem;
     text-align: center;
-  }
-
-  .welcome-screen .welcome-buttons {
-    display: flex;
-    gap: 1rem;
-    margin-top: 1rem;
-  }
-  .welcome-screen button {
-    flex-shrink: 0;
   }
 </style>
