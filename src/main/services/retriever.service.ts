@@ -135,8 +135,7 @@ export async function searchTmdbAndApplyMetadata(
   try {
     const searchResponse = await fetch(searchUrl)
     if (!searchResponse.ok) {
-      console.error(`TMDB search failed for "${query}": ${searchResponse.statusText}`)
-      return
+      throw new Error(`TMDB search failed for "${query}": ${searchResponse.statusText}`)
     }
 
     const searchResults = (await searchResponse.json()) as any
@@ -190,12 +189,8 @@ export async function searchTmdbAndApplyMetadata(
         const imagesDir = getImagesPath(libraryDataPath)
         const posterFileName = `${item.id}.jpg`
         const posterDestPath = path.join(imagesDir, posterFileName)
-        try {
-          await downloadImage(posterUrl, posterDestPath)
-          item.posterPath = posterFileName
-        } catch {
-          console.error(`Failed to download or save poster for item: ${item.name}`)
-        }
+        await downloadImage(posterUrl, posterDestPath)
+        item.posterPath = posterFileName
       }
 
       // Make a dedicated request for credits.
@@ -210,6 +205,7 @@ export async function searchTmdbAndApplyMetadata(
     }
   } catch (error) {
     console.error(`Error fetching metadata for "${item.name}":`, error)
+    throw error
   }
 }
 
@@ -414,8 +410,7 @@ export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string
     applyCreditsToItem(item, credits)
   } catch (error) {
     console.error(`Error fetching credits for "${item.name}":`, error)
-    // Don't mark as fetched on error, so it can be retried.
-    return
+    throw error
   }
 
 }
@@ -446,13 +441,9 @@ async function _downloadAndApplyImageIfNeeded(
   if (tmdbPath) {
     const imageUrl = `${imageUrlPrefix}${tmdbPath}`
     const destPath = path.join(imagesDir, fileName)
-    try {
-      await downloadImage(imageUrl, destPath)
-      itemAsAny[key] = fileName
-      console.log(`[TMDB] Downloaded ${imageType} for "${item.title ?? item.name}"`)
-    } catch {
-      itemAsAny[key] = null // Mark as failed to prevent retries
-    }
+    await downloadImage(imageUrl, destPath)
+    itemAsAny[key] = fileName
+    console.log(`[TMDB] Downloaded ${imageType} for "${item.title ?? item.name}"`)
   } else {
     itemAsAny[key] = null // No image provided by API
   }
@@ -573,6 +564,7 @@ export async function fetchItemDetails(
     }
   } catch (error) {
     console.error(`Error fetching full details for "${item.name}":`, error)
+    throw error
   }
   return modifiedItems
 }
@@ -628,13 +620,9 @@ export async function applyTvShowData(
               if (seasonFolder.posterPath !== posterFileName) {
                 const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
                 const posterDestPath = path.join(imagesDir, posterFileName)
-                try {
-                  await downloadImage(posterUrl, posterDestPath)
-                  seasonFolder.posterPath = posterFileName
-                  seasonChanged = true
-                } catch {
-                  // Ignore download error
-                }
+                await downloadImage(posterUrl, posterDestPath)
+                seasonFolder.posterPath = posterFileName
+                seasonChanged = true
               }
             }
           }
@@ -706,7 +694,7 @@ export async function applyTvShowData(
     return allModifiedItems
   } catch (error) {
     console.error(`Error in applyTvShowData for "${item.name}":`, error)
-    return []
+    throw error
   }
 }
 
@@ -739,6 +727,7 @@ export async function refetchShowSeasons(
     }
   } catch (error) {
     console.error(`Error refetching seasons for "${show.name}":`, error)
+    throw error
   }
   return modifiedItems
 }
@@ -818,10 +807,8 @@ export async function fetchAndApplyEpisodeData(
         const imagesDir = getImagesPath(libraryDataPath)
         const posterFileName = `${seasonFolder.id}.jpg`
         const posterDestPath = path.join(imagesDir, posterFileName)
-        try {
-          await downloadImage(posterUrl, posterDestPath)
-          seasonFolder.posterPath = posterFileName
-        } catch { /* ignore */ }
+        await downloadImage(posterUrl, posterDestPath)
+        seasonFolder.posterPath = posterFileName
       }
 
       const tmdbEpisodesApi = seasonDetails.episodes || []
@@ -888,6 +875,7 @@ export async function fetchAndApplyEpisodeData(
     }
   } catch (error) {
     console.error(`Error in fetchAndApplyEpisodeData for season ${seasonNumber}:`, error)
+    throw error
   }
   return modifiedItems
 }

@@ -28,7 +28,6 @@ function getGlobalSettingsPath(): string {
   }
   const userDataPath = getUserDataPath()
   const p = path.join(userDataPath, GLOBAL_SETTINGS_FILE_NAME)
-  console.log(`[Settings] Global settings path: ${p}`)
   return p
 }
 
