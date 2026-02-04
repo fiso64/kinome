@@ -7,7 +7,7 @@ import type { QueryClient, QueryKey } from '@tanstack/svelte-query'
 export class QueryThrottler {
     private pendingUpdates = new Map<string, { timer: any; execute: () => void }>()
     private lastExecutionTimes = new Map<string, number>()
-    private defaultInterval = 5000 // 5 seconds
+    private defaultInterval = 20000 // 20 seconds
 
     constructor(private queryClient: QueryClient) { }
 
