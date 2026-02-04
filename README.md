@@ -1,6 +1,6 @@
 # media-browser (better name pending)
 
-What this is: A jellyfin competitor. Client-server media browser and manager. Fetches metadata from TMDB and displays it nice, etc.
+Client-server media browser and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, etc.
 
 ## Goals
 - More customizable
@@ -14,17 +14,17 @@ What this is: A jellyfin competitor. Client-server media browser and manager. Fe
 
 See Plan.md for more details.
 
-## General Development Info 
-- We don't care about database migrations. Breaking changes are allowed and expected in order to maintain momentum.
-- No hacks, no tech debt. Solutions must be cleanly implemented. Always prefer an architecturally clean and performant refactor over a hacky patch. 
-- Performance should be considered for homeserver scale, not Netflix scale (e.g. tens of thousands of items instead of millions).
-- Must maintain the [spec files](./spec/) as the source of truth. Prefer to create spec files first before implementing.
-
 ## Development Plan / Roadmap
 
 - [**Plan.md**](./docs/Plan.md)
 - [**Bugs**](./docs/Bugs.md)
 - [**Specs**](./spec/)
+
+## General Development Info 
+- We don't care about database migrations. Breaking changes are allowed and expected in order to maintain momentum.
+- No hacks, no tech debt. Solutions must be cleanly implemented. Always prefer an architecturally clean and performant refactor over a hacky patch. 
+- Performance should be considered for homeserver scale, not Netflix scale (e.g. tens of thousands of items instead of millions).
+- Must maintain the [spec files](./spec/) as the source of truth. Prefer to create spec files first before implementing.
 
 ## Recommended IDE Setup
 
