@@ -29,6 +29,7 @@
   - [ ] Think of some convenient browser-compatible shortcuts for common actions.
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
+- [X] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
 - [ ] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
   - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
   - [ ] A "Recently Added" section implemented as a virtual folder.
