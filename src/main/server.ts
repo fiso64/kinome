@@ -17,20 +17,56 @@ import { v2Routes } from './routes/v2.elysia'
 // 1. Initialize Services
 const port = process.env.PORT || 3000
 
-function getDefaultUserDataPath(): string {
+/**
+ * Resolves the directory where settings.json and the database should live.
+ * Priority:
+ * 1. Environment Variable (MEDIA_BROWSER_DATA) - Best for Docker/Systemd
+ * 2. "./data" folder relative to CWD - Best for Portable/Dev use
+ * 3. OS Default (AppData/.config) - Best for standard Desktop install
+ */
+function resolveUserDataPath(): string {
   const appName = 'media-browser'
-  if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || '', appName)
-  } else if (process.platform === 'darwin') {
-    return path.join(process.env.HOME || '', 'Library', 'Application Support', appName)
-  } else {
-    return path.join(process.env.HOME || '', '.config', appName)
+
+  // 1. Environment Variable
+  if (process.env.MEDIA_BROWSER_DATA) {
+    console.log(`[Startup] Using data path from env: ${process.env.MEDIA_BROWSER_DATA}`)
+    return process.env.MEDIA_BROWSER_DATA
   }
+
+  // 2. Portable Mode (Check if 'data' folder exists in current working directory)
+  const localDataPath = path.resolve(process.cwd(), 'data')
+  if (fs.existsSync(localDataPath)) {
+    console.log(`[Startup] Detected 'data' folder. Running in Portable Mode: ${localDataPath}`)
+    return localDataPath
+  }
+
+  // 3. OS Standards (Fallback)
+  let osPath = ''
+  if (process.platform === 'win32') {
+    osPath = path.join(process.env.APPDATA || '', appName)
+  } else if (process.platform === 'darwin') {
+    osPath = path.join(process.env.HOME || '', 'Library', 'Application Support', appName)
+  } else {
+    // Linux/Unix: Respect XDG_CONFIG_HOME
+    const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || '', '.config')
+    osPath = path.join(xdgConfig, appName)
+  }
+
+  console.log(`[Startup] Using OS default data path: ${osPath}`)
+  return osPath
 }
 
-const userDataPath = process.env.USER_DATA_PATH || getDefaultUserDataPath()
+const userDataPath = resolveUserDataPath()
+
+// Ensure directory exists
 if (!fs.existsSync(userDataPath)) {
-  fs.mkdirSync(userDataPath, { recursive: true })
+  try {
+    fs.mkdirSync(userDataPath, { recursive: true })
+  } catch (e) {
+    console.error(`[Startup] CRITICAL: Could not create data directory at ${userDataPath}`)
+    console.error(`Please check permissions or set MEDIA_BROWSER_DATA environment variable.`)
+    process.exit(1)
+  }
 }
 
 initializeStartup(userDataPath)
