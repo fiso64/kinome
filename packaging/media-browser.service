@@ -1,0 +1,21 @@
+[Unit]
+Description=Media Browser Server
+After=network.target
+
+[Service]
+# Security: Run as a specific user
+User=media-browser
+Group=media-browser
+
+# Configuration
+Environment="MEDIA_BROWSER_DATA=/var/lib/media-browser"
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+
+# Application location (We will install to /opt)
+WorkingDirectory=/opt/media-browser
+ExecStart=/opt/media-browser/media-browser
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

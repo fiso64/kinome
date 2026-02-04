@@ -1,0 +1,30 @@
+name: "media-browser"
+arch: "${ARCH}"
+platform: "linux"
+version: "${VERSION}"
+section: "default"
+priority: "extra"
+maintainer: "Your Name <you@example.com>"
+description: "A media server and manager"
+vendor: "Media Browser"
+homepage: "https://github.com/example/media-browser"
+license: "MIT"
+
+contents:
+  # 1. The Binary
+  - src: "${BUILD_DIR}/media-browser"
+    dst: "/opt/media-browser/media-browser"
+    file_info:
+      mode: 0755
+
+  # 2. The Frontend Assets (Recursive copy)
+  - src: "${BUILD_DIR}/out"
+    dst: "/opt/media-browser/out"
+
+  # 3. Systemd Service (UPDATED PATH)
+  - src: "./packaging/media-browser.service"
+    dst: "/lib/systemd/system/media-browser.service"
+
+# Metadata scripts (UPDATED PATH)
+scripts:
+  postinstall: "./packaging/postinstall.sh"

@@ -32,32 +32,44 @@ See Plan.md for more details.
 
 ## Project Setup
 
+This project uses [Bun](https://bun.sh/) for package management, bundling, and the runtime.
+
 ### Install
 
 ```bash
-pnpm install
+bun install
 ```
 
 ### Development
 
+Starts both the backend (Elysia) and frontend (Vite) in watch mode.
 ```bash
-pnpm dev
+bun run dev
 ```
 
-### Build
+### Production Run
 
+Builds the frontend and starts the backend server in production mode.
 ```bash
-# For windows
-pnpm build:win
-
-# For macOS
-pnpm build:mac
-
-# For Linux
-pnpm build:linux
+bun run prod
 ```
 
-## License
+### Publishing & Packaging
 
-AGPL-3.0-only+NIGGER.  
-See https://plusnigger.org/.
+#### Linux
+
+Generate binaries and packages (Debian/RedHat) using `nfpm`.
+```bash
+# For x64 (Intel/AMD)
+bun run publish:linux-x64
+
+# For ARM64 (Raspberry Pi 4/5, etc.)
+bun run publish:linux-arm
+```
+
+#### Windows
+
+Generate a standalone executable and zip archive.
+```bash
+bun run publish:win
+```
