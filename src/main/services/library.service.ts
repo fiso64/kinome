@@ -39,6 +39,7 @@ export async function loadDbIntoMemory(): Promise<void> {
 }
 
 export async function switchToLibrary(newPath: string): Promise<void> {
+  pathsService.setLibraryDataPath(newPath)
   log(`Switching library data location to: ${newPath}`)
 
   // 1. Close current database connection

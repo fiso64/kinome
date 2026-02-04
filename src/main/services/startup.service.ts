@@ -23,9 +23,14 @@ export function initializeStartup(userDataPath: string): void {
     // We use a synchronous read here as this is a tiny, critical config file at startup.
     if (fs.existsSync(globalSettingsPath)) {
       const data = fs.readFileSync(globalSettingsPath, 'utf-8')
-      const settings = JSON.parse(data)
-      if (settings.libraryLocation) {
-        setLibraryDataPath(settings.libraryLocation)
+      const config = JSON.parse(data)
+
+      // Handle the new nested structure
+      if (config.server && config.server.libraryLocation) {
+        setLibraryDataPath(config.server.libraryLocation)
+      } else if (config.libraryLocation) {
+        // Fallback for flat structure just in case (though we aim for strictness)
+        setLibraryDataPath(config.libraryLocation)
       }
     }
   } catch (e) {

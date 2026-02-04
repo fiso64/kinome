@@ -58,11 +58,15 @@ async function setupFileSystem() {
 async function writeSettings() {
   // We need to configure the library path in settings.json so the server knows where to scan
   const settingsPath = path.join(USER_DATA_PATH, 'settings.json')
-  const settings = {
-    mediaSourcePath: LIBRARY_PATH
-    // other defaults
+  const config = {
+    server: {
+      libraryLocation: path.join(TEST_ROOT, '.library')
+    },
+    libraryDefaults: {
+      mediaSourcePath: LIBRARY_PATH
+    }
   }
-  await fs.writeFile(settingsPath, JSON.stringify(settings))
+  await fs.writeFile(settingsPath, JSON.stringify(config, null, 2))
 }
 
 describe('Comprehensive V2 API & Ingestion Tests', async () => {

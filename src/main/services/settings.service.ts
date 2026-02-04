@@ -166,7 +166,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
       libraryDefaults: libraryDefaults as LibrarySettings
     }
 
-    await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2))
+    await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2), 'utf-8')
     console.log(`Global settings successfully saved to ${settingsPath}`)
   } catch (error) {
     console.error(`Failed to write global settings to ${settingsPath}:`, error)
