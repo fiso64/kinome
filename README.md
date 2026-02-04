@@ -22,8 +22,8 @@ See Plan.md for more details.
 
 ## General Development Info 
 - We don't care about database migrations. Breaking changes are allowed and expected in order to maintain momentum.
-- No hacks, no tech debt. Solutions must be cleanly implemented. Always prefer an architecturally clean and performant refactor over a hacky patch. 
-- Performance should be considered for homeserver scale, not Netflix scale (e.g. tens of thousands of items instead of millions).
+- No hacks, no tech debt. Solutions must be implemented cleanly. Always prefer an architecturally clean and performant refactor over a hacky patch. 
+- Performance should be considered for homeserver scale, but not for Netflix scale (i.e. ~tens of thousands of items instead of millions).
 - Must maintain the [spec files](./spec/) as the source of truth. Prefer to create spec files first before implementing.
 
 ## Recommended IDE Setup
