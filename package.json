@@ -10,7 +10,7 @@
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "svelte-check": "svelte-check --tsconfig ./tsconfig.web.json",
-    "typecheck": "bun run typecheck:node",
+    "typecheck": "bun run typecheck:node && bun run svelte-check",
     "dev:backend": "PORT=3001 bun --watch src/main/server.ts",
     "dev:frontend": "vite",
     "dev": "concurrently --raw \"bun run dev:backend\" \"bun run dev:frontend\"",
