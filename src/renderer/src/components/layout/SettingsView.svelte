@@ -643,7 +643,6 @@
     cursor: pointer;
   }
 
-  input[type='text'],
   input[type='password'],
   select {
     padding: 0.75rem;
