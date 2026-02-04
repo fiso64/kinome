@@ -11,7 +11,6 @@
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
     - [ ] Pagination everywhere (but still have it scroll like infinitely seamlessly).
-- [ ] Dev: Actually add comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 
 ### 🎬 Playback & Transcoding
 - [ ] Transcoding and transmuxing support (look into jellyfin's implementation).
@@ -26,7 +25,7 @@
 
 ### 🎨 UI/UX & Customization
 - [ ] Improve and polish UI everywhere.
-  - [ ] Remove the top toolbar, replace by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
+  - [ ] Replace the top toolbar by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
   - [ ] Think of some convenient browser-compatible shortcuts for common actions.
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
@@ -34,9 +33,10 @@
   - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
   - [ ] A "Recently Added" section implemented as a virtual folder.
 - [ ] More UI and virtual tag configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
-  - [ ] See how Jellyfin's home view looks and add customization options to be able to recreate this state.
+  - [ ] See how Jellyfin's home view looks and add customization options to allow users to recreate this look (if it's good).
 - [ ] Improve navigation and user action performance as much as possible. Remove all lag and jitter.
 - [ ] Revive the custom actions feature. Support both client-side and server-side action definitions.
+- [ ] Themes.
 
 ### 📚 Library & Metadata
 - [ ] Retrieve and save more local metadata using ffmpeg (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc. 
@@ -60,6 +60,9 @@
 - [ ] TV app. 
 - [ ] Revive electron app (built-in server + thin client)?
 
+### ⌨️ Development
+- [ ] Add proper comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
+- [ ] Use a good logging framework with pretty output and multiple log levels.
 
 ## Future
 
