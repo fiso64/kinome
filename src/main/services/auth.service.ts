@@ -37,14 +37,21 @@ export function logout(token: string): void {
 
 export async function getAuthState(): Promise<AuthResponse> {
     const settings = await settingsService.readSettings()
-    const needsSetup = !settings.adminPasswordHash && !settings.allowUnauthenticated
+
+    // needsSetup is true ONLY if NO password hash is set AND unauthenticated access is NOT enabled.
+    // However, if we HAVE a library location, we should definitely have a password or have explicitly allowed unauthenticated access.
+    const hasHash = !!settings.adminPasswordHash
+    const allowUnauth = !!settings.allowUnauthenticated
+    const needsSetup = !hasHash && !allowUnauth
+
+    console.log(`[AuthState] hash=${hasHash}, allowUnauth=${allowUnauth}, needsSetup=${needsSetup}, libLoc=${!!settings.libraryLocation}`)
 
     return {
         success: true,
         isAdmin: true, // Only one user for now
         needsSetup,
-        allowUnauthenticated: !!settings.allowUnauthenticated,
-        authenticated: !!settings.allowUnauthenticated
+        allowUnauthenticated: allowUnauth,
+        authenticated: allowUnauth
     }
 }
 

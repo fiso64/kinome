@@ -1,8 +1,8 @@
 import path, { dirname, relative, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
-import type { Settings } from '../../shared/types'
-import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
+import type { MediaFolder, MediaFile, LibraryItem, Settings, LibraryStatus, ServerSettings, LibrarySettings, GlobalConfig } from '../../shared/types'
+import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
 import {
   getLibraryDataPath,
   isRemoteLibrary,
@@ -27,7 +27,9 @@ function getGlobalSettingsPath(): string {
     return ''
   }
   const userDataPath = getUserDataPath()
-  return path.join(userDataPath, GLOBAL_SETTINGS_FILE_NAME)
+  const p = path.join(userDataPath, GLOBAL_SETTINGS_FILE_NAME)
+  console.log(`[Settings] Global settings path: ${p}`)
+  return p
 }
 
 function getLibrarySettingsPath(): string {
@@ -114,26 +116,57 @@ export async function checkLibraryExists(libraryPath: string): Promise<{
 }
 
 /**
- * Reads only the global settings file.
+ * Reads only the global settings file and handles migration if needed.
  */
-export async function readGlobalSettings(): Promise<Partial<Settings>> {
-  return await readSettingsFile(getGlobalSettingsPath())
+export async function readGlobalSettings(): Promise<Settings> {
+  const filePath = getGlobalSettingsPath()
+  const raw = (await readSettingsFile(filePath)) as any
+
+  // No migration code allowed. Expect only the new nested structure.
+  if (raw.server && raw.libraryDefaults) {
+    return {
+      ...(raw.server as ServerSettings),
+      ...(raw.libraryDefaults as LibrarySettings)
+    }
+  }
+
+  return {} as Settings
 }
 
 /**
- * Writes only to the global settings file.
- * @param settings The partial settings object to save.
+ * Writes only to the global settings file using the nested structure.
+ * @param settings The flat settings object to save (it will be split).
  */
 export async function writeGlobalSettings(settings: Partial<Settings>): Promise<void> {
   const settingsPath = getGlobalSettingsPath()
   if (!settingsPath) return // Can't write global settings for remote library
   try {
     const currentSettings = await readGlobalSettings()
-    const settingsToSave = { ...currentSettings, ...settings }
-    if (settingsToSave.libraryLocation) {
-      settingsToSave.libraryLocation = settingsToSave.libraryLocation.replace(/\\/g, '/')
+    const merged = { ...currentSettings, ...settings }
+
+    if (merged.libraryLocation) {
+      merged.libraryLocation = merged.libraryLocation.replace(/\\/g, '/')
     }
-    await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
+
+    // Split into Server and Library parts
+    const server: Partial<ServerSettings> = {}
+    const libraryDefaults: Partial<LibrarySettings> = {}
+
+    // Distribute fields based on SERVER_SETTING_KEYS
+    for (const key of Object.keys(merged)) {
+      if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
+        ; (server as any)[key] = (merged as any)[key]
+      } else {
+        ; (libraryDefaults as any)[key] = (merged as any)[key]
+      }
+    }
+
+    const configToSave: GlobalConfig = {
+      server: server as ServerSettings,
+      libraryDefaults: libraryDefaults as LibrarySettings
+    }
+
+    await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2))
     console.log(`Global settings successfully saved to ${settingsPath}`)
   } catch (error) {
     console.error(`Failed to write global settings to ${settingsPath}:`, error)
@@ -196,39 +229,35 @@ async function readRawSettings(): Promise<Settings> {
   // --- Start with defaults ---
   let finalSettings = defaultSettings
 
-  // --- Read settings files ---
-  const librarySettings = await readSettingsFile(getLibrarySettingsPath())
+  // --- Read Files ---
   const globalSettings = await readGlobalSettings()
-
-  // --- MIGRATION LOGIC: Only apply to global settings file ---
-  if ((globalSettings as any)?.defaultViewSettings) {
-    console.log('[Settings] Migrating old view settings from settings.json to new format.')
-    globalSettings.defaultLayouts = {
-      _default: (globalSettings as any).defaultViewSettings,
-      movie: (globalSettings as any).defaultMovieViewSettings,
-      tv: (globalSettings as any).defaultTvShowViewSettings,
-      season: (globalSettings as any).defaultSeasonViewSettings
-    }
-    delete (globalSettings as any).defaultViewSettings
-    delete (globalSettings as any).defaultMovieViewSettings
-    delete (globalSettings as any).defaultTvShowViewSettings
-    delete (globalSettings as any).defaultSeasonViewSettings
-    // Persist migrated settings
-    await writeGlobalSettings(globalSettings)
-  }
+  const librarySettings = await readSettingsFile(getLibrarySettingsPath())
 
   // --- Deep merge settings: default -> library -> global ---
   const settingsToMerge = [librarySettings, globalSettings]
 
   for (const saved of settingsToMerge) {
+    // SECURITY: Ensure library settings cannot override global-only fields.
+    // We filter 'saved' if it's the library-settings object.
+    const isLibrarySettings = saved === librarySettings
+    const filteredSaved = { ...saved }
+    if (isLibrarySettings) {
+      for (const key of SERVER_SETTING_KEYS) {
+        if ((key as any) in filteredSaved) {
+          console.warn(`[Settings] Library setting tried to override global field "${key}". Ignoring.`)
+          delete (filteredSaved as any)[key]
+        }
+      }
+    }
+
     finalSettings = {
       ...finalSettings,
-      ...saved,
+      ...filteredSaved,
       defaultLayoutSettings: mergeNestedObjects(
         finalSettings.defaultLayoutSettings,
-        saved.defaultLayoutSettings
+        filteredSaved.defaultLayoutSettings
       ),
-      defaultLayouts: mergeNestedObjects(finalSettings.defaultLayouts, saved.defaultLayouts)
+      defaultLayouts: mergeNestedObjects(finalSettings.defaultLayouts, filteredSaved.defaultLayouts)
     }
   }
 
@@ -275,8 +304,10 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
     if (settingsToSave.tmdbApiKey === DEFAULT_STRING) {
       delete settingsToSave.tmdbApiKey
     }
-    // Never save libraryLocation to library settings.
-    delete settingsToSave.libraryLocation
+    // Never save global-only fields to library settings.
+    for (const key of SERVER_SETTING_KEYS) {
+      delete (settingsToSave as any)[key]
+    }
 
     await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
     console.log(`Library settings successfully saved to ${settingsPath}`)

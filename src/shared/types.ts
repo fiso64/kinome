@@ -185,7 +185,23 @@ export interface VirtualTagConfig {
   defaultResult?: string
 }
 
-export interface Settings {
+
+
+/**
+ * Settings that are universal to the server instance and NOT library-specific.
+ */
+export interface ServerSettings {
+  libraryLocation: string
+  adminPasswordHash?: string
+  allowUnauthenticated?: boolean
+  serverPort?: number
+  allowedIPs?: string[]
+}
+
+/**
+ * Settings that define defaults for a library, but can be overridden by individual library-settings.json.
+ */
+export interface LibrarySettings {
   tmdbApiKey: string
   useLogos: boolean
   creditsDisplay: 'shown' | 'collapsed' | 'hidden' | 'tab'
@@ -195,14 +211,8 @@ export interface Settings {
   virtualTags?: VirtualTagConfig[]
   playerCommands: PlayerCommandConfig[]
   customActions: CustomActionConfig[]
-  libraryLocation: string // The path to the library data directory.
-  adminPasswordHash?: string
-  allowUnauthenticated?: boolean
-  serverPort?: number
-  allowedIPs?: string[]
   mediaSourcePath?: string
   mediaSourcePathIsRelative?: boolean
-  // Global defaults for layout-specific properties
   defaultLayoutSettings: {
     grid: GridSettings
     'horizontal-grid': HorizontalGridSettings
@@ -210,17 +220,39 @@ export interface Settings {
     tabs: GroupingSettings
     sections: GroupingSettings
   }
-  // Type-specific layout defaults, now typed from our config keys
   defaultLayouts: {
     [K in DefaultLayoutKey]: StoredViewSettings
   }
-  // View settings for special non-folder views
   searchResultView: StoredViewSettings
   searchPopupView: StoredViewSettings
-  // Item Detail view settings
   itemDetailBackdropSize: 'small' | 'full'
   itemDetailBackdropBlur: number
 }
+
+/**
+ * The unified Settings object used throughout the application.
+ */
+export type Settings = ServerSettings & LibrarySettings
+
+/**
+ * The structure of the global settings.json file on disk.
+ */
+export interface GlobalConfig {
+  server: ServerSettings
+  libraryDefaults: LibrarySettings
+}
+
+/**
+ * Fields that can ONLY be set in the global server settings.json.
+ * Library-specific library-settings.json files are prohibited from overriding these.
+ */
+export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
+  'adminPasswordHash',
+  'allowUnauthenticated',
+  'serverPort',
+  'allowedIPs',
+  'libraryLocation'
+]
 
 export interface Person {
   id: number
