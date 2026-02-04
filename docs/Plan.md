@@ -5,8 +5,8 @@
 - [ ] Monitor option: Rescan on startup and watch filesystem for changes, rescan on change.
   - [X] Need to ensure rescan is non-destructive, always. (Probably already the case, see `spec/backend/metadata_locking.md`)
 - [ ] Optimization
-  - [ ] Migrate to bun.
-    - [ ] Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
+  - [X] Migrate to bun.
+    - [X] Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
   - [ ] Consider migrating to another db for concurrent writes (e.g. postgres). Not sure if necessary.
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
@@ -47,12 +47,11 @@
 
 ### 🔐 Auth & Multi-User
 - [ ] Account and Authentication support
-  - [ ] Start with support for authentication for the default account. Secure all endpoints. Look into how jellyfin does it.
-    - [ ] Add common server-related settings like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
-    - [ ] A nice /login page.
-    - [ ] Browser caching of auth token.
-    - [ ] Ensure everything is secured. Also ensure that the copied stream URLs still work.
-    - [ ] Etc. (again, look how jellyfin does it).
+  - [X] Start with support for authentication for the default account. Secure all endpoints.
+    - [X] Add common server-related settings like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
+    - [X] A nice login page.
+    - [X] Browser caching of auth token.
+    - [X] Ensure everything is secured. Also ensure that the copied stream URLs still work.
   - [ ] Support for multiple accounts.
     - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
 

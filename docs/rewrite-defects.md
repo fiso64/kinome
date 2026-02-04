@@ -1,3 +1,5 @@
+This program used to be a desktop electron app, now it runs as a client server with a webui. As such, some features no longer make any sense or need to be rethought.
+
 Here is the updated analysis of the API and feature set in the context of the Client-Server migration.
 
 ### 1. Context Menu "Action at a Distance"

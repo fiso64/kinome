@@ -1,5 +1,19 @@
 # Fix me
 
+## No retry logic for fetching
+There is no retry logic for fetching metadata and assets from TMDB. If during initial library scan and fetch, there is a network problem, then not only will the fetcher not retry, but it seems like it will also mark the item as fetched (non null lastRefreshedAt). This will cause the item to be skipped in the next scan, even if the network problem is resolved.
+
+## Unauthenticated access is enabled by default(!)
+The following settings.json wrongly allows unauthenticated access:
+```json
+{
+  "adminPasswordHash": "$2b$10$6lUASs2ZAojjtKFXq0W4N.O2rr23G3ZrD0mOcgNd4fDTvffeAB87C",
+  "libraryLocation": "C:/Users/fiso/Source/repos/media-browser/test/media-browser-test-lib/.library",
+  "serverPort": 3000, // or missing, same effect
+  "allowedIPs": [] // or missing, same effect
+  // no boolean allowUnauthenticated: false
+}
+```
 
 ## Triple children request on page load
 When loading root view which is set to be grouped by sections, two layers deep like so:
@@ -27,6 +41,9 @@ Ensure `childrenQuery` is `enabled: !!currentFolder` (Dependent Query).
 This forces the frontend to wait until it has the recursive `rootSettings` map (Step 1) before it attempts to traverse it (Step 2) and fetch data (Step 4).
 ```
 Must debug this first. request 3 is clearly just a guess. We don't know what causes it.
+
+## Clean up requests
+Clean up all duplicate API requests in general. 
 
 ## getChildren
 Audit all usage of getChildren (incredibly bloated)
