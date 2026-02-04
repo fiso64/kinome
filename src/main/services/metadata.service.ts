@@ -292,8 +292,8 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
 
     // 2. Conditional Enrichment (Full details fetch)
     // SKIP for seasons: They are enriched in Managed Copy (Phase 4) using the TV/Season endpoint.
-    if (item.tmdbId && !item.lastRefreshedAt && item.mediaType !== 'season') {
-      log(`[Orchestrator] Enrichment needed for "${item.name}" (id: ${item.id})`)
+    if (item.tmdbId && (!item.lastRefreshedAt || options.force) && item.mediaType !== 'season') {
+      log(`[Orchestrator] Enrichment starting for "${item.name}" (id: ${item.id})`)
       const modified = await retrieverService.fetchItemDetails(
         item,
         settings,
@@ -301,12 +301,8 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
         { respectLocks: true }
       )
       allModifiedItems.push(...modified)
-      // Credits fetch happens inside identification or details? 
-      // retrieverService.fetchItemDetails doesn't seem to fetch credits. 
-      // retrieverService.searchTmdbAndApplyMetadata DOES fetch credits.
-      // Let's ensure credits are always there if refreshed.
       if (item.mediaType === 'movie' || item.mediaType === 'tv') {
-        if (!item.tmdbCredits) {
+        if (!item.tmdbCredits || options.force) {
           await retrieverService.fetchAndApplyCredits(item, settings.tmdbApiKey!)
         }
       }
