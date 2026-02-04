@@ -1,4 +1,4 @@
-import type { AutocompleteSuggestions, LibraryItem, Settings } from '../../shared/types'
+import type { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '../../shared/types'
 
 /**
  * Defines the contract for a transport layer.
@@ -36,4 +36,10 @@ export interface ITransport {
    * This is used when a critical change occurs, like switching libraries.
    */
   forceRendererReload(): void
+
+  /**
+   * Notifies clients about the library scan status (discovery + metadata).
+   * @param status The current scan status object.
+   */
+  notifyScanStatusChanged(status: Partial<ScanStatus>): void
 }

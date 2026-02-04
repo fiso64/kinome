@@ -159,6 +159,12 @@ export const DEFAULT_LAYOUTS_CONFIG = {
  */
 export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 
+export interface ScanStatus {
+  isFileScanningLibrary: boolean
+  isMetadataFetchingLibrary: boolean
+  isFastUpdating: boolean
+}
+
 export type LibraryStatusType = 'ready' | 'no_location' | 'db_missing' | 'no_settings'
 
 export interface LibraryStatus {

@@ -10,6 +10,7 @@ import * as tvShowService from './tv-show.service'
 import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast } from './item-update.service'
+import { getTransport } from '../transport.registry'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
 import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
@@ -76,18 +77,23 @@ export async function fetchMetadataForLibrary() {
 
   log(`[Metadata] Starting update for ${itemsToProcess.length} items using Unified Orchestrator.`)
 
-  // 2. Processing: Use the Orchestrator for each dirty item
-  // We use chunks to avoid overwhelming the network/API
-  await processInChunks(itemsToProcess, 5, async (item) => {
-    // Optimization: If it's an episode or season, we only call orchestrator 
-    // if it's "orphan" or if we want to force its individual update.
-    // However, calling handleItemUpdate is safe as it skips work if already fresh.
-    const modifiedItems = await handleItemUpdate(item)
+  getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: true })
+  try {
+    // 2. Processing: Use the Orchestrator for each dirty item
+    // We use chunks to avoid overwhelming the network/API
+    await processInChunks(itemsToProcess, 5, async (item) => {
+      // Optimization: If it's an episode or season, we only call orchestrator 
+      // if it's "orphan" or if we want to force its individual update.
+      // However, calling handleItemUpdate is safe as it skips work if already fresh.
+      const modifiedItems = await handleItemUpdate(item)
 
-    if (modifiedItems.length > 0) {
-      await updateIfChangedAndBroadcast(modifiedItems)
-    }
-  })
+      if (modifiedItems.length > 0) {
+        await updateIfChangedAndBroadcast(modifiedItems)
+      }
+    })
+  } finally {
+    getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
+  }
 
   await repositoryService.writeDb()
   log('[Metadata] Run complete.')

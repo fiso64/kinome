@@ -17,10 +17,10 @@ import {
   updateIfChangedAndBroadcast,
   getAutocompleteSuggestions as fetchAutocompleteSuggestions
 } from './item-update.service'
-
-import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '../../shared/types'
-import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
 import { getTransport } from '../transport.registry'
+
+import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
+import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '../../shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Library Service] ${message}`)
@@ -99,16 +99,21 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
   const refreshId = crypto.randomBytes(4).toString('hex')
   log(`[Refresh ${refreshId}] Starting refresh from: ${mediaSourcePath}`)
 
-  await filesystemService.scanDirectory(mediaSourcePath)
+  getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
+  try {
+    await filesystemService.scanDirectory(mediaSourcePath)
 
-  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-  await filesystemService.verifyImagePaths(imagesDir)
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+    await filesystemService.verifyImagePaths(imagesDir)
 
-  searchService.buildFullSearchIndex()
+    searchService.buildFullSearchIndex()
 
-  metadataService.fetchMetadataForLibrary().catch(console.error)
+    metadataService.fetchMetadataForLibrary().catch(console.error)
 
-  await reapplyVirtualTagsAfterSettingsChange()
+    await reapplyVirtualTagsAfterSettingsChange()
+  } finally {
+    getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
+  }
 
   return (await getLibraryRoot()).root || null
 }
@@ -135,10 +140,14 @@ async function _scanAndCreateNewDb(
     await repositoryService.createNewDb(null)
   }
 
-  await filesystemService.scanDirectory(mediaSourcePath, { skipMetadata: true })
-  searchService.buildFullSearchIndex()
-
-  await reapplyVirtualTagsAfterSettingsChange()
+  getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
+  try {
+    await filesystemService.scanDirectory(mediaSourcePath, { skipMetadata: true })
+    searchService.buildFullSearchIndex()
+    await reapplyVirtualTagsAfterSettingsChange()
+  } finally {
+    getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
+  }
 
   const status = await getLibraryRoot()
   const root = status.root

@@ -1,4 +1,4 @@
-import { AutocompleteSuggestions, LibraryItem, Settings } from '../../shared/types'
+import { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '../../shared/types'
 import type { ITransport } from './transport.interface'
 
 /**
@@ -8,6 +8,12 @@ import type { ITransport } from './transport.interface'
 export class WebTransport implements ITransport {
   // We'll store a reference to the publisher (the Elysia app's server)
   private server: any = null
+
+  private currentStatus: ScanStatus = {
+    isFileScanningLibrary: false,
+    isMetadataFetchingLibrary: false,
+    isFastUpdating: false
+  }
 
   /**
    * Initializes the transport with the Bun server instance.
@@ -51,5 +57,20 @@ export class WebTransport implements ITransport {
   forceRendererReload(): void {
     console.log('[WebTransport] Forcing client reload.')
     this.broadcast('force-reload-for-new-library', null)
+  }
+
+  notifyScanStatusChanged(statusUpdate: Partial<ScanStatus>): void {
+    const prevStatus = { ...this.currentStatus }
+    this.currentStatus = { ...this.currentStatus, ...statusUpdate }
+
+    // Aggregate flag calculation
+    this.currentStatus.isFastUpdating =
+      this.currentStatus.isFileScanningLibrary || this.currentStatus.isMetadataFetchingLibrary
+
+    // Only broadcast if the state has meaningfully changed
+    if (JSON.stringify(prevStatus) !== JSON.stringify(this.currentStatus)) {
+      console.log('[WebTransport] Notifying status change:', this.currentStatus)
+      this.broadcast('scan-status-changed', this.currentStatus)
+    }
   }
 }

@@ -9,7 +9,8 @@ import type {
   TmdbImageResults,
   MediaProperties,
   AppCapabilities,
-  LibraryStatus
+  LibraryStatus,
+  ScanStatus
 } from '../../../shared/types'
 import type { ApiClient } from './api'
 import { authStore } from './auth-store.svelte'
@@ -528,6 +529,10 @@ class WebApiClient implements ApiClient {
 
   onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void {
     return this.on('settings-possibly-updated', callback)
+  }
+
+  onScanStatusChanged(callback: (status: ScanStatus) => void): () => void {
+    return this.on('scan-status-changed', callback)
   }
 }
 

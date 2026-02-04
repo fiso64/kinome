@@ -17,6 +17,7 @@
   import { modalStore } from './lib/modal-store.svelte'
   import { contextMenuStore } from './lib/context-menu-store.svelte'
   import { itemKeys, childKeys } from './lib/queries/query-keys'
+  import { QueryThrottler } from './lib/query-throttler'
   import { getPlaylistUrl, api } from './lib/api'
   import { resolveViewSettings } from '../../shared/settings-helpers'
   import { authStore } from './lib/auth-store.svelte'
@@ -30,7 +31,8 @@
     LibraryItem,
     AutocompleteSuggestions,
     SearchIndexEntry,
-    LibraryStatus
+    LibraryStatus,
+    ScanStatus
   } from '../../shared/types'
 
   const queryClient = new QueryClient({
@@ -42,11 +44,19 @@
     }
   })
 
+  const queryThrottler = new QueryThrottler(queryClient)
+
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
   }
 
-  let isScanning = $state(true)
+  let isInitializing = $state(true)
+  let isFileScanningLibrary = $state(false)
+  let isMetadataFetchingLibrary = $state(false)
+  let isFastUpdating = $derived(isFileScanningLibrary || isMetadataFetchingLibrary)
+
+  // Deprecated: used for props in components that haven't been updated yet
+  let isScanning = $derived(isFastUpdating)
   let libraryStatus = $state<LibraryStatus | null>(null)
   let isRefreshing = $state(false)
   let continueWatchingItems = $state<{ show: MediaFolder; nextEpisode: MediaFile }[]>([])
@@ -111,6 +121,24 @@
       settings = newSettings
     })
 
+    const unlistenScanStatus = api.onScanStatusChanged((status) => {
+      log(`Scan status changed from backend: ${JSON.stringify(status)}`)
+
+      if (status.isFileScanningLibrary !== undefined) {
+        isFileScanningLibrary = status.isFileScanningLibrary
+      }
+      if (status.isMetadataFetchingLibrary !== undefined) {
+        isMetadataFetchingLibrary = status.isMetadataFetchingLibrary
+      }
+
+      if (!isFastUpdating) {
+        log('All background library tasks finished, flushing throttled updates.')
+        queryThrottler.flush()
+        // Final truth sync for all children lists
+        queryClient.invalidateQueries({ queryKey: childKeys.all })
+      }
+    })
+
     const unlistenErrors = api.onShowErrorDialog((options) => {
       try {
         dialogStore.showError(options)
@@ -128,6 +156,7 @@
       unlistenSuggestions()
       unlistenErrors()
       unlistenSettingsUpdated()
+      unlistenScanStatus()
     }
   })
 
@@ -147,8 +176,8 @@
 
         if (status.status !== 'ready') {
           // If library is not ready, we don't need to wait for other data to show setup screen
-          isScanning = false
-          log(`Library not ready (${status.status}). Ending initial scan state early.`)
+          isInitializing = false
+          log(`Library not ready (${status.status}). Ending initial load state early.`)
         }
       })
 
@@ -157,8 +186,8 @@
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
         api.getSettings().then((s) => (settings = s))
       ]).then(() => {
-        isScanning = false
-        log(`Initialization complete. isScanning: ${isScanning}`)
+        isInitializing = false
+        log(`Initialization complete. isFastUpdating: ${isFastUpdating}`)
       })
     }
   })
@@ -191,34 +220,55 @@
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
 
-      const itemIdsToInvalidate = new Set<string>()
       const parentIdsToRefetch = new Set<string>()
       const ancestorIdsToRefetch = new Set<string>()
       let refreshContinueWatching = false
-      let refreshRoot = false
 
       for (const item of updatedItems) {
-        // Broadly invalidate everything related to this specific item ID across all contexts
-        itemIdsToInvalidate.add(item.id)
+        // --- 1. Surgical Patching (Instant & Silent) ---
 
-        // Alias support: If the root folder was updated, also invalidate 'root'
-        if (!item.parentId || item.id === rootId) {
-          refreshRoot = true
-        }
+        // Update individual item detail view
+        queryClient.setQueryData(itemKeys.details(item.id), (old: any) =>
+          old ? { ...old, ...item } : item
+        )
 
-        // Refetch parent's children query so lists re-render
+        // Patch any active children lists where this item resides
         if (item.parentId) {
+          queryClient.setQueriesData(
+            {
+              queryKey: childKeys.all,
+              predicate: (query) => query.queryKey[1] === item.parentId
+            },
+            (oldData: any) => {
+              if (!Array.isArray(oldData)) return oldData
+              const index = oldData.findIndex((i) => i.id === item.id)
+              if (index !== -1) {
+                const newData = [...oldData]
+                newData[index] = { ...oldData[index], ...item }
+                return newData
+              }
+              // If not found in the list, we don't optimistically insert yet
+              // (Throttled refetch handles discovery below)
+              return oldData
+            }
+          )
+
           parentIdsToRefetch.add(item.parentId)
+
+          // Alias support for root
+          if (item.parentId === rootId) {
+            parentIdsToRefetch.add('root')
+          }
         }
 
-        // Refetch tree queries for all ancestors (e.g., Season and Show when episode updates)
+        // --- 2. Collection for Throttled Truth Sync ---
+
         if (item.ancestorIds && item.ancestorIds.length > 0) {
           for (const ancestorId of item.ancestorIds) {
             ancestorIdsToRefetch.add(ancestorId)
           }
         }
 
-        // Also invalidate 'continue-watching' if relevant
         if (
           (item.type === 'file' && 'watched' in item) ||
           (item.type === 'folder' &&
@@ -228,48 +278,21 @@
         }
       }
 
-      // Execute invalidations per item
-      itemIdsToInvalidate.forEach((id) => {
-        queryClient.invalidateQueries({
-          queryKey: itemKeys.all,
-          predicate: (query) => query.queryKey[1] === id
-        })
-
-        if (refreshRoot && id === rootId) {
-          queryClient.invalidateQueries({ queryKey: itemKeys.details('root') })
-          queryClient.invalidateQueries({ queryKey: itemKeys.settings('root') })
-        }
-      })
-
-      // Execute refetches per parent
+      // Execute throttled refetches
       parentIdsToRefetch.forEach((parentId) => {
-        queryClient.refetchQueries({
-          queryKey: childKeys.all,
-          predicate: (query) => query.queryKey[1] === parentId
-        })
-
-        // Alias support: If parent is root, also invalidate 'children', 'root'
-        if (parentId === rootId) {
-          queryClient.refetchQueries({
-            queryKey: childKeys.all,
-            predicate: (query) => query.queryKey[1] === 'root'
-          })
-        }
+        // We use byParent to match the exact keys used in MainView
+        // but the throttler will handle all queries starting with this key
+        queryThrottler.throttleRefetch([...childKeys.all, parentId], isFastUpdating)
       })
 
-      // Execute refetches per ancestor
       ancestorIdsToRefetch.forEach((ancestorId) => {
-        queryClient.refetchQueries({ queryKey: itemKeys.tree(ancestorId) })
+        queryThrottler.throttleRefetch(itemKeys.tree(ancestorId), isFastUpdating)
       })
 
-      // Global invalidations
       if (refreshContinueWatching) {
-        queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
+        queryThrottler.throttleRefetch(['continue-watching'], isFastUpdating)
         debouncedRefreshContinueWatching()
       }
-
-      // Global invalidation for virtual views (which depend on 'children' queries but potentially different IDs)
-      queryClient.invalidateQueries({ queryKey: ['children'] })
     })
     return () => unlistenItemsUpdated()
   })
@@ -295,7 +318,7 @@
   })
 
   async function handleRefresh(): Promise<void> {
-    if (isRefreshing || isScanning) return
+    if (isRefreshing || isFastUpdating || isInitializing) return
     isRefreshing = true
     // clearItemCache() // Removed in V2
     const refreshedRoot = await api.refreshLibrary()
@@ -442,7 +465,7 @@
   />
 {/if}
 
-{#if authStore.isChecking}
+{#if authStore.isChecking || isInitializing}
   <div class="loading-screen">
     <div class="spinner"></div>
   </div>

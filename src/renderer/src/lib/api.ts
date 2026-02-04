@@ -129,6 +129,7 @@ export interface ApiClient {
   ): () => void
   onForceReloadForNewLibrary(callback: () => void): () => void
   onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void
+  onScanStatusChanged(callback: (status: ScanStatus) => void): () => void
 }
 
 import { webApi } from './web-api'
