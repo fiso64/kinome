@@ -18,7 +18,9 @@
     LibraryItem,
     MediaFolder,
     MediaFile,
-    SearchIndexEntry
+    SearchIndexEntry,
+    LibraryStatus,
+    ScanStatus
   } from '../../../../shared/types'
 
   let {
@@ -130,9 +132,7 @@
 </script>
 
 <div class="content">
-  {#if isScanning}
-    <!-- Loading state is now implicitly handled by App.svelte's logic -->
-  {:else if (libraryStatus && libraryStatus.status !== 'ready') || (settings && !settings.libraryLocation) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
+  {#if (libraryStatus && libraryStatus.status !== 'ready') || (settings && !settings.libraryLocation) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
     <SetupScreen onComplete={() => window.location.reload()} {onStatusUpdate} />
   {:else}
     <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
