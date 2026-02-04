@@ -1,7 +1,8 @@
 # Fix me
 
 ## No retry logic for fetching
-There is no retry logic for fetching metadata and assets from TMDB. If during initial library scan and fetch, there is a network problem, then not only will the fetcher not retry, but it seems like it will also mark the item as fetched (non null lastRefreshedAt). This will cause the item to be skipped in the next scan, even if the network problem is resolved.
+There is no retry logic for fetching metadata and assets from TMDB. If during initial library scan and fetch, there is a network problem (e.g. network is simply disabled), then not only will the fetcher not retry, but it seems like it will also mark the item as fetched (non null lastRefreshedAt). This will cause the item to be skipped in the next scan, even if the network problem is resolved.
+This contradicts the spec scanner_architecture.md, which states that lastRefreshedAt should be the last time the item was _successfully_ fetched.
 
 ## Unauthenticated access is enabled by default(!)
 The following settings.json wrongly allows unauthenticated access:

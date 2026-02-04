@@ -60,7 +60,8 @@
 - [ ] TV app. 
 - [ ] Revive electron app (built-in server + thin client)?
 
-### ⌨️ Development
+### ⌨️ Diagnostics & Development
+- [ ] Frontend should display error messages from the backend when needed.
 - [ ] Add proper comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 - [ ] Use a good logging framework with pretty output and multiple log levels.
 
