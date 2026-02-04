@@ -142,7 +142,15 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
   if (!settingsPath) return // Can't write global settings for remote library
   try {
     const currentSettings = await readGlobalSettings()
-    const merged = { ...currentSettings, ...settings }
+
+    // Perform a selective merge: only overwrite if the new value is NOT undefined.
+    // This prevents partial updates from wiping existing global settings.
+    const merged = { ...currentSettings }
+    for (const [key, value] of Object.entries(settings)) {
+      if (value !== undefined) {
+        ; (merged as any)[key] = value
+      }
+    }
 
     if (merged.libraryLocation) {
       merged.libraryLocation = merged.libraryLocation.replace(/\\/g, '/')
@@ -323,27 +331,27 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
  * @param settingsToSave The partial settings object to save.
  */
 export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Promise<void> {
-  console.log('[Settings Service] Saving settings for current library.')
+  console.log('[Settings Service] Saving settings. Identifying server vs library changes.')
   const oldSettings = await readSettings()
 
-  // Create a copy, excluding libraryLocation as it's handled separately.
-  const {
-    libraryLocation,
-    allowUnauthenticated,
-    serverPort,
-    allowedIPs,
-    ...settingsForCurrentLibrary
-  } = settingsToSave
+  const serverChanges: Partial<Settings> = {}
+  const libraryChanges: Partial<Settings> = {}
 
-  // Update global settings if provided
-  if (
-    libraryLocation !== undefined ||
-    allowUnauthenticated !== undefined ||
-    serverPort !== undefined ||
-    allowedIPs !== undefined
-  ) {
-    await writeGlobalSettings({ libraryLocation, allowUnauthenticated, serverPort, allowedIPs })
+  for (const [key, value] of Object.entries(settingsToSave)) {
+    if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
+      ; (serverChanges as any)[key] = value
+    } else {
+      ; (libraryChanges as any)[key] = value
+    }
   }
+
+  // Update global settings if any server-level keys were provided
+  if (Object.keys(serverChanges).length > 0) {
+    console.log(`[Settings Service] Applying server-level changes: ${Object.keys(serverChanges).join(', ')}`)
+    await writeGlobalSettings(serverChanges)
+  }
+
+  const settingsForCurrentLibrary = libraryChanges
 
   // Handle media path relativity conversion
   const newRelativity = settingsForCurrentLibrary.mediaSourcePathIsRelative
