@@ -76,10 +76,10 @@ export function getAllRequiredFields(settings: any, globalSettings?: Settings | 
 
         // Handle implicit child layout defaults (e.g. Show [Tabs] -> Season [Default Season Layout])
         // If we have a mediaType but no explicit childViewSettings, we check the global defaults.
-        if (currentSettings.mediaType === 'tv' && !currentSettings.childViewSettings && globalSettings) {
-            const seasonSettings = globalSettings.defaultLayouts.season
-            if (seasonSettings) traverse(seasonSettings)
-        }
+        // if (currentSettings.mediaType === 'tv' && !currentSettings.childViewSettings && globalSettings) {
+        //     const seasonSettings = globalSettings.defaultLayouts.season
+        //     if (seasonSettings) traverse(seasonSettings)
+        // }
 
         if (currentSettings.childViewSettings) {
             traverse(currentSettings.childViewSettings)

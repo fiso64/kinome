@@ -90,6 +90,13 @@ export function resolveViewSettings(
     childViewSettings: childViewSettingsLayer?.settings.childViewSettings ?? undefined
   }
 
+  // If no explicit child settings exist, apply the implicit default for the media type.
+  // e.g. TV Shows implicitly use the "Default Season" layout for their children.
+  if (!resolvedBase.childViewSettings && item?.mediaType === 'tv' && settings) {
+    // We inject the Season settings as the effective childViewSettings
+    resolvedBase.childViewSettings = settings.defaultLayouts.season
+  }
+
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
   if (childViewSettingsLayer)
