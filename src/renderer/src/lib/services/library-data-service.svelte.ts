@@ -102,6 +102,21 @@ class LibraryDataService {
     }
 
     /**
+     * Imperatively fetches item details using the query cache.
+     * This is useful for lazy loading in event handlers.
+     */
+    async fetchItemDetails(id: string, fields: string[] = []): Promise<LibraryItem | null> {
+        if (!this.queryClient) return null
+        const normalizedId = this.normalizeId(id)
+        if (!normalizedId) return null
+
+        return this.queryClient.fetchQuery({
+            queryKey: [...this.keys.item.details(normalizedId), { fields }],
+            queryFn: () => api.getItemDetails(id, fields)
+        })
+    }
+
+    /**
      * Returns a query for an item tree (Details / Sidebar).
      */
     getItemTreeQuery(idFn: () => string | null | undefined, options: { fields?: () => string[], enabled?: () => boolean } = {}) {

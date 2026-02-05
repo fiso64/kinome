@@ -4,6 +4,7 @@
   import { modalStore } from '../../lib/modal-store.svelte'
   import { dialogStore } from '../../lib/dialog-store'
   import { api } from '../../lib/api'
+  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import type { LibraryItem, MediaFolder, Settings } from '../../../../shared/types'
 
@@ -18,13 +19,23 @@
   const position = $derived(contextMenuStore.position)
   const layout = $derived(contextMenuStore.layout)
 
-  const handleRevealItem = (itemToReveal: LibraryItem) => {
-    if (!itemToReveal.path) return
-    api.revealInExplorer(itemToReveal.path)
+  const handleRevealItem = async (itemToReveal: LibraryItem) => {
+    let path = itemToReveal.path
+    if (!path) {
+      const fullItem = await libraryDataService.fetchItemDetails(itemToReveal.id, ['path'])
+      path = fullItem?.path
+    }
+    if (!path) return
+    api.revealInExplorer(path)
   }
 
   async function handleDeleteItem(itemToDelete: LibraryItem) {
-    if (!itemToDelete.path) return
+    let path = itemToDelete.path
+    if (!path) {
+      const fullItem = await libraryDataService.fetchItemDetails(itemToDelete.id, ['path'])
+      path = fullItem?.path
+    }
+    if (!path) return
 
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Deletion',
@@ -44,8 +55,19 @@
   }
 
   async function handleClearItemMetadata(itemToClear: LibraryItem) {
+    let path = itemToClear.path
+    if (!path) {
+      const fullItem = await libraryDataService.fetchItemDetails(itemToClear.id, ['path'])
+      path = fullItem?.path
+    }
+
+    if (!path) {
+      console.error('Cannot clear metadata: path is still undefined after fetch attempt.')
+      return
+    }
+
     const isFolder = itemToClear.type === 'folder'
-    const isVirtual = itemToClear.path.startsWith('virtual://')
+    const isVirtual = path.startsWith('virtual://')
     const message = isVirtual
       ? `This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${itemToClear.title ?? itemToClear.name}".`
       : `This will permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
