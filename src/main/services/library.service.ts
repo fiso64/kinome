@@ -169,6 +169,18 @@ export async function getItemDetails(itemId: string, fields?: string[]): Promise
   return repositoryService.createForDetailViewCopy(item, fields)
 }
 
+export async function getItemChildren(
+  itemId: string,
+  options: { isDetailView?: boolean; fields?: string[] } = {}
+): Promise<LibraryItem[]> {
+  if (options.isDetailView) {
+    return repositoryService.getChildrenForDetailView(itemId, options.fields)
+  }
+
+  // Fallback to standard children logic if not in detail view context
+  return repositoryService.getChildren(itemId, options.fields)
+}
+
 // --- Watched State ---
 
 export async function markAsUnwatched(itemId: string): Promise<void> {

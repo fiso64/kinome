@@ -22,7 +22,7 @@
 
   import { libraryDataService } from '../../lib/services/library-data-service.svelte'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { getAllRequiredFields } from '../../lib/view-requirements'
+  import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '../../lib/view-requirements'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
   // -- 1. Reactive Data Fetching (Lean Bundling) --
@@ -33,14 +33,26 @@
   )
   const requiredFields = $derived(resolvedSettings ? getAllRequiredFields(resolvedSettings) : [])
 
-  // Fetch the full detail tree with only the required fields
-  const detailsQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
-    fields: () => requiredFields
+  // 1. Fetch metadata only
+  const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
+    fields: () => DETAIL_HEADER_FIELDS
   })
 
-  // The authoritative reactive item for the entire component.
-  // We fall back to initialItem for instant responsiveness while the query is loading.
-  const item = $derived(detailsQuery.data || initialItem)
+  // 2. Fetch structural children separately with isDetailView: true
+  // This allows the children endpoint to handle structural bundling (Season -> Episode)
+  const childrenQuery = libraryDataService.getChildrenQuery(() => initialItem.id, {
+    fields: () => requiredFields,
+    isDetailView: () => true,
+    enabled: () => initialItem.type === 'folder'
+  })
+
+  // The authoritative reactive item for metadata (header, background)
+  const item = $derived(itemQuery.data || initialItem)
+
+  // Structural children for the content list/tabs
+  const children = $derived(
+    childrenQuery.data || (initialItem.type === 'folder' ? initialItem.children || [] : [])
+  )
 
   // -- 2. Derived Template Properties --
 
@@ -61,7 +73,6 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
-  const children = $derived(item?.type === 'folder' ? (item.children ?? []) : [])
   const contentsLayout = $derived(resolvedSettings?.layout ?? 'grid')
   const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
 

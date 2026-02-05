@@ -239,7 +239,6 @@ class WebApiClient implements ApiClient {
   getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null> {
     const params = new URLSearchParams()
     if (fields && fields.length > 0) params.set('fields', fields.join(','))
-    params.set('include', 'tree')
     return this.request(`/api/v2/items/${encodeURIComponent(itemId)}?${params.toString()}`)
   }
 
@@ -255,8 +254,16 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/item-by-id/${encodeURIComponent(itemId)}`)
   }
 
-  getChildren(parentId: string): Promise<LibraryItem[] | null> {
-    return this.request(`/api/children/${encodeURIComponent(parentId)}`)
+  getChildren(
+    parentId: string,
+    options: { isDetailView?: boolean; fields?: string[] } = {}
+  ): Promise<LibraryItem[] | null> {
+    const params = new URLSearchParams()
+    if (options.fields && options.fields.length > 0) params.set('fields', options.fields.join(','))
+    if (options.isDetailView) params.set('isDetailView', 'true')
+    return this.request(
+      `/api/v2/items/${encodeURIComponent(parentId)}/children?${params.toString()}`
+    )
   }
 
   getHiddenChildren(parentId: string): Promise<LibraryItem[]> {

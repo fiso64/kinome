@@ -52,7 +52,10 @@ export interface ApiClient {
   userUpdateItem(item: LibraryItem): Promise<void>
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions>
   getItemById(itemId: string): Promise<LibraryItem | null>
-  getChildren(parentId: string): Promise<LibraryItem[] | null>
+  getChildren(
+    parentId: string,
+    options?: { isDetailView?: boolean; fields?: string[] }
+  ): Promise<LibraryItem[] | null>
   getHiddenChildren(parentId: string): Promise<LibraryItem[]>
   getParent(itemId: string): Promise<MediaFolder | null>
   getContinueWatchingItems(): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]>

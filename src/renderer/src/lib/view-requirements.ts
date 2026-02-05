@@ -15,6 +15,23 @@ export const CORE_FIELDS = [
 ]
 
 /**
+ * Fields required for the ItemDetail header and primary metadata.
+ */
+export const DETAIL_HEADER_FIELDS = [
+    ...CORE_FIELDS,
+    'title',
+    'overview',
+    'backdropPath',
+    'logoPath',
+    'runtime',
+    'releaseDate',
+    'genres',
+    'tags',
+    'tmdbId',
+    '_v'
+]
+
+/**
  * A mapping of layout modes to the metadata fields they require to render correctly.
  * This ensures that when switching views, we always fetch the necessary data.
  */

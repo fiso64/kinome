@@ -89,20 +89,13 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
 
         const queryInclude = ((query.include as string) || '').split(',')
 
-        if (queryInclude.includes('tree')) {
-            const options = parseFindOptions(query)
-            const details = await libraryService.getItemDetails(id, options.fields)
-            if (!details) {
-                set.status = 404
-                return { error: 'Item not found' }
-            }
-            return details
-        }
-
         const options = parseFindOptions(query)
         options.where = { ...options.where, id }
         options.limit = 1
 
+        // TODO (IMPORTANT): This default field fallback violates our lean api spec at @[spec/backend/api_rewrite.md].
+        // Clients should explicitly request fields; the server shouldn't guess/bundle everything by default.
+        // We are keeping this for now to avoid breaking existing/generic API consumers.
         if (!query.fields && !query.include) {
             options.fields = [
                 ...repositoryService.CORE_FIELDS,
@@ -183,20 +176,22 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
 
         options.where = { ...options.where, parentId: id }
 
-        const parent = repositoryService.find({
-            where: { id: id },
-            fields: ['mediaType']
-        })[0]
+        // Use the new modular children fetcher if specifically requested for a detail view.
+        if (query.isDetailView === 'true') {
+            return await libraryService.getItemChildren(id, {
+                isDetailView: true,
+                fields: options.fields
+            })
+        }
 
-        if (!options.orderBy) {
-            if (parent) {
-                if (parent.mediaType === 'season') {
-                    options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
-                } else if (parent.mediaType === 'tv') {
-                    options.orderBy = { field: 'seasonNumber', direction: 'ASC' }
-                } else {
-                    options.orderBy = { field: 'name', direction: 'ASC' }
-                }
+        // Standard Children logic (with sorting and grouping)
+        const parent = isVirtualId(id) ? null : repositoryService.getItemById(id)
+
+        if (!options.orderBy && parent) {
+            if (parent.mediaType === 'season') {
+                options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
+            } else if (parent.mediaType === 'tv') {
+                options.orderBy = { field: 'seasonNumber', direction: 'ASC' }
             } else {
                 options.orderBy = { field: 'name', direction: 'ASC' }
             }
@@ -209,15 +204,7 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
             return groupingService.getGroups(id, finalGroupBy, options)
         }
 
-        let children: any[]
-        if (parent && parent.mediaType === 'tv') {
-            children = repositoryService.getSeasonsWithEpisodes(id, options.fields)
-        } else {
-            options.where = { ...options.where, parentId: id }
-            children = repositoryService.find(options)
-        }
-
-        return children
+        return repositoryService.find(options)
     })
     .get('/items/:id/ancestors', async ({ params: { id: rawId }, set }) => {
         let id = rawId

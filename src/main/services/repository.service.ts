@@ -47,6 +47,7 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   originalTitle: { sql: 'm.original_title', table: 'm' },
   overview: { sql: 'm.overview', table: 'm' },
   releaseDate: { sql: 'm.release_date', table: 'm' },
+  runtime: { sql: 'm.runtime', table: 'm' },
   year: {
     sql: 'm.year',
     table: 'm',
@@ -979,27 +980,42 @@ export async function createForDetailViewCopy(
   item: LibraryItem,
   fields?: string[]
 ): Promise<LibraryItem> {
+  // Now strictly returns the item metadata, no children bundling.
+  // Standardizing /items/:id to be resource-oriented.
   const copy = createTransferableCopy(item)
-  if (copy.type === 'folder') {
-    const settings = await readSettings()
-    const { settings: resolved } = resolveViewSettings(copy as MediaFolder, settings)
+  return copy
+}
 
-    // Apply virtualization (Grouping)
-    copy.children = await groupingService.groupItemsForDetailView(copy as MediaFolder, { fields })
+/**
+ * Specialized children fetcher for Detail Views.
+ * Handles structural bundling (like Season -> Episode) based on the parent's layout.
+ */
+export async function getChildrenForDetailView(
+  parentId: string,
+  fields?: string[]
+): Promise<LibraryItem[]> {
+  const parent = getItemById(parentId) as MediaFolder
+  if (!parent || parent.type !== 'folder') return []
 
-    // Fetch grandchildren (Essential for physical Season -> Episode structure)
-    // ONLY fetch if the layout is Tabs or Sections (the only views that "open" hierarchy).
-    if (['tabs', 'sections'].includes(resolved.layout)) {
-      for (const child of copy.children || []) {
-        if (child.type === 'folder' && !child.isVirtual) {
-          child.children = getChildren(child.id, fields).filter(
-            (c: LibraryItem) => !c.isHidden && !c.isMissing
-          )
-        }
+  const settings = await readSettings()
+  const { settings: resolved } = resolveViewSettings(parent, settings)
+
+  // 1. Group/Virtualize children (e.g. into Virtual Seasons if layout requires Tabs/Sections)
+  const children = await groupingService.groupItemsForDetailView(parent, { fields })
+
+  // 2. Fetch grandchildren (Essential for physical Season -> Episode structure)
+  // ONLY fetch if the layout is Tabs or Sections (the only views that "open" hierarchy).
+  if (['tabs', 'sections'].includes(resolved.layout)) {
+    for (const child of children) {
+      if (child.type === 'folder' && !child.isVirtual) {
+        child.children = getChildren(child.id, fields).filter(
+          (c: LibraryItem) => !c.isHidden && !c.isMissing
+        )
       }
     }
   }
-  return copy
+
+  return children
 }
 
 // --- Grouping Helper ---
