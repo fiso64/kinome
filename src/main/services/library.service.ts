@@ -1,5 +1,6 @@
 import path from 'path'
 import crypto from 'crypto'
+import equal from 'fast-deep-equal'
 
 import * as virtualTagsService from './virtualTags.service'
 import * as searchService from './search.service'
@@ -521,7 +522,7 @@ export const setContinueWatchingDismissed = async (showId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
     item.continueWatchingDismissed = true
-    updateIfChangedAndBroadcast(item)
+    await updateIfChangedAndBroadcast(item)
   }
 }
 export const setNextUpDismissed = async (showId: string) => {
@@ -529,7 +530,7 @@ export const setNextUpDismissed = async (showId: string) => {
   if (item) {
     item.nextUpDismissed = true
     item.continueWatchingDismissed = true
-    updateIfChangedAndBroadcast(item)
+    await updateIfChangedAndBroadcast(item)
   }
 }
 export const fetchCredits = async (itemId: string) => {
@@ -539,7 +540,7 @@ export const fetchCredits = async (itemId: string) => {
       item,
       (await settingsService.readSettings()).tmdbApiKey
     )
-    updateIfChangedAndBroadcast(item)
+    await updateIfChangedAndBroadcast(item)
   }
 }
 export const handleItemRenamed = async (oldPath: string, _newName: string) => {
@@ -643,12 +644,19 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
       const newValue = (item as any)[key]
       const oldValue = (existing as any)[key]
 
-      if (newValue !== undefined && newValue !== oldValue) {
-        // If the update is specifically trying to revert to Name (Folder Name),
-        // we might want a safeguard, but with partial updates, the frontend only sends
-        // title if the user actively edited it.
-        currentLocks.add(key)
-        log(`[Auto-Lock] Locking field "${key}" for item "${existing.name}" due to user update.`)
+      if (newValue !== undefined) {
+        // Use deep equality check for non-primitive types (arrays/objects)
+        // to avoid locking fields due to new reference identity from DB fetch.
+        const isPrimitive = typeof newValue !== 'object' || newValue === null
+        const isChanged = isPrimitive ? (newValue !== oldValue) : !equal(newValue, oldValue)
+
+        if (isChanged) {
+          // If the update is specifically trying to revert to Name (Folder Name),
+          // we might want a safeguard, but with partial updates, the frontend only sends
+          // title if the user actively edited it.
+          currentLocks.add(key)
+          log(`[Auto-Lock] Locking field "${key}" for item "${existing.name}" due to user update.`)
+        }
       }
     }
 
@@ -669,7 +677,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   }
 
   // --- Standard Item Update ---
-  updateIfChangedAndBroadcast(item)
+  await updateIfChangedAndBroadcast(item)
 }
 export const deleteItemFromDb = async (id: string) => {
   const res = repositoryService.deleteItem(id)
