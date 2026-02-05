@@ -339,13 +339,18 @@ const app = new Elysia()
         return 'File not found'
       }
       const filePath = await libraryService.getAbsolutePath(item.path)
-      if (!filePath) {
+      if (!filePath || !fs.existsSync(filePath)) {
         set.status = 404
         return 'File not found'
       }
       const fileName = path.basename(filePath)
-      set.headers['Content-Disposition'] = `attachment; filename="${fileName}"`
-      return Bun.file(filePath)
+      // Explicitly construct Response to ensure headers are handled correctly for file downloads in Elysia/Bun
+      return new Response(Bun.file(filePath), {
+        headers: {
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Content-Type': 'application/octet-stream'
+        }
+      })
     })
     .get('/stream/:id/:filename', async ({ params, set }) => {
       const item = await libraryService.getItemById(params.id) as any

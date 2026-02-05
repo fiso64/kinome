@@ -163,4 +163,13 @@ export function getPlaylistUrl(itemId: string): string {
   return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 
+/**
+ * Returns a full HTTP URL for downloading a file.
+ */
+export function getDownloadUrl(itemId: string): string {
+  if (!itemId) return ''
+  const url = `/api/download/${itemId}`
+  return authStore.token ? `${url}?token=${authStore.token}` : url
+}
+
 export const api: ApiClient = webApi

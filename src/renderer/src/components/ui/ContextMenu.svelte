@@ -1,5 +1,6 @@
 <script lang="ts">
   import { contextMenuStore } from '../../lib/context-menu-store.svelte'
+  import { getDownloadUrl } from '../../lib/api'
   import type { LibraryItem, MediaFolder, MediaFile, Settings } from '../../../../shared/types'
   let {
     item,
@@ -185,7 +186,15 @@
 
   function handleDownload() {
     if (item.id) {
-      window.open(`/api/download/${item.id}`, '_blank')
+      const url = getDownloadUrl(item.id)
+      // Use a hidden anchor tag to trigger a real download instead of just opening a tab
+      const a = document.createElement('a')
+      a.href = url
+      a.download = '' // Let the server headers decide the filename
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
     }
     onClose()
   }
@@ -427,6 +436,12 @@
             <span>Assign Seasons & Episodes...</span>
           </button>
         {/if}
+        <!-- {#if item.type === 'file' && !isVirtual && !item.isMissing}
+          <button class="context-menu-item" onclick={handleDownload}>
+            <span class="icon">⬇️</span>
+            <span>Download File</span>
+          </button>
+        {/if} -->
         <div class="separator"></div>
         <button class="context-menu-item danger" onclick={handleClearMetadata}>
           <span class="icon">🔥</span>
@@ -449,13 +464,6 @@
   </div>
 
   <div class="context-menu-section border-top">
-    {#if item.type === 'file' && !isVirtual && !item.isMissing}
-      <button class="context-menu-item" onclick={handleDownload}>
-        <span class="icon">⬇️</span>
-        <span>Download File</span>
-      </button>
-    {/if}
-
     {#if window.api.capabilities.supportsLocalPlayback && item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
       <div
         class="submenu-container"
@@ -485,37 +493,37 @@
         {/if}
       </div>
     {/if}
+
+    {#if !isVirtual && item.path && settings?.customActions && settings.customActions.length > 0}
+      <div
+        class="submenu-container"
+        onmouseenter={() => (activeSubmenu = 'custom')}
+        onmouseleave={() => (activeSubmenu = null)}
+      >
+        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+          <span class="icon">🛠️</span>
+          <span>Custom Actions</span>
+          <span class="submenu-arrow">▸</span>
+        </button>
+
+        {#if activeSubmenu === 'custom'}
+          <div
+            bind:this={submenuElement}
+            class="context-menu submenu"
+            class:on-left={submenuOnLeft}
+            style="top: {submenuTop}px;"
+            onclick={(e) => e.stopPropagation()}
+          >
+            {#each settings.customActions as action (action.id)}
+              <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
+                <span>{action.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
-
-  {#if !isVirtual && item.path && settings?.customActions && settings.customActions.length > 0}
-    <div
-      class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'custom')}
-      onmouseleave={() => (activeSubmenu = null)}
-    >
-      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-        <span class="icon">🛠️</span>
-        <span>Custom Actions</span>
-        <span class="submenu-arrow">▸</span>
-      </button>
-
-      {#if activeSubmenu === 'custom'}
-        <div
-          bind:this={submenuElement}
-          class="context-menu submenu"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
-          onclick={(e) => e.stopPropagation()}
-        >
-          {#each settings.customActions as action (action.id)}
-            <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
-              <span>{action.name}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {/if}
 
   {#if !isVirtual}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
