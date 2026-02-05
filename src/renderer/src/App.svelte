@@ -62,6 +62,7 @@
 
   let settings = $state<Settings | null>(null)
 
+  // TODO: Making a list of structural keys depend on fucking autocomplete suggestions is retarded. This needs a dedicated endpoint.
   const groupByKeys = $derived([
     'folder',
     'mediaType',
