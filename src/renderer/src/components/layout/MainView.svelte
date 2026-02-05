@@ -55,7 +55,8 @@
 
   const requiredFields = $derived.by(() => {
     // CRITICAL: We pass currentFolder here because getAllRequiredFields needs to see .virtualFolderSettings
-    return getAllRequiredFields({ ...currentFolder, ...resolvedSettings })
+    // and also to provide mediaType for implicit child layout resolution.
+    return getAllRequiredFields({ ...currentFolder, ...resolvedSettings }, settings)
   })
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {

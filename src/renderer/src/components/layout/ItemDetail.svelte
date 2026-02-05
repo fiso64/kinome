@@ -31,7 +31,9 @@
   const resolvedSettings = $derived(
     settings ? resolveViewSettings(initialItem as MediaFolder, settings).settings : null
   )
-  const requiredFields = $derived(resolvedSettings ? getAllRequiredFields(resolvedSettings) : [])
+  const requiredFields = $derived(
+    resolvedSettings ? getAllRequiredFields({ ...initialItem, ...resolvedSettings }, settings) : []
+  )
 
   // 1. Fetch metadata only
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
