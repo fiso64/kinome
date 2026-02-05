@@ -65,8 +65,6 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
 export function getAllRequiredFields(settings: any): string[] {
     const fields = new Set<string>()
 
-    console.log('getAllRequiredFields input: ', JSON.stringify(settings))
-
     function traverse(currentSettings: any) {
         if (!currentSettings || typeof currentSettings !== 'object') return
 

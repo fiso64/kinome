@@ -124,6 +124,26 @@
     }
   }
 
+  async function handleRenameItem(itemToRename: LibraryItem) {
+    let path = itemToRename.path
+    if (!path) {
+      const fullItem = await libraryDataService.fetchItemDetails(itemToRename.id, ['path'])
+      path = fullItem?.path
+    }
+    if (!path) return
+    modalStore.open('rename', { item: { ...itemToRename, path } })
+  }
+
+  async function handleShowProperties(itemToShow: LibraryItem) {
+    let path = itemToShow.path
+    if (!path) {
+      const fullItem = await libraryDataService.fetchItemDetails(itemToShow.id, ['path'])
+      path = fullItem?.path
+    }
+    if (!path) return
+    modalStore.open('properties', { item: { ...itemToShow, path } })
+  }
+
   async function handleDeleteItemFromDb(itemToDelete: LibraryItem) {
     const confirmed = await dialogStore.showConfirmation({
       title: 'Confirm Database Deletion',
@@ -195,8 +215,8 @@
     }}
     onRevealInExplorer={() => handleRevealItem(item)}
     onDeleteItem={() => handleDeleteItem(item)}
-    onRenameItem={() => modalStore.open('rename', { item })}
-    onShowProperties={() => modalStore.open('properties', { item })}
+    onRenameItem={() => handleRenameItem(item)}
+    onShowProperties={() => handleShowProperties(item)}
     onClearMetadata={() => handleClearItemMetadata(item)}
     onHideItem={() => handleHideItemFromContext(item)}
     onAssignSeasons={() => {

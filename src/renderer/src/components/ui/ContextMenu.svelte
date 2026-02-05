@@ -517,7 +517,7 @@
     </div>
   {/if}
 
-  {#if !isVirtual && item.path}
+  {#if !isVirtual}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
     <div
       class="submenu-container"
