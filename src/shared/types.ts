@@ -519,6 +519,28 @@ export interface TmdbImageResults {
  * differentiate between settings, fetched metadata, and internal state.
  */
 
+/**
+ * TODO: We want to refactor this so that it is slimmed down all the way to only have 'id' as a core field, 
+ * but this has been postponed as this is a dangerous/breaking change refactor. 
+ * NOBODY IS ALLOWED TO ADD ANY FIELD HERE, NO MATTER WHAT.
+ */
+export const CORE_FIELDS = [
+  'id',
+  'parentId',
+  'name',
+  'type',
+  'title',
+  'mediaType',
+  'posterPath',
+  'watched',
+  'isMissing',
+  'year',
+  'seasonNumber',
+  'episodeNumber',
+  'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
+  '_v'      // Required for image cache busting
+] as const
+
 // --- Property Key Definitions ---
 
 export const METADATA_KEYS = [

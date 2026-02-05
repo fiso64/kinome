@@ -1,7 +1,8 @@
 ﻿import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
-import { VIEW_SETTINGS_KEYS } from '../../shared/types'
+import { VIEW_SETTINGS_KEYS, CORE_FIELDS } from '../../shared/types'
+export { CORE_FIELDS }
 import * as groupingService from './grouping.service'
 import { resolveViewSettings } from '../../shared/settings-helpers'
 import { readSettings } from './settings.service'
@@ -110,23 +111,6 @@ export interface FindOptions {
   offset?: number
 }
 
-// TODO: Slim down to avoid bloat, and audit the codebase for any implicit dependencies.
-export const CORE_FIELDS = [
-  'id',
-  'parentId',
-  'name',
-  'type',
-  'title',
-  'mediaType',
-  'posterPath',
-  'watched',
-  'isMissing',
-  'year',
-  'seasonNumber',
-  'episodeNumber',
-  'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
-  '_v'      // Required for image cache busting
-]
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -549,7 +533,7 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   const db = getDb()
   const requestedFields = options.fields || []
   // Default to CORE_FIELDS if no fields specified (Lean & Lazy)
-  const fieldsToSelect = requestedFields.length > 0 ? requestedFields : CORE_FIELDS
+  const fieldsToSelect: string[] = requestedFields.length > 0 ? [...requestedFields] : [...CORE_FIELDS]
 
   // Determine needed tables based on schema
   const usedTables = new Set<string>()

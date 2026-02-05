@@ -1,18 +1,6 @@
 import type { BaseViewSettings } from '../../../shared/types'
+import { CORE_FIELDS } from '../../../shared/types'
 
-export const CORE_FIELDS = [
-    'id',
-    'parentId',
-    'name',
-    'type',
-    'mediaType',
-    'posterPath',
-    'watched',
-    'isMissing',
-    'year',
-    'seasonNumber',
-    'episodeNumber'
-]
 
 /**
  * Fields required for the ItemDetail header and primary metadata.
