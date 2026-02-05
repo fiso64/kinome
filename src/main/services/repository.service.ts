@@ -661,6 +661,18 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
   const db = getDb()
 
   const transaction = db.transaction(() => {
+    // ---------------------------------------------------------
+    // Phase 0: Invariant Enforcement & Normalization
+    // ---------------------------------------------------------
+    const mediaType = updates.mediaType !== undefined ? updates.mediaType : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)?.media_type
+
+    if (mediaType === 'tv') {
+      ; (updates as any).seasonNumber = null
+        ; (updates as any).episodeNumber = null
+    } else if (mediaType === 'season') {
+      ; (updates as any).episodeNumber = null
+    }
+
     // 1. Items Table
     if (
       updates.isHidden !== undefined ||

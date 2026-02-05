@@ -668,7 +668,9 @@ export async function applyTvShowData(
               item.tmdbSeasons,
               options
             )
-            allModifiedItems.push(...modifiedInSeason)
+            // Fix: Filter out the fake season folder (it has the same ID as the TV show)
+            // to avoid accidentally saving seasonNumber=1 to the TV show item.
+            allModifiedItems.push(...modifiedInSeason.filter((m) => m.id !== item.id))
           }
         }
       }
