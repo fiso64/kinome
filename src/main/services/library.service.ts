@@ -162,11 +162,11 @@ export const performFullRescan = (path: string) => _scanAndCreateNewDb(path, 'Fu
 // --- Items ---
 
 // This must be read-only.
-export async function getItemDetails(itemId: string): Promise<LibraryItem | null> {
+export async function getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) throw new Error(`Item ${itemId} not found.`)
 
-  return repositoryService.createForDetailViewCopy(item)
+  return repositoryService.createForDetailViewCopy(item, fields)
 }
 
 // --- Watched State ---

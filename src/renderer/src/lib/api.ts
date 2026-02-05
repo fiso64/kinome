@@ -48,7 +48,7 @@ export interface ApiClient {
   playFile(file: MediaFile): Promise<boolean>
   playFileWith(file: MediaFile, command: string): Promise<boolean>
   recordPlayback(itemId: string): Promise<void>
-  getItemDetails(itemId: string): Promise<LibraryItem | null>
+  getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null>
   userUpdateItem(item: LibraryItem): Promise<void>
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions>
   getItemById(itemId: string): Promise<LibraryItem | null>

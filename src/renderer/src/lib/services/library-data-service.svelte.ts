@@ -86,15 +86,16 @@ class LibraryDataService {
     /**
      * Returns a query for item details (metadata).
      */
-    getItemDetailsQuery(idFn: () => string | null | undefined, options: { enabled?: () => boolean } = {}) {
+    getItemDetailsQuery(idFn: () => string | null | undefined, options: { fields?: () => string[], enabled?: () => boolean } = {}) {
         return createQuery(() => {
             const id = idFn()
             const normalizedId = this.normalizeId(id)
+            const fields = options.fields ? options.fields() : []
             const isEnabled = options.enabled ? options.enabled() : true
 
             return {
-                queryKey: this.keys.item.details(normalizedId),
-                queryFn: () => (normalizedId ? api.getItemV2(id!) : null),
+                queryKey: [...this.keys.item.details(normalizedId), { fields }],
+                queryFn: () => (normalizedId ? api.getItemDetails(id!, fields) : null),
                 enabled: isEnabled && !!normalizedId
             }
         })
@@ -103,15 +104,16 @@ class LibraryDataService {
     /**
      * Returns a query for an item tree (Details / Sidebar).
      */
-    getItemTreeQuery(idFn: () => string | null | undefined, options: { enabled?: () => boolean } = {}) {
+    getItemTreeQuery(idFn: () => string | null | undefined, options: { fields?: () => string[], enabled?: () => boolean } = {}) {
         return createQuery(() => {
             const id = idFn()
             const normalizedId = this.normalizeId(id)
+            const fields = options.fields ? options.fields() : []
             const isEnabled = options.enabled ? options.enabled() : true
 
             return {
                 queryKey: this.keys.item.tree(normalizedId),
-                queryFn: () => (normalizedId ? api.getItemV2(id!, ['tree']) : null),
+                queryFn: () => (normalizedId ? api.getItemV2(id!, ['tree', ...fields]) : null),
                 enabled: isEnabled && !!normalizedId
             }
         })

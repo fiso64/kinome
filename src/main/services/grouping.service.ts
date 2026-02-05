@@ -20,17 +20,25 @@ export function getVirtualItem(id: string): LibraryItem | null {
  * High-level API used by repositoryService.createForDetailViewCopy
  * to apply virtualization (grouping) to an item's children.
  */
-export async function groupItemsForDetailView(parent: MediaFolder): Promise<LibraryItem[]> {
-    const rawChildren = getChildren(parent.id).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
+export async function groupItemsForDetailView(
+    parent: MediaFolder,
+    options: { fields?: string[] } = {}
+): Promise<LibraryItem[]> {
+    const settings = await readSettings()
+    const { settings: resolved } = resolveViewSettings(parent, settings)
 
-    // Currently, only TV shows get special automatic virtualization for the detail view.
-    if (parent.mediaType === 'tv') {
-        log(`Applying automatic TV virtualization for "${parent.name}"`)
-        // We reuse the existing recursive engine by forcing a "folder" grouping.
-        // This handles both virtual seasons and the "Files" tab.
+    const rawChildren = find({
+        where: { parentId: parent.id },
+        fields: options.fields
+    }).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
+
+    // Apply grouping only if the layout demands it (e.g. Tabs or Sections).
+    // This removes the hardcoded TV-show virtualization in favor of the resolved layout.
+    if (['tabs', 'sections'].includes(resolved.layout)) {
+        log(`Applying automatic virtualization for "${parent.name}" (Layout: ${resolved.layout})`)
         return await groupItemsRecursive(
             rawChildren,
-            'folder',
+            resolved.groupBy || 'folder',
             parent.id,
             parent,
             '',

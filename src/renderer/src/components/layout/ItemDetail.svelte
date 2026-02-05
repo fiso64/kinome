@@ -7,7 +7,7 @@
   import { getAssetUrl } from '../../lib/api'
 
   let {
-    item,
+    item: initialItem,
     onItemClick,
     showContextMenu,
     onSearchByTag,
@@ -21,10 +21,55 @@
   } = $props()
 
   import { libraryDataService } from '../../lib/services/library-data-service.svelte'
+  import { resolveViewSettings } from '../../../../shared/settings-helpers'
+  import { getAllRequiredFields } from '../../lib/view-requirements'
+  import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
+
+  // -- 1. Reactive Data Fetching (Lean Bundling) --
+
+  // Resolve layout and required fields for the current item
+  const resolvedSettings = $derived(
+    settings ? resolveViewSettings(initialItem as MediaFolder, settings).settings : null
+  )
+  const requiredFields = $derived(resolvedSettings ? getAllRequiredFields(resolvedSettings) : [])
+
+  // Fetch the full detail tree with only the required fields
+  const detailsQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
+    fields: () => requiredFields
+  })
+
+  // The authoritative reactive item for the entire component.
+  // We fall back to initialItem for instant responsiveness while the query is loading.
+  const item = $derived(detailsQuery.data || initialItem)
+
+  // -- 2. Derived Template Properties --
+
+  const displayTitle = $derived(
+    item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
+      ? `${item.episodeNumber}. ${item.title ?? item.name}`
+      : (item.title ?? item.name)
+  )
+
+  const showOverviewTab = $derived(!!item.overview)
+  const showCreditsSection = $derived(
+    (item.tmdbId && !item.tmdbCredits) ||
+      (item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
+  )
+
+  const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
+  const fileAsChild = $derived(
+    isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
+  )
+
+  const children = $derived(item?.type === 'folder' ? (item.children ?? []) : [])
+  const contentsLayout = $derived(resolvedSettings?.layout ?? 'grid')
+  const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
+
+  // -- 3. Local Component State & Queries --
 
   let activeInfoTab: 'overview' | 'credits' = $state('overview')
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
-  let lastSeenItemId = $state(item.id)
+  let lastSeenItemId = $state(initialItem.id)
   let overviewContainerElement = $state<HTMLDivElement>()
   let isOverviewExpanded = $state(false)
   let isOverviewOverflowing = $state(false)
@@ -34,34 +79,36 @@
   let overviewWrapperElement = $state<HTMLDivElement>()
   let overviewParagraphElement = $state<HTMLParagraphElement>()
 
-  const showOverviewTab = $derived(!!item.overview)
-  const showCreditsSection = $derived(
-    (item.tmdbId && !item.tmdbCredits) ||
-      (item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
-  )
+  const parentQuery = libraryDataService.getParentQuery(() => item.id, {
+    enabled: () => item.mediaType === 'season'
+  })
+  const parentShow = $derived(parentQuery.data)
+
+  const cwQuery = libraryDataService.getContinueWatchingForShowQuery(() => item.id, {
+    enabled: () => item.type === 'folder' && item.mediaType === 'tv'
+  })
+  const continueWatchingInfo = $derived(cwQuery.data)
+
+  // -- 4. Interactive Effects --
 
   $effect(() => {
-    // If we switch to a new item (i.e., the ID has changed), reset the tab to overview.
-    // This prevents the tab from resetting on a simple data update for the same item.
     if (item.id !== lastSeenItemId) {
       activeInfoTab = 'overview'
       lastSeenItemId = item.id
+      isOverviewExpanded = false
+      isOverviewOverflowing = false
     }
-    // If the overview tab is not visible but is selected, switch to credits.
-    // We also check lastRefreshedAt to avoid switching tabs during a re-fetch.
     if (!showOverviewTab && activeInfoTab === 'overview' && item.lastRefreshedAt) {
       activeInfoTab = 'credits'
     }
   })
 
   $effect(() => {
-    // On-demand fetching for credits
     if (settings?.creditsDisplay === 'tab') {
       if (activeInfoTab === 'credits' && !item.tmdbCredits) {
         window.api.fetchCredits(item.id)
       }
     } else {
-      // Logic for 'shown'/'collapsed'
       if (isCreditsExpanded && !item.tmdbCredits) {
         window.api.fetchCredits(item.id)
       }
@@ -69,44 +116,22 @@
   })
 
   $effect(() => {
-    if (activeInfoTab !== 'credits') {
-      return undefined
-    }
-
+    if (activeInfoTab !== 'credits') return undefined
     const handleClickOutside = (event: MouseEvent) => {
-      // Don't close if clicking on the popout container itself.
       if (overviewContainerElement && !overviewContainerElement.contains(event.target as Node)) {
-        // Also, don't close if clicking on another modal or context menu on top.
         const targetElement = event.target as HTMLElement
-        if (targetElement.closest('.modal-window, .context-menu, .dialog-window')) {
-          return
-        }
+        if (targetElement.closest('.modal-window, .context-menu, .dialog-window')) return
         activeInfoTab = 'overview'
       }
     }
-
-    // Add listener on the next tick to avoid it firing from the same click that opened it.
-    queueMicrotask(() => {
-      window.addEventListener('mousedown', handleClickOutside)
-    })
-
-    // Cleanup function to remove the listener.
-    return () => {
-      window.removeEventListener('mousedown', handleClickOutside)
-    }
+    queueMicrotask(() => window.addEventListener('mousedown', handleClickOutside))
+    return () => window.removeEventListener('mousedown', handleClickOutside)
   })
 
   $effect(() => {
-    // Rerun whenever these reactive dependencies change.
     const isExpanded = isOverviewExpanded
     const currentTab = activeInfoTab
     const currentSettings = settings
-
-    // Reset on item change
-    if (item.id !== lastSeenItemId) {
-      isOverviewExpanded = false
-      isOverviewOverflowing = false
-    }
 
     const posterCol = posterColumnElement
     const infoCol = infoColumnElement
@@ -121,93 +146,32 @@
     const checkOverflow = () => {
       if (currentSettings?.creditsDisplay === 'tab' && currentTab !== 'overview') {
         isOverviewOverflowing = false
-        // When the credits popout is active, we hide the expand button,
-        // but we should not alter the height of the (now hidden) overview container.
-        // Simply returning preserves its collapsed/expanded state.
         return
       }
-
-      // 1. Reset to measure natural, unconstrained height
       overviewWrapper.style.maxHeight = ''
-
-      // 2. Force reflow to ensure we get up-to-date measurements
       infoCol.getBoundingClientRect()
-
       const posterHeight = posterCol.offsetHeight
       const infoHeight = infoCol.offsetHeight
-
       const isCurrentlyOverflowing = infoHeight > posterHeight
       isOverviewOverflowing = isCurrentlyOverflowing
-
       if (isCurrentlyOverflowing && !isExpanded) {
-        // 3. Calculate how much the info column overflows
         const overflowAmount = infoHeight - posterHeight
-        // 4. Get the current (unconstrained) height of the element we can shrink
         const currentOverviewWrapperHeight = overviewWrapper.offsetHeight
-        // 5. The new max-height is its current height minus the overflow
         const newMaxHeight = currentOverviewWrapperHeight - overflowAmount
-
         overviewWrapper.style.maxHeight = `${Math.max(10, newMaxHeight)}px`
       }
-      // If expanded or not overflowing, maxHeight is already cleared, so it takes full height.
     }
 
     const observer = new ResizeObserver(checkOverflow)
     observer.observe(posterCol)
     observer.observe(infoCol)
-    observer.observe(overviewP) // Observing the text container is important for text wrapping changes
-
+    observer.observe(overviewP)
     queueMicrotask(checkOverflow)
-
-    return () => {
-      observer.disconnect()
-    }
+    return () => observer.disconnect()
   })
 
-  const displayTitle = $derived(
-    item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
-      ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : (item.title ?? item.name) // Simplified: always use item's own title/name
-  )
-
-  const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
-  // Create a "fake" child that is the file itself, but without the special property
-  // to prevent an infinite loop of detail views. This also makes it playable by the grid.
-  const fileAsChild = $derived(
-    isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
-  )
-
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
-
-  const parentQuery = libraryDataService.getParentQuery(() => item.id, {
-    enabled: () => item.mediaType === 'season'
-  })
-  const parentShow = $derived(parentQuery.data)
-
-  const cwQuery = libraryDataService.getContinueWatchingForShowQuery(() => item.id, {
-    enabled: () => item.type === 'folder' && item.mediaType === 'tv'
-  })
-  const continueWatchingInfo = $derived(cwQuery.data)
-
-  const childrenQuery = libraryDataService.getChildrenQuery(() => item.id, {
-    fields: () => ['overview'],
-    enabled: () => item.type === 'folder'
-  })
-  const children = $derived(childrenQuery.data ?? [])
-
-  const contentsLayout = $derived(
-    resolveViewSettings(item as MediaFolder, settings).settings.layout
-  )
-
-  const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
-
-  // These values help manage the individual image fade-in animations.
   let previousV = $state<number | undefined>(undefined)
-
   $effect(() => {
-    // This effect runs whenever the item prop changes.
-    // We only need to reset local state here.
     previousV = item._v
   })
 </script>

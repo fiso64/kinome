@@ -90,7 +90,8 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
         const queryInclude = ((query.include as string) || '').split(',')
 
         if (queryInclude.includes('tree')) {
-            const details = await libraryService.getItemDetails(id)
+            const options = parseFindOptions(query)
+            const details = await libraryService.getItemDetails(id, options.fields)
             if (!details) {
                 set.status = 404
                 return { error: 'Item not found' }

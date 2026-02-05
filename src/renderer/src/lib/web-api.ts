@@ -236,8 +236,11 @@ class WebApiClient implements ApiClient {
     })
   }
 
-  getItemDetails(itemId: string): Promise<LibraryItem | null> {
-    return this.request(`/api/item-details/${encodeURIComponent(itemId)}`)
+  getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null> {
+    const params = new URLSearchParams()
+    if (fields && fields.length > 0) params.set('fields', fields.join(','))
+    params.set('include', 'tree')
+    return this.request(`/api/v2/items/${encodeURIComponent(itemId)}?${params.toString()}`)
   }
 
   userUpdateItem(item: LibraryItem): Promise<void> {

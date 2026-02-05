@@ -3,6 +3,8 @@ import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '../../shared/types'
 import { VIEW_SETTINGS_KEYS } from '../../shared/types'
 import * as groupingService from './grouping.service'
+import { resolveViewSettings } from '../../shared/settings-helpers'
+import { readSettings } from './settings.service'
 
 
 
@@ -305,7 +307,6 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   // Actually, 'item_id' is not in our schema aliases. It's a join key.
   // In `find`, we might need to ensure existence check is possible.
   // Let's assume schema fields like 'tmdbId' are sufficient.
-
   // Re-implement the tri-state tmdbId logic (Found / Not Found / Not Scanned)
   // Original logic:
   // if !hasMetadata -> undefined
@@ -459,24 +460,13 @@ export function findParent(id: string): MediaFolder | null {
 
 /**
  * Returns the immediate children of a folder.
+ * Uses the lean find() logic if fields are specified.
  */
-export function getChildren(parentId: string): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.parent_id = ?
-    ORDER BY i.name ASC
-  `
-    )
-    .all(parentId) as any[]
-
-  return rows.map(mapRowToLibraryItem)
+export function getChildren(parentId: string, fields?: string[]): LibraryItem[] {
+  return find({
+    where: { parentId },
+    fields
+  })
 }
 
 /**
@@ -985,19 +975,27 @@ export function createTransferableCopy(item: LibraryItem): LibraryItem {
   return JSON.parse(JSON.stringify(item))
 }
 
-export async function createForDetailViewCopy(item: LibraryItem): Promise<LibraryItem> {
+export async function createForDetailViewCopy(
+  item: LibraryItem,
+  fields?: string[]
+): Promise<LibraryItem> {
   const copy = createTransferableCopy(item)
   if (copy.type === 'folder') {
+    const settings = await readSettings()
+    const { settings: resolved } = resolveViewSettings(copy as MediaFolder, settings)
+
     // Apply virtualization (Grouping)
-    copy.children = await groupingService.groupItemsForDetailView(copy)
+    copy.children = await groupingService.groupItemsForDetailView(copy as MediaFolder, { fields })
 
     // Fetch grandchildren (Essential for physical Season -> Episode structure)
-    // Virtual items already have their children populated by the grouping service.
-    for (const child of copy.children || []) {
-      if (child.type === 'folder' && !child.isVirtual) {
-        child.children = getChildren(child.id).filter(
-          (c: LibraryItem) => !c.isHidden && !c.isMissing
-        )
+    // ONLY fetch if the layout is Tabs or Sections (the only views that "open" hierarchy).
+    if (['tabs', 'sections'].includes(resolved.layout)) {
+      for (const child of copy.children || []) {
+        if (child.type === 'folder' && !child.isVirtual) {
+          child.children = getChildren(child.id, fields).filter(
+            (c: LibraryItem) => !c.isHidden && !c.isMissing
+          )
+        }
       }
     }
   }
