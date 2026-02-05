@@ -10,8 +10,7 @@
   import { api } from '../../lib/api'
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import { getAllRequiredFields } from '../../lib/view-requirements'
-  import { createQuery } from '@tanstack/svelte-query'
-  import { itemKeys, childKeys, continueWatchingKeys } from '../../lib/queries/query-keys'
+  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
   import { authStore } from '../../lib/auth-store.svelte'
 
   import type {
@@ -43,14 +42,9 @@
   // 1. Current Folder & Children
   const currentFolderId = $derived(navStoreV2.state.currentFolderId)
 
-  const currentFolderQuery = createQuery(() => ({
-    queryKey: itemKeys.details(currentFolderId),
-    queryFn: ({ queryKey }) => {
-      const id = queryKey[1] as string
-      return api.getItemV2(id)
-    },
-    enabled: !!currentFolderId && libraryStatus?.status === 'ready'
-  }))
+  const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
+    enabled: () => libraryStatus?.status === 'ready'
+  })
 
   const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
 
@@ -64,27 +58,20 @@
     return getAllRequiredFields({ ...currentFolder, ...resolvedSettings })
   })
 
-  const childrenQuery = createQuery(() => ({
-    queryKey: childKeys.byParent(currentFolderId, requiredFields, resolvedSettings.groupBy),
-    queryFn: ({ queryKey }) => {
-      const parentId = queryKey[1] as string
-      const { fields, groupBy } = queryKey[2] as { fields: string[]; groupBy: string }
-      return api.getChildrenV2(parentId, { include: fields, groupBy })
-    },
-    enabled: !!currentFolderId && libraryStatus?.status === 'ready'
-  }))
+  const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
+    fields: () => requiredFields,
+    groupBy: () => resolvedSettings.groupBy,
+    enabled: () => libraryStatus?.status === 'ready'
+  })
 
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 
-  const continueWatchingQuery = createQuery(() => ({
-    queryKey: continueWatchingKeys.all,
-    queryFn: () => api.getContinueWatchingItems(),
-    enabled:
+  const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
+    enabled: () =>
       !!settings?.showContinueWatching &&
       !!authStore.isAuthenticated &&
-      libraryStatus?.status === 'ready',
-    staleTime: 1000 * 60 * 2 // 2 minutes
-  }))
+      libraryStatus?.status === 'ready'
+  })
 
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
@@ -97,14 +84,9 @@
 
   // 3. Detail View
   const selectedItemId = $derived(navStoreV2.state.selectedItemId)
-  const detailItemQuery = createQuery(() => ({
-    queryKey: itemKeys.tree(selectedItemId),
-    queryFn: ({ queryKey }) => {
-      const id = queryKey[1] as string
-      return api.getItemV2(id, ['tree'])
-    },
-    enabled: !!selectedItemId
-  }))
+  const detailItemQuery = libraryDataService.getItemDetailsQuery(() => selectedItemId, {
+    enabled: () => !!selectedItemId && libraryStatus?.status === 'ready'
+  })
   const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined) // Can be undefined while loading
 
   const dispatch = createEventDispatcher<{

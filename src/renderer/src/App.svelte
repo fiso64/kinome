@@ -16,15 +16,7 @@
   import { searchStoreV2, initializeSearchEffects } from './lib/search-store-v2.svelte'
   import { modalStore } from './lib/modal-store.svelte'
   import { contextMenuStore } from './lib/context-menu-store.svelte'
-  import {
-    itemKeys,
-    childKeys,
-    continueWatchingKeys,
-    setGlobalRootId,
-    normalizeId,
-    isIdMatch
-  } from './lib/queries/query-keys'
-  import { QueryThrottler } from './lib/query-throttler'
+  import { libraryDataService } from './lib/services/library-data-service.svelte'
   import { getPlaylistUrl, api } from './lib/api'
   import { resolveViewSettings } from '../../shared/settings-helpers'
   import { authStore } from './lib/auth-store.svelte'
@@ -42,16 +34,7 @@
     ScanStatus
   } from '../../shared/types'
 
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 1000 * 60 * 5, // 5 minutes defaults
-        retry: 1
-      }
-    }
-  })
-
-  const queryThrottler = new QueryThrottler(queryClient)
+  const queryClient = libraryDataService.init()
 
   const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Renderer] ${message}`)
@@ -129,10 +112,7 @@
 
       if (!isFastUpdating) {
         log('All background library tasks finished, flushing throttled updates.')
-        queryThrottler.flush()
-        // Final truth sync for all children lists and continue watching
-        queryClient.invalidateQueries({ queryKey: childKeys.all })
-        queryClient.invalidateQueries({ queryKey: continueWatchingKeys.all })
+        libraryDataService.flush()
       }
     })
 
@@ -171,7 +151,7 @@
         libraryStatus = status
         if (status.root) {
           rootId = status.root.id
-          setGlobalRootId(rootId)
+          libraryDataService.rootId = rootId
         }
 
         if (status.status !== 'ready') {
@@ -197,7 +177,7 @@
     libraryStatus = status
     if (status.root) {
       rootId = status.root.id
-      setGlobalRootId(rootId)
+      libraryDataService.rootId = rootId
     }
 
     // Also refresh other state if library is now ready
@@ -220,64 +200,7 @@
   $effect(() => {
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`Received batch update for ${updatedItems.length} items.`)
-
-      const ancestorIdsToRefetch = new Set<string>()
-      let refreshContinueWatching = false
-
-      for (const item of updatedItems) {
-        // --- 1. Surgical Patching (Instant & Silent) ---
-
-        // A. Update the item itself wherever it appears as a primary entity (Details, Tree, Settings)
-        // We use setQueriesData with a prefix to hit ['item', id, 'details'], ['item', id, 'tree'], etc.
-        const normalizedId = normalizeId(item.id)
-        queryClient.setQueriesData({ queryKey: [...itemKeys.all, normalizedId] }, (old: any) =>
-          old ? { ...old, ...item } : old
-        )
-
-        // B. Patch any active children lists where this item might be a member.
-        // We scan EVERY children query. This handles Root, Nesting, and Virtual folders agnostically.
-        queryClient.setQueriesData({ queryKey: childKeys.all }, (oldData: any) => {
-          if (!Array.isArray(oldData)) return oldData
-          const index = oldData.findIndex((i) => i.id === item.id)
-          if (index !== -1) {
-            const newData = [...oldData]
-            newData[index] = { ...oldData[index], ...item }
-            return newData
-          }
-          return oldData
-        })
-
-        // --- 2. Collection for Throttled Truth Sync ---
-
-        if (item.ancestorIds && item.ancestorIds.length > 0) {
-          for (const ancestorId of item.ancestorIds) {
-            ancestorIdsToRefetch.add(ancestorId)
-          }
-        }
-
-        if (
-          (item.type === 'file' && 'watched' in item) ||
-          (item.type === 'folder' &&
-            ('continueWatchingDismissed' in item || 'nextUpDismissed' in item))
-        ) {
-          refreshContinueWatching = true
-        }
-      }
-
-      // --- 3. Execute Throttled Sync (Structural Truth) ---
-
-      // IMPORTANT NOTE: Invalidating ALL active children queries is potentially expensive,
-      // but it ensures 100% structural robustness (sorting, grouping, virtual moves).
-      // We haven't experienced performance problems with this YET...
-      queryThrottler.throttleRefetch(childKeys.all, isFastUpdating)
-
-      ancestorIdsToRefetch.forEach((ancestorId) => {
-        queryThrottler.throttleRefetch(itemKeys.tree(ancestorId), isFastUpdating)
-      })
-
-      if (refreshContinueWatching) {
-        queryThrottler.throttleRefetch(continueWatchingKeys.all, isFastUpdating)
-      }
+      libraryDataService.handleLibraryUpdates(updatedItems, isFastUpdating)
     })
     return () => unlistenItemsUpdated()
   })
@@ -286,21 +209,17 @@
   $effect(() => {
     const unlisten = api.onLibraryItemDeleted((deletedItemId) => {
       log(`Received deletion event for item ${deletedItemId}`)
-      // Invalidate relevant queries
-      const normalizedId = normalizeId(deletedItemId)
-      queryClient.invalidateQueries({ queryKey: ['item', normalizedId] })
-      // If we are looking at this item, go back?
+      libraryDataService.handleLibraryDeletion(deletedItemId)
+
+      // If we are looking at this item, go back
       if (
         navStoreV2.state.currentFolderId === deletedItemId ||
         navStoreV2.state.selectedItemId === deletedItemId
       ) {
         navStoreV2.goBack()
       }
-      // Also children queries might be stale if we removed a child
-      queryClient.invalidateQueries({ queryKey: ['children'] })
-      // ^ A bit aggressive, but safe. Ideally invalidate parent's children.
     })
-    return () => unlisten()
+    return unlisten
   })
 
   async function handleRefresh(): Promise<void> {
@@ -309,8 +228,7 @@
     // clearItemCache() // Removed in V2
     const refreshedRoot = await api.refreshLibrary()
     if (refreshedRoot) {
-      queryClient.invalidateQueries({ queryKey: ['item'] })
-      queryClient.invalidateQueries({ queryKey: ['children'] })
+      libraryDataService.invalidateAllQueries()
     }
     isRefreshing = false
   }
@@ -330,10 +248,7 @@
   function handleDismissContinueWatching(showId: string) {
     api.setContinueWatchingDismissed(showId)
     // Optimistic cache update
-    queryClient.setQueryData(continueWatchingKeys.all, (old: any) => {
-      if (!Array.isArray(old)) return old
-      return old.filter((cw) => cw.show.id !== showId)
-    })
+    libraryDataService.optimisticDismissContinueWatching(showId)
   }
 
   async function handleApplyInitialSettings(
@@ -341,8 +256,7 @@
   ) {
     await api.applyInitialFolderSettings(settings)
     // Instead of reloading, just refresh the data
-    queryClient.invalidateQueries({ queryKey: itemKeys.all })
-    queryClient.invalidateQueries({ queryKey: childKeys.all })
+    libraryDataService.invalidateAllQueries()
   }
 
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
@@ -455,7 +369,7 @@
   />
 {/if}
 
-{#if authStore.isChecking || isInitializing}
+{#if authStore.isChecking || (authStore.isAuthenticated && isInitializing)}
   <div class="loading-screen">
     <div class="spinner"></div>
   </div>

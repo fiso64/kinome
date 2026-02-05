@@ -14,7 +14,7 @@ class AuthStore {
     async checkAuth() {
         this.isChecking = true
         try {
-            const response = await fetch('http://localhost:3000/api/check-auth', {
+            const response = await fetch('/api/check-auth', {
                 headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {}
             })
             if (response.ok) {
@@ -40,7 +40,7 @@ class AuthStore {
 
     async login(password: string) {
         try {
-            const response = await fetch('http://localhost:3000/api/login', {
+            const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password })
@@ -62,7 +62,7 @@ class AuthStore {
 
     async setupAdmin(password?: string, unauthenticated?: boolean) {
         try {
-            const response = await fetch('http://localhost:3000/api/setup-admin', {
+            const response = await fetch('/api/setup-admin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password, unauthenticated })

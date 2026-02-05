@@ -9,7 +9,8 @@ import type {
   TmdbImageResults,
   MediaProperties,
   AppCapabilities,
-  LibraryStatus
+  LibraryStatus,
+  ScanStatus
 } from '../../../shared/types'
 
 export interface ApiClient {
@@ -134,7 +135,6 @@ export interface ApiClient {
 
 import { webApi } from './web-api'
 
-const BASE_URL = 'http://localhost:3000'
 
 import { authStore } from './auth-store.svelte'
 

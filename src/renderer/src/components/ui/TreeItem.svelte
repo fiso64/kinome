@@ -1,10 +1,11 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
-  // import { getLoadedItem, triggerSeasonEpisodeFetch } from '../../lib/item-store'
   import { getAssetUrl } from '../../lib/api'
   import { shouldBeGreyedOut } from '../../lib/view-helpers'
-  // Types are globally available from src/preload/index.d.ts
+  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
+  import type { LibraryItem, MediaFolder } from '../../../../shared/types'
+
   let {
     item,
     itemclick,
@@ -29,23 +30,16 @@
       : (item.title ?? item.name)
   )
 
+  const childrenQuery = libraryDataService.getChildrenQuery(() => item.id, {
+    enabled: () => item.type === 'folder' && isExpanded
+  })
+
+  const effectiveChildren = $derived(childrenQuery.data ?? (item as MediaFolder).children ?? [])
+
   async function handleItemClick() {
     if (item.type === 'file') {
       itemclick(item)
       return
-    }
-
-    // --- Lazy loading logic for folders ---
-    // This is now essential as the backend only sends shallow data.
-    if (item.type === 'folder' && !isExpanded) {
-      // TODO: Migrate to V2 lazy loading
-      // if (item.children === null) {
-      //   const loadedItem = await getLoadedItem(item.id)
-      //   if (loadedItem) {
-      //     Object.assign(item, loadedItem)
-      //   }
-      // }
-      // triggerSeasonEpisodeFetch(item)
     }
 
     // Toggle expansion state
@@ -93,7 +87,7 @@
 
   {#if item.type === 'folder' && isExpanded}
     <div class="children" transition:slide={{ duration: 200 }}>
-      {#each item.children ?? [] as child (child.id)}
+      {#each effectiveChildren as child (child.id)}
         <TreeItem
           item={child}
           {itemclick}

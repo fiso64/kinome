@@ -6,8 +6,7 @@
   import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
   import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
   import { api } from '../../lib/api'
-  import { createQuery } from '@tanstack/svelte-query'
-  import { itemKeys } from '../../lib/queries/query-keys'
+  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
   import type {
     Settings,
     MediaFolder,
@@ -34,14 +33,7 @@
   const canGoBack = $derived(navStoreV2.canGoBack)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
-  const contextItemQuery = createQuery(() => ({
-    queryKey: itemKeys.details(navStoreV2.contextItemId),
-    queryFn: ({ queryKey }) => {
-      const id = queryKey[1] as string
-      return api.getItemV2(id)
-    },
-    enabled: !!navStoreV2.contextItemId
-  }))
+  const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStoreV2.contextItemId)
 
   const contextItem = $derived(contextItemQuery.data as MediaFolder | LibraryItem | undefined)
 

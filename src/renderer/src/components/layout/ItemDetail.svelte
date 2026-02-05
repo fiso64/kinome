@@ -20,12 +20,12 @@
     settings: Settings
   } = $props()
 
-  let parentShow = $state<MediaFolder | null>(null)
+  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
+
   let activeInfoTab: 'overview' | 'credits' = $state('overview')
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
   let lastSeenItemId = $state(item.id)
   let overviewContainerElement = $state<HTMLDivElement>()
-  let continueWatchingInfo = $state<{ show: MediaFolder; nextEpisode: MediaFile } | null>(null)
   let isOverviewExpanded = $state(false)
   let isOverviewOverflowing = $state(false)
 
@@ -37,8 +37,7 @@
   const showOverviewTab = $derived(!!item.overview)
   const showCreditsSection = $derived(
     (item.tmdbId && !item.tmdbCredits) ||
-      (item.tmdbCredits &&
-        (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
+      (item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
   )
 
   $effect(() => {
@@ -47,7 +46,6 @@
     if (item.id !== lastSeenItemId) {
       activeInfoTab = 'overview'
       lastSeenItemId = item.id
-      parentShow = null // Reset parent show when item changes
     }
     // If the overview tab is not visible but is selected, switch to credits.
     // We also check lastRefreshedAt to avoid switching tabs during a re-fetch.
@@ -182,41 +180,34 @@
   import { resolveViewSettings } from '../../../../shared/settings-helpers'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
+  const parentQuery = libraryDataService.getParentQuery(() => item.id, {
+    enabled: () => item.mediaType === 'season'
+  })
+  const parentShow = $derived(parentQuery.data)
+
+  const cwQuery = libraryDataService.getContinueWatchingForShowQuery(() => item.id, {
+    enabled: () => item.type === 'folder' && item.mediaType === 'tv'
+  })
+  const continueWatchingInfo = $derived(cwQuery.data)
+
+  const childrenQuery = libraryDataService.getChildrenQuery(() => item.id, {
+    fields: () => ['overview'],
+    enabled: () => item.type === 'folder'
+  })
+  const children = $derived(childrenQuery.data ?? [])
+
   const contentsLayout = $derived(
     resolveViewSettings(item as MediaFolder, settings).settings.layout
   )
 
-  const showRegularContents = $derived(
-    item.type === 'folder' && item.children && item.children.length > 0
-  )
+  const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
 
   // These values help manage the individual image fade-in animations.
   let previousV = $state<number | undefined>(undefined)
 
   $effect(() => {
     // This effect runs whenever the item prop changes.
-    // It's responsible for fetching data specific to this detail view,
-    // like the "Continue Watching" info.
-
-    // Always re-evaluate "Continue Watching" when the item changes.
-    if (item.type === 'folder' && item.mediaType === 'tv') {
-      window.api.getContinueWatchingForShow(item.id).then((info) => {
-        continueWatchingInfo = info
-      })
-    } else {
-      continueWatchingInfo = null
-    }
-
-    // Fetch parent show if current item is a season
-    if (item.mediaType === 'season') {
-      window.api.getParent(item.id).then((p) => {
-        parentShow = p
-      })
-    } else {
-      // Ensure parentShow is null if the item is not a season
-      parentShow = null
-    }
-
+    // We only need to reset local state here.
     previousV = item._v
   })
 </script>
@@ -401,12 +392,15 @@
         <section class="hero-banner-section">
           <h2 class="section-title">Next Up</h2>
           <ContinueWatchingItem
-            item={continueWatchingInfo}
+            item={continueWatchingInfo!}
             layout="horizontal"
             on:itemClick={(e) => onItemClick(e.detail.item)}
             on:dismiss={() => {
               window.api.setNextUpDismissed(continueWatchingInfo!.show.id)
-              continueWatchingInfo = null
+              libraryDataService.handleLibraryUpdates(
+                [{ ...continueWatchingInfo!.show, nextUpDismissed: true }],
+                false
+              )
             }}
           />
         </section>
@@ -419,7 +413,7 @@
           {/if}
           <MediaView
             parentItem={item}
-            items={item.children ?? []}
+            items={children}
             {onItemClick}
             layout={contentsLayout}
             onShowContextMenu={showContextMenu}
