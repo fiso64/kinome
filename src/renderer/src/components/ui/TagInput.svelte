@@ -7,6 +7,8 @@
     type AutocompleteItem
   } from '../../lib/autocomplete-manager'
 
+  import { api } from '../../lib/api'
+
   type Tag = { id: string; key: string; value: string }
 
   let { tags = $bindable(), suggestions }: { tags: Tag[]; suggestions: AutocompleteSuggestions } =
@@ -42,19 +44,31 @@
   }
 
   const autocompleteConfig: AutocompleteConfig = {
-    getSuggestions: (text) => {
+    debounceMs: 50,
+    getSuggestions: async (text) => {
       const colonIndex = text.indexOf(':')
 
       if (colonIndex === -1) {
         // Key context
         const key = text.trim()
-        const allKeys = suggestions.tagKeys ?? []
+        const allKeys = Object.keys(suggestions.tags ?? {})
         return getFuzzySuggestions(allKeys, key)
       } else {
         // Value context
         const key = text.substring(0, colonIndex).trim()
         const value = text.substring(colonIndex + 1).trimStart()
-        const source = key === 'genre' ? suggestions.genres : (suggestions.tagValues[key] ?? [])
+
+        if (key === 'person') {
+          const results = await api.getAutocompleteValues('person', value)
+          return getFuzzySuggestions(results, value)
+        }
+
+        const source =
+          key === 'genre'
+            ? suggestions.genre
+            : key === 'mediaType'
+              ? suggestions.mediaType
+              : (suggestions.tags?.[key] ?? [])
         return getFuzzySuggestions(source, value)
       }
     },

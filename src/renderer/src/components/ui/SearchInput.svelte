@@ -7,6 +7,7 @@
     getFuzzySuggestions,
     type AutocompleteItem
   } from '../../lib/autocomplete-manager'
+  import { api } from '../../lib/api'
 
   // This constant centralizes the "special" keys that have their own suggestion lists.
   const SUGGESTION_KEYS = {
@@ -16,8 +17,8 @@
         new Set([
           'year',
           ...SUGGESTION_KEYS.special,
-          ...(suggestions.tagKeys ?? []),
-          ...(suggestions.virtualTagKeys ?? [])
+          ...Object.keys(suggestions.tags ?? {}),
+          ...Object.keys(suggestions.virtualTags ?? {})
         ])
       )
   }
@@ -41,7 +42,7 @@
       query.tags.push({ key, value })
       query.tags = query.tags // Trigger reactivity
 
-      const genericTagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+      const genericTagMatch = query.text.match(/>([a-zA-Z0-9_.-]+):([^:]*)$/)
       if (genericTagMatch) {
         query.text = query.text.substring(0, genericTagMatch.index).trim()
       } else {
@@ -62,7 +63,7 @@
     }
 
     if (e.key === 'Enter') {
-      const tagMatch = query.text.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+      const tagMatch = query.text.match(/>([a-zA-Z0-9_.-]+):([^:]*)$/)
       if (tagMatch && tagMatch[2].trim() !== '') {
         e.preventDefault()
         addPill(tagMatch[1], tagMatch[2].trim())
@@ -71,20 +72,27 @@
   }
 
   const autocompleteConfig: AutocompleteConfig = {
-    getSuggestions: (text, cursorPos) => {
+    debounceMs: 50,
+    getSuggestions: async (text, cursorPos) => {
       const textUpToCursor = text.substring(0, cursorPos)
-      const keyMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]*)$/)
-      const valueMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+      const keyMatch = textUpToCursor.match(/>([a-zA-Z0-9_.-]*)$/)
+      const valueMatch = textUpToCursor.match(/>([a-zA-Z0-9_.-]+):([^:]*)$/)
 
       if (valueMatch) {
         const key = valueMatch[1]
         const value = valueMatch[2]
-        const sourceMap: Record<string, string[]> = {
-          mediaType: suggestions.mediaTypes ?? [],
-          genre: suggestions.genres ?? [],
-          person: suggestions.persons ?? []
+
+        if (key === 'person') {
+          const results = await api.getAutocompleteValues('person', value)
+          return getFuzzySuggestions(results, value)
         }
-        const source = sourceMap[key] ?? suggestions.tagValues?.[key] ?? []
+
+        const sourceMap: Record<string, string[]> = {
+          mediaType: suggestions.mediaType ?? [],
+          genre: suggestions.genre ?? []
+        }
+        const source =
+          sourceMap[key] ?? suggestions.tags?.[key] ?? suggestions.virtualTags?.[key] ?? []
         return getFuzzySuggestions(source, value)
       } else if (keyMatch) {
         const key = keyMatch[1]
@@ -97,8 +105,8 @@
       const input = node as HTMLInputElement
       const suggestion = item.label
       const textUpToCursor = input.value.substring(0, input.selectionStart ?? 0)
-      const keyMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]*)$/)
-      const valueMatch = textUpToCursor.match(/:([a-zA-Z0-9_.-]+):([^:]*)$/)
+      const keyMatch = textUpToCursor.match(/>([a-zA-Z0-9_.-]*)$/)
+      const valueMatch = textUpToCursor.match(/>([a-zA-Z0-9_.-]+):([^:]*)$/)
 
       if (valueMatch) {
         // Value selected
@@ -109,9 +117,9 @@
         // Key selected
         const textBefore = input.value.substring(0, keyMatch.index)
         const textAfter = input.value.substring(input.selectionStart ?? 0)
-        query.text = `${textBefore}:${suggestion}:${textAfter}`
+        query.text = `${textBefore}>${suggestion}:${textAfter}`
         queueMicrotask(() => {
-          const newCursorPos = (textBefore + `:${suggestion}:`).length
+          const newCursorPos = (textBefore + `>${suggestion}:`).length
           input.focus()
           input.setSelectionRange(newCursorPos, newCursorPos)
         })
@@ -144,7 +152,7 @@
       }}
       use:autocomplete={autocompleteConfig}
       onkeydown={handleKeyDown}
-      placeholder={query.tags.length > 0 ? '' : 'Search or type : for tags...'}
+      placeholder={query.tags.length > 0 ? '' : 'Search or type > for tags...'}
       class="search-input-field"
       aria-label="Search current folder"
       {onfocus}

@@ -13,10 +13,10 @@ export interface ITransport {
   notifyLibraryItemsUpdated(items: LibraryItem[]): void
 
   /**
-   * Notifies clients that the autocomplete suggestions have been updated.
-   * @param suggestions The new set of autocomplete suggestions.
+   * Notifies clients that the metadata index (suggestions, grouping keys) has been updated.
+   * @param index The new metadata index data.
    */
-  notifyAutocompleteSuggestionsUpdated(suggestions: AutocompleteSuggestions): void
+  notifyMetadataIndexUpdated(index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }): void
 
   /**
    * Notifies clients that a library item has been deleted from the database.

@@ -458,14 +458,16 @@ export interface AppCapabilities {
   supportsLocalPlayback: boolean
 }
 
-// TODO: That's fucking dumb. We are duplicating a bunch of stuff.
 export interface AutocompleteSuggestions {
-  mediaTypes: string[] // rename to mediaType
-  genres: string[] // rename to genre
-  persons: string[] // rename to person
-  tagKeys: string[] // keep as is, frontend will merge these into the object (take care not to shadow others though)
-  virtualTagKeys: string[] // keep as is, frontend will merge these into the object (take care not to shadow others though)
-  tagValues: Record<string, string[]> // remove
+  mediaType: string[]
+  genre: string[]
+  /**
+   * If null, indicates that the person suggestions are offloaded to a specialized search endpoint
+   * to avoid bloating the initial payload.
+   */
+  person: string[] | null
+  tags: Record<string, string[]>
+  virtualTags: Record<string, string[]>
 }
 
 export interface SearchQuery {

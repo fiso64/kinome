@@ -5,12 +5,14 @@
     suggestions,
     position,
     onSelect,
-    activeIndex
+    activeIndex,
+    loading = false
   }: {
     suggestions: AutocompleteItem[]
     position: { top: number; left: number; inputTop: number }
     onSelect: (suggestion: AutocompleteItem) => void
     activeIndex: number
+    loading?: boolean
   } = $props()
 
   let menuElement: HTMLDivElement
@@ -74,23 +76,30 @@
   {style}
   onmousedown={(e) => e.preventDefault()}
 >
-  {#each suggestions as suggestion, i (suggestion.label)}
-    {@const rendered = renderLabel(suggestion)}
-    <button
-      class="suggestion-item"
-      class:active={i === activeIndex}
-      onclick={() => onSelect(suggestion)}
-      onmouseenter={() => autocompleteState.update((s) => ({ ...s, activeIndex: i }))}
-    >
-      {#if typeof rendered === 'string'}
-        {rendered}
-      {:else}
-        {#each rendered as segment}
-          <span class:highlight={segment.highlight}>{segment.text}</span>
-        {/each}
-      {/if}
-    </button>
-  {/each}
+  {#if loading}
+    <div class="loading-container">
+      <div class="spinner"></div>
+      <span class="loading-text">Searching...</span>
+    </div>
+  {:else}
+    {#each suggestions as suggestion, i (suggestion.label)}
+      {@const rendered = renderLabel(suggestion)}
+      <button
+        class="suggestion-item"
+        class:active={i === activeIndex}
+        onclick={() => onSelect(suggestion)}
+        onmouseenter={() => autocompleteState.update((s) => ({ ...s, activeIndex: i }))}
+      >
+        {#if typeof rendered === 'string'}
+          {rendered}
+        {:else}
+          {#each rendered as segment}
+            <span class:highlight={segment.highlight}>{segment.text}</span>
+          {/each}
+        {/if}
+      </button>
+    {/each}
+  {/if}
 </div>
 
 <style>
@@ -126,6 +135,40 @@
   .highlight {
     color: var(--ev-c-brand-light, #646cff); /* Brighter brand color */
     font-weight: 800; /* Make it pop more */
+  }
+
+  /* --- Loading Spinner --- */
+  .loading-container {
+    padding: 0.8rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    color: var(--ev-c-gray-1);
+    font-size: 0.9rem;
+    min-width: 150px;
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--ev-c-black-mute);
+    border-top: 2px solid var(--ev-c-brand-light, #646cff);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  .loading-text {
+    font-style: italic;
+    opacity: 0.8;
   }
 
   /* --- Custom Scrollbar --- */

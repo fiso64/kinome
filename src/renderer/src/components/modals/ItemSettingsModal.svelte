@@ -53,12 +53,11 @@
 
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
-    mediaTypes: [],
-    genres: [],
-    tagKeys: [],
-    virtualTagKeys: [],
-    tagValues: {},
-    persons: []
+    mediaType: [],
+    genre: [],
+    tags: {},
+    virtualTags: {},
+    person: null
   })
 
   // --- Initial Data Tracking for Partial Updates ---

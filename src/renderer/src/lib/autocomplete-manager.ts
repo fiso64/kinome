@@ -9,6 +9,7 @@ export interface AutocompleteItem {
 
 export interface AutocompleteState {
   show: boolean
+  loading: boolean
   suggestions: AutocompleteItem[]
   position: { top: number; left: number; inputTop: number }
   onSelect: (suggestion: AutocompleteItem) => void
@@ -18,6 +19,7 @@ export interface AutocompleteState {
 
 export const autocompleteState = writable<AutocompleteState>({
   show: false,
+  loading: false,
   suggestions: [],
   position: { top: 0, left: 0, inputTop: 0 },
   onSelect: () => { },
@@ -27,9 +29,13 @@ export const autocompleteState = writable<AutocompleteState>({
 
 // Action configuration
 export interface AutocompleteConfig {
-  getSuggestions: (text: string, cursorPosition: number) => AutocompleteItem[]
+  getSuggestions: (
+    text: string,
+    cursorPosition: number
+  ) => AutocompleteItem[] | Promise<AutocompleteItem[]>
   onSelect: (suggestion: AutocompleteItem, node: HTMLElement) => void
   triggerOnFocus?: boolean
+  debounceMs?: number
 }
 
 /**
@@ -110,60 +116,94 @@ export function autocomplete(
   node: HTMLInputElement | HTMLTextAreaElement,
   config: AutocompleteConfig
 ) {
-  function updateSuggestions() {
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let currentRequestId = 0
+
+  async function updateSuggestions() {
     const text = node.value
     const cursorPos = node.selectionStart ?? 0
-    const rawSuggestions = config.getSuggestions(text, cursorPos)
-    const suggestions = rawSuggestions.slice(0, SUGGESTION_LIMIT)
+    const requestId = ++currentRequestId
 
-    if (suggestions.length > 0) {
-      if (!textMirror) {
-        textMirror = document.createElement('span')
-        textMirror.className = 'autocomplete-text-mirror'
-        document.body.appendChild(textMirror)
+    const runUpdate = async () => {
+      // If it's potentially async, show loading if it's not immediate
+      let isImmediate = true
+      const rawResult = config.getSuggestions(text, cursorPos)
+
+      if (rawResult instanceof Promise) {
+        isImmediate = false
+        autocompleteState.update((s) => ({ ...s, loading: true, show: true }))
       }
 
-      const computedStyle = getComputedStyle(node)
-      textMirror.style.font = computedStyle.font
-      textMirror.style.letterSpacing = computedStyle.letterSpacing
-      textMirror.style.whiteSpace = 'pre'
+      try {
+        const rawSuggestions = await rawResult
+        // Only update if this is still the latest request
+        if (requestId !== currentRequestId) return
 
-      const prefix = text.substring(0, cursorPos)
-      textMirror.textContent = prefix
+        const suggestions = rawSuggestions.slice(0, SUGGESTION_LIMIT)
 
-      const nodeRect = node.getBoundingClientRect()
-      const caretLeft =
-        nodeRect.left +
-        parseInt(computedStyle.paddingLeft, 10) -
-        node.scrollLeft +
-        textMirror.offsetWidth
+        if (suggestions.length > 0) {
+          if (!textMirror) {
+            textMirror = document.createElement('span')
+            textMirror.className = 'autocomplete-text-mirror'
+            document.body.appendChild(textMirror)
+          }
 
-      const position = {
-        top: nodeRect.bottom + 4,
-        left: caretLeft,
-        inputTop: nodeRect.top
+          const computedStyle = getComputedStyle(node)
+          textMirror.style.font = computedStyle.font
+          textMirror.style.letterSpacing = computedStyle.letterSpacing
+          textMirror.style.whiteSpace = 'pre'
+
+          const prefix = text.substring(0, cursorPos)
+          textMirror.textContent = prefix
+
+          const nodeRect = node.getBoundingClientRect()
+          const caretLeft =
+            nodeRect.left +
+            parseInt(computedStyle.paddingLeft, 10) -
+            node.scrollLeft +
+            textMirror.offsetWidth
+
+          const position = {
+            top: nodeRect.bottom + 4,
+            left: caretLeft,
+            inputTop: nodeRect.top
+          }
+
+          const wrappedOnSelect = (suggestion: AutocompleteItem) => {
+            config.onSelect(suggestion, node)
+            queueMicrotask(() => {
+              updateSuggestions()
+            })
+          }
+
+          autocompleteState.set({
+            show: true,
+            loading: false,
+            suggestions,
+            position,
+            onSelect: wrappedOnSelect,
+            activeIndex: 0,
+            targetNode: node
+          })
+        } else {
+          autocompleteState.update((s) =>
+            s.targetNode === node ? { ...s, show: false, loading: false } : s
+          )
+        }
+      } catch (e) {
+        if (requestId === currentRequestId) {
+          autocompleteState.update((s) =>
+            s.targetNode === node ? { ...s, show: false, loading: false } : s
+          )
+        }
       }
+    }
 
-      const wrappedOnSelect = (suggestion: AutocompleteItem) => {
-        // 1. Call the component's original onSelect logic.
-        config.onSelect(suggestion, node)
-
-        // 2. Schedule a re-evaluation of suggestions for after the DOM updates.
-        queueMicrotask(() => {
-          updateSuggestions()
-        })
-      }
-
-      autocompleteState.set({
-        show: true,
-        suggestions,
-        position,
-        onSelect: wrappedOnSelect,
-        activeIndex: 0,
-        targetNode: node
-      })
+    if (config.debounceMs && config.debounceMs > 0) {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(runUpdate, config.debounceMs)
     } else {
-      autocompleteState.update((s) => (s.targetNode === node ? { ...s, show: false } : s))
+      await runUpdate()
     }
   }
 

@@ -52,25 +52,16 @@
   let rootId = $state<string | null>(null)
 
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
-    mediaTypes: [],
-    genres: [],
-    persons: [],
-    tagKeys: [],
-    virtualTagKeys: [],
-    tagValues: {}
+    mediaType: [],
+    genre: [],
+    tags: {},
+    virtualTags: {},
+    person: null
   })
 
   let settings = $state<Settings | null>(null)
 
-  // TODO: Making a list of structural keys depend on fucking autocomplete suggestions is retarded. This needs a dedicated endpoint.
-  const groupByKeys = $derived([
-    'folder',
-    'mediaType',
-    'genre',
-    'year',
-    ...(settings?.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
-    ...allAutocompleteSuggestions.tagKeys.map((k) => `tags.${k}`)
-  ])
+  let groupByKeys = $state<string[]>([])
 
   // --- Global Dialog State ---
   let activeDialogs = $state<Record<string, any>[]>([])
@@ -92,9 +83,6 @@
 
     // Global event listeners are fine to register early, they won't
     // trigger until the server emits something anyway.
-    const unlistenSuggestions = api.onAutocompleteSuggestionsUpdated((s) => {
-      allAutocompleteSuggestions = s
-    })
 
     const unlistenSettingsUpdated = api.onSettingsPossiblyUpdated((newSettings) => {
       log('Received settings-possibly-updated event from main process.')
@@ -131,7 +119,6 @@
     })
 
     return () => {
-      unlistenSuggestions()
       unlistenErrors()
       unlistenSettingsUpdated()
       unlistenScanStatus()
@@ -164,6 +151,7 @@
 
       Promise.allSettled([
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
         api.getSettings().then((s) => (settings = s))
       ]).then(() => {
         isInitializing = false
@@ -185,6 +173,7 @@
     if (status.status === 'ready') {
       Promise.allSettled([
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
         api.getSettings().then((s) => (settings = s))
       ])
     }
@@ -219,6 +208,14 @@
       ) {
         navStoreV2.goBack()
       }
+    })
+    return unlisten
+  })
+
+  $effect(() => {
+    const unlisten = api.onMetadataIndexUpdated((index) => {
+      allAutocompleteSuggestions = index.suggestions
+      groupByKeys = index.groupByKeys
     })
     return unlisten
   })

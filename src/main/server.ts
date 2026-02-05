@@ -208,7 +208,18 @@ const app = new Elysia()
     .get('/children/:id', ({ params }) => libraryService.getChildren(params.id))
     .get('/hidden-children/:id', ({ params }) => libraryService.getHiddenChildren(params.id))
     .get('/parent/:id', ({ params }) => libraryService.getParent(params.id))
-    .get('/autocomplete-suggestions', () => libraryService.getAutocompleteSuggestions())
+    .group('/autocomplete', (group) =>
+      group
+        .get('/suggestions', () => libraryService.getAutocompleteSuggestions())
+        .get('/values/:key', ({ params, query }) =>
+          libraryService.getAutocompleteValues(
+            params.key,
+            (query.q as string) || '',
+            query.limit ? parseInt(query.limit as string, 10) : 20
+          )
+        )
+    )
+    .get('/group-by-keys', () => libraryService.getGroupByKeys())
     .post('/user-update-item', async ({ body }: { body: any }) => {
       await libraryService.updateItem(body, true)
       return { success: true }

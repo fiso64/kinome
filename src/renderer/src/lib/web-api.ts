@@ -247,7 +247,19 @@ class WebApiClient implements ApiClient {
   }
 
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
-    return this.request('/api/autocomplete-suggestions')
+    return this.request('/api/autocomplete/suggestions')
+  }
+
+  getAutocompleteValues(key: string, query?: string, limit?: number): Promise<string[]> {
+    const params = new URLSearchParams()
+    if (query) params.set('q', query)
+    if (limit) params.set('limit', limit.toString())
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/api/autocomplete/values/${encodeURIComponent(key)}${q}`)
+  }
+
+  getGroupByKeys(): Promise<string[]> {
+    return this.request('/api/group-by-keys')
   }
 
   getItemById(itemId: string): Promise<LibraryItem | null> {
@@ -521,10 +533,10 @@ class WebApiClient implements ApiClient {
     return this.on('library-items-updated', callback)
   }
 
-  onAutocompleteSuggestionsUpdated(
-    callback: (suggestions: AutocompleteSuggestions) => void
+  onMetadataIndexUpdated(
+    callback: (index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }) => void
   ): () => void {
-    return this.on('autocomplete-suggestions-updated', callback)
+    return this.on('metadata-index-updated', callback)
   }
 
   onShowErrorDialog(

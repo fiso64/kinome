@@ -51,6 +51,8 @@ export interface ApiClient {
   getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null>
   userUpdateItem(item: LibraryItem): Promise<void>
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions>
+  getAutocompleteValues(key: string, query?: string, limit?: number): Promise<string[]>
+  getGroupByKeys(): Promise<string[]>
   getItemById(itemId: string): Promise<LibraryItem | null>
   getChildren(
     parentId: string,
@@ -125,8 +127,8 @@ export interface ApiClient {
   onWindowMaximizedStatus(callback: (isMaximized: boolean) => void): () => void
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void
   onLibraryItemsUpdated(callback: (items: LibraryItem[]) => void): () => void
-  onAutocompleteSuggestionsUpdated(
-    callback: (suggestions: AutocompleteSuggestions) => void
+  onMetadataIndexUpdated(
+    callback: (index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }) => void
   ): () => void
   onShowErrorDialog(
     callback: (options: { title: string; message: string; detail?: string }) => void

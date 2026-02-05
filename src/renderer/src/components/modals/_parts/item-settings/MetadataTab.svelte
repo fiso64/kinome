@@ -104,7 +104,7 @@
   </div>
   <div class="form-group">
     <label for="genres-input">Genres</label>
-    <GenreInput bind:genres suggestions={suggestions.genres} />
+    <GenreInput bind:genres suggestions={suggestions.genre} />
   </div>
 
   <div class="divider"></div>

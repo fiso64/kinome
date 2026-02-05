@@ -3,7 +3,7 @@ import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as virtualTagsService from './virtualTags.service'
 import { getTransport } from '../transport.registry'
-import type { LibraryItem } from '../../shared/types'
+import type { LibraryItem, AutocompleteSuggestions } from '../../shared/types'
 
 const log = (message: string): void => {
     console.log(`[${new Date().toISOString()}] [Item Update Service] ${message}`)
@@ -62,92 +62,167 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
     return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
 }
 
-// TODO: As the library grows, the 'persons' list can become very large.
-// In the future, consider splitting suggestions into two phases:
-// 1. Fetching keys (genre, tag, etc.)
-// 2. Fetching values for a specific key (e.g. /api/suggestions/:key)
-export const getAutocompleteSuggestions = async () => {
+export const getGroupByKeys = async () => {
     const settings = await settingsService.readSettings()
     const allItems = repositoryService.getAllItemsAsList()
 
-    const mediaTypes = new Set<string>()
-    const genres = new Set<string>()
-    const persons = new Set<string>()
     const tagKeys = new Set<string>()
-    const virtualTagKeys = new Set<string>()
-    const tagValues: Record<string, Set<string>> = {}
 
-    if (settings.virtualTags) {
-        for (const tag of settings.virtualTags) {
-            virtualTagKeys.add(tag.name.trim())
+    for (const item of allItems) {
+        if (item.tags) {
+            for (const key of Object.keys(item.tags)) {
+                const k = key.trim()
+                if (k) tagKeys.add(k)
+            }
         }
     }
+
+    return [
+        'folder',
+        'mediaType',
+        'genre',
+        'year',
+        ...(settings.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
+        ...Array.from(tagKeys).sort().map((k) => `tags.${k}`)
+    ]
+}
+
+const fuzzyFilterAndSort = (items: string[], query: string, limit: number): string[] => {
+    const lowerQuery = query.toLowerCase().trim()
+    if (!lowerQuery) return items.slice(0, limit)
+
+    const results: { item: string; score: number }[] = []
+    for (const item of items) {
+        const lowerItem = item.toLowerCase()
+        const index = lowerItem.indexOf(lowerQuery)
+        if (index !== -1) {
+            results.push({ item, score: index === 0 ? 0 : index + 1 })
+        }
+    }
+
+    return results
+        .sort((a, b) => {
+            if (a.score !== b.score) return a.score - b.score
+            return a.item.localeCompare(b.item)
+        })
+        .slice(0, limit)
+        .map((r) => r.item)
+}
+
+export const getAutocompleteValues = async (key: string, query: string = '', limit: number = 20): Promise<string[]> => {
+    // Specialized high-performance path for persons
+    if (key === 'person') {
+        return searchPersons(query, limit)
+    }
+
+    const allItems = repositoryService.getAllItemsAsList()
+    const values = new Set<string>()
+
+    for (const item of allItems) {
+        if (key === 'mediaType' && item.mediaType) {
+            values.add(item.mediaType.trim())
+        } else if (key === 'genre' && item.genres) {
+            item.genres.forEach((g) => values.add(g.trim()))
+        } else if (key === 'year' && item.year) {
+            values.add(item.year.toString())
+        } else if (item.tags && item.tags[key]) {
+            item.tags[key].split(',').forEach((v) => v.trim() && values.add(v.trim()))
+        } else if (item.virtualTags && item.virtualTags[key]) {
+            values.add(item.virtualTags[key].trim())
+        }
+    }
+
+    const list = Array.from(values).sort()
+    return fuzzyFilterAndSort(list, query, limit)
+}
+
+export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggestions> => {
+    const settings = await settingsService.readSettings()
+    const allItems = repositoryService.getAllItemsAsList()
+
+    const mediaType = new Set<string>()
+    const genre = new Set<string>()
+    const tags: Record<string, Set<string>> = {}
+    const virtualTags: Record<string, Set<string>> = {}
 
     for (const item of allItems) {
         if (item.mediaType) {
-            const mt = item.mediaType.trim()
-            mediaTypes.add(mt)
-            if (!tagValues['mediaType']) tagValues['mediaType'] = new Set<string>()
-            tagValues['mediaType'].add(mt)
+            mediaType.add(item.mediaType.trim())
         }
         if (item.genres) {
-            item.genres.forEach((g) => {
-                const genre = g.trim()
-                genres.add(genre)
-                if (!tagValues['genre']) tagValues['genre'] = new Set<string>()
-                tagValues['genre'].add(genre)
-            })
+            item.genres.forEach((g) => genre.add(g.trim()))
         }
-        if (item.year) {
-            const yearStr = item.year.toString()
-            if (!tagValues['year']) tagValues['year'] = new Set<string>()
-            tagValues['year'].add(yearStr)
-        }
-        if (item.tmdbCredits) {
-            const collectPerson = (name: string) => {
-                const p = name.trim()
-                persons.add(p)
-                if (!tagValues['person']) tagValues['person'] = new Set<string>()
-                tagValues['person'].add(p)
-            }
-                ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && collectPerson(p.name))
-                ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && collectPerson(p.name))
-        }
+
         if (item.tags) {
             for (const [key, value] of Object.entries(item.tags)) {
-                const k = key.trim()
-                if (k) {
-                    tagKeys.add(k)
-                    if (!tagValues[k]) tagValues[k] = new Set<string>()
-                    value.split(',').forEach((v) => v.trim() && tagValues[k].add(v.trim()))
+                if (!tags[key]) tags[key] = new Set()
+                if (value) {
+                    value.split(',').forEach((v) => {
+                        const trimmed = v.trim()
+                        if (trimmed) tags[key].add(trimmed)
+                    })
                 }
             }
         }
+
         if (item.virtualTags) {
             for (const [key, value] of Object.entries(item.virtualTags)) {
-                const k = key.trim()
-                if (k) {
-                    virtualTagKeys.add(k)
-                    if (!tagValues[k]) tagValues[k] = new Set<string>()
-                    if (value) tagValues[k].add(value.trim())
+                if (!virtualTags[key]) virtualTags[key] = new Set()
+                if (value) {
+                    const trimmed = value.trim()
+                    if (trimmed) virtualTags[key].add(trimmed)
                 }
             }
         }
     }
 
-    const tagValuesAsArrays: Record<string, string[]> = {}
-    for (const key in tagValues) {
-        tagValuesAsArrays[key] = Array.from(tagValues[key]).sort()
+    // Ensure all defined virtual tags are present in the keys, even if empty
+    if (settings.virtualTags) {
+        for (const vt of settings.virtualTags) {
+            if (!virtualTags[vt.name]) virtualTags[vt.name] = new Set()
+        }
+    }
+
+    const sortSet = (s: Set<string>) => Array.from(s).sort()
+    const mapDict = (d: Record<string, Set<string>>) => {
+        const result: Record<string, string[]> = {}
+        for (const [k, v] of Object.entries(d)) {
+            result[k] = sortSet(v)
+        }
+        return result
     }
 
     return {
-        mediaTypes: Array.from(mediaTypes).sort(),
-        genres: Array.from(genres).sort(),
-        persons: Array.from(persons).sort(),
-        tagKeys: Array.from(tagKeys).sort(),
-        virtualTagKeys: Array.from(virtualTagKeys).sort(),
-        tagValues: tagValuesAsArrays
+        mediaType: sortSet(mediaType),
+        genre: sortSet(genre),
+        person: null, // Signalling that person suggestions are server-side
+        tags: mapDict(tags),
+        virtualTags: mapDict(virtualTags)
     }
+}
+
+let personCache: string[] | null = null
+
+export const searchPersons = async (query: string, limit: number = 20): Promise<string[]> => {
+    if (!personCache) {
+        const allItems = repositoryService.getAllItemsAsList()
+        const personSet = new Set<string>()
+        for (const item of allItems) {
+            if (item.tmdbCredits) {
+                const collect = (name: string) => personSet.add(name.trim())
+                    ; (item.tmdbCredits.cast ?? []).forEach((p) => p.name && collect(p.name))
+                    ; (item.tmdbCredits.crew ?? []).forEach((p) => p.name && collect(p.name))
+            }
+        }
+        personCache = Array.from(personSet).sort()
+    }
+
+    return fuzzyFilterAndSort(personCache, query, limit)
+}
+
+// Clear person cache when items are updated significantly (implied logic, but for now simple)
+export const invalidatePersonCache = () => {
+    personCache = null
 }
 
 export async function updateIfChangedAndBroadcast(
@@ -189,6 +264,7 @@ export async function updateIfChangedAndBroadcast(
                     repositoryService._updateItem(item.id, item)
                 }
                 modifiedItems.push(item)
+                invalidatePersonCache()
             } else {
                 console.log(`[Item Update Service] Item ${item.id} has no real changes. Skipping update and broadcast.`)
             }
@@ -207,7 +283,10 @@ export async function updateIfChangedAndBroadcast(
     getTransport().notifyLibraryItemsUpdated(plainItems)
 
     if (options.updateSuggestions) {
-        const newSuggestions = await getAutocompleteSuggestions()
-        getTransport().notifyAutocompleteSuggestionsUpdated(newSuggestions)
+        const [suggestions, groupByKeys] = await Promise.all([
+            getAutocompleteSuggestions(),
+            getGroupByKeys()
+        ])
+        getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys })
     }
 }

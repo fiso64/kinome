@@ -39,9 +39,9 @@ export class WebTransport implements ITransport {
     this.broadcast('library-items-updated', items)
   }
 
-  notifyAutocompleteSuggestionsUpdated(suggestions: AutocompleteSuggestions): void {
-    console.log('[WebTransport] Notifying suggestions update.')
-    this.broadcast('autocomplete-suggestions-updated', suggestions)
+  notifyMetadataIndexUpdated(index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }): void {
+    console.log('[WebTransport] Notifying metadata index update.')
+    this.broadcast('metadata-index-updated', index)
   }
 
   notifyLibraryItemDeleted(itemId: string): void {

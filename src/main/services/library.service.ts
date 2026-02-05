@@ -404,6 +404,12 @@ export async function getContinueWatchingItems(
 
 export const autocompleteSuggestions = fetchAutocompleteSuggestions
 export const getAutocompleteSuggestions = fetchAutocompleteSuggestions
+export const getGroupByKeys = async () => {
+  return (await import('./item-update.service')).getGroupByKeys()
+}
+export const getAutocompleteValues = async (key: string, query?: string, limit?: number) => {
+  return (await import('./item-update.service')).getAutocompleteValues(key, query, limit)
+}
 
 export const performSearch = searchService.performSearch
 export const debugPerformSearch = searchService.debugPerformSearch
@@ -766,7 +772,11 @@ export const reapplyVirtualTagsAfterSettingsChange = async () => {
   const allItems = repositoryService.getAllItemsAsList()
 
   getTransport().notifyLibraryItemsUpdated(JSON.parse(JSON.stringify(allItems)))
-  getTransport().notifyAutocompleteSuggestionsUpdated(await getAutocompleteSuggestions())
+  const [suggestions, groupByKeys] = await Promise.all([
+    getAutocompleteSuggestions(),
+    getGroupByKeys()
+  ])
+  getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys })
 }
 
 export const getFolderWatchedState = async (
