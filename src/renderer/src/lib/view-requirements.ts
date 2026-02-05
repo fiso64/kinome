@@ -60,11 +60,12 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
  * Recursively collects all required fields from a settings object and its nested childViewSettings.
  * This handles deep nesting scenarios like Sections -> Tabs -> List.
  *
- * @param settings The fully resolved view settings object (optionally merged with an item for type context)
- * @param globalSettings The global application settings, used to resolve implicit defaults for children
+ * @param settings The fully resolved view settings object (optionally merged with an item for type context) <-- TODO: Merging is retarded, clean it up.
  */
-export function getAllRequiredFields(settings: any, globalSettings?: Settings | null): string[] {
+export function getAllRequiredFields(settings: any): string[] {
     const fields = new Set<string>()
+
+    console.log('getAllRequiredFields input: ', JSON.stringify(settings))
 
     function traverse(currentSettings: any) {
         if (!currentSettings || typeof currentSettings !== 'object') return
@@ -73,13 +74,6 @@ export function getAllRequiredFields(settings: any, globalSettings?: Settings | 
             const req = getRequiredFieldsForLayout(currentSettings.layout, currentSettings.groupBy)
             req.forEach((f) => fields.add(f))
         }
-
-        // Handle implicit child layout defaults (e.g. Show [Tabs] -> Season [Default Season Layout])
-        // If we have a mediaType but no explicit childViewSettings, we check the global defaults.
-        // if (currentSettings.mediaType === 'tv' && !currentSettings.childViewSettings && globalSettings) {
-        //     const seasonSettings = globalSettings.defaultLayouts.season
-        //     if (seasonSettings) traverse(seasonSettings)
-        // }
 
         if (currentSettings.childViewSettings) {
             traverse(currentSettings.childViewSettings)

@@ -32,7 +32,7 @@
     settings ? resolveViewSettings(initialItem as MediaFolder, settings).settings : null
   )
   const requiredFields = $derived(
-    resolvedSettings ? getAllRequiredFields({ ...initialItem, ...resolvedSettings }, settings) : []
+    resolvedSettings ? getAllRequiredFields({ ...initialItem, ...resolvedSettings }) : []
   )
 
   // 1. Fetch metadata only

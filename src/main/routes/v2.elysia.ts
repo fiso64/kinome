@@ -176,14 +176,6 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
 
         options.where = { ...options.where, parentId: id }
 
-        // Use the new modular children fetcher if specifically requested for a detail view.
-        if (query.isDetailView === 'true') {
-            return await libraryService.getItemChildren(id, {
-                isDetailView: true,
-                fields: options.fields
-            })
-        }
-
         // Standard Children logic (with sorting and grouping)
         const parent = isVirtualId(id) ? null : repositoryService.getItemById(id)
 
