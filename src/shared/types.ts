@@ -460,12 +460,12 @@ export interface AppCapabilities {
 
 // TODO: That's fucking dumb. We are duplicating a bunch of stuff.
 export interface AutocompleteSuggestions {
-  mediaTypes: string[] // remove
-  genres: string[] // remove
-  persons: string[] // remove
-  tagKeys: string[] // remove
-  virtualTagKeys: string[] // remove
-  tagValues: Record<string, string[]> // this should be the root of the suggestions object. Just key value pairs.
+  mediaTypes: string[] // rename to mediaType
+  genres: string[] // rename to genre
+  persons: string[] // rename to person
+  tagKeys: string[] // keep as is, frontend will merge these into the object (take care not to shadow others though)
+  virtualTagKeys: string[] // keep as is, frontend will merge these into the object (take care not to shadow others though)
+  tagValues: Record<string, string[]> // remove
 }
 
 export interface SearchQuery {
