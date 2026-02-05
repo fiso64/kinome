@@ -179,7 +179,9 @@ export async function updateIfChangedAndBroadcast(
 
             // 3. Detect Changes using the robust snapshot comparison
             // Now we compare Full Object (Existing) vs Full Object (Next State)
-            const hasRealChanges = !existing || !isItemDataSame(existing, nextState as LibraryItem)
+            // We also allow forcing an update if _v was explicitly provided in the update payload.
+            const forceUpdate = (item as any)._v !== undefined && (item as any)._v !== (existing as any)?._v
+            const hasRealChanges = !existing || forceUpdate || !isItemDataSame(existing, nextState as LibraryItem)
 
             if (hasRealChanges) {
                 item._v = Date.now()

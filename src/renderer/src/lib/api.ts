@@ -147,9 +147,11 @@ import { authStore } from './auth-store.svelte'
  */
 export function getAssetUrl(relativePath: string): string {
   if (!relativePath) return ''
-  // Use relative path to leverage Vite proxy in dev and normal routing in prod
-  const url = `/api/assets/${encodeURIComponent(relativePath)}`
-  return authStore.token ? `${url}?token=${authStore.token}` : url
+  // Split query string to avoid encoding it
+  const [path, query] = relativePath.split('?')
+  const url = `/api/assets/${encodeURIComponent(path)}${query ? `?${query}` : ''}`
+  const joiner = url.includes('?') ? '&' : '?'
+  return authStore.token ? `${url}${joiner}token=${authStore.token}` : url
 }
 
 /**
