@@ -90,7 +90,7 @@ class LibraryDataService {
         return createQuery(() => {
             const id = idFn()
             const normalizedId = this.normalizeId(id)
-            const fields = options.fields ? options.fields() : []
+            const fields = (options.fields ? options.fields() : []).sort()
             const isEnabled = options.enabled ? options.enabled() : true
 
             return {
@@ -110,9 +110,10 @@ class LibraryDataService {
         const normalizedId = this.normalizeId(id)
         if (!normalizedId) return null
 
+        const sortedFields = [...fields].sort()
         return this.queryClient.fetchQuery({
-            queryKey: [...this.keys.item.details(normalizedId), { fields }],
-            queryFn: () => api.getItemDetails(id, fields)
+            queryKey: [...this.keys.item.details(normalizedId), { fields: sortedFields }],
+            queryFn: () => api.getItemDetails(id, sortedFields)
         })
     }
 
@@ -123,7 +124,7 @@ class LibraryDataService {
         return createQuery(() => {
             const id = idFn()
             const normalizedId = this.normalizeId(id)
-            const fields = options.fields ? options.fields() : []
+            const fields = (options.fields ? options.fields() : []).sort()
             const isEnabled = options.enabled ? options.enabled() : true
 
             return {
@@ -149,7 +150,7 @@ class LibraryDataService {
         return createQuery(() => {
             const parentId = parentIdFn()
             const normalizedId = this.normalizeId(parentId)
-            const fields = options.fields ? options.fields() : []
+            const fields = (options.fields ? options.fields() : []).sort()
             const groupBy = options.groupBy ? options.groupBy() : undefined
             const isDetailView = options.isDetailView ? options.isDetailView() : false
             const isEnabled = options.enabled ? options.enabled() : true
