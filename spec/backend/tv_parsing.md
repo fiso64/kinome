@@ -17,8 +17,14 @@ Unlike previous versions which relied on scanner heuristics, TV structural parsi
 2.  **Metadata Trigger (Phase 2)**: Immediately after an item is identified as a TV show (via TMDB), the Metadata Service calls the TV Show Service to perform a structural re-sync.
 
 This "Triggered" approach ensures that TV shows are correctly parsed in a single scan cycle without the need for manual rescans or duplicated logic.
+## 2. Data Invariants
 
-## 2. Problem Statement / Motivation
+To maintain a clean database and avoid logical errors in the UI, the following invariants MUST be enforced during parsing:
+
+1.  **Season Numbers**: Only items with `type: 'season'` may have a `seasonNumber`. TV shows (`type: 'tv'`) and individual files acting as regular folders MUST NOT have a `seasonNumber`.
+2.  **Episode Numbers**: Only items with `type: 'episode'` may have an `episodeNumber` and a `seasonNumber`.
+
+## 3. Problem Statement / Motivation
 
 TV shows have highly inconsistent file naming conventions across different sources (scene releases, fansubs, personal rips). A naive regex-per-file approach leads to:
 
