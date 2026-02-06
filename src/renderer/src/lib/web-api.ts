@@ -155,18 +155,16 @@ class WebApiClient implements ApiClient {
     }
   }
 
-  // --- V2 API Methods ---
+  // --- Unified Items API ---
 
-  /**
-   * Generic V2 Find
-   */
-  findV2(options: {
+  findItems(options: {
     fields?: string[]
     where?: Record<string, any>
     limit?: number
     offset?: number
     orderBy?: { field: string; direction: 'ASC' | 'DESC' }
     include?: string[]
+    includeHidden?: boolean
   }): Promise<LibraryItem[]> {
     const params = new URLSearchParams()
     if (options.fields) params.set('fields', options.fields.join(','))
@@ -175,6 +173,7 @@ class WebApiClient implements ApiClient {
     if (options.orderBy)
       params.set('orderBy', `${options.orderBy.field}:${options.orderBy.direction}`)
     if (options.include) params.set('include', options.include.join(','))
+    if (options.includeHidden !== undefined) params.set('includeHidden', String(options.includeHidden))
 
     if (options.where) {
       for (const [key, val] of Object.entries(options.where)) {
@@ -182,46 +181,70 @@ class WebApiClient implements ApiClient {
       }
     }
 
-    return this.request(`/api/v2/items?${params.toString()}`)
+    return this.request(`/api/items?${params.toString()}`)
   }
 
-  getItemV2(id: string, include: string[] = []): Promise<LibraryItem> {
+  getItem(id: string, options: string[] | { fields?: string[]; include?: string[] } = []): Promise<LibraryItem> {
     if (!id || id === 'null' || id === 'undefined') {
-      console.warn(`[WebApiClient] getItemV2 called with invalid ID: "${id}". Skipping request.`)
+      console.warn(`[WebApiClient] getItem called with invalid ID: "${id}". Skipping request.`)
       return Promise.resolve(null as any)
     }
+
     const params = new URLSearchParams()
-    if (include.length > 0) params.set('include', include.join(','))
-    return this.request(`/api/v2/items/${encodeURIComponent(id)}?${params.toString()}`)
+    if (Array.isArray(options)) {
+      if (options.length > 0) params.set('include', options.join(','))
+    } else {
+      if (options.fields) params.set('fields', options.fields.join(','))
+      if (options.include) params.set('include', options.include.join(','))
+    }
+
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/api/items/${encodeURIComponent(id)}${q}`)
   }
 
-  getChildrenV2(
+  getChildren(
     parentId: string,
     options: {
       limit?: number
       offset?: number
+      fields?: string[]
       include?: string[]
       orderBy?: string
       groupBy?: string
+      includeHidden?: boolean
     } = {}
   ): Promise<LibraryItem[]> {
     if (!parentId || parentId === 'null' || parentId === 'undefined') {
       console.warn(
-        `[WebApiClient] getChildrenV2 called with invalid parentId: "${parentId}". Skipping request.`
+        `[WebApiClient] getChildren called with invalid parentId: "${parentId}". Skipping request.`
       )
       return Promise.resolve([])
     }
     const params = new URLSearchParams()
     if (options.limit) params.set('limit', options.limit.toString())
     if (options.offset) params.set('offset', options.offset.toString())
+    if (options.fields && options.fields.length > 0)
+      params.set('fields', options.fields.join(','))
     if (options.include && options.include.length > 0)
       params.set('include', options.include.join(','))
-    if (options.orderBy) params.set('orderBy', options.orderBy) // Expects "field:DESC" format or let backend decide
+    if (options.orderBy) params.set('orderBy', options.orderBy)
     if (options.groupBy) params.set('groupBy', options.groupBy)
+    if (options.includeHidden !== undefined) params.set('includeHidden', String(options.includeHidden))
 
     return this.request(
-      `/api/v2/items/${encodeURIComponent(parentId)}/children?${params.toString()}`
+      `/api/items/${encodeURIComponent(parentId)}/children?${params.toString()}`
     )
+  }
+
+  async userUpdateItem(item: Partial<LibraryItem>): Promise<void> {
+    await this.request('/api/items', {
+      method: 'PATCH',
+      body: JSON.stringify(item)
+    })
+  }
+
+  getAncestors(itemId: string): Promise<LibraryItem[]> {
+    return this.request(`/api/items/${encodeURIComponent(itemId)}/ancestors`)
   }
 
   performSearch(query: {
@@ -272,15 +295,6 @@ class WebApiClient implements ApiClient {
     })
   }
 
-  getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null> {
-    const params = new URLSearchParams()
-    if (fields && fields.length > 0) params.set('fields', fields.join(','))
-    return this.request(`/api/v2/items/${encodeURIComponent(itemId)}?${params.toString()}`)
-  }
-
-  userUpdateItem(item: LibraryItem): Promise<void> {
-    return this.request('/api/user-update-item', { method: 'POST', body: JSON.stringify(item) })
-  }
 
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
     return this.request('/api/autocomplete/suggestions')
@@ -299,19 +313,7 @@ class WebApiClient implements ApiClient {
   }
 
   getItemById(itemId: string): Promise<LibraryItem | null> {
-    return this.request(`/api/item-by-id/${encodeURIComponent(itemId)}`)
-  }
-
-  getChildren(
-    parentId: string,
-    options: { isDetailView?: boolean; fields?: string[] } = {}
-  ): Promise<LibraryItem[] | null> {
-    const params = new URLSearchParams()
-    if (options.fields && options.fields.length > 0) params.set('fields', options.fields.join(','))
-    if (options.isDetailView) params.set('isDetailView', 'true')
-    return this.request(
-      `/api/v2/items/${encodeURIComponent(parentId)}/children?${params.toString()}`
-    )
+    return this.request(`/api/items/${encodeURIComponent(itemId)}`)
   }
 
   getHiddenChildren(parentId: string): Promise<LibraryItem[]> {

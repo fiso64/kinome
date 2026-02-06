@@ -5,7 +5,7 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
-  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
+  import { navStore } from '@lib/navigation-store.svelte'
   import type {
     StoredViewSettings,
     MediaFolder,
@@ -98,7 +98,7 @@
   async function refreshItemDetails() {
     if (isVirtual || !item.id) return
     try {
-      const freshItem = await window.api.getItemV2(item.id)
+      const freshItem = await window.api.getItem(item.id)
       if (freshItem) {
         // Update local state with fresh data to correct any stale props
         title = freshItem.title ?? ''

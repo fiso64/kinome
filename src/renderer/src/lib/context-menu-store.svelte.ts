@@ -45,7 +45,7 @@ async function open(
 
   if ('staticScore' in target) {
     // It's a search result, needs full item loading
-    const fullItem = await api.getItemV2(target.id)
+    const fullItem = await api.getItem(target.id)
     if (fullItem) {
       item = fullItem
     } else {

@@ -1,5 +1,5 @@
 import { api } from './api'
-import { navStoreV2 } from './navigation-store-v2.svelte'
+import { navStore } from './navigation-store.svelte'
 import { isTypingTag as isTypingTagHelper } from './view-helpers'
 import type { SearchIndexEntry, SearchQuery } from '@shared/types'
 import { serializeSearchQuery } from './search-query-helpers'
@@ -22,9 +22,9 @@ let filterFocusKey = $state(0)
 // --- Derived ---
 
 const isGlobalActive = $derived(
-  navStoreV2.state.globalQuery.text.trim() !== '' || navStoreV2.state.globalQuery.tags.length > 0
+  navStore.state.globalQuery.text.trim() !== '' || navStore.state.globalQuery.tags.length > 0
 )
-const isTypingGlobalTag = $derived(isTypingTagHelper(navStoreV2.state.globalQuery.text))
+const isTypingGlobalTag = $derived(isTypingTagHelper(navStore.state.globalQuery.text))
 
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
@@ -35,7 +35,7 @@ export function initializeSearchEffects() {
   // --- Global Search: Sync and Perform ---
   $effect(() => {
     // Atomic access to globalQuery to track all changes
-    const query = navStoreV2.state.globalQuery
+    const query = navStore.state.globalQuery
     const serialized = serializeSearchQuery(query)
 
     // Check if URL and State are out of sync.
@@ -48,8 +48,8 @@ export function initializeSearchEffects() {
       // Safeguard: only trigger navigation if we are NOT in detail view.
       // If we ARE in detail view, URL changes for 'q' should usually be
       // ignored or handled differently (e.g. if the user actually clicked a search result).
-      if (!navStoreV2.isDetailViewActive) {
-        navStoreV2.setGlobalSearch(query, {
+      if (!navStore.isDetailViewActive) {
+        navStore.setGlobalSearch(query, {
           closeDetail: !isTypingGlobalTag
         })
       }
@@ -73,7 +73,7 @@ export function initializeSearchEffects() {
   // --- Detail View Search Effect ---
   $effect(() => {
     const query = detailQuery
-    if (navStoreV2.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
+    if (navStore.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
       api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
         detailResults = results
@@ -102,7 +102,7 @@ export function initializeSearchEffects() {
   let wasFilterVisible = false
   $effect(() => {
     // Hide filter bar when navigating to detail view or global search
-    if (navStoreV2.state.selectedItemId || isGlobalActive) {
+    if (navStore.state.selectedItemId || isGlobalActive) {
       if (isFilterBarVisible) {
         const isFilterEmpty = filterQuery.text.trim() === '' && filterQuery.tags.length === 0
         if (!isFilterEmpty) wasFilterVisible = true
@@ -118,7 +118,7 @@ export function initializeSearchEffects() {
 
   $effect(() => {
     // Clear main view filter when navigating away from search results
-    void navStoreV2.state.currentFolderId
+    void navStore.state.currentFolderId
     if (!isGlobalActive) {
       filterQuery = { text: '', tags: [] }
     }
@@ -128,7 +128,7 @@ export function initializeSearchEffects() {
 // --- Methods ---
 
 function clearGlobal() {
-  navStoreV2.setGlobalSearch({ text: '', tags: [] }, { replace: true })
+  navStore.setGlobalSearch({ text: '', tags: [] }, { replace: true })
 }
 
 function clearDetail() {
@@ -140,7 +140,7 @@ function clearFilter() {
 }
 
 function searchByTag(key: string, value: string) {
-  navStoreV2.setGlobalSearch(
+  navStore.setGlobalSearch(
     { text: '', tags: [{ key, value }] },
     { replace: false, closeDetail: true }
   )
@@ -148,13 +148,13 @@ function searchByTag(key: string, value: string) {
 
 // --- Exported Store Object ---
 
-export const searchStoreV2 = {
+export const searchStore = {
   get globalQuery() {
-    return navStoreV2.state.globalQuery
+    return navStore.state.globalQuery
   },
   set globalQuery(v) {
     // This setter is mainly for svelte bindings (bind:query)
-    navStoreV2.setGlobalSearch(v, { closeDetail: true })
+    navStore.setGlobalSearch(v, { closeDetail: true })
   },
   get isGlobalActive() {
     return isGlobalActive

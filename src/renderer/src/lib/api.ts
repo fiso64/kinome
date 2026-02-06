@@ -16,28 +16,31 @@ import type {
 export interface ApiClient {
   readonly capabilities: AppCapabilities
 
-  // V2 Methods
-  findV2(options: {
+  // Items API
+  findItems(options: {
     fields?: string[]
     where?: Record<string, any>
     limit?: number
     offset?: number
     orderBy?: { field: string; direction: 'ASC' | 'DESC' }
     include?: string[]
+    includeHidden?: boolean
   }): Promise<LibraryItem[]>
 
-  getItemV2(id: string, include?: string[]): Promise<LibraryItem>
-  getChildrenV2(
+  getItem(id: string, include?: string[] | { fields?: string[]; include?: string[] }): Promise<LibraryItem>
+  getChildren(
     parentId: string,
     options?: {
       limit?: number
       offset?: number
+      fields?: string[]
       include?: string[]
       orderBy?: string
       groupBy?: string
+      includeHidden?: boolean
     }
   ): Promise<LibraryItem[]>
-  getAncestors?: (itemId: string) => Promise<LibraryItem[]>
+  getAncestors(itemId: string): Promise<LibraryItem[]>
 
   performSearch(query: {
     text: string
@@ -55,16 +58,9 @@ export interface ApiClient {
   playFile(file: MediaFile): Promise<boolean>
   playFileWith(file: MediaFile, command: string): Promise<boolean>
   recordPlayback(itemId: string): Promise<void>
-  getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null>
-  userUpdateItem(item: LibraryItem): Promise<void>
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions>
   getAutocompleteValues(key: string, query?: string, limit?: number): Promise<string[]>
   getGroupByKeys(): Promise<string[]>
-  getItemById(itemId: string): Promise<LibraryItem | null>
-  getChildren(
-    parentId: string,
-    options?: { isDetailView?: boolean; fields?: string[] }
-  ): Promise<LibraryItem[] | null>
   getHiddenChildren(parentId: string): Promise<LibraryItem[]>
   getParent(itemId: string): Promise<MediaFolder | null>
   getContinueWatchingItems(): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]>
@@ -122,6 +118,7 @@ export interface ApiClient {
   getSettings(): Promise<Settings>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
+  userUpdateItem(item: Partial<LibraryItem>): Promise<void>
   resolveMediaSourcePath(args: {
     path: string
     isRelative: boolean

@@ -12,8 +12,8 @@
   import { notificationStore } from '@lib/notification-store.svelte'
   import { autocompleteState } from '@lib/autocomplete-manager'
   import AutocompleteMenu from '@ui/AutocompleteMenu.svelte'
-  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
-  import { searchStoreV2, initializeSearchEffects } from '@lib/search-store-v2.svelte'
+  import { navStore } from '@lib/navigation-store.svelte'
+  import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
@@ -132,7 +132,7 @@
       log('User authenticated. Starting initial data fetch...')
       hasInitialized = true
 
-      navStoreV2.init()
+      navStore.init()
 
       // Prioritize getLibraryRoot to show SetupScreen instantly if needed
       api.getLibraryRoot().then((status) => {
@@ -229,10 +229,10 @@
 
       // If we are looking at this item, go back
       if (
-        navStoreV2.state.currentFolderId === deletedItemId ||
-        navStoreV2.state.selectedItemId === deletedItemId
+        navStore.state.currentFolderId === deletedItemId ||
+        navStore.state.selectedItemId === deletedItemId
       ) {
-        navStoreV2.goBack()
+        navStore.goBack()
       }
     })
     return unlisten
@@ -289,7 +289,7 @@
     // Files: navigate to detail if movie, otherwise play
     if (item.type === 'file') {
       if ('mediaType' in item && item.mediaType === 'movie') {
-        navStoreV2.openDetail(item.id)
+        navStore.openDetail(item.id)
       } else {
         await handlePlayFile(item as MediaFile)
       }
@@ -298,45 +298,45 @@
 
     // Folders: navigate or open detail based on mediaType
     if (item.type === 'folder' && item.mediaType !== 'tv' && item.mediaType !== 'movie') {
-      navStoreV2.navigateToFolder(item.id)
+      navStore.navigateToFolder(item.id)
     } else {
       // Rich folder (TV/Movie) - open detail
-      navStoreV2.openDetail(item.id)
+      navStore.openDetail(item.id)
     }
 
     if (fromSearch) {
       appHeaderComponent?.blurSearchInput()
-      searchStoreV2.clearDetail()
-      searchStoreV2.clearGlobal()
+      searchStore.clearDetail()
+      searchStore.clearGlobal()
     }
   }
 
   function goBack(): void {
     appHeaderComponent?.blurSearchInput()
-    if (navStoreV2.canGoBack) {
-      navStoreV2.goBack()
+    if (navStore.canGoBack) {
+      navStore.goBack()
     }
   }
 
   function handleEscape(): void {
     appHeaderComponent?.blurSearchInput()
 
-    if (searchStoreV2.isGlobalActive) {
-      searchStoreV2.clearGlobal()
+    if (searchStore.isGlobalActive) {
+      searchStore.clearGlobal()
       return
     }
 
-    if (navStoreV2.isDetailViewActive) {
-      if (searchStoreV2.isDetailActive) {
-        searchStoreV2.clearDetail()
+    if (navStore.isDetailViewActive) {
+      if (searchStore.isDetailActive) {
+        searchStore.clearDetail()
         return
       }
-      navStoreV2.closeDetail()
+      navStore.closeDetail()
       return
     }
 
-    if (navStoreV2.canGoBack) {
-      navStoreV2.goBack()
+    if (navStore.canGoBack) {
+      navStore.goBack()
     }
   }
 
@@ -345,7 +345,7 @@
   }
 
   function handleSearchByTag(key: string, value: string): void {
-    searchStoreV2.searchByTag(key, value)
+    searchStore.searchByTag(key, value)
   }
 
   $effect(() => {
@@ -364,8 +364,8 @@
   })
 
   async function openLayoutSelector() {
-    if (navStoreV2.contextItemId) {
-      const item = await api.getItemV2(navStoreV2.contextItemId)
+    if (navStore.contextItemId) {
+      const item = await api.getItem(navStore.contextItemId)
       if (item) {
         modalStore.open('itemSettings', {
           item,
@@ -420,14 +420,14 @@
     {/if}
 
     <main>
-      {#if navStoreV2.state.path !== '/settings'}
+      {#if navStore.state.path !== '/settings'}
         <AppHeader
           bind:this={appHeaderComponent}
           {isWaitingForScan}
           {isScanning}
           isContextMenuVisible={contextMenuStore.isVisible}
           on:refresh={handleRefresh}
-          on:openSettings={() => navStoreV2.navigateToSettings()}
+          on:openSettings={() => navStore.navigateToSettings()}
           on:openLayoutSelector={openLayoutSelector}
           on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
           on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
@@ -437,7 +437,7 @@
         />
       {/if}
 
-      {#if navStoreV2.state.path === '/settings'}
+      {#if navStore.state.path === '/settings'}
         <SettingsView bind:settings />
       {:else}
         <MainView
@@ -455,15 +455,15 @@
         />
       {/if}
 
-      {#if searchStoreV2.isFilterBarVisible}
+      {#if searchStore.isFilterBarVisible}
         <FilterBar
           suggestions={allAutocompleteSuggestions}
-          bind:query={searchStoreV2.filterQuery}
-          focusKey={searchStoreV2.filterFocusKey}
+          bind:query={searchStore.filterQuery}
+          focusKey={searchStore.filterFocusKey}
           onClose={() => {
-            searchStoreV2.isFilterBarVisible = false
+            searchStore.isFilterBarVisible = false
             // Clear the filter state when it's manually closed.
-            searchStoreV2.clearFilter()
+            searchStore.clearFilter()
           }}
         />
       {/if}

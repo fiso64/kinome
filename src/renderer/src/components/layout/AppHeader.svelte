@@ -3,8 +3,8 @@
   import SearchInput from '../ui/SearchInput.svelte'
   import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'
-  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
-  import { searchStoreV2 } from '@lib/search-store-v2.svelte'
+  import { navStore } from '@lib/navigation-store.svelte'
+  import { searchStore } from '@lib/search-store.svelte'
   import { api } from '@lib/api'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import type {
@@ -30,18 +30,18 @@
   } = $props()
 
   // --- V2 State ---
-  const canGoBack = $derived(navStoreV2.canGoBack)
+  const canGoBack = $derived(navStore.canGoBack)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
-  const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStoreV2.contextItemId)
+  const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStore.contextItemId)
 
   const contextItem = $derived(contextItemQuery.data as MediaFolder | LibraryItem | undefined)
 
-  // Search properties from V2 store
-  const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
-  const globalSearchResults = $derived(searchStoreV2.searchResults)
-  const isPerformingDetailSearch = $derived(searchStoreV2.isPerformingDetailSearch)
-  const detailSearchResults = $derived(searchStoreV2.detailResults)
+  // Search properties from store
+  const isGlobalSearchActive = $derived(searchStore.isGlobalActive)
+  const globalSearchResults = $derived(searchStore.searchResults)
+  const isPerformingDetailSearch = $derived(searchStore.isPerformingDetailSearch)
+  const detailSearchResults = $derived(searchStore.detailResults)
 
   // Layout Config Logic (Simplified: prioritize detail item, fallback to folder)
   const contextItemToConfigure = $derived(contextItem)
@@ -90,11 +90,11 @@
       return // Let autocomplete handle its own keyboard events
     }
 
-    const isDetailContext = navStoreV2.isDetailViewActive
+    const isDetailContext = navStore.isDetailViewActive
     const items = isDetailContext ? detailSearchResults : globalSearchResults
     let highlightedIndex = isDetailContext
-      ? searchStoreV2.highlightedDetailIndex
-      : searchStoreV2.highlightedGlobalIndex
+      ? searchStore.highlightedDetailIndex
+      : searchStore.highlightedGlobalIndex
 
     if (items.length === 0) return
 
@@ -135,9 +135,9 @@
 
     if (newIndex !== highlightedIndex) {
       if (isDetailContext) {
-        searchStoreV2.highlightedDetailIndex = newIndex
+        searchStore.highlightedDetailIndex = newIndex
       } else {
-        searchStoreV2.highlightedGlobalIndex = newIndex
+        searchStore.highlightedGlobalIndex = newIndex
       }
     }
   }
@@ -167,19 +167,19 @@
   )
 </script>
 
-<header class:in-detail-view={navStoreV2.isDetailViewActive}>
+<header class:in-detail-view={navStore.isDetailViewActive}>
   <div class="header-content" class:no-drag={isContextMenuVisible}>
     <div class="header-left">
       <button
         class="back-button"
         class:hidden={!canGoBack}
-        onclick={() => navStoreV2.goBack()}
+        onclick={() => navStore.goBack()}
         title="Go back"
       >
         ←
       </button>
       <!-- In detail view, the title is handled by the component itself -->
-      {#if !navStoreV2.isDetailViewActive}
+      {#if !navStore.isDetailViewActive}
         <h1>
           {#if isGlobalSearchActive}
             Search Results
@@ -191,10 +191,10 @@
     </div>
 
     <div class="search-container" onkeydown={handleSearchKeyDown}>
-      {#key navStoreV2.isDetailViewActive}
-        {#if navStoreV2.isDetailViewActive}
+      {#key navStore.isDetailViewActive}
+        {#if navStore.isDetailViewActive}
           <SearchInput
-            bind:query={searchStoreV2.detailQuery}
+            bind:query={searchStore.detailQuery}
             {suggestions}
             bind:element={searchInputEl}
             onfocus={() => (isSearchFocused = true)}
@@ -202,7 +202,7 @@
           />
         {:else}
           <SearchInput
-            bind:query={searchStoreV2.globalQuery}
+            bind:query={searchStore.globalQuery}
             {suggestions}
             bind:element={searchInputEl}
             onfocus={() => (isSearchFocused = true)}
@@ -211,7 +211,7 @@
         {/if}
       {/key}
 
-      {#if isSearchFocused && navStoreV2.isDetailViewActive}
+      {#if isSearchFocused && navStore.isDetailViewActive}
         <div class="search-dropdown">
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
             <div class="dropdown-status">Searching...</div>
@@ -222,12 +222,12 @@
               onItemClick={(item) => dispatch('globalSearchItemClick', { item: item as any })}
               onShowContextMenu={(item, e) =>
                 dispatch('showContextMenu', { item: item as any, event: e })}
-              highlightedIndex={searchStoreV2.highlightedDetailIndex}
+              highlightedIndex={searchStore.highlightedDetailIndex}
               isPreSorted={true}
               {settings}
               listFixedAspectRatio={true}
             />
-          {:else if !isPerformingDetailSearch && searchStoreV2.detailQuery.text.trim().length > 0}
+          {:else if !isPerformingDetailSearch && searchStore.detailQuery.text.trim().length > 0}
             <div class="dropdown-status">No results found.</div>
           {/if}
         </div>

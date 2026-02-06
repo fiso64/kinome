@@ -21,7 +21,7 @@ let currentState = $state<NavigationState>({
 
 // --- Derived Helpers ---
 
-// --- Derived Helpers removed, using direct getters in navStoreV2 ---
+// --- Derived Helpers removed, using direct getters in navStore ---
 
 // --- URL Parsing & Synchronization ---
 
@@ -123,7 +123,7 @@ function init() {
   parseUrl()
 }
 
-export const navStoreV2 = {
+export const navStore = {
   get state() {
     return currentState
   },

@@ -62,7 +62,7 @@
     const id = item.id
     // We only need to hydrate if we haven't already.
     // But since 'item' prop doesn't change, this effect runs once on mount.
-    window.api.getItemV2(id, ['logoPath', 'backdropPath']).then((fullItem) => {
+    window.api.getItem(id, { fields: ['logoPath', 'backdropPath'] }).then((fullItem) => {
       // Only update if we don't have overrides yet (to avoid overwriting user actions if they happened fast)
       // Actually, merging is safer.
       localOverrides = {
@@ -169,11 +169,9 @@
   async function refreshLocalItem() {
     try {
       // Fetch all potential artwork fields
-      const fresh = await window.api.getItemV2(localItem.id, [
-        'logoPath',
-        'backdropPath',
-        'posterPath'
-      ])
+      const fresh = await window.api.getItem(localItem.id, {
+        fields: ['logoPath', 'backdropPath', 'posterPath']
+      })
       localOverrides = {
         ...localOverrides,
         logoPath: fresh.logoPath,

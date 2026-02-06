@@ -15,7 +15,7 @@
     Settings,
     AutocompleteSuggestions
   } from '@shared/types'
-  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
+  import { navStore } from '@lib/navigation-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
 
@@ -122,7 +122,7 @@
   })
 
   function handleBack() {
-    navStoreV2.goBack()
+    navStore.goBack()
   }
 
   async function handleSave(): Promise<void> {

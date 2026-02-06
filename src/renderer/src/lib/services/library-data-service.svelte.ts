@@ -105,7 +105,7 @@ class LibraryDataService {
 
       return {
         queryKey: [...this.keys.item.details(normalizedId), { fields }],
-        queryFn: () => (normalizedId ? api.getItemDetails(id!, fields) : null),
+        queryFn: () => (normalizedId ? api.getItem(id!, { fields }) : null),
         enabled: isEnabled && !!normalizedId
       }
     })
@@ -123,7 +123,7 @@ class LibraryDataService {
     const sortedFields = [...fields].sort()
     return this.queryClient.fetchQuery({
       queryKey: [...this.keys.item.details(normalizedId), { fields: sortedFields }],
-      queryFn: () => api.getItemDetails(id, sortedFields)
+      queryFn: () => api.getItem(id, { fields: sortedFields })
     })
   }
 
@@ -142,7 +142,7 @@ class LibraryDataService {
 
       return {
         queryKey: this.keys.item.tree(normalizedId),
-        queryFn: () => (normalizedId ? api.getItemV2(id!, ['tree', ...fields]) : null),
+        queryFn: () => (normalizedId ? api.getItem(id!, ['tree', ...fields]) : null),
         enabled: isEnabled && !!normalizedId
       }
     })
@@ -174,7 +174,7 @@ class LibraryDataService {
           normalizedId
             ? api.getChildren(parentId!, {
               fields,
-              isDetailView
+              groupBy
             })
             : [],
         enabled: isEnabled && normalizedId !== undefined && normalizedId !== null

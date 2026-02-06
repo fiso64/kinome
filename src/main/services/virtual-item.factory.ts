@@ -52,7 +52,7 @@ export function getFiltersFromId(id: string): Record<string, any> {
         // 'Files' usually means things without a season number or explicity unseasoned?
         // For now, let's assume it means seasonNumber is null
         // BUT repository.find might not support explicit null check via typical query?
-        // v2.ts parser handles 'null' string.
+        // Item parser handles 'null' string.
         // We'll set it to null.
         filters['seasonNumber'] = null
       }

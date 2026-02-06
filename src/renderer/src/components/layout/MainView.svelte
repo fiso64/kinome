@@ -5,8 +5,8 @@
   import SetupScreen from './SetupScreen.svelte'
   import { createEventDispatcher } from 'svelte'
 
-  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
-  import { searchStoreV2 } from '@lib/search-store-v2.svelte'
+  import { navStore } from '@lib/navigation-store.svelte'
+  import { searchStore } from '@lib/search-store.svelte'
   import { api } from '@lib/api'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { getAllRequiredFields } from '@lib/view-requirements'
@@ -40,7 +40,7 @@
   // --- V2 State ---
 
   // 1. Current Folder & Children
-  const currentFolderId = $derived(navStoreV2.state.currentFolderId)
+  const currentFolderId = $derived(navStore.state.currentFolderId)
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
     enabled: () => libraryStatus?.status === 'ready'
@@ -78,14 +78,14 @@
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
   // 2. Search
-  const isGlobalSearchActive = $derived(searchStoreV2.isGlobalActive)
-  const isPerformingSearch = $derived(searchStoreV2.isPerformingGlobalSearch)
-  const searchResults = $derived(searchStoreV2.searchResults)
-  const highlightedSearchItemIndex = $derived(searchStoreV2.highlightedGlobalIndex)
-  const filterQuery = $derived(searchStoreV2.filterQuery)
+  const isGlobalSearchActive = $derived(searchStore.isGlobalActive)
+  const isPerformingSearch = $derived(searchStore.isPerformingGlobalSearch)
+  const searchResults = $derived(searchStore.searchResults)
+  const highlightedSearchItemIndex = $derived(searchStore.highlightedGlobalIndex)
+  const filterQuery = $derived(searchStore.filterQuery)
 
   // 3. Detail View
-  const selectedItemId = $derived(navStoreV2.state.selectedItemId)
+  const selectedItemId = $derived(navStore.state.selectedItemId)
   const detailItemQuery = libraryDataService.getItemDetailsQuery(() => selectedItemId, {
     enabled: () => !!selectedItemId && libraryStatus?.status === 'ready'
   })
