@@ -371,6 +371,10 @@ class WebApiClient implements ApiClient {
     }).then((r) => r.success)
   }
 
+  getItemCredits(id: string): Promise<any | null> {
+    return this.request(`/api/items/${encodeURIComponent(id)}/credits`)
+  }
+
   fetchCredits(itemId: string): Promise<void> {
     return this.request('/api/fetch-credits', { method: 'POST', body: JSON.stringify({ itemId }) })
   }

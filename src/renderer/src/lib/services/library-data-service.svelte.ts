@@ -48,13 +48,11 @@ class LibraryDataService {
     },
     parent: {
       byItem: (itemId: string | null | undefined) => ['parent', itemId] as const
+    },
+    credits: {
+      byItem: (itemId: string | null | undefined) => ['credits', itemId] as const
     }
   }
-
-  /**
-   * Initializes the service with the app's QueryClient.
-   * This should be called once in App.svelte or main.ts.
-   */
   init(queryClient?: QueryClient): QueryClient {
     this.queryClient =
       queryClient ||
@@ -124,6 +122,26 @@ class LibraryDataService {
     return this.queryClient.fetchQuery({
       queryKey: [...this.keys.item.details(normalizedId), { fields: sortedFields }],
       queryFn: () => api.getItem(id, { fields: sortedFields })
+    })
+  }
+
+  /**
+   * Returns a query for item credits.
+   */
+  getCreditsQuery(
+    idFn: () => string | null | undefined,
+    options: { enabled?: () => boolean } = {}
+  ) {
+    return createQuery(() => {
+      const id = idFn()
+      const normalizedId = this.normalizeId(id)
+      const isEnabled = options.enabled ? options.enabled() : true
+
+      return {
+        queryKey: this.keys.credits.byItem(normalizedId),
+        queryFn: () => (normalizedId ? api.getItemCredits(id!) : null),
+        enabled: isEnabled && !!normalizedId
+      }
     })
   }
 

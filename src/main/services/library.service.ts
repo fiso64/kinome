@@ -676,6 +676,7 @@ export const fetchCredits = async (itemId: string) => {
     await updateIfChangedAndBroadcast(item)
   }
 }
+export const getItemCredits = (id: string) => repositoryService.getItemCredits(id)
 export const handleItemRenamed = async (oldPath: string, newPath: string) => {
   const oldItem = repositoryService.findItemByPath(oldPath)
   if (!oldItem) return

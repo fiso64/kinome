@@ -74,6 +74,7 @@ export interface ApiClient {
   ): Promise<void>
   clearItemMetadata(itemId: string, childrenOnly: boolean): Promise<boolean>
   clearVirtualFolderMetadata(itemIds: string[]): Promise<boolean>
+  getItemCredits(id: string): Promise<any | null>
   fetchCredits(itemId: string): Promise<void>
   assignSeasonsAndEpisodes(
     showId: string,

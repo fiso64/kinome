@@ -438,6 +438,17 @@ export function getItemPath(id: string): string | null {
   return row?.path ?? null
 }
 
+export function getItemCredits(id: string): any | null {
+  const db = getDb()
+  const row = db.prepare('SELECT people_json FROM metadata WHERE item_id = ?').get(id) as { people_json: string } | undefined
+  if (!row || !row.people_json) return null
+  try {
+    return JSON.parse(row.people_json)
+  } catch (e) {
+    return null
+  }
+}
+
 export function findItemByPath(pathStr: string): LibraryItem | null {
   const db = getDb()
   const row = db

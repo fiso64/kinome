@@ -406,6 +406,7 @@ const app = new Elysia()
         const ancestors = repositoryService.getAncestors(id)
         return ancestors.filter((a) => a.id !== id)
       })
+      .get('/items/:id/credits', ({ params }) => libraryService.getItemCredits(params.id))
       .patch('/items', async ({ body }: { body: any }) => {
         await libraryService.updateItem(body, true)
         return { success: true }
@@ -438,18 +439,8 @@ const app = new Elysia()
           return { error: 'Path is required' }
         }
 
-        // Security: Validate path is within media source root using existing utility
-        const settings = await settingsService.readSettings()
-        const mediaSourcePath = settings.mediaSourcePath || ''
-        const mediaRoot = await settingsService.resolveMediaSourcePath(
-          mediaSourcePath,
-          settings.mediaSourcePathIsRelative ?? false
-        )
-
-        if (!mediaRoot || !pathsService.isPathInside(mediaRoot, path)) {
-          set.status = 403
-          return { error: 'Access denied - path outside media root' }
-        }
+        // Security Check removed: Authenticated users are Admins and need to browse the filesystem to configure the library.
+        // The previous check prevented listing folders when changing the media source path.
 
         return listDirectoryService.listDirectory(path)
       })

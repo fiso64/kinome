@@ -27,7 +27,16 @@
   import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
-  // -- 1. Reactive Data Fetching (Lean Bundling) --
+  // -- 1. Local Component State (Moved up for query dependencies) --
+
+  let activeInfoTab = $state<'overview' | 'credits'>('overview')
+  let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
+  let lastSeenItemId = $state(initialItem.id)
+  let overviewContainerElement = $state<HTMLDivElement>()
+  let isOverviewExpanded = $state(false)
+  let isOverviewOverflowing = $state(false)
+
+  // -- 2. Reactive Data Fetching (Lean Bundling) --
 
   // Resolve layout and required fields for the current item
   const resolvedSettings = $derived(
@@ -37,9 +46,17 @@
     resolvedSettings ? getAllRequiredFields({ ...initialItem, ...resolvedSettings }) : []
   )
 
-  // 1. Fetch metadata only
+  // 1. Fetch metadata only (Fast, no large blobs)
+  $effect(() => {
+    console.log('[DEBUG] DETAIL_HEADER_FIELDS:', DETAIL_HEADER_FIELDS)
+  })
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
     fields: () => DETAIL_HEADER_FIELDS
+  })
+
+  // 1a. Fetch Credits lazily
+  const creditsQuery = libraryDataService.getCreditsQuery(() => initialItem.id, {
+    enabled: () => activeInfoTab === 'credits' || isCreditsExpanded
   })
 
   // 2. Fetch structural children separately with isDetailView: true
@@ -51,14 +68,18 @@
   })
 
   // The authoritative reactive item for metadata (header, background)
-  const item = $derived(itemQuery.data || initialItem)
+  // We merge lazy credits into this object so the UI can simpler access item.tmdbCredits
+  const item = $derived({
+    ...(itemQuery.data || initialItem),
+    tmdbCredits: creditsQuery.data ?? (itemQuery.data || initialItem).tmdbCredits
+  })
 
   // Structural children for the content list/tabs
   const children = $derived(
     childrenQuery.data || (initialItem.type === 'folder' ? initialItem.children || [] : [])
   )
 
-  // -- 2. Derived Template Properties --
+  // -- 3. Derived Template Properties --
 
   const displayTitle = $derived(
     item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
@@ -67,6 +88,7 @@
   )
 
   const showOverviewTab = $derived(!!item.overview)
+  // Ensure we show the tab if we HAVE credits OR if we can fetch them (has tmdbId)
   const showCreditsSection = $derived(
     (item.tmdbId && !item.tmdbCredits) ||
       (item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
@@ -80,14 +102,7 @@
   const contentsLayout = $derived(resolvedSettings?.layout ?? 'grid')
   const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
 
-  // -- 3. Local Component State & Queries --
-
-  let activeInfoTab: 'overview' | 'credits' = $state('overview')
-  let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
-  let lastSeenItemId = $state(initialItem.id)
-  let overviewContainerElement = $state<HTMLDivElement>()
-  let isOverviewExpanded = $state(false)
-  let isOverviewOverflowing = $state(false)
+  // -- 4. Additional Queries --
 
   let posterColumnElement = $state<HTMLDivElement>()
   let infoColumnElement = $state<HTMLDivElement>()
@@ -119,6 +134,9 @@
   })
 
   $effect(() => {
+    // Wait for the lazy-load query to finish before deciding we need to scrape
+    if (creditsQuery.isFetching) return
+
     if (settings?.creditsDisplay === 'tab') {
       if (activeInfoTab === 'credits' && !item.tmdbCredits) {
         window.api.fetchCredits(item.id)
