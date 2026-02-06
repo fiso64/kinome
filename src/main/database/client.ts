@@ -37,26 +37,6 @@ export function initializeDatabase(): Database {
 
     applySchema()
 
-    // Auto-migration for dismissal flags
-    try {
-      db.run('ALTER TABLE user_state ADD COLUMN continue_watching_dismissed INTEGER DEFAULT 0')
-    } catch { }
-    try {
-      db.run('ALTER TABLE user_state ADD COLUMN next_up_dismissed INTEGER DEFAULT 0')
-    } catch { }
-    try {
-      db.run('ALTER TABLE metadata ADD COLUMN version INTEGER')
-    } catch { }
-    // V2 API Migrations
-    try {
-      db.run('ALTER TABLE metadata ADD COLUMN media_type TEXT')
-    } catch { }
-    try {
-      db.run('ALTER TABLE metadata ADD COLUMN season_number INTEGER')
-    } catch { }
-    try {
-      db.run('ALTER TABLE metadata ADD COLUMN episode_number INTEGER')
-    } catch { }
 
     return db
   } catch (error) {

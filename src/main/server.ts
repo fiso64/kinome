@@ -143,6 +143,12 @@ const app = new Elysia()
       )
     }
   })
+  .onError(({ code, error, request }) => {
+    const url = new URL(request.url).pathname
+    console.error(`[API] [ERROR] ${request.method} ${url} - Code: ${code}`)
+    console.error(error)
+    return { error: (error as any).message || 'Internal Server Error' }
+  })
   // Auth Plugin (Deny-by-Default)
   .use((app) =>
     app.derive(async ({ request, set }) => {

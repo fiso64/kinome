@@ -78,6 +78,7 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   lastWatched: { sql: 'u.last_watched_at', table: 'u' },
   continueWatchingDismissed: { sql: 'u.continue_watching_dismissed', table: 'u', parser: Boolean },
   nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
+  nextUpEpisodeId: { sql: 'u.next_up_episode_id', table: 'u' },
 
   // Folder Settings (Scraper)
   retrieve_children_metadata: {
@@ -627,6 +628,12 @@ export function find(options: FindOptions = {}): LibraryItem[] {
       if (def) {
         if (value === null) {
           conditions.push(`${def.sql} IS NULL`)
+        } else if (
+          value !== null &&
+          typeof value === 'object' &&
+          (value as any).$ne === null
+        ) {
+          conditions.push(`${def.sql} IS NOT NULL`)
         } else if (Array.isArray(value)) {
           if (value.length > 0) {
             conditions.push(`${def.sql} IN(${value.map(() => '?').join(',')})`)
@@ -770,26 +777,32 @@ is_hidden = COALESCE(@isHidden, is_hidden),
             ? (updates as any).nextUpDismissed
               ? 1
               : 0
-            : existingState.next_up_dismissed
+            : existingState.next_up_dismissed,
+        nextUpEpisodeId: (updates as any).nextUpEpisodeId !== undefined
+          ? (updates as any).nextUpEpisodeId
+          : existingState.next_up_episode_id
       }
 
-      db.prepare(
-        `
-        INSERT INTO user_state(item_id, watched, last_watched_at, continue_watching_dismissed, next_up_dismissed)
-VALUES(@id, @watched, @lastWatched, @continueWatchingDismissed, @nextUpDismissed)
-        ON CONFLICT(item_id, user_id) DO UPDATE SET
-watched = excluded.watched,
-  last_watched_at = excluded.last_watched_at,
-  continue_watching_dismissed = excluded.continue_watching_dismissed,
-  next_up_dismissed = excluded.next_up_dismissed
-    `
-      ).run({
+      const userStateParams = {
         '@id': itemId,
         '@watched': val.watched ?? 0,
         '@lastWatched': val.lastWatched,
         '@continueWatchingDismissed': val.cwd ?? 0,
-        '@nextUpDismissed': val.nud ?? 0
-      })
+        '@nextUpDismissed': val.nud ?? 0,
+        '@nextUpEpisodeId': val.nextUpEpisodeId
+      }
+      db.prepare(
+        `
+        INSERT INTO user_state(item_id, watched, last_watched_at, continue_watching_dismissed, next_up_dismissed, next_up_episode_id)
+VALUES(@id, @watched, @lastWatched, @continueWatchingDismissed, @nextUpDismissed, @nextUpEpisodeId)
+        ON CONFLICT(item_id, user_id) DO UPDATE SET
+watched = excluded.watched,
+  last_watched_at = excluded.last_watched_at,
+  continue_watching_dismissed = excluded.continue_watching_dismissed,
+  next_up_dismissed = excluded.next_up_dismissed,
+  next_up_episode_id = excluded.next_up_episode_id
+    `
+      ).run(userStateParams)
     }
 
     // 3. Metadata

@@ -201,14 +201,113 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
     }
   }
 
+  // --- Recalculate Next Up for affected shows ---
+  // Find the parent Show if the item we're unmarking is an episode
+  let parent =
+    item.type === 'folder' && item.mediaType === 'tv'
+      ? (item as MediaFolder)
+      : repositoryService.findParent(item.id)
+
+  // Traverse up if we selected a Season
+  while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
+    parent = repositoryService.findParent(parent.id)
+  }
+
+  if (parent) {
+    // Recalculate next_up_episode_id when unwatching episodes in a show
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate)
+    if (showWithNextUp) {
+      if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
+        itemsToUpdate.push(showWithNextUp)
+      }
+    }
+  }
+
   await updateIfChangedAndBroadcast(itemsToUpdate)
+}
+
+/**
+ * Finds the "Next Up" episode for a given show from a list of its episodes.
+ */
+function findNextUpEpisode(episodes: MediaFile[]): MediaFile | undefined {
+  if (episodes.length === 0) return undefined
+
+  const watchedEpisodes = episodes.filter((e) => e.watched)
+  if (watchedEpisodes.length === 0) return undefined
+
+  // Helper to convert S01E01 to comparable integer 10001
+  const getComparable = (ep: MediaFile) => (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+
+  // Sort episodes by season/episode number
+  const sortedEpisodes = [...episodes].sort((a, b) => getComparable(a) - getComparable(b))
+
+  // Find the episode with the highest comparable value that is watched
+  let maxWatchedVal = -1
+  for (const ep of watchedEpisodes) {
+    maxWatchedVal = Math.max(maxWatchedVal, getComparable(ep))
+  }
+
+  // Find the first unwatched episode that comes after the latest watched episode
+  return sortedEpisodes.find((ep) => !ep.watched && getComparable(ep) > maxWatchedVal)
+}
+
+/**
+ * Recalculates the next_up_episode_id for a show and returns the updated show object.
+ */
+async function recalculateNextUpForShow(
+  showId: string,
+  modifiedItems: LibraryItem[] = []
+): Promise<MediaFolder | null> {
+  let show = modifiedItems.find((i) => i.id === showId) as MediaFolder
+  if (!show) {
+    show = repositoryService.getItemById(showId) as MediaFolder
+  }
+  if (!show || show.mediaType !== 'tv') return null
+
+  const descendants = repositoryService.getAllDescendantsAsList(show)
+  const allEpisodes = descendants.filter(
+    (d) => d.type === 'file' && d.mediaType === 'episode'
+  ) as MediaFile[]
+
+  // Overlay in-memory changes so we don't calculate based on stale database state
+  for (const ep of allEpisodes) {
+    const mod = modifiedItems.find((i) => i.id === ep.id)
+    if (mod) Object.assign(ep, mod)
+  }
+
+  const nextEpisode = findNextUpEpisode(allEpisodes)
+  const newNextUpId = nextEpisode?.id || null
+
+  // Also update the show's lastWatched to the latest of its episodes
+  const latestWatchTime = Math.max(0, ...allEpisodes.map((e) => e.lastWatched || 0))
+
+  log(
+    `[Continue Watching] Recalculating for ${show.name}: current=${show.nextUpEpisodeId}, new=${newNextUpId}, lastWatched=${latestWatchTime}`
+  )
+
+  let changed = false
+  if (show.nextUpEpisodeId !== newNextUpId) {
+    show.nextUpEpisodeId = newNextUpId
+    changed = true
+  }
+
+  if ((show as any).lastWatched !== latestWatchTime) {
+    ; (show as any).lastWatched = latestWatchTime
+    changed = true
+  }
+
+  return changed ? (show as MediaFolder) : null
 }
 
 async function checkAndUndismissShow(
   showId: string,
-  newlyWatchedEpisodes: MediaFile[]
+  newlyWatchedEpisodes: MediaFile[],
+  allModifiedItems: LibraryItem[] = []
 ): Promise<MediaFolder | null> {
-  const show = repositoryService.getItemById(showId) as MediaFolder
+  let show = allModifiedItems.find((i) => i.id === showId) as MediaFolder
+  if (!show) {
+    show = repositoryService.getItemById(showId) as MediaFolder
+  }
   if (!show || show.mediaType !== 'tv') return null
 
   // Optimization: If not dismissed, don't waste time calculating logic
@@ -224,6 +323,12 @@ async function checkAndUndismissShow(
   const allEpisodes = descendants.filter(
     (d) => d.type === 'file' && d.mediaType === 'episode'
   ) as MediaFile[]
+
+  // Overlay in-memory changes
+  for (const ep of allEpisodes) {
+    const mod = allModifiedItems.find((i) => i.id === ep.id)
+    if (mod) Object.assign(ep, mod)
+  }
 
   // Helper to convert S01E01 to comparable integer 10001
   const getComparable = (ep: MediaFile) => (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
@@ -270,6 +375,8 @@ export async function markAsWatched(itemId: string): Promise<void> {
     }
   }
 
+  log(`[Continue Watching] markAsWatched: itemsToUpdate=${itemsToUpdate.length}, newlyWatched=${newlyWatchedEpisodes.length}`)
+
   // --- Logic for Un-Dismissing ---
   // Find the parent Show to run checks against
   let parent =
@@ -286,11 +393,19 @@ export async function markAsWatched(itemId: string): Promise<void> {
     if (parent.mediaType !== 'tv') {
       throw new Error(`INTERNAL ERROR: markAsWatched reached a non-tv parent for undismiss: ${parent.name} (${parent.mediaType})`)
     }
-    const showToUpdate = await checkAndUndismissShow(parent.id, newlyWatchedEpisodes)
-    if (showToUpdate) {
+    const undismissedShow = await checkAndUndismissShow(parent.id, newlyWatchedEpisodes, itemsToUpdate)
+    if (undismissedShow) {
       // Ensure we don't duplicate the show in the update list if it was the target
-      if (!itemsToUpdate.find((i) => i.id === showToUpdate.id)) {
-        itemsToUpdate.push(showToUpdate)
+      if (!itemsToUpdate.find((i) => i.id === undismissedShow.id)) {
+        itemsToUpdate.push(undismissedShow)
+      }
+    }
+
+    // ALWAYS recalculate next_up_episode_id when watching something in a show
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate)
+    if (showWithNextUp) {
+      if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
+        itemsToUpdate.push(showWithNextUp)
       }
     }
   }
@@ -303,108 +418,68 @@ export async function markAsWatched(itemId: string): Promise<void> {
 export async function getContinueWatchingItems(
   includeDismissed = false
 ): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> {
-  const allItems = repositoryService.getAllItemsAsList()
-  if (allItems.length === 0) return []
+  // 1. Fetch all shows that have progress (denormalized pointer)
+  const showsWithProgress = repositoryService.find({
+    fields: [
+      ...repositoryService.CORE_FIELDS,
+      'nextUpEpisodeId',
+      'continueWatchingDismissed',
+      'nextUpDismissed'
+    ],
+    where: {
+      type: 'folder',
+      mediaType: 'tv',
+      nextUpEpisodeId: { $ne: null }
+      // We'll filter dismissed in-memory or improve the repository helper 
+      // but for now let's see if we get ANY results.
+    },
+    orderBy: { field: 'lastWatched', direction: 'DESC' }
+  }) as MediaFolder[]
 
-  // Reconstruct hierarchy efficiently
-  const parentMap = new Map<string, string>()
-  const db = repositoryService.getDb()
-  const adjacency = db.prepare('SELECT id, parent_id FROM items').all() as {
-    id: string
-    parent_id: string
-  }[]
-  adjacency.forEach((a) => parentMap.set(a.id, a.parent_id))
-
-  const shows: MediaFolder[] = []
-  for (const item of allItems) {
-    if (item.type === 'folder' && item.mediaType === 'tv') {
-      if (includeDismissed || !item.continueWatchingDismissed) {
-        shows.push(item as MediaFolder)
-      }
-    }
+  let filtered = showsWithProgress
+  if (!includeDismissed) {
+    filtered = showsWithProgress.filter((s) => !s.continueWatchingDismissed)
   }
 
-  const results: { show: MediaFolder; nextEpisode: MediaFile; lastWatched: number }[] = []
+  if (filtered.length === 0) return []
 
-  for (const show of shows) {
-    const episodes: MediaFile[] = []
+  const results: { show: MediaFolder; nextEpisode: MediaFile }[] = []
 
-    for (const item of allItems) {
-      if (item.type === 'file' && item.mediaType === 'episode') {
-        let currentId = item.id
-        let isChild = false
-        for (let i = 0; i < 3; i++) {
-          const pid = parentMap.get(currentId)
-          if (!pid) break
-          if (pid === show.id) {
-            isChild = true
-            break
-          }
-          currentId = pid
-        }
-        if (isChild) episodes.push(item as MediaFile)
+  for (const show of filtered) {
+    if (!show.nextUpEpisodeId) continue
+
+    // 2. Fetch the specific next episode using its ID
+    const nextEpisode = repositoryService.getItemById(show.nextUpEpisodeId) as MediaFile
+    if (!nextEpisode) {
+      // Data inconsistency: Show points to an episode that no longer exists.
+      // We should probably trigger a recalculation here.
+      const showWithFixedPointer = await recalculateNextUpForShow(show.id)
+      if (showWithFixedPointer) {
+        await updateIfChangedAndBroadcast(showWithFixedPointer)
       }
-    }
-
-    if (episodes.length === 0) {
       continue
     }
 
-    const watchedEpisodes = episodes.filter((e) => e.watched)
-    if (watchedEpisodes.length === 0) continue
-
-    const getComparable = (ep: MediaFile) =>
-      (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
-    episodes.sort((a, b) => getComparable(a) - getComparable(b))
-
-    let maxWatchedIdx = -1
-    for (let i = 0; i < episodes.length; i++) {
-      if (episodes[i].watched) {
-        if (
-          maxWatchedIdx === -1 ||
-          getComparable(episodes[i]) > getComparable(episodes[maxWatchedIdx])
-        ) {
-          maxWatchedIdx = i
-        }
-      }
-    }
-
-    let nextEpisode: MediaFile | undefined
-    for (let i = 0; i < episodes.length; i++) {
-      if (
-        !episodes[i].watched &&
-        getComparable(episodes[i]) > getComparable(episodes[maxWatchedIdx])
-      ) {
-        nextEpisode = episodes[i]
-        break
-      }
-    }
-
-    if (nextEpisode) {
-      if (!nextEpisode.title) {
-        const updatedItems = await metadataService.fetchEpisodeDataForContinueWatching(
-          show,
-          nextEpisode
-        )
-        if (updatedItems.length > 0) {
-          await updateIfChangedAndBroadcast(updatedItems)
-        }
+    // 3. Ensure we have the minimum required fields for the episode to be useful
+    if (!nextEpisode.title) {
+      const updatedItems = await metadataService.fetchEpisodeDataForContinueWatching(
+        show,
+        nextEpisode
+      )
+      if (updatedItems.length > 0) {
+        await updateIfChangedAndBroadcast(updatedItems)
         const fresh = repositoryService.getItemById(nextEpisode.id) as MediaFile
         if (fresh) Object.assign(nextEpisode, fresh)
       }
-
-      const lastWatchedTime = Math.max(0, ...watchedEpisodes.map((e) => e.lastWatched ?? 0))
-      results.push({
-        show: repositoryService.createTransferableCopy(show) as MediaFolder,
-        nextEpisode: repositoryService.createTransferableCopy(nextEpisode) as MediaFile,
-        lastWatched: lastWatchedTime
-      })
     }
+
+    results.push({
+      show: repositoryService.createTransferableCopy(show) as MediaFolder,
+      nextEpisode: repositoryService.createTransferableCopy(nextEpisode) as MediaFile
+    })
   }
 
   return results
-    .sort((a, b) => b.lastWatched - a.lastWatched)
-    .map((r) => ({ show: r.show, nextEpisode: r.nextEpisode }))
 }
 
 // --- Passthroughs ---
@@ -539,14 +614,16 @@ export const getContinueWatchingForShow = async (showId: string) => {
   const all = await getContinueWatchingItems(true) // Include dismissed so we can show "Next Up" even if removed from Home
   const found = all.find((r) => r.show.id === showId)
   // For the detail view, we filter by nextUpDismissed here or let the UI handle it.
-  // Ideally we return it and let UI decide, but to be safe let's return null if nextUpDismissed is true
-  if (found && found.show.nextUpDismissed) return null
+  if (found && found.show.nextUpDismissed) {
+    return null
+  }
   return found || null
 }
 export const setContinueWatchingDismissed = async (showId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
     item.continueWatchingDismissed = true
+    // Do NOT set nextUpDismissed - this is the independent direction of the one-way rule
     await updateIfChangedAndBroadcast(item)
   }
 }
@@ -554,7 +631,7 @@ export const setNextUpDismissed = async (showId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
     item.nextUpDismissed = true
-    item.continueWatchingDismissed = true
+    item.continueWatchingDismissed = true // One-way rule: dismissing Next Up also dismisses Continue Watching
     await updateIfChangedAndBroadcast(item)
   }
 }
@@ -582,6 +659,20 @@ export const handleItemRenamed = async (oldPath: string, newPath: string) => {
       const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
       if (mediaSourcePath) {
         await filesystemService.syncWithDisk(parent, mediaSourcePath)
+      }
+
+      // If we renamed something inside a TV show, recalculate the pointer
+      // (IDs change when paths change)
+      let showParent: MediaFolder | null = parent as MediaFolder
+      while (showParent && (showParent.type !== 'folder' || showParent.mediaType !== 'tv')) {
+        showParent = repositoryService.findParent(showParent.id) as MediaFolder
+      }
+
+      if (showParent) {
+        const updatedShow = await recalculateNextUpForShow(showParent.id)
+        if (updatedShow) {
+          await updateIfChangedAndBroadcast(updatedShow)
+        }
       }
     }
   }
@@ -751,9 +842,15 @@ export const recordPlayback = async (itemId: string) => {
   }
 
   if (parent && isNewWatch && item.mediaType === 'episode') {
-    const showToUpdate = await checkAndUndismissShow(parent.id, [item as MediaFile])
-    if (showToUpdate) {
-      modifiedItems.push(showToUpdate)
+    const undismissedShow = await checkAndUndismissShow(parent.id, [item as MediaFile], modifiedItems)
+    if (undismissedShow) {
+      modifiedItems.push(undismissedShow)
+    }
+
+    // ALWAYS recalculate next_up_episode_id when watching something in a show
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, modifiedItems)
+    if (showWithNextUp) {
+      modifiedItems.push(showWithNextUp)
     }
   }
 
@@ -879,3 +976,4 @@ export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
   // Return the item and all subsequent items (Next episodes)
   return siblings.slice(index)
 }
+

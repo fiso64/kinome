@@ -347,6 +347,7 @@ export interface MediaFolder extends StoredViewSettings {
   tmdbCredits?: { cast: Person[]; crew: Person[] } | null
   continueWatchingDismissed?: boolean
   nextUpDismissed?: boolean
+  nextUpEpisodeId?: string | null
   _lastSeenLocalMaxSeason?: number
   _lastSeenLocalMaxEpisode?: number
   lockedFields?: string[] // Array of field names that are locked
@@ -376,6 +377,7 @@ export interface BaseLibraryItem extends StoredViewSettings {
   lastWatched?: number
   continueWatchingDismissed?: boolean
   nextUpDismissed?: boolean
+  nextUpEpisodeId?: string | null
   lastRefreshedAt?: number | null
   lockedFields?: string[]
   _v?: number
@@ -522,7 +524,7 @@ export interface TmdbImageResults {
 /**
  * TODO: We want to refactor this so that it is slimmed down all the way to only have 'id' as a core field,
  * but this has been postponed as this is a dangerous/breaking change refactor.
- * NOBODY IS ALLOWED TO ADD ANY FIELD HERE, NO MATTER WHAT.
+ * NOBODY IS ALLOWED TO ADD ANY FIELD HERE, NO MATTER WHAT - YES, THAT INCLUDES YOU!
  */
 export const CORE_FIELDS = [
   'id',

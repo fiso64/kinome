@@ -283,6 +283,7 @@ class LibraryDataService {
       if (isCWRelated) {
         refreshGlobalContinueWatching = true
         // If it's a TV related item, we might need to refresh show-specific CW
+        showIdsForCWRefetch.add(item.id)
         if (item.ancestorIds) {
           for (const ancestorId of item.ancestorIds) {
             // We don't know for sure which ancestor is the show, so we refetch for all ancestors
@@ -344,10 +345,15 @@ class LibraryDataService {
    */
   optimisticDismissContinueWatching(showId: string) {
     if (!this.queryClient) return
+
+    // 1. Remove from global home list
     this.queryClient.setQueryData(this.keys.continueWatching.all, (old: any) => {
       if (!Array.isArray(old)) return old
       return old.filter((item: any) => item.show?.id !== showId)
     })
+
+    // 2. Clear show-specific Next Up info
+    this.queryClient.setQueryData(this.keys.continueWatching.forShow(showId), null)
   }
 
   /**

@@ -98,8 +98,10 @@ export async function updateIfChangedAndBroadcast(
       // We also allow forcing an update if _v was explicitly provided in the update payload.
       const forceUpdate =
         (item as any)._v !== undefined && (item as any)._v !== (existing as any)?._v
-      const hasRealChanges =
-        !existing || forceUpdate || !isItemDataSame(existing, nextState as LibraryItem)
+
+      const existingSnapshot = getComparisonSnapshot(existing)
+      const nextSnapshot = getComparisonSnapshot(nextState as LibraryItem)
+      const hasRealChanges = !existing || forceUpdate || !equal(existingSnapshot, nextSnapshot)
 
       if (hasRealChanges) {
         item._v = Date.now()
@@ -108,10 +110,6 @@ export async function updateIfChangedAndBroadcast(
         }
         modifiedItems.push(item)
         autocompleteService.invalidateCache()
-      } else {
-        console.log(
-          `[Item Update Service] Item ${item.id} has no real changes. Skipping update and broadcast.`
-        )
       }
     }
   })

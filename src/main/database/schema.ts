@@ -1,3 +1,5 @@
+// REMINDER: Absolutely no migrations.
+
 export const SCHEMA_SQL = `
 -- The physical filesystem structure
 CREATE TABLE IF NOT EXISTS items (
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS metadata (
       episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
       locked_fields_json TEXT, -- Array of locked field names
       last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
+      version INTEGER DEFAULT 0,
       FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
     );
 
@@ -75,6 +78,7 @@ CREATE TABLE IF NOT EXISTS user_state (
     last_watched_at INTEGER,
     continue_watching_dismissed INTEGER DEFAULT 0, -- Boolean
     next_up_dismissed INTEGER DEFAULT 0, -- Boolean
+    next_up_episode_id TEXT, -- UUID of the next episode to watch (for shows)
     
     PRIMARY KEY (item_id, user_id),
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
