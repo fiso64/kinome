@@ -71,9 +71,20 @@ class WebApiClient implements ApiClient {
     this.ws.onmessage = (event) => {
       try {
         const { type, data } = JSON.parse(event.data)
+
+        // Log library updates specifically for debugging
+        if (type === 'library-items-updated') {
+          console.log(`[WebApiClient] Received '${type}' event with ${data?.length || 0} items`)
+        } else {
+          console.log(`[WebApiClient] Received '${type}' event`)
+        }
+
         const handlers = this.eventHandlers.get(type)
         if (handlers) {
+          console.log(`[WebApiClient] Dispatching '${type}' to ${handlers.size} handler(s)`)
           handlers.forEach((handler) => handler(data))
+        } else {
+          console.log(`[WebApiClient] No handlers registered for '${type}'`)
         }
       } catch (e) {
         console.error('[WebApiClient] Failed to parse WS message:', e)
@@ -100,8 +111,10 @@ class WebApiClient implements ApiClient {
       this.eventHandlers.set(event, new Set())
     }
     this.eventHandlers.get(event)!.add(callback)
+    console.log(`[WebApiClient] Registered handler for '${event}' (total: ${this.eventHandlers.get(event)!.size})`)
     return () => {
       this.eventHandlers.get(event)?.delete(callback)
+      console.log(`[WebApiClient] Unregistered handler for '${event}' (remaining: ${this.eventHandlers.get(event)?.size || 0})`)
     }
   }
 

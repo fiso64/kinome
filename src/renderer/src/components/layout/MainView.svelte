@@ -118,6 +118,8 @@
       : undefined
   )
 
+  let setupCompleted = $state(false)
+
   const isRoot = $derived(
     !isGlobalSearchActive && (currentFolderId === 'root' || currentFolder?.path === '.')
   )
@@ -128,8 +130,13 @@
 </script>
 
 <div class="content">
-  {#if (libraryStatus && libraryStatus.status !== 'ready') || (settings && !settings.libraryLocation) || (!currentFolder && !currentFolderId && !isGlobalSearchActive)}
-    <SetupScreen onComplete={() => window.location.reload()} {onStatusUpdate} />
+  {#if !setupCompleted && ((libraryStatus && libraryStatus.status !== 'ready') || (settings && !settings.libraryLocation) || (!currentFolder && !currentFolderId && !isGlobalSearchActive))}
+    <SetupScreen
+      onComplete={() => {
+        setupCompleted = true
+      }}
+      {onStatusUpdate}
+    />
   {:else}
     <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->

@@ -240,7 +240,11 @@ class LibraryDataService {
    * Processes a batch of item updates from the backend.
    */
   handleLibraryUpdates(updatedItems: LibraryItem[], isScanning: boolean) {
-    if (!this.queryClient || !this.throttler) return
+    console.log(`[LibraryDataService] handleLibraryUpdates called with ${updatedItems.length} items, isScanning: ${isScanning}`)
+    if (!this.queryClient || !this.throttler) {
+      console.warn('[LibraryDataService] Cannot handle updates - queryClient or throttler not initialized!')
+      return
+    }
 
     const ancestorIdsToRefetch = new Set<string>()
     let refreshGlobalContinueWatching = false

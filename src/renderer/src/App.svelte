@@ -89,11 +89,34 @@
       settings = newSettings
     })
 
-    const unlistenScanStatus = api.onScanStatusChanged((status) => {
+    const unlistenScanStatus = api.onScanStatusChanged(async (status) => {
       log(`Scan status changed from backend: ${JSON.stringify(status)}`)
 
       if (status.isFileScanningLibrary !== undefined) {
         isFileScanningLibrary = status.isFileScanningLibrary
+
+        // Check if we just completed the initial scan
+        if (
+          !isFileScanningLibrary &&
+          sessionStorage.getItem('showInitialFolderSettingsAfterScan') === 'true'
+        ) {
+          sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
+
+          // Fetch the root folder and show the initial folder settings modal
+          try {
+            const rootStatus = await api.getLibraryRoot()
+            if (rootStatus?.root) {
+              // Update libraryStatus so queries become enabled
+              libraryStatus = rootStatus
+              rootId = rootStatus.root.id
+              libraryDataService.rootId = rootId
+
+              modalStore.open('initialFolderSettings', { root: rootStatus.root })
+            }
+          } catch (err) {
+            console.error('Failed to fetch root for initial folder settings modal:', err)
+          }
+        }
       }
       if (status.isMetadataFetchingLibrary !== undefined) {
         isMetadataFetchingLibrary = status.isMetadataFetchingLibrary
@@ -168,6 +191,9 @@
   $effect(() => {
     // Only attempt connection if auth check is complete and we are authorized
     if (!authStore.isChecking) {
+      log(
+        `[App] Initiating WebSocket connection... (isAuth: ${authStore.isAuthenticated}, hasToken: ${!!authStore.token})`
+      )
       api.connectWebSocket(authStore.token)
     }
   })
@@ -200,11 +226,15 @@
   })
 
   $effect(() => {
+    log('[App] Registering library items update listener')
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
-      log(`Received batch update for ${updatedItems.length} items.`)
+      log(`[App] Received batch update for ${updatedItems.length} items.`)
       libraryDataService.handleLibraryUpdates(updatedItems, isFastUpdating)
     })
-    return () => unlistenItemsUpdated()
+    return () => {
+      log('[App] Unregistering library items update listener')
+      unlistenItemsUpdated()
+    }
   })
 
   // Listener for item deletion

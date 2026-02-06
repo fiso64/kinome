@@ -118,22 +118,28 @@
         isRelative: mediaSourcePathIsRelative
       })
 
-      // 3. Perform scan and open folder settings modal
-      const root = await api.performInitialScan(resolved)
-
-      // Invalidate queries so that MainView realizes the library is ready
+      // 3. Invalidate queries and close setup modal IMMEDIATELY
       queryClient.invalidateQueries()
 
-      // Notify parent to refresh libraryStatus state
+      // Notify parent to refresh libraryStatus state and navigate to home
       if (onStatusUpdate) onStatusUpdate()
 
-      if (root) {
-        modalStore.open('initialFolderSettings', { root })
-      } else {
-        onComplete()
-      }
+      // 4. Set flag so App knows to show InitialFolderSettingsModal after scan
+      sessionStorage.setItem('showInitialFolderSettingsAfterScan', 'true')
+
+      // Complete (navigate to home)
+      onComplete()
+
+      // 5. Trigger the scan after a short delay to ensure navigation completes
+      setTimeout(() => {
+        api.performInitialScan(resolved).catch((err) => {
+          console.error('Initial scan failed:', err)
+          sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
+        })
+      }, 100)
     } catch (err: any) {
       error = err.message || 'Failed to save settings.'
+      sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
     } finally {
       isSaving = false
     }
