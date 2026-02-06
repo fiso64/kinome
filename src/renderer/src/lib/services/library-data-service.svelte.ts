@@ -173,9 +173,9 @@ class LibraryDataService {
         queryFn: () =>
           normalizedId
             ? api.getChildren(parentId!, {
-                fields,
-                isDetailView
-              })
+              fields,
+              isDetailView
+            })
             : [],
         enabled: isEnabled && normalizedId !== undefined && normalizedId !== null
       }
@@ -190,7 +190,9 @@ class LibraryDataService {
       const isEnabled = options.enabled ? options.enabled() : true
       return {
         queryKey: this.keys.continueWatching.all,
-        queryFn: api.getContinueWatchingItems,
+        queryFn: async () => {
+          return await api.getContinueWatchingItems()
+        },
         enabled: isEnabled
       }
     })

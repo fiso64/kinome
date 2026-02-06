@@ -159,9 +159,9 @@ export function evaluateVirtualTagsForItem(
     }
   }
 
-  if (Object.keys(result).length > 0) {
-    log(`In-memory eval for "${item.name}": ${JSON.stringify(result)}`)
-  }
+  // if (Object.keys(result).length > 0) {
+  //   log(`In-memory eval for "${item.name}": ${JSON.stringify(result)}`)
+  // }
 
   return result
 }

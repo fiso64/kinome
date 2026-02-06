@@ -240,7 +240,8 @@ async function checkAndUndismissShow(
   }, 0)
 
   // If the new episode is the greatest (or tied for greatest), un-dismiss
-  if (maxNewVal >= maxWatchedVal) {
+  // Also un-dismiss if the show was effectively unwatched (maxWatchedVal === 0)
+  if (maxNewVal >= maxWatchedVal || maxWatchedVal === 0) {
     show.nextUpDismissed = false
     show.continueWatchingDismissed = false
     return show
@@ -282,6 +283,9 @@ export async function markAsWatched(itemId: string): Promise<void> {
   }
 
   if (parent) {
+    if (parent.mediaType !== 'tv') {
+      throw new Error(`INTERNAL ERROR: markAsWatched reached a non-tv parent for undismiss: ${parent.name} (${parent.mediaType})`)
+    }
     const showToUpdate = await checkAndUndismissShow(parent.id, newlyWatchedEpisodes)
     if (showToUpdate) {
       // Ensure we don't duplicate the show in the update list if it was the target
@@ -342,7 +346,9 @@ export async function getContinueWatchingItems(
       }
     }
 
-    if (episodes.length === 0) continue
+    if (episodes.length === 0) {
+      continue
+    }
 
     const watchedEpisodes = episodes.filter((e) => e.watched)
     if (watchedEpisodes.length === 0) continue

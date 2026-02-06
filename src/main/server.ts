@@ -22,6 +22,19 @@ const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 mins
 const MAX_ATTEMPTS = 10
 
+// Stream playback debounce to prevent DB spam on range requests
+const playbackDebounce = new Map<string, number>()
+const PLAYBACK_DEBOUNCE_WINDOW = 5 * 60 * 1000 // 5 mins
+
+function recordPlaybackDebounced(itemId: string) {
+  const now = Date.now()
+  const last = playbackDebounce.get(itemId) || 0
+  if (now - last > PLAYBACK_DEBOUNCE_WINDOW) {
+    playbackDebounce.set(itemId, now)
+    libraryService.recordPlayback(itemId).catch(console.error)
+  }
+}
+
 function checkRateLimit(ip: string): { allowed: boolean; waitTime?: number } {
   const now = Date.now()
   const attempt = loginAttempts.get(ip)
@@ -418,7 +431,7 @@ const app = new Elysia()
         return libraryService.getItemProperties(itemPath)
       })
       // Streaming
-      .get('/stream/:id', async ({ params, set }) => {
+      .get('/stream/:id', async ({ params, query, set }) => {
         const item = (await libraryService.getItemById(params.id)) as any
         if (!item || !item.path) {
           set.status = 404
@@ -429,6 +442,13 @@ const app = new Elysia()
           set.status = 404
           return 'File not found'
         }
+
+        // Mark as watched/continue watching when stream starts
+        // Fire and forget to not delay the stream
+        if (query.watch === '1' || query.watch === 'true') {
+          recordPlaybackDebounced(params.id)
+        }
+
         if (filePath.startsWith('http')) {
           return Response.redirect(filePath)
         }
@@ -454,7 +474,7 @@ const app = new Elysia()
           }
         })
       })
-      .get('/stream/:id/:filename', async ({ params, set }) => {
+      .get('/stream/:id/:filename', async ({ params, query, set }) => {
         const item = (await libraryService.getItemById(params.id)) as any
         if (!item || !item.path) {
           set.status = 404
@@ -464,6 +484,15 @@ const app = new Elysia()
         if (!filePath) {
           set.status = 404
           return 'File not found'
+        }
+
+        if (filePath.startsWith('http')) {
+          return Response.redirect(filePath)
+        }
+
+        // Mark as watched/continue watching when stream starts
+        if (query.watch === '1' || query.watch === 'true') {
+          recordPlaybackDebounced(params.id)
         }
         return Bun.file(filePath)
       })
@@ -494,7 +523,12 @@ const app = new Elysia()
             const filename = encodeURIComponent(item.name)
             const token = query.token as string
             const streamUrl = `${protocol}//${host}/api/stream/${item.id}/${filename}`
-            m3uContent += token ? `${streamUrl}?token=${token}\n` : `${streamUrl}\n`
+            const params = new URLSearchParams()
+            if (token) params.set('token', token)
+            params.set('watch', '1')
+
+            const fullUrl = `${streamUrl}?${params.toString()}`
+            m3uContent += `${fullUrl}\n`
           }
 
           set.headers['Content-Type'] = 'audio/x-mpegurl'
