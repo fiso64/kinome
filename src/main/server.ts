@@ -181,15 +181,17 @@ const app = new Elysia()
           authenticated: state.allowUnauthenticated || isValid
         }
       })
-      .post('/login', async ({ body }: { body: any }) => {
+      .post('/login', async ({ body, set }: { body: any; set: any }) => {
         const { password } = body
         if (!password) {
+          set.status = 400
           return { success: false, message: 'Password required' }
         }
         const token = await authService.login(password)
         if (token) {
           return { success: true, token }
         } else {
+          set.status = 401
           return { success: false, message: 'Invalid password' }
         }
       })

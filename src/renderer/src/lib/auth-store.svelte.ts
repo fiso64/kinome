@@ -47,13 +47,25 @@ class AuthStore {
       })
       if (response.ok) {
         const data = await response.json()
-        this.token = data.token
-        localStorage.setItem('auth_token', data.token)
-        this.isAuthenticated = true
-        return { success: true }
+        if (data.success) {
+          this.token = data.token
+          localStorage.setItem('auth_token', data.token)
+          this.isAuthenticated = true
+          return { success: true }
+        } else {
+          this.isAuthenticated = false
+          this.token = ''
+          localStorage.removeItem('auth_token')
+          return { success: false, message: data.message }
+        }
       } else {
-        const data = await response.json()
-        return { success: false, message: data.message }
+        const text = await response.text()
+        let message = 'Login failed'
+        try {
+          const data = JSON.parse(text)
+          message = data.message || message
+        } catch (e) { }
+        return { success: false, message }
       }
     } catch (error) {
       return { success: false, message: 'Network error' }
@@ -69,17 +81,26 @@ class AuthStore {
       })
       if (response.ok) {
         const data = await response.json()
-        if (data.token) {
-          this.token = data.token
-          localStorage.setItem('auth_token', data.token)
+        if (data.success) {
+          if (data.token) {
+            this.token = data.token
+            localStorage.setItem('auth_token', data.token)
+          }
+          this.needsSetup = false
+          this.allowUnauthenticated = !!data.allowUnauthenticated
+          this.isAuthenticated = true
+          return { success: true }
+        } else {
+          return { success: false, message: data.message }
         }
-        this.needsSetup = false
-        this.allowUnauthenticated = !!data.allowUnauthenticated
-        this.isAuthenticated = true
-        return { success: true }
       } else {
-        const data = await response.json()
-        return { success: false, message: data.message }
+        const text = await response.text()
+        let message = 'Setup failed'
+        try {
+          const data = JSON.parse(text)
+          message = data.message || message
+        } catch (e) { }
+        return { success: false, message }
       }
     } catch (error) {
       return { success: false, message: 'Network error' }

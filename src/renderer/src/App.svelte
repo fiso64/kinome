@@ -157,6 +157,10 @@
         isInitializing = false
         log(`Initialization complete. isFastUpdating: ${isFastUpdating}`)
       })
+    } else if (!authStore.isAuthenticated && hasInitialized) {
+      log('User logged out. Resetting initialization state.')
+      hasInitialized = false
+      isInitializing = true
     }
   })
 
