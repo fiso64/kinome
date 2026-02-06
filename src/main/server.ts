@@ -13,6 +13,43 @@ import { setTransport } from './transport.registry'
 import * as authService from './services/auth.service'
 import { v2Routes } from './routes/v2.elysia'
 
+// --- Security Middleware & Constants ---
+
+const PUBLIC_PATHS = ['/api/login', '/api/check-auth', '/api/setup-admin']
+
+// Simple in-memory rate limiter for login
+const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 mins
+const MAX_ATTEMPTS = 10
+
+function checkRateLimit(ip: string): { allowed: boolean; waitTime?: number } {
+  const now = Date.now()
+  const attempt = loginAttempts.get(ip)
+
+  if (attempt) {
+    if (now - attempt.lastAttempt > RATE_LIMIT_WINDOW) {
+      loginAttempts.delete(ip)
+      return { allowed: true }
+    }
+    if (attempt.count >= MAX_ATTEMPTS) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (now - attempt.lastAttempt)) / 60000)
+      return { allowed: false, waitTime }
+    }
+  }
+  return { allowed: true }
+}
+
+function recordFailedAttempt(ip: string) {
+  const attempt = loginAttempts.get(ip) || { count: 0, lastAttempt: Date.now() }
+  attempt.count++
+  attempt.lastAttempt = Date.now()
+  loginAttempts.set(ip, attempt)
+}
+
+function resetRateLimit(ip: string) {
+  loginAttempts.delete(ip)
+}
+
 // 1. Initialize Services
 const port = process.env.PORT || 3000
 
@@ -93,39 +130,38 @@ const app = new Elysia()
       )
     }
   })
-  // Auth Middleware
-  .derive(async ({ request, set }) => {
-    const url = new URL(request.url).pathname
-    if (!url.startsWith('/api')) return {}
+  // Auth Plugin (Deny-by-Default)
+  .use((app) =>
+    app.derive(async ({ request, set }) => {
+      const url = new URL(request.url).pathname
 
-    const settings = await settingsService.readSettings()
+      // Skip non-API/WS routes (frontend assets)
+      if (!url.startsWith('/api') && !url.startsWith('/ws')) return { authenticated: true }
 
-    // Auth Check Logic
-    const isPublic = ['/api/login', '/api/check-auth', '/api/setup-admin'].some(
-      (p) => url.startsWith(p)
-    )
-    if (settings.allowUnauthenticated || isPublic) {
-      return { authenticated: true }
-    }
+      // Check Whitelist
+      const isPublic = PUBLIC_PATHS.some((p) => url.startsWith(p))
+      const settings = await settingsService.readSettings()
 
-    // Check token
-    const authHeader = request.headers.get('authorization')
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.substring(7)
-      : new URL(request.url).searchParams.get('token')
+      if (settings.allowUnauthenticated || isPublic) {
+        return { authenticated: true }
+      }
 
-    if (token && authService.validateToken(token)) {
-      return { authenticated: true }
-    }
+      // Check Token
+      const authHeader = request.headers.get('authorization')
+      const token =
+        authHeader?.startsWith('Bearer ')
+          ? authHeader.substring(7)
+          : new URL(request.url).searchParams.get('token')
 
-    // If not authenticated and not public, throw error or set status
-    if (url.startsWith('/api') && !isPublic) {
+      if (token && authService.validateToken(token)) {
+        return { authenticated: true }
+      }
+
+      // Deny-by-Default
       set.status = 401
       throw new Error('Unauthorized')
-    }
-
-    return { authenticated: false }
-  })
+    })
+  )
   // WebSocket
   .ws('/ws', {
     open(ws) {
@@ -144,21 +180,21 @@ const app = new Elysia()
         relativePath = relativePath.split('?')[0]
       }
 
-      let fullPath = resolveLibraryPath(relativePath)
+      // SECURITY: resolveLibraryPath now uses securePathJoin internally
+      const fullPath = resolveLibraryPath(relativePath)
 
-      if (!fs.existsSync(fullPath)) {
-        const imagesPath = resolveLibraryPath(path.join('images', relativePath))
-        if (fs.existsSync(imagesPath)) {
-          fullPath = imagesPath
+      if (!fullPath || !fs.existsSync(fullPath)) {
+        // Try looking in images fallback if primary path fails
+        const securedImagesPath = resolveLibraryPath(path.join('images', relativePath))
+        if (securedImagesPath && fs.existsSync(securedImagesPath)) {
+          return Bun.file(securedImagesPath)
         }
-      }
 
-      if (fs.existsSync(fullPath)) {
-        return Bun.file(fullPath)
-      } else {
         set.status = 404
         return 'Not found'
       }
+
+      return Bun.file(fullPath)
     } catch (e) {
       set.status = 500
       return 'Error'
@@ -181,16 +217,25 @@ const app = new Elysia()
           authenticated: state.allowUnauthenticated || isValid
         }
       })
-      .post('/login', async ({ body, set }: { body: any; set: any }) => {
-        const { password } = body
+      .post('/login', async ({ body, set, request }) => {
+        const ip = (request as any).ip || '0.0.0.0'
+        const rateLimit = checkRateLimit(ip)
+        if (!rateLimit.allowed) {
+          set.status = 429
+          return { success: false, message: `Too many attempts. Please wait ${rateLimit.waitTime} minutes.` }
+        }
+
+        const { password } = body as any
         if (!password) {
           set.status = 400
           return { success: false, message: 'Password required' }
         }
         const token = await authService.login(password)
         if (token) {
+          resetRateLimit(ip)
           return { success: true, token }
         } else {
+          recordFailedAttempt(ip)
           set.status = 401
           return { success: false, message: 'Invalid password' }
         }

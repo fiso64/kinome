@@ -164,6 +164,14 @@
     }
   })
 
+  // WebSocket Connection Management
+  $effect(() => {
+    // Only attempt connection if auth check is complete and we are authorized
+    if (!authStore.isChecking) {
+      api.connectWebSocket(authStore.token)
+    }
+  })
+
   async function refreshLibraryStatus() {
     log('Refreshing library status...')
     const status = await api.getLibraryRoot()

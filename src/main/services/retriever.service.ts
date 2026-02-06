@@ -11,6 +11,7 @@ import type {
 import { downloadImage } from '../utils/download'
 import { parseTitle } from '../utils/title-parser'
 import * as repositoryService from './repository.service'
+import * as pathsService from './paths.service'
 
 const genreCache = new Map<number, string>()
 
@@ -53,9 +54,6 @@ const SPECIAL_SUBFOLDER_NAMES = [
   'interviews'
 ]
 
-function getImagesPath(libraryDataPath: string): string {
-  return path.join(libraryDataPath, 'images')
-}
 
 /**
  * Fetches season episode data directly from the TMDB API.
@@ -151,8 +149,8 @@ export async function searchTmdbAndApplyMetadata(
     const result = (
       endpoint === 'multi'
         ? ((searchResults as any).results || []).filter(
-            (r: any) => r.media_type === 'movie' || r.media_type === 'tv'
-          )
+          (r: any) => r.media_type === 'movie' || r.media_type === 'tv'
+        )
         : (searchResults as any).results
     )?.[0]
 
@@ -190,11 +188,12 @@ export async function searchTmdbAndApplyMetadata(
       // Download the poster from the search result.
       if (result.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${result.poster_path}`
-        const imagesDir = getImagesPath(libraryDataPath)
         const posterFileName = `${item.id}.jpg`
-        const posterDestPath = path.join(imagesDir, posterFileName)
-        await downloadImage(posterUrl, posterDestPath)
-        item.posterPath = posterFileName
+        const posterDestPath = pathsService.isRemoteLibrary() ? null : pathsService.resolveAssetPath(posterFileName)
+        if (posterDestPath) {
+          await downloadImage(posterUrl, posterDestPath)
+          item.posterPath = posterFileName
+        }
       }
 
       // Make a dedicated request for credits.
@@ -235,13 +234,14 @@ export async function refetchPoster(
 
     if (details.poster_path) {
       const posterUrl = `https://image.tmdb.org/t/p/w500${details.poster_path}`
-      const imagesDir = getImagesPath(libraryDataPath)
       const posterFileName = `${item.id}.jpg`
-      const posterDestPath = path.join(imagesDir, posterFileName)
+      const posterDestPath = pathsService.isRemoteLibrary() ? null : pathsService.resolveAssetPath(posterFileName)
       try {
-        await downloadImage(posterUrl, posterDestPath)
-        item.posterPath = posterFileName
-        console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
+        if (posterDestPath) {
+          await downloadImage(posterUrl, posterDestPath)
+          item.posterPath = posterFileName
+          console.log(`[TMDB] Downloaded poster for "${item.title ?? item.name}"`)
+        }
       } catch {
         // Error is logged inside downloadImage
       }
@@ -313,35 +313,35 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-  // Process cast members to get their best acting score.
-  ;(creditsData.cast ?? []).forEach((castMember: any) => {
-    const p = ensurePerson(castMember.id, castMember)
-    p.actingScore = Math.min(p.actingScore, castMember.order)
-    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-  })
-
-  // Process crew members to get their best crew score.
-  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
-    let bestJobIndex = Infinity
-    const importantJobsForPerson: string[] = []
-
-    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
-      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-      if (index !== -1) {
-        bestJobIndex = Math.min(bestJobIndex, index)
-        importantJobsForPerson.push(jobInfo.job)
-      }
+    // Process cast members to get their best acting score.
+    ; (creditsData.cast ?? []).forEach((castMember: any) => {
+      const p = ensurePerson(castMember.id, castMember)
+      p.actingScore = Math.min(p.actingScore, castMember.order)
+      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+      p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
     })
 
-    // Only add crew if they have an important job.
-    if (bestJobIndex !== Infinity) {
-      const p = ensurePerson(crewMember.id, crewMember)
-      p.crewScore = Math.min(p.crewScore, bestJobIndex)
-      p.jobs.push(...importantJobsForPerson)
-      p.personData = { ...p.personData, ...crewMember }
-    }
-  })
+    // Process crew members to get their best crew score.
+    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
+      let bestJobIndex = Infinity
+      const importantJobsForPerson: string[] = []
+
+        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
+          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+          if (index !== -1) {
+            bestJobIndex = Math.min(bestJobIndex, index)
+            importantJobsForPerson.push(jobInfo.job)
+          }
+        })
+
+      // Only add crew if they have an important job.
+      if (bestJobIndex !== Infinity) {
+        const p = ensurePerson(crewMember.id, crewMember)
+        p.crewScore = Math.min(p.crewScore, bestJobIndex)
+        p.jobs.push(...importantJobsForPerson)
+        p.personData = { ...p.personData, ...crewMember }
+      }
+    })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
   const finalCast: Person[] = []
@@ -423,8 +423,7 @@ async function _downloadAndApplyImageIfNeeded(
   imageType: 'poster' | 'backdrop' | 'logo',
   tmdbPath: string | null | undefined,
   imageUrlPrefix: string,
-  fileName: string,
-  imagesDir: string
+  fileName: string
 ): Promise<void> {
   const itemAsAny = item as any
   const key: 'posterPath' | 'backdropPath' | 'logoPath' = `${imageType}Path`
@@ -446,10 +445,12 @@ async function _downloadAndApplyImageIfNeeded(
 
   if (tmdbPath) {
     const imageUrl = `${imageUrlPrefix}${tmdbPath}`
-    const destPath = path.join(imagesDir, fileName)
-    await downloadImage(imageUrl, destPath)
-    itemAsAny[key] = fileName
-    console.log(`[TMDB] Downloaded ${imageType} for "${item.title ?? item.name}"`)
+    const destPath = pathsService.isRemoteLibrary() ? null : pathsService.resolveAssetPath(fileName)
+    if (destPath) {
+      await downloadImage(imageUrl, destPath)
+      itemAsAny[key] = fileName
+      console.log(`[TMDB] Downloaded ${imageType} for "${item.title ?? item.name}"`)
+    }
   } else {
     itemAsAny[key] = null // No image provided by API
   }
@@ -469,7 +470,6 @@ export async function fetchItemDetails(
   }
   const modifiedItems: LibraryItem[] = [item]
 
-  const imagesDir = getImagesPath(libraryDataPath)
   const detailUrl = `https://api.themoviedb.org/3/${item.mediaType}/${item.tmdbId}?api_key=${settings.tmdbApiKey}&append_to_response=images`
 
   console.log(`[TMDB] Fetching details for "${item.title ?? item.name}" from ${detailUrl}`)
@@ -487,8 +487,7 @@ export async function fetchItemDetails(
       'poster',
       details.poster_path,
       'https://image.tmdb.org/t/p/w500',
-      `${item.id}.jpg`,
-      imagesDir
+      `${item.id}.jpg`
     )
 
     await _downloadAndApplyImageIfNeeded(
@@ -496,8 +495,7 @@ export async function fetchItemDetails(
       'backdrop',
       details.backdrop_path,
       'https://image.tmdb.org/t/p/original',
-      `${item.id}-backdrop.jpg`,
-      imagesDir
+      `${item.id}-backdrop.jpg`
     )
 
     if (settings.useLogos) {
@@ -513,8 +511,7 @@ export async function fetchItemDetails(
           'logo',
           bestLogo.file_path,
           'https://image.tmdb.org/t/p/w500',
-          `${item.id}-logo${extension}`,
-          imagesDir
+          `${item.id}-logo${extension}`
         )
       } else if (typeof item.logoPath === 'undefined') {
         item.logoPath = null // No logo found
@@ -586,7 +583,6 @@ export async function applyTvShowData(
   libraryDataPath: string,
   options: { respectLocks?: boolean; force?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
-  const imagesDir = getImagesPath(libraryDataPath)
   const allModifiedItems: LibraryItem[] = []
 
   try {
@@ -628,10 +624,12 @@ export async function applyTvShowData(
               const posterFileName = `${seasonFolder.id}.jpg`
               if (seasonFolder.posterPath !== posterFileName) {
                 const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbSeason.poster_path}`
-                const posterDestPath = path.join(imagesDir, posterFileName)
-                await downloadImage(posterUrl, posterDestPath)
-                seasonFolder.posterPath = posterFileName
-                seasonChanged = true
+                const posterDestPath = pathsService.isRemoteLibrary() ? null : pathsService.resolveAssetPath(posterFileName)
+                if (posterDestPath) {
+                  await downloadImage(posterUrl, posterDestPath)
+                  seasonFolder.posterPath = posterFileName
+                  seasonChanged = true
+                }
               }
             }
           }
@@ -825,11 +823,12 @@ export async function fetchAndApplyEpisodeData(
       }
       if (!seasonFolder.posterPath && seasonDetails.poster_path) {
         const posterUrl = `https://image.tmdb.org/t/p/w500${seasonDetails.poster_path}`
-        const imagesDir = getImagesPath(libraryDataPath)
         const posterFileName = `${seasonFolder.id}.jpg`
-        const posterDestPath = path.join(imagesDir, posterFileName)
-        await downloadImage(posterUrl, posterDestPath)
-        seasonFolder.posterPath = posterFileName
+        const posterDestPath = pathsService.isRemoteLibrary() ? null : pathsService.resolveAssetPath(posterFileName)
+        if (posterDestPath) {
+          await downloadImage(posterUrl, posterDestPath)
+          seasonFolder.posterPath = posterFileName
+        }
       }
 
       const tmdbEpisodesApi = seasonDetails.episodes || []
@@ -872,15 +871,18 @@ export async function fetchAndApplyEpisodeData(
         }
         localEpisode.mediaType = 'episode'
         if (!localEpisode.posterPath && tmdbEpisode.still_path) {
-          const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
-          const imagesDir = getImagesPath(libraryDataPath)
-          const posterFileName = `${localEpisode.id}.jpg`
-          const posterDestPath = path.join(imagesDir, posterFileName)
-          try {
-            await downloadImage(posterUrl, posterDestPath)
-            localEpisode.posterPath = posterFileName
-          } catch {
-            /* ignore */
+          const stillFileName = `${localEpisode.id}.jpg`
+          const stillUrl = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+          const stillDestPath = pathsService.isRemoteLibrary()
+            ? null
+            : pathsService.resolveAssetPath(stillFileName)
+          if (stillDestPath) {
+            try {
+              await downloadImage(stillUrl, stillDestPath)
+              localEpisode.posterPath = stillFileName
+            } catch {
+              /* ignore */
+            }
           }
         }
       } else {

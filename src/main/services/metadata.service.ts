@@ -183,7 +183,6 @@ export async function fetchEpisodeDataForContinueWatching(
 
 async function _unlinkItemImages(
   item: LibraryItem,
-  imagesDir: string,
   options: { respectLocks?: boolean } = { respectLocks: true }
 ) {
   if (pathsService.isRemoteLibrary()) return
@@ -193,22 +192,25 @@ async function _unlinkItemImages(
     (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath'))
   )
     try {
-      await fs.unlink(path.join(imagesDir, item.posterPath))
-    } catch {}
+      const p = pathsService.resolveAssetPath(item.posterPath)
+      if (p) await fs.unlink(p)
+    } catch { }
   if (
     item.backdropPath &&
     (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath'))
   )
     try {
-      await fs.unlink(path.join(imagesDir, item.backdropPath))
-    } catch {}
+      const p = pathsService.resolveAssetPath(item.backdropPath)
+      if (p) await fs.unlink(p)
+    } catch { }
   if (
     item.logoPath &&
     (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath'))
   )
     try {
-      await fs.unlink(path.join(imagesDir, item.logoPath))
-    } catch {}
+      const p = pathsService.resolveAssetPath(item.logoPath)
+      if (p) await fs.unlink(p)
+    } catch { }
 }
 
 function _resetItemMetadataFields(
@@ -491,7 +493,8 @@ export async function setImage(
   }
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
-  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+  const settings = await settingsService.readSettings()
+  if (!settings.tmdbApiKey) return null // Changed from [] to null to match function return type
   const extension = path.extname(source.path)
   let fileName = ''
   switch (imageType) {
@@ -505,7 +508,8 @@ export async function setImage(
       fileName = `${item.id}-logo${extension || '.svg'}`
       break
   }
-  const destPath = path.join(imagesDir, fileName)
+  const destPath = pathsService.resolveAssetPath(fileName)
+  if (!destPath) throw new Error('Security Error: Invalid image path.')
   try {
     if (source.type === 'tmdb') {
       let size = 'original'
@@ -606,11 +610,9 @@ export async function clearItemMetadata(
   // Ensure we don't have duplicates
   const uniqueItemsToUpdate = Array.from(new Set(itemsToUpdate))
 
-  const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-
   // 1. Asynchronously unlink images first (Full Clear list only!)
   for (const targetItem of itemsToFullClear) {
-    await _unlinkItemImages(targetItem, imagesDir, { respectLocks: false })
+    await _unlinkItemImages(targetItem, { respectLocks: false })
   }
 
   // 2. Execute field resets (Full Clear list only!)

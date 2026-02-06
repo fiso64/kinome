@@ -20,11 +20,11 @@ const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${win
 
 class WebApiClient implements ApiClient {
   private ws: WebSocket | null = null
+  private retryTimeout: any = null
   private eventHandlers: Map<string, Set<(data: any) => void>> = new Map()
   public readonly capabilities: AppCapabilities
 
   constructor() {
-    this.connectWS()
     console.log('[WebApiClient] Initialized.')
 
     this.capabilities = {
@@ -33,9 +33,36 @@ class WebApiClient implements ApiClient {
     }
   }
 
-  private connectWS() {
-    console.log('[WebApiClient] Connecting to WebSocket...')
-    this.ws = new WebSocket(WS_URL)
+  public connectWebSocket(token?: string) {
+    this.connectWS(token)
+  }
+
+  private connectWS(token?: string) {
+    if (this.retryTimeout) {
+      clearTimeout(this.retryTimeout)
+      this.retryTimeout = null
+    }
+
+    if (this.ws) {
+      this.ws.onclose = null
+      this.ws.onerror = null
+      this.ws.close()
+      this.ws = null
+    }
+
+    // GATING: Don't connect if we are not authenticated and server hasn't been confirmed as public
+    if (!authStore.isAuthenticated && !authStore.allowUnauthenticated) {
+      console.log('[WebApiClient] Waiting for authentication before connecting WebSocket.')
+      return
+    }
+
+    const wsUrl = new URL(WS_URL)
+    if (token) {
+      wsUrl.searchParams.set('token', token)
+    }
+
+    console.log(`[WebApiClient] Connecting to WebSocket${token ? ' (Authenticated)' : ''}...`)
+    this.ws = new WebSocket(wsUrl.toString())
 
     this.ws.onopen = () => {
       console.log('[WebApiClient] WebSocket connected.')
@@ -54,12 +81,16 @@ class WebApiClient implements ApiClient {
     }
 
     this.ws.onclose = () => {
-      console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
-      setTimeout(() => this.connectWS(), 3000)
+      // Only retry if we are still supposed to be connected
+      if (authStore.isAuthenticated || authStore.allowUnauthenticated) {
+        console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
+        this.retryTimeout = setTimeout(() => this.connectWS(authStore.token), 3000)
+      }
     }
 
     this.ws.onerror = (error) => {
-      console.error('[WebApiClient] WebSocket error:', error)
+      // Don't log full error object to console to reduce spam, just note the failure
+      console.error('[WebApiClient] WebSocket connection failed.')
       this.ws?.close()
     }
   }
@@ -520,7 +551,7 @@ class WebApiClient implements ApiClient {
   // --- Real-time updates (Native WS) ---
 
   onWindowMaximizedStatus(_callback: (isMaximized: boolean) => void): () => void {
-    return () => {}
+    return () => { }
   }
 
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
@@ -540,7 +571,7 @@ class WebApiClient implements ApiClient {
   onShowErrorDialog(
     _callback: (options: { title: string; message: string; detail?: string }) => void
   ): () => void {
-    return () => {}
+    return () => { }
   }
 
   onForceReloadForNewLibrary(callback: () => void): () => void {

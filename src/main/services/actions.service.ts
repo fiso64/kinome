@@ -16,13 +16,7 @@ const log = (message: string): void => {
 export async function getAbsolutePath(relativePath: string): Promise<string | null> {
   const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) return null
-  if (pathsService.isRemotePath(mediaSourcePath)) {
-    return new URL(
-      relativePath,
-      mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')
-    ).toString()
-  }
-  return path.join(mediaSourcePath, relativePath)
+  return pathsService.securePathJoin(mediaSourcePath, relativePath)
 }
 
 export async function playFileWith(
@@ -46,9 +40,14 @@ export async function playFileWith(
     })
     return false
   }
-  const absolutePath = pathsService.isRemotePath(mediaSourcePath)
-    ? new URL(file.path, mediaSourcePath + (mediaSourcePath.endsWith('/') ? '' : '/')).toString()
-    : path.join(mediaSourcePath, file.path)
+  const absolutePath = pathsService.securePathJoin(mediaSourcePath, file.path)
+  if (!absolutePath) {
+    onError({
+      title: 'Security Error',
+      message: 'Access denied: The requested path is outside the media library.'
+    })
+    return false
+  }
   const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
   log(`Executing (NOT IMPLEMENTED): ${commandToExecute}`)
 
@@ -82,7 +81,8 @@ export async function executeCustomAction(
   if (!action || !item.path) return
   const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) return
-  const absolutePath = path.join(mediaSourcePath, item.path)
+  const absolutePath = pathsService.securePathJoin(mediaSourcePath, item.path)
+  if (!absolutePath) return
   const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
   const commandToExecute = action.command
     .replace(/{path}/g, absolutePath)
@@ -152,8 +152,15 @@ export async function renameItem(relativeOldPath: string, newName: string): Prom
   if (!mediaSourcePath) {
     throw new Error('Media source path not configured.')
   }
-  const oldAbsolutePath = path.resolve(mediaSourcePath, relativeOldPath)
-  const newAbsolutePath = path.resolve(path.dirname(oldAbsolutePath), newName)
+  const oldAbsolutePath = pathsService.securePathJoin(mediaSourcePath, relativeOldPath)
+  if (!oldAbsolutePath) {
+    throw new Error('Access denied: Old path is outside the media library.')
+  }
+  const dirPath = path.dirname(oldAbsolutePath)
+  const newAbsolutePath = pathsService.securePathJoin(dirPath, newName)
+  if (!newAbsolutePath || !newAbsolutePath.startsWith(dirPath)) {
+    throw new Error('Access denied: New path is outside the directory.')
+  }
   try {
     await fs.rename(oldAbsolutePath, newAbsolutePath)
   } catch (error) {
@@ -195,7 +202,8 @@ async function getDirectoryContentStats(
 export async function getItemProperties(relativePath: string): Promise<any | null> {
   const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath || pathsService.isRemotePath(mediaSourcePath)) return null
-  const absolutePath = path.join(mediaSourcePath, relativePath)
+  const absolutePath = pathsService.securePathJoin(mediaSourcePath, relativePath)
+  if (!absolutePath) return null
   try {
     const stats = await fs.stat(absolutePath)
     const baseProperties = {

@@ -31,18 +31,50 @@ export function isRemoteLibrary(): boolean {
 }
 
 /**
+ * Securely joins a base path and a relative path, ensuring the result is within the base.
+ * Prevents path traversal attacks (e.g., using ../../ to access sensitive files).
+ */
+export function securePathJoin(base: string, relativePath: string): string | null {
+  if (isRemotePath(base)) {
+    const baseUrl = base.endsWith('/') ? base : base + '/'
+    try {
+      const url = new URL(relativePath, baseUrl).toString()
+      if (!url.startsWith(baseUrl)) return null
+      return url
+    } catch {
+      return null
+    }
+  }
+
+  const absoluteBase = path.resolve(base)
+  const absoluteResult = path.resolve(path.join(absoluteBase, relativePath))
+
+  if (!absoluteResult.startsWith(absoluteBase)) {
+    return null
+  }
+
+  return absoluteResult
+}
+
+/**
  * Resolves a relative path against the library data path.
  * Handles both local file paths and remote URLs correctly.
  * @param relativePath The path relative to the library root (e.g., 'library.db').
- * @returns An absolute file system path or a full remote URL.
+ * @returns An absolute file system path or a full remote URL, or null if escape detected.
  */
-export function resolveLibraryPath(relativePath: string): string {
-  if (isRemoteLibrary()) {
-    // Make sure the base URL has a trailing slash for correct resolution.
-    const baseUrl = libraryDataPath.endsWith('/') ? libraryDataPath : libraryDataPath + '/'
-    return new URL(relativePath, baseUrl).toString()
-  }
-  return path.join(libraryDataPath, relativePath)
+export function resolveLibraryPath(relativePath: string): string | null {
+  return securePathJoin(libraryDataPath, relativePath)
+}
+
+/**
+ * Resolves an asset path (e.g. posters, backdrops) against the library's images directory.
+ */
+export function resolveAssetPath(relativePath: string): string | null {
+  const imagesBase = isRemoteLibrary()
+    ? (libraryDataPath.endsWith('/') ? libraryDataPath : libraryDataPath + '/') + 'images/'
+    : path.join(libraryDataPath, 'images')
+
+  return securePathJoin(imagesBase, relativePath)
 }
 
 export function getLibraryDataPath(): string {
