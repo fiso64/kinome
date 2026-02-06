@@ -1,50 +1,43 @@
-# Fix me
+# Kinome Fixes & Improvements
 
-## No retry logic for fetching
-There is no retry logic for fetching metadata and assets from TMDB. If during initial library scan and fetch, there is a network problem (e.g. network is simply disabled), then not only will the fetcher not retry, but it seems like it will also mark the item as fetched (non null lastRefreshedAt). This will cause the item to be skipped in the next scan, even if the network problem is resolved.
-This contradicts the spec scanner_architecture.md, which states that lastRefreshedAt should be the last time the item was _successfully_ fetched.
 
-## Unauthenticated access is enabled by default(!)
-The following settings.json wrongly allows unauthenticated access:
-```json
-{
-  "adminPasswordHash": "$2b$10$6lUASs2ZAojjtKFXq0W4N.O2rr23G3ZrD0mOcgNd4fDTvffeAB87C",
-  "libraryLocation": "C:/Users/fiso/Source/repos/media-browser/test/media-browser-test-lib/.library",
-  "serverPort": 3000, // or missing, same effect
-  "allowedIPs": [] // or missing, same effect
-  // no boolean allowUnauthenticated: false
-}
-```
+## episode number reassignment
+Support changing season and episode numbers for episode files.
+Bug: When episode numbers are interchanged (e.g. 1 <-> 2), the episodes do not swap metadata.
+    - Performing a rescan after interchanging removes all metadata from both episodes.
+    - Also, after performing a rescan, the episodes have their old numbers back (no locks/locks are not respected?).
 
-## Triple children request on page load
-When loading root view which is set to be grouped by sections, two layers deep like so:
-```
-# sections by virtual tag is_animated = Animation if genre includes Animation, else Live Action
-## sections by mediaType
-### grid view (default)
-```
-I observe the following THREE requests during page load:
+## Resolving complex view settings 
+**Setup:**
+1.  **Library Structure:**
+    *   Root
+        *   `Breaking Bad` (TV Show)
+            *   `Season 1` (Folder)
+                *   `Episode 1.mkv` (File)
+2.  **View Settings (Root):**
+    *   Layout: `Sections`
+    *   Group By: `Folder`
+3.  **Visual Result:** The Root View correctly creates a Section for "Breaking Bad" and unwraps "Season 1" into a tab/section.
 
-http://localhost:3000/api/v2/items/root/children?include=id%2CparentId%2Cname%2Ctype%2CmediaType%2CposterPath%2Cwatched%2CisMissing%2Cyear%2CseasonNumber%2CepisodeNumber%2CvirtualTags
-http://localhost:3000/api/v2/items/root/children?include=id%2CparentId%2Cname%2Ctype%2CmediaType%2CposterPath%2Cwatched%2CisMissing%2Cyear%2CseasonNumber%2CepisodeNumber
-http://localhost:3000/api/v2/items/root/children?include=id%2CparentId%2Cname%2Ctype%2CmediaType%2CposterPath%2Cwatched%2CisMissing%2Cyear%2CseasonNumber%2CepisodeNumber
+**Symptoms:**
+*   The episodes listed inside the "Season 1" tab are missing the `overview` field (and potentially others like `seasonNumber`).
+*   This results in empty text areas where descriptions should be, or fallback rendering.
+*   **Contrast:** Opening `Breaking Bad` directly (Detail View) displays the same structure *correctly* with all fields populated.
 
-Gemini said this:
-```
-The reason you currently see 3 requests is likely because of the **Configuration Waterfall** I mentioned earlier:
+**Root Cause Analysis:**
+The issue stems from how the Frontend calculates which database fields to request from the Backend (`getAllRequiredFields`).
 
-1.  **Request 1:** `getAllRequiredFields` runs on `undefined` (defaults to Grid) -> Fetches only `posterPath`.
-2.  **Request 2:** Root loads. `getAllRequiredFields` runs on the recursive object above -> Fetches `posterPath, virtualTags, mediaType`.
-3.  **Request 3:** Likely a reactivity side-effect where the `groupBy` change triggers a query key update before the `fields` update is fully processed, or vice versa.
+1.  **Requirement Calculation:** The Frontend looks at the container's View Settings to determine what layout its children will use.
+2.  **Implicit Defaults:**
+    *   **TV Show Detail View:** The container has `mediaType: 'tv'`. The `resolveViewSettings` helper detects this and explicitly injects the "Default Season Layout" (List View) as the `childViewSettings`. Since List View requires `overview`, the Frontend requests it.
+    *   **Root View:** The container is a generic folder (`mediaType: null`). `resolveViewSettings` **does not** inject any implicit defaults. It assumes the content will be displayed using the generic default (Grid), which does *not* require `overview`.
+    *   When the root view is set to be grouped by sections with a configured child layout (e.g. list), then it works correctly. Why? Because `getAllRequiredFields` checks the childViewSettings, which are non-null in this case. The problem is that we over-rely on the childViewSettings, which only reflect user overrides, and not any automatic defaults. 
 
-**The Fix:** 
-Ensure `childrenQuery` is `enabled: !!currentFolder` (Dependent Query).
-This forces the frontend to wait until it has the recursive `rootSettings` map (Step 1) before it attempts to traverse it (Step 2) and fetch data (Step 4).
-```
-Must debug this first. request 3 is clearly just a guess. We don't know what causes it.
+Proposed fix: Instead of injecting the view settings into the item object, refactor resolveViewSettings to return a lightweight view settings object, possibly nested where needed (depending on if recurse: true). Then extend the items api to add an optional include parameter `viewSettings`, with an option for either recursive or non-recursive. When the client requests either of these, we get the output of resolveViewSettings and send it to the client. The getAllRequiredFields function should then be updated to use this new object instead. Moreover, we will stop storing view settings directly inside the items, and instead store them in `viewSettings` subkey.
 
 ## Clean up requests
-Clean up all duplicate API requests in general. 
+Clean up all duplicate/redundant API requests from the frontend. 
+Also check if there are any waterfall problems.
 
 ## getChildren
 Audit all usage of getChildren (incredibly bloated)

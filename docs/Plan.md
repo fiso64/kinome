@@ -1,4 +1,4 @@
-## Stuff
+# Kinome Plan
 
 ### 🏗️ Core Architecture & Performance
 - [X] Clean up the API and optimize. Currently sends huge amount of data even though most of it is frequently not needed. Should be smarter and much more on-demand. Must rethink from scratch and adopt a good pattern.
@@ -23,8 +23,9 @@
   - [ ] Web player
 - [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
 
-### 🎨 UI/UX & Customization
+### 🎨 UI/UX, Customization
 - [ ] Improve and polish UI everywhere.
+  - [ ] Different styling for nested sections and tabs. Subsections should have a different style than top-level sections.
   - [ ] Replace the top toolbar by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
   - [ ] Think of some convenient browser-compatible shortcuts for common actions.
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
@@ -45,16 +46,17 @@
 - [ ] UI to manage metadata locks (add or remove)
 - [ ] A "Notes" text field? Or star rating field? Or custom field definitions? 
 - [ ] More metadata providers aside from TheMovieDB? (TVDB, AniList, etc.)
+- [ ] Manual episode assignment. See `docs/TODO-expanded.md#manual-episode-assignment`
 
 ### 🔐 Auth & Multi-User
-- [ ] Account and Authentication support
-  - [X] Start with support for authentication for the default account. Secure all endpoints.
-    - [X] Add common server-related settings like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
-    - [X] A nice login page.
-    - [X] Browser caching of auth token.
-    - [X] Ensure everything is secured. Also ensure that the copied stream URLs still work.
-  - [ ] Support for multiple accounts.
-    - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
+- [X] Start with support for authentication for the default account. Secure all endpoints.
+  - [X] Add common server-related settings like the port and allowed IPs. Note: Can omit https for now, every sane man uses a reverse proxy.
+  - [X] A nice login page.
+  - [X] Browser caching of auth token.
+  - [X] Ensure everything is secured. Also ensure that the copied stream URLs still work.
+- [ ] Support for multiple accounts.
+  - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
+- [ ] Tighten security.
 
 ### 📱 Platform Support
 - [ ] Make the web UI display good on different screen sizes.
@@ -72,5 +74,5 @@
   - Very similar to Stremio ([look into it](https://guides.viren070.me/stremio)):
     1. A searcher plugin will allow searching for media that isn't in the local library (e.g. tmdb search plugin)
     2. A downloader/streamer plugin will be required to play any items not in the local library (e.g.: a https stream plugin returning https stream link(s), torrent downloader plugin returning results from a particular tracker). Downloader plugins should also allow one to permanently add a movie/show to the local library. In the spirit of the app, we should make it use an external torrent client (user-configured, similar to existing video player configuration) instead of a built-in one, if possible.
-    3. If possible, make Stremio plugins work out of the box with media-browser.
+    3. If possible, make Stremio plugins work out of the box with kinome.
     4. The existing local files searching and playing logic might be refactored into yet another searcher and "streamer" plugin respectively.
