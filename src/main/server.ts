@@ -101,7 +101,7 @@ const app = new Elysia()
     const settings = await settingsService.readSettings()
 
     // Auth Check Logic
-    const isPublic = ['/api/login', '/api/check-auth', '/api/setup-admin', '/api/assets'].some(
+    const isPublic = ['/api/login', '/api/check-auth', '/api/setup-admin'].some(
       (p) => url.startsWith(p)
     )
     if (settings.allowUnauthenticated || isPublic) {
