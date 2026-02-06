@@ -152,8 +152,7 @@ import { webApi } from './web-api'
 import { authStore } from './auth-store.svelte'
 
 /**
- * Returns a full HTTP URL for a library asset.
- * Replaces the old media-browser-asset:// protocol.
+ * Returns a partial URL for a library asset.
  */
 export function getAssetUrl(relativePath: string): string {
   if (!relativePath) return ''
@@ -169,7 +168,7 @@ export function getAssetUrl(relativePath: string): string {
  */
 export function getPlaylistUrl(itemId: string): string {
   if (!itemId) return ''
-  const url = `/api/playlist/${itemId}`
+  const url = `${window.location.origin}/api/playlist/${itemId}`
   return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 
@@ -178,7 +177,7 @@ export function getPlaylistUrl(itemId: string): string {
  */
 export function getDownloadUrl(itemId: string): string {
   if (!itemId) return ''
-  const url = `/api/download/${itemId}`
+  const url = `${window.location.origin}/api/download/${itemId}`
   return authStore.token ? `${url}?token=${authStore.token}` : url
 }
 
