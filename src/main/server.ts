@@ -15,8 +15,8 @@ import * as listDirectoryService from './services/list-directory.service'
 import * as pathsService from './services/paths.service'
 import * as repositoryService from './services/repository.service'
 import * as groupingService from './services/grouping.service'
-import { isVirtualId, getFiltersFromId } from './services/virtual-item.factory'
-import { resolveViewSettings } from '../shared/settings-helpers'
+import * as playbackService from './services/playback.service'
+import { isVirtualId } from './services/virtual-item.factory'
 
 // --- Security Middleware & Constants ---
 
@@ -26,19 +26,6 @@ const PUBLIC_PATHS = ['/api/login', '/api/check-auth', '/api/setup-admin']
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 mins
 const MAX_ATTEMPTS = 10
-
-// Stream playback debounce to prevent DB spam on range requests
-const playbackDebounce = new Map<string, number>()
-const PLAYBACK_DEBOUNCE_WINDOW = 5 * 60 * 1000 // 5 mins
-
-function recordPlaybackDebounced(itemId: string) {
-  const now = Date.now()
-  const last = playbackDebounce.get(itemId) || 0
-  if (now - last > PLAYBACK_DEBOUNCE_WINDOW) {
-    playbackDebounce.set(itemId, now)
-    libraryService.recordPlayback(itemId).catch(console.error)
-  }
-}
 
 function checkRateLimit(ip: string): { allowed: boolean; waitTime?: number } {
   const now = Date.now()
@@ -67,6 +54,7 @@ function recordFailedAttempt(ip: string) {
 function resetRateLimit(ip: string) {
   loginAttempts.delete(ip)
 }
+
 
 // 1. Initialize Services
 const port = process.env.PORT || 3000
@@ -581,7 +569,7 @@ const app = new Elysia()
         return libraryService.getItemProperties(itemPath)
       })
       // Streaming
-      .get('/stream/:id', async ({ params, query, set }) => {
+      .get('/stream/:id', async ({ params, query, set, request }) => {
         const item = (await libraryService.getItemById(params.id)) as any
         if (!item || !item.path) {
           set.status = 404
@@ -596,13 +584,15 @@ const app = new Elysia()
         // Mark as watched/continue watching when stream starts
         // Fire and forget to not delay the stream
         if (query.watch === '1' || query.watch === 'true') {
-          recordPlaybackDebounced(params.id)
+          playbackService.recordPlaybackDebounced(params.id, libraryService.recordPlayback)
         }
 
         if (filePath.startsWith('http')) {
           return Response.redirect(filePath)
         }
-        return Bun.file(filePath)
+
+        const rangeHeader = request.headers.get('range')
+        return playbackService.handleFileStream(filePath, rangeHeader, false)
       })
       .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
         const item = (await libraryService.getItemById(params.id)) as any
@@ -616,7 +606,7 @@ const app = new Elysia()
           return 'File not found'
         }
         const fileName = path.basename(filePath)
-        // Explicitly construct Response to ensure headers are handled correctly for file downloads in Elysia/Bun
+        // Explicitly construct Response to ensure headers are handled correctly for file downloads in Elysia/Bun.
         return new Response(Bun.file(filePath), {
           headers: {
             'Content-Disposition': `attachment; filename="${fileName}"`,
@@ -624,61 +614,53 @@ const app = new Elysia()
           }
         })
       })
-      .get('/stream/:id/:filename', async ({ params, query, set }) => {
+      .get('/stream/:id/:filename', async ({ params, query, set, request }) => {
+        console.log(`[STREAM] Request received for ID: ${params.id}`)
+
         const item = (await libraryService.getItemById(params.id)) as any
         if (!item || !item.path) {
-          set.status = 404
-          return 'File not found'
-        }
-        const filePath = await libraryService.getAbsolutePath(item.path)
-        if (!filePath) {
+          console.log(`[STREAM] Item not found: ${params.id}`)
           set.status = 404
           return 'File not found'
         }
 
+        console.log(`[STREAM] Item path: ${item.path}`)
+        const filePath = await libraryService.getAbsolutePath(item.path)
+        if (!filePath) {
+          console.log(`[STREAM] Could not resolve absolute path for: ${item.path}`)
+          set.status = 404
+          return 'File not found'
+        }
+
+        console.log(`[STREAM] Absolute path: ${filePath}`)
+
         if (filePath.startsWith('http')) {
+          console.log(`[STREAM] Redirecting to URL: ${filePath}`)
           return Response.redirect(filePath)
         }
 
         // Mark as watched/continue watching when stream starts
         if (query.watch === '1' || query.watch === 'true') {
-          recordPlaybackDebounced(params.id)
+          playbackService.recordPlaybackDebounced(params.id, libraryService.recordPlayback)
         }
-        return Bun.file(filePath)
+
+        console.log(`[STREAM] Getting file stats...`)
+        const rangeHeader = request.headers.get('range')
+        return playbackService.handleFileStream(filePath, rangeHeader, true)
       })
       .get('/playlist/:id', async ({ params, query, request, set }) => {
         try {
-          const id = params.id.endsWith('.m3u') ? params.id.slice(0, -4) : params.id
-          const playlist = await libraryService.generatePlaylist(id)
-          if (!playlist || playlist.length === 0) {
+          const url = new URL(request.url)
+          const m3uContent = await playbackService.generateM3UPlaylist(
+            params.id,
+            url.host,
+            url.protocol,
+            query.token as string | undefined
+          )
+
+          if (!m3uContent) {
             set.status = 404
             return 'Item not found'
-          }
-
-          const url = new URL(request.url)
-          const host = url.host
-          const protocol = url.protocol
-
-          let m3uContent = '#EXTM3U\n'
-          for (const item of playlist) {
-            let title = item.title || item.name
-            const f = item as any
-            if (typeof f.seasonNumber === 'number' && typeof f.episodeNumber === 'number') {
-              const s = f.seasonNumber.toString().padStart(2, '0')
-              const e = f.episodeNumber.toString().padStart(2, '0')
-              title = `S${s}E${e} - ${title}`
-            }
-
-            m3uContent += `#EXTINF:-1,${title}\n`
-            const filename = encodeURIComponent(item.name)
-            const token = query.token as string
-            const streamUrl = `${protocol}//${host}/api/stream/${item.id}/${filename}`
-            const params = new URLSearchParams()
-            if (token) params.set('token', token)
-            params.set('watch', '1')
-
-            const fullUrl = `${streamUrl}?${params.toString()}`
-            m3uContent += `${fullUrl}\n`
           }
 
           set.headers['Content-Type'] = 'audio/x-mpegurl'
