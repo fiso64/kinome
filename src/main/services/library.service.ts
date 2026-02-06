@@ -420,8 +420,18 @@ export const executeCustomAction = actionsService.executeCustomAction
 export const getAbsolutePath = actionsService.getAbsolutePath
 export const getItemProperties = actionsService.getItemProperties
 export const revealInExplorer = actionsService.revealInExplorer
-export const trashItem = actionsService.trashItem
-export const renameItem = actionsService.renameItem
+export const trashItem = async (path: string): Promise<{ success: boolean }> => {
+  const success = await actionsService.trashItem(path)
+  if (success) {
+    await handleItemRemovedByPath(path)
+  }
+  return { success }
+}
+export const renameItem = async (oldPath: string, newName: string): Promise<{ success: boolean }> => {
+  const newPath = await actionsService.renameItem(oldPath, newName)
+  await handleItemRenamed(oldPath, newPath)
+  return { success: true }
+}
 export const getItemById = async (id: string) => {
   const item = repositoryService.getItemById(id)
   return item ? repositoryService.createTransferableCopy(item) : null
@@ -548,15 +558,21 @@ export const fetchCredits = async (itemId: string) => {
     await updateIfChangedAndBroadcast(item)
   }
 }
-export const handleItemRenamed = async (oldPath: string, _newName: string) => {
+export const handleItemRenamed = async (oldPath: string, newPath: string) => {
   const oldItem = repositoryService.findItemByPath(oldPath)
   if (!oldItem) return
-  const parent = repositoryService.findParent(oldItem.id)
-  if (parent) {
-    const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-    if (mediaSourcePath) {
-      await filesystemService.syncWithDisk(parent, mediaSourcePath)
-      getTransport().forceRendererReload()
+
+  const newItem = repositoryService.updateItemPathAndId(oldItem.id, newPath)
+  if (newItem) {
+    getTransport().notifyLibraryItemDeleted(oldItem.id)
+    getTransport().notifyLibraryItemsUpdated([newItem])
+
+    const parent = repositoryService.findParent(newItem.id)
+    if (parent) {
+      const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
+      if (mediaSourcePath) {
+        await filesystemService.syncWithDisk(parent, mediaSourcePath)
+      }
     }
   }
 }
@@ -581,7 +597,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
         const settingsToSave: Partial<MediaFolder> = {}
         for (const key of VIEW_SETTINGS_KEYS) {
           if ((item as any)[key] !== undefined) {
-            ;(settingsToSave as any)[key] = (item as any)[key]
+            ; (settingsToSave as any)[key] = (item as any)[key]
           }
         }
 
@@ -694,14 +710,14 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   // --- Standard Item Update ---
   await updateIfChangedAndBroadcast(item)
 }
-export const deleteItemFromDb = async (id: string) => {
+export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
   const res = repositoryService.deleteItem(id)
   if (res) {
     // searchService.removeItemFromIndex(id) - Removed, handled by FTS triggers
     getTransport().notifyLibraryItemDeleted(id)
-    return true
+    return { success: true }
   }
-  return false
+  return { success: false }
 }
 
 export const recordPlayback = async (itemId: string) => {

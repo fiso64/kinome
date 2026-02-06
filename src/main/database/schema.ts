@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS items (
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
 
-    FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE
+    FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS metadata (
       episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
       locked_fields_json TEXT, -- Array of locked field names
       last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
-      FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+      FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
     );
 
 CREATE INDEX IF NOT EXISTS idx_metadata_tmdb_id ON metadata(tmdb_id);
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS user_state (
     next_up_dismissed INTEGER DEFAULT 0, -- Boolean
     
     PRIMARY KEY (item_id, user_id),
-    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS folder_settings (
     -- JSON blob for scraper behavior (retrieve_children_metadata, etc.)
     scraper_settings_json TEXT, 
 
-    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
+    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- FTS5 Virtual Table for Search using Trigram Tokenizer

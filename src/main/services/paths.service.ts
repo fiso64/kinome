@@ -39,7 +39,7 @@ export function securePathJoin(base: string, relativePath: string): string | nul
     const baseUrl = base.endsWith('/') ? base : base + '/'
     try {
       const url = new URL(relativePath, baseUrl).toString()
-      if (!url.startsWith(baseUrl)) return null
+      if (!isPathInside(baseUrl, url)) return null
       return url
     } catch {
       return null
@@ -49,7 +49,7 @@ export function securePathJoin(base: string, relativePath: string): string | nul
   const absoluteBase = path.resolve(base)
   const absoluteResult = path.resolve(path.join(absoluteBase, relativePath))
 
-  if (!absoluteResult.startsWith(absoluteBase)) {
+  if (!isPathInside(absoluteBase, absoluteResult)) {
     return null
   }
 
@@ -94,4 +94,26 @@ export function setLibraryDataPath(newPath: string): void {
 // Re-initialize the default library data path once the real user data path is known.
 export function reinitializeDefaultLibraryPath(): void {
   libraryDataPath = path.join(userDataPath, LIBRARY_DATA_DIR_NAME)
+}
+/**
+ * Verifies if a target path is contained within a base directory.
+ * This is a security helper to prevent path traversal.
+ */
+export function isPathInside(base: string, target: string): boolean {
+  if (!base || !target) return false
+
+  if (isRemotePath(base)) {
+    const baseUrl = base.endsWith('/') ? base : base + '/'
+    return target.startsWith(baseUrl)
+  }
+
+  const absoluteBase = path.resolve(base)
+  const absoluteTarget = path.resolve(target)
+
+  // On Windows, paths are case-insensitive
+  if (process.platform === 'win32') {
+    return absoluteTarget.toLowerCase().startsWith(absoluteBase.toLowerCase())
+  }
+
+  return absoluteTarget.startsWith(absoluteBase)
 }

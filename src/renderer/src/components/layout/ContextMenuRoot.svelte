@@ -48,7 +48,7 @@
 
     if (!confirmed) return
 
-    const success = await api.trashItem(itemToDelete.path)
+    const success = await api.trashItem(path)
     if (success) {
       await onRefresh()
     }

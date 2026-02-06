@@ -130,42 +130,57 @@ export async function trashItem(relativePath: string): Promise<boolean> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Deleting files is not available for remote libraries.')
   }
+  if (!relativePath) {
+    throw new Error('Relative path is required for deletion.')
+  }
   try {
     const absolutePath = await getAbsolutePath(relativePath)
-    if (!absolutePath) return false
+    if (!absolutePath) {
+      throw new Error(`Access denied: Path "${relativePath}" is outside the media library.`)
+    }
 
-    log(`Deleteting item (Direct delete on server): ${absolutePath}`)
+    log(`Deleting item (Direct delete on server): ${absolutePath}`)
     await fs.rm(absolutePath, { recursive: true, force: true })
     return true
   } catch (error) {
     console.error(`Failed to delete item: ${relativePath}`, error)
-    // Re-throw to be caught by the transport layer and shown to the user.
     throw error
   }
 }
 
-export async function renameItem(relativeOldPath: string, newName: string): Promise<void> {
+export async function renameItem(relativeOldPath: string, newName: string): Promise<string> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Renaming items is not available for remote libraries.')
   }
+  if (!relativeOldPath || !newName) {
+    throw new Error('Both old path and new name are required for renaming.')
+  }
+
   const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
   if (!mediaSourcePath) {
     throw new Error('Media source path not configured.')
   }
+
   const oldAbsolutePath = pathsService.securePathJoin(mediaSourcePath, relativeOldPath)
   if (!oldAbsolutePath) {
     throw new Error('Access denied: Old path is outside the media library.')
   }
+
   const dirPath = path.dirname(oldAbsolutePath)
-  const newAbsolutePath = pathsService.securePathJoin(dirPath, newName)
-  if (!newAbsolutePath || !newAbsolutePath.startsWith(dirPath)) {
-    throw new Error('Access denied: New path is outside the directory.')
+  const newAbsolutePath = path.join(dirPath, newName)
+
+  // Verify the new path is still within the media source path (security)
+  if (!pathsService.isPathInside(mediaSourcePath, newAbsolutePath)) {
+    throw new Error('Access denied: New path is outside the media library.')
   }
+
   try {
     await fs.rename(oldAbsolutePath, newAbsolutePath)
+    // Return the new relative path
+    return path.relative(mediaSourcePath, newAbsolutePath).replace(/\\/g, '/')
   } catch (error) {
     console.error(`Failed to rename item from ${relativeOldPath} to ${newName}`, error)
-    throw error // Re-throw to be caught by the transport layer.
+    throw error
   }
 }
 

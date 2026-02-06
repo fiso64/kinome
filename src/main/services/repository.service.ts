@@ -1,4 +1,5 @@
-﻿import crypto from 'crypto'
+﻿import path from 'path'
+import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
 import type { LibraryItem, MediaFolder } from '@shared/types'
 import { VIEW_SETTINGS_KEYS, CORE_FIELDS } from '@shared/types'
@@ -687,13 +688,13 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
       updates.mediaType !== undefined
         ? updates.mediaType
         : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)
-            ?.media_type
+          ?.media_type
 
     if (mediaType === 'tv') {
-      ;(updates as any).seasonNumber = null
-      ;(updates as any).episodeNumber = null
+      ; (updates as any).seasonNumber = null
+        ; (updates as any).episodeNumber = null
     } else if (mediaType === 'season') {
-      ;(updates as any).episodeNumber = null
+      ; (updates as any).episodeNumber = null
     }
 
     // 1. Items Table
@@ -984,6 +985,23 @@ export function deleteItem(itemId: string): LibraryItem | null {
 
   db.prepare('DELETE FROM items WHERE id = ?').run(itemId)
   return item
+}
+
+export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {
+  const db = getDb()
+  const newId = generateId(newRelativePath)
+  const newName = path.basename(newRelativePath)
+
+  db.transaction(() => {
+    db.prepare('UPDATE items SET id = ?, path = ?, name = ? WHERE id = ?').run(
+      newId,
+      newRelativePath,
+      newName,
+      oldId
+    )
+  })()
+
+  return getItemById(newId)
 }
 
 // --- Copy Utilities ---
