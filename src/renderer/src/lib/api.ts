@@ -11,7 +11,7 @@ import type {
   AppCapabilities,
   LibraryStatus,
   ScanStatus
-} from '../../../shared/types'
+} from '@shared/types'
 
 export interface ApiClient {
   readonly capabilities: AppCapabilities
@@ -29,7 +29,13 @@ export interface ApiClient {
   getItemV2(id: string, include?: string[]): Promise<LibraryItem>
   getChildrenV2(
     parentId: string,
-    options?: { limit?: number; offset?: number; include?: string[]; orderBy?: string; groupBy?: string }
+    options?: {
+      limit?: number
+      offset?: number
+      include?: string[]
+      orderBy?: string
+      groupBy?: string
+    }
   ): Promise<LibraryItem[]>
   getAncestors?: (itemId: string) => Promise<LibraryItem[]>
 
@@ -104,11 +110,7 @@ export interface ApiClient {
     source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
   ): Promise<void>
   removeImage(itemId: string, imageType: 'poster' | 'backdrop' | 'logo'): Promise<void>
-  uploadImage(
-    itemId: string,
-    imageType: 'poster' | 'backdrop' | 'logo',
-    file: File
-  ): Promise<void>
+  uploadImage(itemId: string, imageType: 'poster' | 'backdrop' | 'logo', file: File): Promise<void>
   executeCustomAction(itemId: string, commandId: string): Promise<void>
   revealInExplorer(path: string): void
   trashItem(path: string): Promise<boolean>
@@ -119,7 +121,11 @@ export interface ApiClient {
   getSettings(): Promise<Settings>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
-  resolveMediaSourcePath(args: { path: string; isRelative: boolean; libraryLocation?: string }): Promise<string>
+  resolveMediaSourcePath(args: {
+    path: string
+    isRelative: boolean
+    libraryLocation?: string
+  }): Promise<string>
   minimizeWindow(): void
   toggleMaximizeWindow(): void
   closeWindow(): void
@@ -139,7 +145,6 @@ export interface ApiClient {
 }
 
 import { webApi } from './web-api'
-
 
 import { authStore } from './auth-store.svelte'
 

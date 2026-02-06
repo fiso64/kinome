@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
-import type { MediaFolder } from '../../shared/types'
+import type { MediaFolder } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -98,7 +98,6 @@ async function walkAndUpsert(
     const retrieveChildrenMetadata =
       !options.skipMetadata && scraperSettings.retrieve_children_metadata !== false
 
-
     const operations: (() => void)[] = []
 
     for (const entry of entries) {
@@ -119,7 +118,7 @@ async function walkAndUpsert(
       try {
         const s = await fs.stat(fullPath)
         stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
-      } catch { }
+      } catch {}
 
       // ---------------------------------------------------------
       // Phase 3: Invariant Enforcement & Write Guard
@@ -179,7 +178,9 @@ export async function scanDirectory(
   options: { skipMetadata?: boolean } = {}
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
-  log(`Starting full scan of ${mediaSourcePath}${options.skipMetadata ? ' (metadata skipped)' : ''}`)
+  log(
+    `Starting full scan of ${mediaSourcePath}${options.skipMetadata ? ' (metadata skipped)' : ''}`
+  )
 
   repositoryService.ensureRootExists(mediaSourcePath)
 
@@ -193,9 +194,9 @@ export async function scanDirectory(
   // 2. Filter in JS (Set difference).
   // 3. Batch update missing.
 
-  const allDbIds = (db
-    .prepare('SELECT id FROM items WHERE is_missing = 0')
-    .all() as { id: string }[]).map((row) => row.id)
+  const allDbIds = (
+    db.prepare('SELECT id FROM items WHERE is_missing = 0').all() as { id: string }[]
+  ).map((row) => row.id)
   const missingIds = allDbIds.filter((id) => !visitedIds.has(id))
 
   if (missingIds.length > 0) {
@@ -246,8 +247,6 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
     })
   }
 }
-
-
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
   const db = repositoryService.getDb()

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import ConfigurableTreeItem from './ConfigurableTreeItem.svelte'
+  import type { MediaFolder } from '@shared/types'
 
   type ItemSettings = { retrieve: boolean; hint?: 'movie' | 'tv' }
 

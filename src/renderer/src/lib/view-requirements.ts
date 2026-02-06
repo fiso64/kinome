@@ -1,22 +1,21 @@
-import type { BaseViewSettings, Settings } from '../../../shared/types'
-import { CORE_FIELDS } from '../../../shared/types'
-
+import type { BaseViewSettings, Settings } from '@shared/types'
+import { CORE_FIELDS } from '@shared/types'
 
 /**
  * Fields required for the ItemDetail header and primary metadata.
  */
 export const DETAIL_HEADER_FIELDS = [
-    ...CORE_FIELDS,
-    'title',
-    'overview',
-    'backdropPath',
-    'logoPath',
-    'runtime',
-    'releaseDate',
-    'genres',
-    'tags',
-    'tmdbId',
-    '_v'
+  ...CORE_FIELDS,
+  'title',
+  'overview',
+  'backdropPath',
+  'logoPath',
+  'runtime',
+  'releaseDate',
+  'genres',
+  'tags',
+  'tmdbId',
+  '_v'
 ]
 
 /**
@@ -24,12 +23,12 @@ export const DETAIL_HEADER_FIELDS = [
  * This ensures that when switching views, we always fetch the necessary data.
  */
 export const VIEW_REQUIRED_FIELDS: Record<string, string[]> = {
-    list: [...CORE_FIELDS, 'overview'],
-    grid: [...CORE_FIELDS],
-    'horizontal-grid': [...CORE_FIELDS],
-    tree: [...CORE_FIELDS],
-    tabs: [...CORE_FIELDS],
-    sections: [...CORE_FIELDS]
+  list: [...CORE_FIELDS, 'overview'],
+  grid: [...CORE_FIELDS],
+  'horizontal-grid': [...CORE_FIELDS],
+  tree: [...CORE_FIELDS],
+  tabs: [...CORE_FIELDS],
+  sections: [...CORE_FIELDS]
 }
 
 /**
@@ -40,20 +39,20 @@ export const VIEW_REQUIRED_FIELDS: Record<string, string[]> = {
  * @param groupBy A grouping key (e.g. 'genre', 'vt.is_anime')
  */
 export function getRequiredFieldsForLayout(layout: string, groupBy?: string): string[] {
-    const baseFields = VIEW_REQUIRED_FIELDS[layout] ?? []
-    const groupFields: string[] = []
+  const baseFields = VIEW_REQUIRED_FIELDS[layout] ?? []
+  const groupFields: string[] = []
 
-    if (groupBy) {
-        if (groupBy === 'genre' || groupBy === 'genres') {
-            groupFields.push('genres')
-        } else if (groupBy.startsWith('vt.') || groupBy === 'virtualTags') {
-            groupFields.push('virtualTags')
-        } else if (groupBy.startsWith('tags.') || groupBy === 'tags') {
-            groupFields.push('tags')
-        }
+  if (groupBy) {
+    if (groupBy === 'genre' || groupBy === 'genres') {
+      groupFields.push('genres')
+    } else if (groupBy.startsWith('vt.') || groupBy === 'virtualTags') {
+      groupFields.push('virtualTags')
+    } else if (groupBy.startsWith('tags.') || groupBy === 'tags') {
+      groupFields.push('tags')
     }
+  }
 
-    return [...baseFields, ...groupFields]
+  return [...baseFields, ...groupFields]
 }
 
 /**
@@ -63,25 +62,25 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
  * @param settings The fully resolved view settings object (optionally merged with an item for type context) <-- TODO: Merging is retarded, clean it up.
  */
 export function getAllRequiredFields(settings: any): string[] {
-    const fields = new Set<string>()
+  const fields = new Set<string>()
 
-    function traverse(currentSettings: any) {
-        if (!currentSettings || typeof currentSettings !== 'object') return
+  function traverse(currentSettings: any) {
+    if (!currentSettings || typeof currentSettings !== 'object') return
 
-        if (currentSettings.layout) {
-            const req = getRequiredFieldsForLayout(currentSettings.layout, currentSettings.groupBy)
-            req.forEach((f) => fields.add(f))
-        }
-
-        if (currentSettings.childViewSettings) {
-            traverse(currentSettings.childViewSettings)
-        }
-
-        if (currentSettings.virtualFolderSettings) {
-            Object.values(currentSettings.virtualFolderSettings).forEach((v) => traverse(v))
-        }
+    if (currentSettings.layout) {
+      const req = getRequiredFieldsForLayout(currentSettings.layout, currentSettings.groupBy)
+      req.forEach((f) => fields.add(f))
     }
 
-    traverse(settings)
-    return Array.from(fields)
+    if (currentSettings.childViewSettings) {
+      traverse(currentSettings.childViewSettings)
+    }
+
+    if (currentSettings.virtualFolderSettings) {
+      Object.values(currentSettings.virtualFolderSettings).forEach((v) => traverse(v))
+    }
+  }
+
+  traverse(settings)
+  return Array.from(fields)
 }

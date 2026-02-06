@@ -1,19 +1,26 @@
-import { LibraryItem, MediaFolder } from '../../shared/types'
-import { find, getItemById, getRoot, getValuesForKey, FindOptions, getChildren } from './repository.service'
+import { LibraryItem, MediaFolder } from '@shared/types'
+import {
+  find,
+  getItemById,
+  getRoot,
+  getValuesForKey,
+  FindOptions,
+  getChildren
+} from './repository.service'
 import { isVirtualId, parseVirtualId, buildVirtualItem } from './virtual-item.factory'
-import { resolveViewSettings } from '../../shared/settings-helpers'
+import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 
 const log = (msg: string) => console.log(`[GroupingService] ${msg}`)
 
 export function getVirtualItem(id: string): LibraryItem | null {
-    const { parentId } = parseVirtualId(id)
-    if (!parentId) return null
+  const { parentId } = parseVirtualId(id)
+  if (!parentId) return null
 
-    const parent = getItemById(parentId) as MediaFolder
-    if (!parent) return null
+  const parent = getItemById(parentId) as MediaFolder
+  if (!parent) return null
 
-    return buildVirtualItem(id, parent)
+  return buildVirtualItem(id, parent)
 }
 
 /**
@@ -21,332 +28,336 @@ export function getVirtualItem(id: string): LibraryItem | null {
  * to apply virtualization (grouping) to an item's children.
  */
 export async function groupItemsForDetailView(
-    parent: MediaFolder,
-    options: { fields?: string[] } = {}
+  parent: MediaFolder,
+  options: { fields?: string[] } = {}
 ): Promise<LibraryItem[]> {
-    const settings = await readSettings()
-    const { settings: resolved } = resolveViewSettings(parent, settings)
+  const settings = await readSettings()
+  const { settings: resolved } = resolveViewSettings(parent, settings)
 
-    const rawChildren = find({
-        where: { parentId: parent.id },
-        fields: options.fields
-    }).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
+  const rawChildren = find({
+    where: { parentId: parent.id },
+    fields: options.fields
+  }).filter((c: LibraryItem) => !c.isHidden && !c.isMissing)
 
-    // Apply grouping only if the layout demands it (e.g. Tabs or Sections).
-    // This removes the hardcoded TV-show virtualization in favor of the resolved layout.
-    if (['tabs', 'sections'].includes(resolved.layout)) {
-        log(`Applying automatic virtualization for "${parent.name}" (Layout: ${resolved.layout})`)
-        return await groupItemsRecursive(
-            rawChildren,
-            resolved.groupBy || 'folder',
-            parent.id,
-            parent,
-            '',
-            parent.childViewSettings || {},
-            options.fields
-        )
-    }
+  // Apply grouping only if the layout demands it (e.g. Tabs or Sections).
+  // This removes the hardcoded TV-show virtualization in favor of the resolved layout.
+  if (['tabs', 'sections'].includes(resolved.layout)) {
+    log(`Applying automatic virtualization for "${parent.name}" (Layout: ${resolved.layout})`)
+    return await groupItemsRecursive(
+      rawChildren,
+      resolved.groupBy || 'folder',
+      parent.id,
+      parent,
+      '',
+      parent.childViewSettings || {},
+      options.fields
+    )
+  }
 
-    return rawChildren
+  return rawChildren
 }
 
 export async function getGroups(
-    parentId: string,
-    groupByKey: string,
-    options: FindOptions
+  parentId: string,
+  groupByKey: string,
+  options: FindOptions
 ): Promise<LibraryItem[]> {
-    const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
+  const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
 
-    const items = find({
-        ...options,
-        fields: fieldsToSelect
-    })
+  const items = find({
+    ...options,
+    fields: fieldsToSelect
+  })
 
-    let physicalParentId = parentId
-    let parentTokenPath = ''
-    let parentIsVirtual = false
+  let physicalParentId = parentId
+  let parentTokenPath = ''
+  let parentIsVirtual = false
 
-    if (isVirtualId(parentId)) {
-        const { parentId: pid, tokens } = parseVirtualId(parentId)
-        physicalParentId = pid || ''
-        parentTokenPath = tokens ? tokens.join('/') : ''
-        parentIsVirtual = true
-    } else if (parentId === 'root') {
-        const root = getRoot()
-        if (root) physicalParentId = root.id
+  if (isVirtualId(parentId)) {
+    const { parentId: pid, tokens } = parseVirtualId(parentId)
+    physicalParentId = pid || ''
+    parentTokenPath = tokens ? tokens.join('/') : ''
+    parentIsVirtual = true
+  } else if (parentId === 'root') {
+    const root = getRoot()
+    if (root) physicalParentId = root.id
+  }
+
+  const physicalParent = getItemById(physicalParentId) as MediaFolder
+
+  let inheritedSettings = {}
+  if (parentIsVirtual) {
+    const virtualParent = getVirtualItem(parentId)
+    if (virtualParent && (virtualParent as any).childViewSettings) {
+      inheritedSettings = (virtualParent as any).childViewSettings
     }
-
-    const physicalParent = getItemById(physicalParentId) as MediaFolder
-
-    let inheritedSettings = {}
-    if (parentIsVirtual) {
-        const virtualParent = getVirtualItem(parentId)
-        if (virtualParent && (virtualParent as any).childViewSettings) {
-            inheritedSettings = (virtualParent as any).childViewSettings
-        }
-    } else {
-        if (physicalParent && physicalParent.childViewSettings) {
-            inheritedSettings = physicalParent.childViewSettings
-        }
+  } else {
+    if (physicalParent && physicalParent.childViewSettings) {
+      inheritedSettings = physicalParent.childViewSettings
     }
+  }
 
-    return await groupItemsRecursive(
-        items,
-        groupByKey,
-        parentId,
-        physicalParent,
-        parentTokenPath,
-        inheritedSettings,
-        fieldsToSelect
-    )
+  return await groupItemsRecursive(
+    items,
+    groupByKey,
+    parentId,
+    physicalParent,
+    parentTokenPath,
+    inheritedSettings,
+    fieldsToSelect
+  )
 }
 
 function categorizeItems(items: LibraryItem[]) {
-    const physicalFolders: MediaFolder[] = []
-    const files: LibraryItem[] = []
+  const physicalFolders: MediaFolder[] = []
+  const files: LibraryItem[] = []
 
-    for (const item of items) {
-        if (item.type === 'folder') {
-            physicalFolders.push(item as MediaFolder)
-        } else {
-            files.push(item)
-        }
+  for (const item of items) {
+    if (item.type === 'folder') {
+      physicalFolders.push(item as MediaFolder)
+    } else {
+      files.push(item)
     }
-    return { physicalFolders, files }
+  }
+  return { physicalFolders, files }
 }
 
 async function groupItemsRecursive(
-    items: LibraryItem[],
-    groupByKey: string,
-    currentParentId: string,
-    physicalParent: MediaFolder | null,
-    parentTokenPath: string,
-    inheritedSettings: any,
-    fields?: string[]
+  items: LibraryItem[],
+  groupByKey: string,
+  currentParentId: string,
+  physicalParent: MediaFolder | null,
+  parentTokenPath: string,
+  inheritedSettings: any,
+  fields?: string[]
 ): Promise<LibraryItem[]> {
-    const globalSettings = await readSettings()
+  const globalSettings = await readSettings()
 
-    // We use effectiveSettings for internal logic (like determining if we should keep grouping recursively),
-    // but we do NOT bake them into the item objects themselves.
-    // (Note: inheritedSettings are applied during resolution below)
+  // We use effectiveSettings for internal logic (like determining if we should keep grouping recursively),
+  // but we do NOT bake them into the item objects themselves.
+  // (Note: inheritedSettings are applied during resolution below)
 
-    // --- Special Handling for "Folder" Grouping ---
-    if (groupByKey === 'folder') {
-        const { physicalFolders, files: looseFiles } = categorizeItems(items)
-        const virtualFolders: LibraryItem[] = []
+  // --- Special Handling for "Folder" Grouping ---
+  if (groupByKey === 'folder') {
+    const { physicalFolders, files: looseFiles } = categorizeItems(items)
+    const virtualFolders: LibraryItem[] = []
 
-        // 1. Unwrap Physical Folders & Recurse if needed
-        for (const folder of physicalFolders) {
-            let children = getChildren(folder.id, fields).filter(c => !c.isHidden && !c.isMissing)
+    // 1. Unwrap Physical Folders & Recurse if needed
+    for (const folder of physicalFolders) {
+      let children = getChildren(folder.id, fields).filter((c) => !c.isHidden && !c.isMissing)
 
-            // Resolve settings for this folder to see if it acts as a grouping container (Tabs/Sections)
-            // We merge inheritedSettings to ensure virtual parent overrides apply.
-            const effectiveItem = { ...inheritedSettings, ...folder }
-            const { settings: resolved } = resolveViewSettings(effectiveItem, globalSettings)
+      // Resolve settings for this folder to see if it acts as a grouping container (Tabs/Sections)
+      // We merge inheritedSettings to ensure virtual parent overrides apply.
+      const effectiveItem = { ...inheritedSettings, ...folder }
+      const { settings: resolved } = resolveViewSettings(effectiveItem, globalSettings)
 
-            if (['tabs', 'sections'].includes(resolved.layout) && resolved.groupBy) {
-                // If this folder is a container (e.g. TV Show -> Tabs), we must populate its structure recursively.
-                // We reset parentTokenPath to '' because 'folder' is a physical anchor.
-                // We pass down its resolved childViewSettings.
-                const nextInheritedSettings = folder.childViewSettings || resolved.childViewSettings || {}
+      if (['tabs', 'sections'].includes(resolved.layout) && resolved.groupBy) {
+        // If this folder is a container (e.g. TV Show -> Tabs), we must populate its structure recursively.
+        // We reset parentTokenPath to '' because 'folder' is a physical anchor.
+        // We pass down its resolved childViewSettings.
+        const nextInheritedSettings = folder.childViewSettings || resolved.childViewSettings || {}
 
-                children = await groupItemsRecursive(
-                    children,
-                    resolved.groupBy,
-                    folder.id,
-                    folder, // It becomes the physical parent
-                    '',
-                    nextInheritedSettings,
-                    fields
-                )
-            }
+        children = await groupItemsRecursive(
+          children,
+          resolved.groupBy,
+          folder.id,
+          folder, // It becomes the physical parent
+          '',
+          nextInheritedSettings,
+          fields
+        )
+      }
 
-            folder.children = children
-        }
-
-        if (looseFiles.length > 0) {
-            const filesBySeason = new Map<number, LibraryItem[]>()
-            const unseasonedFiles: LibraryItem[] = []
-
-            for (const file of looseFiles) {
-                const seasonNum = 'seasonNumber' in file ? (file as any).seasonNumber : undefined
-                if (seasonNum !== undefined && seasonNum !== null) {
-                    if (!filesBySeason.has(seasonNum)) {
-                        filesBySeason.set(seasonNum, [])
-                    }
-                    filesBySeason.get(seasonNum)!.push(file)
-                } else {
-                    unseasonedFiles.push(file)
-                }
-            }
-
-            const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
-            for (const seasonNum of sortedSeasonNumbers) {
-                const groupValue = `__season_${seasonNum}__`
-                const token = `${groupByKey}:${groupValue}`
-                const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-
-                const virtualSettings =
-                    physicalParent && physicalParent.virtualFolderSettings
-                        ? physicalParent.virtualFolderSettings[fullSettingsKey] ?? {}
-                        : {}
-
-                let newId = ''
-                const existingParentId = isVirtualId(currentParentId)
-                    ? currentParentId
-                    : physicalParent?.id || currentParentId
-                if (isVirtualId(currentParentId)) {
-                    newId = `${currentParentId}--${token}`
-                } else {
-                    newId = `virtual--${existingParentId}--${token}`
-                }
-
-                const seasonFolder: MediaFolder = {
-                    id: newId,
-                    parentId: currentParentId,
-                    name: `Season ${seasonNum}`,
-                    title: virtualSettings.title ?? `Season ${seasonNum}`,
-                    type: 'folder',
-                    mediaType: 'season',
-                    isMissing: false,
-                    isHidden: false,
-                    path: `virtual/${fullSettingsKey}`,
-                    isVirtual: true,
-                    children: filesBySeason.get(seasonNum)!,
-                    virtualFolderSettings: physicalParent?.virtualFolderSettings,
-                    seasonNumber: seasonNum,
-                    ...virtualSettings,
-                    groupByKey: 'folder',
-                    groupByValue: groupValue
-                }
-                virtualFolders.push(seasonFolder)
-            }
-
-            if (unseasonedFiles.length > 0) {
-                const groupValue = '__files__'
-                const token = `${groupByKey}:${groupValue}`
-                const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-                const virtualSettings =
-                    physicalParent && physicalParent.virtualFolderSettings
-                        ? physicalParent.virtualFolderSettings[fullSettingsKey] ?? {}
-                        : {}
-
-                const existingParentId = isVirtualId(currentParentId)
-                    ? currentParentId
-                    : physicalParent?.id || currentParentId
-                let newId = ''
-                if (isVirtualId(currentParentId)) {
-                    newId = `${currentParentId}--${token}`
-                } else {
-                    newId = `virtual--${existingParentId}--${token}`
-                }
-
-                const filesFolder: MediaFolder = {
-                    id: newId,
-                    parentId: currentParentId,
-                    name: 'Files',
-                    title: virtualSettings.title ?? 'Files',
-                    type: 'folder',
-                    mediaType: 'folder' as any,
-                    isMissing: false,
-                    isHidden: false,
-                    path: `virtual/${fullSettingsKey}`,
-                    isVirtual: true,
-                    children: unseasonedFiles,
-                    virtualFolderSettings: physicalParent?.virtualFolderSettings,
-                    ...virtualSettings,
-                    groupByKey: 'folder',
-                    groupByValue: groupValue
-                }
-                virtualFolders.push(filesFolder)
-            }
-        }
-
-        return [...virtualFolders, ...physicalFolders].sort((a, b) => {
-            const aSeason = (a as any).seasonNumber
-            const bSeason = (b as any).seasonNumber
-            if (aSeason != null && bSeason != null) return aSeason - bSeason
-            return a.name.localeCompare(b.name, undefined, { numeric: true })
-        })
+      folder.children = children
     }
 
-    // --- Standard Metadata Grouping ---
-    const groups: Record<string, LibraryItem[]> = {}
+    if (looseFiles.length > 0) {
+      const filesBySeason = new Map<number, LibraryItem[]>()
+      const unseasonedFiles: LibraryItem[] = []
 
-    for (const item of items) {
-        const values = getValuesForKey(item, groupByKey)
-        if (values.length === 0) {
-            if (!groups['Uncategorized']) groups['Uncategorized'] = []
-            groups['Uncategorized'].push(item)
+      for (const file of looseFiles) {
+        const seasonNum = 'seasonNumber' in file ? (file as any).seasonNumber : undefined
+        if (seasonNum !== undefined && seasonNum !== null) {
+          if (!filesBySeason.has(seasonNum)) {
+            filesBySeason.set(seasonNum, [])
+          }
+          filesBySeason.get(seasonNum)!.push(file)
         } else {
-            for (const value of values) {
-                if (!groups[value]) groups[value] = []
-                groups[value].push(item)
-            }
+          unseasonedFiles.push(file)
         }
+      }
+
+      const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
+      for (const seasonNum of sortedSeasonNumbers) {
+        const groupValue = `__season_${seasonNum}__`
+        const token = `${groupByKey}:${groupValue}`
+        const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
+
+        const virtualSettings =
+          physicalParent && physicalParent.virtualFolderSettings
+            ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
+            : {}
+
+        let newId = ''
+        const existingParentId = isVirtualId(currentParentId)
+          ? currentParentId
+          : physicalParent?.id || currentParentId
+        if (isVirtualId(currentParentId)) {
+          newId = `${currentParentId}--${token}`
+        } else {
+          newId = `virtual--${existingParentId}--${token}`
+        }
+
+        const seasonFolder: MediaFolder = {
+          id: newId,
+          parentId: currentParentId,
+          name: `Season ${seasonNum}`,
+          title: virtualSettings.title ?? `Season ${seasonNum}`,
+          type: 'folder',
+          mediaType: 'season',
+          isMissing: false,
+          isHidden: false,
+          path: `virtual/${fullSettingsKey}`,
+          isVirtual: true,
+          children: filesBySeason.get(seasonNum)!,
+          virtualFolderSettings: physicalParent?.virtualFolderSettings,
+          seasonNumber: seasonNum,
+          ...virtualSettings,
+          groupByKey: 'folder',
+          groupByValue: groupValue
+        }
+        virtualFolders.push(seasonFolder)
+      }
+
+      if (unseasonedFiles.length > 0) {
+        const groupValue = '__files__'
+        const token = `${groupByKey}:${groupValue}`
+        const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
+        const virtualSettings =
+          physicalParent && physicalParent.virtualFolderSettings
+            ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
+            : {}
+
+        const existingParentId = isVirtualId(currentParentId)
+          ? currentParentId
+          : physicalParent?.id || currentParentId
+        let newId = ''
+        if (isVirtualId(currentParentId)) {
+          newId = `${currentParentId}--${token}`
+        } else {
+          newId = `virtual--${existingParentId}--${token}`
+        }
+
+        const filesFolder: MediaFolder = {
+          id: newId,
+          parentId: currentParentId,
+          name: 'Files',
+          title: virtualSettings.title ?? 'Files',
+          type: 'folder',
+          mediaType: 'folder' as any,
+          isMissing: false,
+          isHidden: false,
+          path: `virtual/${fullSettingsKey}`,
+          isVirtual: true,
+          children: unseasonedFiles,
+          virtualFolderSettings: physicalParent?.virtualFolderSettings,
+          ...virtualSettings,
+          groupByKey: 'folder',
+          groupByValue: groupValue
+        }
+        virtualFolders.push(filesFolder)
+      }
     }
 
-    const virtualFolders: LibraryItem[] = await Promise.all(
-        Object.entries(groups).map(async ([groupValue, groupItems]) => {
-            const token = `${groupByKey}:${groupValue}`
-            const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
+    return [...virtualFolders, ...physicalFolders].sort((a, b) => {
+      const aSeason = (a as any).seasonNumber
+      const bSeason = (b as any).seasonNumber
+      if (aSeason != null && bSeason != null) return aSeason - bSeason
+      return a.name.localeCompare(b.name, undefined, { numeric: true })
+    })
+  }
 
-            const virtualSettings =
-                physicalParent && physicalParent.virtualFolderSettings
-                    ? physicalParent.virtualFolderSettings[fullSettingsKey] ?? {}
-                    : {}
+  // --- Standard Metadata Grouping ---
+  const groups: Record<string, LibraryItem[]> = {}
 
-            let newId = ''
-            if (isVirtualId(currentParentId)) {
-                newId = `${currentParentId}--${token}`
-            } else {
-                const pid = physicalParent?.id || currentParentId
-                newId = `virtual--${pid}--${token}`
-            }
+  for (const item of items) {
+    const values = getValuesForKey(item, groupByKey)
+    if (values.length === 0) {
+      if (!groups['Uncategorized']) groups['Uncategorized'] = []
+      groups['Uncategorized'].push(item)
+    } else {
+      for (const value of values) {
+        if (!groups[value]) groups[value] = []
+        groups[value].push(item)
+      }
+    }
+  }
 
-            const virtualFolder: MediaFolder = {
-                id: newId,
-                parentId: currentParentId,
-                name: groupValue,
-                title: virtualSettings.title ?? groupValue,
-                type: 'folder',
-                mediaType: physicalParent?.mediaType,
-                isMissing: false,
-                isHidden: false,
-                path: `virtual/${fullSettingsKey}`,
-                isVirtual: true,
-                children: [],
-                virtualFolderSettings: physicalParent?.virtualFolderSettings,
-                ...virtualSettings
-            }
+  const virtualFolders: LibraryItem[] = await Promise.all(
+    Object.entries(groups).map(async ([groupValue, groupItems]) => {
+      const token = `${groupByKey}:${groupValue}`
+      const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
 
-            // Use the hint from the parent (inheritedSettings) to decide how to process THIS folder's children,
-            // but keep the virtualFolder object clean of those hints for its own identity.
-            const effectiveResolution = resolveViewSettings(
-                { ...inheritedSettings, ...virtualSettings, ...virtualFolder } as any,
-                globalSettings
-            ).settings
+      const virtualSettings =
+        physicalParent && physicalParent.virtualFolderSettings
+          ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
+          : {}
 
-            if (['tabs', 'sections'].includes(effectiveResolution.layout) && effectiveResolution.groupBy) {
-                // If this level is ALSO grouping, we pass its childViewSettings down.
-                const nextSettings = (virtualFolder as any).childViewSettings || effectiveResolution.childViewSettings || {}
+      let newId = ''
+      if (isVirtualId(currentParentId)) {
+        newId = `${currentParentId}--${token}`
+      } else {
+        const pid = physicalParent?.id || currentParentId
+        newId = `virtual--${pid}--${token}`
+      }
 
-                virtualFolder.children = await groupItemsRecursive(
-                    groupItems,
-                    effectiveResolution.groupBy,
-                    newId,
-                    physicalParent,
-                    fullSettingsKey,
-                    nextSettings,
-                    fields // Pass fields
-                )
-            } else {
-                virtualFolder.children = groupItems
-            }
+      const virtualFolder: MediaFolder = {
+        id: newId,
+        parentId: currentParentId,
+        name: groupValue,
+        title: virtualSettings.title ?? groupValue,
+        type: 'folder',
+        mediaType: physicalParent?.mediaType,
+        isMissing: false,
+        isHidden: false,
+        path: `virtual/${fullSettingsKey}`,
+        isVirtual: true,
+        children: [],
+        virtualFolderSettings: physicalParent?.virtualFolderSettings,
+        ...virtualSettings
+      }
 
-            return virtualFolder
-        })
-    )
+      // Use the hint from the parent (inheritedSettings) to decide how to process THIS folder's children,
+      // but keep the virtualFolder object clean of those hints for its own identity.
+      const effectiveResolution = resolveViewSettings(
+        { ...inheritedSettings, ...virtualSettings, ...virtualFolder } as any,
+        globalSettings
+      ).settings
 
-    return virtualFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      if (
+        ['tabs', 'sections'].includes(effectiveResolution.layout) &&
+        effectiveResolution.groupBy
+      ) {
+        // If this level is ALSO grouping, we pass its childViewSettings down.
+        const nextSettings =
+          (virtualFolder as any).childViewSettings || effectiveResolution.childViewSettings || {}
+
+        virtualFolder.children = await groupItemsRecursive(
+          groupItems,
+          effectiveResolution.groupBy,
+          newId,
+          physicalParent,
+          fullSettingsKey,
+          nextSettings,
+          fields // Pass fields
+        )
+      } else {
+        virtualFolder.children = groupItems
+      }
+
+      return virtualFolder
+    })
+  )
+
+  return virtualFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 }

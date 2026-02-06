@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { shouldBeGreyedOut } from '../../lib/view-helpers'
-  import { getAssetUrl } from '../../lib/api'
-  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+  import { shouldBeGreyedOut } from '@lib/view-helpers'
+  import { getAssetUrl } from '@lib/api'
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -270,6 +270,7 @@
     line-height: 1.5;
     max-height: calc(var(--description-rows, 3) * 1.5em);
     display: -webkit-box;
+    line-clamp: var(--description-rows, 3);
     -webkit-line-clamp: var(--description-rows, 3);
     -webkit-box-orient: vertical;
     overflow: hidden;

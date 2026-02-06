@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { authStore } from '../../lib/auth-store.svelte'
+  import { authStore } from '@lib/auth-store.svelte'
   import { onMount } from 'svelte'
 
   let password = $state('')

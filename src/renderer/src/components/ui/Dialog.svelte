@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { registerModalKeyHandler } from '../../lib/modal-keyboard-manager'
-  import type { DialogButton, CheckboxConfig } from '../../lib/dialog-store'
+  import { registerModalKeyHandler } from '@lib/modal-keyboard-manager'
+  import type { DialogButton, CheckboxConfig } from '@lib/dialog-store'
 
   let {
     title,

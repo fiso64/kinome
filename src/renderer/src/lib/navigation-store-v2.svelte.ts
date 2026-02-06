@@ -1,4 +1,4 @@
-import type { SearchQuery } from '../../../shared/types'
+import type { SearchQuery } from '@shared/types'
 import { serializeSearchQuery, deserializeSearchQuery } from './search-query-helpers'
 
 // --- Types ---
@@ -164,7 +164,10 @@ export const navStoreV2 = {
    * @param query The new search query object.
    * @param options Configuration for history behavior and side effects.
    */
-  setGlobalSearch: (query: SearchQuery, options: { replace?: boolean; closeDetail?: boolean } = {}) => {
+  setGlobalSearch: (
+    query: SearchQuery,
+    options: { replace?: boolean; closeDetail?: boolean } = {}
+  ) => {
     const params = getUrlParams()
     const hasSearchInUrl = params.has('q')
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
+  import type { LibraryItem } from '@shared/types'
 
   type ItemProperties = {
     name: string

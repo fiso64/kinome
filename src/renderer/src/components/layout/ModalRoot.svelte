@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { modalStore } from '../../lib/modal-store.svelte'
+  import { modalStore } from '@lib/modal-store.svelte'
   import ItemSettingsModal from '../modals/ItemSettingsModal.svelte'
   import ManualSearchModal from '../modals/ManualSearchModal.svelte'
   import PropertiesModal from '../modals/PropertiesModal.svelte'

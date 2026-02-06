@@ -1,4 +1,4 @@
-import type { LibraryItem, MediaFolder } from '../../../shared/types'
+import type { LibraryItem, MediaFolder } from '@shared/types'
 
 // --- Types ---
 

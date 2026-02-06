@@ -22,7 +22,7 @@ export const autocompleteState = writable<AutocompleteState>({
   loading: false,
   suggestions: [],
   position: { top: 0, left: 0, inputTop: 0 },
-  onSelect: () => { },
+  onSelect: () => {},
   activeIndex: 0,
   targetNode: null
 })

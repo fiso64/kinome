@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import TreeItem from '../ui/TreeItem.svelte'
 
@@ -40,6 +40,7 @@
           onShowContextMenu(treeItem, event, { layout: 'tree' })}
         {grayOutWatched}
         {parentItem}
+        level={0}
       />
     {/each}
   {:else}

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import GenreInput from '../../../ui/GenreInput.svelte'
-  import TagInput from '../../../ui/TagInput.svelte'
-  import type { LibraryItem, AutocompleteSuggestions } from '../../../../../../shared/types'
+  import GenreInput from '@ui/GenreInput.svelte'
+  import TagInput from '@ui/TagInput.svelte'
+  import type { LibraryItem, AutocompleteSuggestions } from '@shared/types'
 
   let {
     item,
@@ -161,6 +161,7 @@
   }
   .number-input {
     width: 60px;
+    appearance: textfield;
     -moz-appearance: textfield; /* Firefox */
   }
   .number-input::-webkit-outer-spin-button,

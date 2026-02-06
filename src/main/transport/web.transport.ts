@@ -1,4 +1,4 @@
-import { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '../../shared/types'
+import { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '@shared/types'
 import type { ITransport } from './transport.interface'
 
 /**
@@ -39,7 +39,10 @@ export class WebTransport implements ITransport {
     this.broadcast('library-items-updated', items)
   }
 
-  notifyMetadataIndexUpdated(index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }): void {
+  notifyMetadataIndexUpdated(index: {
+    suggestions: AutocompleteSuggestions
+    groupByKeys: string[]
+  }): void {
     console.log('[WebTransport] Notifying metadata index update.')
     this.broadcast('metadata-index-updated', index)
   }

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
-  import { getAssetUrl } from '../../lib/api'
-  import { shouldBeGreyedOut } from '../../lib/view-helpers'
-  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
-  import type { LibraryItem, MediaFolder } from '../../../../shared/types'
+  import { getAssetUrl } from '@lib/api'
+  import { shouldBeGreyedOut } from '@lib/view-helpers'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import type { LibraryItem, MediaFolder } from '@shared/types'
 
   let {
     item,

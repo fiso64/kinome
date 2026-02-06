@@ -5,14 +5,16 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
+  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
   import type {
     StoredViewSettings,
     MediaFolder,
     MediaFile,
     LibraryItem,
     Settings,
-    AutocompleteSuggestions
-  } from '../../../../shared/types'
+    AutocompleteSuggestions,
+    ResolutionInfo
+  } from '@shared/types'
 
   type VirtualFolderProps = {
     isVirtual?: boolean
@@ -181,7 +183,9 @@
   let retrieveChildrenMetadata = $state(
     _isFolder ? (item.retrieve_children_metadata ?? false) : false
   )
-  let childrenTypeHint = $state(_isFolder ? (item.children_type_hint ?? 'auto') : 'auto')
+  let childrenTypeHint = $state<'auto' | 'movie' | 'tv'>(
+    _isFolder ? ((item as MediaFolder).children_type_hint ?? 'auto') : 'auto'
+  )
   let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
 
   // Capture initial state from props/initialization
@@ -390,8 +394,6 @@
     }
   }
 
-  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
-
   async function handleSave() {
     const itemToUpdate = await buildUpdatedItem()
     let needsRefresh = false
@@ -419,11 +421,7 @@
   }
 
   function handleClose() {
-    if (navStoreV2.state.itemSettingsId) {
-      navStoreV2.closeModals()
-    } else {
-      onClose()
-    }
+    onClose()
   }
 
   $effect(() => {
@@ -518,8 +516,5 @@
   .tabs button.active {
     color: var(--ev-c-text-1);
     border-bottom-color: var(--ev-c-white-soft);
-  }
-  .scroll-area {
-    /* This can be used if content overflows */
   }
 </style>

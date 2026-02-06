@@ -17,6 +17,21 @@
     "paths": {
       "@shared/*": [
         "src/shared/*"
+      ],
+      "@renderer/*": [
+        "src/renderer/src/*"
+      ],
+      "@lib/*": [
+        "src/renderer/src/lib/*"
+      ],
+      "@components/*": [
+        "src/renderer/src/components/*"
+      ],
+      "@ui/*": [
+        "src/renderer/src/components/ui/*"
+      ],
+      "@modals/*": [
+        "src/renderer/src/components/modals/*"
       ]
     },
     "verbatimModuleSyntax": true,

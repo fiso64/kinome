@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { autocompleteState, type AutocompleteItem } from '../../lib/autocomplete-manager'
+  import { autocompleteState, type AutocompleteItem } from '@lib/autocomplete-manager'
 
   let {
     suggestions,

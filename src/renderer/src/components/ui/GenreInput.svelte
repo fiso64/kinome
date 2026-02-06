@@ -4,7 +4,7 @@
     type AutocompleteConfig,
     getFuzzySuggestions,
     type AutocompleteItem
-  } from '../../lib/autocomplete-manager'
+  } from '@lib/autocomplete-manager'
 
   let { genres = $bindable(), suggestions }: { genres: string[]; suggestions: string[] } = $props()
 

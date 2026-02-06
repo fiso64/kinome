@@ -1,21 +1,21 @@
-import type { SearchQuery } from '../../../shared/types'
+import type { SearchQuery } from '@shared/types'
 
 /**
  * Serializes a SearchQuery object into a string for use in URL parameters.
  * Format: "text :key:value :key2:value2"
  */
 export function serializeSearchQuery(query: SearchQuery): string {
-    const parts: string[] = []
+  const parts: string[] = []
 
-    if (query.text) {
-        parts.push(query.text)
-    }
+  if (query.text) {
+    parts.push(query.text)
+  }
 
-    for (const tag of query.tags) {
-        parts.push(`:${tag.key}:${tag.value}`)
-    }
+  for (const tag of query.tags) {
+    parts.push(`:${tag.key}:${tag.value}`)
+  }
 
-    return parts.join(' ')
+  return parts.join(' ')
 }
 
 /**
@@ -23,27 +23,27 @@ export function serializeSearchQuery(query: SearchQuery): string {
  * Handles format: "text :key:value :key2:value2"
  */
 export function deserializeSearchQuery(q: string | null): SearchQuery {
-    if (!q) return { text: '', tags: [] }
+  if (!q) return { text: '', tags: [] }
 
-    const tags: { key: string; value: string }[] = []
-    const tagStartRegex = /:([a-zA-Z0-9_.-]+):/g
-    const matches = [...q.matchAll(tagStartRegex)]
+  const tags: { key: string; value: string }[] = []
+  const tagStartRegex = /:([a-zA-Z0-9_.-]+):/g
+  const matches = [...q.matchAll(tagStartRegex)]
 
-    let text = q
+  let text = q
 
-    if (matches.length > 0) {
-        // The part before the first tag is the generic text.
-        // We DON'T trim here to avoid jumping cursors during typing.
-        text = q.substring(0, matches[0].index)
+  if (matches.length > 0) {
+    // The part before the first tag is the generic text.
+    // We DON'T trim here to avoid jumping cursors during typing.
+    text = q.substring(0, matches[0].index)
 
-        for (let i = 0; i < matches.length; i++) {
-            const key = matches[i][1]
-            const start = matches[i].index! + matches[i][0].length
-            const end = i + 1 < matches.length ? matches[i + 1].index : q.length
-            const value = q.substring(start, end).trim()
-            tags.push({ key, value })
-        }
+    for (let i = 0; i < matches.length; i++) {
+      const key = matches[i][1]
+      const start = matches[i].index! + matches[i][0].length
+      const end = i + 1 < matches.length ? matches[i + 1].index : q.length
+      const value = q.substring(start, end).trim()
+      tags.push({ key, value })
     }
+  }
 
-    return { text, tags }
+  return { text, tags }
 }

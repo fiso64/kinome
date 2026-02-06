@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import MediaView from '../layout/MediaView.svelte'
-  // import { triggerSeasonEpisodeFetch } from '../../lib/item-store'
-  import { activeTabState, tabNavigationIntent } from '../../lib/view-state-store'
-  import type { AutocompleteSuggestions, Settings } from '../../../../shared/types'
-  import { api } from '../../lib/api'
+  // import { triggerSeasonEpisodeFetch } from '@lib/item-store'
+  import { activeTabState, tabNavigationIntent } from '@lib/view-state-store'
+  import type { AutocompleteSuggestions, Settings } from '@shared/types'
+  import { api } from '@lib/api'
   import { get } from 'svelte/store'
 
   type VirtualFolder = MediaFolder & {
@@ -92,7 +92,7 @@
   })
 
   import { writable } from 'svelte/store'
-  import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
+  import { horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({

@@ -21,10 +21,7 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     if (event.key === 'Escape') {
       event.preventDefault()
       actions.escapeAction()
-    } else if (
-      event.key === 'BrowserBack' ||
-      (event.altKey && event.key === 'ArrowLeft')
-    ) {
+    } else if (event.key === 'BrowserBack' || (event.altKey && event.key === 'ArrowLeft')) {
       event.preventDefault()
       actions.navigateBack()
     } else if (event.key === 'BrowserForward' || (event.altKey && event.key === 'ArrowRight')) {

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '../../../../shared/types'
+  import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
-  import { shouldBeGreyedOut } from '../../lib/view-helpers'
-  import { getAssetUrl } from '../../lib/api'
+  import { shouldBeGreyedOut } from '@lib/view-helpers'
+  import { getAssetUrl } from '@lib/api'
   type DisplayableItem = LibraryItem | SearchIndexEntry
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -34,7 +34,7 @@
   } = $props()
 
   import { writable } from 'svelte/store'
-  import { horizontalScroller, type HorizontalScrollState } from '../../lib/horizontal-scroll'
+  import { horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
 
   let listElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({

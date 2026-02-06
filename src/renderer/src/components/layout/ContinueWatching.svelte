@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
   import { createEventDispatcher } from 'svelte'
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
 

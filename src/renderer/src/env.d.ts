@@ -10,10 +10,9 @@ declare global {
       query:
         | string
         | {
-          text?: string
-          tags?: { key: string; value: string }[]
-        }
+            text?: string
+            tags?: { key: string; value: string }[]
+          }
     ) => void
   }
 }
-

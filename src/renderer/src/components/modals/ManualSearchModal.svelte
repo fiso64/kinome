@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { LibraryItem, TmdbSearchResult, TmdbImage } from '../../../../shared/types'
-  import { getAssetUrl } from '../../lib/api'
+  import type { LibraryItem, TmdbSearchResult, TmdbImage } from '@shared/types'
+  import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
 
   let {

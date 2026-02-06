@@ -11,7 +11,7 @@ import type {
   AppCapabilities,
   LibraryStatus,
   ScanStatus
-} from '../../../shared/types'
+} from '@shared/types'
 import type { ApiClient } from './api'
 import { authStore } from './auth-store.svelte'
 
@@ -80,7 +80,7 @@ class WebApiClient implements ApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(authStore.token ? { 'Authorization': `Bearer ${authStore.token}` } : {}),
+        ...(authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {}),
         ...options?.headers
       }
     })
@@ -195,7 +195,6 @@ class WebApiClient implements ApiClient {
   }): Promise<Record<string, unknown>> {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) }) // Same endpoint for now
   }
-
 
   performInitialScan(path: string): Promise<MediaFolder | null> {
     return this.request('/api/perform-initial-scan', {
@@ -430,7 +429,7 @@ class WebApiClient implements ApiClient {
       method: 'POST',
       body: formData,
       headers: {
-        ...(authStore.token ? { 'Authorization': `Bearer ${authStore.token}` } : {})
+        ...(authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {})
       }
     }).then((res) => {
       if (!res.ok) throw new Error('Upload failed')
@@ -477,7 +476,6 @@ class WebApiClient implements ApiClient {
     return this.request('/api/settings')
   }
 
-
   saveSettings(settings: Partial<Settings>): Promise<void> {
     return this.request('/api/save-settings', { method: 'POST', body: JSON.stringify(settings) })
   }
@@ -522,7 +520,7 @@ class WebApiClient implements ApiClient {
   // --- Real-time updates (Native WS) ---
 
   onWindowMaximizedStatus(_callback: (isMaximized: boolean) => void): () => void {
-    return () => { }
+    return () => {}
   }
 
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
@@ -542,7 +540,7 @@ class WebApiClient implements ApiClient {
   onShowErrorDialog(
     _callback: (options: { title: string; message: string; detail?: string }) => void
   ): () => void {
-    return () => { }
+    return () => {}
   }
 
   onForceReloadForNewLibrary(callback: () => void): () => void {

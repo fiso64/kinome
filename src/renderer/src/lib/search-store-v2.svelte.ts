@@ -1,7 +1,7 @@
 import { api } from './api'
 import { navStoreV2 } from './navigation-store-v2.svelte'
 import { isTypingTag as isTypingTagHelper } from './view-helpers'
-import type { SearchIndexEntry, SearchQuery } from '../../../shared/types'
+import type { SearchIndexEntry, SearchQuery } from '@shared/types'
 import { serializeSearchQuery } from './search-query-helpers'
 
 // --- State (Local-only search views) ---
@@ -22,8 +22,7 @@ let filterFocusKey = $state(0)
 // --- Derived ---
 
 const isGlobalActive = $derived(
-  navStoreV2.state.globalQuery.text.trim() !== '' ||
-  navStoreV2.state.globalQuery.tags.length > 0
+  navStoreV2.state.globalQuery.text.trim() !== '' || navStoreV2.state.globalQuery.tags.length > 0
 )
 const isTypingGlobalTag = $derived(isTypingTagHelper(navStoreV2.state.globalQuery.text))
 
@@ -39,7 +38,7 @@ export function initializeSearchEffects() {
     const query = navStoreV2.state.globalQuery
     const serialized = serializeSearchQuery(query)
 
-    // Check if URL and State are out of sync. 
+    // Check if URL and State are out of sync.
     // This only happens when the user types (state changes first).
     // On popstate, parseUrl updates state synchronously, so they match here.
     const urlParams = new URLSearchParams(window.location.search)
@@ -47,7 +46,7 @@ export function initializeSearchEffects() {
 
     if (serialized !== urlQuery) {
       // Safeguard: only trigger navigation if we are NOT in detail view.
-      // If we ARE in detail view, URL changes for 'q' should usually be 
+      // If we ARE in detail view, URL changes for 'q' should usually be
       // ignored or handled differently (e.g. if the user actually clicked a search result).
       if (!navStoreV2.isDetailViewActive) {
         navStoreV2.setGlobalSearch(query, {
@@ -81,8 +80,7 @@ export function initializeSearchEffects() {
         isPerformingDetailSearch = false
         highlightedDetailIndex = results.length > 0 ? 0 : null
       })
-    }
-    else if (!isDetailActive) {
+    } else if (!isDetailActive) {
       detailResults = []
       isPerformingDetailSearch = false
       highlightedDetailIndex = null
@@ -142,7 +140,10 @@ function clearFilter() {
 }
 
 function searchByTag(key: string, value: string) {
-  navStoreV2.setGlobalSearch({ text: '', tags: [{ key, value }] }, { replace: false, closeDetail: true })
+  navStoreV2.setGlobalSearch(
+    { text: '', tags: [{ key, value }] },
+    { replace: false, closeDetail: true }
+  )
 }
 
 // --- Exported Store Object ---

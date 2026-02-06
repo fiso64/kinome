@@ -4,7 +4,7 @@
 
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide } from 'svelte/transition'
-  import { getAssetUrl } from '../../lib/api'
+  import { getAssetUrl } from '@lib/api'
 
   let {
     item: initialItem,
@@ -20,9 +20,9 @@
     settings: Settings
   } = $props()
 
-  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '../../lib/view-requirements'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { resolveViewSettings } from '@shared/settings-helpers'
+  import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
   // -- 1. Reactive Data Fetching (Lean Bundling) --

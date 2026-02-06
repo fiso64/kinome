@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
   import { createEventDispatcher } from 'svelte'
-  import { getAssetUrl } from '../../lib/api'
-  import { tabNavigationIntent } from '../../lib/view-state-store'
+  import { getAssetUrl } from '@lib/api'
+  import { tabNavigationIntent } from '@lib/view-state-store'
 
   type ContinueWatchingItem = {
     show: MediaFolder
@@ -33,13 +33,13 @@
     dispatch('itemClick', { item: item.show })
   }
 
-  function handleItemKeydown(event: KeyboardEvent, target: 'play' | 'show') {
+  function handleItemKeydown(event: KeyboardEvent, target: LibraryItem | 'show') {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      if (target === 'play') {
-        dispatch('itemClick', { item: item.nextEpisode })
-      } else {
+      if (target === 'show') {
         handleShowDetailsClick()
+      } else {
+        dispatch('itemClick', { item: target as LibraryItem })
       }
     }
   }
@@ -68,7 +68,7 @@
     tabindex={layout === 'vertical' ? 0 : undefined}
     aria-label="Play next episode"
     onclick={layout === 'vertical' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
-    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, 'play') : null}
+    onkeydown={layout === 'vertical' ? (e) => handleItemKeydown(e, item.nextEpisode) : null}
   >
     {#if posterToShow}
       <img

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import ViewConfigurator from '../../../ui/ViewConfigurator.svelte'
+  import type { MediaFolder, StoredViewSettings, Settings } from '@shared/types'
+  import ViewConfigurator from '@ui/ViewConfigurator.svelte'
 
   type VirtualFolderProps = {
     isVirtual?: boolean

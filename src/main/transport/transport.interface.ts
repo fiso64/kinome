@@ -1,4 +1,4 @@
-import type { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '../../shared/types'
+import type { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '@shared/types'
 
 /**
  * Defines the contract for a transport layer.
@@ -16,7 +16,10 @@ export interface ITransport {
    * Notifies clients that the metadata index (suggestions, grouping keys) has been updated.
    * @param index The new metadata index data.
    */
-  notifyMetadataIndexUpdated(index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }): void
+  notifyMetadataIndexUpdated(index: {
+    suggestions: AutocompleteSuggestions
+    groupByKeys: string[]
+  }): void
 
   /**
    * Notifies clients that a library item has been deleted from the database.

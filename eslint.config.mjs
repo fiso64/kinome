@@ -4,7 +4,17 @@ import eslintConfigPrettier from 'eslint-config-prettier'
 import eslintPluginSvelte from 'eslint-plugin-svelte'
 
 export default tseslint.config(
-  { ignores: ['**/node_modules', '**/dist', '**/out', '**/tests', '**/test', '**/test_comprehensive', '**/scripts'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/tests',
+      '**/test',
+      '**/test_comprehensive',
+      '**/scripts'
+    ]
+  },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   ...eslintPluginSvelte.configs['flat/recommended'],

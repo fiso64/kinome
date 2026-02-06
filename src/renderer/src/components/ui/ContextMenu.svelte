@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { contextMenuStore } from '../../lib/context-menu-store.svelte'
-  import { getDownloadUrl } from '../../lib/api'
-  import type { LibraryItem, MediaFolder, MediaFile, Settings } from '../../../../shared/types'
+  import { contextMenuStore } from '@lib/context-menu-store.svelte'
+  import { getDownloadUrl } from '@lib/api'
+  import type { LibraryItem, MediaFolder, MediaFile, Settings } from '@shared/types'
   let {
     item,
     position,

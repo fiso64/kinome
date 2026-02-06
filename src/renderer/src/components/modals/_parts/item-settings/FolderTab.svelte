@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { MediaFolder, LibraryItem } from '@shared/types'
   let {
     item,
     retrieveChildrenMetadata = $bindable(),

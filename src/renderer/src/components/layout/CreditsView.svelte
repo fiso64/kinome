@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { LibraryItem } from '@shared/types'
   type MoviePerson = {
     id: number
     name: string
@@ -282,6 +283,7 @@
   .credit-info.static .person-roles,
   .credit-info.popup .person-roles {
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;

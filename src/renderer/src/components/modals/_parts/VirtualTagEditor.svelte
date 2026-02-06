@@ -4,7 +4,7 @@
     VirtualTagCondition,
     VirtualTagTarget,
     VirtualTagOperator
-  } from '../../../../../../shared/types'
+  } from '@shared/types'
 
   let { tag = $bindable(), onDelete }: { tag: VirtualTagConfig; onDelete: () => void } = $props()
 

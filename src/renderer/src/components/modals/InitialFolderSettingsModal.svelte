@@ -1,6 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ConfigurableTreeItem from './_parts/ConfigurableTreeItem.svelte'
+  import type { MediaFolder } from '@shared/types'
 
   type ItemSettings = { retrieve: boolean; hint?: 'movie' | 'tv' }
 

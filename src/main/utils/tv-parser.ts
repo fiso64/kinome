@@ -12,7 +12,7 @@ export const VIDEO_EXTENSIONS = [
 ]
 
 export function isSupportedVideoFile(fileName: string): boolean {
-  const ext = fileName.toLowerCase().slice((Math.max(0, fileName.lastIndexOf('.')) || Infinity))
+  const ext = fileName.toLowerCase().slice(Math.max(0, fileName.lastIndexOf('.')) || Infinity)
   return VIDEO_EXTENSIONS.includes(ext)
 }
 

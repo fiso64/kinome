@@ -5,7 +5,7 @@ import fs, { readdir, stat } from 'fs/promises'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as repositoryService from './repository.service'
-import type { MediaFile } from '../../shared/types'
+import type { MediaFile } from '@shared/types'
 
 type ErrorCallback = (options: { title: string; message: string; detail?: string }) => void
 
@@ -52,7 +52,7 @@ export async function playFileWith(
   const commandToExecute = command.replace('{PATH}', `${absolutePath}`)
   log(`Executing (NOT IMPLEMENTED): ${commandToExecute}`)
 
-  // This used to be an electron app, where the client and server ran on the same machine. It does not make any sense to launch a video player on the server. We do nothing for now. 
+  // This used to be an electron app, where the client and server ran on the same machine. It does not make any sense to launch a video player on the server. We do nothing for now.
 
   // The responsibility of updating the watched state is moved to the orchestrator (library.service).
   return true

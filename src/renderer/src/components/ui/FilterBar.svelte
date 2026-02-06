@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { AutocompleteSuggestions } from '@shared/types'
   import SearchInput from './SearchInput.svelte'
 
   let {

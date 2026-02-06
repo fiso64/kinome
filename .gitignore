@@ -37,3 +37,4 @@ Thumbs.db
 .svelte-kit
 
 response.json
+tsconfig.node.tsbuildinfo

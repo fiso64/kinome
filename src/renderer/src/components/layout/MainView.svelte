@@ -5,13 +5,13 @@
   import SetupScreen from './SetupScreen.svelte'
   import { createEventDispatcher } from 'svelte'
 
-  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
-  import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
-  import { api } from '../../lib/api'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { getAllRequiredFields } from '../../lib/view-requirements'
-  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
-  import { authStore } from '../../lib/auth-store.svelte'
+  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
+  import { searchStoreV2 } from '@lib/search-store-v2.svelte'
+  import { api } from '@lib/api'
+  import { resolveViewSettings } from '@shared/settings-helpers'
+  import { getAllRequiredFields } from '@lib/view-requirements'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { authStore } from '@lib/auth-store.svelte'
 
   import type {
     Settings,
@@ -21,7 +21,7 @@
     SearchIndexEntry,
     LibraryStatus,
     ScanStatus
-  } from '../../../../shared/types'
+  } from '@shared/types'
 
   let {
     settings,

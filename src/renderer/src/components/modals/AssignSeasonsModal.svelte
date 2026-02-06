@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
+  import type { MediaFolder } from '@shared/types'
 
   let {
     item,

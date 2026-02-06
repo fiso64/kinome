@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { AutocompleteSuggestions } from '../../../../shared/types'
+  import type { AutocompleteSuggestions } from '@shared/types'
   import {
     autocomplete,
     type AutocompleteConfig,
     autocompleteState,
     getFuzzySuggestions,
     type AutocompleteItem
-  } from '../../lib/autocomplete-manager'
-  import { api } from '../../lib/api'
+  } from '@lib/autocomplete-manager'
+  import { api } from '@lib/api'
 
   // This constant centralizes the "special" keys that have their own suggestion lists.
   const SUGGESTION_KEYS = {

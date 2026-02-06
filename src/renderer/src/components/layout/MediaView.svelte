@@ -5,16 +5,16 @@
   import TabsView from '../views/TabsView.svelte'
   import SectionsView from '../views/SectionsView.svelte'
   import ListView from '../views/ListView.svelte'
-  import { filterItems } from '../../../../shared/filter'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import { isTypingTag as isTypingTagHelper } from '../../lib/view-helpers'
+  import { filterItems } from '@shared/filter'
+  import { resolveViewSettings } from '@shared/settings-helpers'
+  import { isTypingTag as isTypingTagHelper } from '@lib/view-helpers'
   import type {
     LibraryItem,
     MediaFolder,
     Settings,
     AutocompleteSuggestions,
     SearchIndexEntry
-  } from '../../../../shared/types'
+  } from '@shared/types'
 
   type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry

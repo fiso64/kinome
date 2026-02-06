@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api } from '../../lib/api'
-  import { modalStore } from '../../lib/modal-store.svelte'
+  import { api } from '@lib/api'
+  import { modalStore } from '@lib/modal-store.svelte'
   import { useQueryClient } from '@tanstack/svelte-query'
 
   let { onComplete, onStatusUpdate }: { onComplete: () => void; onStatusUpdate?: () => void } =

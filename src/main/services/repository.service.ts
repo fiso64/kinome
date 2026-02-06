@@ -1,15 +1,11 @@
 ﻿import crypto from 'crypto'
 import { getDb, initializeDatabase } from '../database/client'
-import type { LibraryItem, MediaFolder } from '../../shared/types'
-import { VIEW_SETTINGS_KEYS, CORE_FIELDS } from '../../shared/types'
+import type { LibraryItem, MediaFolder } from '@shared/types'
+import { VIEW_SETTINGS_KEYS, CORE_FIELDS } from '@shared/types'
 export { CORE_FIELDS }
 import * as groupingService from './grouping.service'
-import { resolveViewSettings } from '../../shared/settings-helpers'
+import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
-
-
-
-
 
 export interface CheckHelper {
   (row: any, key: string): any
@@ -42,7 +38,7 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   mediaType: {
     sql: 'm.media_type',
     table: 'm',
-    getValue: (item) => item.mediaType ? [item.mediaType] : []
+    getValue: (item) => (item.mediaType ? [item.mediaType] : [])
   },
   title: { sql: 'm.title', table: 'm' },
   originalTitle: { sql: 'm.original_title', table: 'm' },
@@ -52,7 +48,7 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   year: {
     sql: 'm.year',
     table: 'm',
-    getValue: (item) => item.year ? [item.year.toString()] : []
+    getValue: (item) => (item.year ? [item.year.toString()] : [])
   },
   seasonNumber: { sql: 'm.season_number', table: 'm' },
   episodeNumber: { sql: 'm.episode_number', table: 'm' },
@@ -83,25 +79,49 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
 
   // Folder Settings (Scraper)
-  retrieve_children_metadata: { sql: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')", table: 'f', parser: Boolean },
-  children_type_hint: { sql: "json_extract(f.scraper_settings_json, '$.children_type_hint')", table: 'f' },
-  process_tv_children: { sql: "json_extract(f.scraper_settings_json, '$.process_tv_children')", table: 'f', parser: Boolean },
+  retrieve_children_metadata: {
+    sql: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')",
+    table: 'f',
+    parser: Boolean
+  },
+  children_type_hint: {
+    sql: "json_extract(f.scraper_settings_json, '$.children_type_hint')",
+    table: 'f'
+  },
+  process_tv_children: {
+    sql: "json_extract(f.scraper_settings_json, '$.process_tv_children')",
+    table: 'f',
+    parser: Boolean
+  },
 
   // Folder Settings (View)
   layout: { sql: "json_extract(f.view_settings_json, '$.layout')", table: 'f' },
   clickAction: { sql: "json_extract(f.view_settings_json, '$.clickAction')", table: 'f' },
   groupBy: { sql: "json_extract(f.view_settings_json, '$.groupBy')", table: 'f' },
   gridPosterSize: { sql: "json_extract(f.view_settings_json, '$.gridPosterSize')", table: 'f' },
-  listDescriptionRows: { sql: "json_extract(f.view_settings_json, '$.listDescriptionRows')", table: 'f' },
-  showHorizontalScrollbar: { sql: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')", table: 'f' },
-  childViewSettings: { sql: "json_extract(f.view_settings_json, '$.childViewSettings')", table: 'f', isJson: true },
-  virtualFolderSettings: { sql: "json_extract(f.view_settings_json, '$.virtualFolderSettings')", table: 'f', isJson: true }
+  listDescriptionRows: {
+    sql: "json_extract(f.view_settings_json, '$.listDescriptionRows')",
+    table: 'f'
+  },
+  showHorizontalScrollbar: {
+    sql: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')",
+    table: 'f'
+  },
+  childViewSettings: {
+    sql: "json_extract(f.view_settings_json, '$.childViewSettings')",
+    table: 'f',
+    isJson: true
+  },
+  virtualFolderSettings: {
+    sql: "json_extract(f.view_settings_json, '$.virtualFolderSettings')",
+    table: 'f',
+    isJson: true
+  }
 }
 
 export function isValidField(field: string): boolean {
   return REPOSITORY_SCHEMA[field] !== undefined
 }
-
 
 export interface FindOptions {
   where?: Record<string, any>
@@ -110,7 +130,6 @@ export interface FindOptions {
   limit?: number
   offset?: number
 }
-
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -240,8 +259,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
         const vs = parseJsonSafe<any>(row.view_settings_json, {})
         const key = alias // e.g. 'layout'
         val = vs[key]
-      }
-      else if (def.sql.includes('scraper_settings_json') && row.scraper_settings_json) {
+      } else if (def.sql.includes('scraper_settings_json') && row.scraper_settings_json) {
         const ss = parseJsonSafe<any>(row.scraper_settings_json, {})
         const key = alias
         val = ss[key]
@@ -270,7 +288,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
           val = null
         }
       }
-      // FIX: Removed the 'else if (val === undefined)' block. 
+      // FIX: Removed the 'else if (val === undefined)' block.
       // This ensures that if the field wasn't fetched, it stays undefined and is omitted from the JSON.
     }
 
@@ -288,7 +306,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   // 2. Computed / Logic-heavy fields
 
   // Note: if using explicit selection, we might not have item_id alias.
-  // But we always select m.item_id if metadata is involved? 
+  // But we always select m.item_id if metadata is involved?
   // Actually, 'item_id' is not in our schema aliases. It's a join key.
   // In `find`, we might need to ensure existence check is possible.
   // Let's assume schema fields like 'tmdbId' are sufficient.
@@ -308,10 +326,13 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   // Check if we actually HAVE metadata info from the row (raw item_id from join)
   const metaJoinId = row.item_id // raw column from SELECT * or explicit join
   // If we don't have row.item_id, maybe we can infer from presence of other m.* fields?
-  // Safe bet: if we requested metadata (joined), row.item_id should be there. 
+  // Safe bet: if we requested metadata (joined), row.item_id should be there.
   // But if we selected specific fields, we might not have selected m.item_id.
 
-  const actuallyHasMetadata = metaJoinId !== undefined ? metaJoinId !== null : (item.title !== undefined || item._v !== undefined)
+  const actuallyHasMetadata =
+    metaJoinId !== undefined
+      ? metaJoinId !== null
+      : item.title !== undefined || item._v !== undefined
 
   if (!actuallyHasMetadata) {
     // If no metadata record exists, these should be undefined
@@ -331,7 +352,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   // FIX: Removed explicit assignment of children = null.
   // This allows the field to be undefined (omitted) unless explicitly populated later.
   // if (item.type === 'folder') {
-  //   item.children = null 
+  //   item.children = null
   // }
 
   return item as LibraryItem
@@ -533,7 +554,8 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   const db = getDb()
   const requestedFields = options.fields || []
   // Default to CORE_FIELDS if no fields specified (Lean & Lazy)
-  const fieldsToSelect: string[] = requestedFields.length > 0 ? [...requestedFields] : [...CORE_FIELDS]
+  const fieldsToSelect: string[] =
+    requestedFields.length > 0 ? [...requestedFields] : [...CORE_FIELDS]
 
   // Determine needed tables based on schema
   const usedTables = new Set<string>()
@@ -549,7 +571,6 @@ export function find(options: FindOptions = {}): LibraryItem[] {
       if (def && def.table) usedTables.add(def.table)
     }
   }
-
 
   // Build SELECT clause
   const selectParts: string[] = []
@@ -648,13 +669,11 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-
 // --- Write Operations ---
 
 export function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
-
 
 export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
   log(`[DEBUG] updateItem called for itemId: ${itemId}`)
@@ -664,20 +683,21 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
     // ---------------------------------------------------------
     // Phase 0: Invariant Enforcement & Normalization
     // ---------------------------------------------------------
-    const mediaType = updates.mediaType !== undefined ? updates.mediaType : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)?.media_type
+    const mediaType =
+      updates.mediaType !== undefined
+        ? updates.mediaType
+        : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)
+            ?.media_type
 
     if (mediaType === 'tv') {
-      ; (updates as any).seasonNumber = null
-        ; (updates as any).episodeNumber = null
+      ;(updates as any).seasonNumber = null
+      ;(updates as any).episodeNumber = null
     } else if (mediaType === 'season') {
-      ; (updates as any).episodeNumber = null
+      ;(updates as any).episodeNumber = null
     }
 
     // 1. Items Table
-    if (
-      updates.isHidden !== undefined ||
-      updates.isMissing !== undefined
-    ) {
+    if (updates.isHidden !== undefined || updates.isMissing !== undefined) {
       db.prepare(
         `
         UPDATE items SET
@@ -807,7 +827,6 @@ watched = excluded.watched,
       // We set last_refreshed_at = NULL to signal it's dirty.
       // Ideally the Metadata Service handles the re-fetch.
 
-
       const params = {
         '@id': itemId,
         '@tmdb_id': updates.tmdbId !== undefined ? updates.tmdbId : existing.tmdb_id,
@@ -826,7 +845,8 @@ watched = excluded.watched,
 
         '@genres_json':
           updates.genres !== undefined ? JSON.stringify(updates.genres) : existing.genres_json,
-        '@tags_json': updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
+        '@tags_json':
+          updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
         '@virtual_tags_json':
           updates.virtualTags !== undefined
             ? JSON.stringify(updates.virtualTags)
@@ -1016,7 +1036,6 @@ export async function getChildrenForDetailView(
 
 // --- Grouping Helper ---
 
-
 export function getValuesForKey(item: LibraryItem, key: string): string[] {
   // 1. Resolve Shorthand
   const normalizedKey = key === 'genre' ? 'genres' : key
@@ -1040,7 +1059,6 @@ export function getValuesForKey(item: LibraryItem, key: string): string[] {
 
   return []
 }
-
 
 /**
  * Fetches all seasons for a TV Show and populates their episodes.

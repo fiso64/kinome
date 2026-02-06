@@ -7,7 +7,7 @@ export interface HorizontalScrollState {
 
 export function horizontalScroller(node: HTMLElement, state: Writable<HorizontalScrollState>) {
   let targetScrollLeft = node.scrollLeft
-  let scrollTimeout: number | undefined
+  let scrollTimeout: any
 
   function checkScrollability() {
     // A small buffer helps prevent floating point inaccuracies

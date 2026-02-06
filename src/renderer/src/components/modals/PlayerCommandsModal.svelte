@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
-  import type { PlayerCommandConfig } from '../../../../shared/types'
+  import type { PlayerCommandConfig } from '@shared/types'
 
   let {
     playerCommands = $bindable(),
@@ -20,19 +20,6 @@
   // Drag and drop state
   let draggedItemIndex = $state<number | null>(null)
   let dragOverItemIndex = $state<number | null>(null)
-
-  function addCommand() {
-    if (newCommandName.trim() && newCommandString.trim()) {
-      localPlayerCommands.push({
-        id: crypto.randomUUID(),
-        name: newCommandName.trim(),
-        command: newCommandString.trim()
-      })
-      localPlayerCommands = localPlayerCommands // Trigger reactivity
-      newCommandName = ''
-      newCommandString = ''
-    }
-  }
 
   function removeCommand(id: string) {
     localPlayerCommands = localPlayerCommands.filter((cmd) => cmd.id !== id)

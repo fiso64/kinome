@@ -28,7 +28,6 @@ export interface GroupingSettings {
   groupBy: string
 }
 
-
 /**
  * The single source of truth for layout-specific properties and their ultimate default values.
  * This drives the data-driven settings resolution logic.
@@ -190,8 +189,6 @@ export interface VirtualTagConfig {
   conditions: VirtualTagCondition[]
   defaultResult?: string
 }
-
-
 
 /**
  * Settings that are universal to the server instance and NOT library-specific.
@@ -523,8 +520,8 @@ export interface TmdbImageResults {
  */
 
 /**
- * TODO: We want to refactor this so that it is slimmed down all the way to only have 'id' as a core field, 
- * but this has been postponed as this is a dangerous/breaking change refactor. 
+ * TODO: We want to refactor this so that it is slimmed down all the way to only have 'id' as a core field,
+ * but this has been postponed as this is a dangerous/breaking change refactor.
  * NOBODY IS ALLOWED TO ADD ANY FIELD HERE, NO MATTER WHAT.
  */
 export const CORE_FIELDS = [
@@ -541,7 +538,7 @@ export const CORE_FIELDS = [
   'seasonNumber',
   'episodeNumber',
   'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
-  '_v'      // Required for image cache busting
+  '_v' // Required for image cache busting
 ] as const
 
 // --- Property Key Definitions ---

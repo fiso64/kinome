@@ -3,17 +3,17 @@
   import SearchInput from '../ui/SearchInput.svelte'
   import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'
-  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
-  import { searchStoreV2 } from '../../lib/search-store-v2.svelte'
-  import { api } from '../../lib/api'
-  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
+  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
+  import { searchStoreV2 } from '@lib/search-store-v2.svelte'
+  import { api } from '@lib/api'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import type {
     Settings,
     MediaFolder,
     LibraryItem,
     SearchIndexEntry,
     AutocompleteSuggestions
-  } from '../../../../shared/types'
+  } from '@shared/types'
 
   let {
     isRefreshing,

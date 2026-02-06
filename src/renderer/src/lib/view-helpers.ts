@@ -1,3 +1,5 @@
+import type { LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
+
 type DisplayableItem = LibraryItem | SearchIndexEntry
 type ParentItem = MediaFolder | (MediaFolder & { isVirtual?: boolean })
 

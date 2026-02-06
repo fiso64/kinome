@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Settings } from '@shared/types'
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
 
@@ -6,12 +7,14 @@
     initialSettings,
     onClose,
     onSave,
-    groupByKeys
+    groupByKeys,
+    settings
   }: {
     initialSettings: Settings['defaultLayoutSettings'] | null
     onClose: () => void
     onSave: (newSettings: Settings['defaultLayoutSettings']) => void
     groupByKeys: string[]
+    settings: Settings | null
   } = $props()
 
   let localSettings = $state(JSON.parse(JSON.stringify(initialSettings)))
@@ -46,6 +49,7 @@
   {#if localSettings}
     <ViewConfigurator
       configMode={true}
+      {settings}
       bind:gridPosterSize={localSettings.grid.gridPosterSize}
       bind:showHorizontalScrollbar={localSettings['horizontal-grid'].showHorizontalScrollbar}
       bind:listDescriptionRows={localSettings.list.listDescriptionRows}

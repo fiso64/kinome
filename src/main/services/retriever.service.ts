@@ -7,7 +7,7 @@ import type {
   Settings,
   TmdbEpisode,
   TmdbSeason
-} from '../../shared/types'
+} from '@shared/types'
 import { downloadImage } from '../utils/download'
 import { parseTitle } from '../utils/title-parser'
 import * as repositoryService from './repository.service'
@@ -69,7 +69,9 @@ export async function fetchSeasonEpisodes(
   showTmdbId: number,
   seasonNumber: number,
   tmdbApiKey: string
-): Promise<{ episodes: Array<{ episode_number: number; name: string; overview: string; still_path?: string }> } | null> {
+): Promise<{
+  episodes: Array<{ episode_number: number; name: string; overview: string; still_path?: string }>
+} | null> {
   try {
     const url = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
     console.log(`[TMDB] Fetching season ${seasonNumber} episodes for show ${showTmdbId}`)
@@ -148,7 +150,9 @@ export async function searchTmdbAndApplyMetadata(
     // For 'multi' search, filter out people results.
     const result = (
       endpoint === 'multi'
-        ? ((searchResults as any).results || []).filter((r: any) => r.media_type === 'movie' || r.media_type === 'tv')
+        ? ((searchResults as any).results || []).filter(
+            (r: any) => r.media_type === 'movie' || r.media_type === 'tv'
+          )
         : (searchResults as any).results
     )?.[0]
 
@@ -309,35 +313,35 @@ function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-    // Process cast members to get their best acting score.
-    ; (creditsData.cast ?? []).forEach((castMember: any) => {
-      const p = ensurePerson(castMember.id, castMember)
-      p.actingScore = Math.min(p.actingScore, castMember.order)
-      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-      p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
-    })
+  // Process cast members to get their best acting score.
+  ;(creditsData.cast ?? []).forEach((castMember: any) => {
+    const p = ensurePerson(castMember.id, castMember)
+    p.actingScore = Math.min(p.actingScore, castMember.order)
+    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+    p.personData = { ...p.personData, ...castMember } // Merge to get best data (e.g., profile_path)
+  })
 
-    // Process crew members to get their best crew score.
-    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
-      let bestJobIndex = Infinity
-      const importantJobsForPerson: string[] = []
+  // Process crew members to get their best crew score.
+  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
+    let bestJobIndex = Infinity
+    const importantJobsForPerson: string[] = []
 
-        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
-          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-          if (index !== -1) {
-            bestJobIndex = Math.min(bestJobIndex, index)
-            importantJobsForPerson.push(jobInfo.job)
-          }
-        })
-
-      // Only add crew if they have an important job.
-      if (bestJobIndex !== Infinity) {
-        const p = ensurePerson(crewMember.id, crewMember)
-        p.crewScore = Math.min(p.crewScore, bestJobIndex)
-        p.jobs.push(...importantJobsForPerson)
-        p.personData = { ...p.personData, ...crewMember }
+    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
+      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+      if (index !== -1) {
+        bestJobIndex = Math.min(bestJobIndex, index)
+        importantJobsForPerson.push(jobInfo.job)
       }
     })
+
+    // Only add crew if they have an important job.
+    if (bestJobIndex !== Infinity) {
+      const p = ensurePerson(crewMember.id, crewMember)
+      p.crewScore = Math.min(p.crewScore, bestJobIndex)
+      p.jobs.push(...importantJobsForPerson)
+      p.personData = { ...p.personData, ...crewMember }
+    }
+  })
 
   // Step 2: Determine primary role ("The Cranston Rule") and categorize.
   const finalCast: Person[] = []
@@ -412,9 +416,7 @@ export async function fetchAndApplyCredits(item: LibraryItem, tmdbApiKey: string
     console.error(`Error fetching credits for "${item.name}":`, error)
     throw error
   }
-
 }
-
 
 async function _downloadAndApplyImageIfNeeded(
   item: LibraryItem,
@@ -432,11 +434,15 @@ async function _downloadAndApplyImageIfNeeded(
   // 2. If it is locked (true), keep it (User Intent).
   // 3. If it is null/undefined AND unlocked, download it.
   if (itemAsAny[key] || repositoryService.isFieldLocked(item, key)) {
-    console.log(`[TMDB] Skipping ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`)
+    console.log(
+      `[TMDB] Skipping ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`
+    )
     return
   }
 
-  console.log(`[TMDB] Downloading ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`)
+  console.log(
+    `[TMDB] Downloading ${imageType} for "${item.title ?? item.name}: current image: ${itemAsAny[key]}, is locked: ${repositoryService.isFieldLocked(item, key)}`
+  )
 
   if (tmdbPath) {
     const imageUrl = `${imageUrlPrefix}${tmdbPath}`
@@ -456,7 +462,6 @@ export async function fetchItemDetails(
   options: { respectLocks?: boolean } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   // Efficiency Rule: Do not re-fetch if already completed
-
 
   if (!item.tmdbId || !item.mediaType) {
     console.log(`Skipping details fetch for "${item.name}", no tmdbId or mediaType.`)
@@ -525,7 +530,10 @@ export async function fetchItemDetails(
         item.title = details.title || details.name
       }
     }
-    if (details.overview && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview'))) {
+    if (
+      details.overview &&
+      (!options.respectLocks || !repositoryService.isFieldLocked(item, 'overview'))
+    ) {
       item.overview = details.overview
     }
     const date = details.release_date || details.first_air_date
@@ -539,8 +547,6 @@ export async function fetchItemDetails(
     ) {
       item.genres = details.genres.map((g: { name: string }) => g.name)
     }
-
-
 
     // --- TV Show Specific Logic ---
     if (
@@ -609,7 +615,10 @@ export async function applyTvShowData(
                 seasonChanged = true
               }
             }
-            if (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview')) {
+            if (
+              !options.respectLocks ||
+              !repositoryService.isFieldLocked(seasonFolder, 'overview')
+            ) {
               if (seasonFolder.overview !== tmdbSeason.overview) {
                 seasonFolder.overview = tmdbSeason.overview
                 seasonChanged = true
@@ -680,7 +689,9 @@ export async function applyTvShowData(
       // Scenario C: Individual Season update
       const show = repositoryService.findParent(item.id) as MediaFolder
       if (show && show.tmdbId && (show.process_tv_children !== false || options.force)) {
-        console.log(`[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`)
+        console.log(
+          `[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`
+        )
         const modifiedInSeason = await fetchAndApplyEpisodeData(
           item as MediaFolder,
           show.tmdbId,
@@ -758,7 +769,9 @@ export async function fetchAndApplyEpisodeData(
     return []
   }
 
-  console.log(`[TMDB] fetchAndApplyEpisodeData for "${seasonFolder.name}" (S${seasonNumber}). showTmdbId=${showTmdbId}`)
+  console.log(
+    `[TMDB] fetchAndApplyEpisodeData for "${seasonFolder.name}" (S${seasonNumber}). showTmdbId=${showTmdbId}`
+  )
   const modifiedItems: LibraryItem[] = []
 
   // If tmdbSeasons is provided, check if the season exists in it.
@@ -798,10 +811,16 @@ export async function fetchAndApplyEpisodeData(
       const seasonDetails = (await response.json()) as any
 
       // Apply metadata to season folder itself
-      if (!seasonFolder.title && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))) {
+      if (
+        !seasonFolder.title &&
+        (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title'))
+      ) {
         seasonFolder.title = seasonDetails.name
       }
-      if (!seasonFolder.overview && (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview'))) {
+      if (
+        !seasonFolder.overview &&
+        (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'overview'))
+      ) {
         seasonFolder.overview = seasonDetails.overview
       }
       if (!seasonFolder.posterPath && seasonDetails.poster_path) {
@@ -860,7 +879,9 @@ export async function fetchAndApplyEpisodeData(
           try {
             await downloadImage(posterUrl, posterDestPath)
             localEpisode.posterPath = posterFileName
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       } else {
         if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {

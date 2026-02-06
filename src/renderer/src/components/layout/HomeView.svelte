@@ -6,7 +6,7 @@
     SearchIndexEntry,
     AutocompleteSuggestions,
     Settings
-  } from '../../../../shared/types'
+  } from '@shared/types'
   import ContinueWatching from './ContinueWatching.svelte'
   import MediaView from './MediaView.svelte'
   import { createEventDispatcher } from 'svelte'

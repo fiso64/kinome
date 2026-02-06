@@ -1,12 +1,12 @@
 import * as repositoryService from './repository.service'
 import {
-    determineExplicitSeasonNumbers,
-    determineAlphabeticSeasonNumbers,
-    determineEpisodeNumbers,
-    isSupportedVideoFile,
-    ParsedTvInfo
+  determineExplicitSeasonNumbers,
+  determineAlphabeticSeasonNumbers,
+  determineEpisodeNumbers,
+  isSupportedVideoFile,
+  ParsedTvInfo
 } from '../utils/tv-parser'
-import type { MediaFolder, MediaFile, LibraryItem } from '../../shared/types'
+import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 
 /**
@@ -15,162 +15,166 @@ import { updateIfChangedAndBroadcast } from './item-update.service'
  * of an existing TV Show.
  */
 export async function syncTvShowStructure(
-    show: MediaFolder,
-    seasonStrategy: 'smart' | 'alphabetic' = 'smart',
-    episodeStrategy: 'smart' | 'alphabetic' = 'smart',
-    options: { force?: boolean; scopedToId?: string } = {}
+  show: MediaFolder,
+  seasonStrategy: 'smart' | 'alphabetic' = 'smart',
+  episodeStrategy: 'smart' | 'alphabetic' = 'smart',
+  options: { force?: boolean; scopedToId?: string } = {}
 ): Promise<LibraryItem[]> {
-    const processingDisabled = show.process_tv_children === false
-    const isTargeted = !!options.scopedToId
-    const isForced = !!options.force
+  const processingDisabled = show.process_tv_children === false
+  const isTargeted = !!options.scopedToId
+  const isForced = !!options.force
 
-    // Guard: Exit if not TV, or if disabled AND neither forced nor targeted.
-    if (show.mediaType !== 'tv') return []
-    if (processingDisabled && !isForced && !isTargeted) return []
+  // Guard: Exit if not TV, or if disabled AND neither forced nor targeted.
+  if (show.mediaType !== 'tv') return []
+  if (processingDisabled && !isForced && !isTargeted) return []
 
-    const allModified: LibraryItem[] = []
+  const allModified: LibraryItem[] = []
 
-    // 1. Fetch immediate children
-    const children = repositoryService.getChildren(show.id)
-    const folders = children.filter((c) => c.type === 'folder') as MediaFolder[]
-    const files = children.filter((c) => c.type === 'file') as MediaFile[]
-    const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
+  // 1. Fetch immediate children
+  const children = repositoryService.getChildren(show.id)
+  const folders = children.filter((c) => c.type === 'folder') as MediaFolder[]
+  const files = children.filter((c) => c.type === 'file') as MediaFile[]
+  const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
 
-    let seasonMap = new Map<string, ParsedTvInfo>()
-    let isFlatShow = false
+  let seasonMap = new Map<string, ParsedTvInfo>()
+  let isFlatShow = false
 
-    // --- Hierarchy Strategy ---
-    if (seasonStrategy === 'smart') {
-        seasonMap = determineExplicitSeasonNumbers(folders.map((f) => f.name))
-        if (seasonMap.size === 0) {
-            if (videoFiles.length > 0) {
-                isFlatShow = true
-            } else {
-                seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
-            }
-        }
-    } else {
+  // --- Hierarchy Strategy ---
+  if (seasonStrategy === 'smart') {
+    seasonMap = determineExplicitSeasonNumbers(folders.map((f) => f.name))
+    if (seasonMap.size === 0) {
+      if (videoFiles.length > 0) {
+        isFlatShow = true
+      } else {
         seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
+      }
     }
+  } else {
+    seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
+  }
 
-    // 2. Process Detected Season Folders
-    const seasonsToProcess: MediaFolder[] = []
-    if (!isFlatShow) {
-        for (const folder of folders) {
-            // SCOPE CHECK: If a target ID is provided, skip any folder that isn't the target.
-            if (isTargeted && folder.id !== options.scopedToId) {
-                continue
-            }
+  // 2. Process Detected Season Folders
+  const seasonsToProcess: MediaFolder[] = []
+  if (!isFlatShow) {
+    for (const folder of folders) {
+      // SCOPE CHECK: If a target ID is provided, skip any folder that isn't the target.
+      if (isTargeted && folder.id !== options.scopedToId) {
+        continue
+      }
 
-            const info = seasonMap.get(folder.name)
-            const isManuallyAssignedSeason = folder.mediaType === 'season'
+      const info = seasonMap.get(folder.name)
+      const isManuallyAssignedSeason = folder.mediaType === 'season'
 
-            if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
-                const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
-                const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
+      if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
+        const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
+        const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
 
-                let changedForFolder = false
-                if (!isLocked && folder.seasonNumber !== targetSeason) {
-                    folder.seasonNumber = targetSeason
-                    folder.title = null
-                    folder.overview = null
-                    folder.posterPath = null
-                    changedForFolder = true
-                }
-                if (folder.mediaType !== 'season') {
-                    folder.mediaType = 'season'
-                    changedForFolder = true
-                }
-
-                if (changedForFolder) {
-                    allModified.push(folder)
-                }
-                seasonsToProcess.push(folder)
-            }
+        let changedForFolder = false
+        if (!isLocked && folder.seasonNumber !== targetSeason) {
+          folder.seasonNumber = targetSeason
+          folder.title = null
+          folder.overview = null
+          folder.posterPath = null
+          changedForFolder = true
         }
-    }
-
-    // 3. Process Episodes
-    if (isFlatShow) {
-        // Flat shows (files in root) cannot be scoped to a Season Folder ID effectively 
-        // in this context, so we skip if scopedToId is set (implying a folder target).
-        if (!isTargeted) {
-            const episodeMap = determineEpisodeNumbers(
-                videoFiles.map((f) => f.name),
-                1,
-                episodeStrategy
-            )
-            allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
+        if (folder.mediaType !== 'season') {
+          folder.mediaType = 'season'
+          changedForFolder = true
         }
-    } else {
-        for (const seasonFolder of seasonsToProcess) {
-            const seasonChildren = repositoryService.getChildren(seasonFolder.id)
-            const seasonFiles = seasonChildren.filter(
-                (c) => c.type === 'file' && isSupportedVideoFile(c.name)
-            ) as MediaFile[]
-            const seasonFileNames = seasonFiles.map((f) => f.name)
 
-            // OPTIMIZATION: If the season folder's number is locked, use it for all children
-            // and tell the parser it's a fixed season context.
-            const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
-            const effectiveSeasonNumber = isSeasonLocked ? seasonFolder.seasonNumber : seasonFolder.seasonNumber
-
-            const episodeMap = determineEpisodeNumbers(
-                seasonFileNames,
-                effectiveSeasonNumber,
-                episodeStrategy
-            )
-            allModified.push(..._applyEpisodeMap(seasonFiles, episodeMap, isSeasonLocked ? effectiveSeasonNumber : undefined))
+        if (changedForFolder) {
+          allModified.push(folder)
         }
+        seasonsToProcess.push(folder)
+      }
     }
+  }
 
-    // Finalize all structural changes at once to minimize IPC overhead
-    if (allModified.length > 0) {
-        await updateIfChangedAndBroadcast(allModified)
+  // 3. Process Episodes
+  if (isFlatShow) {
+    // Flat shows (files in root) cannot be scoped to a Season Folder ID effectively
+    // in this context, so we skip if scopedToId is set (implying a folder target).
+    if (!isTargeted) {
+      const episodeMap = determineEpisodeNumbers(
+        videoFiles.map((f) => f.name),
+        1,
+        episodeStrategy
+      )
+      allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
     }
+  } else {
+    for (const seasonFolder of seasonsToProcess) {
+      const seasonChildren = repositoryService.getChildren(seasonFolder.id)
+      const seasonFiles = seasonChildren.filter(
+        (c) => c.type === 'file' && isSupportedVideoFile(c.name)
+      ) as MediaFile[]
+      const seasonFileNames = seasonFiles.map((f) => f.name)
 
-    return allModified
+      // OPTIMIZATION: If the season folder's number is locked, use it for all children
+      // and tell the parser it's a fixed season context.
+      const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
+      const effectiveSeasonNumber = isSeasonLocked
+        ? seasonFolder.seasonNumber
+        : seasonFolder.seasonNumber
+
+      const episodeMap = determineEpisodeNumbers(
+        seasonFileNames,
+        effectiveSeasonNumber,
+        episodeStrategy
+      )
+      allModified.push(
+        ..._applyEpisodeMap(
+          seasonFiles,
+          episodeMap,
+          isSeasonLocked ? effectiveSeasonNumber : undefined
+        )
+      )
+    }
+  }
+
+  // Finalize all structural changes at once to minimize IPC overhead
+  if (allModified.length > 0) {
+    await updateIfChangedAndBroadcast(allModified)
+  }
+
+  return allModified
 }
 
 /**
  * Applies parsed episode info to a list of media files.
  */
 function _applyEpisodeMap(
-    files: MediaFile[],
-    episodeMap: Map<string, ParsedTvInfo>,
-    forcedSeasonNumber?: number | null
+  files: MediaFile[],
+  episodeMap: Map<string, ParsedTvInfo>,
+  forcedSeasonNumber?: number | null
 ): MediaFile[] {
-    const modified: MediaFile[] = []
-    for (const file of files) {
-        const info = episodeMap.get(file.name)
-        if (info && info.mediaType === 'episode') {
-            const isSeasonLocked = repositoryService.isFieldLocked(file, 'seasonNumber')
-            const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
+  const modified: MediaFile[] = []
+  for (const file of files) {
+    const info = episodeMap.get(file.name)
+    if (info && info.mediaType === 'episode') {
+      const isSeasonLocked = repositoryService.isFieldLocked(file, 'seasonNumber')
+      const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
 
-            let changed = false
-            const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
+      let changed = false
+      const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
 
-            if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
-                file.seasonNumber = targetSeason
-                changed = true
-            }
-            if (
-                !isEpisodeLocked &&
-                info.episode !== undefined &&
-                file.episodeNumber !== info.episode
-            ) {
-                file.episodeNumber = info.episode
-                file.title = null
-                file.overview = null
-                file.posterPath = null
-                changed = true
-            }
+      if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
+        file.seasonNumber = targetSeason
+        changed = true
+      }
+      if (!isEpisodeLocked && info.episode !== undefined && file.episodeNumber !== info.episode) {
+        file.episodeNumber = info.episode
+        file.title = null
+        file.overview = null
+        file.posterPath = null
+        changed = true
+      }
 
-            if (changed || file.mediaType !== 'episode') {
-                file.mediaType = 'episode'
-                modified.push(file)
-            }
-        }
+      if (changed || file.mediaType !== 'episode') {
+        file.mediaType = 'episode'
+        modified.push(file)
+      }
     }
-    return modified
+  }
+  return modified
 }

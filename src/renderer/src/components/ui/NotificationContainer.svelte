@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { notificationStore } from '../../lib/notification-store.svelte'
+  import { notificationStore } from '@lib/notification-store.svelte'
   import { flip } from 'svelte/animate'
   import { fade, fly } from 'svelte/transition'
 </script>

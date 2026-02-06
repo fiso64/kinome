@@ -1,8 +1,17 @@
 import path, { dirname, relative, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
-import type { MediaFolder, MediaFile, LibraryItem, Settings, LibraryStatus, ServerSettings, LibrarySettings, GlobalConfig } from '../../shared/types'
-import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '../../shared/types'
+import type {
+  MediaFolder,
+  MediaFile,
+  LibraryItem,
+  Settings,
+  LibraryStatus,
+  ServerSettings,
+  LibrarySettings,
+  GlobalConfig
+} from '@shared/types'
+import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '@shared/types'
 import {
   getLibraryDataPath,
   isRemoteLibrary,
@@ -147,7 +156,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
     const merged = { ...currentSettings }
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined) {
-        ; (merged as any)[key] = value
+        ;(merged as any)[key] = value
       }
     }
 
@@ -162,9 +171,9 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
     // Distribute fields based on SERVER_SETTING_KEYS
     for (const key of Object.keys(merged)) {
       if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-        ; (server as any)[key] = (merged as any)[key]
+        ;(server as any)[key] = (merged as any)[key]
       } else {
-        ; (libraryDefaults as any)[key] = (merged as any)[key]
+        ;(libraryDefaults as any)[key] = (merged as any)[key]
       }
     }
 
@@ -251,7 +260,9 @@ async function readRawSettings(): Promise<Settings> {
     if (isLibrarySettings) {
       for (const key of SERVER_SETTING_KEYS) {
         if ((key as any) in filteredSaved) {
-          console.warn(`[Settings] Library setting tried to override global field "${key}". Ignoring.`)
+          console.warn(
+            `[Settings] Library setting tried to override global field "${key}". Ignoring.`
+          )
           delete (filteredSaved as any)[key]
         }
       }
@@ -338,15 +349,17 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   for (const [key, value] of Object.entries(settingsToSave)) {
     if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-      ; (serverChanges as any)[key] = value
+      ;(serverChanges as any)[key] = value
     } else {
-      ; (libraryChanges as any)[key] = value
+      ;(libraryChanges as any)[key] = value
     }
   }
 
   // Update global settings if any server-level keys were provided
   if (Object.keys(serverChanges).length > 0) {
-    console.log(`[Settings Service] Applying server-level changes: ${Object.keys(serverChanges).join(', ')}`)
+    console.log(
+      `[Settings Service] Applying server-level changes: ${Object.keys(serverChanges).join(', ')}`
+    )
     await writeGlobalSettings(serverChanges)
   }
 

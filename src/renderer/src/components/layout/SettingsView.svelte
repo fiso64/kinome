@@ -1,23 +1,23 @@
 <script lang="ts">
-  import { api } from '../../lib/api'
-  import { formatLayoutString } from '../../../../shared/settings-helpers'
-  import { dialogStore } from '../../lib/dialog-store'
-  import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
-  import DefaultLayoutSettingsModal from '../modals/DefaultLayoutSettingsModal.svelte'
-  import PlayerCommandsModal from '../modals/PlayerCommandsModal.svelte'
-  import CustomActionsModal from '../modals/CustomActionsModal.svelte'
-  import VirtualTagEditor from '../modals/_parts/VirtualTagEditor.svelte'
-  import LibrarySettingsForm from '../settings/LibrarySettingsForm.svelte'
-  import { DEFAULT_LAYOUTS_CONFIG } from '../../../../shared/types'
+  import { api } from '@lib/api'
+  import { formatLayoutString } from '@shared/settings-helpers'
+  import { dialogStore } from '@lib/dialog-store'
+  import DefaultViewSettingsModal from '@modals/DefaultViewSettingsModal.svelte'
+  import DefaultLayoutSettingsModal from '@modals/DefaultLayoutSettingsModal.svelte'
+  import PlayerCommandsModal from '@modals/PlayerCommandsModal.svelte'
+  import CustomActionsModal from '@modals/CustomActionsModal.svelte'
+  import VirtualTagEditor from '@modals/_parts/VirtualTagEditor.svelte'
+  import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
+  import { DEFAULT_LAYOUTS_CONFIG } from '@shared/types'
   import type {
     PlayerCommandConfig,
     CustomActionConfig,
     Settings,
     AutocompleteSuggestions
-  } from '../../../../shared/types'
-  import { navStoreV2 } from '../../lib/navigation-store-v2.svelte'
-  import { modalStore } from '../../lib/modal-store.svelte'
-  import { authStore } from '../../lib/auth-store.svelte'
+  } from '@shared/types'
+  import { navStoreV2 } from '@lib/navigation-store-v2.svelte'
+  import { modalStore } from '@lib/modal-store.svelte'
+  import { authStore } from '@lib/auth-store.svelte'
 
   let { settings = $bindable() }: { settings: Settings | null } = $props()
 
@@ -56,12 +56,11 @@
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let suggestions = $state<AutocompleteSuggestions>({
-    mediaTypes: [],
-    genres: [],
-    tagKeys: [],
-    virtualTagKeys: [],
-    tagValues: {},
-    persons: []
+    mediaType: [],
+    genre: [],
+    tags: {},
+    virtualTags: {},
+    person: null
   })
 
   const groupByKeys = $derived([
@@ -69,8 +68,8 @@
     'mediaType',
     'genre',
     'year',
-    ...(suggestions?.virtualTagKeys?.map((vt) => `vt.${vt}`) ?? []),
-    ...(suggestions?.tagKeys.map((k) => `tags.${k}`) ?? [])
+    ...Object.keys(suggestions.virtualTags ?? {}).map((vt) => `vt.${vt}`),
+    ...Object.keys(suggestions.tags ?? {}).map((k) => `tags.${k}`)
   ])
 
   $effect(() => {
@@ -522,6 +521,7 @@
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
     initialSettings={defaultLayoutSettings}
+    {settings}
     {groupByKeys}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(s) => (defaultLayoutSettings = s)}

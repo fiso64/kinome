@@ -12,8 +12,8 @@ import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getTransport } from '../transport.registry'
 
-import type { LibraryItem, MediaFile, MediaFolder } from '../../shared/types'
-import { RESETTABLE_METADATA_KEYS } from '../../shared/types'
+import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
+import { RESETTABLE_METADATA_KEYS } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
@@ -28,14 +28,12 @@ const log = (message: string): void => {
 //   return false
 // }
 
-
 // Helper to check if an item's parent has retrieve_children_metadata enabled (The Gate)
 function isMetadataEnabledForItem(itemId: string): boolean {
   const parent = repositoryService.findParent(itemId)
   if (!parent) return false
   return parent.retrieve_children_metadata === true
 }
-
 
 export async function fetchMetadataForLibrary() {
   const settings = await settingsService.readSettings()
@@ -82,7 +80,7 @@ export async function fetchMetadataForLibrary() {
     // 2. Processing: Use the Orchestrator for each dirty item
     // We use chunks to avoid overwhelming the network/API
     await processInChunks(itemsToProcess, 5, async (item) => {
-      // Optimization: If it's an episode or season, we only call orchestrator 
+      // Optimization: If it's an episode or season, we only call orchestrator
       // if it's "orphan" or if we want to force its individual update.
       // However, calling handleItemUpdate is safe as it skips work if already fresh.
       const modifiedItems = await handleItemUpdate(item)
@@ -190,18 +188,27 @@ async function _unlinkItemImages(
 ) {
   if (pathsService.isRemoteLibrary()) return
 
-  if (item.posterPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath')))
+  if (
+    item.posterPath &&
+    (!options.respectLocks || !repositoryService.isFieldLocked(item, 'posterPath'))
+  )
     try {
       await fs.unlink(path.join(imagesDir, item.posterPath))
-    } catch { }
-  if (item.backdropPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath')))
+    } catch {}
+  if (
+    item.backdropPath &&
+    (!options.respectLocks || !repositoryService.isFieldLocked(item, 'backdropPath'))
+  )
     try {
       await fs.unlink(path.join(imagesDir, item.backdropPath))
-    } catch { }
-  if (item.logoPath && (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath')))
+    } catch {}
+  if (
+    item.logoPath &&
+    (!options.respectLocks || !repositoryService.isFieldLocked(item, 'logoPath'))
+  )
     try {
       await fs.unlink(path.join(imagesDir, item.logoPath))
-    } catch { }
+    } catch {}
 }
 
 function _resetItemMetadataFields(
@@ -268,7 +275,10 @@ function _resetItemMetadataFields(
  * Orchestrates the entire scan/analysis/metadata fetch flow for a single item.
  * Ensuring identification, enrichment, structural sync, and managed copy run in order.
  */
-export async function handleItemUpdate(item: LibraryItem, options: { force?: boolean } = {}): Promise<LibraryItem[]> {
+export async function handleItemUpdate(
+  item: LibraryItem,
+  options: { force?: boolean } = {}
+): Promise<LibraryItem[]> {
   const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
   const allModifiedItems: LibraryItem[] = [item]
@@ -300,12 +310,9 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
     // SKIP for seasons: They are enriched in Managed Copy (Phase 4) using the TV/Season endpoint.
     if (item.tmdbId && (!item.lastRefreshedAt || options.force) && item.mediaType !== 'season') {
       log(`[Orchestrator] Enrichment starting for "${item.name}" (id: ${item.id})`)
-      const modified = await retrieverService.fetchItemDetails(
-        item,
-        settings,
-        libraryDataPath,
-        { respectLocks: true }
-      )
+      const modified = await retrieverService.fetchItemDetails(item, settings, libraryDataPath, {
+        respectLocks: true
+      })
       allModifiedItems.push(...modified)
       if (item.mediaType === 'movie' || item.mediaType === 'tv') {
         if (!item.tmdbCredits || options.force) {
@@ -317,7 +324,11 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
     // 3. Structural Sync (For TV Shows)
     // Runs every time to ensure hierarchy matches disk, even if details are fresh.
     // Respects process_tv_children flag (unless forced).
-    if (item.type === 'folder' && item.mediaType === 'tv' && ((item as MediaFolder).process_tv_children !== false || options.force)) {
+    if (
+      item.type === 'folder' &&
+      item.mediaType === 'tv' &&
+      ((item as MediaFolder).process_tv_children !== false || options.force)
+    ) {
       log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
       const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
       allModifiedItems.push(...modified)
@@ -326,7 +337,10 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
     // 4. Managed Copy (TV Hierarchy propagation)
     // Ensures episodes get their names/posters from the show/season cache.
     // Respects process_tv_children flag (unless forced).
-    if ((item.mediaType === 'tv' || item.mediaType === 'season') && ((item as any).process_tv_children !== false || options.force)) {
+    if (
+      (item.mediaType === 'tv' || item.mediaType === 'season') &&
+      ((item as any).process_tv_children !== false || options.force)
+    ) {
       log(`[Orchestrator] Managed Copy for ${item.mediaType} "${item.name}"`)
       const modified = await retrieverService.applyTvShowData(
         item as MediaFolder,
@@ -354,7 +368,10 @@ export async function handleItemUpdate(item: LibraryItem, options: { force?: boo
   }
 }
 
-export async function backgroundFetchAndApplyDetails(item: LibraryItem, options: { force?: boolean } = {}): Promise<LibraryItem[]> {
+export async function backgroundFetchAndApplyDetails(
+  item: LibraryItem,
+  options: { force?: boolean } = {}
+): Promise<LibraryItem[]> {
   const needsRefresh = !item.lastRefreshedAt
   const isTV = item.type === 'folder' && item.mediaType === 'tv'
 
@@ -433,9 +450,14 @@ export async function applyManualMatch(
         if (mediaType === 'season' && item.parentId) {
           const parent = repositoryService.getItemById(item.parentId)
           if (parent && parent.mediaType === 'tv') {
-            const modified = await tvShowService.syncTvShowStructure(parent as MediaFolder, 'smart', 'smart', {
-              scopedToId: item.id
-            })
+            const modified = await tvShowService.syncTvShowStructure(
+              parent as MediaFolder,
+              'smart',
+              'smart',
+              {
+                scopedToId: item.id
+              }
+            )
             structuralChanges.push(...modified)
           }
         }
@@ -519,7 +541,7 @@ export async function removeImage(
 
 /**
  * Clears metadata for an item and potentially its hierarchy.
- * 
+ *
  * @param itemId The unique ID of the item to clear.
  * @param options Configuration for the clearing operation:
  *  - childrenOnly: If true, clears all descendants but leaves the targeted item's metadata intact.

@@ -1,10 +1,5 @@
 import { getDb } from '../database/client'
-import type {
-  VirtualTagConfig,
-  VirtualTagCondition,
-  LibraryItem,
-  Settings
-} from '../../shared/types'
+import type { VirtualTagConfig, VirtualTagCondition, LibraryItem, Settings } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [VirtualTags] ${message}`)

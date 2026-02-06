@@ -1,12 +1,12 @@
 <script lang="ts">
   import ContextMenu from '../ui/ContextMenu.svelte'
-  import { contextMenuStore } from '../../lib/context-menu-store.svelte'
-  import { modalStore } from '../../lib/modal-store.svelte'
-  import { dialogStore } from '../../lib/dialog-store'
-  import { api } from '../../lib/api'
-  import { libraryDataService } from '../../lib/services/library-data-service.svelte'
-  import { resolveViewSettings } from '../../../../shared/settings-helpers'
-  import type { LibraryItem, MediaFolder, Settings } from '../../../../shared/types'
+  import { contextMenuStore } from '@lib/context-menu-store.svelte'
+  import { modalStore } from '@lib/modal-store.svelte'
+  import { dialogStore } from '@lib/dialog-store'
+  import { api } from '@lib/api'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { resolveViewSettings } from '@shared/settings-helpers'
+  import type { LibraryItem, MediaFolder, Settings } from '@shared/types'
 
   let { settings, onRefresh, onItemClick } = $props<{
     settings: Settings | null

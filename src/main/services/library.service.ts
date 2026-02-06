@@ -14,14 +14,12 @@ import * as tvShowService from './tv-show.service'
 import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 import { closeDatabase } from '../database/client'
-import {
-  updateIfChangedAndBroadcast
-} from './item-update.service'
+import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
 
-import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
-import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '../../shared/types'
+import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '@shared/types'
+import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Library Service] ${message}`)
@@ -76,7 +74,7 @@ export async function getLibraryRoot(providedPath?: string): Promise<LibraryStat
   // If DB exists, the root should exist (discovery.dbExists now checks for root)
   const root = repositoryService.getRoot()
   if (!root) {
-    // This should technically not happen if discovery.dbExists is true, 
+    // This should technically not happen if discovery.dbExists is true,
     // but we handle it for safety.
     return { status: 'db_missing', settings: discovery.settings }
   }
@@ -163,7 +161,10 @@ export const performFullRescan = (path: string) => _scanAndCreateNewDb(path, 'Fu
 // --- Items ---
 
 // This must be read-only.
-export async function getItemDetails(itemId: string, fields?: string[]): Promise<LibraryItem | null> {
+export async function getItemDetails(
+  itemId: string,
+  fields?: string[]
+): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) throw new Error(`Item ${itemId} not found.`)
 
@@ -465,10 +466,8 @@ export const assignSeasonsAndEpisodes = async (
 
   log(`[Library] Assignment complete for show ${showId}.`)
 }
-export const clearItemMetadata = (
-  itemId: string,
-  childrenOnly: boolean
-) => metadataService.clearItemMetadata(itemId, { childrenOnly })
+export const clearItemMetadata = (itemId: string, childrenOnly: boolean) =>
+  metadataService.clearItemMetadata(itemId, { childrenOnly })
 export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMetadata
 
 export const applyManualMatch = async (
@@ -567,7 +566,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   if (item.id.startsWith('virtual--')) {
     log(`Redirection triggered for virtual item: ${item.id}`)
 
-    // Manual Parse or use Repository Helper? 
+    // Manual Parse or use Repository Helper?
     // We can just split manually here to keep it self-contained or use the helper if available.
     // Let's match repository.service logic for consistency.
     const parts = item.id.split('--')
@@ -582,7 +581,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
         const settingsToSave: Partial<MediaFolder> = {}
         for (const key of VIEW_SETTINGS_KEYS) {
           if ((item as any)[key] !== undefined) {
-            ; (settingsToSave as any)[key] = (item as any)[key]
+            ;(settingsToSave as any)[key] = (item as any)[key]
           }
         }
 
@@ -610,7 +609,10 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
           // @ts-ignore
           settingsToSave.groupBy = null
         }
-        if (settingsToSave.childViewSettings?.layout && !['tabs', 'sections'].includes(settingsToSave.childViewSettings.layout)) {
+        if (
+          settingsToSave.childViewSettings?.layout &&
+          !['tabs', 'sections'].includes(settingsToSave.childViewSettings.layout)
+        ) {
           // @ts-ignore
           settingsToSave.childViewSettings.groupBy = null
         }
@@ -631,7 +633,11 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     let currentLocks = new Set(existing.lockedFields ?? [])
 
     // 1. Handle explicit lock toggles if provided in payload (Map: { field: boolean })
-    if ((item as any).lockedFields && typeof (item as any).lockedFields === 'object' && !Array.isArray((item as any).lockedFields)) {
+    if (
+      (item as any).lockedFields &&
+      typeof (item as any).lockedFields === 'object' &&
+      !Array.isArray((item as any).lockedFields)
+    ) {
       const explicitLocks = (item as any).lockedFields as Record<string, boolean>
       for (const [field, isLocked] of Object.entries(explicitLocks)) {
         if (isLocked) {
@@ -654,7 +660,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
         // Use deep equality check for non-primitive types (arrays/objects)
         // to avoid locking fields due to new reference identity from DB fetch.
         const isPrimitive = typeof newValue !== 'object' || newValue === null
-        const isChanged = isPrimitive ? (newValue !== oldValue) : !equal(newValue, oldValue)
+        const isChanged = isPrimitive ? newValue !== oldValue : !equal(newValue, oldValue)
 
         if (isChanged) {
           // If the update is specifically trying to revert to Name (Folder Name),
@@ -678,7 +684,10 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     anyItem.groupBy = null
   }
   // Also normalize childViewSettings if present
-  if (anyItem.childViewSettings?.layout && !['tabs', 'sections'].includes(anyItem.childViewSettings.layout)) {
+  if (
+    anyItem.childViewSettings?.layout &&
+    !['tabs', 'sections'].includes(anyItem.childViewSettings.layout)
+  ) {
     anyItem.childViewSettings.groupBy = null
   }
 

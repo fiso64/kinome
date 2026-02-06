@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { AutocompleteSuggestions } from '../../../../shared/types'
+  import type { AutocompleteSuggestions } from '@shared/types'
   import {
     autocomplete,
     type AutocompleteConfig,
     getFuzzySuggestions,
     type AutocompleteItem
-  } from '../../lib/autocomplete-manager'
+  } from '@lib/autocomplete-manager'
 
-  import { api } from '../../lib/api'
+  import { api } from '@lib/api'
 
   type Tag = { id: string; key: string; value: string }
 

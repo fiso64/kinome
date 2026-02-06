@@ -20,7 +20,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@renderer': path.resolve(__dirname, 'src/renderer/src'),
-      '@shared': path.resolve(__dirname, 'src/shared')
+      '@shared': path.resolve(__dirname, 'src/shared'),
+      '@lib': path.resolve(__dirname, 'src/renderer/src/lib'),
+      '@components': path.resolve(__dirname, 'src/renderer/src/components'),
+      '@ui': path.resolve(__dirname, 'src/renderer/src/components/ui'),
+      '@modals': path.resolve(__dirname, 'src/renderer/src/components/modals')
     }
   },
   server: {

@@ -1,4 +1,4 @@
-import type { LibraryItem, SearchIndexEntry } from '../../../shared/types'
+import type { LibraryItem, SearchIndexEntry } from '@shared/types'
 import { api } from './api'
 
 // --- Types ---

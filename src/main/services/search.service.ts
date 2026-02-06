@@ -1,5 +1,5 @@
 import { getDb, runTransaction } from './repository.service'
-import type { SearchIndexEntry } from '../../shared/types'
+import type { SearchIndexEntry } from '@shared/types'
 
 // Rebuilds the FTS index from scratch. Useful for migration or corruption recovery.
 export function rebuildSearchIndex() {

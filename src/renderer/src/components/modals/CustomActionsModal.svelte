@@ -1,6 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
-  import type { CustomActionConfig } from '../../../../shared/types'
+  import type { CustomActionConfig } from '@shared/types'
 
   let {
     customActions = $bindable(),

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { resolveViewSettings, formatLayoutString } from '../../../../shared/settings-helpers'
+  import { resolveViewSettings, formatLayoutString } from '@shared/settings-helpers'
   import {
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
     ALL_VIEW_OVERRIDE_KEYS,
@@ -7,11 +7,15 @@
     type MediaFolder,
     type StoredViewSettings,
     type Settings
-  } from '../../../../shared/types'
-  import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '../../../../shared/types'
+  } from '@shared/types'
+  import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '@shared/types'
   import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
 
-  const layouts = [
+  const layouts: {
+    value: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    label: string
+    description: string
+  }[] = [
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
     {
       value: 'horizontal-grid',
