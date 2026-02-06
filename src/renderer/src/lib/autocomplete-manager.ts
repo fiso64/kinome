@@ -112,6 +112,35 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+function calculatePosition(node: HTMLElement, text: string, cursorPos: number) {
+  if (!textMirror) {
+    textMirror = document.createElement('span')
+    textMirror.className = 'autocomplete-text-mirror'
+    document.body.appendChild(textMirror)
+  }
+
+  const computedStyle = getComputedStyle(node)
+  textMirror.style.font = computedStyle.font
+  textMirror.style.letterSpacing = computedStyle.letterSpacing
+  textMirror.style.whiteSpace = 'pre'
+
+  const prefix = text.substring(0, cursorPos)
+  textMirror.textContent = prefix
+
+  const nodeRect = node.getBoundingClientRect()
+  const caretLeft =
+    nodeRect.left +
+    parseInt(computedStyle.paddingLeft, 10) -
+    node.scrollLeft +
+    textMirror.offsetWidth
+
+  return {
+    top: nodeRect.bottom + 4,
+    left: caretLeft,
+    inputTop: nodeRect.top
+  }
+}
+
 export function autocomplete(
   node: HTMLInputElement | HTMLTextAreaElement,
   config: AutocompleteConfig
@@ -131,7 +160,14 @@ export function autocomplete(
 
       if (rawResult instanceof Promise) {
         isImmediate = false
-        autocompleteState.update((s) => ({ ...s, loading: true, show: true }))
+        const position = calculatePosition(node, text, cursorPos)
+        autocompleteState.update((s) => ({
+          ...s,
+          loading: true,
+          show: true,
+          position,
+          targetNode: node
+        }))
       }
 
       try {
@@ -142,32 +178,7 @@ export function autocomplete(
         const suggestions = rawSuggestions.slice(0, SUGGESTION_LIMIT)
 
         if (suggestions.length > 0) {
-          if (!textMirror) {
-            textMirror = document.createElement('span')
-            textMirror.className = 'autocomplete-text-mirror'
-            document.body.appendChild(textMirror)
-          }
-
-          const computedStyle = getComputedStyle(node)
-          textMirror.style.font = computedStyle.font
-          textMirror.style.letterSpacing = computedStyle.letterSpacing
-          textMirror.style.whiteSpace = 'pre'
-
-          const prefix = text.substring(0, cursorPos)
-          textMirror.textContent = prefix
-
-          const nodeRect = node.getBoundingClientRect()
-          const caretLeft =
-            nodeRect.left +
-            parseInt(computedStyle.paddingLeft, 10) -
-            node.scrollLeft +
-            textMirror.offsetWidth
-
-          const position = {
-            top: nodeRect.bottom + 4,
-            left: caretLeft,
-            inputTop: nodeRect.top
-          }
+          const position = calculatePosition(node, text, cursorPos)
 
           const wrappedOnSelect = (suggestion: AutocompleteItem) => {
             config.onSelect(suggestion, node)
