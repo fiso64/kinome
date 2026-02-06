@@ -15,9 +15,9 @@ import * as actionsService from './actions.service'
 import * as metadataService from './metadata.service'
 import { closeDatabase } from '../database/client'
 import {
-  updateIfChangedAndBroadcast,
-  getAutocompleteSuggestions as fetchAutocompleteSuggestions
+  updateIfChangedAndBroadcast
 } from './item-update.service'
+import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
 
 import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '../../shared/types'
@@ -405,10 +405,10 @@ export async function getContinueWatchingItems(
 export const autocompleteSuggestions = fetchAutocompleteSuggestions
 export const getAutocompleteSuggestions = fetchAutocompleteSuggestions
 export const getGroupByKeys = async () => {
-  return (await import('./item-update.service')).getGroupByKeys()
+  return (await import('./autocomplete.service')).getGroupByKeys()
 }
 export const getAutocompleteValues = async (key: string, query?: string, limit?: number) => {
-  return (await import('./item-update.service')).getAutocompleteValues(key, query, limit)
+  return (await import('./autocomplete.service')).getAutocompleteValues(key, query, limit)
 }
 
 export const performSearch = searchService.performSearch
