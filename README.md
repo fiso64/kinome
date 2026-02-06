@@ -32,10 +32,7 @@ See Plan.md for more details.
 
 ## Project Setup
 
-This project uses [Bun](https://bun.sh/) for package management, bundling, and the runtime.
-
-### Install
-
+This project uses [Bun](https://bun.sh/) for package management, bundling, and the runtime. Install dependencies:
 ```bash
 bun install
 ```

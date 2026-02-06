@@ -94,29 +94,6 @@
 
       if (status.isFileScanningLibrary !== undefined) {
         isFileScanningLibrary = status.isFileScanningLibrary
-
-        // Check if we just completed the initial scan
-        if (
-          !isFileScanningLibrary &&
-          sessionStorage.getItem('showInitialFolderSettingsAfterScan') === 'true'
-        ) {
-          sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
-
-          // Fetch the root folder and show the initial folder settings modal
-          try {
-            const rootStatus = await api.getLibraryRoot()
-            if (rootStatus?.root) {
-              // Update libraryStatus so queries become enabled
-              libraryStatus = rootStatus
-              rootId = rootStatus.root.id
-              libraryDataService.rootId = rootId
-
-              modalStore.open('initialFolderSettings', { root: rootStatus.root })
-            }
-          } catch (err) {
-            console.error('Failed to fetch root for initial folder settings modal:', err)
-          }
-        }
       }
       if (status.isMetadataFetchingLibrary !== undefined) {
         isMetadataFetchingLibrary = status.isMetadataFetchingLibrary
@@ -207,6 +184,13 @@
       libraryDataService.rootId = rootId
     }
 
+    // Force WebSocket reconnection attempt to ensure we receive scan events
+    // This is critical after SetupScreen where the connection might be stale or not established
+    if (!authStore.isChecking) {
+      log('[App] Ensuring WebSocket connection after library status refresh...')
+      api.connectWebSocket(authStore.token)
+    }
+
     // Also refresh other state if library is now ready
     if (status.status === 'ready') {
       Promise.allSettled([
@@ -294,9 +278,7 @@
   async function handleApplyInitialSettings(
     settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
   ) {
-    await api.applyInitialFolderSettings(settings)
-    // Instead of reloading, just refresh the data
-    libraryDataService.invalidateAllQueries()
+    // Legacy removed
   }
 
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
@@ -421,12 +403,7 @@
   <LoginPage />
 {:else}
   <QueryClientProvider client={queryClient}>
-    <ModalRoot
-      bind:settings
-      {groupByKeys}
-      onRefresh={handleRefresh}
-      onApplyInitialSettings={handleApplyInitialSettings}
-    />
+    <ModalRoot bind:settings {groupByKeys} onRefresh={handleRefresh} />
 
     <ContextMenuRoot {settings} onRefresh={handleRefresh} onItemClick={handleItemClick} />
     <NotificationContainer />

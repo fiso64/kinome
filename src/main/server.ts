@@ -12,6 +12,8 @@ import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
 import * as authService from './services/auth.service'
 import { v2Routes } from './routes/v2.elysia'
+import * as listDirectoryService from './services/list-directory.service'
+import * as pathsService from './services/paths.service'
 
 // --- Security Middleware & Constants ---
 
@@ -302,16 +304,30 @@ const app = new Elysia()
         await libraryService.applyInitialFolderSettings(body.settings)
         return { success: true }
       })
-      .post('/perform-initial-scan', async ({ body, set }: { body: any; set: any }) => {
-        const { path } = body
+      .get('/list-directory', async ({ query, set }: { query: any; set: any }) => {
+        const { path } = query
         if (!path || typeof path !== 'string') {
           set.status = 400
           return { error: 'Path is required' }
         }
-        return libraryService.performInitialScan(path)
+
+        // Security: Validate path is within media source root using existing utility
+        const settings = await settingsService.readSettings()
+        const mediaSourcePath = settings.mediaSourcePath || ''
+        const mediaRoot = await settingsService.resolveMediaSourcePath(
+          mediaSourcePath,
+          settings.mediaSourcePathIsRelative ?? false
+        )
+
+        if (!mediaRoot || !pathsService.isPathInside(mediaRoot, path)) {
+          set.status = 403
+          return { error: 'Access denied - path outside media root' }
+        }
+
+        return listDirectoryService.listDirectory(path)
       })
       .post('/perform-full-rescan', ({ body }: { body: any }) =>
-        libraryService.performFullRescan(body.path)
+        libraryService.performFullRescan(body.path, body.initialFolderSettings)
       )
       .post('/refresh-library', () => libraryService.refreshLibrary())
       .post('/play-file', ({ body }: { body: any }) =>

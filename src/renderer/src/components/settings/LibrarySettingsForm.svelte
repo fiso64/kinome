@@ -59,11 +59,8 @@
   <div class="form-group checkbox-group">
     <label class="checkbox-label" for="path-is-relative">
       <input type="checkbox" id="path-is-relative" bind:checked={mediaSourcePathIsRelative} />
-      <span>Path is relative to library data location</span>
+      <span>Path is relative to library data parent</span>
     </label>
-    <p class="help-text">
-      Enable this if your media files are stored inside your library data directory.
-    </p>
   </div>
   <div class="form-group">
     <label for="library-data-location">Library Data Location</label>

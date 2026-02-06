@@ -5,19 +5,16 @@
   import PropertiesModal from '../modals/PropertiesModal.svelte'
   import RenameModal from '../modals/RenameModal.svelte'
   import AssignSeasonsModal from '../modals/AssignSeasonsModal.svelte'
-  import InitialFolderSettingsModal from '../modals/InitialFolderSettingsModal.svelte'
 
   // --- Props (Global state passed in from App.svelte) ---
   let {
     settings = $bindable(),
     groupByKeys,
-    onRefresh,
-    onApplyInitialSettings
+    onRefresh
   } = $props<{
     settings: any
     groupByKeys: string[]
     onRefresh: () => Promise<void>
-    onApplyInitialSettings: (settings: any[]) => Promise<void>
   }>()
 
   const active = $derived(modalStore.activeModal)
@@ -49,15 +46,6 @@
       item={active.props.item}
       onClose={() => modalStore.close()}
       onNeedRefresh={onRefresh}
-    />
-  {:else if active.type === 'initialFolderSettings'}
-    <InitialFolderSettingsModal
-      root={active.props.root}
-      onApply={onApplyInitialSettings}
-      onClose={() => {
-        onApplyInitialSettings([])
-        modalStore.close()
-      }}
     />
   {:else if active.type === 'assignSeasons'}
     <AssignSeasonsModal item={active.props.item} onClose={() => modalStore.close()} />

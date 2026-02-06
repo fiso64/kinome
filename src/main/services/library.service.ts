@@ -117,46 +117,82 @@ export async function refreshLibrary(): Promise<MediaFolder | null> {
   return (await getLibraryRoot()).root || null
 }
 
+// Helper to normalize settings
+function normalizeFolderSettings(mediaSourcePath: string, initialFolderSettings?: Record<string, any>) {
+  const normalizedSettings: Record<string, any> = {}
+  if (initialFolderSettings) {
+    log(`[Scan] Received initial settings. Keys: ${Object.keys(initialFolderSettings).join(', ')}`)
+    for (const [keyPath, val] of Object.entries(initialFolderSettings)) {
+      let rel = path.relative(mediaSourcePath, keyPath).replace(/\\/g, '/')
+      if (rel === '') rel = '.'
+      normalizedSettings[rel] = val
+      log(`[Scan] Normalized setting: "${keyPath}" -> "${rel}"`)
+    }
+  } else {
+    log(`[Scan] No initial folder settings provided.`)
+  }
+  return normalizedSettings
+}
+
 async function _scanAndCreateNewDb(
   mediaSourcePath: string,
-  scanType: 'Initial Scan' | 'Full Rescan'
-): Promise<MediaFolder | null> {
+  normalizedSettings: Record<string, any>
+): Promise<void> {
   if (pathsService.isRemoteLibrary())
-    throw new Error(`${scanType} not available for remote libraries.`)
-  log(`Starting ${scanType} of: ${mediaSourcePath}`)
+    throw new Error(`Scanning not available for remote libraries.`)
 
+  // Settings writing moved to performFullRescan for sync execution
+
+  getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
+
+  try {
+    // Root is already initialized by performFullRescan, but this is idempotent
+    await filesystemService.scanDirectory(mediaSourcePath, {
+      skipMetadata: false,
+      initialFolderSettings: normalizedSettings
+    })
+    searchService.buildFullSearchIndex()
+
+    // Fetch metadata for the newly scanned items
+    await metadataService.fetchMetadataForLibrary().catch((err) => {
+      console.error('[Library Service] Metadata fetch failed during rescan:', err)
+    })
+
+    await reapplyVirtualTagsAfterSettingsChange()
+  } finally {
+    getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
+  }
+}
+
+export const performFullRescan = async (newPath: string, initialFolderSettings?: Record<string, any>) => {
+  log(`Starting full rescan of: ${newPath}`)
+
+  // 1. Sync Settings & Path Logic (Previously in _scanAndCreateNewDb)
   const settings = await settingsService.readSettings()
-  let pathToSave = mediaSourcePath
+  let pathToSave = newPath
   if (settings.mediaSourcePathIsRelative) {
     const libraryPath = pathsService.getLibraryDataPath()
-    let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
+    let relative = path.relative(path.dirname(libraryPath), newPath)
     relative = relative.replace(/\\/g, '/')
     pathToSave = relative === '' ? '.' : relative.startsWith('../') ? relative : './' + relative
   }
   await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
 
-  if (scanType === 'Full Rescan') {
-    await repositoryService.createNewDb(null)
-  }
+  // 2. Normalize Settings
+  const normalizedSettings = normalizeFolderSettings(newPath, initialFolderSettings)
 
-  getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
-  try {
-    await filesystemService.scanDirectory(mediaSourcePath, { skipMetadata: true })
-    searchService.buildFullSearchIndex()
-    await reapplyVirtualTagsAfterSettingsChange()
-  } finally {
-    getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
-  }
+  // 3. Initialize Root Synchronously (Waited for)
+  // This ensures the frontend gets a "success" only when the root node exists and polling is unnecessary
+  filesystemService.initializeRoot(newPath, normalizedSettings)
 
-  const status = await getLibraryRoot()
-  const root = status.root
-  if (!root) return null
+  // 4. Kick off Background Process (Fire and Forget)
+  _scanAndCreateNewDb(newPath, normalizedSettings).catch((err) => {
+    console.error('[Library Service] Background full rescan failed:', err)
+  })
 
-  return repositoryService.getFullFolderTree(root)
+  return { success: true }
 }
 
-export const performInitialScan = (path: string) => _scanAndCreateNewDb(path, 'Initial Scan')
-export const performFullRescan = (path: string) => _scanAndCreateNewDb(path, 'Full Rescan')
 
 // --- Items ---
 

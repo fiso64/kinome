@@ -4,11 +4,11 @@ platform: "linux"
 version: "${VERSION}"
 section: "default"
 priority: "extra"
-maintainer: "Your Name <you@example.com>"
+maintainer: "fee soh shixty four"
 description: "A media server and manager"
 vendor: "Media Browser"
-homepage: "https://github.com/example/media-browser"
-license: "MIT"
+homepage: "https://github.com/fiso64/media-browser"
+license: "AGPL-3.0"
 
 contents:
   # 1. The Binary
@@ -21,10 +21,10 @@ contents:
   - src: "${BUILD_DIR}/out"
     dst: "/opt/media-browser/out"
 
-  # 3. Systemd Service (UPDATED PATH)
+  # 3. Systemd Service
   - src: "./packaging/media-browser.service"
     dst: "/lib/systemd/system/media-browser.service"
 
-# Metadata scripts (UPDATED PATH)
+# Metadata scripts
 scripts:
   postinstall: "./packaging/postinstall.sh"

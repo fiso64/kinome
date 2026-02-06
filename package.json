@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "A media server and manager",
   "main": "src/main/server.ts",
-  "author": "example.com",
-  "homepage": "https://github.com/example/media-browser",
+  "author": "fiso64",
+  "homepage": "https://github.com/fiso64/media-browser",
   "scripts": {
     "format": "prettier --plugin prettier-plugin-svelte --write .",
     "lint": "eslint --cache .",
@@ -16,9 +16,7 @@
     "dev": "concurrently --raw \"bun run dev:backend\" \"bun run dev:frontend\"",
     "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\"",
     "build": "bunx --bun vite build",
-    "preview": "bunx --bun vite preview",
-    "start": "NODE_ENV=production bun src/main/server.ts",
-    "prod": "bun run build; bun run start",
+    "prod": "bun run build; NODE_ENV=production bun src/main/server.ts",
     "publish:linux-arm": "bun scripts/publish.ts --target=linux-arm64",
     "publish:linux-x64": "bun scripts/publish.ts --target=linux-x64",
     "publish:win": "bun scripts/publish.ts --target=windows-x64"
@@ -48,11 +46,5 @@
     "svelte-check": "^4.1.5",
     "typescript": "^5.8.3",
     "vite": "^6.2.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild"
-    ]
   }
 }

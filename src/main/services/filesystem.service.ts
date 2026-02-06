@@ -17,34 +17,13 @@ async function walkAndUpsert(
   startPath: string,
   mediaSourcePath: string,
   db: any,
-  options: { skipMetadata?: boolean } = {}
+  options: {
+    skipMetadata?: boolean,
+    initialFolderSettings?: Record<string, any>
+  } = {}
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
   const queue: { currentPath: string; parentId: string | null }[] = []
-
-  // Initialize queue
-  if (startPath === mediaSourcePath) {
-    const rootId = repositoryService.generateId('.')
-    const rootName = path.basename(mediaSourcePath)
-
-    // Upsert Root
-    db.prepare(
-      `
-        INSERT INTO items (id, parent_id, path, name, type, is_missing)
-        VALUES (?, NULL, '.', ?, 'folder', 0)
-        ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
-      `
-    ).run(rootId, rootName)
-
-    visitedIds.add(rootId)
-    queue.push({ currentPath: startPath, parentId: rootId })
-  } else {
-    // Partial Scan start logic
-    const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
-    const id = repositoryService.generateId(relativePath)
-
-    queue.push({ currentPath: startPath, parentId: id })
-  }
 
   // Hoist prepared statements for performance
   const selectFolderSettingsStmt = db.prepare(
@@ -73,6 +52,59 @@ async function walkAndUpsert(
         episode_number = COALESCE(episode_number, excluded.episode_number)
     `
   )
+
+  const upsertFolderSettingsStmt = db.prepare(
+    `
+      INSERT INTO folder_settings (item_id, scraper_settings_json)
+      VALUES (@id, @settingsJson)
+      ON CONFLICT(item_id) DO UPDATE SET
+        scraper_settings_json = excluded.scraper_settings_json
+    `
+  )
+
+  // Initialize queue
+  if (startPath === mediaSourcePath) {
+    const rootId = repositoryService.generateId('.')
+    const rootName = path.basename(mediaSourcePath)
+
+    // Upsert Root
+    db.prepare(
+      `
+        INSERT INTO items (id, parent_id, path, name, type, is_missing)
+        VALUES (?, NULL, '.', ?, 'folder', 0)
+        ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+      `
+    ).run(rootId, rootName)
+
+    // Apply Root Settings
+    if (options.initialFolderSettings && options.initialFolderSettings['.']) {
+      const rootSettings = options.initialFolderSettings['.']
+      const hasHint = rootSettings.retrieve_children_metadata && rootSettings.children_type_hint
+
+      upsertFolderSettingsStmt.run({
+        '@id': rootId,
+        '@settingsJson': JSON.stringify(rootSettings)
+      })
+
+      if (hasHint) {
+        upsertMetadataStmt.run({
+          '@id': rootId,
+          '@mediaType': rootSettings.children_type_hint,
+          '@seasonNumber': null,
+          '@episodeNumber': null
+        })
+      }
+    }
+
+    visitedIds.add(rootId)
+    queue.push({ currentPath: startPath, parentId: rootId })
+  } else {
+    // Partial Scan start logic
+    const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
+    const id = repositoryService.generateId(relativePath)
+
+    queue.push({ currentPath: startPath, parentId: id })
+  }
 
   while (queue.length > 0) {
     const { currentPath, parentId } = queue.shift()!
@@ -118,12 +150,22 @@ async function walkAndUpsert(
       try {
         const s = await fs.stat(fullPath)
         stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
-      } catch {}
+      } catch { }
 
       // ---------------------------------------------------------
       // Phase 3: Invariant Enforcement & Write Guard
       // ---------------------------------------------------------
       let parsedMediaType: string | null = null
+      let specificFolderSettings: any = null
+
+      // Check for injected settings
+      if (isDirectory && options.initialFolderSettings) {
+        const settings = options.initialFolderSettings[relativePath]
+        if (settings) {
+          specificFolderSettings = settings
+          log(`Applying initial settings to: ${relativePath}`)
+        }
+      }
 
       if (retrieveChildrenMetadata) {
         if (isDirectory && scraperSettings.children_type_hint) {
@@ -144,6 +186,13 @@ async function walkAndUpsert(
           '@mtime': stats.mtime,
           '@birthtime': stats.birthtime
         })
+
+        if (specificFolderSettings) {
+          upsertFolderSettingsStmt.run({
+            '@id': id,
+            '@settingsJson': JSON.stringify(specificFolderSettings)
+          })
+        }
 
         if (parsedMediaType) {
           upsertMetadataStmt.run({
@@ -175,7 +224,10 @@ async function walkAndUpsert(
 
 export async function scanDirectory(
   mediaSourcePath: string,
-  options: { skipMetadata?: boolean } = {}
+  options: {
+    skipMetadata?: boolean,
+    initialFolderSettings?: Record<string, any>
+  } = {}
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
   log(
@@ -289,6 +341,64 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
         JSON.stringify(images),
         row.item_id
       )
+    }
+  }
+}
+
+/**
+ * Explicitly initializes the root folder in the database.
+ * This allows the API to return success immediately while the background scan continues.
+ */
+export function initializeRoot(
+  mediaSourcePath: string,
+  initialFolderSettings?: Record<string, any>
+): void {
+  const db = repositoryService.getDb()
+  const rootId = repositoryService.generateId('.')
+  const rootName = path.basename(mediaSourcePath)
+
+  // Upsert Root
+  db.prepare(
+    `
+      INSERT INTO items (id, parent_id, path, name, type, is_missing)
+      VALUES (?, NULL, '.', ?, 'folder', 0)
+      ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+    `
+  ).run(rootId, rootName)
+
+  // Apply Root Settings
+  if (initialFolderSettings && initialFolderSettings['.']) {
+    const rootSettings = initialFolderSettings['.']
+    const hasHint = rootSettings.retrieve_children_metadata && rootSettings.children_type_hint
+
+    db.prepare(
+      `
+      INSERT INTO folder_settings (item_id, scraper_settings_json)
+      VALUES (@id, @settingsJson)
+      ON CONFLICT(item_id) DO UPDATE SET
+        scraper_settings_json = excluded.scraper_settings_json
+    `
+    ).run({
+      '@id': rootId,
+      '@settingsJson': JSON.stringify(rootSettings)
+    })
+
+    if (hasHint) {
+      db.prepare(
+        `
+      INSERT INTO metadata (item_id, media_type, season_number, episode_number)
+      VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
+      ON CONFLICT(item_id) DO UPDATE SET
+        media_type = COALESCE(media_type, excluded.media_type),
+        season_number = COALESCE(season_number, excluded.season_number),
+        episode_number = COALESCE(episode_number, excluded.episode_number)
+    `
+      ).run({
+        '@id': rootId,
+        '@mediaType': rootSettings.children_type_hint,
+        '@seasonNumber': null,
+        '@episodeNumber': null
+      })
     }
   }
 }

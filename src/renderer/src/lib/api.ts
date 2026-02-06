@@ -50,8 +50,8 @@ export interface ApiClient {
     limit?: number
   }): Promise<Record<string, unknown>>
   getLibraryRoot(path?: string): Promise<LibraryStatus>
-  performInitialScan(path: string): Promise<MediaFolder | null>
-  performFullRescan(newPath: string): Promise<MediaFolder | null>
+  listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]>
+  performFullRescan(newPath: string, initialFolderSettings?: Record<string, any>): Promise<{ success: boolean }>
   refreshLibrary(): Promise<MediaFolder | null>
   playFile(file: MediaFile): Promise<boolean>
   playFileWith(file: MediaFile, command: string): Promise<boolean>

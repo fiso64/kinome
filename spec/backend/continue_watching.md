@@ -21,8 +21,6 @@ Users need an efficient way to:
 **User Stories:**
 - As a user, I want to see a "Continue Watching" row on the home screen showing all TV shows I'm currently watching.
 - As a user, when I view a TV show's detail page, I want to see a "Next Up" banner showing the next episode I should watch.
-- As a user, I want to dismiss a show from my "Continue Watching" list without affecting the "Next Up" banner on the show's detail page.
-- As a user, I want to dismiss the "Next Up" banner from a show's detail page, which should also remove it from my home "Continue Watching" list.
 
 ## 3. Goals and Non-Goals
 
@@ -37,8 +35,7 @@ Users need an efficient way to:
 
 ### Non-Goals
 
-- Percentage-based progress tracking (we only track watched/unwatched)
-- Time-based tracking (e.g., "watched 15 minutes ago")
+- Percentage-based progress tracking (we only track watched/unwatched for now)
 - Recommendations based on viewing history (this is a progress tracker, not a recommendation engine)
 
 ## 4. Proposed Solution & Technical Design
@@ -244,8 +241,3 @@ Use only one flag that dismisses the show everywhere.
 - Show's `nextUpEpisodeId` becomes `null` (no watched episodes = no progress)
 - Show disappears from Continue Watching
 - Show hides Next Up banner
-
----
-
-**Last Updated:** 2026-02-06  
-**Maintainer:** Development Team

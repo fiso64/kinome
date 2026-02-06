@@ -224,8 +224,6 @@ class WebApiClient implements ApiClient {
     )
   }
 
-  // --- Legacy / V1 Methods ---
-
   performSearch(query: {
     text: string
     tags: { key: string; value: string }[]
@@ -239,21 +237,18 @@ class WebApiClient implements ApiClient {
     tags: { key: string; value: string }[]
     limit?: number
   }): Promise<Record<string, unknown>> {
-    return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) }) // Same endpoint for now
+    return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
 
-  performInitialScan(path: string): Promise<MediaFolder | null> {
-    return this.request('/api/perform-initial-scan', {
-      method: 'POST',
-      body: JSON.stringify({ path })
-    })
-  }
-
-  performFullRescan(newPath: string): Promise<MediaFolder | null> {
+  performFullRescan(newPath: string, initialFolderSettings?: Record<string, any>): Promise<{ success: boolean }> {
     return this.request('/api/perform-full-rescan', {
       method: 'POST',
-      body: JSON.stringify({ path: newPath })
+      body: JSON.stringify({ path: newPath, initialFolderSettings })
     })
+  }
+
+  listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]> {
+    return this.request(`/api/list-directory?path=${encodeURIComponent(path)}`)
   }
 
   refreshLibrary(): Promise<MediaFolder | null> {

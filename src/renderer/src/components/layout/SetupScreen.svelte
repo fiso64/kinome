@@ -3,6 +3,7 @@
   import { api } from '@lib/api'
   import { modalStore } from '@lib/modal-store.svelte'
   import { useQueryClient } from '@tanstack/svelte-query'
+  import FilesystemTreeBrowser from '../setup/FilesystemTreeBrowser.svelte'
 
   let { onComplete, onStatusUpdate }: { onComplete: () => void; onStatusUpdate?: () => void } =
     $props()
@@ -15,6 +16,8 @@
   let isSaving = $state(false)
   let error = $state('')
   let resolvedPath = $state('')
+  let folderSettings = $state<Record<string, any>>({})
+  let setupCompleted = $state(false)
 
   $effect(() => {
     // Capture reactive values synchronously to ensure Svelte tracks them as dependencies
@@ -118,25 +121,17 @@
         isRelative: mediaSourcePathIsRelative
       })
 
-      // 3. Invalidate queries and close setup modal IMMEDIATELY
+      // 3. Initiate Scan (awaited until root creation is confirmed)
+      await api.performFullRescan(resolved, folderSettings)
+
+      // 4. Invalidate queries and finalize
       queryClient.invalidateQueries()
 
-      // Notify parent to refresh libraryStatus state and navigate to home
+      // Notify parent to refresh libraryStatus state (which now definitely has a root ID)
       if (onStatusUpdate) onStatusUpdate()
 
-      // 4. Set flag so App knows to show InitialFolderSettingsModal after scan
-      sessionStorage.setItem('showInitialFolderSettingsAfterScan', 'true')
-
-      // Complete (navigate to home)
+      setupCompleted = true
       onComplete()
-
-      // 5. Trigger the scan after a short delay to ensure navigation completes
-      setTimeout(() => {
-        api.performInitialScan(resolved).catch((err) => {
-          console.error('Initial scan failed:', err)
-          sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
-        })
-      }, 100)
     } catch (err: any) {
       error = err.message || 'Failed to save settings.'
       sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
@@ -210,12 +205,23 @@
         <div class="form-group checkbox-group">
           <label class="checkbox-label" for="path-is-relative">
             <input type="checkbox" id="path-is-relative" bind:checked={mediaSourcePathIsRelative} />
-            <span>Path is relative to library data location</span>
+            <span>Path is relative to library data parent</span>
           </label>
-          <p class="help-text">
-            Enable this if your media files are stored inside your library data directory.
-          </p>
         </div>
+
+        {#if resolvedPath && !resolvedPath.includes('Error')}
+          <div class="form-group folder-setup">
+            <label>Configure Folders</label>
+            <p class="help-text">
+              Select which folders should have metadata (posters, overviews, etc.) automatically
+              fetched for their children.
+            </p>
+            <FilesystemTreeBrowser
+              rootPath={resolvedPath}
+              onSettingsChange={(settings) => (folderSettings = settings)}
+            />
+          </div>
+        {/if}
 
         {#if error}
           <p class="error-message">{error}</p>
@@ -254,12 +260,14 @@
 
   .setup-container {
     width: 100%;
-    max-width: 600px;
+    max-width: 800px;
     background-color: var(--color-background-soft);
-    padding: 3rem;
+    padding: 2rem;
     border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     border: 1px solid var(--color-border-soft);
+    max-height: 90vh;
+    overflow-y: auto;
   }
 
   header {
