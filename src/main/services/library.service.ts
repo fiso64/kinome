@@ -441,11 +441,15 @@ export const getParent = async (id: string) => {
   return parent ? repositoryService.createTransferableCopy(parent) : null
 }
 export const getChildren = async (id: string) => {
-  const children = repositoryService.getChildren(id)
-  return children.filter((c) => !c.isHidden).map(repositoryService.createTransferableCopy)
+  const children = repositoryService.getChildren(id, undefined, false)
+  return children.map(repositoryService.createTransferableCopy)
 }
 export const getHiddenChildren = async (parentId: string): Promise<LibraryItem[]> => {
-  const children = repositoryService.getChildren(parentId)
+  const children = repositoryService.getChildren(
+    parentId,
+    [...repositoryService.CORE_FIELDS, 'isHidden'],
+    true
+  )
   return children.filter((c) => c.isHidden)
 }
 export const assignSeasonsAndEpisodes = async (

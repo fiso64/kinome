@@ -36,7 +36,7 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     }
   }
 
-  const reserved = ['fields', 'include', 'limit', 'offset', 'orderBy', 'sort', 'order', 'groupBy']
+  const reserved = ['fields', 'include', 'limit', 'offset', 'orderBy', 'sort', 'order', 'groupBy', 'includeHidden']
 
   for (const [key, value] of Object.entries(query)) {
     if (!reserved.includes(key)) {
@@ -53,6 +53,12 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
       field: query.sort as string,
       direction: (query.order as string)?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'
     }
+  }
+
+  if (query.includeHidden === 'true') {
+    options.includeHidden = true
+  } else if (query.includeHidden === 'false') {
+    options.includeHidden = false
   }
 
   return options
@@ -145,6 +151,12 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
     }
 
     const options = parseFindOptions(query)
+
+    // Default to excluding hidden items for children endpoint unless explicitly requested
+    if (options.includeHidden === undefined) {
+      options.includeHidden = false
+    }
+
     const settings = await readSettings()
 
     let finalGroupBy: string | undefined = undefined

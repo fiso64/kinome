@@ -272,9 +272,13 @@
   async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
     const fromSearch = 'staticScore' in item
 
-    // Files: trigger play action (copy URL to clipboard)
+    // Files: navigate to detail if movie, otherwise play
     if (item.type === 'file') {
-      await handlePlayFile(item as MediaFile)
+      if ('mediaType' in item && item.mediaType === 'movie') {
+        navStoreV2.openDetail(item.id)
+      } else {
+        await handlePlayFile(item as MediaFile)
+      }
       return
     }
 

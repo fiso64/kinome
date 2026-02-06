@@ -5,12 +5,14 @@
     retrieveChildrenMetadata = $bindable(),
     childrenTypeHint = $bindable(),
     processTvChildren = $bindable(),
+    itemsToUnhide = $bindable([]),
     onNeedRefresh
   }: {
     item: MediaFolder
     retrieveChildrenMetadata: boolean
     childrenTypeHint: 'auto' | 'movie' | 'tv'
     processTvChildren: boolean
+    itemsToUnhide: string[]
     onNeedRefresh: () => Promise<void>
   } = $props()
 
@@ -22,11 +24,12 @@
     hiddenChildren = await window.api.getHiddenChildren(item.id)
   }
 
-  async function handleUnhide(child: LibraryItem) {
-    const itemToUpdate = { ...JSON.parse(JSON.stringify(child)), isHidden: false }
-    await window.api.userUpdateItem(itemToUpdate)
-    await fetchHiddenChildren() // Refresh the list
-    await onNeedRefresh() // Refresh the main view to show the unhidden item
+  function toggleUnhide(child: LibraryItem) {
+    if (itemsToUnhide.includes(child.id)) {
+      itemsToUnhide = itemsToUnhide.filter((id) => id !== child.id)
+    } else {
+      itemsToUnhide = [...itemsToUnhide, child.id]
+    }
   }
 
   $effect(() => {
@@ -85,9 +88,15 @@
       </p>
       <ul class="hidden-items-list">
         {#each hiddenChildren as child (child.id)}
+          {@const isPending = itemsToUnhide.includes(child.id)}
           <li class="hidden-item">
-            <span>{child.type === 'folder' ? '📁' : '📄'} {child.name}</span>
-            <button class="secondary" onclick={() => handleUnhide(child)}>Unhide</button>
+            <span class:strikethrough={isPending}>
+              {child.type === 'folder' ? '📁' : '📄'}
+              {child.name}
+            </span>
+            <button class="secondary" onclick={() => toggleUnhide(child)}>
+              {isPending ? 'Undo' : 'Unhide'}
+            </button>
           </li>
         {/each}
       </ul>
@@ -156,5 +165,9 @@
   .hidden-item span {
     word-break: break-all;
     padding-right: 1rem;
+  }
+  .strikethrough {
+    text-decoration: line-through;
+    opacity: 0.6;
   }
 </style>

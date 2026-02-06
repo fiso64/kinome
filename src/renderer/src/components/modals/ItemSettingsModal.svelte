@@ -187,6 +187,7 @@
     _isFolder ? ((item as MediaFolder).children_type_hint ?? 'auto') : 'auto'
   )
   let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
+  let itemsToUnhide = $state<string[]>([])
 
   // Capture initial state from props/initialization
   captureInitialValues()
@@ -410,6 +411,14 @@
       }
     }
 
+    if (itemsToUnhide.length > 0) {
+      for (const id of itemsToUnhide) {
+        // We use userUpdateItem with just the ID and isHidden: false
+        await window.api.userUpdateItem({ id, isHidden: false } as any)
+      }
+      needsRefresh = true
+    }
+
     // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
     // will handle removing it from the view. The modal should always close.
     handleClose()
@@ -488,6 +497,7 @@
         bind:retrieveChildrenMetadata
         bind:childrenTypeHint
         bind:processTvChildren
+        bind:itemsToUnhide
         {onNeedRefresh}
       />
     {:else if activeTab === 'settings' && !isFolder && !isVirtual}

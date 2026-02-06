@@ -40,12 +40,14 @@ function getGlobalSettingsPath(): string {
   return p
 }
 
-function getLibrarySettingsPath(): string {
+function getLibrarySettingsPath(): string | null {
   return resolveLibraryPath(LIBRARY_SETTINGS_FILE_NAME)
 }
 
 // Helper to read a single settings file and return its content or an empty object
-async function readSettingsFile(filePath: string): Promise<Partial<Settings>> {
+async function readSettingsFile(
+  filePath: string | null
+): Promise<Partial<Settings>> {
   if (!filePath) return {}
   try {
     let data: string
@@ -68,6 +70,7 @@ async function readSettingsFile(filePath: string): Promise<Partial<Settings>> {
     return {}
   }
 }
+
 
 /**
  * Checks if a library exists at the given path.
@@ -156,7 +159,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
     const merged = { ...currentSettings }
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined) {
-        ;(merged as any)[key] = value
+        ; (merged as any)[key] = value
       }
     }
 
@@ -171,9 +174,9 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
     // Distribute fields based on SERVER_SETTING_KEYS
     for (const key of Object.keys(merged)) {
       if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-        ;(server as any)[key] = (merged as any)[key]
+        ; (server as any)[key] = (merged as any)[key]
       } else {
-        ;(libraryDefaults as any)[key] = (merged as any)[key]
+        ; (libraryDefaults as any)[key] = (merged as any)[key]
       }
     }
 
@@ -306,6 +309,10 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
   }
 
   const settingsPath = getLibrarySettingsPath()
+  if (!settingsPath) {
+    console.error('[Settings] Cannot write library settings: Invalid path (Path Traversal?)')
+    return
+  }
   try {
     // Ensure library data directory exists before writing
     await fs.mkdir(getLibraryDataPath(), { recursive: true })
@@ -349,9 +356,9 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   for (const [key, value] of Object.entries(settingsToSave)) {
     if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-      ;(serverChanges as any)[key] = value
+      ; (serverChanges as any)[key] = value
     } else {
-      ;(libraryChanges as any)[key] = value
+      ; (libraryChanges as any)[key] = value
     }
   }
 

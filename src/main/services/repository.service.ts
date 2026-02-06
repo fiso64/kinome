@@ -130,6 +130,7 @@ export interface FindOptions {
   orderBy?: { field: string; direction: 'ASC' | 'DESC' }
   limit?: number
   offset?: number
+  includeHidden?: boolean
 }
 
 const log = (message: string): void => {
@@ -319,7 +320,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   //    if tmdbId == null:
   //       if version == null -> undefined
   //       else -> null
-
+  // 
   // We need 'version' (aliased as _v) and 'tmdbId' to be resolved first.
   const ver = item._v
   const tid = item.tmdbId
@@ -469,10 +470,11 @@ export function findParent(id: string): MediaFolder | null {
  * Returns the immediate children of a folder.
  * Uses the lean find() logic if fields are specified.
  */
-export function getChildren(parentId: string, fields?: string[]): LibraryItem[] {
+export function getChildren(parentId: string, fields?: string[], includeHidden = true): LibraryItem[] {
   return find({
     where: { parentId },
-    fields
+    fields,
+    includeHidden
   })
 }
 
@@ -608,8 +610,17 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   }
 
   const params: any[] = []
+  const conditions: string[] = []
+
+  // Default includeHidden to true unless explicitly FALSE
+  // Note: getChildren() sets it to false.
+  const includeHidden = options.includeHidden ?? true
+
+  if (!includeHidden) {
+    conditions.push('(i.is_hidden IS NULL OR i.is_hidden = 0)')
+  }
+
   if (options.where) {
-    const conditions: string[] = []
     for (const [key, value] of Object.entries(options.where)) {
       // 1. Direct Schema Mapping
       const def = REPOSITORY_SCHEMA[key]
@@ -646,9 +657,10 @@ export function find(options: FindOptions = {}): LibraryItem[] {
         params.push(value)
       }
     }
-    if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(' AND ')} `
-    }
+  } // END options.where
+
+  if (conditions.length > 0) {
+    query += ` WHERE ${conditions.join(' AND ')} `
   }
 
   if (options.orderBy) {
