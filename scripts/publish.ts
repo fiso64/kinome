@@ -30,7 +30,7 @@ const bunTarget = rawTarget.startsWith('bun-') ? rawTarget : `bun-${rawTarget}`
 const ext = isWinTarget ? '.exe' : ''
 const distRoot = path.resolve('dist')
 const buildDir = path.join(distRoot, rawTarget) // dist/windows-x64
-const outFile = path.join(buildDir, 'media-browser' + ext)
+const outFile = path.join(buildDir, 'kinome' + ext)
 
 console.log(`\n🚀 Starting build for: ${rawTarget}`)
 
@@ -60,7 +60,7 @@ await fs.cp(path.resolve('out'), outDest, { recursive: true })
 // 7. Packaging (Branch based on OS)
 if (isWinTarget) {
   console.log('📦 Zipping artifact (Windows)...')
-  const zipPath = path.join(distRoot, `media-browser-${rawTarget}.zip`)
+  const zipPath = path.join(distRoot, `kinome-${rawTarget}.zip`)
 
   // Ensure clean state
   await fs.rm(zipPath, { force: true })
@@ -96,7 +96,7 @@ if (isWinTarget) {
   }
 
   try {
-    const debFilename = `media-browser_${version}_${debArch}.deb`
+    const debFilename = `kinome_${version}_${debArch}.deb`
     const debPath = path.join(distRoot, debFilename)
 
     // Ensure clean state

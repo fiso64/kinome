@@ -144,7 +144,7 @@
 <div class="setup-screen">
   <div class="setup-container">
     <header>
-      <h1>Welcome to Media Browser</h1>
+      <h1>Welcome to Kinome</h1>
       <p>
         {#if step === 'library'}
           Set up your library data location.

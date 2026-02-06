@@ -48,7 +48,7 @@
   <div class="login-card">
     <div class="header">
       <span class="logo-icon">🎬</span>
-      <h1>Media Browser</h1>
+      <h1>Kinome</h1>
     </div>
 
     {#if setupMode}

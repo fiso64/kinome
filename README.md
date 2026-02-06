@@ -1,6 +1,6 @@
-# media-browser (better name pending)
+# Kinome
 
-Client-server media browser and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, streams media.
+Media server and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, streams media.
 
 ## Goals
 - More customizable

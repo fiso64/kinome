@@ -1,20 +1,20 @@
 [Unit]
-Description=Media Browser Server
+Description=Kinome Server
 After=network.target
 
 [Service]
 # Security: Run as a specific user
-User=media-browser
-Group=media-browser
+User=kinome
+Group=kinome
 
 # Configuration
-Environment="MEDIA_BROWSER_DATA=/var/lib/media-browser"
+Environment="KINOME_DATA=/var/lib/kinome"
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
 
 # Application location (We will install to /opt)
-WorkingDirectory=/opt/media-browser
-ExecStart=/opt/media-browser/media-browser
+WorkingDirectory=/opt/kinome
+ExecStart=/opt/kinome/kinome
 Restart=always
 
 [Install]

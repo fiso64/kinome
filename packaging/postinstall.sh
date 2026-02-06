@@ -1,13 +1,13 @@
 #!/bin/sh
 # Create user and group if they don't exist
-if ! getent group media-browser >/dev/null; then
-    groupadd -r media-browser
+if ! getent group kinome >/dev/null; then
+    groupadd -r kinome
 fi
 
-if ! getent passwd media-browser >/dev/null; then
-    useradd -r -g media-browser -d /var/lib/media-browser -s /sbin/nologin -c "Media Browser User" media-browser
+if ! getent passwd kinome >/dev/null; then
+    useradd -r -g kinome -d /var/lib/kinome -s /sbin/nologin -c "Kinome User" kinome
 fi
 
 # Ensure data directory exists and has permissions
-mkdir -p /var/lib/media-browser
-chown -R media-browser:media-browser /var/lib/media-browser
+mkdir -p /var/lib/kinome
+chown -R kinome:kinome /var/lib/kinome

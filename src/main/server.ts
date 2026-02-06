@@ -74,17 +74,17 @@ const port = process.env.PORT || 3000
 /**
  * Resolves the directory where settings.json and the database should live.
  * Priority:
- * 1. Environment Variable (MEDIA_BROWSER_DATA) - Best for Docker/Systemd
+ * 1. Environment Variable (KINOME_DATA) - Best for Docker/Systemd
  * 2. "./data" folder relative to CWD - Best for Portable/Dev use
  * 3. OS Default (AppData/.config) - Best for standard Desktop install
  */
 function resolveUserDataPath(): string {
-  const appName = 'media-browser'
+  const appName = 'kinome'
 
   // 1. Environment Variable
-  if (process.env.MEDIA_BROWSER_DATA) {
-    console.log(`[Startup] Using data path from env: ${process.env.MEDIA_BROWSER_DATA}`)
-    return process.env.MEDIA_BROWSER_DATA
+  if (process.env.KINOME_DATA) {
+    console.log(`[Startup] Using data path from env: ${process.env.KINOME_DATA}`)
+    return process.env.KINOME_DATA
   }
 
   // 2. Portable Mode (Check if 'data' folder exists in current working directory)
@@ -118,7 +118,7 @@ if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true })
   } catch (e) {
     console.error(`[Startup] CRITICAL: Could not create data directory at ${userDataPath}`)
-    console.error(`Please check permissions or set MEDIA_BROWSER_DATA environment variable.`)
+    console.error(`Please check permissions or set KINOME_DATA environment variable.`)
     process.exit(1)
   }
 }
@@ -784,9 +784,9 @@ if (process.env.NODE_ENV === 'production') {
   app.get('/', () => {
     return `
       <html>
-        <head><title>Media Browser Backend</title></head>
+        <head><title>Kinome Backend</title></head>
         <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #121212; color: #fff;">
-          <h1>🦊 Media Browser Backend is running</h1>
+          <h1>🎬 Kinome Backend is running</h1>
           <p>This is the API server. To view the app, open <a href="http://localhost:3000" style="color: #4facfe;">http://localhost:3000</a> (Vite Dev Server).</p>
         </body>
       </html>

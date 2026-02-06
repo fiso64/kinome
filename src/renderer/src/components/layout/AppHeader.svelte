@@ -184,7 +184,7 @@
           {#if isGlobalSearchActive}
             Search Results
           {:else}
-            {contextItem?.title ?? contextItem?.name ?? 'Media Browser'}
+            {contextItem?.title ?? contextItem?.name ?? 'Kinome'}
           {/if}
         </h1>
       {/if}

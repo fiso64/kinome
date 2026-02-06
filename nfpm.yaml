@@ -1,4 +1,4 @@
-name: "media-browser"
+name: "kinome"
 arch: "${ARCH}"
 platform: "linux"
 version: "${VERSION}"
@@ -6,24 +6,24 @@ section: "default"
 priority: "extra"
 maintainer: "fee soh shixty four"
 description: "A media server and manager"
-vendor: "Media Browser"
-homepage: "https://github.com/fiso64/media-browser"
+vendor: "Kinome"
+homepage: "https://github.com/fiso64/kinome"
 license: "AGPL-3.0"
 
 contents:
   # 1. The Binary
-  - src: "${BUILD_DIR}/media-browser"
-    dst: "/opt/media-browser/media-browser"
+  - src: "${BUILD_DIR}/kinome"
+    dst: "/opt/kinome/kinome"
     file_info:
       mode: 0755
 
   # 2. The Frontend Assets (Recursive copy)
   - src: "${BUILD_DIR}/out"
-    dst: "/opt/media-browser/out"
+    dst: "/opt/kinome/out"
 
   # 3. Systemd Service
-  - src: "./packaging/media-browser.service"
-    dst: "/lib/systemd/system/media-browser.service"
+  - src: "./packaging/kinome.service"
+    dst: "/lib/systemd/system/kinome.service"
 
 # Metadata scripts
 scripts:

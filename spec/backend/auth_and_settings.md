@@ -12,7 +12,7 @@ This feature adds authentication support for the primary administrative account 
 
 ## 2. Problem Statement / Motivation
 
-Currently, the media browser server is open to anyone on the network who knows the IP and port. There is no way to restrict access or change the port without modifying the source code. As the project moves towards a more robust client-server model, security and configurability are essential.
+Currently, the Kinome server is open to anyone on the network who knows the IP and port. There is no way to restrict access or change the port without modifying the source code. As the project moves towards a more robust client-server model, security and configurability are essential.
 
 - **User Story:** As a user, I want to secure my media library with a password so that only I can access my content remotely.
 - **User Story:** As a user, I want to change the port my server runs on to avoid conflicts with other services.
