@@ -7,11 +7,97 @@ import {
   FindOptions,
   getChildren
 } from './repository.service'
-import { isVirtualId, parseVirtualId, buildVirtualItem } from './virtual-item.factory'
+import { isVirtualId, parseVirtualId, buildVirtualItem, getFiltersFromId } from './virtual-item.factory'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
+import { getLibraryRoot } from './library.service'
 
 const log = (msg: string) => console.log(`[GroupingService] ${msg}`)
+
+/**
+ * Robust entry point for fetching folder children.
+ * Handles:
+ * 1. ID normalization (root -> UUID)
+ * 2. Virtual item resolution (filters from ID)
+ * 3. Layout-driven automatic grouping (auto/undefined)
+ * 4. Contextual default sorting (Seasons vs TV Shows vs Folders)
+ */
+export async function getGroupedChildren(
+  id: string,
+  options: FindOptions,
+  rawGroupBy?: string
+): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
+  let targetId = id
+
+  // 1. Resolve root alias
+  if (id === 'root') {
+    const status = await getLibraryRoot()
+    if (status.status !== 'ready') {
+      return {
+        error: 'root_missing',
+        message: `Library not ready: ${status.status}`,
+        ...status
+      }
+    }
+    targetId = status.root!.id
+  }
+
+  // 2. Default hidden items policy
+  if (options.includeHidden === undefined) {
+    options.includeHidden = false
+  }
+
+  // 3. Resolve Grouping Policy
+  const settings = await readSettings()
+  let finalGroupBy: string | undefined = undefined
+
+  if (rawGroupBy === 'auto' || rawGroupBy === undefined) {
+    const item = isVirtualId(targetId)
+      ? getVirtualItem(targetId)
+      : getItemById(targetId)
+
+    const resolved = resolveViewSettings(item as any, settings).settings
+    if (['tabs', 'sections'].includes(resolved.layout)) {
+      finalGroupBy = resolved.groupBy
+    }
+  } else if (rawGroupBy !== 'none') {
+    finalGroupBy = rawGroupBy as string
+  }
+
+  // 4. Resolve Where Clause (Virtual vs Physical)
+  if (isVirtualId(targetId)) {
+    const filterOptions = getFiltersFromId(targetId)
+    options.where = { ...options.where, ...filterOptions }
+  } else {
+    options.where = { ...options.where, parentId: targetId }
+  }
+
+  // 5. Contextual Default Sorting
+  if (!options.orderBy) {
+    const parent = isVirtualId(targetId) ? null : getItemById(targetId)
+    if (parent) {
+      if (parent.mediaType === 'season') {
+        options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
+      } else if (parent.mediaType === 'tv') {
+        options.orderBy = { field: 'seasonNumber', direction: 'ASC' }
+      } else {
+        options.orderBy = { field: 'name', direction: 'ASC' }
+      }
+    }
+  }
+
+  // 6. Execute (Grouped vs Plain)
+  if (finalGroupBy) {
+    // Ensure we don't pass the raw groupBy filter key into the find options
+    // as it's handled by categorized grouping logic
+    if (options.where && 'groupBy' in options.where) {
+      delete (options.where as any).groupBy
+    }
+    return getGroups(targetId, finalGroupBy, options)
+  }
+
+  return find(options)
+}
 
 export function getVirtualItem(id: string): LibraryItem | null {
   const { parentId } = parseVirtualId(id)

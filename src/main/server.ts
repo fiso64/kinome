@@ -280,6 +280,14 @@ const app = new Elysia()
         await authService.updateAdminPassword(password)
         return { success: true }
       })
+      /**
+       * --- TODO: Unified Items API Architectural Cleanup ---
+       * This entire section is currently a "God Router" that handles excessive business logic.
+       * 1. Routes should be thin entry points that delegate to services (e.g., LibraryService).
+       * 2. Manual ID normalization (root alias logic) should live in the service layer.
+       * 3. Schema validation (TypeBox) is missing on several endpoints, leading to `any` usage.
+       * 4. Error handling is inconsistent (manual try-catch + set.status vs global error mapping).
+       */
       // --- Unified Items API ---
       .get('/items', ({ query }) => {
         const options = parseFindOptions(query)
@@ -313,6 +321,15 @@ const app = new Elysia()
         options.where = { ...options.where, id }
         options.limit = 1
 
+        /**
+         * TODO: [RETARDED_DEFAULT_FIELDS_FALLBACK]
+         * This default field list is conceptually broken. The backend should not have an "opinion"
+         * on what fields a "detail view" needs—that is strictly a frontend/UI concern.
+         *
+         * UNFORTUNATELY, the frontend currently depends on this fallback for several views.
+         * To fix this, the frontend MUST be updated to explicitly request the fields it needs
+         * (via `view-requirements.ts`) before this fallback can be safely removed.
+         */
         // Default field fallback
         if (!query.fields && !query.include) {
           options.fields = [
@@ -347,83 +364,32 @@ const app = new Elysia()
           return items[0]
         }
       })
-      .get('/items/:id/children', async ({ params: { id: rawId }, query, set }) => {
-        let id = rawId
-        if (id === 'root') {
-          const status = await libraryService.getLibraryRoot()
-          if (status.status !== 'ready') {
+      .get(
+        '/items/:id/children',
+        async ({ params: { id }, query, set }) => {
+          const options = parseFindOptions(query)
+          const result = await groupingService.getGroupedChildren(id, options, query.groupBy)
+
+          if ('error' in result) {
             set.status = 404
-            return {
-              error: 'root_missing',
-              message: `Library not ready: ${status.status}`,
-              ...status
-            }
-          }
-          id = status.root!.id
-        }
-
-        const options = parseFindOptions(query)
-
-        // Default to excluding hidden items for children endpoint unless explicitly requested
-        if (options.includeHidden === undefined) {
-          options.includeHidden = false
-        }
-
-        const settings = await settingsService.readSettings()
-
-        let finalGroupBy: string | undefined = undefined
-        const rawGroupBy = query.groupBy
-
-        if (rawGroupBy === 'auto' || rawGroupBy === undefined) {
-          const item = isVirtualId(id)
-            ? groupingService.getVirtualItem(id)
-            : repositoryService.getItemById(id)
-          const resolved = resolveViewSettings(item as any, settings).settings
-          if (['tabs', 'sections'].includes(resolved.layout)) {
-            finalGroupBy = resolved.groupBy
-          }
-        } else if (rawGroupBy !== 'none') {
-          finalGroupBy = rawGroupBy as string
-        }
-
-        if (isVirtualId(id)) {
-          const filterOptions = getFiltersFromId(id)
-          options.where = { ...options.where, ...filterOptions }
-
-          if (finalGroupBy) {
-            if (options.where && 'groupBy' in options.where) {
-              delete (options.where as any).groupBy
-            }
-            return groupingService.getGroups(id, finalGroupBy, options)
           }
 
-          return repositoryService.find(options)
+          return result
+        },
+        {
+          query: t.Object({
+            groupBy: t.Optional(t.String()),
+            fields: t.Optional(t.String()),
+            include: t.Optional(t.String()),
+            limit: t.Optional(t.Numeric()),
+            offset: t.Optional(t.Numeric()),
+            orderBy: t.Optional(t.String()),
+            sort: t.Optional(t.String()),
+            order: t.Optional(t.String()),
+            includeHidden: t.Optional(t.String())
+          })
         }
-
-        options.where = { ...options.where, parentId: id }
-
-        // Standard Children logic (with sorting and grouping)
-        const parent = isVirtualId(id) ? null : repositoryService.getItemById(id)
-
-        if (!options.orderBy && parent) {
-          if (parent.mediaType === 'season') {
-            options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
-          } else if (parent.mediaType === 'tv') {
-            options.orderBy = { field: 'seasonNumber', direction: 'ASC' }
-          } else {
-            options.orderBy = { field: 'name', direction: 'ASC' }
-          }
-        }
-
-        if (finalGroupBy) {
-          if (options.where && 'groupBy' in options.where) {
-            delete (options.where as any).groupBy
-          }
-          return groupingService.getGroups(id, finalGroupBy, options)
-        }
-
-        return repositoryService.find(options)
-      })
+      )
       .get('/items/:id/ancestors', async ({ params: { id: rawId }, set }) => {
         let id = rawId
         if (id === 'root') {

@@ -297,10 +297,15 @@
     }
 
     // Folders: navigate or open detail based on mediaType
-    if (item.type === 'folder' && item.mediaType !== 'tv' && item.mediaType !== 'movie') {
+    if (
+      item.type === 'folder' &&
+      item.mediaType !== 'tv' &&
+      item.mediaType !== 'movie' &&
+      item.mediaType !== 'season'
+    ) {
       navStore.navigateToFolder(item.id)
     } else {
-      // Rich folder (TV/Movie) - open detail
+      // Rich folder (TV/Movie/Season) - open detail
       navStore.openDetail(item.id)
     }
 
