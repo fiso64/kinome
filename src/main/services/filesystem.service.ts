@@ -2,6 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
+import * as pathsService from './paths.service'
 import type { MediaFolder } from '@shared/types'
 
 const log = (message: string): void => {
@@ -106,6 +107,10 @@ async function walkAndUpsert(
     queue.push({ currentPath: startPath, parentId: id })
   }
 
+  // Pre-resolve paths for the check in the loop
+  const resolvedLibraryPath = path.resolve(pathsService.getLibraryDataPath())
+  const resolvedMediaSourcePath = path.resolve(mediaSourcePath)
+
   while (queue.length > 0) {
     const { currentPath, parentId } = queue.shift()!
     if (!parentId) continue
@@ -136,6 +141,21 @@ async function walkAndUpsert(
       if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
 
       const isDirectory = entry.isDirectory()
+
+      // Safeguard: Ignore the library data directory if it's inside a media source.
+      // We only scan it if the media source path IS the library data path itself.
+      if (isDirectory) {
+        const fullPath = path.join(currentPath, entry.name)
+
+        // Resolve both to be safe (handles absolute paths correctly)
+        const resolvedPath = path.resolve(fullPath)
+
+        if (resolvedPath === resolvedLibraryPath && resolvedLibraryPath !== resolvedMediaSourcePath) {
+          log(`Skipping library data directory: ${entry.name}`)
+          continue
+        }
+      }
+
       const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
 
       if (!isDirectory && !isVideoFile) continue

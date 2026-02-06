@@ -124,6 +124,14 @@
     !isGlobalSearchActive && (currentFolderId === 'root' || currentFolder?.path === '.')
   )
 
+  // Handle navigation errors when URL contains non-existent item IDs (e.g. from previous library)
+  $effect(() => {
+    if (selectedItemId && detailItemQuery.isError) {
+      console.log(`[MainView] Item ${selectedItemId} not found (404). Closing detail view.`)
+      navStore.closeDetail()
+    }
+  })
+
   $effect(() => {
     // Basic root check using the stable 'root' identifier
   })
