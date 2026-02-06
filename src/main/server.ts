@@ -122,18 +122,28 @@ const app = new Elysia()
   // Logger Middleware
   .onBeforeHandle(({ request }) => {
     const url = new URL(request.url).pathname
-    if (url.startsWith('/api/') && !url.startsWith('/api/assets')) {
+    const range = request.headers.get('range')
+
+    // We only want to filter out high-frequency "noise"
+    // Log everything except static assets and subsequent stream chunks (we still log the start of a stream)
+    const isStatic = url.startsWith('/api/assets')
+    const isStreamChunk = url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')
+
+    if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
       ; (request as any)._startTime = Date.now()
       console.log(`[API] [REQUEST] ${request.method} ${url}`)
     }
   })
   .onAfterHandle(({ request, set }) => {
     const url = new URL(request.url).pathname
-    if (url.startsWith('/api/') && !url.startsWith('/api/assets')) {
-      const duration = Date.now() - ((request as any)._startTime || Date.now())
-      console.log(
-        `[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`
-      )
+    const range = request.headers.get('range')
+    const isStatic = url.startsWith('/api/assets')
+    const isStreamChunk = url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')
+
+    if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
+      const start = (request as any)._startTime
+      const duration = start ? Date.now() - start : 0
+      console.log(`[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`)
     }
   })
   .onError(({ code, error, request }) => {
@@ -615,27 +625,19 @@ const app = new Elysia()
         })
       })
       .get('/stream/:id/:filename', async ({ params, query, set, request }) => {
-        console.log(`[STREAM] Request received for ID: ${params.id}`)
-
         const item = (await libraryService.getItemById(params.id)) as any
         if (!item || !item.path) {
-          console.log(`[STREAM] Item not found: ${params.id}`)
           set.status = 404
           return 'File not found'
         }
 
-        console.log(`[STREAM] Item path: ${item.path}`)
         const filePath = await libraryService.getAbsolutePath(item.path)
         if (!filePath) {
-          console.log(`[STREAM] Could not resolve absolute path for: ${item.path}`)
           set.status = 404
           return 'File not found'
         }
 
-        console.log(`[STREAM] Absolute path: ${filePath}`)
-
         if (filePath.startsWith('http')) {
-          console.log(`[STREAM] Redirecting to URL: ${filePath}`)
           return Response.redirect(filePath)
         }
 
@@ -644,9 +646,8 @@ const app = new Elysia()
           playbackService.recordPlaybackDebounced(params.id, libraryService.recordPlayback)
         }
 
-        console.log(`[STREAM] Getting file stats...`)
         const rangeHeader = request.headers.get('range')
-        return playbackService.handleFileStream(filePath, rangeHeader, true)
+        return playbackService.handleFileStream(filePath, rangeHeader, false)
       })
       .get('/playlist/:id', async ({ params, query, request, set }) => {
         try {

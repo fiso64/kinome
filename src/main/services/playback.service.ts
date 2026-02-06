@@ -69,7 +69,9 @@ export async function handleFileStream(
         const start = parseInt(parts[0], 10)
 
         // Handle open-ended range requests (e.g., "bytes=0-") by limiting chunk size
-        const MAX_CHUNK_SIZE = 10 * 1024 * 1024 // 10MB max chunk
+        // 100MB is a good balance - large enough to reduce request overhead, 
+        // small enough to allow seeking without huge re-downloads
+        const MAX_CHUNK_SIZE = 100 * 1024 * 1024 // 100MB max chunk
         let end: number
 
         if (parts[1] && parts[1].trim() !== '') {
