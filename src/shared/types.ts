@@ -538,7 +538,12 @@ export const CORE_FIELDS = [
   'seasonNumber',
   'episodeNumber',
   'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
-  '_v' // Required for image cache busting
+  '_v', // Required for image cache busting
+
+  // TODO: When removing this field from CORE_FIELDS, we must make locking 
+  //       more robust by 1) enforcing that at the repository/update layer, 
+  //       and 2) adding & using helpers to check for field locks everywhere.
+  'lockedFields', // Our locking logic is brittle and might fail if this is not included.
 ] as const
 
 // --- Property Key Definitions ---

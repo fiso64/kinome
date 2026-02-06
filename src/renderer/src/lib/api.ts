@@ -42,10 +42,12 @@ export interface ApiClient {
   performSearch(query: {
     text: string
     tags: { key: string; value: string }[]
+    limit?: number
   }): Promise<SearchIndexEntry[]>
   debugPerformSearch(query: {
     text: string
     tags: { key: string; value: string }[]
+    limit?: number
   }): Promise<Record<string, unknown>>
   getLibraryRoot(path?: string): Promise<LibraryStatus>
   performInitialScan(path: string): Promise<MediaFolder | null>

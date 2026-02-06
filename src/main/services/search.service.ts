@@ -69,9 +69,11 @@ function toTrigrams(text: string): string[] {
 export function performSearch(query: {
   text: string
   tags: { key: string; value: string }[]
+  limit?: number
 }): SearchIndexEntry[] {
   const db = getDb()
   const { text, tags } = query
+  const limit = query.limit || 30
   const params: any = {}
   let sql = ''
 
@@ -106,7 +108,7 @@ export function performSearch(query: {
             WHEN lower(i.name) LIKE @startQuery THEN 3 
             ELSE 4 
           END ASC, 
-          m.title ASC, i.name ASC`
+          m.title ASC, i.name ASC LIMIT ${limit}`
     } else {
       // --- Long Query Strategy (FTS Trigram) ---
 
@@ -164,7 +166,7 @@ export function performSearch(query: {
         }
       })
 
-      finalSql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.5, 0.5, 0.5) ASC LIMIT 50`
+      finalSql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.5, 0.5, 0.5) ASC LIMIT ${limit}`
 
       // Execute Standard
       sql = finalSql
@@ -236,7 +238,7 @@ export function performSearch(query: {
       }
     })
 
-    sql += ` ORDER BY m.title ASC, i.name ASC LIMIT 50`
+    sql += ` ORDER BY m.title ASC, i.name ASC LIMIT ${limit}`
   }
 
   // Execute for Short/Empty query paths
@@ -267,13 +269,6 @@ function mapRowToEntry(row: any): SearchIndexEntry {
     isMissing: false,
     _v: 0,
     staticScore: 0
-  }
-  const vtCount = entry.virtualTags ? Object.keys(entry.virtualTags).length : 0
-  if (vtCount > 0) {
-    console.log(
-      `[Search] Search result "${entry.title}" has ${vtCount} virtual tags:`,
-      JSON.stringify(entry.virtualTags)
-    )
   }
   return entry
 }

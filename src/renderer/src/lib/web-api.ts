@@ -216,6 +216,7 @@ class WebApiClient implements ApiClient {
   performSearch(query: {
     text: string
     tags: { key: string; value: string }[]
+    limit?: number
   }): Promise<SearchIndexEntry[]> {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
@@ -223,6 +224,7 @@ class WebApiClient implements ApiClient {
   debugPerformSearch(query: {
     text: string
     tags: { key: string; value: string }[]
+    limit?: number
   }): Promise<Record<string, unknown>> {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) }) // Same endpoint for now
   }
