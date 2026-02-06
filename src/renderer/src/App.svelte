@@ -438,6 +438,7 @@
           suggestions={allAutocompleteSuggestions}
           onStatusUpdate={refreshLibraryStatus}
           on:itemClick={(e) => handleItemClick(e.detail.item)}
+          on:play={(e) => handlePlayFile(e.detail.item as MediaFile)}
           on:showContextMenu={(e) =>
             handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
           on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}

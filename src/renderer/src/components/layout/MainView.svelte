@@ -95,6 +95,7 @@
     scanLibrary: void
     openLibrary: void
     itemClick: { item: LibraryItem | SearchIndexEntry }
+    play: { item: LibraryItem }
     dismissContinueWatching: { showId: string }
     showContextMenu: {
       item: LibraryItem | SearchIndexEntry
@@ -201,6 +202,7 @@
       <ItemDetail
         item={selectedItemForDetailView}
         onItemClick={(item) => dispatch('itemClick', { item })}
+        onPlay={(item) => dispatch('play', { item })}
         onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
         showContextMenu={(item, event, options) =>
           dispatch('showContextMenu', { item, event, options })}

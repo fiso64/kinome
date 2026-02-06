@@ -9,12 +9,14 @@
   let {
     item: initialItem,
     onItemClick,
+    onPlay,
     showContextMenu,
     onSearchByTag,
     settings
   }: {
     item: LibraryItem
     onItemClick: (item: LibraryItem) => void
+    onPlay: (item: LibraryItem) => void
     showContextMenu: (item: LibraryItem, event: MouseEvent, options?: { layout?: string }) => void
     onSearchByTag: (key: string, value: string) => void
     settings: Settings
@@ -232,7 +234,7 @@
             {/if}
           </div>
           {#if item.type === 'file' && !item.opensAsFolder}
-            <button class="play-button" onclick={() => onItemClick(item)}> ▶ Play </button>
+            <button class="play-button" onclick={() => onPlay(item)}> ▶ Play </button>
           {/if}
         </div>
 
@@ -677,8 +679,8 @@
 
   .play-button {
     width: 100%;
-    background-color: var(--ev-c-white-soft);
-    color: var(--ev-c-black);
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--ev-c-text-1);
     border: none;
     padding: 1rem;
     border-radius: 8px; /* Match poster */
