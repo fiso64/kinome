@@ -17,6 +17,7 @@ import { closeDatabase } from '../database/client'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
+import * as playbackService from './playback.service'
 
 import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '@shared/types'
 import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
@@ -137,6 +138,7 @@ async function _runBackgroundScan(
 
     await reapplyVirtualTagsAfterSettingsChange()
   } finally {
+    playbackService.clearStreamCache()
     getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
   }
 }

@@ -428,6 +428,16 @@ export function getItemById(id: string): LibraryItem | null {
   return mapRowToLibraryItem(row)
 }
 
+/**
+ * Fast path lookup for streaming. Only returns the path, no joins.
+ * Use this when you only need the file path (e.g. streaming endpoints).
+ */
+export function getItemPath(id: string): string | null {
+  const db = getDb()
+  const row = db.prepare('SELECT path FROM items WHERE id = ?').get(id) as { path: string } | undefined
+  return row?.path ?? null
+}
+
 export function findItemByPath(pathStr: string): LibraryItem | null {
   const db = getDb()
   const row = db

@@ -580,29 +580,20 @@ const app = new Elysia()
       })
       // Streaming
       .get('/stream/:id', async ({ params, query, set, request }) => {
-        const item = (await libraryService.getItemById(params.id)) as any
-        if (!item || !item.path) {
-          set.status = 404
-          return 'File not found'
-        }
-        const filePath = await libraryService.getAbsolutePath(item.path)
-        if (!filePath) {
-          set.status = 404
-          return 'File not found'
-        }
-
-        // Mark as watched/continue watching when stream starts
-        // Fire and forget to not delay the stream
+        // Mark as watched/continue watching when stream starts (fire and forget)
         if (query.watch === '1' || query.watch === 'true') {
           playbackService.recordPlaybackDebounced(params.id, libraryService.recordPlayback)
         }
 
-        if (filePath.startsWith('http')) {
-          return Response.redirect(filePath)
+        const rangeHeader = request.headers.get('range')
+        const response = await playbackService.handleCachedStream(params.id, rangeHeader)
+
+        if (!response) {
+          set.status = 404
+          return 'File not found'
         }
 
-        const rangeHeader = request.headers.get('range')
-        return playbackService.handleFileStream(filePath, rangeHeader, false)
+        return response
       })
       .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
         const item = (await libraryService.getItemById(params.id)) as any
@@ -625,29 +616,20 @@ const app = new Elysia()
         })
       })
       .get('/stream/:id/:filename', async ({ params, query, set, request }) => {
-        const item = (await libraryService.getItemById(params.id)) as any
-        if (!item || !item.path) {
-          set.status = 404
-          return 'File not found'
-        }
-
-        const filePath = await libraryService.getAbsolutePath(item.path)
-        if (!filePath) {
-          set.status = 404
-          return 'File not found'
-        }
-
-        if (filePath.startsWith('http')) {
-          return Response.redirect(filePath)
-        }
-
-        // Mark as watched/continue watching when stream starts
+        // Mark as watched/continue watching when stream starts (fire and forget)
         if (query.watch === '1' || query.watch === 'true') {
           playbackService.recordPlaybackDebounced(params.id, libraryService.recordPlayback)
         }
 
         const rangeHeader = request.headers.get('range')
-        return playbackService.handleFileStream(filePath, rangeHeader, false)
+        const response = await playbackService.handleCachedStream(params.id, rangeHeader)
+
+        if (!response) {
+          set.status = 404
+          return 'File not found'
+        }
+
+        return response
       })
       .get('/playlist/:id', async ({ params, query, request, set }) => {
         try {
@@ -695,6 +677,9 @@ const app = new Elysia()
       .post('/save-settings', async ({ body }: { body: any }) => {
         const oldSettings = await settingsService.readSettings()
         await settingsService.saveSettingsChanges(body)
+
+        // Clear streaming cache as settings (like media source path) might have changed
+        playbackService.clearStreamCache()
 
         // If library location changed, re-initialize the server's data source
         // but only if it's a local path (remote settings handles its own data).

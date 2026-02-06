@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import * as repositoryService from './repository.service'
+import * as settingsService from './settings.service'
+import * as pathsService from './paths.service'
 import type { LibraryItem } from '@shared/types'
 
 // --- Playback Tracking ---
@@ -21,82 +23,133 @@ export function recordPlaybackDebounced(
     }
 }
 
+// --- Cached Media Source Path ---
+// Caches the resolved media source path to avoid reading settings files on every request
+let cachedMediaSourcePath: string | null = null
+let cachedMediaSourcePathTime = 0
+const MEDIA_SOURCE_CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
+async function getCachedMediaSourcePath(): Promise<string | null> {
+    const now = Date.now()
+    if (cachedMediaSourcePath && now - cachedMediaSourcePathTime < MEDIA_SOURCE_CACHE_TTL) {
+        return cachedMediaSourcePath
+    }
+
+    cachedMediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
+    cachedMediaSourcePathTime = now
+    return cachedMediaSourcePath
+}
+
+async function resolveStreamPath(relativePath: string): Promise<string | null> {
+    const mediaSourcePath = await getCachedMediaSourcePath()
+    if (!mediaSourcePath) return null
+    return pathsService.securePathJoin(mediaSourcePath, relativePath)
+}
+
+// --- Stream Path Cache ---
+// LRU cache for item paths to avoid DB lookups on every chunk request
+const STREAM_CACHE_MAX_SIZE = 100
+const STREAM_CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
+interface StreamCacheEntry {
+    absolutePath: string
+    fileSize: number
+    contentType: string
+    cachedAt: number
+}
+
+const streamCache = new Map<string, StreamCacheEntry>()
+
+function getStreamCacheEntry(itemId: string): StreamCacheEntry | null {
+    const entry = streamCache.get(itemId)
+    if (!entry) return null
+
+    // Check TTL
+    if (Date.now() - entry.cachedAt > STREAM_CACHE_TTL) {
+        streamCache.delete(itemId)
+        return null
+    }
+
+    return entry
+}
+
+function setStreamCacheEntry(itemId: string, entry: Omit<StreamCacheEntry, 'cachedAt'>): void {
+    // Simple LRU: if at max size, delete oldest entry
+    if (streamCache.size >= STREAM_CACHE_MAX_SIZE) {
+        const firstKey = streamCache.keys().next().value
+        if (firstKey) streamCache.delete(firstKey)
+    }
+
+    streamCache.set(itemId, { ...entry, cachedAt: Date.now() })
+}
+
+/**
+ * Clears all streaming caches. Call this when library is re-scanned or paths change.
+ */
+export function clearStreamCache(): void {
+    streamCache.clear()
+    cachedMediaSourcePath = null
+    cachedMediaSourcePathTime = 0
+}
+
+// --- MIME Type Lookup (pre-computed for speed) ---
+const MIME_TYPES: Record<string, string> = {
+    '.mp4': 'video/mp4',
+    '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm',
+    '.avi': 'video/x-msvideo',
+    '.mov': 'video/quicktime',
+    '.wmv': 'video/x-ms-wmv',
+    '.flv': 'video/x-flv'
+}
+
+function getMimeType(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase()
+    return MIME_TYPES[ext] || 'application/octet-stream'
+}
+
+
 // --- Streaming ---
 
 /**
- * Handles file streaming with HTTP range request support for large video files
+ * Maximum chunk size for open-ended range requests.
+ * 100MB balances request overhead vs seek responsiveness.
+ */
+const MAX_CHUNK_SIZE = 100 * 1024 * 1024 // 100MB
+
+/**
+ * Handles file streaming with HTTP range request support for large video files.
+ * This is the core streaming function - it takes a pre-resolved file path.
+ * 
  * @param filePath Absolute path to the file
+ * @param fileSize File size in bytes (pass if known to avoid stat call)
+ * @param contentType MIME type (pass if known to avoid lookup)
  * @param rangeHeader HTTP Range header value (e.g., "bytes=0-1023")
- * @param enableLogging Whether to log detailed streaming information
  * @returns Response object with appropriate headers and file slice
  */
-export async function handleFileStream(
+export function handleFileStreamFast(
     filePath: string,
-    rangeHeader: string | null,
-    enableLogging: boolean = false
-): Promise<Response> {
-    // Get file size using fs.statSync to avoid memory issues with Bun.file on large files
-    const stats = fs.statSync(filePath)
-    const fileSize = stats.size
-
-    if (enableLogging) {
-        console.log(
-            `[STREAM] File size: ${fileSize} bytes (${(fileSize / 1024 / 1024 / 1024).toFixed(2)} GB)`
-        )
-        console.log(`[STREAM] Range header: ${rangeHeader || 'none'}`)
-    }
-
-    // Determine MIME type
-    const ext = path.extname(filePath).toLowerCase()
-    let contentType = 'application/octet-stream'
-    if (ext === '.mp4') contentType = 'video/mp4'
-    else if (ext === '.mkv') contentType = 'video/x-matroska'
-    else if (ext === '.webm') contentType = 'video/webm'
-    else if (ext === '.avi') contentType = 'video/x-msvideo'
-    else if (ext === '.mov') contentType = 'video/quicktime'
-
-    if (enableLogging) {
-        console.log(`[STREAM] Content type: ${contentType}`)
-    }
-
+    fileSize: number,
+    contentType: string,
+    rangeHeader: string | null
+): Response {
     if (rangeHeader) {
-        if (enableLogging) {
-            console.log(`[STREAM] Processing range request...`)
-        }
-
         // Parse range header (e.g., "bytes=0-1023" or "bytes=0-")
         const parts = rangeHeader.replace(/bytes=/, '').split('-')
         const start = parseInt(parts[0], 10)
 
-        // Handle open-ended range requests (e.g., "bytes=0-") by limiting chunk size
-        // 100MB is a good balance - large enough to reduce request overhead, 
-        // small enough to allow seeking without huge re-downloads
-        const MAX_CHUNK_SIZE = 100 * 1024 * 1024 // 100MB max chunk
         let end: number
-
         if (parts[1] && parts[1].trim() !== '') {
             // Explicit end specified
             end = parseInt(parts[1], 10)
         } else {
             // Open-ended range: limit to MAX_CHUNK_SIZE
             end = Math.min(start + MAX_CHUNK_SIZE - 1, fileSize - 1)
-            if (enableLogging) {
-                console.log(`[STREAM] Open-ended range detected, limiting to ${MAX_CHUNK_SIZE} bytes`)
-            }
         }
 
         const chunkSize = end - start + 1
-        if (enableLogging) {
-            console.log(`[STREAM] Range: ${start}-${end}, chunk size: ${chunkSize} bytes`)
-            console.log(`[STREAM] Creating file slice...`)
-        }
-
         const file = Bun.file(filePath)
         const slice = file.slice(start, end + 1)
-
-        if (enableLogging) {
-            console.log(`[STREAM] Slice created, returning 206 response`)
-        }
 
         return new Response(slice, {
             status: 206,
@@ -109,26 +162,12 @@ export async function handleFileStream(
         })
     }
 
-    // No range request: Send a small initial chunk to prompt browser to use range requests
-    // This prevents trying to load the entire file into memory
-    if (enableLogging) {
-        console.log(`[STREAM] No range header, sending initial chunk...`)
-    }
-
+    // No range request: Send a small initial chunk to prompt the client to use range requests
     const INITIAL_CHUNK_SIZE = 1024 * 1024 // 1MB
     const initialSize = Math.min(INITIAL_CHUNK_SIZE, fileSize)
 
-    if (enableLogging) {
-        console.log(`[STREAM] Initial chunk size: ${initialSize} bytes`)
-        console.log(`[STREAM] Creating Bun.file...`)
-    }
-
     const file = Bun.file(filePath)
     const slice = file.slice(0, initialSize)
-
-    if (enableLogging) {
-        console.log(`[STREAM] Slice created, returning 206 response`)
-    }
 
     return new Response(slice, {
         status: 206,
@@ -139,6 +178,47 @@ export async function handleFileStream(
             'Content-Type': contentType
         }
     })
+}
+
+/**
+ * High-performance streaming endpoint that uses caching.
+ * Call this from the route handler for maximum speed.
+ * 
+ * @param itemId The library item ID
+ * @param rangeHeader HTTP Range header value
+ * @returns Response object or null if item not found
+ */
+export async function handleCachedStream(
+    itemId: string,
+    rangeHeader: string | null
+): Promise<Response | null> {
+    // Check cache first
+    let cacheEntry = getStreamCacheEntry(itemId)
+
+    if (!cacheEntry) {
+        // Cache miss - do the expensive lookups
+        const itemPath = repositoryService.getItemPath(itemId)
+        if (!itemPath) return null
+
+        const absolutePath = await resolveStreamPath(itemPath)
+        if (!absolutePath) return null
+
+        // Get file size and cache it
+        const file = Bun.file(absolutePath)
+        const fileSize = file.size
+        const contentType = getMimeType(absolutePath)
+
+        const newEntry = { absolutePath, fileSize, contentType }
+        setStreamCacheEntry(itemId, newEntry)
+        cacheEntry = { ...newEntry, cachedAt: Date.now() }
+    }
+
+    return handleFileStreamFast(
+        cacheEntry.absolutePath,
+        cacheEntry.fileSize,
+        cacheEntry.contentType,
+        rangeHeader
+    )
 }
 
 // --- Playlist Generation ---
