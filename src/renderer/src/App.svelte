@@ -48,7 +48,7 @@
   // Deprecated: used for props in components that haven't been updated yet
   let isScanning = $derived(isFastUpdating)
   let libraryStatus = $state<LibraryStatus | null>(null)
-  let isRefreshing = $state(false)
+  let isWaitingForScan = $state(false)
   let rootId = $state<string | null>(null)
 
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
@@ -247,14 +247,16 @@
   })
 
   async function handleRefresh(): Promise<void> {
-    if (isRefreshing || isFastUpdating || isInitializing) return
-    isRefreshing = true
+    if (isWaitingForScan || isFastUpdating || isInitializing) return
+    isWaitingForScan = true
     // clearItemCache() // Removed in V2
-    const refreshedRoot = await api.refreshLibrary()
-    if (refreshedRoot) {
+    try {
+      await api.performScan()
       libraryDataService.invalidateAllQueries()
+    } catch (e) {
+      console.error('Failed to trigger scan:', e)
     }
-    isRefreshing = false
+    isWaitingForScan = false
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
@@ -421,7 +423,7 @@
       {#if navStoreV2.state.path !== '/settings'}
         <AppHeader
           bind:this={appHeaderComponent}
-          {isRefreshing}
+          {isWaitingForScan}
           {isScanning}
           isContextMenuVisible={contextMenuStore.isVisible}
           on:refresh={handleRefresh}

@@ -7,9 +7,9 @@ import type { QueryClient, QueryKey } from '@tanstack/svelte-query'
 export class QueryThrottler {
   private pendingUpdates = new Map<string, { timer: any; execute: () => void }>()
   private lastExecutionTimes = new Map<string, number>()
-  private defaultInterval = 5000 // 5 seconds
+  private defaultInterval = 2000 // 2 seconds
 
-  constructor(private queryClient: QueryClient) {}
+  constructor(private queryClient: QueryClient) { }
 
   /**
    * Refetches a query, applying throttling if shouldThrottle is true.
@@ -23,7 +23,7 @@ export class QueryThrottler {
     const lastTime = this.lastExecutionTimes.get(keyString) || 0
 
     const execute = () => {
-      this.queryClient.refetchQueries({ queryKey })
+      this.queryClient.invalidateQueries({ queryKey })
       this.lastExecutionTimes.set(keyString, Date.now())
       this.clearTimer(keyString)
     }
@@ -35,20 +35,16 @@ export class QueryThrottler {
       return
     }
 
-    // Leading Edge: If it's the first time or the interval has passed, run immediately
-    if (now - lastTime > this.defaultInterval) {
-      if (!this.pendingUpdates.has(keyString)) {
-        execute()
-        return
-      }
-    }
+    // Leading Edge: REMOVED for throttled mode to prevent burst spam
+    // During a scan (shouldThrottle=true), we want to buffer updates.
 
     // Trailing Edge: Schedule or reschedule a final update
     if (this.pendingUpdates.has(keyString)) {
       return
     }
 
-    const delay = Math.max(0, this.defaultInterval - (now - lastTime))
+    // Force full interval delay during high-load updates to allow batching
+    const delay = this.defaultInterval
     const timer = setTimeout(execute, delay)
     this.pendingUpdates.set(keyString, { timer, execute })
   }

@@ -182,12 +182,14 @@
           path: mediaSourcePath,
           isRelative: mediaSourcePathIsRelative
         })
-        const root = await api.performFullRescan(resolved)
-        if (root) {
-          modalStore.open('initialFolderSettings', { root })
+        await api.performScan({ path: resolved })
+        // Fetch new root status to get ID
+        const status = await api.getLibraryRoot()
+        if (status.root) {
+          modalStore.open('initialFolderSettings', { root: status.root })
         }
       } else if (choice === 'rescan') {
-        await api.refreshLibrary()
+        await api.performScan()
       }
     }
 

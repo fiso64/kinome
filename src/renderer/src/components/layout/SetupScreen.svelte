@@ -122,7 +122,7 @@
       })
 
       // 3. Initiate Scan (awaited until root creation is confirmed)
-      await api.performFullRescan(resolved, folderSettings)
+      await api.performScan({ path: resolved, initialFolderSettings: folderSettings })
 
       // 4. Invalidate queries and finalize
       queryClient.invalidateQueries()

@@ -16,13 +16,13 @@
   } from '@shared/types'
 
   let {
-    isRefreshing,
+    isWaitingForScan,
     isScanning,
     isContextMenuVisible,
     settings,
     suggestions
   }: {
-    isRefreshing: boolean
+    isWaitingForScan: boolean
     isScanning: boolean
     isContextMenuVisible: boolean
     settings: Settings | null
@@ -237,12 +237,29 @@
     <div class="header-right">
       <button
         onclick={() => dispatch('refresh')}
-        disabled={isRefreshing || isScanning}
+        disabled={isWaitingForScan || isScanning}
         title="Refresh Library (F5)"
         aria-label="Refresh Library"
         class="refresh-button"
       >
-        <span class:reloading={isRefreshing}>⟳</span>
+        <span class="icon-wrapper" class:reloading={isWaitingForScan || isScanning}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21.5 2v6h-6"></path>
+            <path d="M2.5 22v-6h6"></path>
+            <path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8"></path>
+            <path d="M22 12.5a10 10 0 0 1-18.8 4.3L2.5 16"></path>
+          </svg>
+        </span>
       </button>
       {#if contextItemToConfigure}
         <button
@@ -411,8 +428,13 @@
   }
 
   .reloading {
-    display: inline-block;
+    display: flex;
     animation: spin 1s linear infinite;
+  }
+  .icon-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
   @keyframes spin {
     from {

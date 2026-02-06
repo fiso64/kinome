@@ -230,7 +230,4 @@ export const v2Routes = new Elysia({ prefix: '/v2' })
     const ancestors = repositoryService.getAncestors(id)
     return ancestors.filter((a) => a.id !== id)
   })
-  .post('/maintenance/scan', async () => {
-    await libraryService.refreshLibrary()
-    return { success: true }
-  })
+

@@ -89,34 +89,6 @@ export async function getLibraryRoot(providedPath?: string): Promise<LibraryStat
   }
 }
 
-export async function refreshLibrary(): Promise<MediaFolder | null> {
-  if (pathsService.isRemoteLibrary())
-    throw new Error('Refreshing not available for remote libraries.')
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) throw new Error('Cannot refresh, no library configured.')
-
-  const refreshId = crypto.randomBytes(4).toString('hex')
-  log(`[Refresh ${refreshId}] Starting refresh from: ${mediaSourcePath}`)
-
-  getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
-  try {
-    await filesystemService.scanDirectory(mediaSourcePath)
-
-    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-    await filesystemService.verifyImagePaths(imagesDir)
-
-    searchService.buildFullSearchIndex()
-
-    metadataService.fetchMetadataForLibrary().catch(console.error)
-
-    await reapplyVirtualTagsAfterSettingsChange()
-  } finally {
-    getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
-  }
-
-  return (await getLibraryRoot()).root || null
-}
-
 // Helper to normalize settings
 function normalizeFolderSettings(mediaSourcePath: string, initialFolderSettings?: Record<string, any>) {
   const normalizedSettings: Record<string, any> = {}
@@ -134,23 +106,28 @@ function normalizeFolderSettings(mediaSourcePath: string, initialFolderSettings?
   return normalizedSettings
 }
 
-async function _scanAndCreateNewDb(
+async function _runBackgroundScan(
   mediaSourcePath: string,
   normalizedSettings: Record<string, any>
 ): Promise<void> {
   if (pathsService.isRemoteLibrary())
     throw new Error(`Scanning not available for remote libraries.`)
 
-  // Settings writing moved to performFullRescan for sync execution
+  // Settings writing moved to performScan for sync execution
 
   getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
 
   try {
-    // Root is already initialized by performFullRescan, but this is idempotent
+    // Root is already initialized by performScan, but this is idempotent
     await filesystemService.scanDirectory(mediaSourcePath, {
       skipMetadata: false,
       initialFolderSettings: normalizedSettings
     })
+
+    // Image Verification (Maintenance) - Now runs for both Setup and Refresh
+    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
+    await filesystemService.verifyImagePaths(imagesDir)
+
     searchService.buildFullSearchIndex()
 
     // Fetch metadata for the newly scanned items
@@ -164,30 +141,46 @@ async function _scanAndCreateNewDb(
   }
 }
 
-export const performFullRescan = async (newPath: string, initialFolderSettings?: Record<string, any>) => {
-  log(`Starting full rescan of: ${newPath}`)
-
-  // 1. Sync Settings & Path Logic (Previously in _scanAndCreateNewDb)
+/**
+ * Unified entry point for scanning.
+ * - If path is provided (Setup): Updates settings, initializes root, and runs full scan.
+ * - If path is missing (Refresh): Reads current settings, runs full scan + image verification.
+ */
+export const performScan = async (options: { path?: string; initialFolderSettings?: Record<string, any> } = {}) => {
+  // 1. Resolve Path & Settings
+  let mediaSourcePath: string
   const settings = await settingsService.readSettings()
-  let pathToSave = newPath
-  if (settings.mediaSourcePathIsRelative) {
-    const libraryPath = pathsService.getLibraryDataPath()
-    let relative = path.relative(path.dirname(libraryPath), newPath)
-    relative = relative.replace(/\\/g, '/')
-    pathToSave = relative === '' ? '.' : relative.startsWith('../') ? relative : './' + relative
+
+  if (options.path) {
+    mediaSourcePath = options.path
+    // Setup Mode: Update Settings
+    let pathToSave = mediaSourcePath
+    if (settings.mediaSourcePathIsRelative) {
+      const libraryPath = pathsService.getLibraryDataPath()
+      let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
+      relative = relative.replace(/\\/g, '/')
+      pathToSave = relative === '' ? '.' : relative.startsWith('../') ? relative : './' + relative
+    }
+    await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
+  } else {
+    // Refresh Mode: Use Existing
+    const existingPath = await settingsService.getAbsoluteMediaSourcePath()
+    if (!existingPath) throw new Error('Cannot scan, no library configured.')
+    mediaSourcePath = existingPath
   }
-  await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
 
-  // 2. Normalize Settings
-  const normalizedSettings = normalizeFolderSettings(newPath, initialFolderSettings)
+  log(`Starting background scan of: ${mediaSourcePath}`)
 
-  // 3. Initialize Root Synchronously (Waited for)
-  // This ensures the frontend gets a "success" only when the root node exists and polling is unnecessary
-  filesystemService.initializeRoot(newPath, normalizedSettings)
+  // 2. Normalize Settings (if any provided)
+  const normalizedSettings = normalizeFolderSettings(mediaSourcePath, options.initialFolderSettings)
+
+  // 3. Initialize Root Synchronously
+  // Safe to call even if root exists (idempotent)
+  filesystemService.initializeRoot(mediaSourcePath, normalizedSettings)
 
   // 4. Kick off Background Process (Fire and Forget)
-  _scanAndCreateNewDb(newPath, normalizedSettings).catch((err) => {
-    console.error('[Library Service] Background full rescan failed:', err)
+  _runBackgroundScan(mediaSourcePath, normalizedSettings).catch((err) => {
+    console.error('[Library Service] Background scan failed:', err)
   })
 
   return { success: true }

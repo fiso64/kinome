@@ -326,10 +326,9 @@ const app = new Elysia()
 
         return listDirectoryService.listDirectory(path)
       })
-      .post('/perform-full-rescan', ({ body }: { body: any }) =>
-        libraryService.performFullRescan(body.path, body.initialFolderSettings)
+      .post('/perform-scan', ({ body }: { body: any }) =>
+        libraryService.performScan(body)
       )
-      .post('/refresh-library', () => libraryService.refreshLibrary())
       .post('/play-file', ({ body }: { body: any }) =>
         libraryService.playFile(body.file, (opt) => console.log(opt))
       )

@@ -240,19 +240,15 @@ class WebApiClient implements ApiClient {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
 
-  performFullRescan(newPath: string, initialFolderSettings?: Record<string, any>): Promise<{ success: boolean }> {
-    return this.request('/api/perform-full-rescan', {
+  performScan(options: { path?: string; initialFolderSettings?: Record<string, any> } = {}): Promise<{ success: boolean }> {
+    return this.request('/api/perform-scan', {
       method: 'POST',
-      body: JSON.stringify({ path: newPath, initialFolderSettings })
+      body: JSON.stringify(options)
     })
   }
 
   listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]> {
     return this.request(`/api/list-directory?path=${encodeURIComponent(path)}`)
-  }
-
-  refreshLibrary(): Promise<MediaFolder | null> {
-    return this.request('/api/refresh-library', { method: 'POST' })
   }
 
   playFile(file: MediaFile): Promise<boolean> {
