@@ -4,6 +4,8 @@
   import HomeView from './HomeView.svelte'
   import SetupScreen from './SetupScreen.svelte'
   import { createEventDispatcher } from 'svelte'
+  import { fade, fly } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
 
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore } from '@lib/search-store.svelte'
@@ -19,9 +21,7 @@
     MediaFolder,
     MediaFile,
     SearchIndexEntry,
-    LibraryStatus,
-    ScanStatus,
-    ViewHierarchyNode
+    LibraryStatus
   } from '@shared/types'
 
   let {
@@ -39,32 +39,21 @@
   } = $props()
 
   // --- V2 State ---
-
-  // 1. Current Folder & Children
   const currentFolderId = $derived(navStore.state.currentFolderId)
-
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
     enabled: () => libraryStatus?.status === 'ready',
     include: () => ['viewHierarchy']
   })
-
   const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
 
-  // 1b. Resolve Layout & View Requirements
-  // We need to know the layout to know which fields to fetch (e.g. 'overview' for list view).
   const resolvedSettings = $derived(resolveViewSettings(currentFolder, settings).settings)
-  // We need to know the layout to know which fields to fetch.
-
-  const requiredFields = $derived.by(() => {
-    return getAllRequiredFields(currentFolder?.viewHierarchy)
-  })
+  const requiredFields = $derived.by(() => getAllRequiredFields(currentFolder?.viewHierarchy))
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
     fields: () => requiredFields,
     groupBy: () => resolvedSettings.groupBy,
     enabled: () => libraryStatus?.status === 'ready'
   })
-
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 
   const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
@@ -73,7 +62,6 @@
       !!authStore.isAuthenticated &&
       libraryStatus?.status === 'ready'
   })
-
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
   // 2. Search
@@ -88,19 +76,7 @@
   const detailItemQuery = libraryDataService.getItemDetailsQuery(() => selectedItemId, {
     enabled: () => !!selectedItemId && libraryStatus?.status === 'ready'
   })
-  const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined) // Can be undefined while loading
-
-  // --- Flicker Prevention Logic ---
-  // Tracks if we are "in" a detail view. This stays true while navigating between items,
-  // preventing the MainView from flickering back in during the loading state.
-  let wasDetailViewActive = $state(false)
-  $effect(() => {
-    if (selectedItemForDetailView) {
-      wasDetailViewActive = true
-    } else if (!selectedItemId) {
-      wasDetailViewActive = false
-    }
-  })
+  const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined)
 
   const dispatch = createEventDispatcher<{
     scanLibrary: void
@@ -124,27 +100,20 @@
           type: 'folder',
           path: '',
           children: [],
-          viewSettings: settings.searchResultView // This is correct: nest view settings under viewSettings
+          viewSettings: settings.searchResultView
         } as MediaFolder)
       : undefined
   )
 
   let setupCompleted = $state(false)
-
   const isRoot = $derived(
     !isGlobalSearchActive && (currentFolderId === 'root' || currentFolder?.path === '.')
   )
 
-  // Handle navigation errors when URL contains non-existent item IDs (e.g. from previous library)
   $effect(() => {
     if (selectedItemId && detailItemQuery.isError) {
-      console.log(`[MainView] Item ${selectedItemId} not found (404). Closing detail view.`)
       navStore.closeDetail()
     }
-  })
-
-  $effect(() => {
-    // Basic root check using the stable 'root' identifier
   })
 </script>
 
@@ -157,11 +126,8 @@
       {onStatusUpdate}
     />
   {:else}
-    <div
-      class="main-view-container"
-      class:hidden={!!selectedItemForDetailView || (wasDetailViewActive && !!selectedItemId)}
-    >
-      <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
+    <div class="main-view-container" class:detail-active={!!selectedItemId}>
+      <!-- SEARCH VIEW -->
       <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
         <div class="search-header">
           {#if isPerformingSearch}
@@ -190,7 +156,7 @@
         </div>
       </div>
 
-      <!-- FOLDER VIEW: Rendered but hidden via CSS unless active -->
+      <!-- FOLDER VIEW -->
       {#if currentFolder}
         <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
           {#if isRoot}
@@ -229,16 +195,22 @@
     </div>
 
     {#if selectedItemId && settings}
-      <ItemDetail
-        item={selectedItemForDetailView ||
-          ({ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem)}
-        onItemClick={(item) => dispatch('itemClick', { item })}
-        onPlay={(item) => dispatch('play', { item })}
-        onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
-        showContextMenu={(item, event, options) =>
-          dispatch('showContextMenu', { item, event, options })}
-        {settings}
-      />
+      <div class="detail-transition-wrapper" transition:fade={{ duration: 200 }}>
+        {#key selectedItemId}
+          <div class="detail-switch-container" transition:fade={{ duration: 200 }}>
+            <ItemDetail
+              item={selectedItemForDetailView ||
+                ({ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem)}
+              onItemClick={(item) => dispatch('itemClick', { item })}
+              onPlay={(item) => dispatch('play', { item })}
+              onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}
+              showContextMenu={(item, event, options) =>
+                dispatch('showContextMenu', { item, event, options })}
+              {settings}
+            />
+          </div>
+        {/key}
+      </div>
     {/if}
   {/if}
 </div>
@@ -246,21 +218,48 @@
 <style>
   .content {
     flex-grow: 1;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    scrollbar-gutter: stable;
-    position: relative; /* Needed for the absolute positioned detail view */
+    position: relative;
+    overflow: hidden; /* Hide outer overflow to fix zoom origin */
   }
 
   .main-view-container {
     display: flex;
     flex-direction: column;
     flex: 1;
-    position: relative; /* For stacking contexts */
+    position: relative;
+    overflow-y: auto; /* Scroll internally to fix zoom origin */
+    scrollbar-gutter: stable;
+    /* Transition opacity and scale for a premium feel */
+    transition:
+      opacity 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+      transform 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: center center;
   }
-  .main-view-container.hidden {
-    visibility: hidden;
+
+  .main-view-container.detail-active {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.97);
+  }
+
+  .detail-transition-wrapper {
+    position: fixed;
+    top: var(--header-height);
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    background-color: var(--color-background);
+  }
+
+  .detail-switch-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
   }
 
   .view-wrapper {
@@ -268,34 +267,24 @@
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
   }
+
   .view-wrapper.hidden {
-    visibility: hidden;
+    display: none; /* Fully remove from flow when hidden */
   }
 
-  .search-content-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-  }
-
+  .search-content-wrapper,
   .folder-content-wrapper {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-    padding-top: 1.5rem;
   }
 
-  .search-content-wrapper :global(.media-list) {
-    max-width: 1000px;
-    margin: 0 auto;
+  .folder-content-wrapper {
+    padding-top: 1.5rem;
   }
 
   .search-header {

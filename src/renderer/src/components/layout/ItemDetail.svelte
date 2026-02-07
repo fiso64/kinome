@@ -3,7 +3,8 @@
   import CreditsView from './CreditsView.svelte'
 
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
-  import { slide } from 'svelte/transition'
+  import { slide, fade, fly } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
   import { getAssetUrl } from '@lib/api'
 
   let {
@@ -35,6 +36,19 @@
   let overviewContainerElement = $state<HTMLDivElement>()
   let isOverviewExpanded = $state(false)
   let isOverviewOverflowing = $state(false)
+  let isBackdropLoaded = $state(false)
+  let isLogoLoaded = $state(false)
+  let isPosterLoaded = $state(false)
+
+  // References for safety checks
+  let backdropImg = $state<HTMLImageElement>()
+  let logoImg = $state<HTMLImageElement>()
+  let posterImg = $state<HTMLImageElement>()
+
+  // Tracking the "last" paths to avoid redundant resets
+  let lastBackdrop = $state<string | undefined>()
+  let lastLogo = $state<string | undefined>()
+  let lastPoster = $state<string | undefined>()
 
   // -- 2. Reactive Data Fetching (Lean Bundling) --
 
@@ -62,6 +76,34 @@
   const item = $derived({
     ...(itemQuery.data || initialItem),
     tmdbCredits: creditsQuery.data ?? (itemQuery.data || initialItem).tmdbCredits
+  })
+
+  // 1. Reset states ONLY if the path actually changed
+  $effect.pre(() => {
+    if (item.backdropPath !== lastBackdrop) {
+      lastBackdrop = item.backdropPath
+      isBackdropLoaded = false
+    }
+    if (item.logoPath !== lastLogo) {
+      lastLogo = item.logoPath
+      isLogoLoaded = false
+    }
+    if (item.posterPath !== lastPoster) {
+      lastPoster = item.posterPath
+      isPosterLoaded = false
+    }
+  })
+
+  // 2. Safety check: If images are already in cache/complete, show them
+  $effect(() => {
+    // Add paths as dependencies for the safety check too
+    item.backdropPath
+    item.logoPath
+    item.posterPath
+
+    if (backdropImg?.complete && backdropImg.src) isBackdropLoaded = true
+    if (logoImg?.complete && logoImg.src) isLogoLoaded = true
+    if (posterImg?.complete && posterImg.src) isPosterLoaded = true
   })
 
   // Resolve required fields from the View Hierarchy Side-Channel
@@ -224,12 +266,20 @@
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
-  <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
+  <div
+    class="backdrop-container"
+    class:full-size={settings.itemDetailBackdropSize === 'full'}
+    transition:fade|global={{ duration: 250 }}
+  >
     {#if item.backdropPath}
       <img
+        bind:this={backdropImg}
         class="backdrop-image"
+        class:show={isBackdropLoaded}
         src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
         alt=""
+        onload={() => (isBackdropLoaded = true)}
+        onerror={() => (isBackdropLoaded = true)}
         style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
       />
     {/if}
@@ -237,15 +287,19 @@
   </div>
 
   <div class="scroll-container">
-    <div class="detail-content">
+    <div class="detail-content" in:fly|global={{ y: 12, duration: 300, easing: cubicOut }}>
       <div class="info-grid">
         <div class="poster-column" bind:this={posterColumnElement}>
           <div class="poster">
             {#if item.posterPath}
               <div class="poster-container">
                 <img
+                  bind:this={posterImg}
                   src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
                   alt="Poster"
+                  class:show={isPosterLoaded}
+                  onload={() => (isPosterLoaded = true)}
+                  onerror={() => (isPosterLoaded = true)}
                 />
               </div>
             {:else}
@@ -269,9 +323,13 @@
             {#if (settings.useLogos ?? true) && item.logoPath}
               <div class="logo-container">
                 <img
+                  bind:this={logoImg}
                   src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
                   alt="{item.title ?? item.name} Logo"
                   class="logo-image"
+                  class:show={isLogoLoaded}
+                  onload={() => (isLogoLoaded = true)}
+                  onerror={() => (isLogoLoaded = true)}
                 />
               </div>
             {:else}
@@ -475,26 +533,15 @@
   }
 
   .detail-view {
-    position: fixed;
-    top: var(--header-height);
+    position: absolute;
+    top: 0;
     bottom: 0;
     left: 0;
     right: 0;
     color: var(--color-text);
     background-color: var(--color-background);
-    z-index: 5;
+    z-index: 1;
     overflow: hidden; /* Prevent this container from scrolling */
-    /* Add a subtle fade-in for smoothness, but it's not hiding a long wait anymore */
-    animation: fadeIn 0.15s ease-in;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
   }
 
   .backdrop-container {
@@ -530,7 +577,14 @@
     height: 100%;
     object-fit: cover;
     filter: blur(var(--backdrop-blur, 4px));
-    transition: filter 0.3s ease-in-out;
+    opacity: 0;
+    transition:
+      opacity 0.6s ease-out,
+      filter 0.3s ease-in-out;
+  }
+
+  .backdrop-image.show {
+    opacity: 1;
   }
 
   .backdrop-overlay {
@@ -598,6 +652,12 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    opacity: 0;
+    transition: opacity 0.4s ease-out;
+  }
+
+  .poster img.show {
+    opacity: 1;
   }
 
   .poster .icon {
@@ -655,6 +715,12 @@
     object-fit: contain;
     object-position: left bottom;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
+    opacity: 0;
+    transition: opacity 0.4s ease-out;
+  }
+
+  .logo-image.show {
+    opacity: 1;
   }
 
   h1 {
