@@ -86,11 +86,16 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    width: 100%;
+    max-width: 1800px;
+    margin: 0 auto;
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
   }
   .home-section-title {
     font-size: 1.8rem;
     font-weight: bold;
-    padding: 0 1.5rem;
+    padding: 0;
     margin-bottom: 1rem;
   }
 </style>

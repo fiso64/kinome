@@ -115,6 +115,18 @@
       navStore.closeDetail()
     }
   })
+
+  // Freeze the background view state when the detail view is active
+  // This prevents the "flash" of the main library when opening/closing results
+  let wasSearchActiveWhenDetailOpened = $state(false)
+  $effect(() => {
+    if (!selectedItemId) {
+      wasSearchActiveWhenDetailOpened = isGlobalSearchActive
+    }
+  })
+  const effectivelySearchActive = $derived(
+    selectedItemId ? wasSearchActiveWhenDetailOpened : isGlobalSearchActive
+  )
 </script>
 
 <div class="content">
@@ -128,7 +140,7 @@
   {:else}
     <div class="main-view-container" class:detail-active={!!selectedItemId}>
       <!-- SEARCH VIEW -->
-      <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
+      <div class="view-wrapper" class:hidden={!effectivelySearchActive}>
         <div class="search-header">
           {#if isPerformingSearch}
             <span>Searching...</span>
@@ -158,7 +170,7 @@
 
       <!-- FOLDER VIEW -->
       {#if currentFolder}
-        <div class="view-wrapper" class:hidden={isGlobalSearchActive}>
+        <div class="view-wrapper" class:hidden={effectivelySearchActive}>
           {#if isRoot}
             <HomeView
               {continueWatchingItems}
@@ -276,29 +288,47 @@
     display: none; /* Fully remove from flow when hidden */
   }
 
-  .search-content-wrapper,
+  .search-content-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 4rem;
+  }
+
   .folder-content-wrapper {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
-  }
-
-  .folder-content-wrapper {
     padding-top: 1.5rem;
+    width: 100%;
+    max-width: 1800px;
+    margin: 0 auto;
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
   }
 
   .search-header {
-    padding: 0.5rem 1.5rem;
-    font-style: italic;
-    color: var(--ev-c-text-2);
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 1.5rem 4rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--ev-c-text-1);
     border-bottom: 1px solid var(--color-background-mute);
     flex-shrink: 0;
   }
 
   .folder-header-title {
+    width: 100%;
+    max-width: 1800px;
+    margin: 0 auto;
     font-size: 1.8rem;
     font-weight: bold;
-    padding: 0 1.5rem;
+    padding: 0 2.5rem;
     margin-bottom: 1rem;
     flex-shrink: 0;
   }

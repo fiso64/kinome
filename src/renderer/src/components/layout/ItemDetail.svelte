@@ -283,7 +283,7 @@
         src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
         alt=""
         onload={async (e) => {
-          const img = e.currentTarget
+          const img = e.currentTarget as HTMLImageElement
           try {
             await img.decode() // Ensure GPU is ready before showing
             const loadTime = performance.now() - backdropStartTime
@@ -305,7 +305,8 @@
   </div>
 
   <div class="scroll-container">
-    <div class="detail-content" in:fly|global={{ y: 12, duration: 300, easing: cubicOut }}>
+    <div class="fade-shroud"></div>
+    <div class="detail-content animate-arrival">
       <div class="info-grid">
         <div class="poster-column" bind:this={posterColumnElement}>
           <div class="poster">
@@ -627,6 +628,42 @@
     display: flex;
     flex-direction: column;
     gap: 3rem;
+    /* Ensure opacity is 1 so Firefox keeps backdrop-filter active */
+    opacity: 1;
+  }
+
+  .fade-shroud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--color-background);
+    z-index: 5;
+    pointer-events: none;
+    animation: shroud-fade-out 0.4s ease-out forwards;
+  }
+
+  .animate-arrival {
+    animation: ui-arrival-padding 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  @keyframes shroud-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes ui-arrival-padding {
+    from {
+      padding-top: calc(10vh + 12px);
+    }
+    to {
+      padding-top: 10vh;
+    }
   }
 
   .info-grid {
