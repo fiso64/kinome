@@ -389,6 +389,7 @@ export interface PlayerCommandConfig {
   id: string
   name: string
   command: string
+  isBuiltIn?: boolean
 }
 
 export interface CustomActionConfig {

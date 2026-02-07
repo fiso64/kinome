@@ -196,18 +196,38 @@ const app = new Elysia()
     }
   })
   // Installer scripts and handler (served as text/plain)
-  .get('/install-kinome-handler.ps1', async ({ query, set }) => {
+  .get('/install-kinome-handler.ps1', async ({ query, request, set }) => {
     const secret = query.secret as string | undefined
+    const baseUrl = `${new URL(request.url).origin}`
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return handlerService.generateWindowsInstaller(secret)
+    return handlerService.generateWindowsInstaller(secret, baseUrl)
   })
-  .get('/install-kinome-handler.sh', async ({ query, set }) => {
+  .get('/install-kinome-handler.sh', async ({ query, request, set }) => {
     const secret = query.secret as string | undefined
+    const baseUrl = `${new URL(request.url).origin}`
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return handlerService.generateLinuxInstaller(secret)
+    return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
   .get('/kinome-handler.js', ({ set }) => {
     const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.js')
+    if (!fs.existsSync(scriptPath)) {
+      set.status = 404
+      return 'Script not found'
+    }
+    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return Bun.file(scriptPath)
+  })
+  .get('/kinome-handler.ps1', ({ set }) => {
+    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.ps1')
+    if (!fs.existsSync(scriptPath)) {
+      set.status = 404
+      return 'Script not found'
+    }
+    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return Bun.file(scriptPath)
+  })
+  .get('/kinome-handler.sh', ({ set }) => {
+    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.sh')
     if (!fs.existsSync(scriptPath)) {
       set.status = 404
       return 'Script not found'
@@ -701,8 +721,6 @@ const app = new Elysia()
         const settings = await settingsService.readSettings()
         const sanitized = { ...settings }
         delete (sanitized as any).adminPasswordHash
-        // Strip player commands for web clients to prevent launching on server
-        sanitized.playerCommands = []
         return sanitized
       })
       .post('/save-settings', async ({ body }: { body: any }) => {

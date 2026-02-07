@@ -34,15 +34,24 @@ export function confirmHandlerTest(sessionId: string): boolean {
 /**
  * Generates the Windows PowerShell installer script with embedded secret.
  */
-export function generateWindowsInstaller(secret?: string): string {
+export function generateWindowsInstaller(secret?: string, baseUrl?: string): string {
     const fs = require('fs')
     const path = require('path')
 
     const scriptPath = path.join(process.cwd(), 'public', 'install-kinome-handler.ps1')
     let scriptContent = fs.readFileSync(scriptPath, 'utf8')
 
+    // Inject variables at the top
+    let injections = ''
     if (secret) {
-        scriptContent = `$Secret = '${secret}'\n` + scriptContent
+        injections += `$Secret = '${secret}'\n`
+    }
+    if (baseUrl) {
+        injections += `$BaseUrl = '${baseUrl}'\n`
+    }
+
+    if (injections) {
+        scriptContent = injections + scriptContent
     }
 
     return scriptContent
@@ -51,15 +60,27 @@ export function generateWindowsInstaller(secret?: string): string {
 /**
  * Generates the Linux/macOS bash installer script with embedded secret.
  */
-export function generateLinuxInstaller(secret?: string): string {
+export function generateLinuxInstaller(secret?: string, baseUrl?: string): string {
     const fs = require('fs')
     const path = require('path')
 
     const scriptPath = path.join(process.cwd(), 'public', 'install-kinome-handler.sh')
     let scriptContent = fs.readFileSync(scriptPath, 'utf8')
 
+    // Inject variables at the top (after shebang)
+    let injections = ''
     if (secret) {
-        scriptContent = `SECRET='${secret}'\n` + scriptContent
+        injections += `SECRET='${secret}'\n`
+    }
+    if (baseUrl) {
+        injections += `BASE_URL='${baseUrl}'\n`
+    }
+
+    if (injections) {
+        // Insert after the first line (shebang)
+        const lines = scriptContent.split('\n')
+        lines.splice(1, 0, injections)
+        scriptContent = lines.join('\n')
     }
 
     return scriptContent

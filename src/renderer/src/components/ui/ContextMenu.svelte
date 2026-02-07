@@ -1,7 +1,14 @@
 <script lang="ts">
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { getDownloadUrl } from '@lib/api'
-  import type { LibraryItem, MediaFolder, MediaFile, Settings } from '@shared/types'
+  import { playerLauncherService } from '@lib/services/player-launcher.service'
+  import type {
+    LibraryItem,
+    MediaFolder,
+    MediaFile,
+    Settings,
+    PlayerCommandConfig
+  } from '@shared/types'
   let {
     item,
     position,
@@ -209,11 +216,9 @@
     onClose()
   }
 
-  function handlePlayWith(command: string) {
+  function handlePlayWith(player: PlayerCommandConfig) {
     // The item is guaranteed to be a file because of the #if block.
-    // We must convert the Svelte proxy object to a plain JS object before sending over IPC.
-    const plainItem = JSON.parse(JSON.stringify(item))
-    window.api.playFileWith(plainItem as MediaFile, command)
+    playerLauncherService.playItem(item as MediaFile, settings?.playerCommands || null, player)
     onClose()
   }
 
@@ -464,7 +469,7 @@
   </div>
 
   <div class="context-menu-section border-top">
-    {#if window.api.capabilities.supportsLocalPlayback && item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
+    {#if item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
       <div
         class="submenu-container"
         onmouseenter={() => (activeSubmenu = 'play')}
@@ -485,7 +490,7 @@
             onclick={(e) => e.stopPropagation()}
           >
             {#each settings.playerCommands as player}
-              <button class="context-menu-item" onclick={() => handlePlayWith(player.command)}>
+              <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
                 <span>{player.name}</span>
               </button>
             {/each}

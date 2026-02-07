@@ -15,6 +15,7 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
+  import { playerLauncherService } from '@lib/services/player-launcher.service'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { getPlaylistUrl, api } from '@lib/api'
@@ -260,15 +261,14 @@
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    const playlistUrl = getPlaylistUrl(item.id)
-    try {
-      await navigator.clipboard.writeText(playlistUrl)
-      notificationStore.add('Playlist link copied to clipboard!', 'success')
-      // Watched status is now updated by the backend when the stream is actually started.
-    } catch (err) {
-      console.error('Failed to copy playlist link', err)
-      notificationStore.add('Failed to copy link. Check console.', 'error')
+    const primaryCommand = settings?.playerCommands?.[0]
+
+    if (!primaryCommand) {
+      notificationStore.add('No player command configured.', 'error')
+      return
     }
+
+    await playerLauncherService.playItem(item, settings?.playerCommands || null)
   }
 
   function handleDismissContinueWatching(showId: string) {

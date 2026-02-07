@@ -23,12 +23,40 @@
   let editCommandId = $state<string | null>(null)
   let formCommandNameForNew = $state('')
   let formCommandStringForNew = $state('')
+  let modalContentRef = $state<HTMLDivElement | null>(null)
+
+  // Stop editing when clicking outside inputs
+  function handleWindowClick(event: MouseEvent) {
+    if (!editCommandId) return
+
+    const target = event.target as HTMLElement
+    // If we clicked outside the modal content or specifically outside an input that isn't the current edit target
+    if (modalContentRef && !modalContentRef.contains(target)) {
+      editCommandId = null
+      return
+    }
+
+    // If within modal, check if we clicked an input. If not, stop editing.
+    if (target.tagName !== 'INPUT') {
+      editCommandId = null
+    }
+  }
 
   // Drag and drop state
   let draggedItemIndex = $state<number | null>(null)
   let dragOverItemIndex = $state<number | null>(null)
 
-  // Load or generate client secret and check if handler was tested
+  // Required built-in commands configuration
+  const REQUIRED_BUILT_INS: PlayerCommandConfig[] = [
+    {
+      id: 'builtin:copy-link',
+      name: 'Copy Playlist Link',
+      command: 'builtin:copy-link',
+      isBuiltIn: true
+    }
+  ]
+
+  // Initialize commands only if handler is tested
   $effect(() => {
     const stored = localStorage.getItem('kinome_client_secret')
     if (stored) {
@@ -44,7 +72,21 @@
 
     // Initialize commands only if handler is tested
     if (handlerTested) {
-      localPlayerCommands = JSON.parse(JSON.stringify(playerCommands))
+      const commands = JSON.parse(JSON.stringify(playerCommands))
+
+      // Ensure all required built-in commands exist and have correct flags
+      for (const builtIn of REQUIRED_BUILT_INS) {
+        const idx = commands.findIndex((c) => c.id === builtIn.id)
+        if (idx === -1) {
+          // Add missing built-in command at the start
+          commands.unshift(builtIn)
+        } else {
+          // Ensure existing command has the flag set (migration)
+          commands[idx].isBuiltIn = true
+        }
+      }
+
+      localPlayerCommands = commands
     }
   })
 
@@ -81,18 +123,14 @@
       const handshakeUrl = `${window.location.origin}/api/handler-test/${sessionId}`
       const encodedUrl = btoa(handshakeUrl)
 
-      // Trigger handler
+      // Trigger handler via window.location (browser will show protocol prompt)
       const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret)}&url=${encodeURIComponent(encodedUrl)}`
 
-      // Navigate via hidden iframe
-      const iframe = document.createElement('iframe')
-      iframe.style.display = 'none'
-      iframe.src = testUrl
-      document.body.appendChild(iframe)
+      // Direct navigation triggers browser's protocol handler prompt
+      window.location.href = testUrl
 
       // Timeout after 5 seconds
       setTimeout(() => {
-        iframe.remove()
         cleanup()
 
         if (isTestingHandler) {
@@ -107,6 +145,14 @@
       testResult = 'error'
       testErrorMessage = 'Failed to start test: ' + (error as Error).message
     }
+  }
+
+  function getStatusMessage() {
+    if (isTestingHandler) return 'Testing Connection...'
+    if (testResult === 'success') return 'Test Successful'
+    if (testResult === 'error') return `${testErrorMessage || 'Test Failed'}`
+    if (handlerTested) return 'Local handler installation detected'
+    return 'Handler not yet tested'
   }
 
   function getInstallerCommands() {
@@ -149,7 +195,6 @@
 
   // Drag and drop handlers
   function handleDragStart(event: DragEvent, index: number) {
-    if (index === 0) return // Can't drag the built-in command
     draggedItemIndex = index
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
@@ -159,7 +204,6 @@
 
   function handleDragOver(event: DragEvent, index: number) {
     event.preventDefault()
-    if (index === 0) return // Can't drop on built-in command
     if (draggedItemIndex !== null && index !== draggedItemIndex) {
       dragOverItemIndex = index
     }
@@ -167,12 +211,7 @@
 
   function handleDrop(event: DragEvent, dropIndex: number) {
     event.preventDefault()
-    if (
-      dropIndex === 0 ||
-      draggedItemIndex === null ||
-      draggedItemIndex === dropIndex ||
-      draggedItemIndex === 0
-    ) {
+    if (draggedItemIndex === null || draggedItemIndex === dropIndex) {
       dragOverItemIndex = null
       return
     }
@@ -190,15 +229,9 @@
     draggedItemIndex = null
     dragOverItemIndex = null
   }
-
-  // Built-in commands (always present in management mode)
-  const builtInCommands: PlayerCommandConfig[] = [
-    { id: 'builtin:copy-link', name: 'Copy Playlist Link', command: 'builtin:copy-link' }
-  ]
-
-  // Combined commands for display
-  let displayCommands = $derived([...builtInCommands, ...localPlayerCommands])
 </script>
+
+<svelte:window onmousedown={handleWindowClick} />
 
 <ModalWindow
   title="Manage Player Commands"
@@ -207,27 +240,27 @@
   maxWidth="800px"
   zIndex={101}
 >
-  <div class="content">
-    <!-- Test Connection Button (Always Visible) -->
+  <div class="content" bind:this={modalContentRef}>
+    <!-- Test Status Bar -->
     <div class="test-section">
-      <button
-        class="test-btn"
-        class:testing={isTestingHandler}
-        class:success={testResult === 'success'}
+      <div
+        class="connection-status-card"
+        class:success={testResult === 'success' || (testResult === 'idle' && handlerTested)}
         class:error={testResult === 'error'}
-        onclick={testHandlerConnection}
-        disabled={isTestingHandler}
+        class:testing={isTestingHandler}
       >
-        {#if isTestingHandler}
-          Testing Connection...
-        {:else if testResult === 'success'}
-          ✓ Handler Connected
-        {:else if testResult === 'error'}
-          ✗ {testErrorMessage || 'Connection Failed'}
-        {:else}
-          Test Connection
-        {/if}
-      </button>
+        <div class="status-info">
+          <div class="indicator-dot"></div>
+          <div class="status-details">
+            <span class="label">Local Handler</span>
+            <span class="message">{getStatusMessage()}</span>
+          </div>
+        </div>
+
+        <button class="test-action-btn" onclick={testHandlerConnection} disabled={isTestingHandler}>
+          {isTestingHandler ? 'Testing...' : 'Test Connection'}
+        </button>
+      </div>
     </div>
 
     {#if !handlerTested}
@@ -285,21 +318,21 @@
       <!-- Management Mode (Unlocked after successful test) -->
       <div class="management-mode">
         <div class="command-list">
-          {#each displayCommands as cmd, i (cmd.id)}
+          {#each localPlayerCommands as cmd, i (cmd.id)}
             <div
               class="command-item"
-              class:builtin={i === 0}
-              class:draggable={i > 0}
+              class:builtin={cmd.isBuiltIn}
+              class:draggable={!editCommandId || editCommandId !== cmd.id}
               class:dragging-over={dragOverItemIndex === i}
               class:editing={editCommandId === cmd.id}
-              draggable={i > 0}
+              draggable={!editCommandId || editCommandId !== cmd.id}
               ondragstart={(e) => handleDragStart(e, i)}
               ondragover={(e) => handleDragOver(e, i)}
               ondragenter={(e) => e.preventDefault()}
               ondrop={(e) => handleDrop(e, i)}
               ondragend={handleDragEnd}
               onclick={() => {
-                if (i === 0) return // Can't edit built-in
+                if (cmd.isBuiltIn) return // Can't edit built-in
                 if (editCommandId === cmd.id) {
                   editCommandId = null
                 } else {
@@ -307,9 +340,7 @@
                 }
               }}
             >
-              {#if i > 0}
-                <div class="drag-handle">⠿</div>
-              {/if}
+              <div class="drag-handle">⠿</div>
 
               {#if editCommandId === cmd.id}
                 <div class="command-edit-inputs">
@@ -338,9 +369,9 @@
                 <div class="command-details">
                   <div class="command-name">
                     {cmd.name}
-                    {#if i === 0}
+                    {#if cmd.isBuiltIn}
                       <span class="badge">Built-in</span>
-                    {:else if i === 1}
+                    {:else if i === 0}
                       <span class="badge">Default</span>
                     {/if}
                   </div>
@@ -348,7 +379,7 @@
                 </div>
               {/if}
 
-              {#if i > 0}
+              {#if !cmd.isBuiltIn}
                 <button
                   class="remove-btn"
                   onclick={(e) => {
@@ -373,7 +404,7 @@
           <input
             type="text"
             bind:value={formCommandStringForNew}
-            placeholder="Command (e.g., mpv --fullscreen [URL])"
+            placeholder="Command (e.g., mpv --fullscreen <url>)"
           />
           <div class="form-actions">
             <button
@@ -399,43 +430,109 @@
   }
 
   .test-section {
-    display: flex;
-    justify-content: center;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--color-background-mute);
+    margin-bottom: 2rem;
   }
 
-  .test-btn {
-    padding: 0.75rem 2rem;
-    font-size: 1rem;
-    font-weight: bold;
-    border-radius: 6px;
+  .connection-status-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--color-background-soft);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 8px;
+    height: 56px;
+    transition: all 0.3s ease;
+  }
+
+  .status-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ev-c-text-3);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.05);
+    transition: all 0.3s ease;
+  }
+
+  .status-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .status-details .label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ev-c-text-3);
+    font-weight: 600;
+  }
+
+  .status-details .message {
+    font-size: 0.9rem;
+    color: var(--ev-c-text-1);
+    font-weight: 500;
+  }
+
+  .test-action-btn {
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    background: var(--color-background-mute);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--ev-c-text-2);
     cursor: pointer;
     transition: all 0.2s;
-    background: var(--ev-c-gray-2);
+  }
+
+  .test-action-btn:hover:not(:disabled) {
+    background: var(--ev-c-gray-3);
     color: var(--ev-c-text-1);
   }
 
-  .test-btn:hover:not(:disabled) {
-    background: var(--ev-c-gray-1);
+  /* Success State */
+  .connection-status-card.success {
+    border-color: rgba(40, 167, 69, 0.3);
+    background: rgba(40, 167, 69, 0.05);
   }
-
-  .test-btn.testing {
-    background: var(--ev-c-gray-2);
-    color: var(--ev-c-text-2);
-    cursor: wait;
-  }
-
-  .test-btn.success {
+  .connection-status-card.success .indicator-dot {
     background: #28a745;
-    color: white;
+    box-shadow: 0 0 8px rgba(40, 167, 69, 0.4);
   }
 
-  .test-btn.error {
+  /* Error State */
+  .connection-status-card.error {
+    border-color: rgba(220, 53, 69, 0.3);
+    background: rgba(220, 53, 69, 0.05);
+  }
+  .connection-status-card.error .indicator-dot {
     background: #dc3545;
-    color: white;
-    font-size: 0.9rem;
-    padding: 0.75rem 1.5rem;
+    box-shadow: 0 0 8px rgba(220, 53, 69, 0.4);
+  }
+
+  /* Testing State */
+  .connection-status-card.testing .indicator-dot {
+    background: var(--ev-c-blue-1);
+    box-shadow: 0 0 8px rgba(0, 123, 255, 0.4);
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.4;
+    }
   }
 
   /* Setup Mode Styles */
