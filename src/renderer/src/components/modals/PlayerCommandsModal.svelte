@@ -17,6 +17,8 @@
   let isTestingHandler = $state(false)
   let testResult = $state<'idle' | 'success' | 'error'>('idle')
   let testErrorMessage = $state('')
+  let forceShowSetup = $state(false)
+  let copiedId = $state<string | null>(null)
 
   // Command management state
   let localPlayerCommands = $state<PlayerCommandConfig[]>([])
@@ -166,6 +168,18 @@
   }
 
   // Command management functions
+  async function copyToClipboard(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      copiedId = id
+      setTimeout(() => {
+        if (copiedId === id) copiedId = null
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy', err)
+    }
+  }
+
   function removeCommand(id: string) {
     localPlayerCommands = localPlayerCommands.filter((cmd) => cmd.id !== id)
     if (editCommandId === id) {
@@ -257,13 +271,25 @@
           </div>
         </div>
 
-        <button class="test-action-btn" onclick={testHandlerConnection} disabled={isTestingHandler}>
-          {isTestingHandler ? 'Testing...' : 'Test Connection'}
-        </button>
+        <div class="test-actions">
+          <button
+            class="test-action-btn secondary"
+            onclick={() => (forceShowSetup = !forceShowSetup)}
+          >
+            {forceShowSetup ? 'Back to Players' : 'Setup Instructions'}
+          </button>
+          <button
+            class="test-action-btn"
+            onclick={testHandlerConnection}
+            disabled={isTestingHandler}
+          >
+            {isTestingHandler ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
       </div>
     </div>
 
-    {#if !handlerTested}
+    {#if !handlerTested || forceShowSetup}
       <!-- Setup Mode -->
       <div class="setup-mode">
         <h3>Setup Local Player Handler</h3>
@@ -273,28 +299,26 @@
           <div class="command-block">
             <label>Windows (PowerShell)</label>
             <div class="code-wrapper">
-              <code>{getInstallerCommands().windows}</code>
+              <input readonly value={getInstallerCommands().windows} class="code-box" />
               <button
                 class="copy-btn"
-                onclick={() => {
-                  navigator.clipboard.writeText(getInstallerCommands().windows)
-                }}
+                class:copied={copiedId === 'win'}
+                onclick={() => copyToClipboard(getInstallerCommands().windows, 'win')}
               >
-                Copy
+                {copiedId === 'win' ? 'Copied!' : 'Copy'}
               </button>
             </div>
           </div>
           <div class="command-block">
             <label>Linux / macOS</label>
             <div class="code-wrapper">
-              <code>{getInstallerCommands().linux}</code>
+              <input readonly value={getInstallerCommands().linux} class="code-box" />
               <button
                 class="copy-btn"
-                onclick={() => {
-                  navigator.clipboard.writeText(getInstallerCommands().linux)
-                }}
+                class:copied={copiedId === 'linux'}
+                onclick={() => copyToClipboard(getInstallerCommands().linux, 'linux')}
               >
-                Copy
+                {copiedId === 'linux' ? 'Copied!' : 'Copy'}
               </button>
             </div>
           </div>
@@ -302,7 +326,16 @@
 
         <div class="secret-display">
           <label>Your Client Secret:</label>
-          <code>{clientSecret}</code>
+          <div class="code-wrapper">
+            <input readonly value={clientSecret} class="code-box" />
+            <button
+              class="copy-btn"
+              class:copied={copiedId === 'secret'}
+              onclick={() => copyToClipboard(clientSecret || '', 'secret')}
+            >
+              {copiedId === 'secret' ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
         </div>
 
         <div class="hint-box">
@@ -314,7 +347,7 @@
           </ol>
         </div>
       </div>
-    {:else}
+    {:else if handlerTested && !forceShowSetup}
       <!-- Management Mode (Unlocked after successful test) -->
       <div class="management-mode">
         <div class="command-list">
@@ -480,6 +513,11 @@
     font-weight: 500;
   }
 
+  .test-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
   .test-action-btn {
     padding: 0.4rem 1rem;
     font-size: 0.8rem;
@@ -494,6 +532,15 @@
   .test-action-btn:hover:not(:disabled) {
     background: var(--ev-c-gray-3);
     color: var(--ev-c-text-1);
+  }
+
+  .test-action-btn.secondary {
+    background: transparent;
+    border-color: var(--color-background-mute);
+  }
+
+  .test-action-btn.secondary:hover {
+    background: var(--color-background-mute);
   }
 
   /* Success State */
@@ -571,28 +618,54 @@
     align-items: center;
   }
 
-  .code-wrapper code {
+  .code-wrapper .code-box {
     flex: 1;
-    background: var(--color-background-soft);
-    padding: 0.75rem;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
+    background: #0d1117;
+    padding: 1rem;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
     font-size: 0.85rem;
-    word-break: break-all;
-    overflow-x: auto;
+    line-height: normal;
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    outline: none;
+    cursor: text;
+    width: 100%;
+    /* Ensure text selection works perfectly */
+    user-select: text;
+  }
+
+  .code-wrapper .code-box::selection {
+    background: rgba(33, 110, 241, 0.4);
   }
 
   .copy-btn {
-    padding: 0.5rem 1rem;
-    background: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-    border-radius: 4px;
+    width: 80px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--ev-c-gray-3);
+    color: var(--ev-c-text-2);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
     cursor: pointer;
-    white-space: nowrap;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .copy-btn:hover {
-    background: var(--ev-c-gray-1);
+    background: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
+    border-color: var(--ev-c-gray-1);
+  }
+
+  .copy-btn.copied {
+    background: rgba(40, 167, 69, 0.15);
+    color: #2ea043;
+    border-color: rgba(40, 167, 69, 0.5);
   }
 
   .secret-display {
@@ -607,13 +680,6 @@
   .secret-display label {
     font-weight: bold;
     font-size: 0.9rem;
-  }
-
-  .secret-display code {
-    font-family: 'Courier New', monospace;
-    font-size: 0.95rem;
-    color: var(--ev-c-green-1);
-    user-select: all;
   }
 
   .hint-box {

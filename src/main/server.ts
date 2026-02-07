@@ -208,24 +208,6 @@ const app = new Elysia()
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
-  .get('/kinome-handler.js', ({ set }) => {
-    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.js')
-    if (!fs.existsSync(scriptPath)) {
-      set.status = 404
-      return 'Script not found'
-    }
-    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return Bun.file(scriptPath)
-  })
-  .get('/kinome-handler.ps1', ({ set }) => {
-    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.ps1')
-    if (!fs.existsSync(scriptPath)) {
-      set.status = 404
-      return 'Script not found'
-    }
-    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return Bun.file(scriptPath)
-  })
   .get('/kinome-handler.sh', ({ set }) => {
     const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.sh')
     if (!fs.existsSync(scriptPath)) {
@@ -234,6 +216,20 @@ const app = new Elysia()
     }
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     return Bun.file(scriptPath)
+  })
+  .get('/bin/*', ({ params, set }) => {
+    const binPath = path.join(process.cwd(), 'public', 'bin', params['*'])
+    if (!fs.existsSync(binPath)) {
+      set.status = 404
+      return 'File not found'
+    }
+    // Set appropriate content type for binaries
+    if (binPath.endsWith('.exe')) {
+      set.headers['Content-Type'] = 'application/x-msdownload'
+    } else {
+      set.headers['Content-Type'] = 'application/octet-stream'
+    }
+    return Bun.file(binPath)
   })
   // Assets (High-performance streaming)
   .get('/api/assets/*', async ({ params, set }) => {
