@@ -1,4 +1,4 @@
-import type { BaseViewSettings, Settings } from '@shared/types'
+import type { BaseViewSettings, Settings, ViewHierarchyNode } from '@shared/types'
 import { CORE_FIELDS } from '@shared/types'
 
 /**
@@ -49,6 +49,8 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
       groupFields.push('virtualTags')
     } else if (groupBy.startsWith('tags.') || groupBy === 'tags') {
       groupFields.push('tags')
+    } else if (groupBy === 'seasonNumber') {
+      groupFields.push('seasonNumber')
     }
   }
 
@@ -56,31 +58,45 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
 }
 
 /**
- * Recursively collects all required fields from a settings object and its nested childViewSettings.
- * This handles deep nesting scenarios like Sections -> Tabs -> List.
+ * Recursively collects all required fields from a ViewHierarchyNode.
+ * This determines all metadata fields needed to render the current view and all its nested sub-views.
  *
- * @param settings The fully resolved view settings object (optionally merged with an item for type context) <-- TODO: Merging is retarded, clean it up.
+ * @param viewHierarchy The fully resolved view hierarchy from the backend.
  */
-export function getAllRequiredFields(settings: any): string[] {
+export function getAllRequiredFields(
+  viewHierarchy: ViewHierarchyNode | undefined | null,
+  options: { debug?: boolean; context?: string } = {}
+): string[] {
   const fields = new Set<string>()
 
-  function traverse(currentSettings: any) {
-    if (!currentSettings || typeof currentSettings !== 'object') return
+  if (!viewHierarchy) return []
 
-    if (currentSettings.layout) {
-      const req = getRequiredFieldsForLayout(currentSettings.layout, currentSettings.groupBy)
+  const context = options.context || 'getAllRequiredFields'
+
+  function traverse(node: ViewHierarchyNode) {
+    if (!node.effective) return
+
+    if (options.debug) {
+      console.log(
+        `[${context}] Visiting node ${node.id} with layout: ${node.effective.layout}, groupBy: ${node.effective.groupBy}`
+      )
+    }
+
+    // 1. Collect fields for the current node's layout
+    if (node.effective.layout) {
+      const req = getRequiredFieldsForLayout(node.effective.layout, node.effective.groupBy)
+      if (options.debug) console.log(`  -> Requiring fields: ${JSON.stringify(req)}`)
       req.forEach((f) => fields.add(f))
     }
 
-    if (currentSettings.childViewSettings) {
-      traverse(currentSettings.childViewSettings)
-    }
-
-    if (currentSettings.virtualFolderSettings) {
-      Object.values(currentSettings.virtualFolderSettings).forEach((v) => traverse(v))
+    // 2. Recurse into children (if any known children exist in the hierarchy)
+    if (node.children) {
+      if (options.debug)
+        console.log(`  -> Found ${Object.keys(node.children).length} children, recursing...`)
+      Object.values(node.children).forEach((childNode) => traverse(childNode))
     }
   }
 
-  traverse(settings)
+  traverse(viewHierarchy)
   return Array.from(fields)
 }

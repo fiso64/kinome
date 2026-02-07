@@ -25,19 +25,21 @@ type ResolvableItem = (MediaFolder & { isVirtual?: boolean }) | undefined | null
 export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null,
-  ignoreLayers: Set<DefaultLayoutKey> = new Set()
+  ignoreLayers: Set<DefaultLayoutKey> = new Set(),
+  inheritedSettings?: StoredViewSettings
 ): ResolutionInfo {
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
-    const defaultLayout = item?.layout ?? 'grid'
+    const rawStored = { ...inheritedSettings, ...item?.viewSettings }
+    const defaultLayout = rawStored?.layout ?? 'grid'
 
     // Only apply specific settings for the active layout, just like the real logic
     const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[defaultLayout] ?? {}
 
     const fallbackResolution: ResolutionInfo = {
       settings: {
-        layout: item?.layout ?? 'grid',
-        clickAction: item?.clickAction ?? 'detail',
+        layout: defaultLayout,
+        clickAction: rawStored?.clickAction ?? 'detail',
         // ...fallbackSpecifics
         ...layoutConfig // Use specific config instead
       },
@@ -49,9 +51,15 @@ export function resolveViewSettings(
   // 1. Determine the hierarchy of settings to check, from most to least specific.
   const cascadeLayers: { settings: StoredViewSettings; sourceInfo: ResolutionSource }[] = []
 
+  // Add inherited context layer if provided (Parent's childViewSettings)
+  // This takes priority over the item's own settings in "inline" views.
+  if (inheritedSettings && Object.keys(inheritedSettings).length > 0) {
+    cascadeLayers.push({ settings: inheritedSettings, sourceInfo: { source: 'inherited' as any } })
+  }
+
   // Add item-specific layer if it exists
-  if (item) {
-    cascadeLayers.push({ settings: item, sourceInfo: { source: 'item' } })
+  if (item?.viewSettings) {
+    cascadeLayers.push({ settings: item.viewSettings, sourceInfo: { source: 'item' } })
   }
 
   // Add type-specific default layer if applicable and not ignored

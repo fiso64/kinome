@@ -13,7 +13,8 @@
     MediaFolder,
     Settings,
     AutocompleteSuggestions,
-    SearchIndexEntry
+    SearchIndexEntry,
+    ViewHierarchyNode
   } from '@shared/types'
 
   type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
@@ -30,7 +31,8 @@
     highlightedIndex,
     isPreSorted = false,
     settings,
-    listFixedAspectRatio = false
+    listFixedAspectRatio = false,
+    viewNode
   }: {
     parentItem?: MediaFolder
     items: DisplayableItem[]
@@ -47,14 +49,15 @@
     isPreSorted?: boolean
     settings?: Settings | null
     listFixedAspectRatio?: boolean
+    viewNode?: ViewHierarchyNode
   } = $props()
 
   const grayOutWatched = $derived(settings?.grayOutWatched ?? true)
 
   const { layout, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } = $derived.by(
     () => {
-      // Resolve settings using the centralized helper function.
-      const resolved = resolveViewSettings(parentItem, settings).settings
+      // Resolve settings: Use the Side-Channel Hierarchy if available, otherwise fallback to legacy frontend resolution.
+      const resolved = viewNode?.effective ?? resolveViewSettings(parentItem, settings).settings
 
       // The `layoutProp` is a special, one-off override from a parent component (e.g., search results view).
       // It should take precedence over all other resolved layout settings.
@@ -207,6 +210,7 @@
         {onShowContextMenu}
         {suggestions}
         {settings}
+        {viewNode}
       />
     {:else if layout === 'sections'}
       <SectionsView
@@ -216,6 +220,7 @@
         {onShowContextMenu}
         {suggestions}
         {settings}
+        {viewNode}
       />
     {/if}
   </div>

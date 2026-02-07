@@ -184,19 +184,15 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/items?${params.toString()}`)
   }
 
-  getItem(id: string, options: string[] | { fields?: string[]; include?: string[] } = []): Promise<LibraryItem> {
+  getItem(id: string, options: { fields?: string[]; include?: string[] } = {}): Promise<LibraryItem> {
     if (!id || id === 'null' || id === 'undefined') {
       console.warn(`[WebApiClient] getItem called with invalid ID: "${id}". Skipping request.`)
       return Promise.resolve(null as any)
     }
 
     const params = new URLSearchParams()
-    if (Array.isArray(options)) {
-      if (options.length > 0) params.set('include', options.join(','))
-    } else {
-      if (options.fields) params.set('fields', options.fields.join(','))
-      if (options.include) params.set('include', options.include.join(','))
-    }
+    if (options.fields) params.set('fields', options.fields.join(','))
+    if (options.include) params.set('include', options.include.join(','))
 
     const q = params.toString() ? `?${params.toString()}` : ''
     return this.request(`/api/items/${encodeURIComponent(id)}${q}`)

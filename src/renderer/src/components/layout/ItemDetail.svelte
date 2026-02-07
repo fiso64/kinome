@@ -42,21 +42,43 @@
   const resolvedSettings = $derived(
     settings ? resolveViewSettings(initialItem as MediaFolder, settings).settings : null
   )
-  const requiredFields = $derived(
-    resolvedSettings ? getAllRequiredFields({ ...initialItem, ...resolvedSettings }) : []
-  )
 
-  // 1. Fetch metadata only (Fast, no large blobs)
+  // 1. Fetch metadata only (Fast, no large blobs) + Request View Settings Side-Channel
   $effect(() => {
     console.log('[DEBUG] DETAIL_HEADER_FIELDS:', DETAIL_HEADER_FIELDS)
   })
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
-    fields: () => DETAIL_HEADER_FIELDS
+    fields: () => DETAIL_HEADER_FIELDS,
+    include: () => ['viewHierarchy']
   })
 
-  // 1a. Fetch Credits lazily
+  // 1a. Fetch Credits lazily (Before item derivation)
   const creditsQuery = libraryDataService.getCreditsQuery(() => initialItem.id, {
     enabled: () => activeInfoTab === 'credits' || isCreditsExpanded
+  })
+
+  // The authoritative reactive item for metadata (header, background)
+  // We merge lazy credits into this object so the UI can simple access item.tmdbCredits
+  const item = $derived({
+    ...(itemQuery.data || initialItem),
+    tmdbCredits: creditsQuery.data ?? (itemQuery.data || initialItem).tmdbCredits
+  })
+
+  // Resolve required fields from the View Hierarchy Side-Channel
+  const requiredFields = $derived(
+    getAllRequiredFields(item.viewHierarchy, { debug: true, context: 'ItemDetail' })
+  )
+
+  $effect(() => {
+    if (item.viewHierarchy) {
+      console.log(
+        '[ItemDetail] viewHierarchy side-channel:',
+        JSON.stringify(item.viewHierarchy, null, 2)
+      )
+    } else {
+      console.log('[ItemDetail] No viewHierarchy side-channel present on item.')
+    }
+    console.log('[ItemDetail] Computed requiredFields:', JSON.stringify(requiredFields))
   })
 
   // 2. Fetch structural children separately with isDetailView: true
@@ -65,13 +87,6 @@
     fields: () => requiredFields,
     isDetailView: () => true,
     enabled: () => initialItem.type === 'folder'
-  })
-
-  // The authoritative reactive item for metadata (header, background)
-  // We merge lazy credits into this object so the UI can simpler access item.tmdbCredits
-  const item = $derived({
-    ...(itemQuery.data || initialItem),
-    tmdbCredits: creditsQuery.data ?? (itemQuery.data || initialItem).tmdbCredits
   })
 
   // Structural children for the content list/tabs
@@ -99,7 +114,9 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
-  const contentsLayout = $derived(resolvedSettings?.layout ?? 'grid')
+  const contentsLayout = $derived(
+    item.viewHierarchy?.effective?.layout ?? resolvedSettings?.layout ?? 'grid'
+  )
   const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
 
   // -- 4. Additional Queries --
@@ -415,6 +432,7 @@
             layout={contentsLayout}
             onShowContextMenu={showContextMenu}
             {settings}
+            viewNode={item.viewHierarchy}
           />
         </div>
       {/if}

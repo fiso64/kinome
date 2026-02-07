@@ -80,45 +80,9 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
   nextUpEpisodeId: { sql: 'u.next_up_episode_id', table: 'u' },
 
-  // Folder Settings (Scraper)
-  retrieve_children_metadata: {
-    sql: "json_extract(f.scraper_settings_json, '$.retrieve_children_metadata')",
-    table: 'f',
-    parser: Boolean
-  },
-  children_type_hint: {
-    sql: "json_extract(f.scraper_settings_json, '$.children_type_hint')",
-    table: 'f'
-  },
-  process_tv_children: {
-    sql: "json_extract(f.scraper_settings_json, '$.process_tv_children')",
-    table: 'f',
-    parser: Boolean
-  },
-
-  // Folder Settings (View)
-  layout: { sql: "json_extract(f.view_settings_json, '$.layout')", table: 'f' },
-  clickAction: { sql: "json_extract(f.view_settings_json, '$.clickAction')", table: 'f' },
-  groupBy: { sql: "json_extract(f.view_settings_json, '$.groupBy')", table: 'f' },
-  gridPosterSize: { sql: "json_extract(f.view_settings_json, '$.gridPosterSize')", table: 'f' },
-  listDescriptionRows: {
-    sql: "json_extract(f.view_settings_json, '$.listDescriptionRows')",
-    table: 'f'
-  },
-  showHorizontalScrollbar: {
-    sql: "json_extract(f.view_settings_json, '$.showHorizontalScrollbar')",
-    table: 'f'
-  },
-  childViewSettings: {
-    sql: "json_extract(f.view_settings_json, '$.childViewSettings')",
-    table: 'f',
-    isJson: true
-  },
-  virtualFolderSettings: {
-    sql: "json_extract(f.view_settings_json, '$.virtualFolderSettings')",
-    table: 'f',
-    isJson: true
-  }
+  // Folder Settings
+  scraperSettings: { sql: 'f.scraper_settings_json', table: 'f', isJson: true },
+  viewSettings: { sql: 'f.view_settings_json', table: 'f', isJson: true }
 }
 
 export function isValidField(field: string): boolean {
@@ -255,25 +219,8 @@ function mapRowToLibraryItem(row: any): LibraryItem {
       val = images[key]
     }
 
-    // Fallback for View/Scraper settings if not selected individually but blob exists
-    // (This covers SELECT * cases where we get view_settings_json but not 'layout' alias)
-    if (val === undefined && def.table === 'f') {
-      if (def.sql.includes('view_settings_json') && row.view_settings_json) {
-        const vs = parseJsonSafe<any>(row.view_settings_json, {})
-        const key = alias // e.g. 'layout'
-        val = vs[key]
-      } else if (def.sql.includes('scraper_settings_json') && row.scraper_settings_json) {
-        const ss = parseJsonSafe<any>(row.scraper_settings_json, {})
-        const key = alias
-        val = ss[key]
-      }
-    }
-
-    // Metadata JSON blobs (genres, tags, etc)
-    // If the schema output is a parsed object, we need to handle parsing here.
+    // Generic JSON Parsing
     if (def.isJson) {
-      // If we got a string (from DB text column), parse it.
-      // If we got an object (already parsed or from previous step), leave it.
       if (typeof val === 'string') {
         const isArray = ['lockedFields', 'genres'].includes(alias)
         const isNullable = ['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)
@@ -282,7 +229,6 @@ function mapRowToLibraryItem(row: any): LibraryItem {
         val = parseJsonSafe(val, fallback)
 
         // Sanity Check / Auto-Heal:
-        // If we expected a nullable array but got an object (e.g. from previous {} fallback bug), force it to null.
         if (
           (alias === 'tmdbSeasons' || alias === 'tmdbEpisodes') &&
           val !== null &&
@@ -291,8 +237,6 @@ function mapRowToLibraryItem(row: any): LibraryItem {
           val = null
         }
       }
-      // FIX: Removed the 'else if (val === undefined)' block.
-      // This ensures that if the field wasn't fetched, it stays undefined and is omitted from the JSON.
     }
 
     // Generic Parser (Boolean etc)
@@ -352,11 +296,9 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   }
 
   // 3. Folder specific logic
-  // FIX: Removed explicit assignment of children = null.
-  // This allows the field to be undefined (omitted) unless explicitly populated later.
-  // if (item.type === 'folder') {
-  //   item.children = null
-  // }
+  if (item.type === 'folder') {
+    item.children = null
+  }
 
   return item as LibraryItem
 }
@@ -961,20 +903,8 @@ tmdb_id = excluded.tmdb_id,
     }
 
     // 4. Folder Settings
-    const hasViewUpdates = VIEW_SETTINGS_KEYS.some((k) => k in updates)
-    const hasScraperUpdates =
-      'retrieve_children_metadata' in updates ||
-      'children_type_hint' in updates ||
-      'process_tv_children' in updates
-    log(
-      `[Repo] [TRACE] Folder settings check - hasViewUpdates: ${hasViewUpdates}, hasScraperUpdates: ${hasScraperUpdates}`
-    )
-    if (hasScraperUpdates) {
-      log(
-        `[Repo] [TRACE] Scraper update detected: rcm=${(updates as any).retrieve_children_metadata}, cth=${(updates as any).children_type_hint}, ptc=${(updates as any).process_tv_children}`
-      )
-    }
-    log(`[Repo] [TRACE] Updates object keys: ${Object.keys(updates).join(', ')}`)
+    const hasViewUpdates = updates.viewSettings !== undefined
+    const hasScraperUpdates = (updates as any).scraperSettings !== undefined
 
     if (hasViewUpdates || hasScraperUpdates) {
       const existing =
@@ -983,19 +913,12 @@ tmdb_id = excluded.tmdb_id,
       const viewSettings = parseJsonSafe<any>(existing.view_settings_json, {})
       const scraperSettings = parseJsonSafe<any>(existing.scraper_settings_json, {})
 
-      if (hasViewUpdates) {
-        for (const key of VIEW_SETTINGS_KEYS) {
-          if (key in updates) (viewSettings as any)[key] = (updates as any)[key]
-        }
+      if (hasViewUpdates && (updates as any).viewSettings) {
+        Object.assign(viewSettings, (updates as any).viewSettings)
       }
 
-      if (hasScraperUpdates) {
-        if ((updates as any).retrieve_children_metadata !== undefined)
-          scraperSettings.retrieve_children_metadata = (updates as any).retrieve_children_metadata
-        if ((updates as any).children_type_hint !== undefined)
-          scraperSettings.children_type_hint = (updates as any).children_type_hint
-        if ((updates as any).process_tv_children !== undefined)
-          scraperSettings.process_tv_children = (updates as any).process_tv_children
+      if (hasScraperUpdates && (updates as any).scraperSettings) {
+        Object.assign(scraperSettings, (updates as any).scraperSettings)
       }
 
       log(`[DEBUG] Saving folder_settings for item ${itemId}:`)
@@ -1004,10 +927,10 @@ tmdb_id = excluded.tmdb_id,
       db.prepare(
         `
             INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
-VALUES(@id, @view, @scraper)
+            VALUES(@id, @view, @scraper)
             ON CONFLICT(item_id) DO UPDATE SET
-view_settings_json = excluded.view_settings_json,
-  scraper_settings_json = excluded.scraper_settings_json
+            view_settings_json = excluded.view_settings_json,
+            scraper_settings_json = excluded.scraper_settings_json
     `
       ).run({
         '@id': itemId,
@@ -1085,7 +1008,7 @@ export async function getChildrenForDetailView(
 
   // 2. Fetch grandchildren (Essential for physical Season -> Episode structure)
   // ONLY fetch if the layout is Tabs or Sections (the only views that "open" hierarchy).
-  if (['tabs', 'sections'].includes(resolved.layout)) {
+  if (['tabs', 'sections'].includes((resolved as any).layout)) {
     for (const child of children) {
       if (child.type === 'folder' && !child.isVirtual) {
         child.children = getChildren(child.id, fields).filter(

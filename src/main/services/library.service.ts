@@ -19,7 +19,7 @@ import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './au
 import { getTransport } from '../transport.registry'
 import * as playbackService from './playback.service'
 
-import { VIEW_SETTINGS_KEYS, METADATA_KEYS } from '@shared/types'
+import { VIEW_SETTINGS_KEYS, FOLDER_BEHAVIOR_SETTINGS_KEYS, METADATA_KEYS } from '@shared/types'
 import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
 
 const log = (message: string): void => {
@@ -710,138 +710,89 @@ export const handleItemRenamed = async (oldPath: string, newPath: string) => {
   }
 }
 export const updateItem = async (item: LibraryItem, isUser: boolean) => {
-  // --- Check for Virtual Folder Redirection ---
-  // --- Check for Virtual Folder Redirection ---
-  if (item.id.startsWith('virtual--')) {
-    log(`Redirection triggered for virtual item: ${item.id}`)
+  const updates = { ...item }
 
-    // Manual Parse or use Repository Helper?
-    // We can just split manually here to keep it self-contained or use the helper if available.
-    // Let's match repository.service logic for consistency.
-    const parts = item.id.split('--')
-    // virtual--{parentId}--{token1}--{token2}...
+  // --- Check for Virtual Folder Redirection ---
+  if (updates.id.startsWith('virtual--')) {
+    log(`Redirection triggered for virtual item: ${updates.id}`)
+
+    const parts = updates.id.split('--')
     const physicalParentId = parts[1]
     const tokens = parts.slice(2)
 
     if (physicalParentId && tokens.length > 0) {
       const parent = repositoryService.getItemById(physicalParentId) as MediaFolder
       if (parent) {
-        // Prepare settings to save
-        const settingsToSave: Partial<MediaFolder> = {}
-        for (const key of VIEW_SETTINGS_KEYS) {
-          if ((item as any)[key] !== undefined) {
-            ; (settingsToSave as any)[key] = (item as any)[key]
-          }
-        }
-
-        // Key for settings: "token1/token2"
         const settingsKey = tokens.join('/')
+        if (!parent.viewSettings) parent.viewSettings = {}
+        if (!parent.viewSettings.virtualFolderSettings) parent.viewSettings.virtualFolderSettings = {}
 
-        // Update virtual settings on physical parent
-        if (!parent.virtualFolderSettings) parent.virtualFolderSettings = {}
-
-        // We store it flat in the JSON, keyed by the full path?
-        // Wait, spec said: { "genre:Animation": {...}, "genre:Animation/year:2024": {...} }
-        // The previous implementation was nested: parent.virtualFolderSettings[groupByKey][groupByValue]
-        // This new implementation is FLAT (keyed by path string) or NESTED?
-        // The spec says:
-        // {
-        //   "genre:Animation": { ... },
-        //   "genre:Animation/year:2024": { ... }
-        // }
-        // This looks like a Flat Map where the key is the path string.
-        // My previous implementation was: parent.virtualFolderSettings[groupByKey][groupByValue] (Nested Object)
-        // I am changing the schema here to a Flat Map style for flexibility.
-
-        // Apply Normalization: groupBy is only valid for 'tabs' and 'sections'
-        if (settingsToSave.layout && !['tabs', 'sections'].includes(settingsToSave.layout)) {
-          // @ts-ignore
-          settingsToSave.groupBy = null
-        }
-        if (
-          settingsToSave.childViewSettings?.layout &&
-          !['tabs', 'sections'].includes(settingsToSave.childViewSettings.layout)
-        ) {
-          // @ts-ignore
-          settingsToSave.childViewSettings.groupBy = null
+        const currentVirtual = parent.viewSettings.virtualFolderSettings[settingsKey] ?? {}
+        parent.viewSettings.virtualFolderSettings[settingsKey] = {
+          ...currentVirtual,
+          ...(updates.viewSettings ?? {})
         }
 
-        parent.virtualFolderSettings[settingsKey] = settingsToSave
-
-        // Propagate update to renderer (both the virtual item's "bare" state and the parent)
-        // Note: Renderer's MediaView will re-generate the virtual items from the updated parent.
-        await updateIfChangedAndBroadcast([parent, item])
+        // Propagate update to parent (Renderer will re-generate the virtual item)
+        await updateIfChangedAndBroadcast([parent])
         return
       }
     }
   }
 
   // --- Standard Item Update with Robust Locking ---
-  const existing = repositoryService.getItemById(item.id)
+  const existing = repositoryService.getItemById(updates.id)
   if (existing && isUser) {
     let currentLocks = new Set(existing.lockedFields ?? [])
 
-    // 1. Handle explicit lock toggles if provided in payload (Map: { field: boolean })
     if (
-      (item as any).lockedFields &&
-      typeof (item as any).lockedFields === 'object' &&
-      !Array.isArray((item as any).lockedFields)
+      (updates as any).lockedFields &&
+      typeof (updates as any).lockedFields === 'object' &&
+      !Array.isArray((updates as any).lockedFields)
     ) {
-      const explicitLocks = (item as any).lockedFields as Record<string, boolean>
+      const explicitLocks = (updates as any).lockedFields as Record<string, boolean>
       for (const [field, isLocked] of Object.entries(explicitLocks)) {
-        if (isLocked) {
-          currentLocks.add(field)
-        } else {
-          currentLocks.delete(field)
-        }
+        if (isLocked) currentLocks.add(field)
+        else currentLocks.delete(field)
       }
-      // Delete the map from the item to avoid it being interpreted as the final array by the repository
-      delete (item as any).lockedFields
+      delete (updates as any).lockedFields
     }
 
-    // 2. Automatic Locking for Metadata Fields
-    // If a field is present in the partial update and differs from the DB, we lock it.
     for (const key of METADATA_KEYS) {
-      const newValue = (item as any)[key]
+      const newValue = (updates as any)[key]
       const oldValue = (existing as any)[key]
 
       if (newValue !== undefined) {
-        // Use deep equality check for non-primitive types (arrays/objects)
-        // to avoid locking fields due to new reference identity from DB fetch.
         const isPrimitive = typeof newValue !== 'object' || newValue === null
         const isChanged = isPrimitive ? newValue !== oldValue : !equal(newValue, oldValue)
-
         if (isChanged) {
-          // If the update is specifically trying to revert to Name (Folder Name),
-          // we might want a safeguard, but with partial updates, the frontend only sends
-          // title if the user actively edited it.
           currentLocks.add(key)
           log(`[Auto-Lock] Locking field "${key}" for item "${existing.name}" due to user update.`)
         }
       }
     }
 
-    // Convert back to array for repository persistence
-    item.lockedFields = Array.from(currentLocks)
+    updates.lockedFields = Array.from(currentLocks)
   }
 
-  // --- Normalization ---
+  // --- Final Normalization ---
   // Ensure groupBy is null if the layout doesn't support it
-  const anyItem = item as any
-  const isGroupingLayout = ['tabs', 'sections'].includes(anyItem.layout as string)
-  if (anyItem.layout !== undefined && !isGroupingLayout) {
-    anyItem.groupBy = null
-  }
-  // Also normalize childViewSettings if present
-  if (
-    anyItem.childViewSettings?.layout &&
-    !['tabs', 'sections'].includes(anyItem.childViewSettings.layout)
-  ) {
-    anyItem.childViewSettings.groupBy = null
+  if (updates.viewSettings) {
+    const isGroupingLayout = ['tabs', 'sections'].includes(updates.viewSettings.layout as string)
+    if (updates.viewSettings.layout !== undefined && !isGroupingLayout) {
+      updates.viewSettings.groupBy = null
+    }
+
+    if (
+      updates.viewSettings.childViewSettings?.layout &&
+      !['tabs', 'sections'].includes(updates.viewSettings.childViewSettings.layout)
+    ) {
+      updates.viewSettings.childViewSettings.groupBy = null
+    }
   }
 
   // --- Standard Item Update ---
-  await updateIfChangedAndBroadcast(item)
+  await updateIfChangedAndBroadcast(updates)
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
   const res = repositoryService.deleteItem(id)
@@ -914,8 +865,10 @@ export const applyInitialFolderSettings = async (
     const item = repositoryService.getItemById(s.id)
     if (item && item.type === 'folder') {
       const folder = item as MediaFolder
-      folder.retrieve_children_metadata = s.retrieve
-      folder.children_type_hint = s.hint
+      folder.scraperSettings = {
+        retrieve_children_metadata: s.retrieve,
+        children_type_hint: s.hint
+      }
       itemsToUpdate.push(folder)
     }
   }

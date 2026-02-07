@@ -19,7 +19,8 @@
     onItemClick,
     onShowContextMenu,
     suggestions,
-    settings
+    settings,
+    viewNode
   }: {
     container?: MediaFolder | VirtualFolder
     folders: (MediaFolder | VirtualFolder)[]
@@ -31,6 +32,7 @@
     ) => void
     suggestions?: AutocompleteSuggestions
     settings?: Settings | null
+    viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
   // When the view is rendered, trigger fetches for all visible season folders.
@@ -44,7 +46,7 @@
 <div class="sections-view">
   {#if folders.length > 0}
     {#each folders as folder (folder.id)}
-      {@const parentForMediaView = { ...folder, ...container?.childViewSettings }}
+      {@const childNode = viewNode?.children?.[folder.id]}
       <section class="content-section">
         <h2
           class="section-title"
@@ -54,12 +56,13 @@
           {folder.title ?? folder.name}
         </h2>
         <MediaView
-          parentItem={parentForMediaView}
+          parentItem={folder}
           items={folder.children ?? []}
           {onItemClick}
           {onShowContextMenu}
           {suggestions}
           {settings}
+          viewNode={childNode}
         />
       </section>
     {/each}

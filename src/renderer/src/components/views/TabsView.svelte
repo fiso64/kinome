@@ -22,7 +22,8 @@
     onItemClick,
     onShowContextMenu,
     suggestions,
-    settings
+    settings,
+    viewNode
   }: {
     container?: MediaFolder | VirtualFolder
     folders: (MediaFolder | VirtualFolder)[]
@@ -34,6 +35,7 @@
     ) => void
     suggestions?: AutocompleteSuggestions
     settings?: Settings | null
+    viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
   let lastProcessedContainerId: string | undefined = undefined
@@ -188,6 +190,7 @@
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
+          fill="none"
         /></svg
       >
     </button>
@@ -216,6 +219,7 @@
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
+          fill="none"
         /></svg
       >
     </button>
@@ -224,14 +228,15 @@
     {#if folders.length > 0}
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
-          {@const parentForMediaView = { ...folder, ...container?.childViewSettings }}
+          {@const childNode = viewNode?.children?.[folder.id]}
           <MediaView
-            parentItem={parentForMediaView}
+            parentItem={folder}
             items={folder.children ?? []}
             {onItemClick}
             {onShowContextMenu}
             {suggestions}
             {settings}
+            viewNode={childNode}
           />
         {/if}
       {/each}

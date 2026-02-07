@@ -389,7 +389,7 @@ const app = new Elysia()
          * (via `view-requirements.ts`) before this fallback can be safely removed.
          */
         // Default field fallback
-        if (!query.fields && !query.include) {
+        if (!query.fields) {
           options.fields = [
             ...repositoryService.CORE_FIELDS,
             'overview',
@@ -400,17 +400,8 @@ const app = new Elysia()
             'genres',
             'tags',
             'virtualTags',
-            'layout',
-            'clickAction',
-            'groupBy',
-            'gridPosterSize',
-            'listDescriptionRows',
-            'showHorizontalScrollbar',
-            'childViewSettings',
-            'virtualFolderSettings',
-            'retrieve_children_metadata',
-            'children_type_hint',
-            'process_tv_children'
+            'viewSettings',
+            'scraperSettings'
           ]
         }
 
@@ -419,7 +410,18 @@ const app = new Elysia()
           set.status = 404
           return { error: 'Item not found' }
         } else {
-          return items[0]
+          const item = items[0]
+
+          // Handle side-channel view hierarchy request
+          const include = query.include ? (query.include as string).split(',') : []
+          if (include.includes('viewHierarchy')) {
+            const hierarchy = await groupingService.resolveViewHierarchy(item.id)
+            if (hierarchy) {
+              item.viewHierarchy = hierarchy
+            }
+          }
+
+          return item
         }
       })
       .get(

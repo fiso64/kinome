@@ -1,4 +1,10 @@
-import { LibraryItem, MediaFolder } from '@shared/types'
+import {
+  LibraryItem,
+  MediaFolder,
+  ViewHierarchyNode,
+  StoredViewSettings,
+  VIEW_SETTINGS_KEYS
+} from '@shared/types'
 import {
   find,
   getItemById,
@@ -49,14 +55,10 @@ export async function getGroupedChildren(
 
   // 3. Resolve Grouping Policy
   const settings = await readSettings()
-  let finalGroupBy: string | undefined = undefined
+  let finalGroupBy: string | null | undefined = undefined
 
   if (rawGroupBy === 'auto' || rawGroupBy === undefined) {
-    const item = isVirtualId(targetId)
-      ? getVirtualItem(targetId)
-      : getItemById(targetId)
-
-    const resolved = resolveViewSettings(item as any, settings).settings
+    const resolved = await resolveEffectiveSettings(targetId, settings)
     if (['tabs', 'sections'].includes(resolved.layout)) {
       finalGroupBy = resolved.groupBy
     }
@@ -110,6 +112,275 @@ export function getVirtualItem(id: string): LibraryItem | null {
 }
 
 /**
+ * Recursively resolves the complete view hierarchy for a given item,
+ * including settings and layout structure for its logical descendants.
+ * This is the new side-channel for the Frontend to know layout structure in advance.
+ */
+/**
+ * Shared helper to derive logical folder metadata (ID, settings, full token path).
+ * Used by BOTH the hierarchy side-channel and the actual grouping logic.
+ */
+function getLogicalFolderInfo(
+  currentParentId: string,
+  token: string,
+  parentTokenPath: string,
+  physicalParent: MediaFolder | null
+) {
+  const fullTokenPath = parentTokenPath ? `${parentTokenPath}/${token}` : token
+
+  const virtualSettings =
+    physicalParent && physicalParent.viewSettings?.virtualFolderSettings
+      ? (physicalParent.viewSettings.virtualFolderSettings[fullTokenPath] ?? {})
+      : {}
+
+  let id = ''
+  if (isVirtualId(currentParentId)) {
+    id = `${currentParentId}--${token}`
+  } else {
+    const pid = physicalParent?.id || currentParentId
+    id = `virtual--${pid}--${token}`
+  }
+
+  return { id, fullTokenPath, virtualSettings }
+}
+
+/**
+ * Consistently resolves the effective view settings for any item ID,
+ * correctly handling the inheritance chain by recursively resolving parent settings.
+ */
+export async function resolveEffectiveSettings(
+  itemId: string,
+  settings: any, // Typed as any to avoid circular import with Settings service
+  visited: Set<string> = new Set()
+): Promise<any> {
+  if (visited.has(itemId)) {
+    log(`Circular dependency detected for ${itemId}, breaking recursion.`)
+    return resolveViewSettings(null, settings).settings
+  }
+  visited.add(itemId)
+
+  let targetId = itemId
+  if (itemId === 'root') {
+    const status = await getLibraryRoot()
+    if (status.status !== 'ready' || !status.root) return resolveViewSettings(null, settings).settings
+    targetId = status.root.id
+  }
+
+  const item = isVirtualId(targetId) ? getVirtualItem(targetId) : getItemById(targetId)
+  if (!item) return resolveViewSettings(null, settings).settings
+
+  // Base Case: Root physical items have no inheritance.
+  if (!isVirtualId(targetId) && (!item.parentId || item.parentId === 'root')) {
+    return resolveViewSettings(item as any, settings).settings
+  }
+
+  // No inheritance auto-discovery for anchor items.
+  // Physical and Virtual folders act as fresh start points for inheritance
+  // when they are the subject of a request.
+  const inherited: any = undefined
+  return resolveViewSettings(item as any, settings, new Set(), inherited).settings
+}
+
+export async function resolveViewHierarchy(
+  itemId: string,
+  recursive = true,
+  depth = 0,
+  inheritedSettings?: StoredViewSettings
+): Promise<ViewHierarchyNode | null> {
+  // Guard against excessive recursion
+  if (depth > 5) return null // Side-channel is for look-ahead, not full library crawl
+
+  // 1. Resolve Target ID (Root Alias)
+  let targetId = itemId
+  if (itemId === 'root') {
+    const status = await getLibraryRoot()
+    if (status.status !== 'ready' || !status.root) return null
+    targetId = status.root.id
+  }
+
+  // 2. Fetch or construct Item
+  const item = isVirtualId(targetId)
+    ? getVirtualItem(targetId)
+    : getItemById(targetId)
+  if (!item) return null
+
+  // 3. Resolve Settings
+  const settings = await readSettings()
+
+  // 1. Get Stored Settings for THIS specific item (no inheritance).
+  const stored: Partial<StoredViewSettings> = (item as MediaFolder).viewSettings ?? {}
+  const resolution = resolveViewSettings(
+    item as MediaFolder,
+    settings,
+    new Set(),
+    inheritedSettings
+  )
+
+  const node: ViewHierarchyNode = {
+    id: targetId,
+    stored: stored as StoredViewSettings,
+    effective: resolution.settings,
+    children: undefined
+  }
+
+  // 4. Recurse if needed (Container Layouts)
+  if (recursive && ['tabs', 'sections'].includes(resolution.settings.layout)) {
+    node.children = {}
+
+    // For containers, we identify the *logical* children without fetching all the files (too heavy).
+    // This is the "Look-Ahead" feature.
+    const childrenResult = await getGroupsOnly(targetId, inheritedSettings)
+
+    for (const childInfo of childrenResult) {
+      const childNode = await resolveViewHierarchy(
+        childInfo.id,
+        true,
+        depth + 1,
+        resolution.settings.childViewSettings
+      )
+      if (childNode) {
+        node.children[childInfo.id] = childNode
+      }
+    }
+  }
+
+  return node
+}
+
+/**
+ * Lean version of grouping that only returns logical folder information.
+ * Used by the side-channel to build the hierarchy without fetching files.
+ */
+async function getGroupsOnly(
+  parentId: string,
+  inheritedSettings?: StoredViewSettings
+): Promise<{ id: string }[]> {
+  const settings = await readSettings()
+  const item = isVirtualId(parentId) ? getVirtualItem(parentId) : getItemById(parentId)
+  if (!item || item.type !== 'folder') return []
+
+  // Resolve base grouping instruction
+  const { settings: resolved } = resolveViewSettings(
+    item as MediaFolder,
+    settings,
+    new Set(),
+    inheritedSettings
+  )
+  if (!['tabs', 'sections'].includes(resolved.layout) || !resolved.groupBy) return []
+
+  const groupByKey = resolved.groupBy
+
+  let physicalParent: MediaFolder | null = null
+  let parentTokenPath = ''
+  let currentParentId = parentId
+
+  if (isVirtualId(parentId)) {
+    const { parentId: pid, tokens } = parseVirtualId(parentId)
+    physicalParent = getItemById(pid || '') as MediaFolder
+    parentTokenPath = tokens ? tokens.join('/') : ''
+  } else {
+    physicalParent = item as MediaFolder
+  }
+
+  // Special cases for physical structures
+  if (groupByKey === 'folder') {
+    const items = find({
+      where: isVirtualId(parentId) ? getFiltersFromId(parentId) : { parentId },
+      fields: ['id', 'type', 'seasonNumber']
+    }).filter((c) => !c.isHidden && !c.isMissing)
+    const physicalFolders = items.filter((c: LibraryItem) => c.type === 'folder').map((c: LibraryItem) => ({ id: c.id }))
+    const looseFiles = items.filter((c: LibraryItem) => c.type === 'file')
+
+    const result: { id: string }[] = [...physicalFolders]
+
+    if (looseFiles.length > 0) {
+      const uniqueSeasons = new Set<number>()
+      let hasUnseasoned = false
+
+      for (const file of looseFiles) {
+        const seasonNum = (file as any).seasonNumber
+        if (seasonNum !== undefined && seasonNum !== null) {
+          uniqueSeasons.add(seasonNum)
+        } else {
+          hasUnseasoned = true
+        }
+      }
+
+      for (const seasonNum of Array.from(uniqueSeasons).sort()) {
+        const token = `folder:__season_${seasonNum}__`
+        const { id } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
+        result.push({ id })
+      }
+
+      if (hasUnseasoned) {
+        const token = `folder:__files__`
+        const { id } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
+        result.push({ id })
+      }
+    }
+
+    return result
+  }
+
+  // Metadata grouping - we need to fetch only the grouping field for all items in this folder
+  const groupFields: string[] = []
+  if (groupByKey === 'genre' || groupByKey === 'genres') {
+    groupFields.push('genres')
+  } else if (groupByKey.startsWith('vt.') || groupByKey === 'virtualTags') {
+    groupFields.push('virtualTags')
+  } else if (groupByKey.startsWith('tags.') || groupByKey === 'tags') {
+    groupFields.push('tags')
+  } else {
+    groupFields.push(groupByKey)
+  }
+
+  const items = find({
+    where: isVirtualId(parentId) ? getFiltersFromId(parentId) : { parentId },
+    fields: ['id', 'type', 'mediaType', 'seasonNumber', ...groupFields]
+  }).filter((c) => !c.isHidden && !c.isMissing)
+
+  const result: { id: string }[] = []
+
+  // Handle season grouping specifically for loose files
+  if (groupByKey === 'seasonNumber') {
+    const filesBySeason = new Map<number, LibraryItem[]>()
+    for (const file of items) {
+      const seasonNum = 'seasonNumber' in file ? (file as any).seasonNumber : undefined
+      if (seasonNum !== undefined && seasonNum !== null) {
+        if (!filesBySeason.has(seasonNum)) {
+          filesBySeason.set(seasonNum, [])
+        }
+        filesBySeason.get(seasonNum)!.push(file)
+      }
+    }
+
+    const sortedSeasonNumbers = Array.from(filesBySeason.keys()).sort((a, b) => a - b)
+    for (const seasonNum of sortedSeasonNumbers) {
+      const token = `${groupByKey}:${seasonNum}`
+      const { id } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
+      result.push({ id })
+    }
+  } else {
+    // Aggregate unique group values for other metadata groupings
+    const uniqueValues = new Set<string>()
+    for (const item of items) {
+      const vals = getValuesForKey(item, groupByKey)
+      if (vals.length === 0) uniqueValues.add('Uncategorized')
+      else vals.forEach((v) => uniqueValues.add(v))
+    }
+
+    // Generate logical info for each unique value
+    for (const value of Array.from(uniqueValues).sort()) {
+      const token = `${groupByKey}:${value}`
+      const { id } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
+      result.push({ id })
+    }
+  }
+
+  return result
+}
+
+/**
  * High-level API used by repositoryService.createForDetailViewCopy
  * to apply virtualization (grouping) to an item's children.
  */
@@ -135,7 +406,7 @@ export async function groupItemsForDetailView(
       parent.id,
       parent,
       '',
-      parent.childViewSettings || {},
+      parent.viewSettings?.childViewSettings || {},
       options.fields
     )
   }
@@ -171,17 +442,10 @@ export async function getGroups(
 
   const physicalParent = getItemById(physicalParentId) as MediaFolder
 
-  let inheritedSettings = {}
-  if (parentIsVirtual) {
-    const virtualParent = getVirtualItem(parentId)
-    if (virtualParent && (virtualParent as any).childViewSettings) {
-      inheritedSettings = (virtualParent as any).childViewSettings
-    }
-  } else {
-    if (physicalParent && physicalParent.childViewSettings) {
-      inheritedSettings = physicalParent.childViewSettings
-    }
-  }
+  // NEW: Resolve the parent's effective settings to correctly identify inheritance context.
+  const settings = await readSettings()
+  const parentEffective = await resolveEffectiveSettings(parentId, settings)
+  const inheritedSettings = parentEffective.childViewSettings
 
   return await groupItemsRecursive(
     items,
@@ -233,15 +497,19 @@ async function groupItemsRecursive(
       let children = getChildren(folder.id, fields).filter((c) => !c.isHidden && !c.isMissing)
 
       // Resolve settings for this folder to see if it acts as a grouping container (Tabs/Sections)
-      // We merge inheritedSettings to ensure virtual parent overrides apply.
-      const effectiveItem = { ...inheritedSettings, ...folder }
-      const { settings: resolved } = resolveViewSettings(effectiveItem, globalSettings)
+      // We pass inheritedSettings to ensure virtual parent overrides apply.
+      const { settings: resolved } = resolveViewSettings(
+        folder as any,
+        globalSettings,
+        new Set(),
+        inheritedSettings
+      )
 
       if (['tabs', 'sections'].includes(resolved.layout) && resolved.groupBy) {
         // If this folder is a container (e.g. TV Show -> Tabs), we must populate its structure recursively.
         // We reset parentTokenPath to '' because 'folder' is a physical anchor.
         // We pass down its resolved childViewSettings.
-        const nextInheritedSettings = folder.childViewSettings || resolved.childViewSettings || {}
+        const nextInheritedSettings = folder.viewSettings?.childViewSettings || resolved.childViewSettings || {}
 
         children = await groupItemsRecursive(
           children,
@@ -280,8 +548,8 @@ async function groupItemsRecursive(
         const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
 
         const virtualSettings =
-          physicalParent && physicalParent.virtualFolderSettings
-            ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
+          physicalParent && physicalParent.viewSettings?.virtualFolderSettings
+            ? (physicalParent.viewSettings.virtualFolderSettings[fullSettingsKey] ?? {})
             : {}
 
         let newId = ''
@@ -306,9 +574,12 @@ async function groupItemsRecursive(
           path: `virtual/${fullSettingsKey}`,
           isVirtual: true,
           children: filesBySeason.get(seasonNum)!,
-          virtualFolderSettings: physicalParent?.virtualFolderSettings,
           seasonNumber: seasonNum,
           ...virtualSettings,
+          viewSettings: {
+            ...virtualSettings,
+            virtualFolderSettings: physicalParent?.viewSettings?.virtualFolderSettings
+          },
           groupByKey: 'folder',
           groupByValue: groupValue
         }
@@ -318,39 +589,33 @@ async function groupItemsRecursive(
       if (unseasonedFiles.length > 0) {
         const groupValue = '__files__'
         const token = `${groupByKey}:${groupValue}`
-        const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-        const virtualSettings =
-          physicalParent && physicalParent.virtualFolderSettings
-            ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
-            : {}
-
-        const existingParentId = isVirtualId(currentParentId)
-          ? currentParentId
-          : physicalParent?.id || currentParentId
-        let newId = ''
-        if (isVirtualId(currentParentId)) {
-          newId = `${currentParentId}--${token}`
-        } else {
-          newId = `virtual--${existingParentId}--${token}`
-        }
+        const { id: newId, fullTokenPath, virtualSettings } = getLogicalFolderInfo(
+          currentParentId,
+          token,
+          parentTokenPath,
+          physicalParent
+        )
 
         const filesFolder: MediaFolder = {
           id: newId,
           parentId: currentParentId,
           name: 'Files',
-          title: virtualSettings.title ?? 'Files',
+          title: (virtualSettings as any).title ?? 'Files',
           type: 'folder',
           mediaType: 'folder' as any,
           isMissing: false,
           isHidden: false,
-          path: `virtual/${fullSettingsKey}`,
+          path: `virtual/${fullTokenPath}`,
           isVirtual: true,
           children: unseasonedFiles,
-          virtualFolderSettings: physicalParent?.virtualFolderSettings,
           ...virtualSettings,
+          viewSettings: {
+            ...virtualSettings,
+            virtualFolderSettings: physicalParent?.viewSettings?.virtualFolderSettings
+          },
           groupByKey: 'folder',
           groupByValue: groupValue
-        }
+        } as any
         virtualFolders.push(filesFolder)
       }
     }
@@ -382,42 +647,38 @@ async function groupItemsRecursive(
   const virtualFolders: LibraryItem[] = await Promise.all(
     Object.entries(groups).map(async ([groupValue, groupItems]) => {
       const token = `${groupByKey}:${groupValue}`
-      const fullSettingsKey = parentTokenPath ? `${parentTokenPath}/${token}` : token
-
-      const virtualSettings =
-        physicalParent && physicalParent.virtualFolderSettings
-          ? (physicalParent.virtualFolderSettings[fullSettingsKey] ?? {})
-          : {}
-
-      let newId = ''
-      if (isVirtualId(currentParentId)) {
-        newId = `${currentParentId}--${token}`
-      } else {
-        const pid = physicalParent?.id || currentParentId
-        newId = `virtual--${pid}--${token}`
-      }
+      const { id: newId, fullTokenPath, virtualSettings } = getLogicalFolderInfo(
+        currentParentId,
+        token,
+        parentTokenPath,
+        physicalParent
+      )
 
       const virtualFolder: MediaFolder = {
         id: newId,
         parentId: currentParentId,
         name: groupValue,
-        title: virtualSettings.title ?? groupValue,
+        title: (virtualSettings as any).title ?? groupValue,
         type: 'folder',
         mediaType: physicalParent?.mediaType,
         isMissing: false,
         isHidden: false,
-        path: `virtual/${fullSettingsKey}`,
+        path: `virtual/${fullTokenPath}`,
         isVirtual: true,
         children: [],
-        virtualFolderSettings: physicalParent?.virtualFolderSettings,
-        ...virtualSettings
+        ...virtualSettings,
+        viewSettings: {
+          ...virtualSettings,
+          virtualFolderSettings: physicalParent?.viewSettings?.virtualFolderSettings
+        }
       }
 
-      // Use the hint from the parent (inheritedSettings) to decide how to process THIS folder's children,
-      // but keep the virtualFolder object clean of those hints for its own identity.
+      // Use the hint from the parent (inheritedSettings) to decide how to process THIS folder's children.
       const effectiveResolution = resolveViewSettings(
-        { ...inheritedSettings, ...virtualSettings, ...virtualFolder } as any,
-        globalSettings
+        virtualFolder,
+        globalSettings,
+        new Set(),
+        inheritedSettings
       ).settings
 
       if (
@@ -426,14 +687,14 @@ async function groupItemsRecursive(
       ) {
         // If this level is ALSO grouping, we pass its childViewSettings down.
         const nextSettings =
-          (virtualFolder as any).childViewSettings || effectiveResolution.childViewSettings || {}
+          virtualFolder.viewSettings?.childViewSettings || effectiveResolution.childViewSettings || {}
 
         virtualFolder.children = await groupItemsRecursive(
           groupItems,
           effectiveResolution.groupBy,
           newId,
           physicalParent,
-          fullSettingsKey,
+          fullTokenPath,
           nextSettings,
           fields // Pass fields
         )

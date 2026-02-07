@@ -27,7 +27,7 @@ export interface ApiClient {
     includeHidden?: boolean
   }): Promise<LibraryItem[]>
 
-  getItem(id: string, include?: string[] | { fields?: string[]; include?: string[] }): Promise<LibraryItem>
+  getItem(id: string, options?: { fields?: string[]; include?: string[] }): Promise<LibraryItem>
   getChildren(
     parentId: string,
     options?: {

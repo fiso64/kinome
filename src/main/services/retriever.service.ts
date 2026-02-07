@@ -549,7 +549,7 @@ export async function fetchItemDetails(
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
-      (item as MediaFolder).process_tv_children !== false &&
+      (item as MediaFolder).scraperSettings?.process_tv_children !== false &&
       details.seasons
     ) {
       item.tmdbSeasons = details.seasons // Cache the full season data
@@ -589,7 +589,7 @@ export async function applyTvShowData(
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
-      (item.process_tv_children !== false || options.force) &&
+      (item.scraperSettings?.process_tv_children !== false || options.force) &&
       item.tmdbSeasons
     ) {
       console.log(`[TMDB] Applying TV data to children of "${item.name}".`)
@@ -686,7 +686,7 @@ export async function applyTvShowData(
     if (item.type === 'folder' && item.mediaType === 'season') {
       // Scenario C: Individual Season update
       const show = repositoryService.findParent(item.id) as MediaFolder
-      if (show && show.tmdbId && (show.process_tv_children !== false || options.force)) {
+      if (show && show.tmdbId && (show.scraperSettings?.process_tv_children !== false || options.force)) {
         console.log(
           `[TMDB] Explicit Managed Copy for Season ${item.seasonNumber} of "${show.name}"`
         )

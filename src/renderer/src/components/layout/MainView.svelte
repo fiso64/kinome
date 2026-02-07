@@ -20,7 +20,8 @@
     MediaFile,
     SearchIndexEntry,
     LibraryStatus,
-    ScanStatus
+    ScanStatus,
+    ViewHierarchyNode
   } from '@shared/types'
 
   let {
@@ -43,10 +44,19 @@
   const currentFolderId = $derived(navStore.state.currentFolderId)
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
-    enabled: () => libraryStatus?.status === 'ready'
+    enabled: () => libraryStatus?.status === 'ready',
+    include: () => ['viewHierarchy']
   })
 
-  const currentFolder = $derived(currentFolderQuery.data as MediaFolder | undefined)
+  const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
+  $effect(() => {
+    if (currentFolder && currentFolder.viewHierarchy) {
+      console.log(
+        '[MainView] Recursive View Hierarchy:',
+        JSON.stringify(currentFolder.viewHierarchy, null, 2)
+      )
+    }
+  })
 
   // 1b. Resolve Layout & View Requirements
   // We need to know the layout to know which fields to fetch (e.g. 'overview' for list view).
@@ -54,10 +64,7 @@
   // We need to know the layout to know which fields to fetch.
 
   const requiredFields = $derived.by(() => {
-    // CRITICAL: We pass currentFolder here because getAllRequiredFields needs to see .virtualFolderSettings
-    // and also to provide mediaType for implicit child layout resolution.
-    // TODO: Merging is retarded, clean it up.
-    return getAllRequiredFields({ ...currentFolder, ...resolvedSettings })
+    return getAllRequiredFields(currentFolder?.viewHierarchy)
   })
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
@@ -206,6 +213,7 @@
                   dispatch('showContextMenu', { item, event: e, options })}
                 {suggestions}
                 {settings}
+                viewNode={currentFolder.viewHierarchy}
               />
             </div>
           {/if}

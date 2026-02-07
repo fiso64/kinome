@@ -16,7 +16,7 @@
   let isSaving = $state(false)
 
   // TV show processing is enabled by default (undefined or true), and disabled if explicitly false.
-  const isTvProcessingEnabled = $derived(item.process_tv_children !== false)
+  const isTvProcessingEnabled = $derived(item.scraperSettings?.process_tv_children !== false)
 
   async function handleSave() {
     isSaving = true

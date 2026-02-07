@@ -32,7 +32,7 @@ const log = (message: string): void => {
 function isMetadataEnabledForItem(itemId: string): boolean {
   const parent = repositoryService.findParent(itemId)
   if (!parent) return false
-  return parent.retrieve_children_metadata === true
+  return parent.scraperSettings?.retrieve_children_metadata === true
 }
 
 export async function fetchMetadataForLibrary() {
@@ -298,7 +298,7 @@ export async function handleItemUpdate(
       const parent = item.parentId
         ? (repositoryService.getItemById(item.parentId) as MediaFolder)
         : null
-      const typeHint = parent?.children_type_hint
+      const typeHint = parent?.scraperSettings?.children_type_hint
 
       await retrieverService.searchTmdbAndApplyMetadata(
         item,
@@ -329,7 +329,7 @@ export async function handleItemUpdate(
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
-      ((item as MediaFolder).process_tv_children !== false || options.force)
+      (item.scraperSettings?.process_tv_children !== false || options.force)
     ) {
       log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
       const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
@@ -340,8 +340,9 @@ export async function handleItemUpdate(
     // Ensures episodes get their names/posters from the show/season cache.
     // Respects process_tv_children flag (unless forced).
     if (
-      (item.mediaType === 'tv' || item.mediaType === 'season') &&
-      ((item as any).process_tv_children !== false || options.force)
+      ((item.mediaType === 'tv' && item.scraperSettings?.process_tv_children !== false) ||
+        item.mediaType === 'season' ||
+        options.force)
     ) {
       log(`[Orchestrator] Managed Copy for ${item.mediaType} "${item.name}"`)
       const modified = await retrieverService.applyTvShowData(

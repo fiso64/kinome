@@ -89,8 +89,8 @@ export function buildVirtualItem(id: string, parent: MediaFolder): LibraryItem {
   // Resolve Virtual Folder Settings
   const settingsKey = tokens.join('/')
   let appliedSettings: any = {}
-  if (parent.virtualFolderSettings && parent.virtualFolderSettings[settingsKey]) {
-    appliedSettings = parent.virtualFolderSettings[settingsKey]
+  if (parent.viewSettings?.virtualFolderSettings && parent.viewSettings.virtualFolderSettings[settingsKey]) {
+    appliedSettings = parent.viewSettings.virtualFolderSettings[settingsKey]
   }
 
   const lastToken = tokens[tokens.length - 1]
@@ -107,8 +107,10 @@ export function buildVirtualItem(id: string, parent: MediaFolder): LibraryItem {
     path: `virtual/${tokens.join('/')}`,
     isVirtual: true,
     children: [], // Lazy load
-    virtualFolderSettings: parent.virtualFolderSettings, // Propagate settings for nested lookups
-    ...appliedSettings // Apply specific override (takes precedence)
+    viewSettings: {
+      ...appliedSettings,
+      virtualFolderSettings: parent.viewSettings?.virtualFolderSettings
+    }
   }
 
   return item

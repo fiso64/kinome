@@ -27,7 +27,7 @@
     settings
   }: {
     continueWatchingItems: ContinueWatchingItem[]
-    parentItem: MediaFolder | undefined
+    parentItem: (LibraryItem & MediaFolder) | undefined
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
     onShowContextMenu: (
@@ -67,7 +67,15 @@
   {#if parentItem}
     <section class="home-section">
       <h2 class="home-section-title">Library</h2>
-      <MediaView {parentItem} {items} {onItemClick} {onShowContextMenu} {suggestions} {settings} />
+      <MediaView
+        {parentItem}
+        {items}
+        {onItemClick}
+        {onShowContextMenu}
+        {suggestions}
+        {settings}
+        viewNode={parentItem.viewHierarchy}
+      />
     </section>
   {/if}
 </div>

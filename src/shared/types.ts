@@ -25,7 +25,12 @@ export interface ListSettings {
  * Defines the shape of settings specific to 'tabs' or 'sections' layouts.
  */
 export interface GroupingSettings {
-  groupBy: string
+  groupBy: string | null
+  /** 
+   * Recursively defined settings for virtual folders created by this grouping.
+   * Key: token path (e.g. "genre:Action")
+   */
+  virtualFolderSettings?: Record<string, StoredViewSettings>
 }
 
 /**
@@ -79,6 +84,7 @@ export interface StoredViewSettings
     BaseViewSettings & GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings
   > {
   childViewSettings?: StoredViewSettings
+  title?: string
 }
 
 /**
@@ -88,6 +94,7 @@ export interface StoredViewSettings
 export type ResolvedViewSettings = BaseViewSettings &
   Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings> & {
     childViewSettings?: StoredViewSettings
+    title?: string
   }
 
 export type ResolutionSource = {
@@ -305,7 +312,7 @@ export interface MediaFile {
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
-export interface MediaFolder extends StoredViewSettings {
+export interface MediaFolder {
   // --- Core Properties (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
   parentId?: string
@@ -316,10 +323,9 @@ export interface MediaFolder extends StoredViewSettings {
   isVirtual?: boolean // Transient property for virtual folders
 
   // --- View & Behavior Settings (Preserved) ---
+  viewSettings?: StoredViewSettings
+  scraperSettings?: any
   virtualFolderSettings?: Record<string, Partial<MediaFolder>>
-  retrieve_children_metadata?: boolean
-  children_type_hint?: 'movie' | 'tv'
-  process_tv_children?: boolean // If false, season/episode processing and fetching is disabled
   groupByKey?: string
   groupByValue?: string
 
@@ -354,7 +360,7 @@ export interface MediaFolder extends StoredViewSettings {
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
-export interface BaseLibraryItem extends StoredViewSettings {
+export interface BaseLibraryItem {
   id: string
   parentId?: string
   name: string
@@ -380,10 +386,41 @@ export interface BaseLibraryItem extends StoredViewSettings {
   nextUpEpisodeId?: string | null
   lastRefreshedAt?: number | null
   lockedFields?: string[]
+  viewSettings?: StoredViewSettings
+  scraperSettings?: any
   _v?: number
 }
 
-export type LibraryItem = (MediaFile | MediaFolder) & BaseLibraryItem
+export interface ViewHierarchyNode {
+  /** The ID of the item this node describes (physical or virtual) */
+  id: string
+
+  /**
+   * The raw, stored settings for this item.
+   * Used by: Settings Modals (to show "inherited" vs "overridden" states).
+   */
+  stored: StoredViewSettings
+
+  /**
+   * The fully resolved, effective settings for rendering.
+   * Used by: MediaView (to determine layout), field collectors.
+   */
+  effective: ResolvedViewSettings
+
+  /**
+   * Recursive map of children view configurations.
+   * Only populated if the effective layout is a container ('tabs', 'sections')
+   * OR if explicitly requested for unlimited depth.
+   * Key: Child Item ID
+   */
+  children?: Record<string, ViewHierarchyNode>
+}
+
+export type LibraryItem = (MediaFile | MediaFolder) &
+  BaseLibraryItem & {
+    /** Optional side-channel for the resolved view hierarchy tree. */
+    viewHierarchy?: ViewHierarchyNode
+  }
 
 export interface PlayerCommandConfig {
   id: string

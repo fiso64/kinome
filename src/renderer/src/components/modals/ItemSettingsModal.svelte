@@ -114,21 +114,24 @@
 
         if (freshItem.type === 'folder') {
           const folder = freshItem as MediaFolder
+          // Use stored settings directly from the item's viewSettings property
+          const stored = folder.viewSettings ?? {}
+
           seasonNumber = folder.seasonNumber?.toString() ?? ''
 
-          // Refresh View Settings
-          selectedLayout = folder.layout ?? null
-          selectedClickAction = folder.clickAction ?? null
-          selectedGroupBy = folder.groupBy ?? null
-          gridPosterSize = folder.gridPosterSize ?? null
-          listDescriptionRows = folder.listDescriptionRows ?? null
-          showHorizontalScrollbar = folder.showHorizontalScrollbar ?? null
-          childViewSettings = folder.childViewSettings ?? null
+          // Refresh View State
+          selectedLayout = stored.layout ?? null
+          selectedClickAction = stored.clickAction ?? null
+          selectedGroupBy = stored.groupBy ?? null
+          gridPosterSize = stored.gridPosterSize ?? null
+          listDescriptionRows = stored.listDescriptionRows ?? null
+          showHorizontalScrollbar = stored.showHorizontalScrollbar ?? null
+          childViewSettings = stored.childViewSettings ?? null
 
           // Refresh Folder Settings
-          retrieveChildrenMetadata = folder.retrieve_children_metadata ?? false
-          childrenTypeHint = folder.children_type_hint ?? 'auto'
-          processTvChildren = folder.process_tv_children ?? true
+          retrieveChildrenMetadata = folder.scraperSettings?.retrieve_children_metadata ?? false
+          childrenTypeHint = folder.scraperSettings?.children_type_hint ?? 'auto'
+          processTvChildren = folder.scraperSettings?.process_tv_children ?? true
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
           episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''
@@ -167,26 +170,28 @@
   )
 
   // --- View State (for folders) ---
-  let selectedLayout = $state(_isFolder ? (item.layout ?? null) : null)
-  let selectedClickAction = $state(_isFolder ? (item.clickAction ?? null) : null)
-  let selectedGroupBy = $state(_isFolder ? (item.groupBy ?? null) : null)
-  let gridPosterSize = $state((_isFolder ? (item as MediaFolder).gridPosterSize : null) ?? null)
-  let listDescriptionRows = $state(
-    (_isFolder ? (item as MediaFolder).listDescriptionRows : null) ?? null
-  )
+  const initialStored =
+    (item.type === 'folder' ? (item as MediaFolder).viewSettings : undefined) ?? {}
+  let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
+  let selectedClickAction = $state(_isFolder ? (initialStored.clickAction ?? null) : null)
+  let selectedGroupBy = $state(_isFolder ? (initialStored.groupBy ?? null) : null)
+  let gridPosterSize = $state((_isFolder ? initialStored.gridPosterSize : null) ?? null)
+  let listDescriptionRows = $state((_isFolder ? initialStored.listDescriptionRows : null) ?? null)
   let showHorizontalScrollbar = $state(
-    (_isFolder ? (item as MediaFolder).showHorizontalScrollbar : null) ?? null
+    (_isFolder ? initialStored.showHorizontalScrollbar : null) ?? null
   )
-  let childViewSettings = $state(_isFolder ? (item.childViewSettings ?? null) : null)
+  let childViewSettings = $state(_isFolder ? (initialStored.childViewSettings ?? null) : null)
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
-    _isFolder ? (item.retrieve_children_metadata ?? false) : false
+    _isFolder ? (item.scraperSettings?.retrieve_children_metadata ?? false) : false
   )
   let childrenTypeHint = $state<'auto' | 'movie' | 'tv'>(
-    _isFolder ? ((item as MediaFolder).children_type_hint ?? 'auto') : 'auto'
+    _isFolder ? (item.scraperSettings?.children_type_hint ?? 'auto') : 'auto'
   )
-  let processTvChildren = $state(_isFolder ? (item.process_tv_children ?? true) : true)
+  let processTvChildren = $state(
+    _isFolder ? (item.scraperSettings?.process_tv_children ?? true) : true
+  )
   let itemsToUnhide = $state<string[]>([])
 
   // Capture initial state from props/initialization
@@ -332,33 +337,20 @@
 
       // 2. View and Folder Setting Changes (for folders)
       if (isFolder) {
-        const viewSettings: Partial<MediaFolder> = {}
-        applyViewSettings(viewSettings)
+        const viewUpdates: any = {}
+        const scraperUpdates: any = {}
 
-        if (hasChanged(viewSettings.layout, initialValues.selectedLayout)) {
-          updates.layout = viewSettings.layout
-          changed = true
-        }
-        if (hasChanged(viewSettings.clickAction, initialValues.selectedClickAction)) {
-          updates.clickAction = viewSettings.clickAction
-          changed = true
-        }
-        if (hasChanged(viewSettings.groupBy, initialValues.selectedGroupBy)) {
-          updates.groupBy = viewSettings.groupBy
-          changed = true
-        }
-        if (hasChanged(viewSettings.gridPosterSize, initialValues.gridPosterSize)) {
-          updates.gridPosterSize = viewSettings.gridPosterSize
-          changed = true
-        }
-        if (hasChanged(viewSettings.listDescriptionRows, initialValues.listDescriptionRows)) {
-          updates.listDescriptionRows = viewSettings.listDescriptionRows
-          changed = true
-        }
+        applyViewSettings(viewUpdates)
+
         if (
-          hasChanged(viewSettings.showHorizontalScrollbar, initialValues.showHorizontalScrollbar)
+          hasChanged(viewUpdates.layout, initialValues.selectedLayout) ||
+          hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction) ||
+          hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy) ||
+          hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize) ||
+          hasChanged(viewUpdates.listDescriptionRows, initialValues.listDescriptionRows) ||
+          hasChanged(viewUpdates.showHorizontalScrollbar, initialValues.showHorizontalScrollbar)
         ) {
-          updates.showHorizontalScrollbar = viewSettings.showHorizontalScrollbar
+          updates.viewSettings = viewUpdates
           changed = true
         }
 
@@ -366,12 +358,8 @@
           ? JSON.parse(JSON.stringify(childViewSettings))
           : null
         if (hasChanged(finalChildViewSettings, initialValues.childViewSettings)) {
-          updates.childViewSettings = finalChildViewSettings
-          changed = true
-        }
-
-        if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
-          updates.retrieve_children_metadata = retrieveChildrenMetadata
+          if (!updates.viewSettings) updates.viewSettings = {}
+          updates.viewSettings.childViewSettings = finalChildViewSettings
           changed = true
         }
 
@@ -379,14 +367,17 @@
           childrenTypeHint === 'auto' || (childrenTypeHint as string) === ''
             ? 'auto'
             : (childrenTypeHint as 'movie' | 'tv')
-        if (hasChanged(finalTypeHint, initialValues.childrenTypeHint)) {
-          updates.children_type_hint = finalTypeHint
-          changed = true
-        }
 
-        const finalProcessTv = processTvChildren === true ? true : false
-        if (hasChanged(finalProcessTv, initialValues.processTvChildren)) {
-          updates.process_tv_children = finalProcessTv
+        if (
+          hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata) ||
+          hasChanged(finalTypeHint, initialValues.childrenTypeHint) ||
+          hasChanged(processTvChildren, initialValues.processTvChildren)
+        ) {
+          updates.scraperSettings = {
+            retrieve_children_metadata: retrieveChildrenMetadata,
+            children_type_hint: finalTypeHint,
+            process_tv_children: processTvChildren
+          }
           changed = true
         }
       }
@@ -399,12 +390,13 @@
     const itemToUpdate = await buildUpdatedItem()
     let needsRefresh = false
     if (itemToUpdate) {
-      const wasEnabled = item.type === 'folder' ? (item.retrieve_children_metadata ?? false) : false
+      const wasEnabled =
+        item.type === 'folder' ? (item.scraperSettings?.retrieve_children_metadata ?? false) : false
       console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
       await window.api.userUpdateItem(itemToUpdate)
       if (
         itemToUpdate.type === 'folder' &&
-        (itemToUpdate as any).retrieve_children_metadata &&
+        itemToUpdate.scraperSettings?.retrieve_children_metadata &&
         !wasEnabled
       ) {
         needsRefresh = true

@@ -93,17 +93,22 @@ class LibraryDataService {
    */
   getItemDetailsQuery(
     idFn: () => string | null | undefined,
-    options: { fields?: () => string[]; enabled?: () => boolean } = {}
+    options: {
+      fields?: () => string[]
+      include?: () => string[]
+      enabled?: () => boolean
+    } = {}
   ) {
     return createQuery(() => {
       const id = idFn()
       const normalizedId = this.normalizeId(id)
       const fields = (options.fields ? options.fields() : []).sort()
+      const include = (options.include ? options.include() : []).sort()
       const isEnabled = options.enabled ? options.enabled() : true
 
       return {
-        queryKey: [...this.keys.item.details(normalizedId), { fields }],
-        queryFn: () => (normalizedId ? api.getItem(id!, { fields }) : null),
+        queryKey: [...this.keys.item.details(normalizedId), { fields, include }],
+        queryFn: () => (normalizedId ? api.getItem(id!, { fields, include }) : null),
         enabled: isEnabled && !!normalizedId
       }
     })
@@ -160,7 +165,7 @@ class LibraryDataService {
 
       return {
         queryKey: this.keys.item.tree(normalizedId),
-        queryFn: () => (normalizedId ? api.getItem(id!, ['tree', ...fields]) : null),
+        queryFn: () => (normalizedId ? api.getItem(id!, { include: ['tree'], fields }) : null),
         enabled: isEnabled && !!normalizedId
       }
     })
