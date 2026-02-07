@@ -50,6 +50,10 @@
   let lastLogo = $state<string | undefined>()
   let lastPoster = $state<string | undefined>()
 
+  // Timing for adaptive fades
+  let backdropStartTime = $state(performance.now())
+  let backdropFadeDuration = $state(400)
+
   // -- 2. Reactive Data Fetching (Lean Bundling) --
 
   // Resolve layout and required fields for the current item
@@ -83,6 +87,7 @@
     if (item.backdropPath !== lastBackdrop) {
       lastBackdrop = item.backdropPath
       isBackdropLoaded = false
+      backdropStartTime = performance.now()
     }
     if (item.logoPath !== lastLogo) {
       lastLogo = item.logoPath
@@ -101,7 +106,10 @@
     item.logoPath
     item.posterPath
 
-    if (backdropImg?.complete && backdropImg.src) isBackdropLoaded = true
+    if (backdropImg?.complete && backdropImg.src && !isBackdropLoaded) {
+      backdropFadeDuration = 300 // Snappy for ultra-fast cache
+      isBackdropLoaded = true
+    }
     if (logoImg?.complete && logoImg.src) isLogoLoaded = true
     if (posterImg?.complete && posterImg.src) isPosterLoaded = true
   })
@@ -266,11 +274,7 @@
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
-  <div
-    class="backdrop-container"
-    class:full-size={settings.itemDetailBackdropSize === 'full'}
-    transition:fade|global={{ duration: 250 }}
-  >
+  <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
     {#if item.backdropPath}
       <img
         bind:this={backdropImg}
@@ -278,9 +282,23 @@
         class:show={isBackdropLoaded}
         src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
         alt=""
-        onload={() => (isBackdropLoaded = true)}
-        onerror={() => (isBackdropLoaded = true)}
+        onload={async (e) => {
+          const img = e.currentTarget
+          try {
+            await img.decode() // Ensure GPU is ready before showing
+            const loadTime = performance.now() - backdropStartTime
+            backdropFadeDuration = loadTime > 150 ? 1000 : 300
+            isBackdropLoaded = true
+          } catch (err) {
+            isBackdropLoaded = true
+          }
+        }}
+        onerror={() => {
+          backdropFadeDuration = 300
+          isBackdropLoaded = true
+        }}
         style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
+        style="transition-duration: {backdropFadeDuration}ms"
       />
     {/if}
     <div class="backdrop-overlay"></div>
@@ -578,9 +596,8 @@
     object-fit: cover;
     filter: blur(var(--backdrop-blur, 4px));
     opacity: 0;
-    transition:
-      opacity 0.6s ease-out,
-      filter 0.3s ease-in-out;
+    transition-property: opacity, filter;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .backdrop-image.show {
