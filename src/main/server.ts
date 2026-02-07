@@ -16,6 +16,7 @@ import * as pathsService from './services/paths.service'
 import * as repositoryService from './services/repository.service'
 import * as groupingService from './services/grouping.service'
 import * as playbackService from './services/playback.service'
+import * as handlerService from './services/handler.service'
 import { isVirtualId } from './services/virtual-item.factory'
 
 // --- Security Middleware & Constants ---
@@ -194,6 +195,26 @@ const app = new Elysia()
       console.log(`[WebTransport] Client disconnected: ${ws.id}`)
     }
   })
+  // Installer scripts and handler (served as text/plain)
+  .get('/install-kinome-handler.ps1', async ({ query, set }) => {
+    const secret = query.secret as string | undefined
+    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return handlerService.generateWindowsInstaller(secret)
+  })
+  .get('/install-kinome-handler.sh', async ({ query, set }) => {
+    const secret = query.secret as string | undefined
+    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return handlerService.generateLinuxInstaller(secret)
+  })
+  .get('/kinome-handler.js', ({ set }) => {
+    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.js')
+    if (!fs.existsSync(scriptPath)) {
+      set.status = 404
+      return 'Script not found'
+    }
+    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    return Bun.file(scriptPath)
+  })
   // Assets (High-performance streaming)
   .get('/api/assets/*', async ({ params, set }) => {
     try {
@@ -276,6 +297,25 @@ const app = new Elysia()
           return { success: false, message: 'Password required' }
         }
         await authService.updateAdminPassword(password)
+        return { success: true }
+      })
+      .post('/start-handler-test', ({ body }: { body: any }) => {
+        const { sessionId } = body
+        if (!sessionId) {
+          return { error: 'sessionId required' }
+        }
+        handlerService.startHandlerTest(sessionId)
+        return { success: true }
+      })
+      .get('/handler-test/:sessionId', ({ params, set }) => {
+        const { sessionId } = params
+
+        if (!handlerService.confirmHandlerTest(sessionId)) {
+          set.status = 404
+          return { error: 'Session not found or expired' }
+        }
+
+        webTransport.notifyHandlerTestSuccess(sessionId)
         return { success: true }
       })
       /**

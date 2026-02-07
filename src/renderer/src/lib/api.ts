@@ -125,6 +125,7 @@ export interface ApiClient {
     isRelative: boolean
     libraryLocation?: string
   }): Promise<string>
+  startHandlerTest(sessionId: string): Promise<{ success: boolean }>
   minimizeWindow(): void
   toggleMaximizeWindow(): void
   closeWindow(): void
@@ -141,6 +142,7 @@ export interface ApiClient {
   onForceReloadForNewLibrary(callback: () => void): () => void
   onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void
   onScanStatusChanged(callback: (status: ScanStatus) => void): () => void
+  onHandlerTestSuccess(callback: (data: { sessionId: string }) => void): () => void
   connectWebSocket(token?: string): void
 }
 

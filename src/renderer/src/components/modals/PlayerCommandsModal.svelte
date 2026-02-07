@@ -1,6 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { PlayerCommandConfig } from '@shared/types'
+  import { api } from '@lib/api'
 
   let {
     playerCommands = $bindable(),
@@ -10,52 +11,123 @@
     onClose: () => void
   } = $props()
 
-  let localPlayerCommands = $state<PlayerCommandConfig[]>(
-    JSON.parse(JSON.stringify(playerCommands))
-  )
-  let editCommandId = $state<string | null>(null) // ID of the command being edited
-  let formCommandNameForNew = $state('') // For adding a new command
-  let formCommandStringForNew = $state('') // For adding a new command
+  // Client secret and handler test state
+  let clientSecret = $state<string | null>(null)
+  let handlerTested = $state(false)
+  let isTestingHandler = $state(false)
+  let testResult = $state<'idle' | 'success' | 'error'>('idle')
+  let testErrorMessage = $state('')
+
+  // Command management state
+  let localPlayerCommands = $state<PlayerCommandConfig[]>([])
+  let editCommandId = $state<string | null>(null)
+  let formCommandNameForNew = $state('')
+  let formCommandStringForNew = $state('')
 
   // Drag and drop state
   let draggedItemIndex = $state<number | null>(null)
   let dragOverItemIndex = $state<number | null>(null)
 
-  function removeCommand(id: string) {
-    localPlayerCommands = localPlayerCommands.filter((cmd) => cmd.id !== id)
-    if (editCommandId === id) {
-      // If the removed command was being edited, reset the form
-      clearForm()
+  // Load or generate client secret and check if handler was tested
+  $effect(() => {
+    const stored = localStorage.getItem('kinome_client_secret')
+    if (stored) {
+      clientSecret = stored
+    } else {
+      clientSecret = crypto.randomUUID()
+      localStorage.setItem('kinome_client_secret', clientSecret)
+    }
+
+    // Check if handler was ever successfully tested
+    const tested = localStorage.getItem('kinome_handler_tested')
+    handlerTested = tested === 'true'
+
+    // Initialize commands only if handler is tested
+    if (handlerTested) {
+      localPlayerCommands = JSON.parse(JSON.stringify(playerCommands))
+    }
+  })
+
+  // Handler test logic
+  async function testHandlerConnection() {
+    if (!clientSecret) return
+
+    isTestingHandler = true
+    testResult = 'idle'
+    testErrorMessage = ''
+
+    const sessionId = crypto.randomUUID()
+
+    // Set up WebSocket listener
+    const cleanup = api.onHandlerTestSuccess((data) => {
+      if (data.sessionId === sessionId) {
+        isTestingHandler = false
+        testResult = 'success'
+        handlerTested = true
+        localStorage.setItem('kinome_handler_tested', 'true')
+
+        // Initialize commands for first-time success
+        if (localPlayerCommands.length === 0) {
+          localPlayerCommands = JSON.parse(JSON.stringify(playerCommands))
+        }
+      }
+    })
+
+    try {
+      // Start test session
+      await api.startHandlerTest(sessionId)
+
+      // Construct handshake URL
+      const handshakeUrl = `${window.location.origin}/api/handler-test/${sessionId}`
+      const encodedUrl = btoa(handshakeUrl)
+
+      // Trigger handler
+      const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret)}&url=${encodeURIComponent(encodedUrl)}`
+
+      // Navigate via hidden iframe
+      const iframe = document.createElement('iframe')
+      iframe.style.display = 'none'
+      iframe.src = testUrl
+      document.body.appendChild(iframe)
+
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        iframe.remove()
+        cleanup()
+
+        if (isTestingHandler) {
+          isTestingHandler = false
+          testResult = 'error'
+          testErrorMessage = "No response from handler. Make sure it's installed correctly."
+        }
+      }, 5000)
+    } catch (error) {
+      cleanup()
+      isTestingHandler = false
+      testResult = 'error'
+      testErrorMessage = 'Failed to start test: ' + (error as Error).message
     }
   }
 
-  function populateFormForEdit(command: PlayerCommandConfig) {
-    editCommandId = command.id
-    // No need to set formCommandName/String here, we'll bind directly to the item
+  function getInstallerCommands() {
+    if (!clientSecret) return { windows: '', linux: '' }
+
+    const baseUrl = window.location.origin
+    return {
+      windows: `irm ${baseUrl}/install-kinome-handler.ps1?secret=${clientSecret} | iex`,
+      linux: `curl -fsSL ${baseUrl}/install-kinome-handler.sh | SECRET=${clientSecret} bash`
+    }
   }
 
-  function clearForm() {
-    editCommandId = null
-    // The form will bind to a temporary 'newItem' object or similar
-    // or simply be disabled/cleared if no item is selected for edit
-    // and we are in 'add new' mode.
-    // For simplicity now, we just clear the editCommandId.
-    // The input fields will reflect the selected item or be empty for a new one.
+  // Command management functions
+  function removeCommand(id: string) {
+    localPlayerCommands = localPlayerCommands.filter((cmd) => cmd.id !== id)
+    if (editCommandId === id) {
+      editCommandId = null
+    }
   }
 
   function handleAddCommand() {
-    // This function is now solely for adding a *new* command.
-    // We'll need temporary state for the new command's name and string if not using a selected item.
-    // For now, let's assume we use a dedicated "new item" state if `editCommandId` is null.
-    // Or, more simply, the "Add Player" button will use separate input fields,
-    // and the list items, when clicked, will make their fields editable directly or open a small inline edit.
-
-    // Let's simplify: Add button now works on temporary new item state, separate from editing.
-    // The form at the bottom will always be for adding a new item unless an item is *explicitly* selected for edit.
-    // For now, we'll keep it simple: editing happens by clicking the item, then the main "Save & Close".
-    // The "Add Player" button at the bottom is for *new* players.
-
-    // The existing form fields `formCommandName` and `formCommandString` will be for a new item.
     if (formCommandNameForNew.trim() && formCommandStringForNew.trim()) {
       localPlayerCommands.push({
         id: crypto.randomUUID(),
@@ -63,28 +135,31 @@
         command: formCommandStringForNew.trim()
       })
       localPlayerCommands = [...localPlayerCommands]
-      formCommandNameForNew = '' // Clear inputs for new item
+      formCommandNameForNew = ''
       formCommandStringForNew = ''
     }
   }
 
   function handleSave() {
-    playerCommands = JSON.parse(JSON.stringify(localPlayerCommands))
+    if (handlerTested) {
+      playerCommands = JSON.parse(JSON.stringify(localPlayerCommands))
+    }
     onClose()
   }
 
-  // --- Drag and Drop Handlers ---
+  // Drag and drop handlers
   function handleDragStart(event: DragEvent, index: number) {
+    if (index === 0) return // Can't drag the built-in command
     draggedItemIndex = index
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
-      // Set some dummy data to make dragging work in Firefox
       event.dataTransfer.setData('text/plain', index.toString())
     }
   }
 
   function handleDragOver(event: DragEvent, index: number) {
-    event.preventDefault() // Necessary to allow dropping
+    event.preventDefault()
+    if (index === 0) return // Can't drop on built-in command
     if (draggedItemIndex !== null && index !== draggedItemIndex) {
       dragOverItemIndex = index
     }
@@ -92,16 +167,21 @@
 
   function handleDrop(event: DragEvent, dropIndex: number) {
     event.preventDefault()
-    if (draggedItemIndex === null || draggedItemIndex === dropIndex) {
+    if (
+      dropIndex === 0 ||
+      draggedItemIndex === null ||
+      draggedItemIndex === dropIndex ||
+      draggedItemIndex === 0
+    ) {
       dragOverItemIndex = null
       return
     }
 
     const itemToMove = localPlayerCommands[draggedItemIndex]
-    localPlayerCommands.splice(draggedItemIndex, 1) // Remove from old position
-    localPlayerCommands.splice(dropIndex, 0, itemToMove) // Insert at new position
+    localPlayerCommands.splice(draggedItemIndex, 1)
+    localPlayerCommands.splice(dropIndex, 0, itemToMove)
 
-    localPlayerCommands = localPlayerCommands // Trigger reactivity
+    localPlayerCommands = localPlayerCommands
     draggedItemIndex = null
     dragOverItemIndex = null
   }
@@ -110,101 +190,203 @@
     draggedItemIndex = null
     dragOverItemIndex = null
   }
+
+  // Built-in commands (always present in management mode)
+  const builtInCommands: PlayerCommandConfig[] = [
+    { id: 'builtin:copy-link', name: 'Copy Playlist Link', command: 'builtin:copy-link' }
+  ]
+
+  // Combined commands for display
+  let displayCommands = $derived([...builtInCommands, ...localPlayerCommands])
 </script>
 
 <ModalWindow
   title="Manage Player Commands"
   {onClose}
   onSave={handleSave}
-  maxWidth="700px"
+  maxWidth="800px"
   zIndex={101}
 >
   <div class="content">
-    <div class="command-list">
-      {#if localPlayerCommands.length === 0}
-        <p class="empty-list-text">No player commands configured. Add one below.</p>
-      {/if}
-      {#each localPlayerCommands as cmd, i (cmd.id)}
-        <div
-          class="command-item"
-          draggable="true"
-          ondragstart={(e) => handleDragStart(e, i)}
-          ondragover={(e) => handleDragOver(e, i)}
-          ondragenter={(e) => e.preventDefault()}
-          ondrop={(e) => handleDrop(e, i)}
-          ondragend={handleDragEnd}
-          class:dragging-over={dragOverItemIndex === i}
-          class:editing={editCommandId === cmd.id}
-          onclick={() => {
-            if (editCommandId === cmd.id) {
-              editCommandId = null // Click again to de-select for editing
-            } else {
-              editCommandId = cmd.id
-            }
-          }}
-        >
-          <div class="drag-handle">⠿</div>
-          {#if editCommandId === cmd.id}
-            <div class="command-edit-inputs">
-              <input
-                type="text"
-                bind:value={cmd.name}
-                placeholder="Player Name"
-                onclick={(e) => e.stopPropagation()}
-                oninput={(e) => {
-                  e.stopPropagation()
-                  localPlayerCommands = localPlayerCommands
-                }}
-              />
-              <input
-                type="text"
-                bind:value={cmd.command}
-                placeholder="Player Command"
-                onclick={(e) => e.stopPropagation()}
-                oninput={(e) => {
-                  e.stopPropagation()
-                  localPlayerCommands = localPlayerCommands
-                }}
-              />
-            </div>
-          {:else}
-            <div class="command-details">
-              <div class="command-name">{cmd.name} {i === 0 ? '(Default)' : ''}</div>
-              <div class="command-string">{cmd.command}</div>
-            </div>
-          {/if}
-          <button
-            class="remove-btn"
-            onclick={(e) => {
-              e.stopPropagation()
-              removeCommand(cmd.id)
-            }}>&times;</button
-          >
-        </div>
-      {/each}
+    <!-- Test Connection Button (Always Visible) -->
+    <div class="test-section">
+      <button
+        class="test-btn"
+        class:testing={isTestingHandler}
+        class:success={testResult === 'success'}
+        class:error={testResult === 'error'}
+        onclick={testHandlerConnection}
+        disabled={isTestingHandler}
+      >
+        {#if isTestingHandler}
+          Testing Connection...
+        {:else if testResult === 'success'}
+          ✓ Handler Connected
+        {:else if testResult === 'error'}
+          ✗ {testErrorMessage || 'Connection Failed'}
+        {:else}
+          Test Connection
+        {/if}
+      </button>
     </div>
 
-    <div class="add-command-form">
-      <h4>Add New Player</h4>
-      <input type="text" bind:value={formCommandNameForNew} placeholder="Player Name (e.g., MPV)" />
-      <input
-        type="text"
-        bind:value={formCommandStringForNew}
-        placeholder="Command (e.g., mpv --fullscreen &quot;{'{PATH}'}&quot;)"
-      />
-      <div class="form-actions">
-        <button
-          class="primary add-btn"
-          onclick={handleAddCommand}
-          disabled={!formCommandNameForNew.trim() || !formCommandStringForNew.trim()}
-        >
-          Add Player
-        </button>
-        <!-- {#if editCommandId} Remove the "New Player" button, direct manipulation is preferred
-          <button class="secondary" onclick={clearForm}>New Player</button>
-        {/if} -->
+    {#if !handlerTested}
+      <!-- Setup Mode -->
+      <div class="setup-mode">
+        <h3>Setup Local Player Handler</h3>
+        <p>Run this command in your terminal to install the handler:</p>
+
+        <div class="installer-commands">
+          <div class="command-block">
+            <label>Windows (PowerShell)</label>
+            <div class="code-wrapper">
+              <code>{getInstallerCommands().windows}</code>
+              <button
+                class="copy-btn"
+                onclick={() => {
+                  navigator.clipboard.writeText(getInstallerCommands().windows)
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+          <div class="command-block">
+            <label>Linux / macOS</label>
+            <div class="code-wrapper">
+              <code>{getInstallerCommands().linux}</code>
+              <button
+                class="copy-btn"
+                onclick={() => {
+                  navigator.clipboard.writeText(getInstallerCommands().linux)
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="secret-display">
+          <label>Your Client Secret:</label>
+          <code>{clientSecret}</code>
+        </div>
+
+        <div class="hint-box">
+          <p><strong>Next Steps:</strong></p>
+          <ol>
+            <li>Copy and run one of the installer commands above</li>
+            <li>Click "Test Connection" to verify the installation</li>
+            <li>On success, you'll be able to manage player commands</li>
+          </ol>
+        </div>
       </div>
-    </div>
+    {:else}
+      <!-- Management Mode (Unlocked after successful test) -->
+      <div class="management-mode">
+        <div class="command-list">
+          {#each displayCommands as cmd, i (cmd.id)}
+            <div
+              class="command-item"
+              class:builtin={i === 0}
+              class:draggable={i > 0}
+              class:dragging-over={dragOverItemIndex === i}
+              class:editing={editCommandId === cmd.id}
+              draggable={i > 0}
+              ondragstart={(e) => handleDragStart(e, i)}
+              ondragover={(e) => handleDragOver(e, i)}
+              ondragenter={(e) => e.preventDefault()}
+              ondrop={(e) => handleDrop(e, i)}
+              ondragend={handleDragEnd}
+              onclick={() => {
+                if (i === 0) return // Can't edit built-in
+                if (editCommandId === cmd.id) {
+                  editCommandId = null
+                } else {
+                  editCommandId = cmd.id
+                }
+              }}
+            >
+              {#if i > 0}
+                <div class="drag-handle">⠿</div>
+              {/if}
+
+              {#if editCommandId === cmd.id}
+                <div class="command-edit-inputs">
+                  <input
+                    type="text"
+                    bind:value={cmd.name}
+                    placeholder="Player Name"
+                    onclick={(e) => e.stopPropagation()}
+                    oninput={(e) => {
+                      e.stopPropagation()
+                      localPlayerCommands = localPlayerCommands
+                    }}
+                  />
+                  <input
+                    type="text"
+                    bind:value={cmd.command}
+                    placeholder="Player Command"
+                    onclick={(e) => e.stopPropagation()}
+                    oninput={(e) => {
+                      e.stopPropagation()
+                      localPlayerCommands = localPlayerCommands
+                    }}
+                  />
+                </div>
+              {:else}
+                <div class="command-details">
+                  <div class="command-name">
+                    {cmd.name}
+                    {#if i === 0}
+                      <span class="badge">Built-in</span>
+                    {:else if i === 1}
+                      <span class="badge">Default</span>
+                    {/if}
+                  </div>
+                  <div class="command-string">{cmd.command}</div>
+                </div>
+              {/if}
+
+              {#if i > 0}
+                <button
+                  class="remove-btn"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    removeCommand(cmd.id)
+                  }}
+                >
+                  ×
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <div class="add-command-form">
+          <h4>Add New Player</h4>
+          <input
+            type="text"
+            bind:value={formCommandNameForNew}
+            placeholder="Player Name (e.g., MPV)"
+          />
+          <input
+            type="text"
+            bind:value={formCommandStringForNew}
+            placeholder="Command (e.g., mpv --fullscreen [URL])"
+          />
+          <div class="form-actions">
+            <button
+              class="primary add-btn"
+              onclick={handleAddCommand}
+              disabled={!formCommandNameForNew.trim() || !formCommandStringForNew.trim()}
+            >
+              Add Player
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 </ModalWindow>
 
@@ -215,6 +397,151 @@
     flex-direction: column;
     gap: 1.5rem;
   }
+
+  .test-section {
+    display: flex;
+    justify-content: center;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-background-mute);
+  }
+
+  .test-btn {
+    padding: 0.75rem 2rem;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
+  }
+
+  .test-btn:hover:not(:disabled) {
+    background: var(--ev-c-gray-1);
+  }
+
+  .test-btn.testing {
+    background: var(--ev-c-gray-2);
+    color: var(--ev-c-text-2);
+    cursor: wait;
+  }
+
+  .test-btn.success {
+    background: #28a745;
+    color: white;
+  }
+
+  .test-btn.error {
+    background: #dc3545;
+    color: white;
+    font-size: 0.9rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  /* Setup Mode Styles */
+  .setup-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .setup-mode h3 {
+    margin-bottom: 0.5rem;
+    color: var(--ev-c-text-1);
+  }
+
+  .installer-commands {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .command-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .command-block label {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: var(--ev-c-text-1);
+  }
+
+  .code-wrapper {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .code-wrapper code {
+    flex: 1;
+    background: var(--color-background-soft);
+    padding: 0.75rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+    overflow-x: auto;
+  }
+
+  .copy-btn {
+    padding: 0.5rem 1rem;
+    background: var(--ev-c-gray-2);
+    color: var(--ev-c-text-1);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .copy-btn:hover {
+    background: var(--ev-c-gray-1);
+  }
+
+  .secret-display {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: var(--color-background-soft);
+    border-radius: 6px;
+  }
+
+  .secret-display label {
+    font-weight: bold;
+    font-size: 0.9rem;
+  }
+
+  .secret-display code {
+    font-family: 'Courier New', monospace;
+    font-size: 0.95rem;
+    color: var(--ev-c-green-1);
+    user-select: all;
+  }
+
+  .hint-box {
+    padding: 1rem;
+    background: var(--ev-c-gray-3);
+    border-left: 3px solid var(--ev-c-green-1);
+    border-radius: 4px;
+  }
+
+  .hint-box p {
+    margin-bottom: 0.5rem;
+  }
+
+  .hint-box ol {
+    margin-left: 1.5rem;
+    line-height: 1.6;
+  }
+
+  /* Management Mode Styles */
+  .management-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
   .command-list {
     display: flex;
     flex-direction: column;
@@ -226,11 +553,7 @@
     padding: 0.5rem;
     background-color: var(--color-background);
   }
-  .empty-list-text {
-    text-align: center;
-    color: var(--ev-c-text-2);
-    padding: 1rem;
-  }
+
   .command-item {
     display: flex;
     align-items: center;
@@ -239,42 +562,76 @@
     background-color: var(--color-background-soft);
     border-radius: 4px;
     border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .command-item.builtin {
+    background-color: var(--ev-c-green-soft);
+    border-color: var(--ev-c-green-2);
+  }
+
+  .command-item.draggable {
     cursor: grab;
   }
+
   .command-item.dragging-over {
     border-color: var(--ev-c-gray-1);
   }
+
   .command-item.editing {
-    background-color: var(--ev-c-gray-3); /* Highlight item being edited */
+    background-color: var(--ev-c-gray-3);
     border-color: var(--ev-c-gray-1);
-    cursor: default; /* No longer grab when editing */
+    cursor: default;
   }
+
   .drag-handle {
     color: var(--ev-c-text-2);
     font-size: 1.2rem;
     padding: 0 0.25rem;
   }
+
   .command-details {
     flex-grow: 1;
   }
+
   .command-name {
     font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
+
+  .badge {
+    font-size: 0.75rem;
+    font-weight: normal;
+    padding: 0.15rem 0.5rem;
+    background: var(--ev-c-gray-2);
+    border-radius: 3px;
+    color: var(--ev-c-text-2);
+  }
+
   .command-string {
     font-size: 0.85rem;
     color: var(--ev-c-text-2);
     word-break: break-all;
   }
+
   .command-edit-inputs {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
   }
+
   .command-edit-inputs input {
-    padding: 0.25rem 0.5rem;
+    padding: 0.5rem;
     font-size: 0.9rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 4px;
+    color: var(--ev-c-text-1);
   }
+
   .remove-btn {
     background: none;
     color: var(--ev-c-text-2);
@@ -288,10 +645,12 @@
     align-items: center;
     justify-content: center;
   }
+
   .remove-btn:hover {
     color: #e81123;
     background-color: var(--ev-c-gray-3);
   }
+
   .add-command-form {
     display: flex;
     flex-direction: column;
@@ -299,16 +658,32 @@
     padding-top: 1rem;
     border-top: 1px solid var(--color-background-mute);
   }
+
   .add-command-form h4 {
     font-weight: bold;
     margin-bottom: 0.25rem;
   }
+
+  .add-command-form input {
+    padding: 0.75rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 4px;
+    color: var(--ev-c-text-1);
+  }
+
   .form-actions {
     display: flex;
     gap: 0.5rem;
     align-items: center;
   }
+
   .add-btn {
     align-self: flex-start;
+  }
+
+  .add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

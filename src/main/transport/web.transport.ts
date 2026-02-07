@@ -76,4 +76,9 @@ export class WebTransport implements ITransport {
       this.broadcast('scan-status-changed', this.currentStatus)
     }
   }
+
+  notifyHandlerTestSuccess(sessionId: string): void {
+    console.log(`[WebTransport] Notifying handler test success: ${sessionId}`)
+    this.broadcast('handler-test-success', { sessionId })
+  }
 }

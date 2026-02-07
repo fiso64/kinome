@@ -546,6 +546,13 @@ class WebApiClient implements ApiClient {
     }).then((r) => r.path)
   }
 
+  startHandlerTest(sessionId: string): Promise<{ success: boolean }> {
+    return this.request('/api/start-handler-test', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId })
+    })
+  }
+
   // --- No-ops for web mode ---
   minimizeWindow(): void {
     console.log('Minimize window (No-op on web)')
@@ -596,6 +603,10 @@ class WebApiClient implements ApiClient {
 
   onScanStatusChanged(callback: (status: ScanStatus) => void): () => void {
     return this.on('scan-status-changed', callback)
+  }
+
+  onHandlerTestSuccess(callback: (data: { sessionId: string }) => void): () => void {
+    return this.on('handler-test-success', callback)
   }
 }
 
