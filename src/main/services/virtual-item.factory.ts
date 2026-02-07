@@ -1,23 +1,9 @@
 import { LibraryItem, MediaFolder } from '@shared/types'
 import { isValidField } from './repository.service'
 
-export const VIRTUAL_ID_PREFIX = 'virtual--'
+import { isVirtualId, parseVirtualId, VIRTUAL_ID_PREFIX } from '@shared/virtual-logic'
 
-export function isVirtualId(id: string): boolean {
-  return id.startsWith(VIRTUAL_ID_PREFIX)
-}
-
-export function parseVirtualId(id: string): { parentId: string | null; tokens: string[] | null } {
-  if (!isVirtualId(id)) return { parentId: null, tokens: null }
-  const parts = id.split('--')
-  // ID format: virtual--{parentId}--{token1}--{token2}
-  if (parts.length < 3) return { parentId: null, tokens: null }
-
-  return {
-    parentId: parts[1],
-    tokens: parts.slice(2)
-  }
-}
+export { isVirtualId, parseVirtualId, VIRTUAL_ID_PREFIX }
 
 /**
  * Resolves a virtual ID into a set of database filter options.

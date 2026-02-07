@@ -19,8 +19,14 @@ import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './au
 import { getTransport } from '../transport.registry'
 import * as playbackService from './playback.service'
 
-import { VIEW_SETTINGS_KEYS, FOLDER_BEHAVIOR_SETTINGS_KEYS, METADATA_KEYS } from '@shared/types'
+import {
+  VIEW_SETTINGS_KEYS,
+  FOLDER_BEHAVIOR_SETTINGS_KEYS,
+  METADATA_KEYS,
+  StoredViewSettings
+} from '@shared/types'
 import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
+import { isVirtualId, parseVirtualId } from './virtual-item.factory'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Library Service] ${message}`)
@@ -710,17 +716,70 @@ export const handleItemRenamed = async (oldPath: string, newPath: string) => {
   }
 }
 export const updateItem = async (item: LibraryItem, isUser: boolean) => {
+  log(`updateItem triggered for ID: ${item.id} (isUser: ${isUser})`)
   const updates = { ...item }
 
-  // --- Check for Virtual Folder Redirection ---
-  if (updates.id.startsWith('virtual--')) {
+  // --- 1. Check for Child View Overrides (Parent overrides a specific child's style) ---
+  // TODO: This does not belong here. Caller should be responsible for this. Semantically, this function should update this item only.
+  if (updates.overrideChildId) {
+    log(
+      `Override redirection triggered: Saving view settings for child ${updates.overrideChildId} into parent ${updates.id}`
+    )
+    const parentId = updates.id
+    const childId = updates.overrideChildId
+
+    // 1. Resolve the ACTUAL physical item where we store settings
+    // (If the parent is virtual, we actually store it on the physical ancestor)
+    let storageItem: MediaFolder | null = null
+    let settingsPath: string[] = [] // Path within parent's viewSettings for virtual deep nesting
+
+    if (isVirtualId(parentId)) {
+      const { parentId: pid, tokens } = parseVirtualId(parentId)
+      storageItem = (repositoryService.getItemById(pid || '') as MediaFolder) || null
+      settingsPath = tokens || []
+    } else {
+      storageItem = (repositoryService.getItemById(parentId) as MediaFolder) || null
+    }
+
+    if (storageItem) {
+      if (!storageItem.viewSettings) storageItem.viewSettings = {}
+
+      // Locate the target StoredViewSettings object that should own the overrides
+      let targetSettings: StoredViewSettings = storageItem.viewSettings
+      if (settingsPath.length > 0) {
+        if (!storageItem.viewSettings.virtualFolderSettings) {
+          storageItem.viewSettings.virtualFolderSettings = {}
+        }
+        const tokenKey = settingsPath.join('/')
+        if (!storageItem.viewSettings.virtualFolderSettings[tokenKey]) {
+          storageItem.viewSettings.virtualFolderSettings[tokenKey] = {}
+        }
+        targetSettings = storageItem.viewSettings.virtualFolderSettings[tokenKey]
+      }
+
+      // Ensure the override plumbing exists
+      if (!targetSettings.childViewSettings) targetSettings.childViewSettings = {}
+      if (!targetSettings.childViewSettings.overrides) {
+        targetSettings.childViewSettings.overrides = {}
+      }
+
+      // Update the override
+      targetSettings.childViewSettings.overrides[childId] = updates.viewSettings ?? {}
+
+      await updateIfChangedAndBroadcast([storageItem])
+      return
+    }
+  }
+
+  // --- 2. Check for Virtual Folder Redirection ---
+  // TODO: We accept the side effect on parents for now, because this is where virtual folders store their OWN settings.
+  //       (This isn't great design)
+  if (isVirtualId(updates.id)) {
     log(`Redirection triggered for virtual item: ${updates.id}`)
 
-    const parts = updates.id.split('--')
-    const physicalParentId = parts[1]
-    const tokens = parts.slice(2)
+    const { parentId: physicalParentId, tokens } = parseVirtualId(updates.id)
 
-    if (physicalParentId && tokens.length > 0) {
+    if (physicalParentId && tokens && tokens.length > 0) {
       const parent = repositoryService.getItemById(physicalParentId) as MediaFolder
       if (parent) {
         const settingsKey = tokens.join('/')
@@ -740,11 +799,12 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     }
   }
 
-  // --- Standard Item Update with Robust Locking ---
+  // --- 3. Standard Item Update with Robust Locking ---
   const existing = repositoryService.getItemById(updates.id)
   if (existing && isUser) {
-    let currentLocks = new Set(existing.lockedFields ?? [])
+    const currentLocks = new Set(existing.lockedFields ?? [])
 
+    // Handle manual lock toggles from UI
     if (
       (updates as any).lockedFields &&
       typeof (updates as any).lockedFields === 'object' &&
@@ -758,6 +818,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
       delete (updates as any).lockedFields
     }
 
+    // Auto-lock fields that are being changed by a user
     for (const key of METADATA_KEYS) {
       const newValue = (updates as any)[key]
       const oldValue = (existing as any)[key]
@@ -775,7 +836,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     updates.lockedFields = Array.from(currentLocks)
   }
 
-  // --- Final Normalization ---
+  // --- 4. Final Normalization ---
   // Ensure groupBy is null if the layout doesn't support it
   if (updates.viewSettings) {
     const isGroupingLayout = ['tabs', 'sections'].includes(updates.viewSettings.layout as string)
@@ -791,8 +852,8 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     }
   }
 
-  // --- Standard Item Update ---
-  await updateIfChangedAndBroadcast(updates)
+  // --- 5. Execution ---
+  await updateIfChangedAndBroadcast([updates])
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
   const res = repositoryService.deleteItem(id)

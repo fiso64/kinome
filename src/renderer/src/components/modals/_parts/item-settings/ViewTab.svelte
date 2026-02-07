@@ -19,6 +19,8 @@
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
     childViewSettings = $bindable(),
+    inheritedSettings,
+    inheritedLabel,
     settings
   }: {
     item: MediaFolder & VirtualFolderProps
@@ -30,6 +32,8 @@
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
     childViewSettings?: StoredViewSettings | null
+    inheritedSettings?: StoredViewSettings
+    inheritedLabel?: string
     settings: Settings | null
   } = $props()
 </script>
@@ -44,5 +48,7 @@
   bind:listDescriptionRows
   bind:showHorizontalScrollbar
   bind:childViewSettings
+  {inheritedSettings}
+  {inheritedLabel}
   {groupByKeys}
 />

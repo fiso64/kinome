@@ -28,7 +28,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     suggestions?: AutocompleteSuggestions
     settings?: Settings | null
@@ -51,7 +51,11 @@
         <h2
           class="section-title"
           onclick={() => onItemClick(folder)}
-          oncontextmenu={(e) => onShowContextMenu(folder, e, { layout: 'sections' })}
+          oncontextmenu={(e) =>
+            onShowContextMenu(folder, e, {
+              layout: 'sections',
+              parentItem: container as LibraryItem
+            })}
         >
           {folder.title ?? folder.name}
         </h2>
@@ -63,6 +67,7 @@
           {suggestions}
           {settings}
           viewNode={childNode}
+          contextParent={container as LibraryItem}
         />
       </section>
     {/each}

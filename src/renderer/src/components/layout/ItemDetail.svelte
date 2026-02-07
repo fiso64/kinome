@@ -65,21 +65,7 @@
   })
 
   // Resolve required fields from the View Hierarchy Side-Channel
-  const requiredFields = $derived(
-    getAllRequiredFields(item.viewHierarchy, { debug: true, context: 'ItemDetail' })
-  )
-
-  $effect(() => {
-    if (item.viewHierarchy) {
-      console.log(
-        '[ItemDetail] viewHierarchy side-channel:',
-        JSON.stringify(item.viewHierarchy, null, 2)
-      )
-    } else {
-      console.log('[ItemDetail] No viewHierarchy side-channel present on item.')
-    }
-    console.log('[ItemDetail] Computed requiredFields:', JSON.stringify(requiredFields))
-  })
+  const requiredFields = $derived(getAllRequiredFields(item.viewHierarchy))
 
   // 2. Fetch structural children separately with isDetailView: true
   // This allows the children endpoint to handle structural bundling (Season -> Episode)

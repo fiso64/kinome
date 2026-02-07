@@ -32,7 +32,8 @@
     isPreSorted = false,
     settings,
     listFixedAspectRatio = false,
-    viewNode
+    viewNode,
+    contextParent
   }: {
     parentItem?: MediaFolder
     items: DisplayableItem[]
@@ -41,7 +42,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
     suggestions?: AutocompleteSuggestions
@@ -50,6 +51,7 @@
     settings?: Settings | null
     listFixedAspectRatio?: boolean
     viewNode?: ViewHierarchyNode
+    contextParent?: LibraryItem
   } = $props()
 
   const grayOutWatched = $derived(settings?.grayOutWatched ?? true)
@@ -67,6 +69,7 @@
 
       return {
         layout: resolved.layout,
+        // Allow fallback to standard keys but prioritize resolved values if they match the active layout
         gridPosterSize: resolved.gridPosterSize,
         listDescriptionRows: resolved.listDescriptionRows,
         showHorizontalScrollbar: (resolved as any).showHorizontalScrollbar
@@ -162,7 +165,9 @@
 {#if settings}
   <div
     class="media-grid-container"
-    oncontextmenu={parentItem ? (e) => onShowContextMenu(parentItem, e, { layout }) : undefined}
+    oncontextmenu={parentItem
+      ? (e) => onShowContextMenu(parentItem, e, { layout, parentItem: contextParent })
+      : undefined}
   >
     {#if layout === 'grid'}
       <GridView

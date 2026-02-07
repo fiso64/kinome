@@ -31,7 +31,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     suggestions?: AutocompleteSuggestions
     settings?: Settings | null
@@ -200,7 +200,8 @@
           class="tab"
           class:active={activeTabId === folder.id}
           onclick={() => selectTab(folder.id)}
-          oncontextmenu={(e) => onShowContextMenu(folder, e, { layout: 'tabs' })}
+          oncontextmenu={(e) =>
+            onShowContextMenu(folder, e, { layout: 'tabs', parentItem: container as LibraryItem })}
         >
           {folder.title ?? folder.name}
         </button>
@@ -237,6 +238,7 @@
             {suggestions}
             {settings}
             viewNode={childNode}
+            contextParent={container as LibraryItem}
           />
         {/if}
       {/each}

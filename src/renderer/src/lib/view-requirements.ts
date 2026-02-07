@@ -65,34 +65,22 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
  */
 export function getAllRequiredFields(
   viewHierarchy: ViewHierarchyNode | undefined | null,
-  options: { debug?: boolean; context?: string } = {}
 ): string[] {
   const fields = new Set<string>()
 
   if (!viewHierarchy) return []
 
-  const context = options.context || 'getAllRequiredFields'
-
   function traverse(node: ViewHierarchyNode) {
     if (!node.effective) return
-
-    if (options.debug) {
-      console.log(
-        `[${context}] Visiting node ${node.id} with layout: ${node.effective.layout}, groupBy: ${node.effective.groupBy}`
-      )
-    }
 
     // 1. Collect fields for the current node's layout
     if (node.effective.layout) {
       const req = getRequiredFieldsForLayout(node.effective.layout, node.effective.groupBy)
-      if (options.debug) console.log(`  -> Requiring fields: ${JSON.stringify(req)}`)
       req.forEach((f) => fields.add(f))
     }
 
     // 2. Recurse into children (if any known children exist in the hierarchy)
     if (node.children) {
-      if (options.debug)
-        console.log(`  -> Found ${Object.keys(node.children).length} children, recursing...`)
       Object.values(node.children).forEach((childNode) => traverse(childNode))
     }
   }

@@ -16,7 +16,11 @@
   }: {
     item: LibraryItem
     itemclick: (item: LibraryItem) => void
-    showContextMenu: (item: LibraryItem, event: MouseEvent) => void
+    showContextMenu: (
+      item: LibraryItem,
+      event: MouseEvent,
+      options?: { parentItem?: LibraryItem }
+    ) => void
     level: number
     grayOutWatched: boolean
     parentItem?: MediaFolder
@@ -60,7 +64,7 @@
     class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
     class:missing={item.isMissing}
     onclick={handleItemClick}
-    oncontextmenu={(e) => showContextMenu(item, e)}
+    oncontextmenu={(e) => showContextMenu(item, e, { parentItem: parentItem as LibraryItem })}
   >
     <div class="poster" style:margin-left={`${level * 24}px`}>
       {#if item.type === 'folder'}

@@ -178,10 +178,18 @@
     }}
     onSetLayout={() => {
       if (item.type === 'folder') {
+        const parentItem = contextMenuStore.parentItem
+        const isSelf = parentItem?.id === item.id
         modalStore.open('itemSettings', {
           item,
           initialTab: 'view',
-          defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+          overrideParent: isSelf ? undefined : parentItem,
+          defaultLayout: resolveViewSettings(
+            item as any,
+            settings,
+            new Set(),
+            parentItem?.viewSettings?.childViewSettings
+          ).settings.layout as any
         })
       }
     }}

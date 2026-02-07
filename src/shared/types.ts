@@ -84,6 +84,7 @@ export interface StoredViewSettings
     BaseViewSettings & GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings
   > {
   childViewSettings?: StoredViewSettings
+  overrides?: Record<string, StoredViewSettings>
   title?: string
 }
 
@@ -94,12 +95,13 @@ export interface StoredViewSettings
 export type ResolvedViewSettings = BaseViewSettings &
   Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings> & {
     childViewSettings?: StoredViewSettings
+    overrides?: Record<string, StoredViewSettings>
     title?: string
   }
 
 export type ResolutionSource = {
-  source: 'item' | 'type' | 'global'
-  sourceKey?: DefaultLayoutKey
+  source: 'item' | 'type' | 'global' | 'inherited' | 'override'
+  sourceKey?: DefaultLayoutKey | string
 }
 
 export interface ResolutionInfo {
@@ -389,6 +391,7 @@ export interface BaseLibraryItem {
   viewSettings?: StoredViewSettings
   scraperSettings?: any
   _v?: number
+  overrideChildId?: string
 }
 
 export interface ViewHierarchyNode {

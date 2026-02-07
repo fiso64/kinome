@@ -30,15 +30,17 @@
     initialTab = 'metadata',
     groupByKeys = [],
     defaultLayout = 'grid',
-    settings
+    settings,
+    overrideParent
   }: {
     item: LibraryItem & VirtualFolderProps
     onClose: () => void
     onNeedRefresh?: () => Promise<void>
     initialTab?: 'metadata' | 'view' | 'folder' | 'settings'
     groupByKeys: string[]
-    defaultLayout: 'grid' | 'tree'
+    defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     settings: Settings | null
+    overrideParent?: LibraryItem
   } = $props()
 
   const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
@@ -47,7 +49,7 @@
 
   // For initializing `activeTab`, directly use the prop `item.isVirtual`
   // to avoid the compiler warning about capturing the initial value of a derived signal.
-  let activeTab = $state(
+  let activeTab = $state<'metadata' | 'view' | 'folder' | 'settings'>(
     item.isVirtual === true && (initialTab === 'metadata' || initialTab === 'folder')
       ? 'view'
       : initialTab
@@ -61,6 +63,11 @@
     virtualTags: {},
     person: null
   })
+
+  function parseOptionalInt(val: string): number | undefined {
+    const parsed = parseInt(val, 10)
+    return isNaN(parsed) ? undefined : parsed
+  }
 
   // --- Initial Data Tracking for Partial Updates ---
   let initialValues = $state<any>({})
@@ -76,11 +83,9 @@
         if (tag.key) acc[tag.key] = tag.value
         return acc
       }, {}),
-      seasonNumber: !isNaN(parseInt(seasonNumber)) ? parseInt(seasonNumber) : undefined,
-      episodeNumber: !isNaN(parseInt(episodeNumber)) ? parseInt(episodeNumber) : undefined,
-      episodeSeasonNumber: !isNaN(parseInt(episodeSeasonNumber))
-        ? parseInt(episodeSeasonNumber)
-        : undefined,
+      seasonNumber: parseOptionalInt(seasonNumber),
+      episodeNumber: parseOptionalInt(episodeNumber),
+      episodeSeasonNumber: parseOptionalInt(episodeSeasonNumber),
       selectedLayout,
       selectedClickAction,
       selectedGroupBy,
@@ -170,8 +175,25 @@
   )
 
   // --- View State (for folders) ---
-  const initialStored =
-    (item.type === 'folder' ? (item as MediaFolder).viewSettings : undefined) ?? {}
+  const initialStored = (() => {
+    if (item.type !== 'folder') return {}
+    const folder = item as MediaFolder
+
+    // If we are in "Override Mode," we look at the parent's specific override for this child
+    if (overrideParent?.viewSettings?.childViewSettings) {
+      const parentChildSettings = overrideParent.viewSettings.childViewSettings
+      if (parentChildSettings.overrides && parentChildSettings.overrides[item.id]) {
+        return parentChildSettings.overrides[item.id]
+      }
+      // If no specific override exists yet, we return an empty object so fields are null
+      // and fall back to the inherited defaults in the UI.
+      return {}
+    }
+
+    // Default: use the item's own settings
+    return folder.viewSettings ?? {}
+  })()
+
   let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
   let selectedClickAction = $state(_isFolder ? (initialStored.clickAction ?? null) : null)
   let selectedGroupBy = $state(_isFolder ? (initialStored.groupBy ?? null) : null)
@@ -218,7 +240,7 @@
     const updates: any = { id: item.id }
     let changed = false
 
-    const hasChanged = (current: any, initial: any): boolean => {
+    const hasChanged = (current: any, initial: any, fieldName?: string): boolean => {
       // Treat null and undefined as equal for change detection
       const n1 = current === undefined || current === null ? null : current
       const n2 = initial === undefined || initial === null ? null : initial
@@ -226,164 +248,247 @@
       // Handle numeric comparisons (strings from inputs vs numbers from data)
       const isNumeric = (v: any) =>
         typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))
+
+      let changedLocal = false
       if (isNumeric(n1) && isNumeric(n2)) {
-        return parseInt(n1.toString(), 10) !== parseInt(n2.toString(), 10)
+        changedLocal = parseInt(n1.toString(), 10) !== parseInt(n2.toString(), 10)
+      } else if (Array.isArray(n1) || (n1 && typeof n1 === 'object')) {
+        changedLocal = JSON.stringify(n1) !== JSON.stringify(n2)
+      } else {
+        changedLocal = n1 !== n2
       }
 
-      if (Array.isArray(n1) || (n1 && typeof n1 === 'object')) {
-        return JSON.stringify(n1) !== JSON.stringify(n2)
+      if (changedLocal && fieldName) {
+        console.log(`[ItemSettingsModal] [DEBUG] Field "${fieldName}" changed:`, {
+          from: n2,
+          to: n1
+        })
       }
-      return n1 !== n2
+      return changedLocal
+    }
+
+    if (overrideParent) {
+      // --- Override Mode: We are saving settings to the parent's child overrides ---
+      const parentUpdates: any = {
+        id: overrideParent.id,
+        overrideChildId: item.id, // This tells the backend we are performing an override
+        viewSettings: {}
+      }
+
+      applyViewSettings(parentUpdates.viewSettings)
+      if (childViewSettings) {
+        parentUpdates.viewSettings.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
+      }
+
+      // Check if we actually changed anything relative to the initial override/parent settings
+      if (
+        hasChanged(parentUpdates.viewSettings.layout, initialValues.selectedLayout, 'layout') ||
+        hasChanged(
+          parentUpdates.viewSettings.clickAction,
+          initialValues.selectedClickAction,
+          'clickAction'
+        ) ||
+        hasChanged(parentUpdates.viewSettings.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
+        hasChanged(
+          parentUpdates.viewSettings.gridPosterSize,
+          initialValues.gridPosterSize,
+          'gridPosterSize'
+        ) ||
+        hasChanged(
+          parentUpdates.viewSettings.listDescriptionRows,
+          initialValues.listDescriptionRows,
+          'listDescriptionRows'
+        ) ||
+        hasChanged(
+          parentUpdates.viewSettings.showHorizontalScrollbar,
+          initialValues.showHorizontalScrollbar,
+          'showHorizontalScrollbar'
+        ) ||
+        hasChanged(
+          parentUpdates.viewSettings.childViewSettings,
+          initialValues.childViewSettings,
+          'childViewSettings'
+        )
+      ) {
+        console.log(`[ItemSettingsModal] [DEBUG] Override mode changes detected.`, parentUpdates)
+        return parentUpdates as LibraryItem
+      }
+      return null
     }
 
     if (isVirtual && item.physicalParentId) {
-      // --- Editing a Virtual Folder ---
-      // The backend now handles redirection (library.service.ts:updateItem).
-      // We just need to construct the payload with the modified settings.
-
+      // --- Editing a Virtual Folder (Legacy Redirection) ---
+      // Note: We are moving towards 'overrides', but we still support the legacy
+      // virtualFolderSettings storage for now.
       const settingsToSave: any = {
         id: item.id,
         isVirtual: true,
-        // Include properties needed for backend parsing if they exist
         physicalParentId: item.physicalParentId,
         groupByKey: item.groupByKey,
-        groupByValue: item.groupByValue
+        groupByValue: item.groupByValue,
+        viewSettings: {}
       }
 
-      applyViewSettings(settingsToSave)
+      applyViewSettings(settingsToSave.viewSettings)
 
       if (childViewSettings) {
-        settingsToSave.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
+        settingsToSave.viewSettings.childViewSettings = JSON.parse(
+          JSON.stringify(childViewSettings)
+        )
       }
 
-      // We also need to check for changes to decide if we even send the update.
-      // Comparing against initialValues using the same keys.
       if (
-        hasChanged(settingsToSave.layout, initialValues.selectedLayout) ||
-        hasChanged(settingsToSave.clickAction, initialValues.selectedClickAction) ||
-        hasChanged(settingsToSave.groupBy, initialValues.selectedGroupBy) ||
-        hasChanged(settingsToSave.gridPosterSize, initialValues.gridPosterSize) ||
-        hasChanged(settingsToSave.listDescriptionRows, initialValues.listDescriptionRows) ||
-        hasChanged(settingsToSave.showHorizontalScrollbar, initialValues.showHorizontalScrollbar) ||
-        hasChanged(settingsToSave.childViewSettings, initialValues.childViewSettings)
+        hasChanged(settingsToSave.viewSettings.layout, initialValues.selectedLayout, 'layout') ||
+        hasChanged(
+          settingsToSave.viewSettings.clickAction,
+          initialValues.selectedClickAction,
+          'clickAction'
+        ) ||
+        hasChanged(settingsToSave.viewSettings.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
+        hasChanged(
+          settingsToSave.viewSettings.gridPosterSize,
+          initialValues.gridPosterSize,
+          'gridPosterSize'
+        ) ||
+        hasChanged(
+          settingsToSave.viewSettings.listDescriptionRows,
+          initialValues.listDescriptionRows,
+          'listDescriptionRows'
+        ) ||
+        hasChanged(
+          settingsToSave.viewSettings.showHorizontalScrollbar,
+          initialValues.showHorizontalScrollbar,
+          'showHorizontalScrollbar'
+        ) ||
+        hasChanged(
+          settingsToSave.viewSettings.childViewSettings,
+          initialValues.childViewSettings,
+          'childViewSettings'
+        )
       ) {
+        console.log(`[ItemSettingsModal] [DEBUG] Virtual folder changes detected.`, settingsToSave)
         return settingsToSave as LibraryItem
       }
       return null
-    } else {
-      // --- Editing a Physical Item ---
-
-      // 1. Metadata Changes
-      const trimmedTitle = title.trim() ? title.trim() : undefined
-      if (hasChanged(trimmedTitle, initialValues.title)) {
-        updates.title = trimmedTitle
-        changed = true
-      }
-
-      const parsedYear = parseInt(year, 10)
-      const finalYear = !isNaN(parsedYear) ? parsedYear : undefined
-      if (hasChanged(finalYear, initialValues.year)) {
-        updates.year = finalYear
-        changed = true
-      }
-
-      if (hasChanged(mediaType, initialValues.mediaType)) {
-        updates.mediaType = mediaType
-        changed = true
-      }
-
-      if (hasChanged(overview, initialValues.overview)) {
-        updates.overview = overview
-        changed = true
-      }
-
-      if (hasChanged(genres, initialValues.genres)) {
-        updates.genres = [...genres]
-        changed = true
-      }
-
-      const currentTags = tags.reduce((acc: Record<string, string>, tag) => {
-        if (tag.key) acc[tag.key] = tag.value
-        return acc
-      }, {})
-      if (hasChanged(currentTags, initialValues.tags)) {
-        updates.tags = currentTags
-        changed = true
-      }
-
-      const parseOptionalInt = (val: string) => (!isNaN(parseInt(val)) ? parseInt(val) : undefined)
-      if (isFolder) {
-        if (mediaType === 'season') {
-          const finalSeasonNumber = parseOptionalInt(seasonNumber)
-          if (hasChanged(finalSeasonNumber, initialValues.seasonNumber)) {
-            updates.seasonNumber = finalSeasonNumber
-            changed = true
-          }
-        }
-      } else {
-        if (mediaType === 'episode') {
-          const finalEpSeason = parseOptionalInt(episodeSeasonNumber)
-          const finalEpNum = parseOptionalInt(episodeNumber)
-          if (hasChanged(finalEpSeason, initialValues.episodeSeasonNumber)) {
-            updates.seasonNumber = finalEpSeason
-            changed = true
-          }
-          if (hasChanged(finalEpNum, initialValues.episodeNumber)) {
-            updates.episodeNumber = finalEpNum
-            changed = true
-          }
-        }
-      }
-
-      // 2. View and Folder Setting Changes (for folders)
-      if (isFolder) {
-        const viewUpdates: any = {}
-        const scraperUpdates: any = {}
-
-        applyViewSettings(viewUpdates)
-
-        if (
-          hasChanged(viewUpdates.layout, initialValues.selectedLayout) ||
-          hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction) ||
-          hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy) ||
-          hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize) ||
-          hasChanged(viewUpdates.listDescriptionRows, initialValues.listDescriptionRows) ||
-          hasChanged(viewUpdates.showHorizontalScrollbar, initialValues.showHorizontalScrollbar)
-        ) {
-          updates.viewSettings = viewUpdates
-          changed = true
-        }
-
-        const finalChildViewSettings = childViewSettings
-          ? JSON.parse(JSON.stringify(childViewSettings))
-          : null
-        if (hasChanged(finalChildViewSettings, initialValues.childViewSettings)) {
-          if (!updates.viewSettings) updates.viewSettings = {}
-          updates.viewSettings.childViewSettings = finalChildViewSettings
-          changed = true
-        }
-
-        const finalTypeHint =
-          childrenTypeHint === 'auto' || (childrenTypeHint as string) === ''
-            ? 'auto'
-            : (childrenTypeHint as 'movie' | 'tv')
-
-        if (
-          hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata) ||
-          hasChanged(finalTypeHint, initialValues.childrenTypeHint) ||
-          hasChanged(processTvChildren, initialValues.processTvChildren)
-        ) {
-          updates.scraperSettings = {
-            retrieve_children_metadata: retrieveChildrenMetadata,
-            children_type_hint: finalTypeHint,
-            process_tv_children: processTvChildren
-          }
-          changed = true
-        }
-      }
-
-      return changed ? (updates as LibraryItem) : null
     }
+
+    // --- Editing a Standard Physical Item ---
+
+    // 1. Metadata Changes
+    const trimmedTitle = title.trim() ? title.trim() : undefined
+    if (hasChanged(trimmedTitle, initialValues.title)) {
+      updates.title = trimmedTitle
+      changed = true
+    }
+
+    const parsedYear = parseInt(year, 10)
+    const finalYear = !isNaN(parsedYear) ? parsedYear : undefined
+    if (hasChanged(finalYear, initialValues.year)) {
+      updates.year = finalYear
+      changed = true
+    }
+
+    if (hasChanged(mediaType, initialValues.mediaType)) {
+      updates.mediaType = mediaType
+      changed = true
+    }
+
+    if (hasChanged(overview, initialValues.overview)) {
+      updates.overview = overview
+      changed = true
+    }
+
+    if (hasChanged(genres, initialValues.genres)) {
+      updates.genres = [...genres]
+      changed = true
+    }
+
+    const currentTags = tags.reduce((acc: Record<string, string>, tag) => {
+      if (tag.key) acc[tag.key] = tag.value
+      return acc
+    }, {})
+    if (hasChanged(currentTags, initialValues.tags)) {
+      updates.tags = currentTags
+      changed = true
+    }
+
+    if (isFolder) {
+      if (mediaType === 'season') {
+        const finalSeasonNumber = parseOptionalInt(seasonNumber)
+        if (hasChanged(finalSeasonNumber, initialValues.seasonNumber)) {
+          updates.seasonNumber = finalSeasonNumber
+          changed = true
+        }
+      }
+    } else {
+      if (mediaType === 'episode') {
+        const finalEpSeason = parseOptionalInt(episodeSeasonNumber)
+        const finalEpNum = parseOptionalInt(episodeNumber)
+        if (hasChanged(finalEpSeason, initialValues.episodeSeasonNumber)) {
+          updates.seasonNumber = finalEpSeason
+          changed = true
+        }
+        if (hasChanged(finalEpNum, initialValues.episodeNumber)) {
+          updates.episodeNumber = finalEpNum
+          changed = true
+        }
+      }
+    }
+
+    // 2. View and Folder Setting Changes (for folders)
+    if (isFolder) {
+      const viewUpdates: any = {}
+      applyViewSettings(viewUpdates)
+
+      if (
+        hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
+        hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
+        hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
+        hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
+        hasChanged(
+          viewUpdates.listDescriptionRows,
+          initialValues.listDescriptionRows,
+          'listDescriptionRows'
+        ) ||
+        hasChanged(
+          viewUpdates.showHorizontalScrollbar,
+          initialValues.showHorizontalScrollbar,
+          'showHorizontalScrollbar'
+        )
+      ) {
+        updates.viewSettings = viewUpdates
+        changed = true
+      }
+
+      const finalChildViewSettings = childViewSettings
+        ? JSON.parse(JSON.stringify(childViewSettings))
+        : null
+      if (
+        hasChanged(finalChildViewSettings, initialValues.childViewSettings, 'childViewSettings')
+      ) {
+        if (!updates.viewSettings) updates.viewSettings = {}
+        updates.viewSettings.childViewSettings = finalChildViewSettings
+        changed = true
+      }
+      // 3. Folder Settings (Scraper, etc)
+      const scraperSettings: any = {}
+      if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
+        scraperSettings.retrieve_children_metadata = retrieveChildrenMetadata
+      }
+      if (hasChanged(childrenTypeHint, initialValues.childrenTypeHint)) {
+        scraperSettings.children_type_hint = childrenTypeHint
+      }
+      if (hasChanged(processTvChildren, initialValues.processTvChildren)) {
+        scraperSettings.process_tv_children = processTvChildren
+      }
+
+      if (Object.keys(scraperSettings).length > 0) {
+        updates.scraperSettings = scraperSettings
+        changed = true
+      }
+    }
+
+    return changed ? (updates as LibraryItem) : null
   }
 
   async function handleSave() {
@@ -430,7 +535,12 @@
   })
 </script>
 
-<ModalWindow title={title || item.name} onClose={handleClose} onSave={handleSave} maxWidth="700px">
+<ModalWindow
+  title={overrideParent ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
+  onClose={handleClose}
+  onSave={handleSave}
+  maxWidth="700px"
+>
   {#snippet header()}
     <div class="tabs">
       {#if !isVirtual}
@@ -471,10 +581,16 @@
         {suggestions}
       />
     {:else if activeTab === 'view' && isFolder}
+      {@const inheritedSettings = overrideParent?.viewSettings?.childViewSettings}
+      {@const inheritedLabel = overrideParent
+        ? (overrideParent.title ?? overrideParent.name)
+        : undefined}
       <ViewTab
         item={item as MediaFolder}
         {groupByKeys}
         {settings}
+        {inheritedSettings}
+        {inheritedLabel}
         bind:selectedLayout
         bind:selectedClickAction
         bind:selectedGroupBy

@@ -49,14 +49,6 @@
   })
 
   const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
-  $effect(() => {
-    if (currentFolder && currentFolder.viewHierarchy) {
-      console.log(
-        '[MainView] Recursive View Hierarchy:',
-        JSON.stringify(currentFolder.viewHierarchy, null, 2)
-      )
-    }
-  })
 
   // 1b. Resolve Layout & View Requirements
   // We need to know the layout to know which fields to fetch (e.g. 'overview' for list view).
@@ -120,7 +112,7 @@
           type: 'folder',
           path: '',
           children: [],
-          ...settings.searchResultView
+          viewSettings: settings.searchResultView // This is correct: nest view settings under viewSettings
         } as MediaFolder)
       : undefined
   )

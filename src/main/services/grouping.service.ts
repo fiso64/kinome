@@ -188,7 +188,7 @@ export async function resolveViewHierarchy(
   inheritedSettings?: StoredViewSettings
 ): Promise<ViewHierarchyNode | null> {
   // Guard against excessive recursion
-  if (depth > 5) return null // Side-channel is for look-ahead, not full library crawl
+  if (depth > 10) return null // Side-channel is for look-ahead, not full library crawl
 
   // 1. Resolve Target ID (Root Alias)
   let targetId = itemId
@@ -602,7 +602,7 @@ async function groupItemsRecursive(
           name: 'Files',
           title: (virtualSettings as any).title ?? 'Files',
           type: 'folder',
-          mediaType: 'folder' as any,
+          mediaType: (unseasonedFiles[0]?.mediaType === 'episode' ? 'season' : null) as any,
           isMissing: false,
           isHidden: false,
           path: `virtual/${fullTokenPath}`,
@@ -660,7 +660,7 @@ async function groupItemsRecursive(
         name: groupValue,
         title: (virtualSettings as any).title ?? groupValue,
         type: 'folder',
-        mediaType: physicalParent?.mediaType,
+        mediaType: physicalParent?.mediaType === 'tv' ? null : physicalParent?.mediaType,
         isMissing: false,
         isHidden: false,
         path: `virtual/${fullTokenPath}`,

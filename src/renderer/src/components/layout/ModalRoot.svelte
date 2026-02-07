@@ -26,6 +26,7 @@
       item={active.props.item}
       initialTab={(active.props as any).initialTab}
       defaultLayout={(active.props as any).defaultLayout}
+      overrideParent={(active.props as any).overrideParent}
       {groupByKeys}
       {settings}
       onClose={() => {

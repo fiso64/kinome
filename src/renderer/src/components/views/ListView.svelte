@@ -25,7 +25,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     highlightedIndex?: number | null
     grayOutWatched: boolean
@@ -86,7 +86,8 @@
         class:highlighted={highlightedIndex === i}
         class:missing={item.isMissing}
         onclick={() => onItemClick(item)}
-        oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'list' })}
+        oncontextmenu={(e) =>
+          onShowContextMenu(item, e, { layout: 'list', parentItem: parentItem as LibraryItem })}
       >
         {#if !item.posterPath && listDescriptionRows === 0}
           <div class="icon-only">

@@ -5,20 +5,21 @@ import type { LibraryItem, MediaFolder } from '@shared/types'
 export type ModalConfig =
   | { type: 'settings'; props?: Record<string, never> }
   | {
-      type: 'itemSettings'
-      props: {
-        item: LibraryItem
-        initialTab: 'metadata' | 'view' | 'folder' | 'settings'
-        defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
-      }
+    type: 'itemSettings'
+    props: {
+      item: LibraryItem
+      initialTab: 'metadata' | 'view' | 'folder' | 'settings'
+      defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+      overrideParent?: LibraryItem
     }
+  }
   | {
-      type: 'manualSearch'
-      props: {
-        item: LibraryItem
-        initialTab?: 'match' | 'artwork'
-      }
+    type: 'manualSearch'
+    props: {
+      item: LibraryItem
+      initialTab?: 'match' | 'artwork'
     }
+  }
   | { type: 'properties'; props: { item: LibraryItem } }
   | { type: 'rename'; props: { item: LibraryItem } }
   | { type: 'initialFolderSettings'; props: { root: MediaFolder } }

@@ -26,7 +26,8 @@ export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null,
   ignoreLayers: Set<DefaultLayoutKey> = new Set(),
-  inheritedSettings?: StoredViewSettings
+  inheritedSettings?: StoredViewSettings,
+  ignoreOverrideId?: string | null
 ): ResolutionInfo {
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
   if (!settings) {
@@ -51,13 +52,28 @@ export function resolveViewSettings(
   // 1. Determine the hierarchy of settings to check, from most to least specific.
   const cascadeLayers: { settings: StoredViewSettings; sourceInfo: ResolutionSource }[] = []
 
-  // Add inherited context layer if provided (Parent's childViewSettings)
-  // This takes priority over the item's own settings in "inline" views.
+  // Add Child-Specific Overrides (The Most Specific context)
+  // These are instructions from a parent that target THIS specific child ID.
+  if (
+    inheritedSettings?.overrides &&
+    item?.id &&
+    inheritedSettings.overrides[item.id] &&
+    item.id !== ignoreOverrideId
+  ) {
+    cascadeLayers.push({
+      settings: inheritedSettings.overrides[item.id],
+      sourceInfo: { source: 'override', sourceKey: item.id }
+    })
+  }
+
+  // Add inherited context layer if provided (Parent's general childViewSettings)
+  // This takes priority over the item's own settings in "inline" views (per spec).
   if (inheritedSettings && Object.keys(inheritedSettings).length > 0) {
-    cascadeLayers.push({ settings: inheritedSettings, sourceInfo: { source: 'inherited' as any } })
+    cascadeLayers.push({ settings: inheritedSettings, sourceInfo: { source: 'inherited' } })
   }
 
   // Add item-specific layer if it exists
+  // This represents the item's own explicit configuration.
   if (item?.viewSettings) {
     cascadeLayers.push({ settings: item.viewSettings, sourceInfo: { source: 'item' } })
   }
@@ -88,25 +104,60 @@ export function resolveViewSettings(
   // 2. Resolve the base properties (`layout`, `clickAction`, `childViewSettings`).
   const layoutLayer = cascadeLayers.find((layer) => layer.settings.layout)
   const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
-  const childViewSettingsLayer = cascadeLayers.find((layer) => layer.settings.childViewSettings)
+
+  // Merge childViewSettings from all layers (most specific wins for each property)
+  let resolvedChildViewSettings: StoredViewSettings | undefined = undefined
+  let childSettingsSource: ResolutionSource | undefined = undefined
+
+  for (const layer of [...cascadeLayers].reverse()) {
+    const layerChild = layer.settings.childViewSettings
+    if (layerChild) {
+      if (!resolvedChildViewSettings) resolvedChildViewSettings = {}
+      childSettingsSource = layer.sourceInfo
+
+      const prevOverrides = resolvedChildViewSettings.overrides
+      const prevVirtual = resolvedChildViewSettings.virtualFolderSettings
+
+      Object.assign(resolvedChildViewSettings, layerChild)
+
+      if (layerChild.overrides) {
+        resolvedChildViewSettings.overrides = { ...prevOverrides, ...layerChild.overrides }
+      }
+      if (layerChild.virtualFolderSettings) {
+        resolvedChildViewSettings.virtualFolderSettings = {
+          ...prevVirtual,
+          ...layerChild.virtualFolderSettings
+        }
+      }
+    }
+  }
 
   const resolvedBase: any = {
     layout: layoutLayer?.settings.layout ?? 'grid',
     clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
-    childViewSettings: childViewSettingsLayer?.settings.childViewSettings ?? undefined
+    childViewSettings: resolvedChildViewSettings
   }
 
-  // If no explicit child settings exist, apply the implicit default for the media type.
+  // If no explicit child settings exist (or they only contain overrides/redirections),
+  // apply the implicit default for the media type.
   // e.g. TV Shows implicitly use the "Default Season" layout for their children.
-  if (!resolvedBase.childViewSettings && item?.mediaType === 'tv' && settings) {
+  const hasEffectiveChildLayout =
+    resolvedBase.childViewSettings &&
+    Object.keys(resolvedBase.childViewSettings).some(
+      (k) => !['overrides', 'virtualFolderSettings'].includes(k)
+    )
+
+  if (!hasEffectiveChildLayout && item?.mediaType === 'tv' && settings) {
     // We inject the Season settings as the effective childViewSettings
-    resolvedBase.childViewSettings = settings.defaultLayouts.season
+    resolvedBase.childViewSettings = {
+      ...(settings.defaultLayouts.season as any),
+      ...(resolvedBase.childViewSettings || {}) // Preserve any overrides that were already found
+    }
   }
 
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
-  if (childViewSettingsLayer)
-    (resolvedSources as any).childViewSettings = childViewSettingsLayer.sourceInfo
+  if (childSettingsSource) (resolvedSources as any).childViewSettings = childSettingsSource
 
   // 3. Get the list of layout-specific keys for the now-resolved layout.
   const layoutConfig =
@@ -118,6 +169,25 @@ export function resolveViewSettings(
 
   // 4. For each layout-specific key, resolve its value using the cascade.
   for (const key of specificKeys) {
+    if (key === 'virtualFolderSettings') {
+      // Special case: Merge virtual folder settings maps from all layers
+      let merged: Record<string, any> = {}
+      let primarySource: ResolutionSource | undefined = undefined
+      for (const layer of [...cascadeLayers].reverse()) {
+        const val = (layer.settings as any)[key]
+        if (val) {
+          merged = { ...merged, ...val }
+          primarySource = layer.sourceInfo
+        }
+      }
+
+      if (Object.keys(merged).length > 0) {
+        resolvedSpecific[key] = merged
+        resolvedSources[key as keyof ResolvedViewSettings] = primarySource!
+      }
+      continue
+    }
+
     // Find the first settings object in the cascade that defines this key.
     const winningLayer = cascadeLayers.find((layer: any) => layer.settings[key] != null)
 
@@ -126,10 +196,19 @@ export function resolveViewSettings(
       resolvedSources[key as keyof ResolvedViewSettings] = winningLayer.sourceInfo
     } else {
       // If no override is found, use the global default from `defaultLayoutSettings`.
-      resolvedSpecific[key] = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
-      resolvedSources[key as keyof ResolvedViewSettings] = {
-        source: 'global',
-        sourceKey: '_default'
+      const globalDefault = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
+      resolvedSpecific[key] = globalDefault
+      if (globalDefault !== undefined) {
+        resolvedSources[key as keyof ResolvedViewSettings] = {
+          source: 'global',
+          sourceKey: '_default'
+        }
+      } else {
+        // Fallback: If not even in global defaults, assume it is implicitly set by the layout structure
+        resolvedSources[key as keyof ResolvedViewSettings] = {
+          source: 'type',
+          sourceKey: 'configured'
+        }
       }
     }
   }
@@ -143,7 +222,7 @@ export function resolveViewSettings(
     sources: resolvedSources
   }
 
-  // console.log(`[resolveViewSettings] item: ${item?.name}, layout: ${result.settings.layout}`)
+
   return result
 }
 

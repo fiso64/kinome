@@ -24,7 +24,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     grayOutWatched: boolean
     parentItem?: MediaFolder | VirtualFolder
@@ -46,10 +46,11 @@
       <button
         type="button"
         class="grid-item"
-        class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+        class:watched={shouldBeGreyedOut(item, parentItem as any, grayOutWatched)}
         class:missing={item.isMissing}
         onclick={() => onItemClick(item)}
-        oncontextmenu={(e) => onShowContextMenu(item, e, { layout: 'grid' })}
+        oncontextmenu={(e) =>
+          onShowContextMenu(item, e, { layout: 'grid', parentItem: parentItem as LibraryItem })}
       >
         <div class="poster">
           {#if item.posterPath}

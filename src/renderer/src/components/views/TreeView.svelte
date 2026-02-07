@@ -23,7 +23,7 @@
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,
-      options?: { layout?: string }
+      options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     grayOutWatched: boolean
     parentItem?: MediaFolder | VirtualFolder
@@ -36,8 +36,11 @@
       <TreeItem
         item={item as LibraryItem}
         itemclick={onItemClick as (item: LibraryItem) => void}
-        showContextMenu={(treeItem, event) =>
-          onShowContextMenu(treeItem, event, { layout: 'tree' })}
+        showContextMenu={(treeItem, event, options) =>
+          onShowContextMenu(treeItem, event, {
+            layout: 'tree',
+            parentItem: options?.parentItem ?? (parentItem as LibraryItem)
+          })}
         {grayOutWatched}
         {parentItem}
         level={0}

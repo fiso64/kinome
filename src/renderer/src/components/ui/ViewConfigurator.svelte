@@ -63,7 +63,9 @@
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
-    childViewSettings = $bindable()
+    childViewSettings = $bindable(),
+    inheritedSettings,
+    inheritedLabel
   }: {
     // Context props
     item?: MediaFolder
@@ -83,6 +85,8 @@
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
     childViewSettings?: StoredViewSettings | null
+    inheritedSettings?: StoredViewSettings
+    inheritedLabel?: string
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
@@ -108,12 +112,36 @@
 
     const dummyItemForResolution = {
       ...baseItemForResolving,
+      name: '__DUMMY_FOR_RESOLUTION__',
       type: 'folder', // Assume folder for view settings
-      mediaType: item?.mediaType ?? typeKey, // Use the current selected layout to resolve its specific settings correctly
-      layout: selectedLayout ?? undefined
+      mediaType: item?.mediaType ?? typeKey // Use the current selected layout to resolve its specific settings correctly
+      // Note: We do NOT inject viewSettings here anymore, because item settings (Layer 3)
+      // are lower priority than inherited settings (Layer 2). To force our draft selection
+      // to win, we must inject it as an Override (Layer 1).
     }
 
-    return resolveViewSettings(dummyItemForResolution, settings, layersToIgnore)
+    // Construct a simulated inherited settings object that includes our draft selection
+    // as a high-priority override.
+    const effectiveInheritedSettings: StoredViewSettings = {
+      ...(inheritedSettings ?? {}),
+      overrides: {
+        ...(inheritedSettings?.overrides ?? {}),
+        [baseItemForResolving.id ?? 'config-dummy-id']: selectedLayout
+          ? { layout: selectedLayout }
+          : {}
+      }
+    }
+
+    // We use a dummy ID ensures we match the override key we just created
+    dummyItemForResolution.id = baseItemForResolving.id ?? 'config-dummy-id'
+
+    return resolveViewSettings(
+      dummyItemForResolution,
+      settings,
+      layersToIgnore,
+      effectiveInheritedSettings,
+      null // We do NOT ignore any ID because we explicitly want our injected override to apply
+    )
   })
 
   const effectiveLayout = $derived(selectedLayout ?? inheritedInfo.settings.layout) // This is now the currently selected layout, whether in config mode or item mode.
@@ -174,7 +202,21 @@
           return `${label}`
         }
         return 'Type Default'
+      case 'inherited':
+        return inheritedLabel ?? 'Parent'
+      case 'override':
+        return 'Override'
+      default:
+        // Use default fallback instead of returning empty string immediately
+        break
     }
+    // Debug: If we get here, log the unknown source
+    if (sourceInfo.source) {
+      const src = sourceInfo.source as string
+      console.warn(`[ViewConfigurator] Unknown resolution source: ${src}`, sourceInfo)
+      return src?.charAt(0).toUpperCase() + src?.slice(1)
+    }
+    return 'Default'
   }
 </script>
 

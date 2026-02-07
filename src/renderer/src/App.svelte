@@ -384,7 +384,7 @@
   async function handleShowContextMenu(
     item: LibraryItem | SearchIndexEntry,
     event: MouseEvent,
-    options?: { layout?: string }
+    options?: { layout?: string; parentItem?: LibraryItem }
   ) {
     contextMenuStore.open(item, event, options)
   }

@@ -2,6 +2,7 @@ import { QueryClient, createQuery } from '@tanstack/svelte-query'
 import { QueryThrottler } from '@lib/query-throttler'
 import { api } from '@lib/api'
 import type { LibraryItem } from '@shared/types'
+import { isVirtualId, parseVirtualId, getVirtualSettingsKey } from '@shared/virtual-logic'
 
 /**
  * LibraryDataService: The authoritative "Middle Man" for all library-related data.
@@ -269,6 +270,7 @@ class LibraryDataService {
       return
     }
 
+    const itemIdsToRefetch = new Set<string>()
     const ancestorIdsToRefetch = new Set<string>()
     let refreshGlobalContinueWatching = false
     const showIdsForCWRefetch = new Set<string>()
@@ -276,23 +278,56 @@ class LibraryDataService {
     for (const item of updatedItems) {
       // Step A: Surgical Patch (Instant & Silent - 0ms feedback)
       const normalizedId = this.normalizeId(item.id)
+      itemIdsToRefetch.add(item.id)
 
       // 1. Update the item itself wherever it appears as a primary entity (Details, Tree, Settings)
       this.queryClient.setQueriesData(
         { queryKey: [...this.keys.item.all, normalizedId] },
-        (old: any) => (old ? { ...old, ...item } : old)
+        (old: any) => {
+          if (!old) return old
+          const patched = { ...old, ...item }
+
+          // If view settings or scraper settings were updated, the server-side viewHierarchy is stale.
+          // We clear it so components fall back to live resolution until the refetch completes.
+          if ('viewSettings' in item || 'scraperSettings' in item) {
+            delete (patched as any).viewHierarchy
+          }
+          return patched
+        }
       )
 
-      // 2. Patch any active children lists where this item might be a member.
+      // 2. Patch any active children lists where this item might be a member (OR its virtual children).
       this.queryClient.setQueriesData({ queryKey: this.keys.children.all }, (oldData: any) => {
         if (!Array.isArray(oldData)) return oldData
-        const index = oldData.findIndex((i: LibraryItem) => i.id === item.id)
-        if (index !== -1) {
-          const newData = [...oldData]
-          newData[index] = { ...oldData[index], ...item }
-          return newData
+        let changed = false
+        const newData = [...oldData]
+
+        for (let i = 0; i < newData.length; i++) {
+          const entry = newData[i]
+          if (entry.id === item.id) {
+            newData[i] = { ...entry, ...item }
+            changed = true
+          } else if (isVirtualId(entry.id)) {
+            const { parentId, tokens } = parseVirtualId(entry.id)
+            if (this.isIdMatch(parentId, item.id)) {
+              // This virtual folder belongs to the physical item being updated.
+              // Update its viewSettings from the parent's new virtualFolderSettings map.
+              const settingsKey = getVirtualSettingsKey(tokens)
+              const newVirtualSettings = item.viewSettings?.virtualFolderSettings?.[settingsKey] ?? {}
+
+              newData[i] = {
+                ...entry,
+                ...newVirtualSettings,
+                viewSettings: {
+                  ...newVirtualSettings,
+                  virtualFolderSettings: item.viewSettings?.virtualFolderSettings
+                }
+              }
+              changed = true
+            }
+          }
         }
-        return oldData
+        return changed ? newData : oldData
       })
 
       // Step B: Collect for Structural Sync
@@ -327,6 +362,11 @@ class LibraryDataService {
     // but it ensures 100% structural robustness (sorting, grouping, virtual moves).
     // We haven't experienced performance problems with this YET...
     this.throttler.throttleRefetch(this.keys.children.all, isScanning)
+
+    itemIdsToRefetch.forEach((id) => {
+      const normalizedId = this.normalizeId(id)
+      this.throttler!.throttleRefetch(this.keys.item.details(normalizedId), isScanning)
+    })
 
     ancestorIdsToRefetch.forEach((ancestorId) => {
       const normalizedAncestorId = this.normalizeId(ancestorId)

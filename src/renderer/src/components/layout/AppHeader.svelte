@@ -161,7 +161,7 @@
           type: 'folder',
           path: '',
           children: [],
-          ...settings.searchPopupView
+          viewSettings: settings.searchPopupView // Correctly nest under viewSettings
         } as MediaFolder)
       : undefined
   )

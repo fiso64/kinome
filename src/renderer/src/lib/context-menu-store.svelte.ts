@@ -15,6 +15,7 @@ export interface ContextMenuOptions {
 // --- State ---
 
 let item = $state<LibraryItem | null>(null)
+let parentItem = $state<LibraryItem | null>(null)
 let position = $state<ContextMenuPosition>({ top: 0, left: 0 })
 let layout = $state<string | undefined>(undefined)
 let isVisible = $state(false)
@@ -25,7 +26,7 @@ let lastClick = { x: 0, y: 0, time: 0 }
 async function open(
   target: LibraryItem | SearchIndexEntry,
   event: MouseEvent,
-  options?: ContextMenuOptions
+  options?: ContextMenuOptions & { parentItem?: LibraryItem }
 ) {
   const dx = Math.abs(event.clientX - lastClick.x)
   const dy = Math.abs(event.clientY - lastClick.y)
@@ -56,12 +57,14 @@ async function open(
   }
 
   layout = options?.layout
+  parentItem = options?.parentItem || null
   position = { top: event.clientY, left: event.clientX }
   isVisible = true
 }
 
 function close() {
   item = null
+  parentItem = null
   isVisible = false
 }
 
@@ -70,6 +73,9 @@ function close() {
 export const contextMenuStore = {
   get item() {
     return item
+  },
+  get parentItem() {
+    return parentItem
   },
   get position() {
     return position
