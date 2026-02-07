@@ -90,6 +90,18 @@
   })
   const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined) // Can be undefined while loading
 
+  // --- Flicker Prevention Logic ---
+  // Tracks if we are "in" a detail view. This stays true while navigating between items,
+  // preventing the MainView from flickering back in during the loading state.
+  let wasDetailViewActive = $state(false)
+  $effect(() => {
+    if (selectedItemForDetailView) {
+      wasDetailViewActive = true
+    } else if (!selectedItemId) {
+      wasDetailViewActive = false
+    }
+  })
+
   const dispatch = createEventDispatcher<{
     scanLibrary: void
     openLibrary: void
@@ -145,7 +157,10 @@
       {onStatusUpdate}
     />
   {:else}
-    <div class="main-view-container" class:hidden={!!selectedItemForDetailView}>
+    <div
+      class="main-view-container"
+      class:hidden={!!selectedItemForDetailView || (wasDetailViewActive && !!selectedItemId)}
+    >
       <!-- SEARCH VIEW: Rendered but hidden via CSS unless active -->
       <div class="view-wrapper" class:hidden={!isGlobalSearchActive}>
         <div class="search-header">
@@ -213,9 +228,10 @@
       {/if}
     </div>
 
-    {#if selectedItemForDetailView && settings}
+    {#if selectedItemId && settings}
       <ItemDetail
-        item={selectedItemForDetailView}
+        item={selectedItemForDetailView ||
+          ({ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem)}
         onItemClick={(item) => dispatch('itemClick', { item })}
         onPlay={(item) => dispatch('play', { item })}
         onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}

@@ -5,7 +5,7 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import FileTab from './_parts/item-settings/FileTab.svelte'
-  import { navStore } from '@lib/navigation-store.svelte'
+  import { resolveViewSettings } from '@shared/settings-helpers'
   import type {
     StoredViewSettings,
     MediaFolder,
@@ -13,7 +13,8 @@
     LibraryItem,
     Settings,
     AutocompleteSuggestions,
-    ResolutionInfo
+    ResolutionInfo,
+    ResolutionSource
   } from '@shared/types'
 
   type VirtualFolderProps = {
@@ -119,8 +120,28 @@
 
         if (freshItem.type === 'folder') {
           const folder = freshItem as MediaFolder
-          // Use stored settings directly from the item's viewSettings property
-          const stored = folder.viewSettings ?? {}
+
+          // Use the centralized resolution logic to see what's currently active.
+          // We pass overrideParent's childViewSettings as inheritedSettings.
+          const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored
+          const resolution = resolveViewSettings(
+            folder,
+            settings,
+            new Set(),
+            parentStored?.childViewSettings
+          )
+
+          // We only want to populate the modal with values that are actually STORED
+          // at the relevant layer (Item layer or Override layer).
+          const stored: StoredViewSettings = {}
+          for (const [key, sourceInfo] of Object.entries(resolution.sources) as [
+            keyof StoredViewSettings,
+            ResolutionSource
+          ][]) {
+            if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
+              ;(stored as any)[key] = (resolution.settings as any)[key]
+            }
+          }
 
           seasonNumber = folder.seasonNumber?.toString() ?? ''
 
@@ -179,19 +200,25 @@
     if (item.type !== 'folder') return {}
     const folder = item as MediaFolder
 
-    // If we are in "Override Mode," we look at the parent's specific override for this child
-    if (overrideParent?.viewSettings?.childViewSettings) {
-      const parentChildSettings = overrideParent.viewSettings.childViewSettings
-      if (parentChildSettings.overrides && parentChildSettings.overrides[item.id]) {
-        return parentChildSettings.overrides[item.id]
+    const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored
+    const resolution = resolveViewSettings(
+      folder,
+      settings,
+      new Set(),
+      parentStored?.childViewSettings
+    )
+
+    const stored: StoredViewSettings = {}
+    for (const [key, sourceInfo] of Object.entries(resolution.sources) as [
+      keyof StoredViewSettings,
+      ResolutionSource
+    ][]) {
+      if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
+        ;(stored as any)[key] = (resolution.settings as any)[key]
       }
-      // If no specific override exists yet, we return an empty object so fields are null
-      // and fall back to the inherited defaults in the UI.
-      return {}
     }
 
-    // Default: use the item's own settings
-    return folder.viewSettings ?? {}
+    return stored
   })()
 
   let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
@@ -581,7 +608,8 @@
         {suggestions}
       />
     {:else if activeTab === 'view' && isFolder}
-      {@const inheritedSettings = overrideParent?.viewSettings?.childViewSettings}
+      {@const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored}
+      {@const inheritedSettings = parentStored?.childViewSettings}
       {@const inheritedLabel = overrideParent
         ? (overrideParent.title ?? overrideParent.name)
         : undefined}

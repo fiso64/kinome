@@ -5,13 +5,17 @@ import type {
   StoredViewSettings,
   DefaultLayoutKey,
   ResolutionInfo,
-  ResolutionSource
+  ResolutionSource,
+  ViewHierarchyNode
 } from './types'
 import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
 
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.
-type ResolvableItem = (MediaFolder & { isVirtual?: boolean }) | undefined | null
+type ResolvableItem =
+  | (MediaFolder & { isVirtual?: boolean; viewHierarchy?: ViewHierarchyNode })
+  | undefined
+  | null
 
 /**
  * Resolves the final, effective view settings for a given item by applying a specificity cascade.
@@ -74,8 +78,9 @@ export function resolveViewSettings(
 
   // Add item-specific layer if it exists
   // This represents the item's own explicit configuration.
-  if (item?.viewSettings) {
-    cascadeLayers.push({ settings: item.viewSettings, sourceInfo: { source: 'item' } })
+  const ownSettings = item?.viewSettings ?? item?.viewHierarchy?.stored
+  if (ownSettings && Object.keys(ownSettings).length > 0) {
+    cascadeLayers.push({ settings: ownSettings, sourceInfo: { source: 'item' } })
   }
 
   // Add type-specific default layer if applicable and not ignored
