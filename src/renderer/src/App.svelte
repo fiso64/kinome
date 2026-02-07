@@ -363,6 +363,9 @@
       },
       escapeAction: () => {
         handleEscape()
+      },
+      focusSearch: () => {
+        appHeaderComponent?.focusSearchInput()
       }
     })
     return () => cleanupShortcuts()

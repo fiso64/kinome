@@ -2,6 +2,7 @@ interface ShortcutActions {
   navigateBack: () => void
   navigateForward: () => void
   escapeAction: () => void
+  focusSearch: () => void
 }
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
@@ -27,6 +28,9 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     } else if (event.key === 'BrowserForward' || (event.altKey && event.key === 'ArrowRight')) {
       event.preventDefault()
       actions.navigateForward()
+    } else if (event.key === 'd' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      actions.focusSearch()
     }
   }
 
