@@ -41,7 +41,14 @@ export function parseSeasonFolder(name: string): number | null {
   return null
 }
 
-const SPECIAL_FOLDER_NAMES_FOR_TV = ['extras', 'specials', 'deleted scenes', 'featurettes', 'nc']
+const SPECIAL_FOLDER_NAMES_FOR_TV = [
+  'extras',
+  'specials',
+  'deleted scenes',
+  'featurettes',
+  'nc',
+  'behind the scenes'
+]
 
 export interface ParsedTvInfo {
   season?: number | null
@@ -75,6 +82,24 @@ export function determineEpisodeNumbers(
 
       // Tolerance: If mismatches are low (<= 2) and matches are sufficient (>= 3), or perfect match
       if (mismatches === 0 || (mismatches <= 2 && matches.length >= 3)) {
+        // --- Check for Uniqueness ---
+        const episodesSeen = new Set<number>()
+        let hasDuplicate = false
+        for (const info of matches) {
+          if (info.parsed) {
+            if (episodesSeen.has(info.parsed.episode)) {
+              hasDuplicate = true
+              break
+            }
+            episodesSeen.add(info.parsed.episode)
+          }
+        }
+
+        if (hasDuplicate) {
+          // If duplicates exist, this pattern is ambiguous. Move to next pattern or fallback.
+          continue
+        }
+
         // Apply this pattern
         matches.forEach(({ name, parsed }) => {
           if (parsed) {
@@ -115,11 +140,24 @@ export function determineExplicitSeasonNumbers(folderNames: string[]): Map<strin
     (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
   )
 
+  const seasonsSeen = new Set<number>()
+  const tempResults = new Map<string, number>()
+
   for (const name of foldersToProcess) {
     const sNum = parseSeasonFolder(name)
     if (sNum !== null) {
-      results.set(name, { season: sNum, mediaType: 'season' })
+      if (seasonsSeen.has(sNum)) {
+        // DUPLICATED SEASON DETECTED
+        // Return empty map to trigger alphabetic fallback
+        return new Map<string, ParsedTvInfo>()
+      }
+      seasonsSeen.add(sNum)
+      tempResults.set(name, sNum)
     }
+  }
+
+  for (const [name, sNum] of tempResults) {
+    results.set(name, { season: sNum, mediaType: 'season' })
   }
 
   return results

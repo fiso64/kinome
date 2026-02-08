@@ -113,9 +113,9 @@ function getMimeType(filePath: string): string {
 
 /**
  * Maximum chunk size for open-ended range requests.
- * 100MB balances request overhead vs seek responsiveness.
+ * Reduce to improve random seek performance at the cost of more requests/stability.
  */
-const MAX_CHUNK_SIZE = 100 * 1024 * 1024 // 100MB
+const MAX_CHUNK_SIZE = 30 * 1024 * 1024 // 30MB should be safe for high bitrate 4K video?
 
 /**
  * Handles file streaming with HTTP range request support for large video files.

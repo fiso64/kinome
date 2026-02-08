@@ -1,14 +1,23 @@
 <script lang="ts">
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { MediaFolder } from '@shared/types'
+  import { onMount } from 'svelte'
 
   let {
-    item,
+    item: initialItem,
     onClose
   }: {
     item: MediaFolder
     onClose: () => void
   } = $props()
+
+  const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
+    fields: () => ['id', 'scraperSettings']
+  })
+
+  // Use the fetched item data if available, otherwise fallback to the initial item prop.
+  const item = $derived((itemQuery.data as MediaFolder) || initialItem)
 
   let seasonStrategy: 'smart' | 'alphabetic' = $state('smart')
   let episodeStrategy: 'smart' | 'alphabetic' = $state('smart')
@@ -18,6 +27,11 @@
   // TV show processing is enabled by default (undefined or true), and disabled if explicitly false.
   const isTvProcessingEnabled = $derived(item.scraperSettings?.process_tv_children !== false)
 
+  $effect(() => {
+    if (isTvProcessingEnabled) {
+      fetchMetadata = true
+    }
+  })
   async function handleSave() {
     isSaving = true
     await window.api.assignSeasonsAndEpisodes(
