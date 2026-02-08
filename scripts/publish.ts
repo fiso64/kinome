@@ -38,11 +38,38 @@ console.log(`\n🚀 Starting build for: ${rawTarget}`)
 await fs.rm(buildDir, { recursive: true, force: true })
 await fs.mkdir(buildDir, { recursive: true })
 
-// 4. Build Frontend
+// 4. Compile Go Handler
+console.log('🐹 Compiling Go Handler...')
+const goArchMap: Record<string, { goos: string; goarch: string }> = {
+  'windows-x64': { goos: 'windows', goarch: 'amd64' },
+  'linux-x64': { goos: 'linux', goarch: 'amd64' },
+  'linux-arm64': { goos: 'linux', goarch: 'arm64' },
+  'darwin-x64': { goos: 'darwin', goarch: 'amd64' },
+  'darwin-arm64': { goos: 'darwin', goarch: 'arm64' }
+}
+
+const goTarget = goArchMap[rawTarget]
+if (goTarget) {
+  const handlerExt = goTarget.goos === 'windows' ? '-win.exe' : ''
+  const ldflags = goTarget.goos === 'windows' ? '-s -w -H windowsgui' : '-s -w'
+  const handlerOut = `public/bin/kinome-handler${handlerExt}`
+
+  try {
+    // Ensure the bin directory exists
+    await fs.mkdir('public/bin', { recursive: true })
+    console.log(`   Target: ${goTarget.goos}/${goTarget.goarch} -> ${handlerOut}`)
+    await $`cd src/handler && cross-env GOOS=${goTarget.goos} GOARCH=${goTarget.goarch} go build -ldflags=${ldflags} -o ../../${handlerOut} .`
+  } catch (e) {
+    console.error('❌ Go Handler Compilation Failed')
+    process.exit(1)
+  }
+}
+
+// 5. Build Frontend
 console.log('🎨 Building Frontend...')
 await $`bun run build`
 
-// 5. Compile Backend
+// 6. Compile Backend
 console.log('⚙️  Compiling Backend...')
 try {
   await $`bun build --compile --target=${bunTarget} --minify --sourcemap --define "process.env.NODE_ENV='production'" ./src/main/server.ts --outfile ${outFile}`
@@ -122,7 +149,7 @@ if (isWinTarget) {
     console.log(`   Artifact: ${debPath}`)
   } catch (e) {
     console.error('❌ NFPM Packaging Failed:', e)
-    await fs.rm('nfpm.temp.yaml').catch(() => {})
+    await fs.rm('nfpm.temp.yaml').catch(() => { })
     process.exit(1)
   }
 }

@@ -218,11 +218,29 @@ const app = new Elysia()
     return Bun.file(scriptPath)
   })
   .get('/bin/*', ({ params, set }) => {
-    const binPath = path.join(process.cwd(), 'public', 'bin', params['*'])
-    if (!fs.existsSync(binPath)) {
+    // Determine possible paths for binaries
+    const exeDir = path.dirname(process.execPath)
+    const sourceDir = (import.meta as any).dir
+
+    const possiblePaths = [
+      path.join(exeDir, 'out', 'renderer', 'bin', params['*']),
+      path.resolve(sourceDir, '../../out/renderer/bin', params['*']),
+      path.join(process.cwd(), 'public', 'bin', params['*'])
+    ]
+
+    let binPath = ''
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        binPath = p
+        break
+      }
+    }
+
+    if (!binPath) {
       set.status = 404
       return 'File not found'
     }
+
     // Set appropriate content type for binaries
     if (binPath.endsWith('.exe')) {
       set.headers['Content-Type'] = 'application/x-msdownload'

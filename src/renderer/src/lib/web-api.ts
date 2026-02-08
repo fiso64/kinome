@@ -66,6 +66,7 @@ class WebApiClient implements ApiClient {
 
     this.ws.onopen = () => {
       console.log('[WebApiClient] WebSocket connected.')
+      this.dispatchWSStatus(true)
     }
 
     this.ws.onmessage = (event) => {
@@ -92,6 +93,7 @@ class WebApiClient implements ApiClient {
     }
 
     this.ws.onclose = () => {
+      this.dispatchWSStatus(false)
       // Only retry if we are still supposed to be connected
       if (authStore.isAuthenticated || authStore.allowUnauthenticated) {
         console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
@@ -102,8 +104,24 @@ class WebApiClient implements ApiClient {
     this.ws.onerror = (error) => {
       // Don't log full error object to console to reduce spam, just note the failure
       console.error('[WebApiClient] WebSocket connection failed.')
+      this.dispatchWSStatus(false)
       this.ws?.close()
     }
+  }
+
+  private dispatchWSStatus(connected: boolean) {
+    const handlers = this.eventHandlers.get('ws-status-changed')
+    if (handlers) {
+      handlers.forEach((h) => h(connected))
+    }
+  }
+
+  public getIsWebSocketConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN
+  }
+
+  public onWebSocketStatusChanged(callback: (connected: boolean) => void): () => void {
+    return this.on('ws-status-changed', callback)
   }
 
   private on(event: string, callback: (data: any) => void): () => void {

@@ -12,8 +12,11 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
+)
+
+var (
+	maskRegex = regexp.MustCompile(`(token=)([^&]{3})[^&]*([^&]{3})`)
 )
 
 func main() {
@@ -22,27 +25,25 @@ func main() {
 	}
 
 	uri := os.Args[1]
-	setupLogging()
-
-	log.Printf("--------------------------------------------------")
-	log.Printf("Handler invoked with URI: %s", uri)
 
 	if !strings.HasPrefix(uri, "kinome://") {
-		log.Printf("ERROR: Invalid protocol (expected kinome://)")
 		return
 	}
 
-	// Parse the URI
+	// 2. PARSE URI
 	u, err := url.Parse(uri)
 	if err != nil {
-		log.Printf("ERROR: Failed to parse URI: %v", err)
 		return
 	}
+
+	// 3. LAZY INIT: Only now do we setup logging and config
+	setupLogging()
+	log.Printf("--------------------------------------------------")
+	log.Printf("Handler invoked with URI: %s", uri)
 
 	// Normalize path (handle kinome://run? and kinome://run/?)
 	action := strings.Trim(u.Host, "/")
 	if action == "" {
-		// If URI is like kinome:///run?
 		action = strings.Trim(u.Path, "/")
 	}
 	queryParams := u.Query()
@@ -138,13 +139,12 @@ func handleRun(encodedCommand string) {
 	log.Printf("Executing: %s", maskToken(commandString))
 
 	var cmd *exec.Cmd
+	// On Windows, we need to hide the console window.
+	// We handle this via platform-specific helper functions below.
 	if runtime.GOOS == "windows" {
-		// On Windows, we use 'cmd /c' to allow it to handle quoted executables and arguments correctly.
-		// We set HideWindow: true to prevent a terminal window from flashing.
 		cmd = exec.Command("cmd", "/c", commandString)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		configureWindowsCommand(cmd)
 	} else {
-		// On Unix, we might need 'sh -c'
 		cmd = exec.Command("sh", "-c", commandString)
 	}
 
@@ -205,6 +205,5 @@ func maskToken(s string) string {
 	// Simple mask for token=xyz sequences
 	// Matches 'token=' followed by 3 chars, then more chars until & or end of string
 	// Replaces the middle part with '***'
-	re := regexp.MustCompile(`(token=)([^&]{3})[^&]*([^&]{3})`)
-	return re.ReplaceAllString(s, `$1$2***$3`)
+	return maskRegex.ReplaceAllString(s, `$1$2***$3`)
 }

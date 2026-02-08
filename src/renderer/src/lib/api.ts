@@ -144,6 +144,8 @@ export interface ApiClient {
   onScanStatusChanged(callback: (status: ScanStatus) => void): () => void
   onHandlerTestSuccess(callback: (data: { sessionId: string }) => void): () => void
   connectWebSocket(token?: string): void
+  getIsWebSocketConnected(): boolean
+  onWebSocketStatusChanged(callback: (connected: boolean) => void): () => void
 }
 
 import { webApi } from './web-api'

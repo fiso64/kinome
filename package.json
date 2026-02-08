@@ -19,7 +19,13 @@
     "prod": "bun run build; NODE_ENV=production bun src/main/server.ts",
     "publish:linux-arm": "bun scripts/publish.ts --target=linux-arm64",
     "publish:linux-x64": "bun scripts/publish.ts --target=linux-x64",
-    "publish:win": "bun scripts/publish.ts --target=windows-x64"
+    "publish:win": "bun scripts/publish.ts --target=windows-x64",
+    "build:handler:win": "cd src/handler && cross-env GOOS=windows GOARCH=amd64 go build -ldflags=\"-s -w -H windowsgui\" -o ../../public/bin/kinome-handler-win.exe .",
+    "build:handler:linux-x64": "cd src/handler && cross-env GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-linux-amd64 .",
+    "build:handler:linux-arm64": "cd src/handler && cross-env GOOS=linux GOARCH=arm64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-linux-arm64 .",
+    "build:handler:mac-x64": "cd src/handler && cross-env GOOS=darwin GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-darwin-amd64 .",
+    "build:handler:mac-arm64": "cd src/handler && cross-env GOOS=darwin GOARCH=arm64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-darwin-arm64 .",
+    "build:handler": "concurrently --raw \"bun run build:handler:win\" \"bun run build:handler:linux-x64\" \"bun run build:handler:linux-arm64\" \"bun run build:handler:mac-x64\" \"bun run build:handler:mac-arm64\""
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
@@ -36,6 +42,7 @@
     "@types/cors": "^2.8.19",
     "@types/node": "^22.14.1",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "eslint": "^9.24.0",
     "eslint-plugin-svelte": "^3.5.1",
     "fuse.js": "^7.0.0",

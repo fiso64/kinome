@@ -19,6 +19,13 @@
   let testErrorMessage = $state('')
   let forceShowSetup = $state(false)
   let copiedId = $state<string | null>(null)
+  let isWebSocketConnected = $state(api.getIsWebSocketConnected())
+
+  $effect(() => {
+    return api.onWebSocketStatusChanged((connected) => {
+      isWebSocketConnected = connected
+    })
+  })
 
   // Command management state
   let localPlayerCommands = $state<PlayerCommandConfig[]>([])
@@ -105,6 +112,8 @@
     // Set up WebSocket listener
     const cleanup = api.onHandlerTestSuccess((data) => {
       if (data.sessionId === sessionId) {
+        cleanup()
+        if (timeoutId) clearTimeout(timeoutId)
         isTestingHandler = false
         testResult = 'success'
         handlerTested = true
@@ -117,6 +126,8 @@
       }
     })
 
+    let timeoutId: any = null
+
     try {
       // Start test session
       await api.startHandlerTest(sessionId)
@@ -125,20 +136,28 @@
       const handshakeUrl = `${window.location.origin}/api/handler-test/${sessionId}`
       const encodedUrl = btoa(handshakeUrl)
 
-      // Trigger handler via window.location (browser will show protocol prompt)
+      // Trigger handler via hidden iframe (standard for protocol triggers)
       const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret)}&url=${encodeURIComponent(encodedUrl)}`
 
-      // Direct navigation triggers browser's protocol handler prompt
-      window.location.href = testUrl
+      const iframe = document.createElement('iframe')
+      iframe.style.display = 'none'
+      iframe.src = testUrl
+      document.body.appendChild(iframe)
 
-      // Timeout after 5 seconds
+      // Clean up iframe after a moment
       setTimeout(() => {
+        if (iframe.parentNode) document.body.removeChild(iframe)
+      }, 1000)
+
+      // Timeout after 5 seconds (gives user time to click browser prompt)
+      timeoutId = setTimeout(() => {
         cleanup()
 
         if (isTestingHandler) {
           isTestingHandler = false
           testResult = 'error'
-          testErrorMessage = "No response from handler. Make sure it's installed correctly."
+          testErrorMessage =
+            "No response from handler. Check for a browser prompt or make sure it's installed correctly."
         }
       }, 5000)
     } catch (error) {
@@ -150,6 +169,7 @@
   }
 
   function getStatusMessage() {
+    if (!isWebSocketConnected) return 'Waiting for server connection (WebSocket offline)...'
     if (isTestingHandler) return 'Testing Connection...'
     if (testResult === 'success') return 'Test Successful'
     if (testResult === 'error') return `${testErrorMessage || 'Test Failed'}`
@@ -281,9 +301,15 @@
           <button
             class="test-action-btn"
             onclick={testHandlerConnection}
-            disabled={isTestingHandler}
+            disabled={isTestingHandler || !isWebSocketConnected}
           >
-            {isTestingHandler ? 'Testing...' : 'Test Connection'}
+            {#if !isWebSocketConnected}
+              Offline
+            {:else if isTestingHandler}
+              Testing...
+            {:else}
+              Test Connection
+            {/if}
           </button>
         </div>
       </div>
