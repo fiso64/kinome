@@ -53,7 +53,7 @@
   let mediaSourcePathIsRelative = $state(false)
   let allowUnauthenticated = $state(false)
   let serverPort = $state(3000)
-  let serverHost = $state('0.0.0.0')
+  let serverHost = $state('::')
 
   let newPassword = $state('')
   let confirmPassword = $state('')
@@ -102,7 +102,7 @@
       mediaSourcePathIsRelative = s.mediaSourcePathIsRelative ?? false
       allowUnauthenticated = s.allowUnauthenticated ?? false
       serverPort = s.serverPort ?? 3000
-      serverHost = s.serverHost ?? '0.0.0.0'
+      serverHost = s.serverHost ?? '::'
 
       defaultLayoutSettings = JSON.parse(JSON.stringify(s.defaultLayoutSettings))
       defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
@@ -327,8 +327,9 @@
                   placeholder="e.g. 0.0.0.0 or localhost"
                 />
                 <p class="help-text">
-                  Set to <b>0.0.0.0</b> to listen on all network interfaces (accessible from other
-                  devices). Set to <b>localhost</b> or <b>127.0.0.1</b> for local access only.
+                  Set to <b>::</b> or <b>0.0.0.0</b> to listen on all network interfaces. Use
+                  <b>127.0.0.1</b> if you are using a reverse proxy (like Caddy) on the same machine
+                  for better security.
                 </p>
               </div>
               <div class="form-group">
