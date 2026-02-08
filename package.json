@@ -20,7 +20,7 @@
     "publish:linux-arm": "bun scripts/publish.ts --target=linux-arm64",
     "publish:linux-x64": "bun scripts/publish.ts --target=linux-x64",
     "publish:win": "bun scripts/publish.ts --target=windows-x64",
-    "build:handler:win": "cd src/handler && cross-env GOOS=windows GOARCH=amd64 go build -ldflags=\"-s -w -H windowsgui\" -o ../../public/bin/kinome-handler.exe .",
+    "build:handler:win": "cd src/handler && cross-env GOOS=windows GOARCH=amd64 go build -ldflags=\"-s -w -H windowsgui\" -o ../../public/bin/kinome-handler-win.exe .",
     "build:handler:linux-x64": "cd src/handler && cross-env GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-linux-amd64 .",
     "build:handler:linux-arm64": "cd src/handler && cross-env GOOS=linux GOARCH=arm64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-linux-arm64 .",
     "build:handler:mac-x64": "cd src/handler && cross-env GOOS=darwin GOARCH=amd64 go build -ldflags=\"-s -w\" -o ../../public/bin/kinome-handler-darwin-amd64 .",

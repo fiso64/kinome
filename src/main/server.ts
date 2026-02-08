@@ -217,15 +217,7 @@ const app = new Elysia()
 
     return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
-  .get('/kinome-handler.sh', ({ set }) => {
-    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.sh')
-    if (!fs.existsSync(scriptPath)) {
-      set.status = 404
-      return 'Script not found'
-    }
-    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return Bun.file(scriptPath)
-  })
+
   .get('/bin/*', ({ params, set }) => {
     // Determine possible paths for binaries
     const exeDir = path.dirname(process.execPath)
