@@ -26,6 +26,9 @@
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
+  import { scrollPersistence } from '@lib/scroll-persistence.svelte'
+  import { getViewKey } from '@lib/view-state-store.svelte'
+  import ViewContextProvider from './ViewContextProvider.svelte'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
   // -- 1. Local Component State (Moved up for query dependencies) --
@@ -39,6 +42,8 @@
   let isBackdropLoaded = $state(false)
   let isLogoLoaded = $state(false)
   let isPosterLoaded = $state(false)
+
+  let shouldSkipTransition = $state(true)
 
   // References for safety checks
   let backdropImg = $state<HTMLImageElement>()
@@ -180,6 +185,11 @@
       lastSeenItemId = item.id
       isOverviewExpanded = false
       isOverviewOverflowing = false
+      shouldSkipTransition = true
+      if (overviewWrapperElement) {
+        overviewWrapperElement.style.transition = 'none'
+        overviewWrapperElement.style.maxHeight = ''
+      }
     }
     if (!showOverviewTab && activeInfoTab === 'overview' && item.lastRefreshedAt) {
       activeInfoTab = 'credits'
@@ -234,17 +244,43 @@
         isOverviewOverflowing = false
         return
       }
-      overviewWrapper.style.maxHeight = ''
-      infoCol.getBoundingClientRect()
+
       const posterHeight = posterCol.offsetHeight
+      const currentWrapperHeight = overviewWrapper.offsetHeight
       const infoHeight = infoCol.offsetHeight
-      const isCurrentlyOverflowing = infoHeight > posterHeight
-      isOverviewOverflowing = isCurrentlyOverflowing
-      if (isCurrentlyOverflowing && !isExpanded) {
-        const overflowAmount = infoHeight - posterHeight
-        const currentOverviewWrapperHeight = overviewWrapper.offsetHeight
-        const newMaxHeight = currentOverviewWrapperHeight - overflowAmount
-        overviewWrapper.style.maxHeight = `${Math.max(10, newMaxHeight)}px`
+      const otherContentHeight = infoHeight - currentWrapperHeight
+
+      // Calculate available space for overview to align with poster bottom
+      // We ensure a minimum of 0 to avoid negative values
+      const availableSpace = Math.max(0, posterHeight - otherContentHeight)
+      const fullHeight = overviewWrapper.scrollHeight
+
+      // Check if content significantly exceeds available space
+      const isOverflowing = fullHeight > availableSpace + 20
+      isOverviewOverflowing = isOverflowing
+
+      if (isOverflowing && !isExpanded) {
+        // Collapsed: Clamp to available space
+        const clampedHeight = Math.max(40, availableSpace)
+
+        if (shouldSkipTransition) {
+          overviewWrapper.style.transition = 'none'
+          overviewWrapper.style.maxHeight = `${clampedHeight}px`
+          // Force reflow
+          overviewWrapper.offsetHeight
+          overviewWrapper.style.transition = ''
+          shouldSkipTransition = false
+        } else {
+          overviewWrapper.style.maxHeight = `${clampedHeight}px`
+        }
+      } else {
+        // Expanded or No Overflow: Set to full pixel height
+        // Reset the transition if we aggressively disabled it before (e.g. item switch)
+        if (shouldSkipTransition) {
+          overviewWrapper.style.transition = ''
+          shouldSkipTransition = false
+        }
+        overviewWrapper.style.maxHeight = `${fullHeight}px`
       }
     }
 
@@ -304,240 +340,244 @@
     <div class="backdrop-overlay"></div>
   </div>
 
-  <div class="scroll-container">
-    <div class="fade-shroud"></div>
-    <div class="detail-content animate-arrival">
-      <div class="info-grid">
-        <div class="poster-column" bind:this={posterColumnElement}>
-          <div class="poster">
-            {#if item.posterPath}
-              <div class="poster-container">
-                <img
-                  bind:this={posterImg}
-                  src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
-                  alt="Poster"
-                  class:show={isPosterLoaded}
-                  onload={() => (isPosterLoaded = true)}
-                  onerror={() => (isPosterLoaded = true)}
-                />
-              </div>
-            {:else}
-              <div class="icon">
-                {item.type === 'folder' ? '📁' : '📄'}
-              </div>
-            {/if}
-          </div>
-          {#if item.type === 'file' && !item.opensAsFolder}
-            <button class="play-button" onclick={() => onPlay(item)}> ▶ Play </button>
-          {/if}
-        </div>
-
-        <div class="info-column" bind:this={infoColumnElement}>
-          <div class="title-and-meta">
-            {#if item.mediaType === 'season' && parentShow}
-              <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
-                <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
-              </button>
-            {/if}
-            {#if (settings.useLogos ?? true) && item.logoPath}
-              <div class="logo-container">
-                <img
-                  bind:this={logoImg}
-                  src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
-                  alt="{item.title ?? item.name} Logo"
-                  class="logo-image"
-                  class:show={isLogoLoaded}
-                  onload={() => (isLogoLoaded = true)}
-                  onerror={() => (isLogoLoaded = true)}
-                />
-              </div>
-            {:else}
-              <h1>{displayTitle}</h1>
-            {/if}
-            <div class="meta">
-              {#if item.year}
-                <span class="year">{item.year}</span>
-              {/if}
-              {#if item.genres && item.genres.length > 0}
-                <div class="genres">
-                  {#each item.genres as genre}
-                    <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
-                      {genre}
-                    </button>
-                  {/each}
+  <ViewContextProvider id={item.id}>
+    <div class="scroll-container" use:scrollPersistence={{ key: getViewKey('detail') }}>
+      <div class="fade-shroud"></div>
+      <div class="detail-content animate-arrival">
+        <div class="info-grid">
+          <div class="poster-column" bind:this={posterColumnElement}>
+            <div class="poster">
+              {#if item.posterPath}
+                <div class="poster-container">
+                  <img
+                    bind:this={posterImg}
+                    src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
+                    alt="Poster"
+                    class:show={isPosterLoaded}
+                    onload={() => (isPosterLoaded = true)}
+                    onerror={() => (isPosterLoaded = true)}
+                  />
+                </div>
+              {:else}
+                <div class="icon">
+                  {item.type === 'folder' ? '📁' : '📄'}
                 </div>
               {/if}
             </div>
+            {#if item.type === 'file' && !item.opensAsFolder}
+              <button class="play-button" onclick={() => onPlay(item)}> ▶ Play </button>
+            {/if}
           </div>
-          {#if settings?.creditsDisplay === 'tab'}
-            <div class="overview-container" bind:this={overviewContainerElement}>
-              {#if showOverviewTab || showCreditsSection}
-                <div class="info-tabs">
-                  {#if showOverviewTab}
-                    <button
-                      class:active={activeInfoTab === 'overview'}
-                      onclick={() => (activeInfoTab = 'overview')}
-                    >
-                      <h2 class="section-title">Overview</h2>
-                    </button>
-                  {/if}
-                  {#if showCreditsSection}
-                    <button
-                      class:active={activeInfoTab === 'credits'}
-                      onclick={() => (activeInfoTab = 'credits')}
-                    >
-                      <h2 class="section-title">Cast & Crew</h2>
-                    </button>
-                  {/if}
-                </div>
-              {/if}
 
-              <div class="content-holder">
-                <!-- Overview is always present to maintain content height -->
-                <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
-                  {#if item.overview}
-                    <div class="overview-expandable-area">
-                      <div
-                        class="overview-wrapper"
-                        bind:this={overviewWrapperElement}
-                        class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-                        class:expanded={isOverviewExpanded}
+          <div class="info-column" bind:this={infoColumnElement}>
+            <div class="title-and-meta">
+              {#if item.mediaType === 'season' && parentShow}
+                <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
+                  <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
+                </button>
+              {/if}
+              {#if (settings.useLogos ?? true) && item.logoPath}
+                <div class="logo-container">
+                  <img
+                    bind:this={logoImg}
+                    src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
+                    alt="{item.title ?? item.name} Logo"
+                    class="logo-image"
+                    class:show={isLogoLoaded}
+                    onload={() => (isLogoLoaded = true)}
+                    onerror={() => (isLogoLoaded = true)}
+                  />
+                </div>
+              {:else}
+                <h1>{displayTitle}</h1>
+              {/if}
+              <div class="meta">
+                {#if item.year}
+                  <span class="year">{item.year}</span>
+                {/if}
+                {#if item.genres && item.genres.length > 0}
+                  <div class="genres">
+                    {#each item.genres as genre}
+                      <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
+                        {genre}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            </div>
+            {#if settings?.creditsDisplay === 'tab'}
+              <div class="overview-container" bind:this={overviewContainerElement}>
+                {#if showOverviewTab || showCreditsSection}
+                  <div class="info-tabs">
+                    {#if showOverviewTab}
+                      <button
+                        class:active={activeInfoTab === 'overview'}
+                        onclick={() => (activeInfoTab = 'overview')}
                       >
-                        <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
-                      </div>
-                      {#if isOverviewOverflowing}
-                        <div class="expand-button-wrapper">
-                          <button
-                            class="expand-overview-btn"
-                            onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-                            aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-                          >
-                            <span class="chevron" class:up={isOverviewExpanded}></span>
-                          </button>
+                        <h2 class="section-title">Overview</h2>
+                      </button>
+                    {/if}
+                    {#if showCreditsSection}
+                      <button
+                        class:active={activeInfoTab === 'credits'}
+                        onclick={() => (activeInfoTab = 'credits')}
+                      >
+                        <h2 class="section-title">Cast & Crew</h2>
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+
+                <div class="content-holder">
+                  <!-- Overview is always present to maintain content height -->
+                  <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
+                    {#if item.overview}
+                      <div class="overview-expandable-area">
+                        <div
+                          class="overview-wrapper"
+                          bind:this={overviewWrapperElement}
+                          class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+                          class:expanded={isOverviewExpanded}
+                        >
+                          <p class="overview" bind:this={overviewParagraphElement}>
+                            {item.overview}
+                          </p>
                         </div>
-                      {/if}
+                        {#if isOverviewOverflowing}
+                          <div class="expand-button-wrapper">
+                            <button
+                              class="expand-overview-btn"
+                              onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                              aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+                            >
+                              <span class="chevron" class:up={isOverviewExpanded}></span>
+                            </button>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+
+                  <!-- Credits "pop out" on top of the overview area -->
+                  {#if activeInfoTab === 'credits' && showCreditsSection}
+                    <div class="credits-popout">
+                      <div class="tab-content-wrapper">
+                        {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+                          <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
+                        {:else if !item.tmdbCredits}
+                          <div class="loading-credits">Loading...</div>
+                        {:else}
+                          <p class="overview no-overview">No credits available for this item.</p>
+                        {/if}
+                      </div>
                     </div>
                   {/if}
                 </div>
-
-                <!-- Credits "pop out" on top of the overview area -->
-                {#if activeInfoTab === 'credits' && showCreditsSection}
-                  <div class="credits-popout">
-                    <div class="tab-content-wrapper">
-                      {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-                        <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                      {:else if !item.tmdbCredits}
-                        <div class="loading-credits">Loading...</div>
-                      {:else}
-                        <p class="overview no-overview">No credits available for this item.</p>
-                      {/if}
+              </div>
+            {:else if item.overview}
+              <div class="overview-container">
+                <h2 class="section-title">Overview</h2>
+                <div class="overview-expandable-area">
+                  <div
+                    class="overview-wrapper"
+                    bind:this={overviewWrapperElement}
+                    class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
+                    class:expanded={isOverviewExpanded}
+                  >
+                    <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+                  </div>
+                  {#if isOverviewOverflowing}
+                    <div class="expand-button-wrapper">
+                      <button
+                        class="expand-overview-btn"
+                        onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                        aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
+                      >
+                        <span class="chevron" class:up={isOverviewExpanded}></span>
+                      </button>
                     </div>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          {:else if item.overview}
-            <div class="overview-container">
-              <h2 class="section-title">Overview</h2>
-              <div class="overview-expandable-area">
-                <div
-                  class="overview-wrapper"
-                  bind:this={overviewWrapperElement}
-                  class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-                  class:expanded={isOverviewExpanded}
-                >
-                  <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+                  {/if}
                 </div>
-                {#if isOverviewOverflowing}
-                  <div class="expand-button-wrapper">
-                    <button
-                      class="expand-overview-btn"
-                      onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
-                      aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-                    >
-                      <span class="chevron" class:up={isOverviewExpanded}></span>
-                    </button>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          {/if}
-        </div>
-      </div>
-
-      {#if settings.showNextUp && continueWatchingInfo}
-        <section class="hero-banner-section">
-          <h2 class="section-title">Next Up</h2>
-          <ContinueWatchingItem
-            item={continueWatchingInfo!}
-            layout="horizontal"
-            on:itemClick={(e) => onItemClick(e.detail.item)}
-            on:dismiss={() => {
-              window.api.setNextUpDismissed(continueWatchingInfo!.show.id)
-              libraryDataService.handleLibraryUpdates(
-                [{ ...continueWatchingInfo!.show, nextUpDismissed: true }],
-                false
-              )
-            }}
-          />
-        </section>
-      {/if}
-
-      {#if showRegularContents && item.type === 'folder'}
-        <div class="children-section">
-          {#if contentsLayout !== 'tabs' && contentsLayout !== 'sections'}
-            <h2 class="section-title">Contents</h2>
-          {/if}
-          <MediaView
-            parentItem={item}
-            items={children}
-            {onItemClick}
-            layout={contentsLayout}
-            onShowContextMenu={showContextMenu}
-            {settings}
-            viewNode={item.viewHierarchy}
-          />
-        </div>
-      {/if}
-
-      {#if isSpecialFile}
-        <div class="children-section">
-          <h2 class="section-title">Contents</h2>
-          <MediaView
-            parentItem={item as MediaFolder}
-            items={fileAsChild}
-            {onItemClick}
-            layout="tree"
-            onShowContextMenu={showContextMenu}
-            {settings}
-          />
-        </div>
-      {/if}
-
-      {#if settings?.creditsDisplay !== 'hidden' && settings?.creditsDisplay !== 'tab'}
-        {#if showCreditsSection}
-          <div class="collapsible-section">
-            <button
-              class="section-title-button"
-              onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
-            >
-              <h2 class="section-title">Cast & Crew</h2>
-              <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
-            </button>
-            {#if isCreditsExpanded}
-              <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
-                {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-                  <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                {:else if !item.tmdbCredits}
-                  <div class="loading-credits">Loading...</div>
-                {/if}
               </div>
             {/if}
+          </div>
+        </div>
+
+        {#if settings.showNextUp && continueWatchingInfo}
+          <section class="hero-banner-section">
+            <h2 class="section-title">Next Up</h2>
+            <ContinueWatchingItem
+              item={continueWatchingInfo!}
+              layout="horizontal"
+              on:itemClick={(e) => onItemClick(e.detail.item)}
+              on:dismiss={() => {
+                window.api.setNextUpDismissed(continueWatchingInfo!.show.id)
+                libraryDataService.handleLibraryUpdates(
+                  [{ ...continueWatchingInfo!.show, nextUpDismissed: true }],
+                  false
+                )
+              }}
+            />
+          </section>
+        {/if}
+
+        {#if showRegularContents && item.type === 'folder'}
+          <div class="children-section">
+            {#if contentsLayout !== 'tabs' && contentsLayout !== 'sections'}
+              <h2 class="section-title">Contents</h2>
+            {/if}
+            <MediaView
+              parentItem={item}
+              items={children}
+              {onItemClick}
+              layout={contentsLayout}
+              onShowContextMenu={showContextMenu}
+              {settings}
+              viewNode={item.viewHierarchy}
+            />
           </div>
         {/if}
-      {/if}
+
+        {#if isSpecialFile}
+          <div class="children-section">
+            <h2 class="section-title">Contents</h2>
+            <MediaView
+              parentItem={item as MediaFolder}
+              items={fileAsChild}
+              {onItemClick}
+              layout="tree"
+              onShowContextMenu={showContextMenu}
+              {settings}
+            />
+          </div>
+        {/if}
+
+        {#if settings?.creditsDisplay !== 'hidden' && settings?.creditsDisplay !== 'tab'}
+          {#if showCreditsSection}
+            <div class="collapsible-section">
+              <button
+                class="section-title-button"
+                onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
+              >
+                <h2 class="section-title">Cast & Crew</h2>
+                <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
+              </button>
+              {#if isCreditsExpanded}
+                <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
+                  {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
+                    <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
+                  {:else if !item.tmdbCredits}
+                    <div class="loading-credits">Loading...</div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        {/if}
+      </div>
     </div>
-  </div>
+  </ViewContextProvider>
 </div>
 
 <style>
@@ -1036,7 +1076,7 @@
     position: relative;
   }
   .overview-wrapper {
-    transition: max-height 0.3s ease-in-out;
+    transition: max-height 0.2s ease-out;
     overflow: hidden;
   }
   .overview-wrapper.collapsed {

@@ -35,8 +35,28 @@
 
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
+  import { viewStateStore, getViewKey } from '@lib/view-state-store.svelte'
 
   let listElement: HTMLDivElement | undefined = $state()
+
+  // --- Persistent Scroll State ---
+  const stateKey = getViewKey('h-grid')
+  const persistentState = viewStateStore.get(stateKey, { scrollX: 0 })
+
+  $effect(() => {
+    if (listElement && persistentState.scrollX > 0) {
+      // Small timeout to ensure internal layout is complete
+      const timeout = setTimeout(() => {
+        if (listElement) listElement.scrollLeft = persistentState.scrollX
+      }, 0)
+      return () => clearTimeout(timeout)
+    }
+  })
+
+  function handleScroll(e: Event) {
+    const target = e.target as HTMLElement
+    persistentState.scrollX = target.scrollLeft
+  }
   const scrollState = writable<HorizontalScrollState>({
     canScrollLeft: false,
     canScrollRight: false
@@ -77,6 +97,7 @@
       class:with-scrollbar={showHorizontalScrollbar}
       style={gridPosterSize ? `grid-auto-columns: ${gridPosterSize}px;` : ''}
       use:horizontalScroller={scrollState}
+      onscroll={handleScroll}
     >
       {#each items as item (item.id)}
         {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}

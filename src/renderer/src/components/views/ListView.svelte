@@ -53,14 +53,21 @@
   })
 
   let listElement: HTMLDivElement | undefined = $state()
+  let lastHighlightedIndex = $state<number | null>(highlightedIndex ?? null)
 
   $effect(() => {
+    // Only scroll into view if the highlight actually MOVED while the component is active.
+    // This prevents the "scroll to top" glitch on mount when ScrollPersistence is trying to restore.
+    const hasMoved = highlightedIndex !== lastHighlightedIndex
+    lastHighlightedIndex = highlightedIndex ?? null
+
     if (
+      hasMoved &&
       listElement &&
       highlightedIndex !== null &&
       highlightedIndex >= 0 &&
-      items.length > highlightedIndex && // Check against items length
-      listElement.children.length > highlightedIndex // Check against actual rendered children
+      items.length > highlightedIndex &&
+      listElement.children.length > highlightedIndex
     ) {
       const itemElement = listElement.children[highlightedIndex] as HTMLElement
       itemElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })

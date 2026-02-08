@@ -2,6 +2,7 @@
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import MediaView from '../layout/MediaView.svelte'
+  import ViewContextProvider from '../layout/ViewContextProvider.svelte'
   // import { triggerSeasonEpisodeFetch } from '@lib/item-store'
   import type { AutocompleteSuggestions, Settings } from '@shared/types'
 
@@ -47,29 +48,31 @@
   {#if folders.length > 0}
     {#each folders as folder (folder.id)}
       {@const childNode = viewNode?.children?.[folder.id]}
-      <section class="content-section">
-        <h2
-          class="section-title"
-          onclick={() => onItemClick(folder)}
-          oncontextmenu={(e) =>
-            onShowContextMenu(folder, e, {
-              layout: 'sections',
-              parentItem: container as LibraryItem
-            })}
-        >
-          {folder.title ?? folder.name}
-        </h2>
-        <MediaView
-          parentItem={folder}
-          items={folder.children ?? []}
-          {onItemClick}
-          {onShowContextMenu}
-          {suggestions}
-          {settings}
-          viewNode={childNode}
-          contextParent={container as LibraryItem}
-        />
-      </section>
+      <ViewContextProvider id={folder.id} extend={true}>
+        <section class="content-section">
+          <h2
+            class="section-title"
+            onclick={() => onItemClick(folder)}
+            oncontextmenu={(e) =>
+              onShowContextMenu(folder, e, {
+                layout: 'sections',
+                parentItem: container as LibraryItem
+              })}
+          >
+            {folder.title ?? folder.name}
+          </h2>
+          <MediaView
+            parentItem={folder}
+            items={folder.children ?? []}
+            {onItemClick}
+            {onShowContextMenu}
+            {suggestions}
+            {settings}
+            viewNode={childNode}
+            contextParent={container as LibraryItem}
+          />
+        </section>
+      </ViewContextProvider>
     {/each}
   {:else}
     <p class="empty-message">No folders to display as sections.</p>

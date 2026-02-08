@@ -30,6 +30,7 @@ const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.ta
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
 // --- Search Effects ---
+let lastSerializedQuery = ''
 
 export function initializeSearchEffects() {
   // --- Global Search: Sync and Perform ---
@@ -57,16 +58,26 @@ export function initializeSearchEffects() {
 
     // Perform the actual search
     if (isGlobalActive && !isTypingGlobalTag) {
+      if (serialized === lastSerializedQuery && searchResults.length > 0) {
+        // Skip re-fetch if query is identical and we already have results
+        return
+      }
+      lastSerializedQuery = serialized
+
       isPerformingGlobalSearch = true
       api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
         searchResults = results
         isPerformingGlobalSearch = false
-        highlightedGlobalIndex = results.length > 0 ? 0 : null
+        // Only auto-highlight if we don't already have a valid highlight
+        if (highlightedGlobalIndex === null || highlightedGlobalIndex >= results.length) {
+          highlightedGlobalIndex = results.length > 0 ? 0 : null
+        }
       })
     } else if (!isGlobalActive) {
       searchResults = []
       isPerformingGlobalSearch = false
       highlightedGlobalIndex = null
+      lastSerializedQuery = ''
     }
   })
 
@@ -90,6 +101,8 @@ export function initializeSearchEffects() {
   // --- Auto-highlight First Result ---
   $effect(() => {
     if (searchResults.length > 0) {
+      // ONLY auto-set if it's null (e.g. initial load or query change)
+      // If we already have a highlight (e.g. from handleItemClick), keep it.
       if (highlightedGlobalIndex === null || highlightedGlobalIndex >= searchResults.length) {
         highlightedGlobalIndex = 0
       }

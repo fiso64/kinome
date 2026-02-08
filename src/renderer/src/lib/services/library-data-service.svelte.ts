@@ -112,7 +112,7 @@ class LibraryDataService {
         queryFn: () => (normalizedId ? api.getItem(id!, { fields, include }) : null),
         enabled: isEnabled && !!normalizedId
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -148,7 +148,7 @@ class LibraryDataService {
         queryFn: () => (normalizedId ? api.getItemCredits(id!) : null),
         enabled: isEnabled && !!normalizedId
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -169,7 +169,7 @@ class LibraryDataService {
         queryFn: () => (normalizedId ? api.getItem(id!, { include: ['tree'], fields }) : null),
         enabled: isEnabled && !!normalizedId
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -203,7 +203,7 @@ class LibraryDataService {
             : [],
         enabled: isEnabled && normalizedId !== undefined && normalizedId !== null
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -219,7 +219,7 @@ class LibraryDataService {
         },
         enabled: isEnabled
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -237,7 +237,7 @@ class LibraryDataService {
         queryFn: () => (showId ? api.getContinueWatchingForShow(showId) : null),
         enabled: isEnabled && !!showId
       }
-    })
+    }, () => this.queryClient!)
   }
 
   /**
@@ -255,7 +255,7 @@ class LibraryDataService {
         queryFn: () => (itemId ? api.getParent(itemId) : null),
         enabled: isEnabled && !!itemId
       }
-    })
+    }, () => this.queryClient!)
   }
 
   // --- 3. Synchronization Policy (The "Double-Tap") ---

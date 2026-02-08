@@ -2,8 +2,6 @@
   import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
   import { createEventDispatcher } from 'svelte'
   import { getAssetUrl } from '@lib/api'
-  import { tabNavigationIntent } from '@lib/view-state-store'
-
   type ContinueWatchingItem = {
     show: MediaFolder
     nextEpisode: MediaFile
@@ -23,13 +21,6 @@
   }>()
 
   function handleShowDetailsClick() {
-    // Before dispatching the navigation, set the intent to open the correct tab.
-    if (item.nextEpisode.seasonNumber != null) {
-      tabNavigationIntent.set({
-        targetShowId: item.show.id,
-        targetSeasonNumber: item.nextEpisode.seasonNumber
-      })
-    }
     dispatch('itemClick', { item: item.show })
   }
 

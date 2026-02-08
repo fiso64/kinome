@@ -21,6 +21,14 @@
 
   let { settings = $bindable() }: { settings: Settings | null } = $props()
 
+  const TAB_LABELS = {
+    general: 'General',
+    accounts: 'Accounts',
+    library: 'Library',
+    view: 'Display Preferences',
+    virtualTags: 'Virtual Tags'
+  }
+
   type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
   let activeTab: 'general' | 'library' | 'view' | 'virtualTags' | 'accounts' = $state('general')
@@ -224,274 +232,274 @@
 </script>
 
 <div class="settings-view">
-  <header>
-    <div class="header-left">
-      <button class="icon-button back-button" onclick={handleBack} aria-label="Back">
-        <svg viewBox="0 0 24 24" width="24" height="24">
-          <path
-            fill="currentColor"
-            d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
-          />
-        </svg>
-      </button>
-      <h1>Settings</h1>
+  <div class="settings-container">
+    <div class="sidebar">
+      <div class="tabs">
+        <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
+          >General</button
+        >
+        <button class:active={activeTab === 'accounts'} onclick={() => (activeTab = 'accounts')}
+          >Accounts</button
+        >
+        <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
+          >Library</button
+        >
+        <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}
+          >View</button
+        >
+        <button
+          class:active={activeTab === 'virtualTags'}
+          onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
+        >
+      </div>
     </div>
-    <div class="tabs">
-      <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
-        >General</button
-      >
-      <button class:active={activeTab === 'accounts'} onclick={() => (activeTab = 'accounts')}
-        >Accounts</button
-      >
-      <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
-        >Library</button
-      >
-      <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>View</button>
-      <button class:active={activeTab === 'virtualTags'} onclick={() => (activeTab = 'virtualTags')}
-        >Virtual Tags</button
-      >
-    </div>
-    <div class="actions">
-      <button class="primary" onclick={handleSave}>Save Changes</button>
-    </div>
-  </header>
 
-  <div class="content scroll-area">
-    <div class="content-limit">
-      {#if activeTab === 'general'}
-        <div class="form-section">
-          <h2>Player & Metadata</h2>
-          <div class="form-group">
-            <span id="player-commands-label" class="label">Player Commands</span>
-            <div class="path-display-container">
-              <div
-                id="player-commands"
-                class="path-display"
-                aria-labelledby="player-commands-label"
-              >
-                {playerCommands.length} command(s) configured
+    <div class="right-column">
+      <div class="content-header">
+        <h2>{TAB_LABELS[activeTab]}</h2>
+        <button class="primary save-button" onclick={handleSave}>Save Changes</button>
+      </div>
+      <div class="content scroll-area">
+        <div class="content-limit">
+          {#if activeTab === 'general'}
+            <div class="form-section">
+              <div class="form-group start-group">
+                <span id="player-commands-label" class="label">Player Commands</span>
+                <div class="path-display-container">
+                  <div
+                    id="player-commands"
+                    class="path-display"
+                    aria-labelledby="player-commands-label"
+                  >
+                    {playerCommands.length} command(s) configured
+                  </div>
+                  <button class="secondary" onclick={() => (activePlayerCommandsModal = true)}
+                    >Manage...</button
+                  >
+                </div>
+                <p class="help-text">
+                  Configure external players to launch when clicking a file. The first one in the
+                  list is used for the default play action.
+                </p>
               </div>
-              <button class="secondary" onclick={() => (activePlayerCommandsModal = true)}
-                >Manage...</button
-              >
-            </div>
-            <p class="help-text">
-              Configure external players to launch when clicking a file. The first one in the list
-              is used for the default play action.
-            </p>
-          </div>
-          <div class="form-group">
-            <span id="custom-actions-label" class="label">Custom Actions</span>
-            <div class="path-display-container">
-              <div id="custom-actions" class="path-display" aria-labelledby="custom-actions-label">
-                {customActions.length} action(s) configured
+              <div class="form-group">
+                <span id="custom-actions-label" class="label">Custom Actions</span>
+                <div class="path-display-container">
+                  <div
+                    id="custom-actions"
+                    class="path-display"
+                    aria-labelledby="custom-actions-label"
+                  >
+                    {customActions.length} action(s) configured
+                  </div>
+                  <button class="secondary" onclick={() => (activeCustomActionsModal = true)}
+                    >Manage...</button
+                  >
+                </div>
+                <p class="help-text">
+                  Define custom scripts or commands that can be triggered from the context menu of
+                  items.
+                </p>
               </div>
-              <button class="secondary" onclick={() => (activeCustomActionsModal = true)}
-                >Manage...</button
-              >
+              <div class="form-group">
+                <label for="tmdb-api-key">TMDB API Key</label>
+                <input
+                  type="password"
+                  id="tmdb-api-key"
+                  bind:value={tmdbApiKey}
+                  placeholder="Enter your TMDB API Key"
+                />
+                <p class="help-text">
+                  Used to fetch metadata and images for movies and TV shows from The Movie Database.
+                </p>
+              </div>
             </div>
-            <p class="help-text">
-              Define custom scripts or commands that can be triggered from the context menu of
-              items.
-            </p>
-          </div>
-          <div class="form-group">
-            <label for="tmdb-api-key">TMDB API Key</label>
-            <input
-              type="password"
-              id="tmdb-api-key"
-              bind:value={tmdbApiKey}
-              placeholder="Enter your TMDB API Key"
-            />
-            <p class="help-text">
-              Used to fetch metadata and images for movies and TV shows from The Movie Database.
-            </p>
-          </div>
-        </div>
-      {:else if activeTab === 'library'}
-        <div class="form-section">
-          <h2>Storage Locations</h2>
-          <LibrarySettingsForm
-            bind:mediaSourcePath
-            bind:mediaSourcePathIsRelative
-            bind:libraryLocation={libraryDataLocation}
-          />
-        </div>
-      {:else if activeTab === 'view'}
-        <div class="form-section">
-          <h2>Display Preferences</h2>
-          <div class="form-group checkbox-group">
-            <label class="checkbox-label" for="show-logos">
-              <input type="checkbox" id="show-logos" bind:checked={useLogos} />
-              <span>Show title logos instead of text where possible</span>
-            </label>
-            <label class="checkbox-label" for="gray-watched">
-              <input type="checkbox" id="gray-watched" bind:checked={grayOutWatched} />
-              <span>Gray out watched items in lists</span>
-            </label>
-            <p class="help-text">Reduces the opacity of items that have been marked as watched.</p>
-          </div>
-          <div class="form-group">
-            <label for="credits-display">Cast & Crew Display</label>
-            <select id="credits-display" bind:value={creditsDisplay}>
-              <option value="shown">Show Expanded</option>
-              <option value="collapsed">Show Collapsed</option>
-              <option value="tab">Separate Tab</option>
-              <option value="hidden">Hidden</option>
-            </select>
-            <p class="help-text">Controls how the credits/cast section is displayed in details.</p>
-          </div>
-          <div class="form-group">
-            <label for="backdrop-size">Backdrop Size</label>
-            <select id="backdrop-size" bind:value={itemDetailBackdropSize}>
-              <option value="small">Standard (Top Header)</option>
-              <option value="full">Full Screen Overflow</option>
-            </select>
-            <p class="help-text">Sets the layout of the background image in item details.</p>
-          </div>
-          <div class="form-group">
-            <label for="backdrop-blur">Detail Backdrop Blur ({itemDetailBackdropBlur}px)</label>
-            <div class="slider-container">
-              <input
-                type="range"
-                id="backdrop-blur"
-                bind:value={itemDetailBackdropBlur}
-                min="0"
-                max="50"
+          {:else if activeTab === 'library'}
+            <div class="form-section">
+              <LibrarySettingsForm
+                bind:mediaSourcePath
+                bind:mediaSourcePathIsRelative
+                bind:libraryLocation={libraryDataLocation}
               />
-              <span class="value-display">{itemDetailBackdropBlur}px</span>
             </div>
-            <p class="help-text">Controls the amount of blur applied to background images.</p>
-          </div>
-          <div class="form-group checkbox-group">
-            <label class="checkbox-label" for="show-continue">
-              <input type="checkbox" id="show-continue" bind:checked={showContinueWatching} />
-              <span>Show "Continue Watching" on library screens</span>
-            </label>
-            <label class="checkbox-label" for="show-next-up">
-              <input type="checkbox" id="show-next-up" bind:checked={showNextUp} />
-              <span>Show "Next Up" in TV show details</span>
-            </label>
-          </div>
-        </div>
+          {:else if activeTab === 'view'}
+            <div class="form-section">
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label" for="show-logos">
+                  <input type="checkbox" id="show-logos" bind:checked={useLogos} />
+                  <span>Show title logos instead of text where possible</span>
+                </label>
+                <label class="checkbox-label" for="gray-watched">
+                  <input type="checkbox" id="gray-watched" bind:checked={grayOutWatched} />
+                  <span>Gray out watched items in lists</span>
+                </label>
+                <p class="help-text">
+                  Reduces the opacity of items that have been marked as watched.
+                </p>
+              </div>
+              <div class="form-group">
+                <label for="credits-display">Cast & Crew Display</label>
+                <select id="credits-display" bind:value={creditsDisplay}>
+                  <option value="shown">Show Expanded</option>
+                  <option value="collapsed">Show Collapsed</option>
+                  <option value="tab">Separate Tab</option>
+                  <option value="hidden">Hidden</option>
+                </select>
+                <p class="help-text">
+                  Controls how the credits/cast section is displayed in details.
+                </p>
+              </div>
+              <div class="form-group">
+                <label for="backdrop-size">Backdrop Size</label>
+                <select id="backdrop-size" bind:value={itemDetailBackdropSize}>
+                  <option value="small">Standard (Top Header)</option>
+                  <option value="full">Full Screen Overflow</option>
+                </select>
+                <p class="help-text">Sets the layout of the background image in item details.</p>
+              </div>
+              <div class="form-group">
+                <label for="backdrop-blur">Detail Backdrop Blur ({itemDetailBackdropBlur}px)</label>
+                <div class="slider-container">
+                  <input
+                    type="range"
+                    id="backdrop-blur"
+                    bind:value={itemDetailBackdropBlur}
+                    min="0"
+                    max="50"
+                  />
+                  <span class="value-display">{itemDetailBackdropBlur}px</span>
+                </div>
+                <p class="help-text">Controls the amount of blur applied to background images.</p>
+              </div>
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label" for="show-continue">
+                  <input type="checkbox" id="show-continue" bind:checked={showContinueWatching} />
+                  <span>Show "Continue Watching" on library screens</span>
+                </label>
+                <label class="checkbox-label" for="show-next-up">
+                  <input type="checkbox" id="show-next-up" bind:checked={showNextUp} />
+                  <span>Show "Next Up" in TV show details</span>
+                </label>
+              </div>
+            </div>
 
-        <div class="form-section">
-          <h2>Layout Defaults</h2>
-          <p class="help-text">
-            Configure global default values for specific views and layouts. These can still be
-            overridden per-folder.
-          </p>
-          <button
-            class="view-config-row"
-            onclick={() => (activeLayoutSettingsModal = true)}
-            title="Configure Global Layout Defaults"
-          >
-            <span>Global Layout Settings</span>
-            <span class="secondary">Configure...</span>
-          </button>
-          {#if defaultLayouts}
-            {#each Object.entries(DEFAULT_LAYOUTS_CONFIG) as [key, config] (key)}
+            <div class="form-section">
+              <h2>Layout Defaults</h2>
+              <p class="help-text">
+                Configure global default values for specific views and layouts. These can still be
+                overridden per-folder.
+              </p>
               <button
                 class="view-config-row"
-                onclick={() => (activeViewSettingsModal = key as any)}
-                title={`Configure ${config.label} default layout`}
+                onclick={() => (activeLayoutSettingsModal = true)}
+                title="Configure Global Layout Defaults"
               >
-                <span>{config.label}</span>
-                <span class="layout-badge">{formatLayoutString(defaultLayouts[key])}</span>
-                <span class="secondary">Edit...</span>
+                <span>Global Layout Settings</span>
+                <span class="secondary">Configure...</span>
               </button>
-            {/each}
-          {/if}
-        </div>
-      {:else if activeTab === 'virtualTags'}
-        <div class="form-section">
-          <h2>Virtual Tags</h2>
-          <p class="help-text">
-            Virtual tags are calculated automatically based on rules. They are stored in the
-            database for fast searching and filtering.
-          </p>
-          <div class="virtual-tags-list">
-            {#each virtualTags as tag, i (tag.id)}
-              <VirtualTagEditor
-                bind:tag={virtualTags[i]}
-                onDelete={() => (virtualTags = virtualTags.filter((t) => t.id !== tag.id))}
-              />
-            {/each}
-          </div>
-          <button
-            class="secondary add-tag-button"
-            onclick={() =>
-              (virtualTags = [
-                ...virtualTags,
-                { id: crypto.randomUUID(), name: '', conditions: [] }
-              ])}
-          >
-            + Add Virtual Tag
-          </button>
-        </div>
-      {:else if activeTab === 'accounts'}
-        <div class="form-section">
-          <h2>Authentication</h2>
-          <div class="form-group checkbox-group">
-            <label class="checkbox-label" for="allow-unauthenticated">
-              <input
-                type="checkbox"
-                id="allow-unauthenticated"
-                bind:checked={allowUnauthenticated}
-              />
-              <span>Allow unauthenticated access to the library</span>
-            </label>
-            <p class="help-text">
-              If enabled, anyone can browse and play your media without logging in.
-            </p>
-          </div>
-        </div>
-
-        <div class="form-section">
-          <h2>Manage Accounts</h2>
-          <div class="account-item">
-            <div class="account-info">
-              <div class="account-avatar">A</div>
-              <div class="account-details">
-                <span class="account-name">Admin</span>
-                <span class="account-role">Administrator</span>
+              {#if defaultLayouts}
+                {#each Object.entries(DEFAULT_LAYOUTS_CONFIG) as [key, config] (key)}
+                  <button
+                    class="view-config-row"
+                    onclick={() => (activeViewSettingsModal = key as any)}
+                    title={`Configure ${config.label} default layout`}
+                  >
+                    <span>{config.label}</span>
+                    <span class="layout-badge">{formatLayoutString(defaultLayouts[key])}</span>
+                    <span class="secondary">Edit...</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {:else if activeTab === 'virtualTags'}
+            <div class="form-section">
+              <p class="help-text">
+                Virtual tags are calculated automatically based on rules. They are stored in the
+                database for fast searching and filtering.
+              </p>
+              <div class="virtual-tags-list">
+                {#each virtualTags as tag, i (tag.id)}
+                  <VirtualTagEditor
+                    bind:tag={virtualTags[i]}
+                    onDelete={() => (virtualTags = virtualTags.filter((t) => t.id !== tag.id))}
+                  />
+                {/each}
+              </div>
+              <button
+                class="secondary add-tag-button"
+                onclick={() =>
+                  (virtualTags = [
+                    ...virtualTags,
+                    { id: crypto.randomUUID(), name: '', conditions: [] }
+                  ])}
+              >
+                + Add Virtual Tag
+              </button>
+            </div>
+          {:else if activeTab === 'accounts'}
+            <div class="form-section">
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label" for="allow-unauthenticated">
+                  <input
+                    type="checkbox"
+                    id="allow-unauthenticated"
+                    bind:checked={allowUnauthenticated}
+                  />
+                  <span>Allow unauthenticated access to the library</span>
+                </label>
+                <p class="help-text">
+                  If enabled, anyone can browse and play your media without logging in.
+                </p>
               </div>
             </div>
-          </div>
 
-          <div class="password-change-box">
-            <h3>Change Admin Password</h3>
-            <div class="form-group">
-              <label for="new-password">New Password</label>
-              <input
-                type="password"
-                id="new-password"
-                bind:value={newPassword}
-                placeholder="Enter new password"
-              />
+            <div class="form-section">
+              <h2>Manage Accounts</h2>
+              <div class="account-item">
+                <div class="account-info">
+                  <div class="account-avatar">A</div>
+                  <div class="account-details">
+                    <span class="account-name">Admin</span>
+                    <span class="account-role">Administrator</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="password-change-box">
+                <h3>Change Admin Password</h3>
+                <div class="form-group">
+                  <label for="new-password">New Password</label>
+                  <input
+                    type="password"
+                    id="new-password"
+                    bind:value={newPassword}
+                    placeholder="Enter new password"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="confirm-password">Confirm Password</label>
+                  <input
+                    type="password"
+                    id="confirm-password"
+                    bind:value={confirmPassword}
+                    placeholder="Confirm new password"
+                  />
+                </div>
+                {#if passwordMessage.text}
+                  <p
+                    class="message"
+                    class:success={passwordMessage.type === 'success'}
+                    class:error={passwordMessage.type === 'error'}
+                  >
+                    {passwordMessage.text}
+                  </p>
+                {/if}
+                <button class="secondary" onclick={handleChangePassword}>Update Password</button>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="confirm-password">Confirm Password</label>
-              <input
-                type="password"
-                id="confirm-password"
-                bind:value={confirmPassword}
-                placeholder="Confirm new password"
-              />
-            </div>
-            {#if passwordMessage.text}
-              <p
-                class="message"
-                class:success={passwordMessage.type === 'success'}
-                class:error={passwordMessage.type === 'error'}
-              >
-                {passwordMessage.text}
-              </p>
-            {/if}
-            <button class="secondary" onclick={handleChangePassword}>Update Password</button>
-          </div>
+          {/if}
         </div>
-      {/if}
+      </div>
     </div>
   </div>
 </div>
@@ -539,66 +547,88 @@
     color: var(--color-text);
   }
 
-  header {
+  .settings-container {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 2rem;
-    height: 70px;
-    background-color: var(--color-background-soft);
-    border-bottom: 1px solid var(--color-border);
+    flex-grow: 1;
+    overflow: hidden;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    padding-top: 5rem;
+  }
+
+  .sidebar {
+    width: 250px;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
     flex-shrink: 0;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .header-left h1 {
-    font-size: 1.5rem;
-    margin: 0;
-  }
-
-  .back-button {
-    color: var(--color-text-soft);
-  }
-  .back-button:hover {
-    color: var(--color-text);
   }
 
   .tabs {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
-    height: 100%;
+    padding-right: 1rem;
+    align-items: flex-end;
   }
 
   .tabs button {
-    padding: 0 1.5rem;
+    padding: 0.75rem 1.5rem;
+    text-align: right;
     background: none;
     border: none;
-    border-bottom: 3px solid transparent;
     color: var(--color-text-soft);
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    border-radius: 8px;
   }
 
   .tabs button:hover {
     color: var(--color-text);
+    background-color: var(--color-background-soft);
   }
 
   .tabs button.active {
-    color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
+    color: var(--color-text);
+    background-color: var(--color-background-soft);
+    /* font-weight: 600; Removed to prevent width jump */
+  }
+
+  .right-column {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    height: 100%;
+    min-width: 0;
+  }
+
+  .content-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 3rem;
+    border-bottom: 1px solid var(--color-border);
+    background-color: var(--color-background);
+  }
+
+  .content-header h2 {
+    font-size: 1.5rem;
+    margin: 0;
+    font-weight: 600;
   }
 
   .content {
     flex-grow: 1;
     overflow-y: auto;
-    padding: 2rem;
+    padding: 2rem 3rem;
+  }
+
+  .save-button {
+    padding: 0.5rem 1.5rem;
+    font-size: 0.95rem;
   }
 
   .content-limit {

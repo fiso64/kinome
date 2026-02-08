@@ -1,5 +1,6 @@
 import type { SearchQuery } from '@shared/types'
 import { serializeSearchQuery, deserializeSearchQuery } from './search-query-helpers'
+import { viewStateStore } from './view-state-store.svelte'
 
 // --- Types ---
 
@@ -51,12 +52,20 @@ function parseUrl() {
 
 function updateUrl(replace = false) {
   const params = new URLSearchParams()
-  // Always set folder if it exists, including 'root' to maintain context
+
   if (currentState.currentFolderId) params.set('folder', currentState.currentFolderId)
-  if (currentState.selectedItemId) params.set('item', currentState.selectedItemId)
 
   const queryStr = serializeSearchQuery(currentState.globalQuery)
-  if (queryStr) params.set('q', queryStr)
+
+  // Clean URL Strategy: 
+  // If a detail item is selected, we don't need to show the search query in the URL.
+  // This avoids URL pollution while preserving the search in the HISTORY entry we just left.
+  if (currentState.selectedItemId) {
+    params.set('item', currentState.selectedItemId)
+    // We explicitly DON'T set 'q' here.
+  } else if (queryStr) {
+    params.set('q', queryStr)
+  }
 
   if (currentState.path !== '/') params.set('page', 'settings')
 
@@ -89,6 +98,26 @@ function navigateToRoot() {
 }
 
 function openDetail(itemId: string) {
+  // Reset scroll persistence for detail views when navigating (pushing) to them.
+  // This ensures we always start at the top, but preserves scroll position when navigating BACK (popstate).
+  // The key format must match what ItemDetail.svelte uses: `${itemId}:detail`
+  try {
+    const key = `${itemId}:detail`
+    // We access the store directly to reset it.
+    // Note: We match the default shape used in scroll-persistence.svelte.ts
+    const scrollState = viewStateStore.get(key, { y: 0, x: 0, resetVal: null as string | null })
+    scrollState.y = 0
+    scrollState.x = 0
+
+    // Also reset the Tabs state so that "Next Up" or default tab logic runs afresh.
+    // Key format matches TabsView.svelte: `${itemId}:tabs`
+    const tabsKey = `${itemId}:tabs`
+    const tabsState = viewStateStore.get(tabsKey, { activeTabId: null })
+    tabsState.activeTabId = null
+  } catch (err) {
+    console.warn('[Navigation] Failed to reset scroll persistence:', err)
+  }
+
   currentState.selectedItemId = itemId
   currentState.path = '/'
   updateUrl()

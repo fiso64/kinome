@@ -152,7 +152,7 @@
       }}
       use:autocomplete={autocompleteConfig}
       onkeydown={handleKeyDown}
-      placeholder={query.tags.length > 0 ? '' : 'Search or type > for tags...'}
+      placeholder={query.tags.length > 0 ? '' : 'Search • Type > for tags'}
       class="search-input-field"
       aria-label="Search current folder"
       {onfocus}
@@ -252,6 +252,12 @@
     padding: 0.2rem 0.4rem;
     min-width: 150px;
     font-size: 1rem;
-    font-weight: 600;
+    font-weight: 550;
+  }
+
+  .search-input-field::placeholder {
+    color: var(--ev-c-text-2);
+    opacity: 0.6;
+    font-weight: 550;
   }
 </style>

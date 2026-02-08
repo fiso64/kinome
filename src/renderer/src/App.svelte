@@ -1,7 +1,6 @@
 <script lang="ts">
   import AppHeader from '@components/layout/AppHeader.svelte'
-  import MainView from '@components/layout/MainView.svelte'
-  import SettingsView from '@components/layout/SettingsView.svelte'
+  import ViewManager from '@components/layout/ViewManager.svelte'
   import FilterBar from '@ui/FilterBar.svelte'
   import ModalRoot from '@components/layout/ModalRoot.svelte'
   import ContextMenuRoot from '@components/layout/ContextMenuRoot.svelte'
@@ -23,7 +22,7 @@
   import { authStore } from '@lib/auth-store.svelte'
   import LoginPage from '@components/layout/LoginPage.svelte'
   import { onMount } from 'svelte'
-  import { QueryClient, QueryClientProvider, createQuery } from '@tanstack/svelte-query'
+  import { QueryClientProvider } from '@tanstack/svelte-query'
   import type {
     Settings,
     MediaFolder,
@@ -51,7 +50,6 @@
   let libraryStatus = $state<LibraryStatus | null>(null)
   let isWaitingForScan = $state(false)
   let rootId = $state<string | null>(null)
-
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     mediaType: [],
     genre: [],
@@ -283,8 +281,11 @@
     // Legacy removed
   }
 
-  async function handleItemClick(item: LibraryItem | SearchIndexEntry): Promise<void> {
-    const fromSearch = 'staticScore' in item
+  async function handleItemClick(
+    item: LibraryItem | SearchIndexEntry,
+    source?: 'global' | 'detail'
+  ): Promise<void> {
+    const fromSearch = 'staticScore' in item || source === 'detail' || source === 'global'
 
     // Files: navigate to detail if movie, otherwise play
     if (item.type === 'file') {
@@ -310,9 +311,24 @@
     }
 
     if (fromSearch) {
+      // Sync highlight with the clicked item so it remains "selected" on return
+      if (source !== 'detail') {
+        const index = searchStore.searchResults.findIndex((i) => i.id === item.id)
+        if (index !== -1) {
+          searchStore.highlightedGlobalIndex = index
+        }
+      }
+
       appHeaderComponent?.blurSearchInput()
-      searchStore.clearDetail()
-      searchStore.clearGlobal()
+
+      if (source === 'detail' || (navStore.isDetailViewActive && !searchStore.isGlobalActive)) {
+        searchStore.clearDetail()
+      }
+
+      // searchStore.clearGlobal()
+      // ^-- WE NO LONGER CLEAR GLOBAL SEARCH ON CLICK.
+      // This allows the search view to remain "active" as a background view,
+      // preserving its scroll position and results for when the user navigates back.
     }
   }
 
@@ -428,40 +444,34 @@
     {/if}
 
     <main>
-      {#if navStore.state.path !== '/settings'}
-        <AppHeader
-          bind:this={appHeaderComponent}
-          {isWaitingForScan}
-          {isScanning}
-          isContextMenuVisible={contextMenuStore.isVisible}
-          on:refresh={handleRefresh}
-          on:openSettings={() => navStore.navigateToSettings()}
-          on:openLayoutSelector={openLayoutSelector}
-          on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
-          on:globalSearchItemClick={(e) => handleItemClick(e.detail.item)}
-          on:detailSearchItemClick={(e) => handleItemClick(e.detail.item)}
-          {settings}
-          suggestions={allAutocompleteSuggestions}
-        />
-      {/if}
+      <AppHeader
+        bind:this={appHeaderComponent}
+        {isWaitingForScan}
+        {isScanning}
+        isContextMenuVisible={contextMenuStore.isVisible}
+        on:refresh={handleRefresh}
+        on:openSettings={() => navStore.navigateToSettings()}
+        on:openLayoutSelector={openLayoutSelector}
+        on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+        on:globalSearchItemClick={(e) => handleItemClick(e.detail.item, 'global')}
+        on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}
+        {settings}
+        suggestions={allAutocompleteSuggestions}
+      />
 
-      {#if navStore.state.path === '/settings'}
-        <SettingsView bind:settings />
-      {:else}
-        <MainView
-          {isScanning}
-          {libraryStatus}
-          {settings}
-          suggestions={allAutocompleteSuggestions}
-          onStatusUpdate={refreshLibraryStatus}
-          on:itemClick={(e) => handleItemClick(e.detail.item)}
-          on:play={(e) => handlePlayFile(e.detail.item as MediaFile)}
-          on:showContextMenu={(e) =>
-            handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-          on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
-          on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
-        />
-      {/if}
+      <ViewManager
+        {isScanning}
+        {libraryStatus}
+        bind:settings
+        suggestions={allAutocompleteSuggestions}
+        on:statusUpdate={refreshLibraryStatus}
+        on:itemClick={(e) => handleItemClick(e.detail.item)}
+        on:play={(e) => handlePlayFile(e.detail.item)}
+        on:showContextMenu={(e) =>
+          handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+        on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+        on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+      />
 
       {#if searchStore.isFilterBarVisible}
         <FilterBar
@@ -487,29 +497,5 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-  }
-
-  .loading-screen {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100vw;
-    height: 100vh;
-    background: #0f0f13;
-  }
-
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    border-top-color: #6366f1;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 </style>

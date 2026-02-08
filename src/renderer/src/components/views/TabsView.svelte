@@ -2,11 +2,13 @@
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import MediaView from '../layout/MediaView.svelte'
+  import ViewContextProvider from '../layout/ViewContextProvider.svelte'
+  import { viewStateStore, getViewKey } from '@lib/view-state-store.svelte'
+  import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   // import { triggerSeasonEpisodeFetch } from '@lib/item-store'
-  import { activeTabState, tabNavigationIntent } from '@lib/view-state-store'
   import type { AutocompleteSuggestions, Settings } from '@shared/types'
   import { api } from '@lib/api'
-  import { get } from 'svelte/store'
+  import { fade } from 'svelte/transition'
 
   type VirtualFolder = MediaFolder & {
     isVirtual: boolean
@@ -38,59 +40,67 @@
     viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
-  let lastProcessedContainerId: string | undefined = undefined
+  // --- Persistent Tab State ---
+  // --- Persistent Tab State ---
+  const stateKey = getViewKey('tabs')
+  // We initialize with NULL so we can detect if the user/logic has set a tab yet.
+  // The derived value `activeTabId` handles the visual fallback to the first tab.
+  const persistentState = viewStateStore.get(stateKey, { activeTabId: null })
+
+  const activeTabId = $derived(persistentState.activeTabId ?? folders[0]?.id ?? null)
+
+  function selectTab(tabId: string) {
+    persistentState.activeTabId = tabId
+  }
+
+  // --- Next Up Logic ---
+  let nextUpTargetSeason = $state<number | null>(null)
 
   $effect(() => {
     if (!container) return
 
-    // Check for a specific navigation intent first. This logic runs before
-    // the "last processed container" check, allowing it to override sticky tab behavior.
-    const intent = get(tabNavigationIntent)
-    if (intent && intent.targetShowId === container.id) {
-      const nextUpSeasonFolder = folders.find(
-        (f) => (f as MediaFolder).seasonNumber === intent.targetSeasonNumber
-      )
-      if (nextUpSeasonFolder) {
-        selectTab(nextUpSeasonFolder.id)
-      }
-      // IMPORTANT: Consume the intent so it doesn't fire again.
-      tabNavigationIntent.set(null)
-    }
+    // Limit to TV shows
+    if (container.type !== 'folder' || container.mediaType !== 'tv') return
 
-    // This effect runs when the component is (re)created with a container.
-    // It's designed to set an intelligent default tab for a TV show *only if*
-    // a tab hasn't already been selected by the user for this container.
-    if (container.id === lastProcessedContainerId) return
+    // If a tab is already explicitly selected (and persisted), skip logic
+    // This assumes `activeTabId` in store is null on fresh navigation (navStore does this)
+    if (persistentState.activeTabId) return
 
-    lastProcessedContainerId = container.id
+    // If we already found a target season for this container, skip fetching again
+    // (This avoids re-fetching if `folders` updates but container is same)
+    if (nextUpTargetSeason !== null) return
 
-    // Check if a tab has already been set for this container in the global state.
-    // If so, the user has likely interacted with it, and we should respect their choice.
-    if ($activeTabState.has(container.id)) {
-      return
-    }
-
-    // Only apply this logic to TV show folders.
-    const isTvShowContainer = container.type === 'folder' && container.mediaType === 'tv'
-    if (!isTvShowContainer) return
-
-    // Asynchronously fetch the "Next Up" episode to determine the default tab.
     api.getContinueWatchingForShow(container.id).then((info) => {
-      // It's possible for the user to have clicked a tab while we were fetching.
-      // Double-check that no tab has been set before we override it.
-      if ($activeTabState.has(container.id)) return
-
       if (info && !info.show.nextUpDismissed) {
-        const nextEpisodeSeasonNumber = info.nextEpisode.seasonNumber
-        const nextUpSeasonFolder = folders.find(
-          (f) => (f as MediaFolder).seasonNumber === nextEpisodeSeasonNumber
-        )
-
-        if (nextUpSeasonFolder) {
-          selectTab(nextUpSeasonFolder.id)
-        }
+        nextUpTargetSeason = info.nextEpisode.seasonNumber
       }
     })
+  })
+
+  // Apply target season selection once folders are available
+  $effect(() => {
+    if (nextUpTargetSeason !== null && !persistentState.activeTabId && folders.length > 0) {
+      const targetFolder = folders.find(
+        (f) => (f as MediaFolder).seasonNumber === nextUpTargetSeason
+      )
+      if (targetFolder) {
+        selectTab(targetFolder.id)
+      }
+    }
+  })
+
+  // Link navigation intent to persistent state
+  $effect(() => {
+    const intent = viewStateStore.tabNavigationIntent
+    if (intent && container && intent.targetShowId === container.id) {
+      const targetFolder = folders.find(
+        (f) => (f as MediaFolder).seasonNumber === intent.targetSeasonNumber
+      )
+      if (targetFolder) {
+        selectTab(targetFolder.id)
+      }
+      viewStateStore.tabNavigationIntent = null // Consume
+    }
   })
 
   import { writable } from 'svelte/store'
@@ -103,21 +113,6 @@
   })
   const canScrollLeft = $derived($scrollState.canScrollLeft)
   const canScrollRight = $derived($scrollState.canScrollRight)
-
-  const activeTabId = $derived.by(() => {
-    if (!container) return folders[0]?.id ?? null
-    const lastActive = $activeTabState.get(container.id)
-    const currentFolderIds = folders.map((f) => f.id)
-    if (lastActive && currentFolderIds.includes(lastActive)) {
-      return lastActive
-    }
-    return folders[0]?.id ?? null
-  })
-
-  function selectTab(tabId: string) {
-    if (!container) return
-    activeTabState.update((map) => map.set(container.id, tabId))
-  }
 
   // Effect to trigger data fetching when the active tab changes
   $effect(() => {
@@ -225,21 +220,25 @@
       >
     </button>
   </div>
-  <div class="tab-content">
+  <div class="tab-content" use:scrollPersistence={{ key: getViewKey('vertical') }}>
     {#if folders.length > 0}
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
           {@const childNode = viewNode?.children?.[folder.id]}
-          <MediaView
-            parentItem={folder}
-            items={folder.children ?? []}
-            {onItemClick}
-            {onShowContextMenu}
-            {suggestions}
-            {settings}
-            viewNode={childNode}
-            contextParent={container as LibraryItem}
-          />
+          <div class="tab-pane-wrapper" transition:fade={{ duration: 150 }}>
+            <ViewContextProvider id={folder.id} extend={true}>
+              <MediaView
+                parentItem={folder}
+                items={folder.children ?? []}
+                {onItemClick}
+                {onShowContextMenu}
+                {suggestions}
+                {settings}
+                viewNode={childNode}
+                contextParent={container as LibraryItem}
+              />
+            </ViewContextProvider>
+          </div>
         {/if}
       {/each}
     {:else}
@@ -382,6 +381,14 @@
   .tab-content {
     flex-grow: 1;
     overflow-y: auto;
+    display: grid;
+    grid-template-columns: 100%;
+    align-items: start;
+  }
+
+  .tab-pane-wrapper {
+    grid-area: 1 / 1;
+    width: 100%;
   }
 
   /* --- Full Backdrop Mode Styles --- */
