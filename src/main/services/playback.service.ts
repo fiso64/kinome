@@ -9,7 +9,7 @@ import type { LibraryItem } from '@shared/types'
 
 // Stream playback debounce to prevent DB spam on range requests
 const playbackDebounce = new Map<string, number>()
-const PLAYBACK_DEBOUNCE_WINDOW = 5 * 60 * 1000 // 5 mins
+const PLAYBACK_DEBOUNCE_WINDOW = 1 * 60 * 1000 // 1 minute
 
 export function recordPlaybackDebounced(
     itemId: string,
@@ -23,25 +23,8 @@ export function recordPlaybackDebounced(
     }
 }
 
-// --- Cached Media Source Path ---
-// Caches the resolved media source path to avoid reading settings files on every request
-let cachedMediaSourcePath: string | null = null
-let cachedMediaSourcePathTime = 0
-const MEDIA_SOURCE_CACHE_TTL = 60 * 60 * 1000 // 1 hour
-
-async function getCachedMediaSourcePath(): Promise<string | null> {
-    const now = Date.now()
-    if (cachedMediaSourcePath && now - cachedMediaSourcePathTime < MEDIA_SOURCE_CACHE_TTL) {
-        return cachedMediaSourcePath
-    }
-
-    cachedMediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-    cachedMediaSourcePathTime = now
-    return cachedMediaSourcePath
-}
-
 async function resolveStreamPath(relativePath: string): Promise<string | null> {
-    const mediaSourcePath = await getCachedMediaSourcePath()
+    const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
     if (!mediaSourcePath) return null
     return pathsService.securePathJoin(mediaSourcePath, relativePath)
 }
@@ -53,7 +36,6 @@ const STREAM_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 interface StreamCacheEntry {
     absolutePath: string
-    fileSize: number
     contentType: string
     cachedAt: number
 }
@@ -88,8 +70,6 @@ function setStreamCacheEntry(itemId: string, entry: Omit<StreamCacheEntry, 'cach
  */
 export function clearStreamCache(): void {
     streamCache.clear()
-    cachedMediaSourcePath = null
-    cachedMediaSourcePathTime = 0
 }
 
 // --- MIME Type Lookup (pre-computed for speed) ---
@@ -203,19 +183,24 @@ export async function handleCachedStream(
         const absolutePath = await resolveStreamPath(itemPath)
         if (!absolutePath) return null
 
-        // Get file size and cache it
-        const file = Bun.file(absolutePath)
-        const fileSize = file.size
         const contentType = getMimeType(absolutePath)
-
-        const newEntry = { absolutePath, fileSize, contentType }
+        const newEntry = { absolutePath, contentType }
         setStreamCacheEntry(itemId, newEntry)
         cacheEntry = { ...newEntry, cachedAt: Date.now() }
     }
 
+    // Get LIVE file size for every request to support growing files (e.g. active torrents)
+    const file = Bun.file(cacheEntry.absolutePath)
+    const fileSize = file.size
+    if (fileSize === 0) {
+        // Handle file potentially deleted or inaccessible
+        streamCache.delete(itemId)
+        return null
+    }
+
     return handleFileStreamFast(
         cacheEntry.absolutePath,
-        cacheEntry.fileSize,
+        fileSize,
         cacheEntry.contentType,
         rangeHeader
     )

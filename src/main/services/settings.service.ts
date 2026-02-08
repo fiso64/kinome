@@ -27,6 +27,15 @@ const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // ma
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
 
 let cachedSettings: Settings | null = null
+let cachedAbsoluteMediaSourcePath: string | null = null
+
+/**
+ * Invalidates all in-memory settings caches.
+ */
+export function invalidateSettingsCaches(): void {
+  cachedSettings = null
+  cachedAbsoluteMediaSourcePath = null
+}
 
 const globalSettingsQueue = new SerializedQueue()
 const librarySettingsQueue = new SerializedQueue()
@@ -156,6 +165,7 @@ export async function readGlobalSettings(): Promise<Settings> {
  * @param settings The flat settings object to save (it will be split).
  */
 export async function writeGlobalSettings(settings: Partial<Settings>): Promise<void> {
+  invalidateSettingsCaches()
   return globalSettingsQueue.run(async () => {
     console.log('[Settings] writeGlobalSettings')
     cachedSettings = null // Invalidate cache
@@ -227,9 +237,7 @@ function mergeNestedObjects<T extends Record<string, any>>(
 async function readRawSettings(): Promise<Settings> {
   console.log('[Settings] readRawSettings')
   const defaultSettings: Settings = {
-    playerCommands: [
-      { id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }
-    ],
+    playerCommands: [],
     customActions: [],
     tmdbApiKey: '',
     useLogos: true,
@@ -294,6 +302,10 @@ async function readRawSettings(): Promise<Settings> {
     }
   }
 
+  if (!finalSettings.libraryLocation) {
+    finalSettings.libraryLocation = getLibraryDataPath()
+  }
+
   return finalSettings
 }
 
@@ -318,9 +330,9 @@ export async function readSettings(): Promise<Settings> {
  * @param settings The partial settings object to save.
  */
 export async function writeLibrarySettings(settings: Partial<Settings>): Promise<void> {
+  invalidateSettingsCaches()
   return librarySettingsQueue.run(async () => {
     console.log('[Settings] writeLibrarySettings')
-    cachedSettings = null // Invalidate cache
 
     if (isRemoteLibrary()) {
       console.warn('[Settings] Skipping write to library-settings.json for remote library.')
@@ -442,6 +454,8 @@ export async function renameFS(oldPath: string, newPath: string): Promise<void> 
 }
 
 export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
+  if (cachedAbsoluteMediaSourcePath) return cachedAbsoluteMediaSourcePath
+
   const settings = await readSettings()
   if (!settings.mediaSourcePath) {
     return null
@@ -453,18 +467,23 @@ export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
 
   if (settings.mediaSourcePathIsRelative || isPhysicallyRelative) {
     const libraryPath = getLibraryDataPath()
-    if (!libraryPath) return settings.mediaSourcePath
+    if (!libraryPath) {
+      cachedAbsoluteMediaSourcePath = settings.mediaSourcePath
+      return settings.mediaSourcePath
+    }
 
     if (isRemoteLibrary()) {
       // For remote paths, resolve relative to the parent URL, mimicking path.dirname().
       // libraryPath for remote is guaranteed to have a trailing slash by paths.service.
       const parentUrl = new URL('..', libraryPath)
-      return new URL(settings.mediaSourcePath, parentUrl).toString()
+      cachedAbsoluteMediaSourcePath = new URL(settings.mediaSourcePath, parentUrl).toString()
     } else {
-      return resolvePath(dirname(libraryPath), settings.mediaSourcePath)
+      cachedAbsoluteMediaSourcePath = resolvePath(dirname(libraryPath), settings.mediaSourcePath)
     }
+    return cachedAbsoluteMediaSourcePath
   }
 
+  cachedAbsoluteMediaSourcePath = settings.mediaSourcePath
   return settings.mediaSourcePath
 }
 
@@ -472,20 +491,47 @@ export async function resolveMediaSourcePath(
   mediaPath: string,
   isRelative: boolean,
   baseLibraryPath?: string
-): Promise<string> {
-  if (!isRelative || isRemotePath(mediaPath) || path.isAbsolute(mediaPath)) {
-    return mediaPath
-  }
+): Promise<{ path: string; exists: boolean }> {
+  let resolved: string
 
-  const libraryPath = baseLibraryPath || getLibraryDataPath()
-  const isRemote = isRemotePath(libraryPath)
+  if (isRemotePath(mediaPath) || path.isAbsolute(mediaPath)) {
+    resolved = mediaPath
+  } else if (isRelative) {
+    const libraryPath = baseLibraryPath || getLibraryDataPath()
+    const isRemote = isRemotePath(libraryPath)
 
-  if (isRemote) {
-    // Normalize libraryPath to have a trailing slash for URL resolution
-    const normalizedLibraryPath = libraryPath.endsWith('/') ? libraryPath : libraryPath + '/'
-    const parentUrl = new URL('..', normalizedLibraryPath)
-    return new URL(mediaPath, parentUrl).toString()
+    if (isRemote) {
+      const normalizedLibraryPath = libraryPath.endsWith('/') ? libraryPath : libraryPath + '/'
+      const parentUrl = new URL('..', normalizedLibraryPath)
+      resolved = new URL(mediaPath, parentUrl).toString()
+    } else {
+      resolved = resolvePath(dirname(libraryPath), mediaPath)
+    }
   } else {
-    return resolvePath(dirname(libraryPath), mediaPath)
+    // If not absolute and not marked as relative, treat as literal.
+    // We do NOT call path.resolve() to avoid falling back to CWD.
+    resolved = mediaPath
   }
+
+  return {
+    path: resolved,
+    exists: (isRelative || path.isAbsolute(resolved) || isRemotePath(resolved))
+      ? await checkPathExists(resolved)
+      : false
+  }
+}
+
+export async function checkPathExists(absolutePath: string): Promise<boolean> {
+  if (isRemotePath(absolutePath)) return true
+
+  try {
+    const s = await fs.stat(absolutePath)
+    return s.isDirectory() || s.isFile()
+  } catch {
+    return false
+  }
+}
+
+export async function createDirectory(absolutePath: string): Promise<void> {
+  await fs.mkdir(absolutePath, { recursive: true })
 }

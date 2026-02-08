@@ -15,6 +15,9 @@ export interface DirectoryEntry {
  * using pathsService.isPathInside().
  */
 export async function listDirectory(absolutePath: string): Promise<DirectoryEntry[]> {
+    if (!path.isAbsolute(absolutePath)) {
+        throw new Error(`Path must be absolute: ${absolutePath}`)
+    }
     try {
         const entries = await fs.readdir(absolutePath, { withFileTypes: true })
 

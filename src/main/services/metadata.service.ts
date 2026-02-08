@@ -57,13 +57,19 @@ export async function fetchMetadataForLibrary() {
 
     // Needs Enrichment (Details/Images/Structural sync)
     // We also run the orchestrator if lastRefreshedAt is NULL (Dirty flag)
-    if (!item.lastRefreshedAt) return true
+    if (!item.lastRefreshedAt) {
+      log(`[Scan] Item needs enrichment (Dirty): "${item.name}" (id: ${item.id}). lastRefreshedAt: ${item.lastRefreshedAt}. Fields present: ${Object.keys(item).length}`)
+      return true
+    }
 
     // TV Show Structural Integrity Check (Dynamic Container)
     // TV Shows are processed every time because they are dynamic containers.
     // The orchestrator handles the internal freshness check for network calls,
     // but must always run Structural Sync and Managed Copy.
-    if (item.mediaType === 'tv') return true
+    if (item.mediaType === 'tv') {
+      // log(`[Scan] Item is TV Show, always processing: "${item.name}"`)
+      return true
+    }
 
     return false
   })
@@ -286,6 +292,8 @@ export async function handleItemUpdate(
   const allModifiedItems: LibraryItem[] = [item]
 
   if (pathsService.isRemoteLibrary()) return []
+
+  log(`[Orchestrator] handleItemUpdate for "${item.name}" (id: ${item.id}). Type: ${item.mediaType}, lastRefreshedAt: ${item.lastRefreshedAt}. Has tvSeasons: ${!!(item as any).tmdbSeasons}`)
 
   // Ensure Bulk Update mode is on to prevent redundant DB writes/broadcasts
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()

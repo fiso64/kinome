@@ -179,6 +179,11 @@ export const performScan = async (options: { path?: string; initialFolderSetting
 
   log(`Starting background scan of: ${mediaSourcePath}`)
 
+  // 1.5 Ensure directory exists (Auto-create)
+  if (!pathsService.isRemotePath(mediaSourcePath)) {
+    await settingsService.createDirectory(mediaSourcePath)
+  }
+
   // 2. Normalize Settings (if any provided)
   const normalizedSettings = normalizeFolderSettings(mediaSourcePath, options.initialFolderSettings)
 

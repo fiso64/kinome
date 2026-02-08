@@ -16,6 +16,7 @@
   let isSaving = $state(false)
   let error = $state('')
   let resolvedPath = $state('')
+  let pathExists = $state(true)
   let folderSettings = $state<Record<string, any>>({})
   let setupCompleted = $state(false)
 
@@ -28,20 +29,31 @@
     if (step === 'media' && path.trim()) {
       const timeout = setTimeout(async () => {
         try {
-          resolvedPath = await api.resolveMediaSourcePath({
+          const result = await api.resolveMediaSourcePath({
             path,
             isRelative,
             libraryLocation: libLoc
           })
+          resolvedPath = result.path
+          pathExists = result.exists
         } catch {
           resolvedPath = 'Error resolving path'
+          pathExists = false
         }
       }, 100)
       return () => clearTimeout(timeout)
     } else {
       resolvedPath = ''
+      pathExists = true
     }
   })
+
+  const isAbsolute = $derived(
+    resolvedPath.startsWith('/') ||
+      resolvedPath.startsWith('\\') ||
+      /^[a-zA-Z]:/.test(resolvedPath) ||
+      resolvedPath.startsWith('http')
+  )
 
   onMount(async () => {
     // Check current settings to see if we have a location but no DB
@@ -108,23 +120,31 @@
     error = ''
     isSaving = true
     try {
-      // 1. Save all settings
+      // 1. Resolve path for initial scan (use provided libraryLocation if step is currently being set up)
+      const result = await api.resolveMediaSourcePath({
+        path: mediaSourcePath,
+        isRelative: mediaSourcePathIsRelative,
+        libraryLocation: libraryLocation
+      })
+      const resolved = result.path
+
+      if (!mediaSourcePathIsRelative && !isAbsolute) {
+        error = 'An absolute path is required.'
+        isSaving = false
+        return
+      }
+
+      // 3. Save all settings
       await api.saveSettings({
         libraryLocation,
         mediaSourcePath,
         mediaSourcePathIsRelative
       })
 
-      // 2. Resolve path for initial scan
-      const resolved = await api.resolveMediaSourcePath({
-        path: mediaSourcePath,
-        isRelative: mediaSourcePathIsRelative
-      })
-
-      // 3. Initiate Scan (awaited until root creation is confirmed)
+      // 4. Initiate Scan (awaited until root creation is confirmed)
       await api.performScan({ path: resolved, initialFolderSettings: folderSettings })
 
-      // 4. Invalidate queries and finalize
+      // 5. Invalidate queries and finalize
       queryClient.invalidateQueries()
 
       // Notify parent to refresh libraryStatus state (which now definitely has a root ID)
@@ -198,6 +218,13 @@
             {#if resolvedPath}
               <br />
               Current resolved path: <code>{resolvedPath}</code>
+              {#if !pathExists && !resolvedPath.includes('Error')}
+                {#if !mediaSourcePathIsRelative && !isAbsolute}
+                  <span class="path-error">Absolute path required</span>
+                {:else}
+                  <span class="path-warning">(Will be created)</span>
+                {/if}
+              {/if}
             {/if}
           </p>
         </div>
@@ -209,7 +236,7 @@
           </label>
         </div>
 
-        {#if resolvedPath && !resolvedPath.includes('Error')}
+        {#if isAbsolute && pathExists && !resolvedPath.includes('Error')}
           <div class="form-group folder-setup">
             <label>Configure Folders</label>
             <p class="help-text">
@@ -234,7 +261,9 @@
           <button
             class="primary"
             onclick={handleMediaSave}
-            disabled={isSaving || !mediaSourcePath.trim()}
+            disabled={isSaving ||
+              !mediaSourcePath.trim() ||
+              (!mediaSourcePathIsRelative && !isAbsolute)}
           >
             {#if isSaving}Saving...{:else}Save & Scan{/if}
           </button>
@@ -366,5 +395,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: bottom;
+  }
+  .path-warning {
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
+  }
+
+  .path-error {
+    color: var(--color-danger);
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: 0.5rem;
   }
 </style>

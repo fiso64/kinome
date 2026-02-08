@@ -796,6 +796,10 @@ export async function fetchAndApplyEpisodeData(
     // FRESHNESS GUARD: Only fetch if lastRefreshedAt is null.
     // This is the single source of truth for whether we need to call the API.
     // Manual 'force' bypasses this.
+    console.log(`[TMDB] fetchAndApplyEpisodeData Guard for "${seasonFolder.name}" (S${seasonNumber}): lastRefreshedAt = ${seasonFolder.lastRefreshedAt}, keys = [${Object.keys(seasonFolder).slice(0, 10)}...]`)
+    if (seasonFolder.lastRefreshedAt === undefined) {
+      console.warn(`[TMDB] WARNING: lastRefreshedAt is UNDEFINED for "${seasonFolder.name}". This item was likely loaded with a lean field set. Fetch will proceed.`)
+    }
     if (!seasonFolder.lastRefreshedAt || options.force) {
       const episodeApiUrl = `https://api.themoviedb.org/3/tv/${showTmdbId}/season/${seasonNumber}?api_key=${tmdbApiKey}`
       console.log(

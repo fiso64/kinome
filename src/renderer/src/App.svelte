@@ -258,14 +258,7 @@
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    const primaryCommand = settings?.playerCommands?.[0]
-
-    if (!primaryCommand) {
-      notificationStore.add('No player command configured.', 'error')
-      return
-    }
-
-    await playerLauncherService.playItem(item, settings?.playerCommands || null)
+    await playerLauncherService.playItem(item, settings?.playerCommands || [])
   }
 
   function handleDismissContinueWatching(showId: string) {

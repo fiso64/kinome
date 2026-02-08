@@ -553,11 +553,11 @@ class WebApiClient implements ApiClient {
     path: string
     isRelative: boolean
     libraryLocation?: string
-  }): Promise<string> {
-    return this.request<{ path: string }>('/api/resolve-media-source-path', {
+  }): Promise<{ path: string; exists: boolean }> {
+    return this.request<{ path: string; exists: boolean }>('/api/resolve-media-source-path', {
       method: 'POST',
       body: JSON.stringify(args)
-    }).then((r) => r.path)
+    })
   }
 
   startHandlerTest(sessionId: string): Promise<{ success: boolean }> {

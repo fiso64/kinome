@@ -186,11 +186,11 @@
         ]
       })
       if (choice === 'full_rescan') {
-        const resolved = await api.resolveMediaSourcePath({
+        const result = await api.resolveMediaSourcePath({
           path: mediaSourcePath,
           isRelative: mediaSourcePathIsRelative
         })
-        await api.performScan({ path: resolved })
+        await api.performScan({ path: result.path })
         // Fetch new root status to get ID
         const status = await api.getLibraryRoot()
         if (status.root) {

@@ -124,7 +124,7 @@ export interface ApiClient {
     path: string
     isRelative: boolean
     libraryLocation?: string
-  }): Promise<string>
+  }): Promise<{ path: string; exists: boolean }>
   startHandlerTest(sessionId: string): Promise<{ success: boolean }>
   minimizeWindow(): void
   toggleMaximizeWindow(): void

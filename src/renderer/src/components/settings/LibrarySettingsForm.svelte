@@ -25,12 +25,12 @@
 
     const timeout = setTimeout(async () => {
       try {
-        const resolved = await api.resolveMediaSourcePath({
+        const result = await api.resolveMediaSourcePath({
           path,
           isRelative,
           libraryLocation: libLoc
         })
-        resolvedMediaPath = resolved
+        resolvedMediaPath = result.path
       } catch (e) {
         resolvedMediaPath = 'Error resolving path'
       }

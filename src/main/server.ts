@@ -21,7 +21,12 @@ import { isVirtualId } from './services/virtual-item.factory'
 
 // --- Security Middleware & Constants ---
 
-const PUBLIC_PATHS = ['/api/login', '/api/check-auth', '/api/setup-admin']
+const PUBLIC_PATHS = [
+  '/api/login',
+  '/api/check-auth',
+  '/api/setup-admin',
+  '/api/handler-test'
+]
 
 // Simple in-memory rate limiter for login
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
@@ -209,7 +214,12 @@ const app = new Elysia()
   .get('/install-kinome-handler.ps1', async ({ query, request, set }) => {
     const url = new URL(request.url)
     const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
-    const baseUrl = url.origin
+
+    let baseUrl = url.origin
+    const forwardedProto = request.headers.get('x-forwarded-proto')
+    if (forwardedProto === 'https' && baseUrl.startsWith('http://')) {
+      baseUrl = baseUrl.replace('http://', 'https://')
+    }
 
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     set.headers['Cache-Control'] = 'no-store'
@@ -219,7 +229,12 @@ const app = new Elysia()
   .get('/install-kinome-handler.sh', async ({ query, request, set }) => {
     const url = new URL(request.url)
     const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
-    const baseUrl = url.origin
+
+    let baseUrl = url.origin
+    const forwardedProto = request.headers.get('x-forwarded-proto')
+    if (forwardedProto === 'https' && baseUrl.startsWith('http://')) {
+      baseUrl = baseUrl.replace('http://', 'https://')
+    }
 
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     set.headers['Cache-Control'] = 'no-store'
@@ -737,13 +752,13 @@ const app = new Elysia()
           return { error: e.message || 'Error' }
         }
       })
-      .post('/resolve-media-source-path', async ({ body }: { body: any }) => ({
-        path: await settingsService.resolveMediaSourcePath(
+      .post('/resolve-media-source-path', async ({ body }: { body: any }) => {
+        return await settingsService.resolveMediaSourcePath(
           body.path,
           body.isRelative,
           body.libraryLocation
         )
-      }))
+      })
       .post('/execute-custom-action', async ({ body }: { body: any }) => {
         await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) =>
           console.log(opt)
