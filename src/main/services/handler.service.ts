@@ -39,9 +39,10 @@ export function confirmHandlerTest(sessionId: string): boolean {
  */
 export function generateWindowsInstaller(secret?: string, baseUrl?: string): string {
     // Find the script path - handle both production (relative to exe) and dev (cwd)
+    // We use .template extension to prevent static file server from shadowing this route
     const exeDir = path.dirname(process.execPath)
-    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.ps1')
-    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.ps1')
+    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.ps1.template')
+    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.ps1.template')
 
     const scriptPath = fs.existsSync(pathInExeDir) ? pathInExeDir : pathInCwd
 
@@ -58,6 +59,11 @@ export function generateWindowsInstaller(secret?: string, baseUrl?: string): str
 
     // Inject variables at the top
     let injections = ''
+    
+    // Debug info for client troubleshooting
+    injections += `# Server generated at ${new Date().toISOString()}\n`
+    injections += `# Received Secret: ${secret ? 'YES' : 'NO'}\n`
+
     if (secret) {
         injections += `$Secret = "${secret}"\n`
     }
@@ -65,9 +71,8 @@ export function generateWindowsInstaller(secret?: string, baseUrl?: string): str
         injections += `$BaseUrl = "${baseUrl}"\n`
     }
 
-    if (injections) {
-        scriptContent = injections + scriptContent
-    }
+    // Prepend injections to the script content
+    scriptContent = injections + '\n' + scriptContent
 
     return scriptContent
 }
@@ -77,9 +82,10 @@ export function generateWindowsInstaller(secret?: string, baseUrl?: string): str
  */
 export function generateLinuxInstaller(secret?: string, baseUrl?: string): string {
     // Find the script path - handle both production (relative to exe) and dev (cwd)
+    // We use .template extension to prevent static file server from shadowing this route
     const exeDir = path.dirname(process.execPath)
-    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.sh')
-    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.sh')
+    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.sh.template')
+    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.sh.template')
 
     const scriptPath = fs.existsSync(pathInExeDir) ? pathInExeDir : pathInCwd
 
@@ -96,6 +102,8 @@ export function generateLinuxInstaller(secret?: string, baseUrl?: string): strin
 
     // Inject variables at the top (after shebang)
     let injections = ''
+    injections += `# Server generated at ${new Date().toISOString()}\n`
+
     if (secret) {
         injections += `SECRET='${secret}'\n`
     }

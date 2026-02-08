@@ -5,6 +5,8 @@
 
 if (-not $Secret) {
     Write-Host "ERROR: No secret provided. Please run the installer command from the Kinome UI." -ForegroundColor Red
+    Write-Host "Debug info: Secret variable is empty." -ForegroundColor Gray
+    Write-Host "Check the top of this script for '# Received Secret' comments if downloading manually." -ForegroundColor Gray
     return
 }
 
@@ -31,7 +33,8 @@ if (-not $BaseUrl) {
     return
 }
 
-$BinaryUrl = "$BaseUrl/bin/kinome-handler.exe"
+# Request the windows-specific binary name produced by the build process
+$BinaryUrl = "$BaseUrl/bin/kinome-handler-win.exe"
 
 try {
     # Disable progress bar to speed up download significantly

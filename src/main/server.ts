@@ -129,8 +129,9 @@ const app = new Elysia()
     // Log everything except static assets and subsequent stream chunks (we still log the start of a stream)
     const isStatic = url.startsWith('/api/assets')
     const isStreamChunk = url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')
+    const isInstaller = url.startsWith('/install-kinome-handler')
 
-    if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
+    if ((url.startsWith('/api/') || isInstaller) && !isStatic && !isStreamChunk) {
       ; (request as any)._startTime = Date.now()
       console.log(`[API] [REQUEST] ${request.method} ${url}`)
     }
@@ -198,17 +199,22 @@ const app = new Elysia()
   // Installer scripts and handler (served as text/plain)
   .get('/install-kinome-handler.ps1', async ({ query, request, set }) => {
     const url = new URL(request.url)
-    // Fallback to manual parsing if query is empty (can happen in some envs)
-    const secret = (query.secret as string | undefined) ?? url.searchParams.get('secret') ?? undefined
+    const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
     const baseUrl = url.origin
+
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    set.headers['Cache-Control'] = 'no-store'
+
     return handlerService.generateWindowsInstaller(secret, baseUrl)
   })
   .get('/install-kinome-handler.sh', async ({ query, request, set }) => {
     const url = new URL(request.url)
-    const secret = (query.secret as string | undefined) ?? url.searchParams.get('secret') ?? undefined
+    const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
     const baseUrl = url.origin
+
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    set.headers['Cache-Control'] = 'no-store'
+
     return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
   .get('/kinome-handler.sh', ({ set }) => {
@@ -226,8 +232,13 @@ const app = new Elysia()
     const sourceDir = (import.meta as any).dir
 
     const possiblePaths = [
+      // Production: Sibling of executable
+      path.join(exeDir, 'public', 'bin', params['*']),
+      // Legacy/Alternative Production Layout
       path.join(exeDir, 'out', 'renderer', 'bin', params['*']),
+      // Development: Relative to source
       path.resolve(sourceDir, '../../out/renderer/bin', params['*']),
+      // Development: Relative to CWD
       path.join(process.cwd(), 'public', 'bin', params['*'])
     ]
 
@@ -240,6 +251,8 @@ const app = new Elysia()
     }
 
     if (!binPath) {
+      console.error(`[Server] Binary not found: ${params['*']}`)
+      console.error(`[Server] Searched in:`, possiblePaths)
       set.status = 404
       return 'File not found'
     }
