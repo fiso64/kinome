@@ -152,12 +152,13 @@
   }
   .modal-window {
     background-color: var(--color-background-soft);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     width: 100%; /* It should now fill the positioner, which is correctly sized */
     display: flex;
     flex-direction: column;
-    max-height: 80vh;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    max-height: 85vh;
+    box-shadow: var(--shadow-standard);
     animation: modal-pop-in 0.15s ease-out;
   }
 
@@ -205,7 +206,7 @@
   }
   .close-btn {
     background: none;
-    color: var(--ev-c-text-2);
+    color: var(--color-text-soft);
     font-size: 2rem;
     line-height: 1;
     width: 36px;
@@ -220,8 +221,8 @@
       color 0.2s;
   }
   .close-btn:hover {
-    background-color: var(--ev-c-gray-3);
-    color: var(--ev-c-text-1);
+    background-color: var(--color-background-mute);
+    color: var(--color-text);
   }
   .modal-body {
     overflow-y: auto;

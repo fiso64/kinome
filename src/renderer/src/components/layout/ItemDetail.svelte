@@ -41,9 +41,8 @@
   let isOverviewOverflowing = $state(false)
   let isBackdropLoaded = $state(false)
   let isLogoLoaded = $state(false)
+  let isUserToggling = $state(false)
   let isPosterLoaded = $state(false)
-
-  let shouldSkipTransition = $state(true)
 
   // References for safety checks
   let backdropImg = $state<HTMLImageElement>()
@@ -181,13 +180,11 @@
 
   $effect(() => {
     if (item.id !== lastSeenItemId) {
-      activeInfoTab = 'overview'
       lastSeenItemId = item.id
       isOverviewExpanded = false
       isOverviewOverflowing = false
-      shouldSkipTransition = true
+
       if (overviewWrapperElement) {
-        overviewWrapperElement.style.transition = 'none'
         overviewWrapperElement.style.maxHeight = ''
       }
     }
@@ -224,6 +221,14 @@
     return () => window.removeEventListener('mousedown', handleClickOutside)
   })
 
+  function handleToggleOverview() {
+    isUserToggling = true
+    isOverviewExpanded = !isOverviewExpanded
+    setTimeout(() => {
+      isUserToggling = false
+    }, 300) // Match transition duration
+  }
+
   $effect(() => {
     const isExpanded = isOverviewExpanded
     const currentTab = activeInfoTab
@@ -259,40 +264,24 @@
       const isOverflowing = fullHeight > availableSpace + 20
       isOverviewOverflowing = isOverflowing
 
-      if (isOverflowing && !isExpanded) {
-        // Collapsed: Clamp to available space
-        const clampedHeight = Math.max(40, availableSpace)
+      const targetHeight = isOverflowing && !isExpanded ? Math.max(60, availableSpace) : fullHeight
 
-        if (shouldSkipTransition) {
-          overviewWrapper.style.transition = 'none'
-          overviewWrapper.style.maxHeight = `${clampedHeight}px`
-          // Force reflow
-          overviewWrapper.offsetHeight
-          overviewWrapper.style.transition = ''
-          shouldSkipTransition = false
-        } else {
-          overviewWrapper.style.maxHeight = `${clampedHeight}px`
-        }
-      } else {
-        // Expanded or No Overflow: Set to full pixel height
-        // Reset the transition if we aggressively disabled it before (e.g. item switch)
-        if (shouldSkipTransition) {
-          overviewWrapper.style.transition = ''
-          shouldSkipTransition = false
-        }
-        overviewWrapper.style.maxHeight = `${fullHeight}px`
-      }
+      overviewWrapper.style.maxHeight = `${targetHeight}px`
     }
 
     const observer = new ResizeObserver(checkOverflow)
     observer.observe(posterCol)
+
     observer.observe(infoCol)
     observer.observe(overviewP)
+    // Important: checkOverflow will set initial pixel height
     queueMicrotask(checkOverflow)
+
     return () => observer.disconnect()
   })
 
   let previousV = $state<number | undefined>(undefined)
+
   $effect(() => {
     previousV = item._v
   })
@@ -310,38 +299,38 @@
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
-  <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
-    {#if item.backdropPath}
-      <img
-        bind:this={backdropImg}
-        class="backdrop-image"
-        class:show={isBackdropLoaded}
-        src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
-        alt=""
-        onload={async (e) => {
-          const img = e.currentTarget as HTMLImageElement
-          try {
-            await img.decode() // Ensure GPU is ready before showing
-            const loadTime = performance.now() - backdropStartTime
-            backdropFadeDuration = loadTime > 150 ? 1000 : 300
-            isBackdropLoaded = true
-          } catch (err) {
-            isBackdropLoaded = true
-          }
-        }}
-        onerror={() => {
-          backdropFadeDuration = 300
-          isBackdropLoaded = true
-        }}
-        style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
-        style="transition-duration: {backdropFadeDuration}ms"
-      />
-    {/if}
-    <div class="backdrop-overlay"></div>
-  </div>
-
   <ViewContextProvider id={item.id}>
     <div class="scroll-container" use:scrollPersistence={{ key: getViewKey('detail') }}>
+      <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
+        {#if item.backdropPath}
+          <img
+            bind:this={backdropImg}
+            class="backdrop-image"
+            class:show={isBackdropLoaded}
+            src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
+            alt=""
+            onload={async (e) => {
+              const img = e.currentTarget as HTMLImageElement
+              try {
+                await img.decode() // Ensure GPU is ready before showing
+                const loadTime = performance.now() - backdropStartTime
+                backdropFadeDuration = loadTime > 150 ? 1000 : 300
+                isBackdropLoaded = true
+              } catch (err) {
+                isBackdropLoaded = true
+              }
+            }}
+            onerror={() => {
+              backdropFadeDuration = 300
+              isBackdropLoaded = true
+            }}
+            style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
+            style="transition-duration: {backdropFadeDuration}ms"
+          />
+        {/if}
+        <div class="backdrop-overlay"></div>
+      </div>
+
       <div class="fade-shroud"></div>
       <div class="detail-content animate-arrival">
         <div class="info-grid">
@@ -439,6 +428,7 @@
                           bind:this={overviewWrapperElement}
                           class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
                           class:expanded={isOverviewExpanded}
+                          style:transition={isUserToggling ? 'max-height 0.25s ease-out' : 'none'}
                         >
                           <p class="overview" bind:this={overviewParagraphElement}>
                             {item.overview}
@@ -448,7 +438,7 @@
                           <div class="expand-button-wrapper">
                             <button
                               class="expand-overview-btn"
-                              onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                              onclick={handleToggleOverview}
                               aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
                             >
                               <span class="chevron" class:up={isOverviewExpanded}></span>
@@ -484,6 +474,7 @@
                     bind:this={overviewWrapperElement}
                     class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
                     class:expanded={isOverviewExpanded}
+                    style:transition={isUserToggling ? 'max-height 0.25s ease-out' : 'none'}
                   >
                     <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
                   </div>
@@ -491,7 +482,7 @@
                     <div class="expand-button-wrapper">
                       <button
                         class="expand-overview-btn"
-                        onclick={() => (isOverviewExpanded = !isOverviewExpanded)}
+                        onclick={handleToggleOverview}
                         aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
                       >
                         <span class="chevron" class:up={isOverviewExpanded}></span>
@@ -611,13 +602,17 @@
     height: 50vh;
     max-height: 400px;
     overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
     transition:
       height 0.3s ease-in-out,
       max-height 0.3s ease-in-out;
   }
   .backdrop-container.full-size {
+    position: sticky;
     height: 100vh;
     max-height: none;
+    margin-bottom: -100vh;
   }
 
   .backdrop-image,
@@ -661,7 +656,9 @@
 
   .detail-content {
     position: relative;
+    z-index: 1;
     padding: 1.5rem;
+
     padding-top: 10vh;
     max-width: 1200px;
     margin: 0 auto;
@@ -732,8 +729,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-standard);
+    border: 1px solid var(--color-border);
   }
 
   .poster-container {
@@ -843,26 +840,26 @@
   }
 
   .genre-tag {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: color-mix(in srgb, var(--color-text) 10%, transparent);
     padding: 0.3rem 0.8rem;
     border-radius: 16px;
     font-size: 0.9rem;
-    border: none;
-    color: var(--ev-c-text-2);
+    border: 1px solid transparent;
+    color: var(--color-text-soft);
     font-family: inherit;
     cursor: pointer;
     transition: all 0.2s ease;
   }
 
   .genre-tag:hover {
-    background-color: rgba(255, 255, 255, 0.2);
-    color: var(--ev-c-text-1);
+    background-color: color-mix(in srgb, var(--color-text) 20%, transparent);
+    color: var(--color-text);
   }
 
   .play-button {
     width: 100%;
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--ev-c-text-1);
+    background-color: var(--color-primary);
+    color: white;
     border: none;
     padding: 1rem;
     border-radius: 8px; /* Match poster */
@@ -871,9 +868,11 @@
     font-size: 1.2rem;
     transition:
       transform 0.2s ease,
+      background-color 0.2s ease,
       box-shadow 0.2s ease;
   }
   .play-button:hover {
+    background-color: var(--color-primary-soft);
     transform: scale(1.03);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
   }
@@ -1047,10 +1046,10 @@
     background-color: transparent;
   }
   .full-backdrop-mode .overview-container {
-    background: rgba(20, 20, 22, 0.5);
+    background: color-mix(in srgb, var(--color-background) 50%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 1.5rem;
   }
@@ -1058,16 +1057,16 @@
     margin-bottom: 1rem;
   }
   .full-backdrop-mode .credits-popout {
-    background-color: rgba(20, 20, 22, 1); /* opaque for readability */
+    background-color: var(--color-background); /* opaque for readability */
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--color-border);
   }
   .full-backdrop-mode .collapsible-content {
-    background: rgba(20, 20, 22, 0.5);
+    background: color-mix(in srgb, var(--color-background) 50%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
   }
 
@@ -1076,13 +1075,17 @@
     position: relative;
   }
   .overview-wrapper {
-    transition: max-height 0.2s ease-out;
     overflow: hidden;
+    min-height: 1.2em; /* Ensure it's never 0 during first measurement */
   }
+
   .overview-wrapper.collapsed {
+    max-height: 12rem; /* Safety default for first frame */
+    transition: none;
     -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
     mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
   }
+
   .expand-button-wrapper {
     text-align: center;
     margin-top: -1.5rem;

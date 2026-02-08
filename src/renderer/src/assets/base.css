@@ -1,20 +1,51 @@
 :root {
+  /* --- Primitive Color Palette --- */
   --ev-c-white: #ffffff;
   --ev-c-white-soft: #f8f8f8;
   --ev-c-white-mute: #f2f2f2;
 
-  --ev-c-black: #131316;
-  --ev-c-black-soft: #222222;
-  --ev-c-black-mute: #282828;
+  --ev-c-black: #0e0e0f;
+  --ev-c-black-soft: #1d1d1d;
+  --ev-c-black-mute: #202020;
 
-  --ev-c-gray-1: #515c67;
-  --ev-c-gray-2: #414853;
-  --ev-c-gray-3: #32363f;
+  --ev-c-gray-1: #4e5863;
+  --ev-c-gray-2: #2d3036;
+  --ev-c-gray-3: #2e323a;
+
+  --ev-c-indigo: #6366f1;
+  --ev-c-indigo-soft: #818cf8;
+  --ev-c-red: #ef4444;
+  --ev-c-red-soft: #f87171;
+  --ev-c-green: #10b981;
+  --ev-c-green-soft: #34d399;
 
   --ev-c-text-1: rgba(255, 255, 245, 0.86);
   --ev-c-text-2: rgba(235, 235, 245, 0.6);
   --ev-c-text-3: rgba(235, 235, 245, 0.38);
 
+  /* --- Semantic Tokens --- */
+  --color-background: var(--ev-c-black);
+  --color-background-soft: var(--ev-c-black-soft);
+  --color-background-mute: var(--ev-c-black-mute);
+
+  --color-text: var(--ev-c-text-1);
+  --color-text-soft: var(--ev-c-text-2);
+  --color-text-dim: var(--ev-c-text-3);
+
+  --color-primary: var(--ev-c-indigo);
+  --color-primary-soft: var(--ev-c-indigo-soft);
+  --color-danger: var(--ev-c-red);
+  --color-danger-soft: var(--ev-c-red-soft);
+  --color-success: var(--ev-c-green);
+  --color-success-soft: var(--ev-c-green-soft);
+
+  --color-border: var(--ev-c-gray-3);
+  --color-border-soft: var(--ev-c-gray-3);
+
+  /* Surface Shadow (useful for cards/popups) */
+  --shadow-standard: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+  /* --- Deprecated / Specific Aliases --- */
   --ev-button-alt-border: transparent;
   --ev-button-alt-text: var(--ev-c-text-1);
   --ev-button-alt-bg: var(--ev-c-black-soft);
@@ -23,13 +54,22 @@
   --ev-button-alt-hover-bg: var(--ev-c-gray-2);
 }
 
-:root {
-  --color-background: var(--ev-c-black);
-  --color-background-soft: var(--ev-c-black-soft);
-  --color-background-mute: var(--ev-c-black-mute);
+/* 
+   Contextual Override: Fullscreen Backdrop Mode
+   When the detail view is in fullscreen backdrop mode, we use slightly 
+   lighter surface colors to avoid "black holes" against the imagery.
+*/
+.full-backdrop-mode {
+  --ev-c-black: #131316;
+  --ev-c-black-soft: #222222;
+  --ev-c-black-mute: #282828;
 
-  --color-text: var(--ev-c-text-1);
+  --ev-c-gray-1: #515c67;
+  --ev-c-gray-2: #414853;
+  --ev-c-gray-3: #32363f;
 }
+
+
 
 *,
 *::before,
@@ -96,7 +136,7 @@ select,
 textarea {
   padding: 0.5rem;
   background-color: var(--color-background);
-  border: 1px solid var(--color-background-mute);
+  border: 1px solid var(--color-border);
   color: var(--color-text);
   border-radius: 4px;
   font-family: inherit;
@@ -122,37 +162,53 @@ button {
   cursor: pointer;
   font-weight: 600;
   font-size: 0.9rem;
-  color: var(--ev-c-text-1);
+  color: var(--color-text);
   background-color: var(--ev-button-alt-bg);
   -webkit-app-region: no-drag;
+  transition: background-color 0.2s, transform 0.1s;
 }
 
 button:hover:not(:disabled) {
-  background-color: var(--ev-c-gray-2);
+  background-color: var(--ev-button-alt-hover-bg);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 button.primary {
-  background-color: var(--ev-c-gray-2);
-  color: var(--ev-c-text-1);
+  background-color: var(--color-primary);
+  color: white;
 }
 
 button.primary:hover:not(:disabled) {
-  background-color: var(--ev-c-gray-1);
+  background-color: var(--color-primary-soft);
 }
 
 button.secondary {
-  background-color: var(--ev-button-alt-bg);
-  border: 1px solid var(--ev-c-gray-2);
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
 }
 
 button.secondary:hover:not(:disabled) {
-  background-color: var(--ev-c-black-mute);
+  background-color: var(--color-background-soft);
 }
+
+button.danger {
+  background-color: var(--color-danger);
+  color: white;
+}
+
+button.danger:hover:not(:disabled) {
+  background-color: var(--color-danger-soft);
+}
+
 
 /* Common modal actions container */
 .modal-actions {
@@ -162,7 +218,8 @@ button.secondary:hover:not(:disabled) {
   flex-shrink: 0;
   padding: 1.5rem;
   border-top: 1px solid var(--color-background-mute);
-  margin-top: auto; /* Push to bottom if content is short */
+  margin-top: auto;
+  /* Push to bottom if content is short */
 }
 
 /* --- Global Image Styles --- */

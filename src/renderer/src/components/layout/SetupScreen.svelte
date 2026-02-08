@@ -264,8 +264,8 @@
     background-color: var(--color-background-soft);
     padding: 2rem;
     border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--color-border-soft);
+    box-shadow: var(--shadow-standard);
+    border: 1px solid var(--color-border);
     max-height: 90vh;
     overflow-y: auto;
   }
@@ -281,7 +281,7 @@
   }
 
   header p {
-    color: var(--color-text-dim);
+    color: var(--color-text-soft);
     margin: 0;
   }
 
@@ -336,43 +336,16 @@
     margin-top: 1rem;
   }
 
+  /* Note: button styles are inherited from base.css, 
+     adding minor overrides for size/padding if needed */
   button {
     padding: 0.8rem 2rem;
     border-radius: 8px;
-    font-weight: 600;
     font-size: 1rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  button.primary {
-    background-color: var(--color-primary);
-    color: white;
-  }
-
-  button.primary:hover:not(:disabled) {
-    background-color: var(--color-primary-soft);
-    transform: translateY(-1px);
-  }
-
-  button.secondary {
-    background-color: transparent;
-    border-color: var(--color-border);
-    color: var(--color-text);
-  }
-
-  button.secondary:hover:not(:disabled) {
-    background-color: var(--color-background-mute);
   }
 
   .error-message {
-    color: #ef4444;
+    color: var(--color-danger);
     font-size: 0.9rem;
     background-color: rgba(239, 68, 68, 0.1);
     padding: 0.75rem;

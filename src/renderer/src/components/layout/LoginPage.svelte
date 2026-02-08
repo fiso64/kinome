@@ -127,19 +127,19 @@
     width: 100vw;
     height: 100vh;
     background-color: var(--color-background);
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
   }
 
   .login-card {
     width: 100%;
     max-width: 400px;
     background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-standard);
   }
 
   .header {
@@ -165,13 +165,13 @@
 
   h2 {
     font-size: 1rem;
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
     margin-bottom: 0.5rem;
   }
 
   .description {
     font-size: 0.85rem;
-    color: var(--ev-c-text-2);
+    color: var(--color-text-soft);
     margin-bottom: 2rem;
     line-height: 1.4;
   }
@@ -184,9 +184,9 @@
     width: 100%;
     padding: 0.75rem 1rem;
     background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
     font-size: 0.95rem;
     transition: border-color 0.2s;
   }
@@ -206,7 +206,7 @@
     gap: 0.75rem;
     cursor: pointer;
     font-size: 0.9rem;
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
   }
 
   .checkbox-label input {
@@ -216,7 +216,7 @@
 
   .hint {
     font-size: 0.75rem;
-    color: var(--ev-c-text-3);
+    color: var(--color-text-dim);
     margin-top: 0.5rem;
     padding-left: 1.75rem;
   }
@@ -224,7 +224,7 @@
   .error-banner {
     background-color: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.2);
-    color: #ef4444;
+    color: var(--color-danger);
     padding: 0.75rem;
     border-radius: 4px;
     margin-bottom: 1.5rem;
@@ -236,23 +236,5 @@
     justify-content: flex-end;
   }
 
-  button.primary {
-    background-color: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-    padding: 0.6rem 2rem;
-    border-radius: 4px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-
-  button.primary:hover:not(:disabled) {
-    background-color: var(--ev-c-gray-1);
-  }
-
-  button.primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  /* Note: button styles are inherited from base.css */
 </style>

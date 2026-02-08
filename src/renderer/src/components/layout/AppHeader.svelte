@@ -376,7 +376,7 @@
     right: 0;
     z-index: 200;
     background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
     /* The height is calculated to show roughly 5 items.
@@ -390,13 +390,13 @@
   .dropdown-status {
     padding: 2rem;
     text-align: center;
-    color: var(--ev-c-text-2);
+    color: var(--color-text-soft);
   }
 
   header {
     display: flex;
-    border-bottom: 1px solid var(--color-background-mute);
     height: var(--header-height);
+
     flex-shrink: 0;
     transition: background-color 0.3s ease;
     position: relative;
@@ -464,15 +464,15 @@
   .layout-button,
   .more-options-button {
     background-color: var(--ev-button-alt-bg);
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
   }
 
   .home-button {
-    color: var(--ev-c-text-2);
+    color: var(--color-text-soft);
     transition: color 0.2s ease;
   }
   .home-button:hover {
-    color: var(--ev-c-text-1);
+    color: var(--color-text);
   }
 
   .home-button.hidden {

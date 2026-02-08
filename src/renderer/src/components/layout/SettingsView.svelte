@@ -594,7 +594,6 @@
   .tabs button.active {
     color: var(--color-text);
     background-color: var(--color-background-soft);
-    /* font-weight: 600; Removed to prevent width jump */
   }
 
   .right-column {
@@ -732,22 +731,7 @@
     gap: 1.5rem;
   }
 
-  button.primary {
-    background-color: var(--color-primary);
-    color: white;
-    padding: 0.6rem 1.5rem;
-    border-radius: 6px;
-    font-weight: 600;
-  }
-
-  button.secondary {
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-border);
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--color-text);
-  }
+  /* Note: button styles are inherited from base.css */
 
   .account-item {
     padding: 1rem;
@@ -815,10 +799,10 @@
   }
 
   .message.success {
-    color: #4caf50;
+    color: var(--color-success);
   }
 
   .message.error {
-    color: #f44336;
+    color: var(--color-danger);
   }
 </style>
