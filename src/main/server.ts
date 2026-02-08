@@ -197,14 +197,17 @@ const app = new Elysia()
   })
   // Installer scripts and handler (served as text/plain)
   .get('/install-kinome-handler.ps1', async ({ query, request, set }) => {
-    const secret = query.secret as string | undefined
-    const baseUrl = `${new URL(request.url).origin}`
+    const url = new URL(request.url)
+    // Fallback to manual parsing if query is empty (can happen in some envs)
+    const secret = (query.secret as string | undefined) ?? url.searchParams.get('secret') ?? undefined
+    const baseUrl = url.origin
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     return handlerService.generateWindowsInstaller(secret, baseUrl)
   })
   .get('/install-kinome-handler.sh', async ({ query, request, set }) => {
-    const secret = query.secret as string | undefined
-    const baseUrl = `${new URL(request.url).origin}`
+    const url = new URL(request.url)
+    const secret = (query.secret as string | undefined) ?? url.searchParams.get('secret') ?? undefined
+    const baseUrl = url.origin
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
@@ -776,6 +779,21 @@ if (process.env.NODE_ENV === 'production') {
   const sourceDir = (import.meta as any).dir
   const pathDev = path.resolve(sourceDir, '../../out/renderer')
 
+  // Resolve Public Directory (Installers + Binaries)
+  const publicSibling = path.join(exeDir, 'public')
+  const publicDev = path.resolve(sourceDir, '../../public')
+  const publicPath = fs.existsSync(publicSibling) ? publicSibling : publicDev
+
+  if (fs.existsSync(publicPath)) {
+    console.log(`[Server] Serving public assets from: ${publicPath}`)
+    app.use(
+      staticPlugin({
+        assets: publicPath,
+        prefix: '/'
+      })
+    )
+  }
+
   let distPath = ''
 
   if (fs.existsSync(pathSibling)) {
@@ -790,7 +808,7 @@ if (process.env.NODE_ENV === 'production') {
     distPath = pathSibling
   }
 
-  // Serve static assets (js, css, images)
+  // Serve static assets (js, css, images) from Frontend build
   app.use(
     staticPlugin({
       assets: distPath,

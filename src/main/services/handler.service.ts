@@ -1,3 +1,6 @@
+import fs from 'fs'
+import path from 'path'
+
 const handlerTestSessions = new Map<string, { timestamp: number }>()
 const TEST_SESSION_TIMEOUT = 10000 // 10 seconds
 
@@ -35,19 +38,31 @@ export function confirmHandlerTest(sessionId: string): boolean {
  * Generates the Windows PowerShell installer script with embedded secret.
  */
 export function generateWindowsInstaller(secret?: string, baseUrl?: string): string {
-    const fs = require('fs')
-    const path = require('path')
+    // Find the script path - handle both production (relative to exe) and dev (cwd)
+    const exeDir = path.dirname(process.execPath)
+    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.ps1')
+    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.ps1')
 
-    const scriptPath = path.join(process.cwd(), 'public', 'install-kinome-handler.ps1')
+    const scriptPath = fs.existsSync(pathInExeDir) ? pathInExeDir : pathInCwd
+
+    if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Installer script not found at ${scriptPath}`)
+    }
+
     let scriptContent = fs.readFileSync(scriptPath, 'utf8')
+
+    // Strip BOM if present
+    if (scriptContent.charCodeAt(0) === 0xFEFF) {
+        scriptContent = scriptContent.slice(1)
+    }
 
     // Inject variables at the top
     let injections = ''
     if (secret) {
-        injections += `$Secret = '${secret}'\n`
+        injections += `$Secret = "${secret}"\n`
     }
     if (baseUrl) {
-        injections += `$BaseUrl = '${baseUrl}'\n`
+        injections += `$BaseUrl = "${baseUrl}"\n`
     }
 
     if (injections) {
@@ -61,11 +76,23 @@ export function generateWindowsInstaller(secret?: string, baseUrl?: string): str
  * Generates the Linux/macOS bash installer script with embedded secret.
  */
 export function generateLinuxInstaller(secret?: string, baseUrl?: string): string {
-    const fs = require('fs')
-    const path = require('path')
+    // Find the script path - handle both production (relative to exe) and dev (cwd)
+    const exeDir = path.dirname(process.execPath)
+    const pathInExeDir = path.join(exeDir, 'public', 'install-kinome-handler.sh')
+    const pathInCwd = path.join(process.cwd(), 'public', 'install-kinome-handler.sh')
 
-    const scriptPath = path.join(process.cwd(), 'public', 'install-kinome-handler.sh')
+    const scriptPath = fs.existsSync(pathInExeDir) ? pathInExeDir : pathInCwd
+
+    if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Installer script not found at ${scriptPath}`)
+    }
+
     let scriptContent = fs.readFileSync(scriptPath, 'utf8')
+
+    // Strip BOM if present
+    if (scriptContent.charCodeAt(0) === 0xFEFF) {
+        scriptContent = scriptContent.slice(1)
+    }
 
     // Inject variables at the top (after shebang)
     let injections = ''
@@ -79,8 +106,12 @@ export function generateLinuxInstaller(secret?: string, baseUrl?: string): strin
     if (injections) {
         // Insert after the first line (shebang)
         const lines = scriptContent.split('\n')
-        lines.splice(1, 0, injections)
-        scriptContent = lines.join('\n')
+        if (lines.length > 0 && lines[0].startsWith('#!')) {
+            lines.splice(1, 0, injections)
+            scriptContent = lines.join('\n')
+        } else {
+            scriptContent = injections + scriptContent
+        }
     }
 
     return scriptContent

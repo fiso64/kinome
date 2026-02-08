@@ -84,6 +84,10 @@ const outDest = path.join(buildDir, 'out')
 await fs.mkdir(outDest, { recursive: true })
 await fs.cp(path.resolve('out'), outDest, { recursive: true })
 
+const publicDest = path.join(buildDir, 'public')
+await fs.mkdir(publicDest, { recursive: true })
+await fs.cp(path.resolve('public'), publicDest, { recursive: true })
+
 // 7. Packaging (Branch based on OS)
 if (isWinTarget) {
   console.log('📦 Zipping artifact (Windows)...')
