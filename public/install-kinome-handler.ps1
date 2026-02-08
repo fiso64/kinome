@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 $AppDir = "$env:APPDATA\Kinome"
 $HandlerDir = "$AppDir\handler"
 $ConfigFile = Join-Path $HandlerDir "handler.conf"
-$HandlerBinary = Join-Path $HandlerDir "kinome-handler-win.exe"
+$HandlerBinary = Join-Path $HandlerDir "kinome-handler.exe"
 $LogFile = Join-Path $HandlerDir "handler.log"
 
 # Create directories
@@ -31,7 +31,7 @@ if (-not $BaseUrl) {
     return
 }
 
-$BinaryUrl = "$BaseUrl/bin/kinome-handler-win.exe"
+$BinaryUrl = "$BaseUrl/bin/kinome-handler.exe"
 
 try {
     # Disable progress bar to speed up download significantly
