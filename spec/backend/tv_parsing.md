@@ -83,11 +83,17 @@ If the show folder contains video files **directly** AND no subfolders match the
 
 2. **If at least one folder matches the pattern:**
 
-   - Assign `seasonNumber` to each matched folder.
-   - Mark each as `mediaType = 'season'`.
-   - **Process only the matched folders** (unmatched folders are ignored).
-   - For each matched folder, go to **Step 4** (Episode Assignment).
-   - **Return**.
+   - **Check for Uniqueness:**
+     - Identify if any two matched folders resolve to the same `seasonNumber`.
+   - **If duplicates exist:**
+     - The 'Smart' strategy is considered failed due to ambiguity.
+     - Fall through to alphabetic assignment (below).
+   - **If no duplicates exist:**
+     - Assign `seasonNumber` to each matched folder.
+     - Mark each as `mediaType = 'season'`.
+     - **Process only the matched folders** (unmatched folders are ignored).
+     - For each matched folder, go to **Step 4** (Episode Assignment).
+     - **Return**.
 
 3. **If no folders match the pattern:**
    - Fall through to alphabetic assignment (below).
@@ -135,11 +141,17 @@ Collect all video files (`.mp4`, `.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm`
 
 3. **If a pattern achieves consensus:**
 
-   - Assign `episodeNumber` from the regex match to each matched file.
-   - If pattern is `SxxExx`: also extract `seasonNumber` from filename (overrides parent).
-   - If pattern is `Episode XX` or `Exx`: inherit `seasonNumber` from parent folder.
-   - Mark each as `mediaType = 'episode'`.
-   - **Return**.
+   - **Check for Uniqueness:**
+     - Identify if the winning pattern extracts the same `episodeNumber` for multiple files.
+   - **If duplicates exist:**
+     - The 'Smart' strategy is considered failed due to ambiguity.
+     - Fall through to alphabetic assignment (below).
+   - **If no duplicates exist:**
+     - Assign `episodeNumber` from the regex match to each matched file.
+     - If pattern is `SxxExx`: also extract `seasonNumber` from filename (overrides parent).
+     - If pattern is `Episode XX` or `Exx`: inherit `seasonNumber` from parent folder.
+     - Mark each as `mediaType = 'episode'`.
+     - **Return**.
 
 4. **If no pattern achieves consensus:**
    - Fall through to alphabetic assignment (below).

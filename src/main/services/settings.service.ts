@@ -25,6 +25,8 @@ const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
 const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // make bots work for it a little
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
 
+let cachedSettings: Settings | null = null
+
 // This is now private. The transport layer doesn't need to know the exact path.
 function getGlobalSettingsPath(): string {
   // Global settings are always in the app's user data directory,
@@ -130,6 +132,7 @@ export async function checkLibraryExists(libraryPath: string): Promise<{
  * Reads only the global settings file and handles migration if needed.
  */
 export async function readGlobalSettings(): Promise<Settings> {
+  console.log('[Settings] readGlobalSettings')
   const filePath = getGlobalSettingsPath()
   const raw = (await readSettingsFile(filePath)) as any
 
@@ -149,6 +152,7 @@ export async function readGlobalSettings(): Promise<Settings> {
  * @param settings The flat settings object to save (it will be split).
  */
 export async function writeGlobalSettings(settings: Partial<Settings>): Promise<void> {
+  console.log('[Settings] writeGlobalSettings')
   const settingsPath = getGlobalSettingsPath()
   if (!settingsPath) return // Can't write global settings for remote library
   try {
@@ -214,6 +218,7 @@ function mergeNestedObjects<T extends Record<string, any>>(
  * @returns A fully populated Settings object.
  */
 async function readRawSettings(): Promise<Settings> {
+  console.log('[Settings] readRawSettings')
   const defaultSettings: Settings = {
     playerCommands: [
       { id: crypto.randomUUID(), name: 'Default Player', command: 'mpv "{PATH}" --fullscreen' }
@@ -290,10 +295,13 @@ async function readRawSettings(): Promise<Settings> {
  * Also handles applying the default API key if none is provided.
  */
 export async function readSettings(): Promise<Settings> {
+  if (cachedSettings) return cachedSettings
+
   const settings = await readRawSettings()
   if (!settings.tmdbApiKey) {
     settings.tmdbApiKey = DEFAULT_STRING
   }
+  cachedSettings = settings
   return settings
 }
 
@@ -303,6 +311,9 @@ export async function readSettings(): Promise<Settings> {
  * @param settings The partial settings object to save.
  */
 export async function writeLibrarySettings(settings: Partial<Settings>): Promise<void> {
+  console.log('[Settings] writeLibrarySettings')
+  cachedSettings = null // Invalidate cache
+
   if (isRemoteLibrary()) {
     console.warn('[Settings] Skipping write to library-settings.json for remote library.')
     return
