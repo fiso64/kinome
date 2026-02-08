@@ -1046,10 +1046,10 @@
     background-color: transparent;
   }
   .full-backdrop-mode .overview-container {
-    background: color-mix(in srgb, var(--color-background) 50%, transparent);
+    background-color: rgba(30, 30, 33, 0.7);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     padding: 1.5rem;
   }
@@ -1063,11 +1063,12 @@
     border-color: var(--color-border);
   }
   .full-backdrop-mode .collapsible-content {
-    background: color-mix(in srgb, var(--color-background) 50%, transparent);
+    background-color: rgba(30, 30, 33, 0.7);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
+    padding: 1.5rem;
   }
 
   /* Overview Expansion Styles */
@@ -1077,11 +1078,16 @@
   .overview-wrapper {
     overflow: hidden;
     min-height: 1.2em; /* Ensure it's never 0 during first measurement */
+    max-height: 12rem; /* Cap by default to prevent layout jumps on arrival */
+  }
+
+  .overview-wrapper.expanded {
+    max-height: none;
   }
 
   .overview-wrapper.collapsed {
-    max-height: 12rem; /* Safety default for first frame */
     transition: none;
+
     -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
     mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
   }

@@ -9,9 +9,11 @@
   }
 
   let {
-    items
+    items,
+    glass = false
   }: {
     items: ContinueWatchingData[]
+    glass?: boolean
   } = $props()
 
   const dispatch = createEventDispatcher<{
@@ -24,6 +26,7 @@
   {#each items as item (item.show.id)}
     <ContinueWatchingItem
       {item}
+      {glass}
       on:dismiss={(e) => dispatch('dismiss', e.detail)}
       on:itemClick={(e) => dispatch('itemClick', e.detail)}
     />
@@ -37,11 +40,10 @@
     overflow-y: visible; /* Allow popups to be visible outside the list's initial bounds */
     gap: 1.5rem;
     /* Increase bottom padding to make space for the popup to appear without being clipped */
-    padding: 0.5rem 1.5rem 8rem 1.5rem;
-    align-items: flex-start; /* Prevents items from stretching to match hovered item's height */
-    /* Add negative bottom margin to pull the following content back up, counteracting the padding */
-    margin-bottom: -6.5rem;
+    padding: 0.5rem 0 1rem 0;
+    align-items: flex-start;
   }
+
   .continue-watching-list::-webkit-scrollbar {
     height: 8px;
   }

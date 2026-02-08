@@ -7,12 +7,14 @@
   import { cubicOut } from 'svelte/easing'
   import { navStore } from '@lib/navigation-store.svelte'
   import { api } from '@lib/api'
+
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { getAllRequiredFields } from '@lib/view-requirements'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import { getViewKey } from '@lib/view-state-store.svelte'
+  import { getAssetUrl } from '@lib/api'
   import ViewContextProvider from './ViewContextProvider.svelte'
 
   import type {
@@ -30,7 +32,9 @@
     libraryStatus,
     suggestions,
     onStatusUpdate,
-    disabled = false
+    disabled = false,
+    hasBackdrop = false,
+    onScroll
   }: {
     settings: Settings | null
     isScanning: boolean
@@ -38,6 +42,8 @@
     suggestions: any
     onStatusUpdate?: () => void
     disabled?: boolean
+    hasBackdrop?: boolean
+    onScroll?: (top: number) => void
   } = $props()
 
   const dispatch = createEventDispatcher<{
@@ -82,54 +88,64 @@
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
   const isRoot = $derived(currentFolderId === 'root' || currentFolder?.path === '.')
+  const latestBackdrop = $derived(
+    isRoot && settings?.showContinueWatching ? continueWatchingItems[0]?.show?.backdropPath : null
+  )
+  function handleScroll(e: Event) {
+    const target = e.target as HTMLElement
+    onScroll?.(target.scrollTop)
+  }
 </script>
 
 {#if !settings?.libraryLocation || libraryStatus?.status !== 'ready'}
   <SetupScreen onComplete={() => {}} {onStatusUpdate} />
 {:else if currentFolder}
-  {#key currentFolder.id}
-    <ViewContextProvider id={currentFolder.id}>
-      <div
-        class="view-wrapper"
-        transition:fade={{ duration: 250, easing: cubicOut }}
-        use:scrollPersistence={{
-          key: getViewKey('vertical'),
-          disabled
-        }}
-      >
-        {#if isRoot}
-          <HomeView
-            {continueWatchingItems}
-            parentItem={currentFolder}
-            items={children}
-            onItemClick={(item) => dispatch('itemClick', { item })}
-            onShowContextMenu={(item, event, options) =>
-              dispatch('showContextMenu', { item, event, options })}
-            on:dismissContinueWatching={(e) =>
-              dispatch('dismissContinueWatching', { showId: e.detail.showId })}
-            {suggestions}
-            {settings}
-            on:scanLibrary={() => dispatch('scanLibrary')}
-            on:openLibrary={() => dispatch('openLibrary')}
-          />
-        {:else}
-          <div class="folder-content-wrapper">
-            <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
-            <MediaView
+  <div
+    class="view-wrapper"
+    class:has-backdrop={hasBackdrop}
+    onscroll={handleScroll}
+    use:scrollPersistence={{
+      key: getViewKey('vertical'),
+      disabled
+    }}
+  >
+    {#key currentFolder.id}
+      <div class="view-transition-inner">
+        <ViewContextProvider id={currentFolder.id}>
+          {#if isRoot}
+            <HomeView
+              {continueWatchingItems}
               parentItem={currentFolder}
               items={children}
               onItemClick={(item) => dispatch('itemClick', { item })}
-              onShowContextMenu={(item, e, options) =>
-                dispatch('showContextMenu', { item, event: e, options })}
+              onShowContextMenu={(item, event, options) =>
+                dispatch('showContextMenu', { item, event, options })}
+              on:dismissContinueWatching={(e) =>
+                dispatch('dismissContinueWatching', { showId: e.detail.showId })}
               {suggestions}
               {settings}
-              viewNode={currentFolder.viewHierarchy}
+              on:scanLibrary={() => dispatch('scanLibrary')}
+              on:openLibrary={() => dispatch('openLibrary')}
             />
-          </div>
-        {/if}
+          {:else}
+            <div class="folder-content-wrapper">
+              <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
+              <MediaView
+                parentItem={currentFolder}
+                items={children}
+                onItemClick={(item) => dispatch('itemClick', { item })}
+                onShowContextMenu={(item, e, options) =>
+                  dispatch('showContextMenu', { item, event: e, options })}
+                {suggestions}
+                {settings}
+                viewNode={currentFolder.viewHierarchy}
+              />
+            </div>
+          {/if}
+        </ViewContextProvider>
       </div>
-    </ViewContextProvider>
-  {/key}
+    {/key}
+  </div>
 {/if}
 
 <style>
@@ -142,8 +158,21 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-gutter: stable;
     background-color: var(--color-background);
+  }
+
+  .view-wrapper.has-backdrop {
+    background-color: transparent;
+  }
+
+  .view-transition-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
   }
 
   .folder-content-wrapper {

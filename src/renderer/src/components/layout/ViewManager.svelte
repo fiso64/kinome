@@ -9,6 +9,8 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore } from '@lib/search-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { getAssetUrl } from '@lib/api'
+
   import type {
     Settings,
     LibraryStatus,
@@ -59,15 +61,44 @@
     selectedItemId ? wasSearchActiveWhenDetailOpened : isGlobalSearchActive
   )
 
-  // Data Fetching for Detail View
   const detailItemQuery = libraryDataService.getItemDetailsQuery(() => selectedItemId, {
     enabled: () => !!selectedItemId && libraryStatus?.status === 'ready'
   })
   const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined)
+
+  // Backdrop Logic
+  let scrollTop = $state(0)
+  const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
+    enabled: () => !!settings?.showContinueWatching && libraryStatus?.status === 'ready'
+  })
+  const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
+  const isHomeView = $derived(
+    navStore.state.path === '/' &&
+      navStore.state.currentFolderId === 'root' &&
+      !navStore.state.selectedItemId
+  )
+
+  const latestBackdrop = $derived(
+    isHomeView && settings?.showContinueWatching && !effectivelySearchActive
+      ? continueWatchingItems[0]?.show?.backdropPath
+      : null
+  )
 </script>
 
 <div class="view-layers">
+  {#if latestBackdrop}
+    <div
+      class="home-static-backdrop"
+      style="transform: translateY(-{scrollTop}px)"
+      transition:fade={{ duration: 100 }}
+    >
+      <img src={getAssetUrl(latestBackdrop)} alt="" />
+      <div class="home-static-backdrop-overlay"></div>
+    </div>
+  {/if}
+
   <!-- Layer 0: Folder Library -->
+
   <div
     class="view-layer"
     class:hidden={effectivelySearchActive || isSettingsActive}
@@ -78,6 +109,8 @@
       {libraryStatus}
       {settings}
       {suggestions}
+      hasBackdrop={!!latestBackdrop}
+      onScroll={(top) => (scrollTop = top)}
       disabled={!!selectedItemId}
       onStatusUpdate={() => dispatch('statusUpdate')}
       on:itemClick={(e) => dispatch('itemClick', { item: e.detail.item })}
@@ -193,5 +226,35 @@
     left: 0;
     right: 0;
     bottom: 0;
+  }
+
+  .home-static-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 450px;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    will-change: transform;
+  }
+
+  .home-static-backdrop img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(10px);
+    opacity: 0.55;
+    transform: scale(1.05);
+  }
+
+  .home-static-backdrop-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, var(--color-background) 85%);
   }
 </style>

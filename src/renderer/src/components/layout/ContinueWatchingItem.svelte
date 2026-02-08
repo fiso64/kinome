@@ -9,10 +9,12 @@
 
   let {
     item,
-    layout = 'vertical'
+    layout = 'vertical',
+    glass = false
   }: {
     item: ContinueWatchingItem
     layout?: 'vertical' | 'horizontal'
+    glass?: boolean
   } = $props()
 
   const dispatch = createEventDispatcher<{
@@ -47,6 +49,7 @@
   class="cw-item"
   class:horizontal={layout === 'horizontal'}
   class:vertical={layout === 'vertical'}
+  class:glass
   role={layout === 'horizontal' ? 'button' : undefined}
   tabindex={layout === 'horizontal' ? 0 : undefined}
   aria-label={layout === 'horizontal' ? 'Play next episode' : undefined}
@@ -101,11 +104,7 @@
       <p class="cw-overview">{item.nextEpisode.overview}</p>
     {/if}
   </div>
-  {#if layout === 'vertical' && item.nextEpisode.overview}
-    <div class="cw-overview-popup">
-      <p class="cw-overview">{item.nextEpisode.overview}</p>
-    </div>
-  {/if}
+
   <button class="dismiss-button" title="Dismiss" onclick={(e) => handleDismiss(e, item.show.id)}>
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -263,30 +262,6 @@
     color: var(--ev-c-text-1);
   }
 
-  .cw-overview-popup {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 10;
-    background: var(--color-background-soft);
-    padding: 1rem;
-    border-radius: 8px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
-    border: 1px solid var(--ev-c-black-mute);
-    opacity: 0;
-    transform: translateY(-10px) scale(0.98);
-    pointer-events: none;
-    transition:
-      opacity 0.25s ease-out,
-      transform 0.25s ease-out;
-  }
-
-  .cw-item:hover .cw-overview-popup {
-    opacity: 1;
-    transform: translateY(0.75rem) scale(1);
-  }
-
   .cw-overview {
     font-size: 0.85rem;
     color: var(--ev-c-text-2);
@@ -299,6 +274,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
 
   .cw-item.horizontal .cw-overview {
     -webkit-line-clamp: 2;
@@ -334,7 +310,28 @@
     transform: scale(1.1);
   }
 
-  /* --- Full Backdrop Mode Styles --- */
+  /* --- Glass / Backdrop Mode Styles --- */
+  .cw-item.glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .cw-item.glass:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .cw-item.glass .cw-info:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .cw-item.glass .cw-poster {
+    background-color: rgba(0, 0, 0, 0.2);
+  }
+
   :global(.full-backdrop-mode) .cw-item.horizontal {
     background-color: rgba(30, 30, 33, 0.7);
     backdrop-filter: blur(8px);

@@ -328,6 +328,10 @@
     background-color: var(--ev-c-gray-2);
     color: var(--ev-c-text-1);
   }
+  .scroll-button:active {
+    /* Maintain centering but add subtle press effect */
+    transform: translateY(-50%) scale(0.95);
+  }
 
   /* Fade Gradients */
   .horizontal-grid-container::before,
@@ -339,9 +343,9 @@
     width: 80px;
     z-index: 1; /* Below buttons, above grid */
     pointer-events: none;
-    transition: opacity 0.3s;
     opacity: 0;
   }
+
   .horizontal-grid-container::before {
     left: 0;
     background: linear-gradient(to right, var(--color-background) 20%, transparent);

@@ -133,28 +133,27 @@
 
       navStore.init()
 
-      // Prioritize getLibraryRoot to show SetupScreen instantly if needed
-      api.getLibraryRoot().then((status) => {
+      // 1. Fetch library root first
+      const rootPromise = api.getLibraryRoot().then((status) => {
         libraryStatus = status
         if (status.root) {
           rootId = status.root.id
           libraryDataService.rootId = rootId
         }
-
-        if (status.status !== 'ready') {
-          // If library is not ready, we don't need to wait for other data to show setup screen
-          isInitializing = false
-          log(`Library not ready (${status.status}). Ending initial load state early.`)
-        }
+        return status
       })
 
-      Promise.allSettled([
+      // 2. Fetch all other metadata
+      const dataPromise = Promise.allSettled([
         api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
         api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
         api.getSettings().then((s) => (settings = s))
-      ]).then(() => {
+      ])
+
+      // 3. Only lift the loading veil when EVERYTHING is settled
+      Promise.allSettled([rootPromise, dataPromise]).then(() => {
         isInitializing = false
-        log(`Initialization complete. isFastUpdating: ${isFastUpdating}`)
+        log(`Initialization complete. Status: ${libraryStatus?.status}`)
       })
     } else if (!authStore.isAuthenticated && hasInitialized) {
       log('User logged out. Resetting initialization state.')
@@ -497,5 +496,33 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-background);
+    z-index: 9999;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

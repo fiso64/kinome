@@ -459,6 +459,7 @@ export async function getContinueWatchingItems(
   const showsWithProgress = repositoryService.find({
     fields: [
       ...repositoryService.CORE_FIELDS,
+      'backdropPath',
       'nextUpEpisodeId',
       'continueWatchingDismissed',
       'nextUpDismissed'
