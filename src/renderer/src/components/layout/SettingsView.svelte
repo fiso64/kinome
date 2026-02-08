@@ -53,7 +53,7 @@
   let mediaSourcePathIsRelative = $state(false)
   let allowUnauthenticated = $state(false)
   let serverPort = $state(3000)
-  let allowedIPs = $state<string[]>([])
+  let serverHost = $state('0.0.0.0')
 
   let newPassword = $state('')
   let confirmPassword = $state('')
@@ -102,7 +102,7 @@
       mediaSourcePathIsRelative = s.mediaSourcePathIsRelative ?? false
       allowUnauthenticated = s.allowUnauthenticated ?? false
       serverPort = s.serverPort ?? 3000
-      allowedIPs = s.allowedIPs ?? []
+      serverHost = s.serverHost ?? '0.0.0.0'
 
       defaultLayoutSettings = JSON.parse(JSON.stringify(s.defaultLayoutSettings))
       defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
@@ -162,7 +162,7 @@
       mediaSourcePathIsRelative,
       allowUnauthenticated,
       serverPort,
-      allowedIPs,
+      serverHost,
       defaultLayoutSettings: defaultLayoutSettings
         ? JSON.parse(JSON.stringify(defaultLayoutSettings))
         : undefined,
@@ -311,6 +311,32 @@
                 />
                 <p class="help-text">
                   Used to fetch metadata and images for movies and TV shows from The Movie Database.
+                </p>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h2>Server Configuration</h2>
+              <p class="help-text">Configure how the server is accessed on your network.</p>
+              <div class="form-group">
+                <label for="server-host">Listen Address</label>
+                <input
+                  type="text"
+                  id="server-host"
+                  bind:value={serverHost}
+                  placeholder="e.g. 0.0.0.0 or localhost"
+                />
+                <p class="help-text">
+                  Set to <b>0.0.0.0</b> to listen on all network interfaces (accessible from other
+                  devices). Set to <b>localhost</b> or <b>127.0.0.1</b> for local access only.
+                </p>
+              </div>
+              <div class="form-group">
+                <label for="server-port">Server Port</label>
+                <input type="number" id="server-port" bind:value={serverPort} min="1" max="65535" />
+                <p class="help-text">
+                  The network port the server will listen on. Default is 3000. Changes require a
+                  restart.
                 </p>
               </div>
             </div>

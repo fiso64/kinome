@@ -207,7 +207,7 @@ export interface ServerSettings {
   adminPasswordHash?: string
   allowUnauthenticated?: boolean
   serverPort?: number
-  allowedIPs?: string[]
+  serverHost?: string
 }
 
 /**
@@ -262,7 +262,7 @@ export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'adminPasswordHash',
   'allowUnauthenticated',
   'serverPort',
-  'allowedIPs',
+  'serverHost',
   'libraryLocation'
 ]
 

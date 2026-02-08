@@ -38,3 +38,5 @@ Thumbs.db
 
 response.json
 tsconfig.node.tsbuildinfo
+
+public/bin

@@ -247,7 +247,7 @@ async function readRawSettings(): Promise<Settings> {
     itemDetailBackdropBlur: 4,
     allowUnauthenticated: false,
     serverPort: 3000,
-    allowedIPs: []
+    serverHost: '::'
   }
 
   // --- Start with defaults ---

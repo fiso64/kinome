@@ -754,11 +754,6 @@
     transition: all 0.2s;
   }
 
-  .command-item.builtin {
-    background-color: var(--ev-c-green-soft);
-    border-color: var(--ev-c-green-2);
-  }
-
   .command-item.draggable {
     cursor: grab;
   }

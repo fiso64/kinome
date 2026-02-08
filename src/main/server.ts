@@ -906,8 +906,9 @@ async function start() {
   // In development, respect the PORT env var (3001) to let Vite own port 3000.
   const finalPort =
     process.env.NODE_ENV === 'production' ? settings.serverPort || 3000 : process.env.PORT || 3001
+  const host = settings.serverHost || '0.0.0.0'
 
-  app.listen(finalPort, (server) => {
+  app.listen({ port: finalPort, hostname: host }, (server) => {
     webTransport.initialize(server)
     console.log(`🦊 Elysia is running at http://${server?.hostname}:${server?.port}`)
   })
