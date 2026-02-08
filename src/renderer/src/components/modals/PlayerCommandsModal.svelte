@@ -156,8 +156,7 @@
         if (isTestingHandler) {
           isTestingHandler = false
           testResult = 'error'
-          testErrorMessage =
-            "No response from handler. Check for a browser prompt or make sure it's installed correctly."
+          testErrorMessage = "No response from handler. Make sure it's installed correctly."
         }
       }, 5000)
     } catch (error) {
@@ -292,12 +291,14 @@
         </div>
 
         <div class="test-actions">
-          <button
-            class="test-action-btn secondary"
-            onclick={() => (forceShowSetup = !forceShowSetup)}
-          >
-            {forceShowSetup ? 'Back to Players' : 'Setup Instructions'}
-          </button>
+          {#if handlerTested}
+            <button
+              class="test-action-btn secondary"
+              onclick={() => (forceShowSetup = !forceShowSetup)}
+            >
+              {forceShowSetup ? 'Back to Players' : 'Setup Instructions'}
+            </button>
+          {/if}
           <button
             class="test-action-btn"
             onclick={testHandlerConnection}
