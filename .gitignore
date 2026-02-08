@@ -40,3 +40,4 @@ response.json
 tsconfig.node.tsbuildinfo
 
 public/bin
+scripts/deploy-deb.bat

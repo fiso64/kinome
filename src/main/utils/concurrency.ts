@@ -17,3 +17,17 @@ export async function processInChunks<T>(
     if (active.length > 0) await Promise.race(active)
   }
 }
+
+/**
+ * A simple queue to serialize asynchronous tasks.
+ * Ensures that tasks are executed one after another in the order they were added.
+ */
+export class SerializedQueue {
+  private promise: Promise<any> = Promise.resolve()
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.promise.then(() => task())
+    this.promise = next.catch(() => { }) // Prevent failure of one task from blocking the rest
+    return next
+  }
+}

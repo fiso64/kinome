@@ -229,7 +229,7 @@
 
         <div class="actions">
           <button class="secondary" onclick={() => (step = 'library')} disabled={isSaving}>
-            Back
+            Change Data Location
           </button>
           <button
             class="primary"

@@ -19,6 +19,7 @@ import {
   isRemotePath,
   getUserDataPath
 } from './paths.service'
+import { SerializedQueue } from '../utils/concurrency'
 
 const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
@@ -26,6 +27,9 @@ const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // ma
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
 
 let cachedSettings: Settings | null = null
+
+const globalSettingsQueue = new SerializedQueue()
+const librarySettingsQueue = new SerializedQueue()
 
 // This is now private. The transport layer doesn't need to know the exact path.
 function getGlobalSettingsPath(): string {
@@ -152,48 +156,51 @@ export async function readGlobalSettings(): Promise<Settings> {
  * @param settings The flat settings object to save (it will be split).
  */
 export async function writeGlobalSettings(settings: Partial<Settings>): Promise<void> {
-  console.log('[Settings] writeGlobalSettings')
-  const settingsPath = getGlobalSettingsPath()
-  if (!settingsPath) return // Can't write global settings for remote library
-  try {
-    const currentSettings = await readGlobalSettings()
+  return globalSettingsQueue.run(async () => {
+    console.log('[Settings] writeGlobalSettings')
+    cachedSettings = null // Invalidate cache
+    const settingsPath = getGlobalSettingsPath()
+    if (!settingsPath) return // Can't write global settings for remote library
+    try {
+      const currentSettings = await readGlobalSettings()
 
-    // Perform a selective merge: only overwrite if the new value is NOT undefined.
-    // This prevents partial updates from wiping existing global settings.
-    const merged = { ...currentSettings }
-    for (const [key, value] of Object.entries(settings)) {
-      if (value !== undefined) {
-        ; (merged as any)[key] = value
+      // Perform a selective merge: only overwrite if the new value is NOT undefined.
+      // This prevents partial updates from wiping existing global settings.
+      const merged = { ...currentSettings }
+      for (const [key, value] of Object.entries(settings)) {
+        if (value !== undefined) {
+          ; (merged as any)[key] = value
+        }
       }
-    }
 
-    if (merged.libraryLocation) {
-      merged.libraryLocation = merged.libraryLocation.replace(/\\/g, '/')
-    }
-
-    // Split into Server and Library parts
-    const server: Partial<ServerSettings> = {}
-    const libraryDefaults: Partial<LibrarySettings> = {}
-
-    // Distribute fields based on SERVER_SETTING_KEYS
-    for (const key of Object.keys(merged)) {
-      if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-        ; (server as any)[key] = (merged as any)[key]
-      } else {
-        ; (libraryDefaults as any)[key] = (merged as any)[key]
+      if (merged.libraryLocation) {
+        merged.libraryLocation = merged.libraryLocation.replace(/\\/g, '/')
       }
-    }
 
-    const configToSave: GlobalConfig = {
-      server: server as ServerSettings,
-      libraryDefaults: libraryDefaults as LibrarySettings
-    }
+      // Split into Server and Library parts
+      const server: Partial<ServerSettings> = {}
+      const libraryDefaults: Partial<LibrarySettings> = {}
 
-    await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2), 'utf-8')
-    console.log(`Global settings successfully saved to ${settingsPath}`)
-  } catch (error) {
-    console.error(`Failed to write global settings to ${settingsPath}:`, error)
-  }
+      // Distribute fields based on SERVER_SETTING_KEYS
+      for (const key of Object.keys(merged)) {
+        if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
+          ; (server as any)[key] = (merged as any)[key]
+        } else {
+          ; (libraryDefaults as any)[key] = (merged as any)[key]
+        }
+      }
+
+      const configToSave: GlobalConfig = {
+        server: server as ServerSettings,
+        libraryDefaults: libraryDefaults as LibrarySettings
+      }
+
+      await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2), 'utf-8')
+      console.log(`Global settings successfully saved to ${settingsPath}`)
+    } catch (error) {
+      console.error(`Failed to write global settings to ${settingsPath}:`, error)
+    }
+  })
 }
 
 /**
@@ -311,45 +318,47 @@ export async function readSettings(): Promise<Settings> {
  * @param settings The partial settings object to save.
  */
 export async function writeLibrarySettings(settings: Partial<Settings>): Promise<void> {
-  console.log('[Settings] writeLibrarySettings')
-  cachedSettings = null // Invalidate cache
+  return librarySettingsQueue.run(async () => {
+    console.log('[Settings] writeLibrarySettings')
+    cachedSettings = null // Invalidate cache
 
-  if (isRemoteLibrary()) {
-    console.warn('[Settings] Skipping write to library-settings.json for remote library.')
-    return
-  }
-
-  const settingsPath = getLibrarySettingsPath()
-  if (!settingsPath) {
-    console.error('[Settings] Cannot write library settings: Invalid path (Path Traversal?)')
-    return
-  }
-  try {
-    // Ensure library data directory exists before writing
-    await fs.mkdir(getLibraryDataPath(), { recursive: true })
-
-    const currentSettings = await readSettingsFile(settingsPath)
-    const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }
-
-    if (settingsToSave.mediaSourcePath) {
-      settingsToSave.mediaSourcePath = settingsToSave.mediaSourcePath.replace(/\\/g, '/')
+    if (isRemoteLibrary()) {
+      console.warn('[Settings] Skipping write to library-settings.json for remote library.')
+      return
     }
 
-    // If the API key is the default one, remove it before saving
-    // so it doesn't get written to the file.
-    if (settingsToSave.tmdbApiKey === DEFAULT_STRING) {
-      delete settingsToSave.tmdbApiKey
+    const settingsPath = getLibrarySettingsPath()
+    if (!settingsPath) {
+      console.error('[Settings] Cannot write library settings: Invalid path (Path Traversal?)')
+      return
     }
-    // Never save global-only fields to library settings.
-    for (const key of SERVER_SETTING_KEYS) {
-      delete (settingsToSave as any)[key]
-    }
+    try {
+      // Ensure library data directory exists before writing
+      await fs.mkdir(getLibraryDataPath(), { recursive: true })
 
-    await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
-    console.log(`Library settings successfully saved to ${settingsPath}`)
-  } catch (error) {
-    console.error(`Failed to write library settings to ${settingsPath}:`, error)
-  }
+      const currentSettings = await readSettingsFile(settingsPath)
+      const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }
+
+      if (settingsToSave.mediaSourcePath) {
+        settingsToSave.mediaSourcePath = settingsToSave.mediaSourcePath.replace(/\\/g, '/')
+      }
+
+      // If the API key is the default one, remove it before saving
+      // so it doesn't get written to the file.
+      if (settingsToSave.tmdbApiKey === DEFAULT_STRING) {
+        delete settingsToSave.tmdbApiKey
+      }
+      // Never save global-only fields to library settings.
+      for (const key of SERVER_SETTING_KEYS) {
+        delete (settingsToSave as any)[key]
+      }
+
+      await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
+      console.log(`Library settings successfully saved to ${settingsPath}`)
+    } catch (error) {
+      console.error(`Failed to write library settings to ${settingsPath}:`, error)
+    }
+  })
 }
 
 /**

@@ -1,10 +1,61 @@
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
+import fs from 'fs/promises'
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import path from 'path'
 import * as settingsService from './settings.service'
+import { getUserDataPath } from './paths.service'
 import type { AuthResponse } from '@shared/types'
 
 // Simple in-memory session management
 const sessions = new Set<string>()
+
+function getSetupTokenPath(): string {
+  return path.join(getUserDataPath(), 'setup-token.txt')
+}
+
+/**
+ * Ensures a setup token exists if no admin password is set.
+ * Returns the token if it exists/was created, null otherwise.
+ */
+export function ensureSetupToken(): string | null {
+  const tokenPath = getSetupTokenPath()
+
+  // If we already have a password, we don't need a token
+  // Use readFileSync here because this is called during the synchronous startup sequence
+  const settingsFile = path.join(getUserDataPath(), 'settings.json')
+  if (existsSync(settingsFile)) {
+    try {
+      const settings = JSON.parse(readFileSync(settingsFile, 'utf-8'))
+      if (settings.server?.adminPasswordHash || settings.adminPasswordHash) {
+        if (existsSync(tokenPath)) unlinkSync(tokenPath)
+        return null
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+  }
+
+  const token = existsSync(tokenPath)
+    ? readFileSync(tokenPath, 'utf-8').trim()
+    : Math.floor(10000000 + Math.random() * 90000000).toString()
+
+  if (!existsSync(tokenPath)) {
+    writeFileSync(tokenPath, token, 'utf-8')
+  }
+
+  console.log('*****************************************************')
+  console.log('*                                                   *')
+  console.log('*       KINOME INITIAL SETUP TOKEN REQUIRED         *')
+  console.log(`*               TOKEN: ${token}                     *`)
+  console.log('*                                                   *')
+  console.log('*  Find this token in:                              *')
+  console.log(`*  ${tokenPath}   *`)
+  console.log('*                                                   *')
+  console.log('*****************************************************')
+
+  return token
+}
 
 export async function hashPassword(password: string): Promise<string> {
   return await bcrypt.hash(password, 10)
@@ -59,10 +110,29 @@ export async function getAuthState(): Promise<AuthResponse> {
 
 export async function setupAdmin(
   password?: string,
-  unauthenticated?: boolean
+  unauthenticated?: boolean,
+  setupToken?: string
 ): Promise<AuthResponse> {
+  const settings = await settingsService.readSettings()
+  if (settings.adminPasswordHash || settings.allowUnauthenticated) {
+    throw new Error('Server already set up.')
+  }
+
+  const tokenPath = getSetupTokenPath()
+  if (existsSync(tokenPath)) {
+    const validToken = (await fs.readFile(tokenPath, 'utf-8')).trim()
+    if (setupToken !== validToken) {
+      throw new Error('Invalid setup token.')
+    }
+  } else {
+    // If there is no token file but we are in setup mode, it's a weird state.
+    // However, if we're on localhost we might want to allow it? No, let's stay strict.
+    throw new Error('Setup token file missing. Restart the server to regenerate.')
+  }
+
   if (unauthenticated) {
     await settingsService.writeGlobalSettings({ allowUnauthenticated: true })
+    if (existsSync(tokenPath)) await fs.unlink(tokenPath)
     return {
       success: true,
       isAdmin: true,
@@ -78,6 +148,7 @@ export async function setupAdmin(
       adminPasswordHash: hash,
       allowUnauthenticated: false
     })
+    if (existsSync(tokenPath)) await fs.unlink(tokenPath)
     const token = crypto.randomUUID()
     sessions.add(token)
     return {

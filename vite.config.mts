@@ -46,14 +46,6 @@ export default defineConfig({
       '/install-kinome-handler.sh': {
         target: 'http://localhost:3001',
         changeOrigin: true
-      },
-      '/kinome-handler.ps1': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      },
-      '/kinome-handler.sh': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
       }
     },
     fs: {

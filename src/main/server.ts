@@ -113,6 +113,7 @@ if (!fs.existsSync(userDataPath)) {
 }
 
 initializeStartup(userDataPath)
+authService.ensureSetupToken()
 
 const webTransport = new WebTransport()
 setTransport(webTransport)
@@ -148,8 +149,16 @@ const app = new Elysia()
       console.log(`[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`)
     }
   })
-  .onError(({ code, error, request }) => {
+  .onError(({ code, error, request, set }) => {
     const url = new URL(request.url).pathname
+
+    // Handle "Unauthorized" as a quiet/expected error
+    if ((error as any).message === 'Unauthorized') {
+      console.log(`[API] [AUTH] ${request.method} ${url} - Access Denied (401)`)
+      set.status = 401
+      return { error: 'Unauthorized' }
+    }
+
     console.error(`[API] [ERROR] ${request.method} ${url} - Code: ${code}`)
     console.error(error)
     return { error: (error as any).message || 'Internal Server Error' }
@@ -217,15 +226,7 @@ const app = new Elysia()
 
     return handlerService.generateLinuxInstaller(secret, baseUrl)
   })
-  .get('/kinome-handler.sh', ({ set }) => {
-    const scriptPath = path.join(process.cwd(), 'public', 'kinome-handler.sh')
-    if (!fs.existsSync(scriptPath)) {
-      set.status = 404
-      return 'Script not found'
-    }
-    set.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    return Bun.file(scriptPath)
-  })
+
   .get('/bin/*', ({ params, set }) => {
     // Determine possible paths for binaries
     const exeDir = path.dirname(process.execPath)
@@ -335,8 +336,8 @@ const app = new Elysia()
       })
       .post('/setup-admin', async ({ body }: { body: any }) => {
         try {
-          const { password, unauthenticated } = body
-          return await authService.setupAdmin(password, unauthenticated)
+          const { password, unauthenticated, setupToken } = body
+          return await authService.setupAdmin(password, unauthenticated, setupToken)
         } catch (error: any) {
           return { success: false, message: error.message }
         }

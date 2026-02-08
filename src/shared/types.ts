@@ -673,6 +673,7 @@ export const SEARCH_INDEX_PROPERTIES = [
 export interface LoginRequest {
   password?: string
   setup?: boolean // If true, we are setting up the admin password
+  setupToken?: string
 }
 
 export interface AuthResponse {

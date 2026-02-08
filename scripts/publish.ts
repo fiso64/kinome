@@ -38,31 +38,14 @@ console.log(`\n🚀 Starting build for: ${rawTarget}`)
 await fs.rm(buildDir, { recursive: true, force: true })
 await fs.mkdir(buildDir, { recursive: true })
 
-// 4. Compile Go Handler
-console.log('🐹 Compiling Go Handler...')
-const goArchMap: Record<string, { goos: string; goarch: string }> = {
-  'windows-x64': { goos: 'windows', goarch: 'amd64' },
-  'linux-x64': { goos: 'linux', goarch: 'amd64' },
-  'linux-arm64': { goos: 'linux', goarch: 'arm64' },
-  'darwin-x64': { goos: 'darwin', goarch: 'amd64' },
-  'darwin-arm64': { goos: 'darwin', goarch: 'arm64' }
-}
-
-const goTarget = goArchMap[rawTarget]
-if (goTarget) {
-  const handlerExt = goTarget.goos === 'windows' ? '-win.exe' : ''
-  const ldflags = goTarget.goos === 'windows' ? '-s -w -H windowsgui' : '-s -w'
-  const handlerOut = `public/bin/kinome-handler${handlerExt}`
-
-  try {
-    // Ensure the bin directory exists
-    await fs.mkdir('public/bin', { recursive: true })
-    console.log(`   Target: ${goTarget.goos}/${goTarget.goarch} -> ${handlerOut}`)
-    await $`cd src/handler && cross-env GOOS=${goTarget.goos} GOARCH=${goTarget.goarch} go build -ldflags=${ldflags} -o ../../${handlerOut} .`
-  } catch (e) {
-    console.error('❌ Go Handler Compilation Failed')
-    process.exit(1)
-  }
+// 4. Compile Go Handlers (All Platforms)
+console.log('🐹 Compiling Go Handlers...')
+await fs.mkdir('public/bin', { recursive: true })
+try {
+  await $`bun run build:handler`
+} catch (e) {
+  console.error('❌ Go Handler Compilation Failed')
+  process.exit(1)
 }
 
 // 5. Build Frontend
@@ -135,19 +118,33 @@ if (isWinTarget) {
 
     // Generate Config
     const cleanBuildDir = buildDir.replaceAll('\\', '/')
+
+    // Sanitize postinstall script (Ensure LF line endings)
+    // Windows checkouts often result in CRLF, which breaks the shebang in the .deb postinst
+    const postInstallPath = 'packaging/postinstall.sh'
+    const postInstallTemp = 'packaging/postinstall.lf.sh'
+    let postInstallContent = await fs.readFile(postInstallPath, 'utf-8')
+    postInstallContent = postInstallContent.replaceAll('\r\n', '\n')
+    await fs.writeFile(postInstallTemp, postInstallContent)
+
     let nfpmContent = await fs.readFile('nfpm.yaml', 'utf-8')
 
     nfpmContent = nfpmContent
       .replaceAll('${VERSION}', version)
       .replaceAll('${ARCH}', debArch)
       .replaceAll('${BUILD_DIR}', cleanBuildDir)
+      .replaceAll('./packaging/postinstall.sh', './packaging/postinstall.lf.sh')
 
     const tempConfigPath = 'nfpm.temp.yaml'
     await fs.writeFile(tempConfigPath, nfpmContent)
 
-    await $`nfpm pkg --packager deb --target ${debPath} -f ${tempConfigPath}`
-
-    await fs.rm(tempConfigPath)
+    try {
+      await $`nfpm pkg --packager deb --target ${debPath} -f ${tempConfigPath}`
+    } finally {
+      // Cleanup
+      await fs.rm(tempConfigPath, { force: true }).catch(() => {})
+      await fs.rm(postInstallTemp, { force: true }).catch(() => {})
+    }
 
     console.log(`\n✅ Build Complete!`)
     console.log(`   Artifact: ${debPath}`)

@@ -21,7 +21,11 @@ contents:
   - src: "${BUILD_DIR}/out"
     dst: "/opt/kinome/out"
 
-  # 3. Systemd Service
+  # 3. Public Assets (Handler installers)
+  - src: "${BUILD_DIR}/public"
+    dst: "/opt/kinome/public"
+
+  # 4. Systemd Service
   - src: "./packaging/kinome.service"
     dst: "/lib/systemd/system/kinome.service"
 

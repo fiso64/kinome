@@ -72,12 +72,12 @@ class AuthStore {
     }
   }
 
-  async setupAdmin(password?: string, unauthenticated?: boolean) {
+  async setupAdmin(password?: string, unauthenticated?: boolean, setupToken?: string) {
     try {
       const response = await fetch('/api/setup-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, unauthenticated })
+        body: JSON.stringify({ password, unauthenticated, setupToken })
       })
       if (response.ok) {
         const data = await response.json()

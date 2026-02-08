@@ -6,6 +6,7 @@
   let error = $state('')
   let loading = $state(false)
   let setupMode = $state(false)
+  let setupToken = $state('')
   let allowUnauthenticated = $state(false)
 
   onMount(() => {
@@ -27,12 +28,17 @@
   async function handleSetup() {
     loading = true
     error = ''
-    if (!allowUnauthenticated && !password) {
-      error = 'Please provide a password or select unauthenticated access.'
+    if (!password) {
+      error = 'Please provide an admin password.'
       loading = false
       return
     }
-    const result = await authStore.setupAdmin(password, allowUnauthenticated)
+    if (!setupToken) {
+      error = 'Please provide the setup token from your server console.'
+      loading = false
+      return
+    }
+    const result = await authStore.setupAdmin(password, allowUnauthenticated, setupToken)
     if (!result.success) {
       error = result.message || 'Setup failed'
     }
@@ -55,29 +61,32 @@
       <div class="view-content">
         <h2>Initial Setup</h2>
         <p class="description">
-          Secure your server with a password or allow unauthenticated access.
+          Secure your server with a password.
+          <br /><br />
+          <strong>Proof of Access required:</strong> To complete setup, enter the 8-digit token
+          found in the server terminal or in your <code>setup-token.txt</code> file.
         </p>
 
-        <div class="setup-options">
-          <label class="checkbox-label">
-            <input type="checkbox" bind:checked={allowUnauthenticated} />
-            <span>Allow unauthenticated access</span>
-          </label>
-          <p class="hint">Not recommended if your server is accessible over the internet.</p>
+        <div class="input-group">
+          <input
+            type="text"
+            bind:value={setupToken}
+            placeholder="8-Digit Setup Token"
+            disabled={loading}
+            onkeydown={(e) => e.key === 'Enter' && handleSetup()}
+          />
         </div>
 
-        {#if !allowUnauthenticated}
-          <div class="input-group">
-            <input
-              type="password"
-              bind:value={password}
-              placeholder="Set Admin Password"
-              disabled={loading}
-              use:focus
-              onkeydown={(e) => e.key === 'Enter' && handleSetup()}
-            />
-          </div>
-        {/if}
+        <div class="input-group">
+          <input
+            type="password"
+            bind:value={password}
+            placeholder="Set Admin Password"
+            disabled={loading || !setupToken}
+            use:focus
+            onkeydown={(e) => e.key === 'Enter' && handleSetup()}
+          />
+        </div>
 
         {#if error}
           <div class="error-banner">{error}</div>
@@ -85,7 +94,7 @@
 
         <div class="actions">
           <button class="primary" onclick={handleSetup} disabled={loading}>
-            {loading ? 'Setting up...' : 'Complete Setup'}
+            {loading ? 'Setting up...' : 'Set Password'}
           </button>
         </div>
       </div>
@@ -180,7 +189,8 @@
     margin-bottom: 1.5rem;
   }
 
-  input[type='password'] {
+  input[type='password'],
+  input[type='text'] {
     width: 100%;
     padding: 0.75rem 1rem;
     background-color: var(--color-background);
@@ -191,34 +201,16 @@
     transition: border-color 0.2s;
   }
 
-  input[type='password']:focus {
+  input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: var(--color-background-soft);
+  }
+
+  input[type='password']:focus,
+  input[type='text']:focus {
     border-color: var(--ev-c-gray-1);
     outline: none;
-  }
-
-  .setup-options {
-    margin-bottom: 1.5rem;
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--color-text);
-  }
-
-  .checkbox-label input {
-    width: 1rem;
-    height: 1rem;
-  }
-
-  .hint {
-    font-size: 0.75rem;
-    color: var(--color-text-dim);
-    margin-top: 0.5rem;
-    padding-left: 1.75rem;
   }
 
   .error-banner {
