@@ -22,7 +22,7 @@ export const autocompleteState = writable<AutocompleteState>({
   loading: false,
   suggestions: [],
   position: { top: 0, left: 0, inputTop: 0 },
-  onSelect: () => {},
+  onSelect: () => { },
   activeIndex: 0,
   targetNode: null
 })
@@ -225,12 +225,14 @@ export function autocomplete(
   }
 
   function handleBlur() {
+    // A small delay is still helpful for event ordering, but we'll 
+    // also use document mousedown for immediate response.
     setTimeout(() => {
       const state = get(autocompleteState)
       if (state.targetNode === node) {
         autocompleteState.update((s) => ({ ...s, show: false }))
       }
-    }, 150)
+    }, 100)
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -240,10 +242,24 @@ export function autocomplete(
     }
   }
 
+  // Handle clicking elsewhere to close immediately
+  function onDocumentMousedown(e: MouseEvent) {
+    const state = get(autocompleteState)
+    if (!state.show || state.targetNode !== node) return
+
+    const menu = document.querySelector('.autocomplete-menu')
+    if (menu?.contains(e.target as Node) || node.contains(e.target as Node)) {
+      return
+    }
+
+    autocompleteState.update((s) => ({ ...s, show: false }))
+  }
+
   node.addEventListener('input', updateSuggestions)
   node.addEventListener('focus', handleFocus)
   node.addEventListener('blur', handleBlur)
   node.addEventListener('keydown', onKeydown)
+  document.addEventListener('mousedown', onDocumentMousedown)
 
   return {
     destroy() {
@@ -251,6 +267,11 @@ export function autocomplete(
       node.removeEventListener('focus', handleFocus)
       node.removeEventListener('blur', handleBlur)
       node.removeEventListener('keydown', onKeydown)
+      document.removeEventListener('mousedown', onDocumentMousedown)
+
+      // Close the menu if this node was the one that opened it
+      autocompleteState.update((s) => (s.targetNode === node ? { ...s, show: false } : s))
+
       if (textMirror && textMirror.parentElement === document.body) {
         textMirror.remove()
         textMirror = null

@@ -1,4 +1,4 @@
-import type { LibraryItem, MediaFolder } from '@shared/types'
+import type { LibraryItem, MediaFolder, StoredViewSettings } from '@shared/types'
 
 // --- Types ---
 
@@ -24,12 +24,25 @@ export type ModalConfig =
   | { type: 'rename'; props: { item: LibraryItem } }
   | { type: 'initialFolderSettings'; props: { root: MediaFolder } }
   | { type: 'assignSeasons'; props: { item: MediaFolder } }
+  | {
+    type: 'viewSettings'
+    props: {
+      title: string
+      initialSettings: StoredViewSettings
+      typeKey: '_default' | 'movie' | 'tv' | 'season'
+      onSave: (settings: StoredViewSettings) => void
+      availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+      showClickAction?: boolean
+      settings: any
+      groupByKeys: string[]
+    }
+  }
 
 export type ModalType = ModalConfig['type']
 
 // --- State ---
 
-let activeModal = $state<ModalConfig | null>(null)
+let modalStack = $state<ModalConfig[]>([])
 
 // --- Methods ---
 
@@ -38,19 +51,22 @@ function open<T extends ModalType>(
   props: T extends 'settings' ? never : Extract<ModalConfig, { type: T }>['props']
 ): void
 function open(type: 'settings'): void
-function open(type: ModalType, props?: object) {
-  activeModal = { type, props } as ModalConfig
+function open(type: ModalType, props?: any) {
+  modalStack.push({ type, props } as ModalConfig)
 }
 
 function close() {
-  activeModal = null
+  modalStack.pop()
 }
 
 // --- Exported Store Object ---
 
 export const modalStore = {
   get activeModal() {
-    return activeModal
+    return modalStack.length > 0 ? modalStack[modalStack.length - 1] : null
+  },
+  get stack() {
+    return modalStack
   },
   open,
   close

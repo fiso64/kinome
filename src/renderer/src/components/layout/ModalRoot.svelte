@@ -5,6 +5,7 @@
   import PropertiesModal from '../modals/PropertiesModal.svelte'
   import RenameModal from '../modals/RenameModal.svelte'
   import AssignSeasonsModal from '../modals/AssignSeasonsModal.svelte'
+  import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
 
   // --- Props (Global state passed in from App.svelte) ---
   let {
@@ -17,10 +18,10 @@
     onRefresh: () => Promise<void>
   }>()
 
-  const active = $derived(modalStore.activeModal)
+  const stack = $derived(modalStore.stack)
 </script>
 
-{#if active}
+{#each stack as active, i (i)}
   {#if active.type === 'itemSettings'}
     <ItemSettingsModal
       item={active.props.item}
@@ -50,5 +51,18 @@
     />
   {:else if active.type === 'assignSeasons'}
     <AssignSeasonsModal item={active.props.item} onClose={() => modalStore.close()} />
+  {:else if active.type === 'viewSettings'}
+    {@const props = active.props as any}
+    <DefaultViewSettingsModal
+      title={props.title}
+      initialSettings={props.initialSettings}
+      typeKey={props.typeKey}
+      onSave={props.onSave}
+      onClose={() => modalStore.close()}
+      {groupByKeys}
+      {settings}
+      availableLayouts={props.availableLayouts}
+      showClickAction={props.showClickAction}
+    />
   {/if}
-{/if}
+{/each}

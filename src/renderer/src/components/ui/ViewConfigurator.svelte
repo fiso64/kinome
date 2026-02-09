@@ -9,7 +9,7 @@
     type Settings
   } from '@shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '@shared/types'
-  import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
+  import { modalStore } from '@lib/modal-store.svelte'
 
   const layouts: {
     value: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
@@ -91,7 +91,6 @@
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
   let activeConfigLayout = $state(initialConfigLayout)
-  let isChildSettingsModalOpen = $state(false)
 
   // This computes the "inherited" settings for the item/type, ignoring any local overrides.
   const inheritedInfo = $derived.by(() => {
@@ -217,6 +216,27 @@
       return src?.charAt(0).toUpperCase() + src?.slice(1)
     }
     return 'Default'
+  }
+
+  function openChildSettings() {
+    modalStore.open('viewSettings', {
+      title: 'Configure Child Layout',
+      initialSettings: childViewSettings ?? {},
+      typeKey: '_default',
+      settings,
+      onSave: (newSettings) => {
+        const merged = { ...(childViewSettings ?? {}), ...newSettings }
+        Object.keys(merged).forEach((key) => {
+          if (merged[key as keyof StoredViewSettings] === null) {
+            delete merged[key as keyof StoredViewSettings]
+          }
+        })
+        childViewSettings = merged
+      },
+      groupByKeys,
+      availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'],
+      showClickAction: false
+    })
   }
 </script>
 
@@ -374,13 +394,12 @@
         Optionally override the layout used for items *inside* each tab or section. If not set, each
         item will use its own default view.
       </p>
-      <div class="view-config-row" onclick={() => (isChildSettingsModalOpen = true)}>
+      <div class="view-config-row" onclick={openChildSettings}>
         <span>{formatLayoutString(childViewSettings)}</span>
         <button class="secondary" tabindex="-1">Configure...</button>
       </div>
     {/if}
   {/if}
-
   <!-- List-specific settings -->
   {#if layoutToShowOptionsFor === 'list'}
     <div class="divider"></div>
@@ -452,28 +471,6 @@
     </div>
   {/if}
 </div>
-
-{#if isChildSettingsModalOpen && !configMode}
-  <DefaultViewSettingsModal
-    title="Configure Child Layout"
-    initialSettings={childViewSettings ?? {}}
-    onClose={() => (isChildSettingsModalOpen = false)}
-    onSave={(newSettings) => {
-      const merged = { ...(childViewSettings ?? {}), ...newSettings }
-      Object.keys(merged).forEach((key) => {
-        if (merged[key as keyof StoredViewSettings] === null) {
-          delete merged[key as keyof StoredViewSettings]
-        }
-      })
-      childViewSettings = merged
-    }}
-    typeKey="_default"
-    {settings}
-    {groupByKeys}
-    availableLayouts={['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections']}
-    showClickAction={false}
-  />
-{/if}
 
 <style>
   .content {

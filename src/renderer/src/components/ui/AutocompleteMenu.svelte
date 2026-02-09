@@ -114,6 +114,7 @@
     overflow-y: auto;
     width: max-content;
     min-width: 150px;
+    max-width: 400px;
   }
   .suggestion-item {
     display: block;
@@ -126,6 +127,10 @@
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 400; /* Ensure thin by default */
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .suggestion-item:hover,
   .suggestion-item.active {
