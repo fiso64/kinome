@@ -11,8 +11,8 @@
 This specification defines the "Filesystem-First" architecture of the scanner. It respects arbitrary nested folder structures and only applies "Smart Parsing" (TV logic) and "Enrichment" (TMDB) when explicitly enabled.
 
 To ensure O(1) performance on unchanged structures, the scan process is strictly divided into two decoupled phases:
-1.  **Phase 1: Filesystem Sync (Disk → DB)**: Gated by `mtime`. Settles binary existence and structural identity.
-2.  **Phase 2: Metadata Enrichment (DB → API)**: Gated by `last_refreshed_at`. Settles stories, artwork, and hierarchy.
+1.  **Phase 1: Filesystem Sync (Disk → DB)**: Gated by `mtime`. Settles binary existence and basic filesystem stats (Fingerprint).
+2.  **Phase 2: Metadata Enrichment (DB → API)**: Gated by `last_refreshed_at` and structural drift. Settles identity, TV show structure (S/E), and artwork.
 
 ---
 
@@ -31,6 +31,9 @@ For every file and folder, the scanner persists a **Fingerprint** in the `items`
     - **SET**: The item has been successfully processed (even if no TMDB match was found).
 - **`retrieve_children_metadata` (Gate A)**: Set on a folder. Enables/disables Phase 2 features for immediate children.
 - **`process_tv_children` (Gate B)**: Set on a TV Show. Enables/disables structural analysis (S/E parsing) and hierarchy propagation.
+- **`is_missing`**: The **Binary Existence Flag**.
+    - **0**: The item was successfully found on disk during the latest scan.
+    - **1**: The item is missing from disk but its record is preserved due to user edits (Ghost Item).
 
 ---
 
@@ -41,34 +44,59 @@ For every file and folder, the scanner persists a **Fingerprint** in the `items`
 ```js
 function syncDiskToDatabase(root):
   upsert_structural_metadata(root) // Ensure root exists and is marked present
-  walk(root)
+  
+  visitedIds = new Set()
+  walk(root, visitedIds)
+
+  // #1 Missing Item Detection
+  // Any item in this root's DB scope that wasn't visited is gone from disk.
+  missingItems = db.getItemsInScope(root.path).where(id => !visitedIds.has(id))
+  
+  for item in missingItems:
+    if item.has_locked_fields:
+      // Ghost Item: Keep the record (and user edits).
+      // Allow the UI to show the item as missing.
+      db.markAsMissing(item.id) 
+    else:
+      // Clean Deletion: No user value in this record, drop it.
+      db.delete(item.id)
 
 // Phase 1 is a Pre-order Depth-First Search (DFS)
-function walk(dir):
+function walk(dir, visitedIds):
+  visitedIds.add(dir.id)
+
   // 1. Initial Gate Check
-  if disk.mtime == db.mtime:
-    return // O(1) Skip entire branch
+  if dir.disk.mtime == dir.db.mtime:
+    // O(1) Skip: But we MUST still mark all known descendants as visited
+    // to prevent them from being marked missing.
+    visitedIds.addAll(db.getAllDescendantIds(dir.id))
+    return 
 
   // 2. Process CURRENT Level (Files + Folders)
-  for item in disk.children:
+  for item in dir.disk.children:
     // Syncs: path, size (fast, non-recursive), birthtime, is_missing.
     // NOTE: Does NOT update folder mtime here!
     upsert_structural_metadata(item) 
+    visitedIds.add(item.id)
 
   // 3. Descend RECURSIVELY into sub-directories
-  for item in dir.children:
+  for item in dir.disk.children:
     if item.is_folder:
-      walk(item)
+      walk(item, visitedIds)
 
   // 4. Seal the Gate
-  db.dir.mtime = disk.mtime
+  // Update the DB mtime ONLY after children are successfully processed.
+  dir.db.mtime = dir.disk.mtime
 ```
 
-### Phase 2: Metadata Enrichment (`enrichDatabase`)
+### Phase 2: Metadata Enrichment (`enrichDatabase`) 
+
+Invariant: No function in phase 2 walks the filesystem. All data is read from the database.
 
 ```js
 function enrichDatabase():
-  // Preprocess: Find all tv shows that have changed structure, and mark them as dirty.
+  // 1. Preprocess: Find all tv shows that have changed structure, and mark them as dirty.
+  changed_structure_tv_shows = []
   maybe_dirty_tv_shows = db.query("""
     SELECT * FROM items 
     WHERE (
@@ -76,27 +104,20 @@ function enrichDatabase():
         AND (process_tv_children == TRUE) // this flag is true by default for tv shows
     )
   """)
-
-  // Array to store shows that have changed structure AND need re-fetching from TMDB.
-  changed_structure_tv_shows = []
   
   for tv_show in maybe_dirty_tv_shows:
-    // Our normal tv parsing function (should be able to walk db instead of fs). Analyzes the whole tree, assigns S/E numbers. 
+    // Our normal tv parsing function. Analyzes the whole tree, assigns S/E numbers. 
     // Note: Respects locked fields.
-    // Note: Marks any changes when any file gets a new S/E number (whether it already had one or not).
+    // Note: Marks any changes when any file gets a new S/E number.
     // Does not mark any changes when a file with S/E info is deleted.
     anyChanges = tvShowService.syncTvShowStructure(tv_show) 
 
-    // We only want to further process the show in phase 2 if
-    // 1. The structure changed (anyChanges)
-    // 2. The show exists on TMDB, so trying to re-fetch metadata is worthwhile.
-    // This avoids always re-processing shows that don't exist on TMDB.
     if anyChanges and tv_show.tmdbId IS NOT NULL:
-      // Structure changed. DEFINITELY need to reassign metadata to children.
-      // LIKELY need to re-fetch cached season/episode metadata from TMDB, and
-      // possibly even for the show itself.
-      changed_structure_tv_shows.append(tv_show)
+       // Structure changed. DEFINITELY need to reassign metadata to children.
+       // LIKELY need to re-fetch cached metadata and possibly even for the show itself.
+       changed_structure_tv_shows.append(tv_show)
 
+  // 2. Discovery: Find the logical starting points for Phase 2.
   // We select:
   // - All Library Roots (The permanent entry points)
   // - Dirty Movies/Shows/Folders (The content entry points)
@@ -111,8 +132,17 @@ function enrichDatabase():
     )
   """)
   
+  // 3. The Orchestration Loop
   for item in dirty_roots + changed_structure_tv_shows:
     process_root(item)
+
+  // #2 Maintenance Pass
+  // Cleanup and Refresh tasks that don't block the core scan completion.
+  maintenancePass()
+
+function maintenancePass():
+  verifyImageExistence()  // Check if posters/backdrops still exist on disk
+  evaluateVirtualTags()   // Refresh dynamic tags (e.g., "Recently Added")
 
 function process_root(item):
   // ------------------------------------------
@@ -132,10 +162,8 @@ function process_root(item):
       // generic (Phase 1 didn't parse them because it didn't know the type).
       // We MUST run structural parsing NOW to generate Episodes before enriching.
       if item.mediaType == 'tv':
-        // It doesn't matter if we invalidate changed children here, because we know that 
-        // the entire tv show is new anyways.
         // Note: This function respects locked numbers.
-        tvShowService.syncTvShowStructure(item, invalidateIfNeeded = false)
+        tvShowService.syncTvShowStructure(item)
          
     else:
       // No match found. Mark processed to prevent infinite loops.
@@ -175,12 +203,16 @@ function process_show(show):
   // and try to "paint" it with metadata from the cache.
   
   all_seasons_ok = true
-  seasons = db.getSeasons(show.id) // get season folders in the show folder
+
+  // get season folders in the show folder
+  // This can also return a "fake season folder" which is the show itself, if the show has direct children episodes.
+  seasons = db.getSeasons(show.id)
   
-  for season in seasons:
-    // Copy metadata from Show Cache -> Season Item
-    // This function respects locked fields. If 'title' is locked, it is skipped.
-    metadataService.managedCopy(season, show.seasonsAndEpisodesCache)
+  for season in seasons: 
+    if season.id != show.id: // Do not apply season metadata to the show itself.
+      // Copy metadata from Show Cache -> Season Item
+      // This function respects locked fields. If 'title' is locked, it is skipped.
+      metadataService.managedCopy(season, show.seasonsAndEpisodesCache)
     
     // Process Episodes
     all_episodes_ok = true
