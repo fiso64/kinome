@@ -531,8 +531,10 @@ export const getAutocompleteValues = async (key: string, query?: string, limit?:
 
 export const performSearch = searchService.performSearch
 export const debugPerformSearch = searchService.debugPerformSearch
-export const manualSearch = retrieverService.manualSearch
-export const getTmdbImages = retrieverService.getTmdbImages
+export const manualSearch = (query: string, type: any, apiKey: string, year?: string, tmdbId?: string) =>
+  retrieverService.manualSearch(query, type, apiKey, { year, tmdbId })
+export const getTmdbImages = (id: number, type: any, apiKey: string, language?: string) =>
+  retrieverService.getImages(id, type, apiKey, language)
 export const executeCustomAction = actionsService.executeCustomAction
 export const getAbsolutePath = actionsService.getAbsolutePath
 export const getItemProperties = actionsService.getItemProperties
@@ -671,16 +673,7 @@ export const setNextUpDismissed = async (showId: string) => {
     await updateIfChangedAndBroadcast(item)
   }
 }
-export const fetchCredits = async (itemId: string) => {
-  const item = repositoryService.getItemById(itemId)
-  if (item) {
-    await retrieverService.fetchAndApplyCredits(
-      item,
-      (await settingsService.readSettings()).tmdbApiKey
-    )
-    await updateIfChangedAndBroadcast(item)
-  }
-}
+export const fetchCredits = (itemId: string) => metadataService.fetchCredits(itemId)
 export const getItemCredits = (id: string) => repositoryService.getItemCredits(id)
 export const handleItemRenamed = async (oldPath: string, newPath: string) => {
   const oldItem = repositoryService.findItemByPath(oldPath)

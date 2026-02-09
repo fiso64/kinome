@@ -967,9 +967,6 @@ tmdb_id = excluded.tmdb_id,
         Object.assign(scraperSettings, (updates as any).scraperSettings)
       }
 
-      log(`[DEBUG] Saving folder_settings for item ${itemId}:`)
-      log(`[DEBUG]   viewSettings: ${JSON.stringify(viewSettings)}`)
-      log(`[DEBUG]   scraperSettings: ${JSON.stringify(scraperSettings)}`)
       db.prepare(
         `
             INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
@@ -983,9 +980,6 @@ tmdb_id = excluded.tmdb_id,
         '@view': JSON.stringify(viewSettings),
         '@scraper': JSON.stringify(scraperSettings)
       })
-      // Verify the save
-      const saved = db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any
-      log(`[DEBUG] Verified save - stored in db: ${JSON.stringify(saved)}`)
     }
   })
 
