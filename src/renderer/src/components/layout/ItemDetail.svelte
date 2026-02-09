@@ -1071,6 +1071,23 @@
     padding: 1.5rem;
   }
 
+  .full-backdrop-mode .play-button {
+    background-color: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .full-backdrop-mode .play-button:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+
   /* Overview Expansion Styles */
   .overview-expandable-area {
     position: relative;

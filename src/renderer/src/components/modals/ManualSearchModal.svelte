@@ -211,6 +211,9 @@
           searchQuery = '' // Clear text query because we are searching by ID
         }
       }
+
+      // 3. Pre-fill Year if available
+      searchYear = localItem.year ? localItem.year.toString() : ''
     }
     setInitialState()
 
@@ -289,7 +292,7 @@
             <div class="result-info">
               <h3>
                 {#if searchType === 'season' && typeof result.season_number !== 'undefined'}
-                  {result.season_number}. {result.name ?? result.title}
+                  {result.season_number}. {result.name ?? result.title} ({getYear(result)})
                   {#if typeof result.episode_count !== 'undefined'}
                     <span class="episode-count">({result.episode_count} episodes)</span>
                   {/if}

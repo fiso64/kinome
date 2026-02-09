@@ -355,7 +355,7 @@ export async function clearItemMetadata(
     _resetItemMetadataFields(target, { respectLocks: false })
   }
 
-  await updateIfChangedAndBroadcast(uniqueItems)
+  await updateIfChangedAndBroadcast(uniqueItems, { updateSuggestions: true })
   return item
 }
 

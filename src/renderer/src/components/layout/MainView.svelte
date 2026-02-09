@@ -1,7 +1,6 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import HomeView from './HomeView.svelte'
-  import SetupScreen from './SetupScreen.svelte'
   import { createEventDispatcher, untrack } from 'svelte'
   import { fade } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
@@ -97,9 +96,7 @@
   }
 </script>
 
-{#if !settings?.libraryLocation || libraryStatus?.status !== 'ready'}
-  <SetupScreen onComplete={() => {}} {onStatusUpdate} />
-{:else if currentFolder}
+{#if currentFolder}
   <div
     class="view-wrapper"
     class:has-backdrop={hasBackdrop}

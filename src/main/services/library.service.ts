@@ -845,7 +845,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   }
 
   // --- 5. Execution ---
-  await updateIfChangedAndBroadcast([updates])
+  await updateIfChangedAndBroadcast([updates], { updateSuggestions: true })
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
   const res = repositoryService.deleteItem(id)

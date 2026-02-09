@@ -21,6 +21,7 @@
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { authStore } from '@lib/auth-store.svelte'
   import LoginPage from '@components/layout/LoginPage.svelte'
+  import SetupScreen from '@components/layout/SetupScreen.svelte'
   import { onMount } from 'svelte'
   import { QueryClientProvider } from '@tanstack/svelte-query'
   import type {
@@ -212,6 +213,7 @@
     const unlistenItemsUpdated = api.onLibraryItemsUpdated((updatedItems) => {
       log(`[App] Received batch update for ${updatedItems.length} items.`)
       libraryDataService.handleLibraryUpdates(updatedItems, isFastUpdating)
+      searchStore.handleLibraryUpdates(updatedItems)
     })
     return () => {
       log('[App] Unregistering library items update listener')
@@ -242,6 +244,20 @@
       groupByKeys = index.groupByKeys
     })
     return unlisten
+  })
+
+  // Force Root Navigation if Setup is required
+  $effect(() => {
+    if (authStore.isAuthenticated && !isInitializing) {
+      const needsSetup = !settings?.libraryLocation || libraryStatus?.status !== 'ready'
+      if (needsSetup) {
+        // If we are not at root view, force it.
+        if (navStore.canGoBack) {
+          log('Setup required: Forcing navigation to root.')
+          navStore.navigateToRoot()
+        }
+      }
+    }
   })
 
   async function handleRefresh(): Promise<void> {
@@ -436,34 +452,38 @@
     {/if}
 
     <main>
-      <AppHeader
-        bind:this={appHeaderComponent}
-        {isWaitingForScan}
-        {isScanning}
-        isContextMenuVisible={contextMenuStore.isVisible}
-        on:refresh={handleRefresh}
-        on:openSettings={() => navStore.navigateToSettings()}
-        on:openLayoutSelector={openLayoutSelector}
-        on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
-        on:globalSearchItemClick={(e) => handleItemClick(e.detail.item, 'global')}
-        on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}
-        {settings}
-        suggestions={allAutocompleteSuggestions}
-      />
+      {#if !settings?.libraryLocation || libraryStatus?.status !== 'ready'}
+        <SetupScreen onComplete={() => {}} onStatusUpdate={refreshLibraryStatus} />
+      {:else}
+        <AppHeader
+          bind:this={appHeaderComponent}
+          {isWaitingForScan}
+          {isScanning}
+          isContextMenuVisible={contextMenuStore.isVisible}
+          on:refresh={handleRefresh}
+          on:openSettings={() => navStore.navigateToSettings()}
+          on:openLayoutSelector={openLayoutSelector}
+          on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+          on:globalSearchItemClick={(e) => handleItemClick(e.detail.item, 'global')}
+          on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}
+          {settings}
+          suggestions={allAutocompleteSuggestions}
+        />
 
-      <ViewManager
-        {isScanning}
-        {libraryStatus}
-        bind:settings
-        suggestions={allAutocompleteSuggestions}
-        on:statusUpdate={refreshLibraryStatus}
-        on:itemClick={(e) => handleItemClick(e.detail.item)}
-        on:play={(e) => handlePlayFile(e.detail.item)}
-        on:showContextMenu={(e) =>
-          handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-        on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
-        on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
-      />
+        <ViewManager
+          {isScanning}
+          {libraryStatus}
+          bind:settings
+          suggestions={allAutocompleteSuggestions}
+          on:statusUpdate={refreshLibraryStatus}
+          on:itemClick={(e) => handleItemClick(e.detail.item)}
+          on:play={(e) => handlePlayFile(e.detail.item)}
+          on:showContextMenu={(e) =>
+            handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+          on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+          on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+        />
+      {/if}
 
       {#if searchStore.isFilterBarVisible}
         <FilterBar

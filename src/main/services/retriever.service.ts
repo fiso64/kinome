@@ -110,9 +110,15 @@ export async function getCredits(id: number, type: 'movie' | 'tv', apiKey: strin
  */
 export async function getImages(id: number, type: 'movie' | 'tv', apiKey: string, language?: string): Promise<any | null> {
   const params: Record<string, string> = {}
-  if (language) params.language = language
 
-  console.log(`[TMDB] getImages for ${type} ${id}`)
+  // TMDB /images is not paginated; it returns all matches in one go.
+  // To ensure we get both the requested language AND high-quality textless (null) images,
+  // we must use include_image_language. 
+  if (language && language !== 'none') {
+    params.include_image_language = `${language},null`
+  }
+
+  console.log(`[TMDB] getImages for ${type} ${id} (lang: ${language ?? 'default'})`)
   const res = await fetch(getUrl(`${type}/${id}/images`, apiKey, params))
   if (!res.ok) return null
   return res.json()
@@ -139,7 +145,7 @@ export async function manualSearch(
         id: s.id,
         title: s.name,
         name: s.name,
-        year: s.air_date ? new Date(s.air_date).getFullYear() : null,
+        first_air_date: s.air_date,
         poster_path: s.poster_path,
         overview: s.overview,
         season_number: s.season_number,
@@ -150,11 +156,9 @@ export async function manualSearch(
     return [{
       id: details.id,
       title: details.title || details.name,
-      year: details.release_date
-        ? new Date(details.release_date).getFullYear()
-        : details.first_air_date
-          ? new Date(details.first_air_date).getFullYear()
-          : null,
+      name: details.name,
+      release_date: details.release_date,
+      first_air_date: details.first_air_date,
       poster_path: details.poster_path,
       overview: details.overview
     }]
@@ -175,7 +179,7 @@ export async function manualSearch(
       id: s.id,
       title: s.name,
       name: s.name,
-      year: s.air_date ? new Date(s.air_date).getFullYear() : null,
+      first_air_date: s.air_date,
       poster_path: s.poster_path,
       overview: s.overview,
       season_number: s.season_number,
@@ -187,11 +191,9 @@ export async function manualSearch(
   return results.map((r: any) => ({
     id: r.id,
     title: r.title || r.name,
-    year: r.release_date
-      ? new Date(r.release_date).getFullYear()
-      : r.first_air_date
-        ? new Date(r.first_air_date).getFullYear()
-        : null,
+    name: r.name,
+    release_date: r.release_date,
+    first_air_date: r.first_air_date,
     poster_path: r.poster_path,
     overview: r.overview
   }))
