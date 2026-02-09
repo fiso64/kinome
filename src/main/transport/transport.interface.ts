@@ -19,6 +19,7 @@ export interface ITransport {
   notifyMetadataIndexUpdated(index: {
     suggestions: AutocompleteSuggestions
     groupByKeys: string[]
+    invalidateItems?: boolean
   }): void
 
   /**
@@ -45,6 +46,7 @@ export interface ITransport {
    * @param status The current scan status object.
    */
   notifyScanStatusChanged(status: Partial<ScanStatus>): void
+
 
   /**
    * Broadcasts a generic event to all connected clients.

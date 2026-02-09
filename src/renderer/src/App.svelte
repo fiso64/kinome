@@ -84,9 +84,15 @@
     // Global event listeners are fine to register early, they won't
     // trigger until the server emits something anyway.
 
-    const unlistenSettingsUpdated = api.onSettingsPossiblyUpdated((newSettings) => {
-      log('Received settings-possibly-updated event from main process.')
-      settings = newSettings
+    const unlistenStatus = api.onAppStatusUpdated((status) => {
+      if (status.settings) {
+        log('Received settings update from backend.')
+        settings = status.settings
+      }
+      if (status.forceReloadForNewLibrary) {
+        log('Received force reload instruction.')
+        window.location.reload()
+      }
     })
 
     const unlistenScanStatus = api.onScanStatusChanged(async (status) => {
@@ -120,7 +126,7 @@
 
     return () => {
       unlistenErrors()
-      unlistenSettingsUpdated()
+      unlistenStatus()
       unlistenScanStatus()
     }
   })
@@ -242,6 +248,11 @@
     const unlisten = api.onMetadataIndexUpdated((index) => {
       allAutocompleteSuggestions = index.suggestions
       groupByKeys = index.groupByKeys
+
+      if (index.invalidateItems) {
+        log('Metadata index update includes instruction to invalidate item cache.')
+        libraryDataService.invalidateAllQueries()
+      }
     })
     return unlisten
   })

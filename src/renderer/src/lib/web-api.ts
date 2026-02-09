@@ -596,7 +596,11 @@ class WebApiClient implements ApiClient {
   }
 
   onMetadataIndexUpdated(
-    callback: (index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }) => void
+    callback: (index: {
+      suggestions: AutocompleteSuggestions
+      groupByKeys: string[]
+      invalidateItems?: boolean
+    }) => void
   ): () => void {
     return this.on('metadata-index-updated', callback)
   }
@@ -607,12 +611,18 @@ class WebApiClient implements ApiClient {
     return () => { }
   }
 
-  onForceReloadForNewLibrary(callback: () => void): () => void {
-    return this.on('force-reload-for-new-library', callback)
-  }
-
-  onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void {
-    return this.on('settings-possibly-updated', callback)
+  onAppStatusUpdated(
+    callback: (status: { forceReloadForNewLibrary?: boolean; settings?: Settings }) => void
+  ): () => void {
+    // This is a virtual combined listener for settings-possibly-updated and force-reload-for-new-library
+    const un1 = this.on('settings-possibly-updated', (s) => callback({ settings: s }))
+    const un2 = this.on('force-reload-for-new-library', () =>
+      callback({ forceReloadForNewLibrary: true })
+    )
+    return () => {
+      un1()
+      un2()
+    }
   }
 
   onScanStatusChanged(callback: (status: ScanStatus) => void): () => void {

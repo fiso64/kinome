@@ -933,16 +933,17 @@ export const applyInitialFolderSettings = async (
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {
-  // Use the maintenance pass to evaluate tags in-memory, update DB, and broadcast changes.
-  // This is more efficient than a full broadcast as it only notifies the UI about changed items.
-  await metadataService.maintenancePass()
+  const settings = await settingsService.readSettings()
 
-  // We still need to refresh suggestions and group-by keys for the UI
+  // 1. Efficiently apply tags in DB massively via SQL (Single transaction)
+  virtualTagsService.applyVirtualTags(settings.virtualTags)
+
+  // 2. Refresh suggestions and group-by keys, and tell UI to invalidate item cache
   const [suggestions, groupByKeys] = await Promise.all([
     getAutocompleteSuggestions(),
     getGroupByKeys()
   ])
-  getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys })
+  getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys, invalidateItems: true })
 }
 
 export const getFolderWatchedState = async (

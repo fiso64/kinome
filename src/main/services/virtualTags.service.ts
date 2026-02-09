@@ -145,6 +145,7 @@ export function evaluateVirtualTagsForItem(
 ): Record<string, string> {
   const result: Record<string, string> = {}
   if (!settings.virtualTags || settings.virtualTags.length === 0) return result
+  if (!item.parentId) return result // Root items don't have virtual tags
 
   for (const tag of settings.virtualTags) {
     let matched = false

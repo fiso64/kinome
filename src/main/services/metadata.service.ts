@@ -95,10 +95,7 @@ export async function maintenancePass() {
   const modified: LibraryItem[] = []
 
   for (const item of allItems) {
-    // Root items (no parentId) should not have virtual tags.
-    const freshTags = item.parentId
-      ? virtualTagsService.evaluateVirtualTagsForItem(item, settings)
-      : {}
+    const freshTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
 
     if (JSON.stringify(freshTags) !== JSON.stringify(item.virtualTags)) {
       item.virtualTags = freshTags
@@ -189,7 +186,6 @@ export async function fetchAndApplyMetadata(
 
     // 5. Finalize
     item.lastRefreshedAt = Date.now()
-    item.virtualTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
     await updateIfChangedAndBroadcast(allModifiedItems)
 
     return allModifiedItems

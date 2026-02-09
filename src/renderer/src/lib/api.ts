@@ -134,13 +134,18 @@ export interface ApiClient {
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void
   onLibraryItemsUpdated(callback: (items: LibraryItem[]) => void): () => void
   onMetadataIndexUpdated(
-    callback: (index: { suggestions: AutocompleteSuggestions; groupByKeys: string[] }) => void
+    callback: (index: {
+      suggestions: AutocompleteSuggestions
+      groupByKeys: string[]
+      invalidateItems?: boolean
+    }) => void
   ): () => void
   onShowErrorDialog(
     callback: (options: { title: string; message: string; detail?: string }) => void
   ): () => void
-  onForceReloadForNewLibrary(callback: () => void): () => void
-  onSettingsPossiblyUpdated(callback: (newSettings: Settings) => void): () => void
+  onAppStatusUpdated(
+    callback: (status: { forceReloadForNewLibrary?: boolean; settings?: Settings }) => void
+  ): () => void
   onScanStatusChanged(callback: (status: ScanStatus) => void): () => void
   onHandlerTestSuccess(callback: (data: { sessionId: string }) => void): () => void
   connectWebSocket(token?: string): void

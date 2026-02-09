@@ -42,6 +42,7 @@ export class WebTransport implements ITransport {
   notifyMetadataIndexUpdated(index: {
     suggestions: AutocompleteSuggestions
     groupByKeys: string[]
+    invalidateItems?: boolean
   }): void {
     console.log('[WebTransport] Notifying metadata index update.')
     this.broadcast('metadata-index-updated', index)
@@ -81,4 +82,5 @@ export class WebTransport implements ITransport {
     console.log(`[WebTransport] Notifying handler test success: ${sessionId}`)
     this.broadcast('handler-test-success', { sessionId })
   }
+
 }
