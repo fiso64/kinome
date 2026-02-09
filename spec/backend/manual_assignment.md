@@ -27,7 +27,7 @@ In all cases, the manual decision must be **atomic** (metadata across the hierar
 - **Clean Slate Implementation**: Ensure that changing a match completely replaces old metadata and images to prevent data leakage between different titles.
 - **Hierarchical Consistency**: Automatically propagate identity changes from parents to children (e.g., changing a Show's identity updates all its episodes).
 - **Durability**: Prevent the scanner/structural sync from overwriting manual assignments during subsequent scans.
-- **Unified Logic**: Reuse the standard `handleItemUpdate` pipeline to ensure manual matches follow the same robust enrichment path as automated matches.
+- **Unified Logic**: Reuse the standard `fetchAndApplyMetadata` pipeline to ensure manual matches follow the same robust enrichment path as automated matches.
 
 ### Non-Goals
 - Individual leaf-node field edits (e.g., manual title rename) are covered by `metadata_locking.md`.
@@ -56,7 +56,7 @@ The new identity (provided by the user via the Search UI) is applied.
     - **Structural Lock**: If a structural property (like `seasonNumber`) is manually assigned, it is also added to `lockedFields`. This prevents naming-based sync logic (e.g., `syncTvShowStructure`) from reverting the number to match the filesystem name.
 
 ### 4.3 Phase 3: Orchestration & Finalization
-The item (now "dirty" and "identified") is passed to `handleItemUpdate`.
+The item (now "dirty" and "identified") is passed to `fetchAndApplyMetadata`.
 
 1.  **Enrichment**: The orchestrator sees the new `tmdbId` and `lastRefreshedAt: null`. It fetches new images, overviews, and credits.
 2.  **Structural Integrity**: For TV items, it runs a structural scan. 

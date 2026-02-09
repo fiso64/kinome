@@ -320,7 +320,7 @@ export async function fetchAndApplyEpisodeData(
     let tmdbEpisodes: TmdbEpisode[] | null = seasonFolder.tmdbEpisodes || null
 
     // Fetch if not cached or forced
-    if (!tmdbEpisodes || options.force || !seasonFolder.lastRefreshedAt) {
+    if (!tmdbEpisodes || options.force) {
         const details = await retrieverService.getSeasonDetails(showTmdbId, seasonNumber, tmdbApiKey)
         if (details) {
             tmdbEpisodes = (details.episodes ?? []).map((e: any) => ({

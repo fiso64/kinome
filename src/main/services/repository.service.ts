@@ -705,7 +705,7 @@ export function migrateRecord(oldId: string, newId: string, newPath: string): vo
 }
 
 export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
-  log(`[DEBUG] updateItem called for itemId: ${itemId}`)
+  // log(`[DEBUG] updateItem called for itemId: ${itemId}`)
   const db = getDb()
 
   const transaction = db.transaction(() => {
@@ -760,7 +760,7 @@ is_hidden = COALESCE(@isHidden, is_hidden),
         )
       }
 
-      console.log(`[Repo] updateItem ${itemId}`)
+      // console.log(`[Repo] updateItem ${itemId}`)
       // console.log(`[Repo] [TRACE] updateItem ${itemId} - Existing State: `, existingState)
       // console.log(`[Repo] [TRACE] updateItem ${itemId} - Updates: `, updates)
 

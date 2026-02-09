@@ -62,6 +62,7 @@ export async function search(
     if (type === 'tv') params.first_air_date_year = options.year
   }
 
+  console.log(`[TMDB] search/${type}: "${query}"`)
   const res = await fetch(getUrl(`search/${type}`, apiKey, params))
   if (!res.ok) return []
   const data = (await res.json()) as any
@@ -80,12 +81,14 @@ export async function search(
  */
 export async function getDetails(id: number, type: 'movie' | 'tv' | 'season', apiKey: string, extras = 'images'): Promise<any | null> {
   // Seasons need showId in path
+  console.log(`[TMDB] getDetails for ${type} ${id}`)
   const res = await fetch(getUrl(`${type}/${id}`, apiKey, { append_to_response: extras }))
   if (!res.ok) return null
   return res.json()
 }
 
 export async function getSeasonDetails(showId: number, seasonNumber: number, apiKey: string): Promise<any | null> {
+  console.log(`[TMDB] getSeasonDetails for show ${showId} S${seasonNumber}`)
   const res = await fetch(getUrl(`tv/${showId}/season/${seasonNumber}`, apiKey))
   if (!res.ok) return null
   return res.json()
@@ -95,6 +98,7 @@ export async function getSeasonDetails(showId: number, seasonNumber: number, api
  * Fetch Credits (Aggregated for TV)
  */
 export async function getCredits(id: number, type: 'movie' | 'tv', apiKey: string): Promise<any | null> {
+  console.log(`[TMDB] getCredits for ${type} ${id}`)
   const endpoint = type === 'tv' ? 'aggregate_credits' : 'credits'
   const res = await fetch(getUrl(`${type}/${id}/${endpoint}`, apiKey))
   if (!res.ok) return null
@@ -108,6 +112,7 @@ export async function getImages(id: number, type: 'movie' | 'tv', apiKey: string
   const params: Record<string, string> = {}
   if (language) params.language = language
 
+  console.log(`[TMDB] getImages for ${type} ${id}`)
   const res = await fetch(getUrl(`${type}/${id}/images`, apiKey, params))
   if (!res.ok) return null
   return res.json()
@@ -123,6 +128,7 @@ export async function manualSearch(
   options: { year?: string; tmdbId?: string } = {}
 ): Promise<any[]> {
   // 1. ID Search
+  console.log(`[TMDB] manualSearch for ${type} ${options.tmdbId}`)
   if (options.tmdbId?.trim()) {
     const searchType = type === 'season' ? 'tv' : type
     const details = await getDetails(Number(options.tmdbId), searchType, apiKey)

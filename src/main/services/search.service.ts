@@ -9,11 +9,10 @@ export function rebuildSearchIndex() {
     db.prepare('DELETE FROM items_fts').run()
     db.prepare(
       `
-      INSERT INTO items_fts (id, name, title, original_title, overview, people, tags)
+      INSERT INTO items_fts (id, name, title, original_title, overview)
       SELECT 
         i.id, i.name, 
-        m.title, m.original_title, m.overview, m.people_json, 
-        m.tags_json || ' ' || coalesce(m.virtual_tags_json, '')
+        m.title, m.original_title, m.overview
       FROM items i
       LEFT JOIN metadata m ON i.id = m.item_id
     `
@@ -129,7 +128,7 @@ export function performSearch(query: {
         `
 
       // Columns to search in. We explicitly EXCLUDE 'overview' to avoid noise.
-      const cols = '{title original_title name people tags}'
+      const cols = '{title original_title name}'
 
       // --- Unified Execution Flow ---
 
@@ -166,7 +165,7 @@ export function performSearch(query: {
         }
       })
 
-      finalSql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.5, 0.5, 0.5) ASC LIMIT ${limit}`
+      finalSql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT ${limit}`
 
       // Execute Standard
       sql = finalSql

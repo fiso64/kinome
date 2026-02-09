@@ -102,54 +102,58 @@ CREATE TABLE IF NOT EXISTS folder_settings (
 );
 
 -- FTS5 Virtual Table for Search using Trigram Tokenizer
--- Columns are separated to allow weighted ranking (Title > Filename)
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     id UNINDEXED,
-    title,          -- High weight (Metadata title)
-    original_title, -- Medium weight
-    name,           -- Low weight (Filename/Foldername)
-    overview,       -- Lowest weight
-    people,         -- Indexed for searching by actor/director
-    tags,           -- Indexed for tag search
+    title,          
+    original_title, 
+    name,           
+    overview,       
     tokenize = 'trigram'
 );
 
--- Triggers to keep items_fts in sync with items
+-- Triggers: Gated and Content-Aware for Performance
+-- Phase 1 Fix: Only re-index if the 'name' column actually changes.
 CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
-  INSERT INTO items_fts (id, name, title, original_title, overview, people, tags) 
-  VALUES (new.id, new.name, NULL, NULL, NULL, NULL, NULL);
+  INSERT INTO items_fts (id, name, title, original_title, overview) 
+  VALUES (new.id, new.name, NULL, NULL, NULL);
 END;
 
 CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
   DELETE FROM items_fts WHERE id = old.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE OF name ON items 
+FOR EACH ROW
+WHEN (OLD.name IS NOT NEW.name)
+BEGIN
   UPDATE items_fts SET name = new.name WHERE id = new.id;
 END;
 
--- Triggers to keep items_fts in sync with metadata
+-- Phase 2 Fix: Only re-index metadata if searchable content drifts.
 CREATE TRIGGER IF NOT EXISTS metadata_ai AFTER INSERT ON metadata BEGIN
   UPDATE items_fts SET 
     title = new.title,
     original_title = new.original_title,
-    overview = new.overview, 
-    people = new.people_json,
-    tags = coalesce(new.tags_json, '') || ' ' || coalesce(new.virtual_tags_json, '')
+    overview = new.overview
   WHERE id = new.item_id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS metadata_au AFTER UPDATE ON metadata BEGIN
+CREATE TRIGGER IF NOT EXISTS metadata_au AFTER UPDATE OF title, original_title, overview ON metadata
+FOR EACH ROW
+WHEN (
+    OLD.title IS NOT NEW.title OR 
+    OLD.original_title IS NOT NEW.original_title OR 
+    OLD.overview IS NOT NEW.overview
+)
+BEGIN
   UPDATE items_fts SET 
     title = new.title,
     original_title = new.original_title,
-    overview = new.overview, 
-    people = new.people_json,
-    tags = coalesce(new.tags_json, '') || ' ' || coalesce(new.virtual_tags_json, '')
+    overview = new.overview
   WHERE id = new.item_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS metadata_ad AFTER DELETE ON metadata BEGIN
-  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL, people = NULL, tags = NULL WHERE id = old.item_id;
+  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL WHERE id = old.item_id;
 END;
 `

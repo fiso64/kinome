@@ -66,8 +66,9 @@ export async function enrichDatabase() {
 
       // 3. The Orchestration Loop
       await processInChunks(entryPoints, 5, async (item) => {
-        log(`[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"`)
-        await handleItemUpdate(item)
+        const force = tvShowsWithChanges.some(show => show.id === item.id)
+        log(`[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"${force ? ' (Structural change detected)' : ''}`)
+        await fetchAndApplyMetadata(item, { force })
       })
     }
 
@@ -109,7 +110,7 @@ export async function maintenancePass() {
   log('[Maintenance] Pass complete.')
 }
 
-export async function handleItemUpdate(
+export async function fetchAndApplyMetadata(
   item: LibraryItem,
   options: { force?: boolean; year?: number } = {}
 ): Promise<LibraryItem[]> {
@@ -120,7 +121,7 @@ export async function handleItemUpdate(
 
   if (pathsService.isRemoteLibrary()) return []
 
-  log(`[Orchestrator] handleItemUpdate for "${item.name}"`)
+  log(`[Orchestrator] fetchAndApplyMetadata for "${item.name}"`)
 
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
@@ -150,7 +151,7 @@ export async function handleItemUpdate(
     }
 
     // 2. Enrichment (Details)
-    if (item.tmdbId && (!item.lastRefreshedAt || options.force) && item.mediaType !== 'season') {
+    if (item.tmdbId && item.mediaType !== 'season') {
       const details = await retrieverService.getDetails(item.tmdbId, item.mediaType as any, apiKey)
       if (details) {
         await metadataMapping.applyMetadataToItem(item, details, { respectLocks: true, libraryDataPath })
@@ -196,13 +197,6 @@ export async function handleItemUpdate(
   }
 }
 
-export async function backgroundFetchAndApplyDetails(
-  item: LibraryItem,
-  options: { force?: boolean } = {}
-): Promise<LibraryItem[]> {
-  if (item.type === 'file' && item.lastRefreshedAt) return []
-  return await handleItemUpdate(item, options)
-}
 
 export async function fetchEpisodeDataForContinueWatching(
   show: MediaFolder,
@@ -287,7 +281,7 @@ export async function applyManualMatch(
             await tvShowService.syncTvShowStructure(parent, 'smart', 'smart', { scopedToId: item.id })
           }
         }
-        await handleItemUpdate(item, { force: true })
+        await fetchAndApplyMetadata(item, { force: true })
       } catch (err) {
         log(`[Manual Match] Background enrichment failed: ${err}`)
       } finally {
