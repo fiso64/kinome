@@ -9,238 +9,167 @@ const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
 }
 
+
 /**
- * Common walker function used by both Full and Partial scans.
- * It recursively reads the FS and upserts items into the DB.
- * It returns a Set of all IDs encountered during the walk.
+ * Phase 1: Filesystem Sync (Disk -> DB)
+ * Refactored to use Recursive DFS for "Seal the Gate" mtime logic.
  */
-async function walkAndUpsert(
-  startPath: string,
+async function walk(
+  currentPath: string,
+  parentId: string | null,
   mediaSourcePath: string,
   db: any,
-  options: {
-    skipMetadata?: boolean,
-    initialFolderSettings?: Record<string, any>
-  } = {}
+  visitedIds: Set<string>,
+  statements: {
+    selectFolderMtime: any
+    upsertItem: any
+    sealFolder: any
+  }
+): Promise<void> {
+  const relativePath = path.relative(mediaSourcePath, currentPath).replace(/\\/g, '/') || '.'
+  const id = repositoryService.generateId(relativePath)
+  visitedIds.add(id)
+
+  let stats: any
+  try {
+    stats = await fs.stat(currentPath)
+  } catch (e) {
+    log(`Failed to stat: ${currentPath}`)
+    return
+  }
+
+  const isDirectory = stats.isDirectory()
+  const dbMtime = statements.selectFolderMtime.get(id)?.mtime ?? 0
+  const diskMtime = Math.floor(stats.mtimeMs)
+
+  // 1. Initial Gate Check (Folders only)
+  if (isDirectory && id !== repositoryService.generateId('.') && dbMtime === diskMtime) {
+    // O(1) Skip: Mark all known descendants as visited to prevent they logic from marking them missing
+    const descendantIds = repositoryService.getAllDescendantIdsFast(id)
+    descendantIds.forEach((dId) => visitedIds.add(dId))
+    return
+  }
+
+  // 2. Process CURRENT Level (Files and Folders)
+  // We read the directory entries.
+  let entries: Dirent[]
+  try {
+    entries = isDirectory ? await fs.readdir(currentPath, { withFileTypes: true }) : []
+  } catch (e) {
+    log(`Failed to readdir: ${currentPath}`)
+    return
+  }
+
+  // Filter and process entries
+  const childrenToProcess: { fullPath: string; name: string; isDir: boolean }[] = []
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
+    const isDir = entry.isDirectory()
+    const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
+    if (!isDir && !isVideoFile) continue
+
+    const fullPath = path.join(currentPath, entry.name)
+    const childRelPath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
+    const childId = repositoryService.generateId(childRelPath)
+
+    let childStats = { size: 0, mtime: 0, birthtime: 0 }
+    try {
+      const s = await fs.stat(fullPath)
+      childStats = {
+        size: s.size,
+        mtime: Math.floor(s.mtimeMs),
+        birthtime: Math.floor(s.birthtimeMs)
+      }
+    } catch { }
+
+    // Upsert entry (Fingerprint sync)
+    // For folders, we do NOT set mtime here.
+    statements.upsertItem.run({
+      '@id': childId,
+      '@parentId': id,
+      '@path': childRelPath,
+      '@name': entry.name,
+      '@type': isDir ? 'folder' : 'file',
+      '@size': childStats.size,
+      '@mtime': isDir ? null : childStats.mtime,
+      '@birthtime': childStats.birthtime
+    })
+
+    visitedIds.add(childId)
+    if (isDir) {
+      childrenToProcess.push({ fullPath, name: entry.name, isDir: true })
+    }
+  }
+
+  // 3. Descend RECURSIVELY
+  for (const child of childrenToProcess) {
+    await walk(child.fullPath, id, mediaSourcePath, db, visitedIds, statements)
+  }
+
+  // 4. Seal the Gate
+  // Update the DB mtime ONLY after all children are successfully processed.
+  if (isDirectory) {
+    statements.sealFolder.run({
+      '@id': id,
+      '@mtime': diskMtime
+    })
+  }
+}
+
+async function syncDiskToDatabase(
+  rootAbsPath: string,
+  mediaSourcePath: string,
+  db: any
 ): Promise<Set<string>> {
   const visitedIds = new Set<string>()
-  const queue: { currentPath: string; parentId: string | null }[] = []
 
-  // Hoist prepared statements for performance
-  const selectFolderSettingsStmt = db.prepare(
-    'SELECT scraper_settings_json, items.name FROM items LEFT JOIN folder_settings ON items.id = folder_settings.item_id WHERE items.id = ?'
-  )
-
-  const upsertItemStmt = db.prepare(
-    `
+  const statements = {
+    selectFolderMtime: db.prepare('SELECT mtime FROM items WHERE id = ?'),
+    upsertItem: db.prepare(`
       INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
       VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
       ON CONFLICT(id) DO UPDATE SET
         is_missing = 0,
         parent_id = excluded.parent_id,
         size = excluded.size,
-        mtime = excluded.mtime
-    `
-  )
-
-  const upsertMetadataStmt = db.prepare(
-    `
-      INSERT INTO metadata (item_id, media_type, season_number, episode_number)
-      VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
-      ON CONFLICT(item_id) DO UPDATE SET
-        media_type = COALESCE(media_type, excluded.media_type),
-        season_number = COALESCE(season_number, excluded.season_number),
-        episode_number = COALESCE(episode_number, excluded.episode_number)
-    `
-  )
-
-  const upsertFolderSettingsStmt = db.prepare(
-    `
-      INSERT INTO folder_settings (item_id, scraper_settings_json)
-      VALUES (@id, @settingsJson)
-      ON CONFLICT(item_id) DO UPDATE SET
-        scraper_settings_json = excluded.scraper_settings_json
-    `
-  )
-
-  // Initialize queue
-  if (startPath === mediaSourcePath) {
-    const rootId = repositoryService.generateId('.')
-    const rootName = path.basename(mediaSourcePath)
-
-    // Upsert Root
-    db.prepare(
-      `
-        INSERT INTO items (id, parent_id, path, name, type, is_missing)
-        VALUES (?, NULL, '.', ?, 'folder', 0)
-        ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
-      `
-    ).run(rootId, rootName)
-
-    // Apply Root Settings
-    if (options.initialFolderSettings && options.initialFolderSettings['.']) {
-      const rootSettings = options.initialFolderSettings['.']
-      const hasHint = rootSettings.retrieve_children_metadata && rootSettings.children_type_hint
-
-      upsertFolderSettingsStmt.run({
-        '@id': rootId,
-        '@settingsJson': JSON.stringify(rootSettings)
-      })
-
-      if (hasHint) {
-        upsertMetadataStmt.run({
-          '@id': rootId,
-          '@mediaType': rootSettings.children_type_hint,
-          '@seasonNumber': null,
-          '@episodeNumber': null
-        })
-      }
-    }
-
-    visitedIds.add(rootId)
-    queue.push({ currentPath: startPath, parentId: rootId })
-  } else {
-    // Partial Scan start logic
-    const relativePath = path.relative(mediaSourcePath, startPath).replace(/\\/g, '/')
-    const id = repositoryService.generateId(relativePath)
-
-    queue.push({ currentPath: startPath, parentId: id })
+        mtime = COALESCE(excluded.mtime, items.mtime)
+    `),
+    sealFolder: db.prepare('UPDATE items SET mtime = @mtime WHERE id = @id')
   }
 
-  // Pre-resolve paths for the check in the loop
-  const resolvedLibraryPath = path.resolve(pathsService.getLibraryDataPath())
-  const resolvedMediaSourcePath = path.resolve(mediaSourcePath)
+  // Ensure root exists
+  const rootRelPath = path.relative(mediaSourcePath, rootAbsPath).replace(/\\/g, '/') || '.'
+  const rootId = repositoryService.generateId(rootRelPath)
+  const rootName = path.basename(rootAbsPath) || 'Library'
 
-  while (queue.length > 0) {
-    const { currentPath, parentId } = queue.shift()!
-    if (!parentId) continue
+  db.prepare(`
+    INSERT INTO items (id, parent_id, path, name, type, is_missing)
+    VALUES (?, NULL, ?, ?, 'folder', 0)
+    ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+  `).run(rootId, rootRelPath, rootName)
 
-    let entries: Dirent[]
-    try {
-      entries = await fs.readdir(currentPath, { withFileTypes: true })
-    } catch (e) {
-      log(`Failed to read directory: ${currentPath}`)
-      continue
-    }
+  await walk(rootAbsPath, null, mediaSourcePath, db, visitedIds, statements)
 
-    // ---------------------------------------------------------
-    // Phase 1: Context Retrieval
-    // ---------------------------------------------------------
-    const currentFolderRow = selectFolderSettingsStmt.get(parentId)
-    const scraperSettings = repositoryService.parseJsonSafe<any>(
-      currentFolderRow?.scraper_settings_json,
-      {}
-    )
+  // #1 Conditional Cleanup (Ghost Items vs Deletion)
+  const scopePath = rootRelPath === '.' ? '' : rootRelPath
+  const itemsInScope = repositoryService.getItemsForCleanup(scopePath)
 
-    const retrieveChildrenMetadata =
-      !options.skipMetadata && scraperSettings.retrieve_children_metadata !== false
-
-    const operations: (() => void)[] = []
-
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
-
-      const isDirectory = entry.isDirectory()
-
-      // Safeguard: Ignore the library data directory if it's inside a media source.
-      // We only scan it if the media source path IS the library data path itself.
-      if (isDirectory) {
-        const fullPath = path.join(currentPath, entry.name)
-
-        // Resolve both to be safe (handles absolute paths correctly)
-        const resolvedPath = path.resolve(fullPath)
-
-        if (resolvedPath === resolvedLibraryPath && resolvedLibraryPath !== resolvedMediaSourcePath) {
-          log(`Skipping library data directory: ${entry.name}`)
-          continue
+  repositoryService.runTransaction(() => {
+    for (const item of itemsInScope) {
+      if (!visitedIds.has(item.id)) {
+        if (item.hasLocks) {
+          repositoryService.markAsMissing(item.id)
+        } else {
+          repositoryService.deleteItem(item.id)
         }
-      }
-
-      const isVideoFile = entry.isFile() && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
-
-      if (!isDirectory && !isVideoFile) continue
-
-      const fullPath = path.join(currentPath, entry.name)
-      const relativePath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-      const id = repositoryService.generateId(relativePath)
-      const type = isDirectory ? 'folder' : 'file'
-
-      // Stats retrieval
-      let stats = { size: 0, mtime: 0, birthtime: 0 }
-      try {
-        const s = await fs.stat(fullPath)
-        stats = { size: s.size, mtime: Math.floor(s.mtimeMs), birthtime: Math.floor(s.birthtimeMs) }
-      } catch { }
-
-      // ---------------------------------------------------------
-      // Phase 3: Invariant Enforcement & Write Guard
-      // ---------------------------------------------------------
-      let parsedMediaType: string | null = null
-      let specificFolderSettings: any = null
-
-      // Check for injected settings
-      if (isDirectory && options.initialFolderSettings) {
-        const settings = options.initialFolderSettings[relativePath]
-        if (settings) {
-          specificFolderSettings = settings
-          log(`Applying initial settings to: ${relativePath}`)
-        }
-      }
-
-      if (retrieveChildrenMetadata) {
-        if (isDirectory && scraperSettings.children_type_hint) {
-          parsedMediaType = scraperSettings.children_type_hint
-        }
-      }
-
-      visitedIds.add(id)
-
-      operations.push(() => {
-        upsertItemStmt.run({
-          '@id': id,
-          '@parentId': parentId,
-          '@path': relativePath,
-          '@name': entry.name,
-          '@type': type,
-          '@size': stats.size,
-          '@mtime': stats.mtime,
-          '@birthtime': stats.birthtime
-        })
-
-        if (specificFolderSettings) {
-          upsertFolderSettingsStmt.run({
-            '@id': id,
-            '@settingsJson': JSON.stringify(specificFolderSettings)
-          })
-        }
-
-        if (parsedMediaType) {
-          upsertMetadataStmt.run({
-            '@id': id,
-            '@mediaType': parsedMediaType,
-            '@seasonNumber': null,
-            '@episodeNumber': null
-          })
-        }
-      })
-
-      if (isDirectory) {
-        queue.push({
-          currentPath: fullPath,
-          parentId: id
-        })
       }
     }
-
-    if (operations.length > 0) {
-      repositoryService.runTransaction(() => {
-        operations.forEach((op) => op())
-      })
-    }
-  }
+  })
 
   return visitedIds
 }
+
 
 export async function scanDirectory(
   mediaSourcePath: string,
@@ -251,33 +180,25 @@ export async function scanDirectory(
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
   log(
-    `Starting full scan of ${mediaSourcePath}${options.skipMetadata ? ' (metadata skipped)' : ''}`
+    `Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`
   )
 
   repositoryService.ensureRootExists(mediaSourcePath)
 
-  const visitedIds = await walkAndUpsert(mediaSourcePath, mediaSourcePath, db, options)
-
-  // Full Scan cleanup:
-  // Any item in the DB that was NOT visited is missing.
-  // We can't do "NOT IN (...100k ids...)" safely.
-  // Efficient approach:
-  // 1. Get all IDs currently in DB where is_missing = 0.
-  // 2. Filter in JS (Set difference).
-  // 3. Batch update missing.
-
-  const allDbIds = (
-    db.prepare('SELECT id FROM items WHERE is_missing = 0').all() as { id: string }[]
-  ).map((row) => row.id)
-  const missingIds = allDbIds.filter((id) => !visitedIds.has(id))
-
-  if (missingIds.length > 0) {
-    log(`Marking ${missingIds.length} items as missing.`)
-    repositoryService.runTransaction(() => {
-      const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
-      missingIds.forEach((id) => stmt.run(id))
-    })
+  // Handle initial folder settings if provided (e.g. for the root)
+  // This ensures Gate A/B are established before Phase 2 starts.
+  if (options.initialFolderSettings) {
+    for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
+      const id = repositoryService.generateId(relPath)
+      db.prepare(`
+        INSERT INTO folder_settings (item_id, scraper_settings_json)
+        VALUES (?, ?)
+        ON CONFLICT(item_id) DO UPDATE SET scraper_settings_json = excluded.scraper_settings_json
+      `).run(id, JSON.stringify(settings))
+    }
   }
+
+  await syncDiskToDatabase(mediaSourcePath, mediaSourcePath, db)
 
   return repositoryService.getRoot()
 }
@@ -292,32 +213,7 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
 
   log(`Syncing subtree: ${node.path}`)
 
-  // 1. Get all KNOWN descendants of this folder from the DB.
-  // This allows us to know what *should* be there.
-  // We explicitly use the recursive query capability here.
-  const knownDescendants = repositoryService.getAllDescendantsAsList(node)
-  const knownIds = new Set(knownDescendants.map((d) => d.id))
-
-  // 2. Walk the FS subtree.
-  const visitedIds = await walkAndUpsert(rootAbsPath, mediaSourcePath, db, { skipMetadata: false })
-
-  // 3. Calculate missing WITHIN this subtree.
-  // Missing = Known in DB - Found on Disk
-  const missingIds: string[] = []
-  for (const knownId of knownIds) {
-    if (!visitedIds.has(knownId)) {
-      missingIds.push(knownId)
-    }
-  }
-
-  // 4. Mark missing.
-  if (missingIds.length > 0) {
-    log(`Marking ${missingIds.length} items as missing in subtree.`)
-    repositoryService.runTransaction(() => {
-      const stmt = db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?')
-      missingIds.forEach((id) => stmt.run(id))
-    })
-  }
+  await syncDiskToDatabase(rootAbsPath, mediaSourcePath, db)
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
@@ -402,23 +298,5 @@ export function initializeRoot(
       '@id': rootId,
       '@settingsJson': JSON.stringify(rootSettings)
     })
-
-    if (hasHint) {
-      db.prepare(
-        `
-      INSERT INTO metadata (item_id, media_type, season_number, episode_number)
-      VALUES (@id, @mediaType, @seasonNumber, @episodeNumber)
-      ON CONFLICT(item_id) DO UPDATE SET
-        media_type = COALESCE(media_type, excluded.media_type),
-        season_number = COALESCE(season_number, excluded.season_number),
-        episode_number = COALESCE(episode_number, excluded.episode_number)
-    `
-      ).run({
-        '@id': rootId,
-        '@mediaType': rootSettings.children_type_hint,
-        '@seasonNumber': null,
-        '@episodeNumber': null
-      })
-    }
   }
 }

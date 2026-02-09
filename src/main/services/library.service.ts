@@ -120,29 +120,22 @@ async function _runBackgroundScan(
   if (pathsService.isRemoteLibrary())
     throw new Error(`Scanning not available for remote libraries.`)
 
-  // Settings writing moved to performScan for sync execution
-
   getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
 
   try {
-    // Root is already initialized by performScan, but this is idempotent
     await filesystemService.scanDirectory(mediaSourcePath, {
       skipMetadata: false,
       initialFolderSettings: normalizedSettings
     })
 
-    // Image Verification (Maintenance) - Now runs for both Setup and Refresh
-    const imagesDir = path.join(pathsService.getLibraryDataPath(), 'images')
-    await filesystemService.verifyImagePaths(imagesDir)
-
     searchService.buildFullSearchIndex()
 
-    // Fetch metadata for the newly scanned items
-    await metadataService.fetchMetadataForLibrary().catch((err) => {
-      console.error('[Library Service] Metadata fetch failed during rescan:', err)
+    // Phase 2: Metadata Enrichment & Maintenance
+    await metadataService.enrichDatabase().catch((err) => {
+      console.error('[Library Service] Enrichment failed during rescan:', err)
     })
 
-    await reapplyVirtualTagsAfterSettingsChange()
+    // Virtual tags are now handled inside enrichDatabase -> maintenancePass
   } finally {
     playbackService.clearStreamCache()
     getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
@@ -943,7 +936,7 @@ export const applyInitialFolderSettings = async (
   if (itemsToUpdate.length > 0) {
     await updateIfChangedAndBroadcast(itemsToUpdate)
   }
-  metadataService.fetchMetadataForLibrary().catch(console.error)
+  metadataService.enrichDatabase().catch(console.error)
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {

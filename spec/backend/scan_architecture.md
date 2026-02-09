@@ -102,6 +102,7 @@ function enrichDatabase():
     WHERE (
         (mediaType == 'tv')
         AND (process_tv_children == TRUE) // this flag is true by default for tv shows
+        AND (last_refreshed_at IS NULL OR mtime > last_refreshed_at) // Optimization: Only analyze structure if the folder itself has been touched since last refresh
     )
   """)
   
@@ -113,15 +114,14 @@ function enrichDatabase():
     anyChanges = tvShowService.syncTvShowStructure(tv_show) 
 
     if anyChanges and tv_show.tmdbId IS NOT NULL:
-       // Structure changed. DEFINITELY need to reassign metadata to children.
-       // LIKELY need to re-fetch cached metadata and possibly even for the show itself.
-       changed_structure_tv_shows.append(tv_show)
+      // Structure changed. DEFINITELY need to reassign metadata to children.
+      // LIKELY need to re-fetch cached metadata and possibly even for the show itself.
+      changed_structure_tv_shows.append(tv_show)
 
   // 2. Discovery: Find the logical starting points for Phase 2.
   // We select:
-  // - All Library Roots (The permanent entry points)
   // - Dirty Movies/Shows/Folders (The content entry points)
-  // ALL filtered by Gate A (Must be enabled or be the Root itself).
+  // ALL filtered by Gate A (Must be enabled).
   dirty_roots = db.query("""
     SELECT * FROM items 
     WHERE (

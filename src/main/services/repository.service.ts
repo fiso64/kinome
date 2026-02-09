@@ -1074,3 +1074,117 @@ export function getSeasonsWithEpisodes(showId: string, fields: string[] = []): L
 
   return seasons
 }
+
+// --- Scanner Optimized Operations ---
+
+/**
+ * Returns all item IDs that start with a given path prefix.
+ * Used for scoped missing detection.
+ */
+export function getAllIdsInScope(pathPrefix: string): string[] {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id FROM items WHERE path LIKE ? OR path = ?')
+    .all(`${pathPrefix}/%`, pathPrefix) as { id: string }[]
+  return rows.map((r) => r.id)
+}
+
+/**
+ * Returns a raw list of all descendant IDs for a given folder.
+ * Uses a recursive CTE for high performance.
+ */
+export function getAllDescendantIdsFast(parentId: string): string[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `
+    WITH RECURSIVE tree(id) AS (
+      SELECT id FROM items WHERE parent_id = ?
+      UNION ALL
+      SELECT i.id FROM items i
+      JOIN tree t ON i.parent_id = t.id
+    )
+    SELECT id FROM tree
+  `
+    )
+    .all(parentId) as { id: string }[]
+  return rows.map((r) => r.id)
+}
+
+/**
+ * Returns items in a scope with their locked fields status.
+ * Used for conditional cleanup (Missing vs Delete).
+ */
+export function getItemsForCleanup(pathPrefix: string): { id: string; hasLocks: boolean }[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `
+    SELECT i.id, m.locked_fields_json
+    FROM items i
+    LEFT JOIN metadata m ON i.id = m.item_id
+    WHERE i.path LIKE ? OR i.path = ?
+  `
+    )
+    .all(`${pathPrefix}/%`, pathPrefix) as { id: string; locked_fields_json: string | null }[]
+
+  return rows.map((r) => ({
+    id: r.id,
+    hasLocks: !!r.locked_fields_json && JSON.parse(r.locked_fields_json).length > 0
+  }))
+}
+
+export function markAsMissing(id: string): void {
+  const db = getDb()
+  db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?').run(id)
+}
+
+/**
+ * Phase 2 Discovery: Finds all "Logical Entry Points" for enrichment.
+ * 1. "Dirty" items (lastRefreshedAt IS NULL)
+ * 2. Children of folders where Gate A (retrieve_children_metadata) is enabled.
+ */
+export function getDiscoveryItemsForPhase2(): LibraryItem[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `
+    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+    FROM items i
+    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN user_state u ON i.id = u.item_id
+    LEFT JOIN folder_settings f ON i.id = f.item_id
+    LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
+    WHERE (m.media_type IN ('movie', 'tv') OR m.media_type IS NULL) -- Spec line 130
+      AND m.last_refreshed_at IS NULL -- 1. Must be "Dirty"
+      AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1 -- 2. MUST have Gated Parent
+  `
+    )
+    .all() as any[]
+
+  return rows.map(mapRowToLibraryItem)
+}
+
+/**
+ * Phase 2 Preprocessing: Finds TV shows that may need structural sync.
+ * Selects TV shows where process_tv_children is active and mtime > last_refreshed_at.
+ */
+export function getTvShowsForStructuralSync(): LibraryItem[] {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `
+    SELECT i.*, m.*, f.scraper_settings_json
+    FROM items i
+    JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN folder_settings f ON i.id = f.item_id
+    WHERE i.type = 'folder' 
+      AND m.media_type = 'tv'
+      AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
+      AND (i.mtime > m.last_refreshed_at OR m.last_refreshed_at IS NULL)
+  `
+    )
+    .all() as any[]
+
+  return rows.map(mapRowToLibraryItem)
+}

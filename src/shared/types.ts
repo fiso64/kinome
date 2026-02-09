@@ -392,6 +392,7 @@ export interface BaseLibraryItem {
   scraperSettings?: any
   _v?: number
   overrideChildId?: string
+  mtime?: number
 }
 
 export interface ViewHierarchyNode {

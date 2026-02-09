@@ -11,6 +11,7 @@ import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getTransport } from '../transport.registry'
+import * as filesystemService from './filesystem.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
 import { RESETTABLE_METADATA_KEYS } from '@shared/types'
@@ -28,79 +29,103 @@ const log = (message: string): void => {
 //   return false
 // }
 
-// Helper to check if an item's parent has retrieve_children_metadata enabled (The Gate)
-function isMetadataEnabledForItem(itemId: string): boolean {
-  const parent = repositoryService.findParent(itemId)
-  if (!parent) return false
-  return parent.scraperSettings?.retrieve_children_metadata === true
-}
 
-export async function fetchMetadataForLibrary() {
+/**
+ * Phase 2: Metadata Enrichment (DB -> API)
+ * Invariant: No filesystem walking here. All data read from DB.
+ */
+export async function enrichDatabase() {
   const settings = await settingsService.readSettings()
   if (!settings.tmdbApiKey) {
-    console.warn('Metadata fetch skipped: No TMDB API key.')
+    log('Enrichment skipped: No TMDB API key.')
     return
   }
-
-  // 1. Discovery: Find items that need identification or enrichment
-  const allItems = repositoryService.getAllItemsAsList()
-  if (allItems.length === 0) return
-
-  const itemsToProcess = allItems.filter((item) => {
-    if (item.isHidden || item.isMissing) return false
-
-    // GATE: Only process items whose parent has retrieve_children_metadata enabled
-    if (!isMetadataEnabledForItem(item.id)) return false
-
-    // Needs Identification
-    if (!item.tmdbId && !item.lastRefreshedAt) return true
-
-    // Needs Enrichment (Details/Images/Structural sync)
-    // We also run the orchestrator if lastRefreshedAt is NULL (Dirty flag)
-    if (!item.lastRefreshedAt) {
-      log(`[Scan] Item needs enrichment (Dirty): "${item.name}" (id: ${item.id}). lastRefreshedAt: ${item.lastRefreshedAt}. Fields present: ${Object.keys(item).length}`)
-      return true
-    }
-
-    // TV Show Structural Integrity Check (Dynamic Container)
-    // TV Shows are processed every time because they are dynamic containers.
-    // The orchestrator handles the internal freshness check for network calls,
-    // but must always run Structural Sync and Managed Copy.
-    if (item.mediaType === 'tv') {
-      // log(`[Scan] Item is TV Show, always processing: "${item.name}"`)
-      return true
-    }
-
-    return false
-  })
-
-  if (itemsToProcess.length === 0) {
-    log('[Metadata] No items need update.')
-    return
-  }
-
-  log(`[Metadata] Starting update for ${itemsToProcess.length} items using Unified Orchestrator.`)
 
   getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: true })
-  try {
-    // 2. Processing: Use the Orchestrator for each dirty item
-    // We use chunks to avoid overwhelming the network/API
-    await processInChunks(itemsToProcess, 5, async (item) => {
-      // Optimization: If it's an episode or season, we only call orchestrator
-      // if it's "orphan" or if we want to force its individual update.
-      // However, calling handleItemUpdate is safe as it skips work if already fresh.
-      const modifiedItems = await handleItemUpdate(item)
 
-      if (modifiedItems.length > 0) {
-        await updateIfChangedAndBroadcast(modifiedItems)
+  try {
+    // ---------------------------------------------------------
+    // 1. Preprocess TV Structural Changes
+    // ---------------------------------------------------------
+    // Find all TV shows that might need structural sync using an optimized query.
+    const tvShowsWithChanges: LibraryItem[] = []
+    const tvShowsToSync = repositoryService.getTvShowsForStructuralSync()
+
+    if (tvShowsToSync.length > 0) {
+      log(`[Phase 2] Preprocessing structure for ${tvShowsToSync.length} TV shows.`)
+      for (const show of tvShowsToSync) {
+        const modified = await tvShowService.syncTvShowStructure(show as MediaFolder)
+        if (modified.length > 0 && show.tmdbId) {
+          tvShowsWithChanges.push(show)
+        }
       }
-    })
+    }
+
+    // ---------------------------------------------------------
+    // 2. Discovery: Find "Logical Entry Points"
+    // ---------------------------------------------------------
+    const discoveredDirtyItems = repositoryService.getDiscoveryItemsForPhase2()
+
+    // Merge discovered items with TV shows that had structural changes
+    // Use a Set to avoid duplicate processing
+    const itemMap = new Map<string, LibraryItem>()
+    discoveredDirtyItems.forEach(item => itemMap.set(item.id, item))
+    tvShowsWithChanges.forEach(item => itemMap.set(item.id, item))
+
+    const entryPoints = Array.from(itemMap.values())
+
+    if (entryPoints.length === 0) {
+      log('[Phase 2] No dirty entry points found.')
+    } else {
+      log(`[Phase 2] Processing ${entryPoints.length} entry points.`)
+
+      // 3. The Orchestration Loop
+      // We process entry points (Movies, Shows, Seasons, or Gated Folders)
+      await processInChunks(entryPoints, 5, async (item) => {
+        await handleItemUpdate(item)
+      })
+    }
+
+    // ---------------------------------------------------------
+    // 4. Maintenance Pass
+    // ---------------------------------------------------------
+    await maintenancePass()
+
   } finally {
     getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
   }
 
   await repositoryService.writeDb()
-  log('[Metadata] Run complete.')
+  log('[Phase 2] Enrichment complete.')
+}
+
+export async function maintenancePass() {
+  log('[Maintenance] Starting pass...')
+  const settings = await settingsService.readSettings()
+  const libraryDataPath = pathsService.getLibraryDataPath()
+  const imagesDir = path.join(libraryDataPath, 'images')
+
+  // 1. Image Verification (Does artwork still exist on disk?)
+  await filesystemService.verifyImagePaths(imagesDir)
+
+  // 2. Virtual Tag Re-evaluation
+  const allItems = repositoryService.getAllItemsAsList()
+  const modified: LibraryItem[] = []
+
+  for (const item of allItems) {
+    const freshTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+    if (JSON.stringify(freshTags) !== JSON.stringify(item.virtualTags)) {
+      item.virtualTags = freshTags
+      modified.push(item)
+    }
+  }
+
+  if (modified.length > 0) {
+    log(`[Maintenance] Updated virtual tags for ${modified.length} items.`)
+    await updateIfChangedAndBroadcast(modified)
+  }
+
+  log('[Maintenance] Pass complete.')
 }
 
 export async function fetchEpisodeDataForContinueWatching(

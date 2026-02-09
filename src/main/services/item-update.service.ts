@@ -17,42 +17,20 @@ const log = (message: string): void => {
 function getComparisonSnapshot(item: LibraryItem | null | undefined) {
   if (!item) return null
 
-  // Destructure to separate DATA from SYSTEM NOISE
+  // We only exclude fields that are:
+  // 1. Recursive/Relational (children)
+  // 2. Internal DB implementation details (_internalId, _v)
+  // 3. Runtime broadcast noise (ancestorIds, isVirtual)
   const {
-    // 1. System/DB Fields (Auto-managed or Volatile)
-    _v,
+    _v, // TODO: Really think about _v handling.
     _internalId,
-    addedAt,
-    updatedAt,
-    createdAt,
-
-    // 2. Filesystem Stats (Handled by scanner, not service-level broadcast-triggers)
-    mtime,
-    size,
-    birthtime,
-
-    // 3. Relational Data (CRITICAL TO EXCLUDE)
-    // Children are separate entities; changing them shouldn't mark parent as dirty
     children,
-
-    // 4. Runtime/Broadcast Fields
     ancestorIds,
     isVirtual,
-
-    // The rest is actual content (metadata, user state, settings, etc.)
     ...data
   } = item as any
 
-  return {
-    ...data,
-    // Normalize Locked Fields (sort so order doesn't matter)
-    lockedFields: (data.lockedFields || []).slice().sort(),
-
-    // Normalize Dates (compare timestamps)
-    // These fields are sometimes number, sometimes string, sometimes Date in JS
-    lastWatched: data.lastWatched ? new Date(data.lastWatched).getTime() : null,
-    lastRefreshedAt: data.lastRefreshedAt ? new Date(data.lastRefreshedAt).getTime() : null
-  }
+  return data
 }
 
 /**
@@ -60,7 +38,24 @@ function getComparisonSnapshot(item: LibraryItem | null | undefined) {
  * IMPORTANT: Careful not to use this for partial updates (without merging first), as it will always return false.
  */
 export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boolean {
-  return equal(getComparisonSnapshot(existing), getComparisonSnapshot(updated))
+  const existingSnapshot = getComparisonSnapshot(existing)
+  const nextSnapshot = getComparisonSnapshot(updated)
+  const same = equal(existingSnapshot, nextSnapshot)
+
+  /*
+  if (!same) {
+    const diff: any = {}
+    const allKeys = new Set([...Object.keys(existingSnapshot || {}), ...Object.keys(nextSnapshot || {})])
+    for (const key of allKeys) {
+       if (!equal((existingSnapshot as any)?.[key], (nextSnapshot as any)?.[key])) {
+         diff[key] = { from: (existingSnapshot as any)?.[key], to: (nextSnapshot as any)?.[key] }
+       }
+    }
+    console.log(`[Item Update] Data changed for ${existing.id}:`, JSON.stringify(diff, null, 2))
+  }
+  */
+
+  return same
 }
 
 export async function updateIfChangedAndBroadcast(
@@ -105,11 +100,13 @@ export async function updateIfChangedAndBroadcast(
 
       if (hasRealChanges) {
         item._v = Date.now()
-        if (!item.id.startsWith('virtual--')) {
-          repositoryService._updateItem(item.id, item)
-        }
         modifiedItems.push(item)
         autocompleteService.invalidateCache()
+      }
+
+      // Always persist to DB to ensure system fields (like lastRefreshedAt) are saved
+      if (!item.id.startsWith('virtual--')) {
+        repositoryService._updateItem(item.id, item)
       }
     }
   })
