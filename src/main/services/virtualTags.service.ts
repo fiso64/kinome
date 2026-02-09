@@ -106,14 +106,14 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
   const jsonBuildSql = `json_object(${args.join(', ')})`
 
   try {
-    // Ensure every item from the items table has a row in metadata table first.
-    // This allows virtual tags to be persisted even if no other metadata exists.
+    // Every item (except the root) from the items table needs a row in metadata 
+    // table to ensure virtual tags are persisted.
     if (itemIds && itemIds.length > 0) {
       db.prepare(
         `INSERT OR IGNORE INTO metadata (item_id) VALUES ${itemIds.map(() => '(?)').join(',')}`
       ).run(...itemIds)
     } else {
-      db.prepare(`INSERT OR IGNORE INTO metadata (item_id) SELECT id FROM items`).run()
+      db.prepare(`INSERT OR IGNORE INTO metadata (item_id) SELECT id FROM items WHERE parent_id IS NOT NULL`).run()
     }
 
     let sql = `UPDATE metadata SET virtual_tags_json = ${jsonBuildSql}`
@@ -124,7 +124,8 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
       const info = db.prepare(sql).run(...itemIds)
       log(`Applied virtual tags to ${info.changes} metadata rows using SQL.`)
     } else {
-      // Full update
+      // Full update - exclude root
+      sql += ` WHERE item_id IN (SELECT id FROM items WHERE parent_id IS NOT NULL)`
       const info = db.prepare(sql).run()
       log(`Applied virtual tags to ${info.changes} metadata rows (full update) using SQL.`)
     }

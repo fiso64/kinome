@@ -779,6 +779,10 @@ const app = new Elysia()
         // Clear streaming cache as settings (like media source path) might have changed
         playbackService.clearStreamCache()
 
+        if (body.virtualTags) {
+          libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
+        }
+
         // If library location changed, re-initialize the server's data source
         // but only if it's a local path (remote settings handles its own data).
         if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {

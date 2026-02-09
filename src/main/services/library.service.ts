@@ -933,15 +933,11 @@ export const applyInitialFolderSettings = async (
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {
-  const settings = await settingsService.readSettings()
+  // Use the maintenance pass to evaluate tags in-memory, update DB, and broadcast changes.
+  // This is more efficient than a full broadcast as it only notifies the UI about changed items.
+  await metadataService.maintenancePass()
 
-  // 1. Apply tags in DB massively via SQL
-  virtualTagsService.applyVirtualTags(settings.virtualTags)
-
-  // 2. We need to broadcast the updates.
-  const allItems = repositoryService.getAllItemsAsList()
-
-  getTransport().notifyLibraryItemsUpdated(JSON.parse(JSON.stringify(allItems)))
+  // We still need to refresh suggestions and group-by keys for the UI
   const [suggestions, groupByKeys] = await Promise.all([
     getAutocompleteSuggestions(),
     getGroupByKeys()

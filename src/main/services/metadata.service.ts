@@ -95,7 +95,11 @@ export async function maintenancePass() {
   const modified: LibraryItem[] = []
 
   for (const item of allItems) {
-    const freshTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+    // Root items (no parentId) should not have virtual tags.
+    const freshTags = item.parentId
+      ? virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+      : {}
+
     if (JSON.stringify(freshTags) !== JSON.stringify(item.virtualTags)) {
       item.virtualTags = freshTags
       modified.push(item)
