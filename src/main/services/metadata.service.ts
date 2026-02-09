@@ -75,13 +75,14 @@ export async function enrichDatabase() {
     const entryPoints = Array.from(itemMap.values())
 
     if (entryPoints.length === 0) {
-      log('[Phase 2] No dirty entry points found.')
+      log('[Phase 2] No dirty entry points found. Enrichment skipped.')
     } else {
-      log(`[Phase 2] Processing ${entryPoints.length} entry points.`)
+      log(`[Phase 2] Discovery complete. Found ${entryPoints.length} logical entry points for enrichment.`)
 
       // 3. The Orchestration Loop
       // We process entry points (Movies, Shows, Seasons, or Gated Folders)
       await processInChunks(entryPoints, 5, async (item) => {
+        log(`[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"`)
         await handleItemUpdate(item)
       })
     }

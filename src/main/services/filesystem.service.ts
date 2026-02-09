@@ -44,6 +44,7 @@ async function walk(
 
   // 1. Initial Gate Check (Folders only)
   if (isDirectory && id !== repositoryService.generateId('.') && dbMtime === diskMtime) {
+    log(`[Phase 1] mtime unchanged, skipping branch for folder: "${relativePath}"`)
     // O(1) Skip: Mark all known descendants as visited to prevent they logic from marking them missing
     const descendantIds = repositoryService.getAllDescendantIdsFast(id)
     descendantIds.forEach((dId) => visitedIds.add(dId))
@@ -85,6 +86,7 @@ async function walk(
 
     // Upsert entry (Fingerprint sync)
     // For folders, we do NOT set mtime here.
+    log(`[Phase 1] Syncing ${isDir ? 'folder' : 'file'}: "${childRelPath}"`)
     statements.upsertItem.run({
       '@id': childId,
       '@parentId': id,
@@ -110,6 +112,7 @@ async function walk(
   // 4. Seal the Gate
   // Update the DB mtime ONLY after all children are successfully processed.
   if (isDirectory) {
+    log(`[Phase 1] Sealing the gate for folder: "${relativePath}" (mtime: ${diskMtime})`)
     statements.sealFolder.run({
       '@id': id,
       '@mtime': diskMtime
@@ -167,6 +170,7 @@ async function syncDiskToDatabase(
     }
   })
 
+  log(`[Phase 1] Filesystem sync complete. Visited ${visitedIds.size} items.`)
   return visitedIds
 }
 

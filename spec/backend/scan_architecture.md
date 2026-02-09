@@ -11,7 +11,7 @@
 This specification defines the "Filesystem-First" architecture of the scanner. It respects arbitrary nested folder structures and only applies "Smart Parsing" (TV logic) and "Enrichment" (TMDB) when explicitly enabled.
 
 To ensure O(1) performance on unchanged structures, the scan process is strictly divided into two decoupled phases:
-1.  **Phase 1: Filesystem Sync (Disk → DB)**: Gated by `mtime`. Settles binary existence and basic filesystem stats (Fingerprint).
+1.  **Phase 1: Filesystem Sync (Disk → DB)**: Parallelized `stat` crawl. Settles binary existence, filesystem stats, and per-disk identity (`inode` + `device_id`).
 2.  **Phase 2: Metadata Enrichment (DB → API)**: Gated by `last_refreshed_at` and structural drift. Settles identity, TV show structure (S/E), and artwork.
 
 ---
@@ -20,10 +20,12 @@ To ensure O(1) performance on unchanged structures, the scan process is strictly
 
 ### A. Structural Fingerprint
 For every file and folder, the scanner persists a **Fingerprint** in the `items` table:
-- **`path`**: The relative path from the library root (Unique ID).
-- **`mtime`**: Filesystem modification time (Primary change signal).
-- **`size`**: Byte size (Fast raw stat; non-recursive for folders).
+- **`path`**: The relative path from the library root (Persistent Identifier).
+- **`mtime`**: Filesystem modification time (File-level change signal).
+- **`size`**: Byte size (Fast raw stat; non-recursive).
 - **`birthtime`**: Creation time.
+- **`inode`**: Filesystem-level unique ID (FileID/Index).
+- **`device_id`**: Partition/Volume ID (Sourced from `st_dev`).
 
 ### B. Control Variables
 - **`last_refreshed_at`**: The **Process Completion Marker**. 
@@ -42,51 +44,86 @@ For every file and folder, the scanner persists a **Fingerprint** in the `items`
 ### Phase 1: Filesystem Sync (`syncDiskToDatabase`)
 
 ```js
-function syncDiskToDatabase(root):
-  upsert_structural_metadata(root) // Ensure root exists and is marked present
+// We define explicit limits for the scan process.
+// These are tuned for performance on HDDs.
+FOLDER_LIMIT = 1
+CHILDREN_BATCH_SIZE = 50
+
+// Phase 1: Global Queue manages FOLDERS (Best for HDD & Memory)
+async function syncDiskToDatabase(root):
+  foundPaths = new Set()
   
-  visitedIds = new Set()
-  walk(root, visitedIds)
+  // OPTIMIZATION: Use a Map for O(1) lookup in Phase 2
+  // Key: `${device_id}_${inode}`, Value: ItemData
+  newItemsMap = new Map() 
+  
+  queue = createConcurrencyQueue(limit: FOLDER_LIMIT)
+  
+  queue.push(root)
+
+  await queue.process(async (currentDir) => {
+    // 1. Get all entries in this folder
+    entries = await fs.readdir(currentDir, { withFileTypes: true })
+        
+    for (let i = 0; i < entries.length; i += CHILDREN_BATCH_SIZE) {
+      const batch = entries.slice(i, i + CHILDREN_BATCH_SIZE)
+      
+      await Promise.all(batch.map(async (entry) => {
+        // Every entry (File or Folder) must be stat-ed to reconcile its identity
+        const stats = await fs.stat(entry)
+        const itemData = { 
+          path: entry.relative_path, 
+          inode: stats.ino, 
+          device_id: stats.dev,
+          ...stats 
+        }
+        
+        // RECONCILIATION
+        if db.existsByPath(itemData.path):
+            // EFFICIENCY: Batch UPSERTs to bypass IPC/Transaction overhead.
+            // Flushes every 500 items OR every 1000ms.
+            fingerprintBuffer.add(itemData)
+            foundPaths.add(generateId(itemData.path))
+        else:
+            // Store in Map for fast lookup during Rename Rescue
+            key = `${itemData.device_id}_${itemData.inode}`
+            newItemsMap.set(key, itemData)
+
+        // If it's a folder, push to queue for recursive traversal
+        if (entry.isDirectory):
+           queue.push(entry.fullPath)
+      }))
+    }
+  })
+  // --- RECONCILIATION PHASE ---
+  
+  // 1. Flush remaining fingerprints (the buffer ensures O(N) throughput)
+  fingerprintBuffer.flush()
 
   // #1 Missing Item Detection
-  // Any item in this root's DB scope that wasn't visited is gone from disk.
-  missingItems = db.getItemsInScope(root.path).where(id => !visitedIds.has(id))
+  missingItems = db.getPresentItemsInScope(root.path).where(id => !foundPaths.has(id))
   
+  // #2 Identity-Based Rename Rescue (O(N))
   for item in missingItems:
+    key = `${item.device_id}_${item.inode}`
+    match = newItemsMap.get(key) // Instant Lookup
+    
+    if match:
+      db.migrateRecord(oldId: item.id, newId: match.id, newPath: match.path)
+      foundPaths.add(match.id) 
+      newItemsMap.delete(key) // Remove to prevent duplicate insertion
+      continue
+
+  // #3 Final Sync (Insert whatever is left in the map)
+  if (newItemsMap.size > 0):
+      db.bulkInsert(newItemsMap.values())
+
+  // #4 Conditional Cleanup
+  for item in missingItems (where not rescued):
     if item.has_locked_fields:
-      // Ghost Item: Keep the record (and user edits).
-      // Allow the UI to show the item as missing.
       db.markAsMissing(item.id) 
     else:
-      // Clean Deletion: No user value in this record, drop it.
       db.delete(item.id)
-
-// Phase 1 is a Pre-order Depth-First Search (DFS)
-function walk(dir, visitedIds):
-  visitedIds.add(dir.id)
-
-  // 1. Initial Gate Check
-  if dir.disk.mtime == dir.db.mtime:
-    // O(1) Skip: But we MUST still mark all known descendants as visited
-    // to prevent them from being marked missing.
-    visitedIds.addAll(db.getAllDescendantIds(dir.id))
-    return 
-
-  // 2. Process CURRENT Level (Files + Folders)
-  for item in dir.disk.children:
-    // Syncs: path, size (fast, non-recursive), birthtime, is_missing.
-    // NOTE: Does NOT update folder mtime here!
-    upsert_structural_metadata(item) 
-    visitedIds.add(item.id)
-
-  // 3. Descend RECURSIVELY into sub-directories
-  for item in dir.disk.children:
-    if item.is_folder:
-      walk(item, visitedIds)
-
-  // 4. Seal the Gate
-  // Update the DB mtime ONLY after children are successfully processed.
-  dir.db.mtime = dir.disk.mtime
 ```
 
 ### Phase 2: Metadata Enrichment (`enrichDatabase`) 
@@ -102,7 +139,6 @@ function enrichDatabase():
     WHERE (
         (mediaType == 'tv')
         AND (process_tv_children == TRUE) // this flag is true by default for tv shows
-        AND (last_refreshed_at IS NULL OR mtime > last_refreshed_at) // Optimization: Only analyze structure if the folder itself has been touched since last refresh
     )
   """)
   
@@ -231,3 +267,22 @@ function process_show(show):
   show.lastRefreshedAt = now()
   db.save(show)
 ```
+
+## 4. Performance & Reactivity Strategy
+
+### A. SQLite Batching (The 500/1 Rule)
+To prevent SQLite from becoming the bottleneck (and to avoid losing all progress on a crash):
+- **Buffer Size**: 500 operations.
+- **Flush Interval**: 1,000ms (via `setTimeout`).
+- **Phase 1 Bypass**: Fingerprint updates in Phase 1 MUST use raw SQL (`db.prepare().run()`) and bypass the `ItemUpdateService` to avoid comparison/broadcasting overhead.
+
+### B. UI Synchronization (The 10Hz Rule)
+The scanner provides real-time breadcrumbs to the UI:
+- **Event**: `SCANNER_PROGRESS`.
+- **Throttling**: Maximum 1 broadcast every 100ms.
+- **Data**: Current relative path, items found so far.
+
+### C. Inode Reliability (Multi-Hardware Policy)
+The `(device_id, inode)` tuple is unique only per machine.
+- **On Path Conflict**: Path ALWAYS wins.
+- **On Identity Conflict**: If two paths claim the same Inode, the most recently seen file is updated, and the old one is marked missing (preventing duplicate DB entries for hard-links).
