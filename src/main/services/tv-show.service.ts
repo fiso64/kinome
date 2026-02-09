@@ -79,10 +79,12 @@ export async function syncTvShowStructure(
           folder.title = null
           folder.overview = null
           folder.posterPath = null
+          folder.lastRefreshedAt = null
           changedForFolder = true
         }
         if (folder.mediaType !== 'season') {
           folder.mediaType = 'season'
+          folder.lastRefreshedAt = null
           changedForFolder = true
         }
 
@@ -165,6 +167,7 @@ function _applyEpisodeMap(
 
       if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
         file.seasonNumber = targetSeason
+        file.lastRefreshedAt = null
         changed = true
       }
       if (!isEpisodeLocked && info.episode !== undefined && file.episodeNumber !== info.episode) {
@@ -172,11 +175,13 @@ function _applyEpisodeMap(
         file.title = null
         file.overview = null
         file.posterPath = null
+        file.lastRefreshedAt = null
         changed = true
       }
 
       if (changed || file.mediaType !== 'episode') {
         file.mediaType = 'episode'
+        file.lastRefreshedAt = null
         modified.push(file)
       }
     }

@@ -825,27 +825,10 @@ watched = excluded.watched,
       const existing =
         (db.prepare('SELECT * FROM metadata WHERE item_id = ?').get(itemId) as any) || {}
 
-      // --- Invalidation Logic (Structural Changes) ---
-      let shouldInvalidateMetadata = false
-      if (
-        (updates.tmdbId !== undefined && updates.tmdbId !== existing.tmdb_id) ||
-        ((updates as any).seasonNumber !== undefined &&
-          (updates as any).seasonNumber !== existing.season_number) ||
-        ((updates as any).episodeNumber !== undefined &&
-          (updates as any).episodeNumber !== existing.episode_number)
-      ) {
-        shouldInvalidateMetadata = true
-        // log(`[Repo] Invalidating metadata for ${itemId} due to structural change.`)
-      }
-
       const currentImages = parseJsonSafe<any>(existing.images_json, {})
       if (updates.posterPath !== undefined) currentImages.poster = updates.posterPath
       if (updates.backdropPath !== undefined) currentImages.backdrop = updates.backdropPath
       if (updates.logoPath !== undefined) currentImages.logo = updates.logoPath
-
-      // If Episode Number changes, the old Title/Overview are "wrong" but present.
-      // We set last_refreshed_at = NULL to signal it's dirty.
-      // Ideally the Metadata Service handles the re-fetch.
 
       const params = {
         '@id': itemId,
@@ -872,9 +855,8 @@ watched = excluded.watched,
             ? JSON.stringify(updates.virtualTags)
             : existing.virtual_tags_json,
 
-        '@last_refreshed_at': shouldInvalidateMetadata
-          ? null
-          : updates.lastRefreshedAt !== undefined
+        '@last_refreshed_at':
+          updates.lastRefreshedAt !== undefined
             ? updates.lastRefreshedAt
             : existing.last_refreshed_at,
 
