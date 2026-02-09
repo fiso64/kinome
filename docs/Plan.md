@@ -31,6 +31,7 @@
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
 - [X] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
+- [ ] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
 - [ ] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
   - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
   - [ ] A "Recently Added" section implemented as a virtual folder.
@@ -57,6 +58,7 @@
 - [ ] Support for multiple accounts.
   - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
 - [ ] Tighten security.
+  - [ ] Short-lived tokens for streaming
 
 ### 📱 Platform Support
 - [ ] Make the web UI display good on different screen sizes.

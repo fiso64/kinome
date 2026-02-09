@@ -1,39 +1,43 @@
-# Kinome Fixes & Improvements
+# Fiks Me
 
+## Continue watching in HOME VIEW not updating
+Continue watching elements do not update automatically when I watch the next episode. The next up item in the tv show detail view updates fine.
+
+## View is empty after initial setup
+After initial setup, the view is empty. I have to refresh the page to see the content. Websocket issue?
+Edit: It refreshes on its own after some time. Why not instantly though?
+
+## Changing media source path and library location
+Really think about what exactly happens (or should happen) when changing the media source path and library location, both via UI and via config file. In particular:
+- What if I set an invalid dir in either of the two paths?
+- If I change the media source path without changing the library path, what happens with the db file?
+
+## Stream cache
+- There are probably some cache issues with streaming while a file is changing (e.g. while it's downloading). 
+- When a file is replaced, the stream cache is not updated.
+
+## Scoped scans
+Scoped scans. 
+
+# Can be done later
+
+## High CPU usage
+- Kinome uses 25% CPU on my Odroid C4 during the initial scan. Need to investigate.
+- Also spikes to 10% briefly when I just refresh the page. 
+
+## Heuristics
+Also add some high confidence heuristics. E.g.: When parent has automatic children type hint and folder only has ONE video file, assume movie. Need to tell the fetcher service whenever there is no explicit type hint and we are using a heuristic to be vigilant -- e.g. when we determine something is probably a movie and the retriever does not find that movie, try shows instead (and vice versa).
+
+## Clicking on nested search results
+I have noticed an issue, where when an item returned by the search results is not an immediate child of root but nested in another subfolder and I click on it, there are different buggy behaviors in the search results depending on type:
+- in full search view, the item is simply not selected when I nav back into the search view (it navigates into detail view just fine though)
+- in popout mode, the popout is not closed and search query is not cleared after the item is selected, though again it opens its detail view just fine.
 
 ## episode number reassignment
 Support changing season and episode numbers for episode files.
 Bug: When episode numbers are interchanged (e.g. 1 <-> 2), the episodes do not swap metadata.
     - Performing a rescan after interchanging removes all metadata from both episodes.
     - Also, after performing a rescan, the episodes have their old numbers back (no locks/locks are not respected?).
-
-## Resolving complex view settings 
-**Setup:**
-1.  **Library Structure:**
-    *   Root
-        *   `Breaking Bad` (TV Show)
-            *   `Season 1` (Folder)
-                *   `Episode 1.mkv` (File)
-2.  **View Settings (Root):**
-    *   Layout: `Sections`
-    *   Group By: `Folder`
-3.  **Visual Result:** The Root View correctly creates a Section for "Breaking Bad" and unwraps "Season 1" into a tab/section.
-
-**Symptoms:**
-*   The episodes listed inside the "Season 1" tab are missing the `overview` field (and potentially others like `seasonNumber`).
-*   This results in empty text areas where descriptions should be, or fallback rendering.
-*   **Contrast:** Opening `Breaking Bad` directly (Detail View) displays the same structure *correctly* with all fields populated.
-
-**Root Cause Analysis:**
-The issue stems from how the Frontend calculates which database fields to request from the Backend (`getAllRequiredFields`).
-
-1.  **Requirement Calculation:** The Frontend looks at the container's View Settings to determine what layout its children will use.
-2.  **Implicit Defaults:**
-    *   **TV Show Detail View:** The container has `mediaType: 'tv'`. The `resolveViewSettings` helper detects this and explicitly injects the "Default Season Layout" (List View) as the `childViewSettings`. Since List View requires `overview`, the Frontend requests it.
-    *   **Root View:** The container is a generic folder (`mediaType: null`). `resolveViewSettings` **does not** inject any implicit defaults. It assumes the content will be displayed using the generic default (Grid), which does *not* require `overview`.
-    *   When the root view is set to be grouped by sections with a configured child layout (e.g. list), then it works correctly. Why? Because `getAllRequiredFields` checks the childViewSettings, which are non-null in this case. The problem is that we over-rely on the childViewSettings, which only reflect user overrides, and not any automatic defaults. 
-
-Proposed fix: Instead of injecting the view settings into the item object, refactor resolveViewSettings to return a lightweight view settings object, possibly nested where needed (depending on if recurse: true). Then extend the items api to add an optional include parameter `viewSettings`, with an option for either recursive or non-recursive. When the client requests either of these, we get the output of resolveViewSettings and send it to the client. The getAllRequiredFields function should then be updated to use this new object instead. Moreover, we will stop storing view settings directly inside the items, and instead store them in `viewSettings` subkey.
 
 ## Clean up requests
 Clean up all duplicate/redundant API requests from the frontend. 
@@ -44,5 +48,3 @@ Audit all usage of getChildren (incredibly bloated)
 
 # Lower priority issues
 - Some actions (like moving an item to trash) trigger an expensive full rescan which is wasteful. Find all such actions and make them more targeted.
-- Fix the backdrop pop-in when navigating into a detail view for the first time.
-- All subdirs of a tv type item should probably be set to season type automatically (even if it doesn't have a season number). Purpose: Consistent ui. When I switch from S01 to the Specials tab, it should use the same season display defaults (list view). Assigning season type is the most straightforward way to do this.
