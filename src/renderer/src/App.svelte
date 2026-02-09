@@ -284,6 +284,250 @@
     isWaitingForScan = false
   }
 
+  // --- Centralized Actions ---
+  const actions = {
+    rescan: handleRefresh,
+
+    toggleFullscreen: () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch((err) => {
+          console.warn(`Error attempting to enable full-screen mode: ${err.message}`)
+        })
+      } else {
+        document.exitFullscreen()
+      }
+    },
+
+    openSettings: () => navStore.navigateToSettings(),
+
+    openViewSettings: async (itemOrId?: LibraryItem | string) => {
+      const id = itemOrId || navStore.contextItemId
+      if (!id) return
+
+      const targetItem = await libraryDataService.ensureItemWithFields(id, [
+        'type',
+        'mediaType',
+        'viewSettings'
+      ])
+      if (targetItem && targetItem.type === 'folder') {
+        const parentItem = contextMenuStore.parentItem
+        const isSelf = parentItem?.id === targetItem.id
+        modalStore.open('itemSettings', {
+          item: targetItem,
+          initialTab: 'view',
+          overrideParent: isSelf ? undefined : parentItem,
+          defaultLayout: resolveViewSettings(
+            targetItem as any,
+            settings,
+            new Set(),
+            parentItem?.viewSettings?.childViewSettings
+          ).settings.layout as any
+        })
+      }
+    },
+
+    editMetadata: async (itemOrId?: LibraryItem | string, initialTab: any = 'metadata') => {
+      const id = itemOrId || navStore.contextItemId
+      if (!id || id === 'root') return
+
+      const targetItem = await libraryDataService.ensureItemWithFields(id, [
+        'type',
+        'mediaType',
+        'path',
+        'name',
+        'overview',
+        'genres',
+        'tags',
+        'seasonNumber',
+        'episodeNumber',
+        'viewSettings',
+        'scraperSettings'
+      ])
+
+      if (targetItem) {
+        modalStore.open('itemSettings', {
+          item: targetItem,
+          initialTab: initialTab,
+          defaultLayout: resolveViewSettings(targetItem as any, settings).settings.layout as any
+        })
+      }
+    },
+
+    showProperties: async (itemOrId?: LibraryItem | string) => {
+      const id = itemOrId || navStore.contextItemId
+      if (!id) return
+
+      const targetItem = await libraryDataService.ensureItemWithFields(id, [
+        'type',
+        'mediaType',
+        'path',
+        'name'
+      ])
+      if (targetItem) {
+        modalStore.open('properties', { item: targetItem })
+      }
+    },
+
+    markUnwatched: async (itemOrId?: LibraryItem | string) => {
+      const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id || navStore.contextItemId
+      if (!id || id === 'root') return
+
+      api.markAsUnwatched(id)
+      // Optimistic local update for visual feedback
+      libraryDataService.handleLibraryUpdates([{ id, watched: false } as any], false)
+    },
+
+    renameItem: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['path', 'name'])
+      if (targetItem) {
+        modalStore.open('rename', { item: targetItem })
+      }
+    },
+
+    manualSearch: async (itemOrId: LibraryItem | string, initialTab: 'match' | 'artwork') => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
+        'tmdbId',
+        'name',
+        'path'
+      ])
+      if (targetItem) {
+        modalStore.open('manualSearch', { item: targetItem, initialTab })
+      }
+    },
+
+    revealInExplorer: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['path'])
+      if (targetItem?.path) {
+        api.revealInExplorer(targetItem.path)
+      }
+    },
+
+    trashItem: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
+        'path',
+        'name',
+        'title'
+      ])
+      if (!targetItem?.path) return
+
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Deletion',
+        message: `Are you sure you want to move "${targetItem.title ?? targetItem.name}" to the trash?`,
+        detail: 'This action cannot be undone from within the app.',
+        confirmText: 'Move to Trash',
+        cancelText: 'Cancel',
+        confirmClass: 'danger'
+      })
+
+      if (confirmed) {
+        const success = await api.trashItem(targetItem.path)
+        if (success) {
+          await handleRefresh()
+        }
+      }
+    },
+
+    clearMetadata: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
+        'path',
+        'name',
+        'title'
+      ])
+      if (!targetItem) return
+
+      const path = targetItem.path || ''
+      const isFolder = targetItem.type === 'folder'
+      const isVirtual = path.startsWith('virtual://')
+      const message = isVirtual
+        ? `This will permanently delete all metadata (including custom titles, posters, and tags) for all items currently shown in the virtual folder "${targetItem.title ?? targetItem.name}".`
+        : `This will permanently delete all metadata (including custom titles, posters, and tags) for this item${isFolder ? ', and all its children recursively' : ''}.`
+
+      if (isFolder && !isVirtual) {
+        const result = await dialogStore.showConfirmationWithCheckbox({
+          title: 'Confirm Metadata Clearing',
+          message,
+          detail: 'This action cannot be undone.',
+          confirmText: 'Clear Metadata',
+          cancelText: 'Cancel',
+          confirmClass: 'danger',
+          checkbox: {
+            label: 'Preserve metadata for this item, only clear for its children.',
+            checked: false
+          }
+        })
+        if (result.confirmed) {
+          await api.clearItemMetadata(targetItem.id, result.checkboxValue)
+        }
+      } else {
+        const confirmed = await dialogStore.showConfirmation({
+          title: 'Confirm Metadata Clearing',
+          message,
+          detail: 'This action cannot be undone.',
+          confirmText: 'Clear Metadata',
+          cancelText: 'Cancel',
+          confirmClass: 'danger'
+        })
+
+        if (!confirmed) return
+
+        if (isVirtual && targetItem.type === 'folder') {
+          const childIds = (targetItem as any).children?.map((c: any) => c.id) || []
+          await api.clearVirtualFolderMetadata(childIds)
+        } else {
+          await api.clearItemMetadata(targetItem.id, false)
+        }
+      }
+    },
+
+    assignSeasons: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
+        'type',
+        'mediaType'
+      ])
+      if (targetItem?.type === 'folder') {
+        modalStore.open('assignSeasons', { item: targetItem as MediaFolder })
+      }
+    },
+
+    hideItem: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name', 'title'])
+      if (!targetItem) return
+
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Hide',
+        message: `Are you sure you want to hide "${targetItem.title ?? targetItem.name}"?`,
+        detail: "This is not a deletion. It can be unhidden from its parent folder's settings.",
+        confirmText: 'Hide Item',
+        cancelText: 'Cancel'
+      })
+
+      if (confirmed) {
+        const itemToUpdate = { ...JSON.parse(JSON.stringify(targetItem)), isHidden: true }
+        await api.userUpdateItem(itemToUpdate)
+      }
+    },
+
+    deleteFromDb: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name', 'title'])
+      if (!targetItem) return
+
+      const confirmed = await dialogStore.showConfirmation({
+        title: 'Confirm Database Deletion',
+        message: `Are you sure you want to permanently delete the record for "${
+          targetItem.title ?? targetItem.name
+        }" from the database?`,
+        detail:
+          'This only affects the library database, not the file on disk. This action cannot be undone.',
+        confirmText: 'Delete Record',
+        cancelText: 'Cancel',
+        confirmClass: 'danger'
+      })
+      if (confirmed) {
+        await api.deleteItemFromDb(targetItem.id)
+      }
+    }
+  }
+
   async function handlePlayFile(item: MediaFile): Promise<void> {
     await playerLauncherService.playItem(item, settings?.playerCommands || [])
   }
@@ -390,74 +634,17 @@
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
-      navigateBack: () => {
-        goBack()
-      },
-      navigateForward: () => {
-        goForward()
-      },
-      escapeAction: () => {
-        handleEscape()
-      },
-      focusSearch: () => {
-        appHeaderComponent?.focusSearchInput()
-      },
-      rescan: () => {
-        handleRefresh()
-      },
-      toggleFullscreen: () => {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch((err) => {
-            console.warn(`Error attempting to enable full-screen mode: ${err.message}`)
-          })
-        } else {
-          document.exitFullscreen()
-        }
-      },
-      openSettings: () => {
-        navStore.navigateToSettings()
-      },
-      openViewSettings: () => {
-        openLayoutSelector()
-      },
-      markAsUnwatched: () => {
-        if (navStore.contextItemId && navStore.contextItemId !== 'root') {
-          api.markAsUnwatched(navStore.contextItemId)
-          // Optimistic local update for visual feedback
-          libraryDataService.handleLibraryUpdates(
-            [{ id: navStore.contextItemId, watched: false } as any],
-            false
-          )
-        }
-      },
-      editMetadata: async () => {
-        if (navStore.contextItemId && navStore.contextItemId !== 'root') {
-          // Use fetchItemDetails to ensure we get all normal fields + path
-          const item = await libraryDataService.fetchItemDetails(navStore.contextItemId, [
-            'path',
-            'overview',
-            'genres',
-            'tags',
-            'viewSettings',
-            'scraperSettings'
-          ])
-          if (item) {
-            modalStore.open('itemSettings', {
-              item,
-              initialTab: 'metadata',
-              defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
-            })
-          }
-        }
-      },
-      openProperties: async () => {
-        if (navStore.contextItemId) {
-          const item = await api.getItem(navStore.contextItemId, { fields: ['path'] })
-          if (item) {
-            modalStore.open('properties', { item })
-          }
-        }
-      }
+      navigateBack: () => goBack(),
+      navigateForward: () => goForward(),
+      escapeAction: () => handleEscape(),
+      focusSearch: () => appHeaderComponent?.focusSearchInput(),
+      rescan: actions.rescan,
+      toggleFullscreen: actions.toggleFullscreen,
+      openSettings: actions.openSettings,
+      openViewSettings: () => actions.openViewSettings(),
+      markAsUnwatched: () => actions.markUnwatched(),
+      editMetadata: () => actions.editMetadata(),
+      openProperties: () => actions.showProperties()
     })
     return () => cleanupShortcuts()
   })
@@ -506,7 +693,7 @@
   <QueryClientProvider client={queryClient}>
     <ModalRoot bind:settings {groupByKeys} onRefresh={handleRefresh} />
 
-    <ContextMenuRoot {settings} onRefresh={handleRefresh} onItemClick={handleItemClick} />
+    <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} />
     <NotificationContainer />
 
     {#if $autocompleteState.show}

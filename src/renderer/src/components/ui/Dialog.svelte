@@ -56,7 +56,11 @@
         return
       }
 
-      if ((event.target as HTMLElement).tagName === 'TEXTAREA' && event.key === 'Enter') {
+      if (
+        !(event.ctrlKey || event.metaKey) &&
+        (event.target as HTMLElement).tagName === 'TEXTAREA' &&
+        event.key === 'Enter'
+      ) {
         return
       }
 
@@ -95,6 +99,7 @@
   class="dialog-backdrop"
   onmousedown={(e) => {
     if (e.target === e.currentTarget) {
+      e.stopPropagation()
       const cancelButton = buttons.find((b) => b.value === false) ?? buttons[buttons.length - 1]
       onClose(
         checkbox ? { value: cancelButton.value, checkboxValue: isChecked } : cancelButton.value

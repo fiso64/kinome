@@ -41,16 +41,23 @@
         onClose()
       } else if (onSave && event.key === 'Enter') {
         const target = event.target as HTMLElement
-        // Do not save the modal if 'Enter' is pressed in a textarea, a button,
-        // or an input specifically marked to handle Enter differently (e.g., to create a pill).
+        const isModEnter = event.ctrlKey || event.metaKey
+
+        // Do not save if 'Enter' is pressed in a button (buttons handle themselves)
+        if (target.tagName === 'BUTTON') {
+          return
+        }
+
+        // If it's a normal Enter in a textarea or pill-input, allow the default behavior (newline/pill).
+        // But if it's Ctrl/Cmd + Enter, we ALWAYS save.
         if (
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'BUTTON' ||
-          target.hasAttribute('data-enter-pill')
+          !isModEnter &&
+          (target.tagName === 'TEXTAREA' || target.hasAttribute('data-enter-pill'))
         ) {
           return
         }
-        // For all other cases (like simple text inputs), 'Enter' saves the modal.
+
+        // For all other cases, 'Enter' (or any Mod+Enter) saves the modal.
         event.preventDefault()
         onSave()
       }
@@ -97,7 +104,12 @@
 <div
   class="modal-backdrop"
   style="z-index: {zIndex};"
-  onmousedown={(e) => e.target === e.currentTarget && onClose()}
+  onmousedown={(e) => {
+    if (e.target === e.currentTarget) {
+      e.stopPropagation()
+      onClose()
+    }
+  }}
 >
   <div
     class="modal-positioner"

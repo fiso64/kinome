@@ -125,10 +125,39 @@ class LibraryDataService {
     if (!normalizedId) return null
 
     const sortedFields = [...fields].sort()
+
     return this.queryClient.fetchQuery({
       queryKey: [...this.keys.item.details(normalizedId), { fields: sortedFields }],
       queryFn: () => api.getItem(id, { fields: sortedFields })
     })
+  }
+
+  /**
+   * Helper to ensure we have a "full" item with specific fields before performing an action.
+   * If an ID is passed, it fetches the item. If an item is passed, it checks if fields are missing
+   * and fetches only if necessary.
+   */
+  async ensureItemWithFields(
+    itemOrId: LibraryItem | string | null,
+    fields: string[] = []
+  ): Promise<LibraryItem | null> {
+    if (!itemOrId) return null
+
+    if (typeof itemOrId === 'string') {
+      if (itemOrId === 'root') {
+        const status = await api.getLibraryRoot()
+        return status.root || null
+      }
+      return await this.fetchItemDetails(itemOrId, fields)
+    }
+
+    // If it's an object, check if any requested fields are missing
+    const missingFields = fields.filter((f) => !(f in itemOrId) || (itemOrId as any)[f] === undefined)
+    if (missingFields.length > 0) {
+      return await this.fetchItemDetails(itemOrId.id, fields)
+    }
+
+    return itemOrId
   }
 
   /**
