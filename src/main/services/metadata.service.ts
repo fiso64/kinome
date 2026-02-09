@@ -55,8 +55,11 @@ export async function enrichDatabase() {
       log(`[Phase 2] Preprocessing structure for ${tvShowsToSync.length} TV shows.`)
       for (const show of tvShowsToSync) {
         const modified = await tvShowService.syncTvShowStructure(show as MediaFolder)
-        if (modified.length > 0 && show.tmdbId) {
-          tvShowsWithChanges.push(show)
+        if (modified.length > 0) {
+          log(`[Phase 2] [Structure] TV Show "${show.name}" has ${modified.length} structural changes.`)
+          if (show.tmdbId) {
+            tvShowsWithChanges.push(show)
+          }
         }
       }
     }
@@ -367,6 +370,9 @@ export async function handleItemUpdate(
     ) {
       log(`[Orchestrator] Structural Sync for TV Show "${item.name}"`)
       const modified = await tvShowService.syncTvShowStructure(item as MediaFolder)
+      if (modified.length > 0) {
+        log(`[Orchestrator] [Structure] "${item.name}" returned ${modified.length} changes.`)
+      }
       allModifiedItems.push(...modified)
     }
 

@@ -1129,9 +1129,13 @@ export function getSeasonsWithEpisodes(showId: string, fields: string[] = []): L
  */
 export function getAllIdsInScope(pathPrefix: string): string[] {
   const db = getDb()
-  const rows = db
-    .prepare('SELECT id FROM items WHERE path LIKE ? OR path = ?')
-    .all(`${pathPrefix}/%`, pathPrefix) as { id: string }[]
+  const isRoot = pathPrefix === '' || pathPrefix === '.'
+  const query = isRoot
+    ? 'SELECT id FROM items'
+    : 'SELECT id FROM items WHERE path LIKE ? OR path = ?'
+  const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
+
+  const rows = db.prepare(query).all(...params) as { id: string }[]
   return rows.map((r) => r.id)
 }
 
@@ -1165,22 +1169,23 @@ export function getItemsForCleanup(
   pathPrefix: string
 ): { id: string; path: string; hasLocks: boolean; inode: number; deviceId: number }[] {
   const db = getDb()
-  const rows = db
-    .prepare(
-      `
+  const isRoot = pathPrefix === '' || pathPrefix === '.'
+
+  const query = `
     SELECT i.id, i.path, i.inode, i.device_id, m.locked_fields_json
     FROM items i
     LEFT JOIN metadata m ON i.id = m.item_id
-    WHERE i.path LIKE ? OR i.path = ?
+    ${isRoot ? '' : 'WHERE i.path LIKE ? OR i.path = ?'}
   `
-    )
-    .all(`${pathPrefix}/%`, pathPrefix) as {
-      id: string
-      path: string
-      inode: number
-      device_id: number
-      locked_fields_json: string | null
-    }[]
+  const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
+
+  const rows = db.prepare(query).all(...params) as {
+    id: string
+    path: string
+    inode: number
+    device_id: number
+    locked_fields_json: string | null
+  }[]
 
   return rows.map((row) => ({
     id: row.id,

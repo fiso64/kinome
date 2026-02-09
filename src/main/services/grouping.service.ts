@@ -290,7 +290,7 @@ async function getGroupsOnly(
     const items = find({
       where: isVirtualId(parentId) ? getFiltersFromId(parentId) : { parentId },
       fields: ['id', 'type', 'seasonNumber']
-    }).filter((c) => !c.isHidden && !c.isIgnored)
+    }).filter((c) => !c.isIgnored && !c.isHidden)
     const physicalFolders = items.filter((c: LibraryItem) => c.type === 'folder').map((c: LibraryItem) => ({ id: c.id }))
     const looseFiles = items.filter((c: LibraryItem) => c.type === 'file')
 
@@ -340,7 +340,7 @@ async function getGroupsOnly(
   const items = find({
     where: isVirtualId(parentId) ? getFiltersFromId(parentId) : { parentId },
     fields: ['id', 'type', 'mediaType', 'seasonNumber', ...groupFields]
-  }).filter((c) => !c.isHidden && !c.isIgnored)
+  }).filter((c) => !c.isIgnored && !c.isHidden)
 
   const result: { id: string }[] = []
 
@@ -397,7 +397,7 @@ export async function groupItemsForDetailView(
   const rawChildren = find({
     where: { parentId: parent.id },
     fields: options.fields
-  }).filter((c: LibraryItem) => !c.isHidden && !c.isIgnored)
+  }).filter((c: LibraryItem) => !c.isIgnored && !c.isHidden)
 
   // Apply grouping only if the layout demands it (e.g. Tabs or Sections).
   // This removes the hardcoded TV-show virtualization in favor of the resolved layout.
@@ -497,7 +497,7 @@ async function groupItemsRecursive(
 
     // 1. Unwrap Physical Folders & Recurse if needed
     for (const folder of physicalFolders) {
-      let children = getChildren(folder.id, fields).filter((c) => !c.isHidden && !c.isIgnored)
+      let children = getChildren(folder.id, fields).filter((c) => !c.isIgnored && !c.isHidden)
 
       // Resolve settings for this folder to see if it acts as a grouping container (Tabs/Sections)
       // We pass inheritedSettings to ensure virtual parent overrides apply.

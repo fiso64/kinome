@@ -77,6 +77,7 @@ async function syncDiskToDatabase(root):
 
     if (hasIgnoreFile || isUserHidden):
        // Mark this folder state and STOP walking subfolders.
+       // IMPLEMENTATION DETAIL: This is the AUTHORITATIVE write for this folder.
        db.updateFingerprint(currentDir, { is_ignored: hasIgnoreFile, is_hidden: isUserHidden, is_missing: 0 })
        foundPaths.add(generateId(currentDir))
        return 
@@ -92,6 +93,12 @@ async function syncDiskToDatabase(root):
           path: entry.relative_path, 
           inode: stats.ino, 
           device_id: stats.dev,
+          // IMPLEMENTATION DETAIL (Suppression Race): 
+          // During discovery, we do not know the authoritative suppression status yet.
+          // We must use 'null' so that the subsequent deferred bulk sync (#3) 
+          // does not clobber the authoritative status set by Step #2.
+          is_ignored: entry.isDirectory ? null : 0, 
+          is_hidden: entry.isDirectory ? null : 0,
           ...stats 
         }
         
@@ -133,6 +140,8 @@ async function syncDiskToDatabase(root):
 
   // #3 Final Sync (Insert whatever is left in the map)
   if (newItemsMap.size > 0):
+      // IMPLEMENTATION DETAIL: This must use COALESCE(excluded.is_ignored, is_ignored) 
+      // to ensure discovery-time 'null' values do not overwrite authoritative worker states.
       db.bulkInsert(newItemsMap.values())
 
   // #4 Conditional Cleanup
@@ -254,8 +263,6 @@ function process_show(show):
   // 3. The Managed Copy (Downstream Sync)
   // We iterate the DB structure (which reflects the filesystem)
   // and try to "paint" it with metadata from the cache.
-  
-  all_seasons_ok = true
 
   // get season folders in the show folder
   // This can also return a "fake season folder" which is the show itself, if the show has direct children episodes.
@@ -268,7 +275,6 @@ function process_show(show):
       metadataService.managedCopy(season, show.seasonsAndEpisodesCache)
     
     // Process Episodes
-    all_episodes_ok = true
     episodes = db.getEpisodes(season.id)
     
     for episode in episodes:

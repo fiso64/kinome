@@ -9,6 +9,10 @@ import {
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 
+const log = (message: string): void => {
+  console.log(`[${new Date().toISOString()}] [TV Show Service] ${message}`)
+}
+
 /**
  * Syncs the internal season/episode structure of a TV show based on filesystem patterns.
  * This should be called after a folder is identified as a TV Show, or during a rescan
@@ -137,6 +141,7 @@ export async function syncTvShowStructure(
     await updateIfChangedAndBroadcast(allModified)
   }
 
+  log(`[Structure Sync] "${show.name}" scan complete. Found ${allModified.length} internal changes.`)
   return allModified
 }
 

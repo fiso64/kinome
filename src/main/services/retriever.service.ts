@@ -664,8 +664,10 @@ export async function applyTvShowData(
             const fakeSeasonFolder: MediaFolder = {
               ...(item as MediaFolder),
               seasonNumber: seasonNum,
-              children: filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
+              lastRefreshedAt: null, // Force fetch logic to evaluate this season separately
+              tmdbEpisodes: undefined // Don't use the show-level cached episodes if they might be for a different season
             }
+            fakeSeasonFolder.children = filesWithSeason.filter((f) => f.seasonNumber === seasonNum)
 
             const modifiedInSeason = await fetchAndApplyEpisodeData(
               fakeSeasonFolder,

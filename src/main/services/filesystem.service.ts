@@ -31,8 +31,8 @@ class FingerprintBuffer {
         birthtime = excluded.birthtime,
         inode = excluded.inode,
         device_id = excluded.device_id,
-        is_ignored = excluded.is_ignored,
-        is_hidden = excluded.is_hidden
+        is_ignored = COALESCE(excluded.is_ignored, is_ignored),
+        is_hidden = COALESCE(excluded.is_hidden, is_hidden)
     `)
   }
 
@@ -114,39 +114,43 @@ async function syncDiskToDatabase(
       return
     }
 
-    // 2. CHECK FOR SUPPRESSION (System .ignore OR User is_hidden)
+    // 2. Authoritative State Update
     const hasIgnoreFile = entries.some((e) => e.name === '.ignore')
     const isUserHidden = repositoryService.isItemHidden(currentId)
 
-    if (hasIgnoreFile || isUserHidden) {
-      log(
-        `[Phase 1] branch suppressed (${hasIgnoreFile ? '.ignore' : 'user-hidden'}): ${currentRelPath}`
-      )
+    try {
+      const s = await fs.stat(currentPath)
+      const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
+      const parentId = currentRelPath === '.' ? null : repositoryService.generateId(parentRelPath)
 
-      // Mark this folder state and STOP walking subfolders.
-      try {
-        const s = await fs.stat(currentPath)
-        const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
-        const parentId = currentRelPath === '.' ? null : repositoryService.generateId(parentRelPath)
-
-        fingerprintBuffer.add({
-          '@id': currentId,
-          '@parentId': parentId,
-          '@path': currentRelPath,
-          '@name': path.basename(currentPath) || 'Library',
-          '@type': 'folder',
-          '@size': s.size,
-          '@mtime': Math.floor(s.mtimeMs),
-          '@birthtime': Math.floor(s.birthtimeMs),
-          '@inode': s.ino,
-          '@deviceId': s.dev,
-          '@isIgnored': hasIgnoreFile ? 1 : 0,
-          '@isHidden': isUserHidden ? 1 : 0
-        })
-        foundPaths.add(currentId)
-      } catch { }
+      fingerprintBuffer.add({
+        '@id': currentId,
+        '@parentId': parentId,
+        '@path': currentRelPath,
+        '@name': path.basename(currentPath) || 'Library',
+        '@type': 'folder',
+        '@size': s.size,
+        '@mtime': Math.floor(s.mtimeMs),
+        '@birthtime': Math.floor(s.birthtimeMs),
+        '@inode': s.ino,
+        '@deviceId': s.dev,
+        '@isIgnored': hasIgnoreFile ? 1 : 0,
+        '@isHidden': isUserHidden ? 1 : 0
+      })
+      foundPaths.add(currentId)
+    } catch (e) {
+      log(`[Phase 1] Failed to stat folder: ${currentPath}`)
       return
     }
+
+    if (hasIgnoreFile || isUserHidden) {
+      log(
+        `[Phase 1] Branch suppressed: ${currentRelPath} (${hasIgnoreFile ? '.ignore' : ''}${hasIgnoreFile && isUserHidden ? '+' : ''}${isUserHidden ? 'user-hidden' : ''})`
+      )
+      return
+    }
+
+    log(`[Phase 1] Processing branch: ${currentRelPath} (${entries.length} entries)`)
 
     // 3. PROCESS CHILDREN (Files and Subfolders)
     const CHILDREN_BATCH_SIZE = 50
@@ -176,14 +180,16 @@ async function syncDiskToDatabase(
               '@birthtime': Math.floor(s.birthtimeMs),
               '@inode': s.ino,
               '@deviceId': s.dev,
-              '@isIgnored': 0, // Default for children; will be corrected when if child is processed in queue
-              '@isHidden': repositoryService.isItemHidden(id) ? 1 : 0 // Preserve user preference
+              '@isIgnored': isDir ? null : 0, // Parent doesn't know folder ignore state yet
+              '@isHidden': isDir ? null : (repositoryService.isItemHidden(id) ? 1 : 0)
             }
 
             if (repositoryService.existsById(id)) {
+              if (isDir) log(`[Phase 1] Discovered EXISTING folder: ${relPath} (${id})`)
               fingerprintBuffer.add(itemData)
               foundPaths.add(id)
             } else {
+              if (isDir) log(`[Phase 1] Discovered NEW folder: ${relPath} (${id})`)
               const key = `${itemData['@deviceId']}_${itemData['@inode']}`
               newItemsMap.set(key, itemData)
             }
@@ -266,14 +272,17 @@ async function syncDiskToDatabase(
   }
 
   // #4 Conditional Cleanup
+  log(`[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`)
   repositoryService.runTransaction(() => {
     for (const item of missingItems) {
       // Optimization: Check if this was rescued (it should be in foundPaths now)
       if (foundPaths.has(item.id)) continue
 
       if (item.hasLocks) {
+        log(`[Phase 1] Marking AS MISSING (has locks): ${item.path}`)
         repositoryService.markAsMissing(item.id)
       } else {
+        log(`[Phase 1] DELETING (no locks): ${item.path}`)
         repositoryService.deleteItem(item.id)
       }
     }
