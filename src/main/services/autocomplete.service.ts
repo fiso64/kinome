@@ -1,4 +1,4 @@
-import * as repositoryService from './repository.service'
+import { getDb } from '../database/client'
 import * as settingsService from './settings.service'
 import type { AutocompleteSuggestions } from '@shared/types'
 
@@ -34,41 +34,58 @@ export const getAutocompleteValues = async (
     return searchPersons(query, limit)
   }
 
-  const allItems = repositoryService.getAllItemsAsList()
-  const values = new Set<string>()
+  const db = getDb()
+  let values: string[] = []
 
-  for (const item of allItems) {
-    if (key === 'mediaType' && item.mediaType) {
-      values.add(item.mediaType.trim())
-    } else if (key === 'genre' && item.genres) {
-      item.genres.forEach((g) => values.add(g.trim()))
-    } else if (key === 'year' && item.year) {
-      values.add(item.year.toString())
-    } else if (item.tags && item.tags[key]) {
-      item.tags[key].split(',').forEach((v) => v.trim() && values.add(v.trim()))
-    } else if (item.virtualTags && item.virtualTags[key]) {
-      values.add(item.virtualTags[key].trim())
+  if (key === 'mediaType') {
+    values = db
+      .prepare('SELECT DISTINCT media_type FROM metadata WHERE media_type IS NOT NULL')
+      .all()
+      .map((r: any) => r.media_type)
+  } else if (key === 'genre') {
+    values = db
+      .prepare(
+        'SELECT DISTINCT value FROM metadata, json_each(genres_json) WHERE genres_json IS NOT NULL AND value IS NOT NULL'
+      )
+      .all()
+      .map((r: any) => r.value)
+  } else if (key === 'year') {
+    values = db
+      .prepare('SELECT DISTINCT year FROM metadata WHERE year IS NOT NULL')
+      .all()
+      .map((r: any) => r.year.toString())
+  } else {
+    // Check tags first, then virtual tags
+    const tagMatch = db
+      .prepare(
+        "SELECT DISTINCT value FROM metadata, json_each(tags_json) WHERE key = ? AND tags_json IS NOT NULL"
+      )
+      .all(key)
+
+    if (tagMatch.length > 0) {
+      values = tagMatch.map((r: any) => r.value)
+    } else {
+      values = db
+        .prepare(
+          "SELECT DISTINCT value FROM metadata, json_each(virtual_tags_json) WHERE key = ? AND virtual_tags_json IS NOT NULL"
+        )
+        .all(key)
+        .map((r: any) => r.value)
     }
   }
 
-  const list = Array.from(values).sort()
+  const list = values.filter(Boolean).sort()
   return fuzzyFilterAndSort(list, query, limit)
 }
 
 export const getGroupByKeys = async () => {
   const settings = await settingsService.readSettings()
-  const allItems = repositoryService.getAllItemsAsList()
+  const db = getDb()
 
-  const tagKeys = new Set<string>()
-
-  for (const item of allItems) {
-    if (item.tags) {
-      for (const key of Object.keys(item.tags)) {
-        const k = key.trim()
-        if (k) tagKeys.add(k)
-      }
-    }
-  }
+  const tagKeys = db
+    .prepare('SELECT DISTINCT key FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL')
+    .all()
+    .map((r: any) => r.key)
 
   return [
     'folder',
@@ -76,74 +93,66 @@ export const getGroupByKeys = async () => {
     'genre',
     'year',
     ...(settings.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
-    ...Array.from(tagKeys)
-      .sort()
-      .map((k) => `tags.${k}`)
+    ...tagKeys.sort().map((k) => `tags.${k}`)
   ]
 }
 
 export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggestions> => {
   const settings = await settingsService.readSettings()
-  const allItems = repositoryService.getAllItemsAsList()
+  const db = getDb()
 
-  const mediaType = new Set<string>()
-  const genre = new Set<string>()
-  const tags: Record<string, Set<string>> = {}
-  const virtualTags: Record<string, Set<string>> = {}
+  const mediaTypes = db
+    .prepare('SELECT DISTINCT media_type FROM metadata WHERE media_type IS NOT NULL')
+    .all()
+    .map((r: any) => r.media_type)
 
-  for (const item of allItems) {
-    if (item.mediaType) {
-      mediaType.add(item.mediaType.trim())
-    }
-    if (item.genres) {
-      item.genres.forEach((g) => genre.add(g.trim()))
-    }
+  const genres = db
+    .prepare(
+      'SELECT DISTINCT value FROM metadata, json_each(genres_json) WHERE genres_json IS NOT NULL AND value IS NOT NULL'
+    )
+    .all()
+    .map((r: any) => r.value)
 
-    if (item.tags) {
-      for (const [key, value] of Object.entries(item.tags)) {
-        if (!tags[key]) tags[key] = new Set()
-        if (value) {
-          value.split(',').forEach((v) => {
-            const trimmed = v.trim()
-            if (trimmed) tags[key].add(trimmed)
-          })
-        }
-      }
-    }
+  const tagEntries = db
+    .prepare('SELECT DISTINCT key, value FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL')
+    .all() as { key: string; value: string }[]
 
-    if (item.virtualTags) {
-      for (const [key, value] of Object.entries(item.virtualTags)) {
-        if (!virtualTags[key]) virtualTags[key] = new Set()
-        if (value) {
-          const trimmed = value.trim()
-          if (trimmed) virtualTags[key].add(trimmed)
-        }
-      }
-    }
+  const virtualTagEntries = db
+    .prepare('SELECT DISTINCT key, value FROM metadata, json_each(virtual_tags_json) WHERE virtual_tags_json IS NOT NULL')
+    .all() as { key: string; value: string }[]
+
+  const tags: Record<string, string[]> = {}
+  for (const entry of tagEntries) {
+    if (!tags[entry.key]) tags[entry.key] = []
+    if (entry.value) tags[entry.key].push(entry.value)
+  }
+
+  const virtualTags: Record<string, string[]> = {}
+  for (const entry of virtualTagEntries) {
+    if (!virtualTags[entry.key]) virtualTags[entry.key] = []
+    if (entry.value) virtualTags[entry.key].push(entry.value)
   }
 
   // Ensure all defined virtual tags are present in the keys, even if empty
   if (settings.virtualTags) {
     for (const vt of settings.virtualTags) {
-      if (!virtualTags[vt.name]) virtualTags[vt.name] = new Set()
+      if (!virtualTags[vt.name]) virtualTags[vt.name] = []
     }
   }
 
-  const sortSet = (s: Set<string>) => Array.from(s).sort()
-  const mapDict = (d: Record<string, Set<string>>) => {
-    const result: Record<string, string[]> = {}
-    for (const [k, v] of Object.entries(d)) {
-      result[k] = sortSet(v)
-    }
-    return result
-  }
+  // Sort all arrays - Filter out any nulls/non-strings just in case
+  const sort = (arr: any[]) =>
+    arr.filter((v) => typeof v === 'string').sort((a, b) => a.localeCompare(b))
+
+  Object.keys(tags).forEach(k => tags[k] = sort(tags[k]))
+  Object.keys(virtualTags).forEach(k => virtualTags[k] = sort(virtualTags[k]))
 
   return {
-    mediaType: sortSet(mediaType),
-    genre: sortSet(genre),
+    mediaType: sort(mediaTypes),
+    genre: sort(genres),
     person: null, // Signalling that person suggestions are server-side
-    tags: mapDict(tags),
-    virtualTags: mapDict(virtualTags)
+    tags,
+    virtualTags
   }
 }
 
@@ -151,16 +160,20 @@ let personCache: string[] | null = null
 
 export const searchPersons = async (query: string, limit: number = 20): Promise<string[]> => {
   if (!personCache) {
-    const allItems = repositoryService.getAllItemsAsList()
-    const personSet = new Set<string>()
-    for (const item of allItems) {
-      if (item.tmdbCredits) {
-        const collect = (name: string) => personSet.add(name.trim())
-        ;(item.tmdbCredits.cast ?? []).forEach((p) => p.name && collect(p.name))
-        ;(item.tmdbCredits.crew ?? []).forEach((p) => p.name && collect(p.name))
-      }
-    }
-    personCache = Array.from(personSet).sort()
+    const db = getDb()
+
+    // Extract distinct person names from both cast and crew JSON arrays
+    const rows = db.prepare(`
+      SELECT DISTINCT json_extract(c.value, '$.name') as name
+      FROM metadata, json_each(people_json, '$.cast') as c
+      WHERE people_json IS NOT NULL
+      UNION
+      SELECT DISTINCT json_extract(c.value, '$.name') as name
+      FROM metadata, json_each(people_json, '$.crew') as c
+      WHERE people_json IS NOT NULL
+    `).all() as { name: string }[]
+
+    personCache = rows.map(r => r.name).filter(Boolean).sort()
   }
 
   return fuzzyFilterAndSort(personCache, query, limit)

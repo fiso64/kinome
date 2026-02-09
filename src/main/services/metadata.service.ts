@@ -13,6 +13,7 @@ import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getTransport } from '../transport.registry'
 import * as filesystemService from './filesystem.service'
+import * as autocompleteService from './autocomplete.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
 import { RESETTABLE_METADATA_KEYS } from '@shared/types'
@@ -89,24 +90,25 @@ export async function maintenancePass() {
   const libraryDataPath = pathsService.getLibraryDataPath()
   const imagesDir = path.join(libraryDataPath, 'images')
 
+  // 1. Filesystem Integrity Check (Existing)
   await filesystemService.verifyImagePaths(imagesDir)
 
-  const allItems = repositoryService.getAllItemsAsList()
-  const modified: LibraryItem[] = []
+  // 2. SQL Virtual Tag Sync
+  log('[Maintenance] Syncing virtual tags via SQL...')
+  virtualTagsService.applyVirtualTags(settings.virtualTags)
 
-  for (const item of allItems) {
-    const freshTags = virtualTagsService.evaluateVirtualTagsForItem(item, settings)
+  // 3. Signal Frontend to Refresh Cache & Metadata Index
+  log('[Maintenance] Notifying UI to refresh.')
+  const [suggestions, groupByKeys] = await Promise.all([
+    autocompleteService.getAutocompleteSuggestions(),
+    autocompleteService.getGroupByKeys()
+  ])
 
-    if (JSON.stringify(freshTags) !== JSON.stringify(item.virtualTags)) {
-      item.virtualTags = freshTags
-      modified.push(item)
-    }
-  }
-
-  if (modified.length > 0) {
-    log(`[Maintenance] Updated virtual tags for ${modified.length} items.`)
-    await updateIfChangedAndBroadcast(modified)
-  }
+  getTransport().notifyMetadataIndexUpdated({
+    suggestions,
+    groupByKeys,
+    invalidateItems: true
+  })
 
   log('[Maintenance] Pass complete.')
 }
@@ -140,7 +142,7 @@ export async function fetchAndApplyMetadata(
       if (result) {
         item.tmdbId = result.id
         item.mediaType = result.media_type || (typeHint === 'multi' ? 'movie' : typeHint)
-        if (item.mediaType === 'tv') {
+        if (item.mediaType === 'tv' && (item as MediaFolder).scraperSettings?.process_tv_children !== false) {
           await tvShowService.syncTvShowStructure(item as MediaFolder)
         }
       } else {

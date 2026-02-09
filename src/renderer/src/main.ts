@@ -22,10 +22,12 @@ try {
   console.error('[Renderer] Failed to mount App:', e)
 }
 
-// Listen for force reload message from main process
-window.api.onForceReloadForNewLibrary(() => {
-  console.log('[Renderer] Received force-reload-for-new-library. Reloading window...')
-  window.location.reload()
+// Listen for management status messages from main process
+window.api.onAppStatusUpdated((status) => {
+  if (status.forceReloadForNewLibrary) {
+    console.log('[Renderer] Received force-reload-for-new-library. Reloading window...')
+    window.location.reload()
+  }
 })
 
 // Expose a more user-friendly debug function to the console

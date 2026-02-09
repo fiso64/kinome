@@ -10,7 +10,7 @@
 
 This specification defines the "Filesystem-First" architecture of the scanner. It respects arbitrary nested folder structures and only applies "Smart Parsing" (TV logic) and "Enrichment" (TMDB) when explicitly enabled.
 
-To ensure O(1) performance on unchanged structures, the scan process is strictly divided into two decoupled phases:
+To ensure good performance on unchanged structures, the scan process is strictly divided into two decoupled phases:
 1.  **Phase 1: Filesystem Sync (Disk → DB)**: Parallelized `stat` crawl. Settles binary existence, filesystem stats, and per-disk identity (`inode` + `device_id`).
 2.  **Phase 2: Metadata Enrichment (DB → API)**: Gated by `last_refreshed_at` and structural drift. Settles identity, TV show structure (S/E), and artwork.
 
@@ -59,7 +59,7 @@ CHILDREN_BATCH_SIZE = 50
 async function syncDiskToDatabase(root):
   foundPaths = new Set()
   
-  // OPTIMIZATION: Use a Map for O(1) lookup in Phase 2
+  // OPTIMIZATION: Use a Map for fast lookup in Phase 2
   // Key: `${device_id}_${inode}`, Value: ItemData
   newItemsMap = new Map() 
   
@@ -195,7 +195,7 @@ function enrichDatabase():
   """)
   
   // 3. The Orchestration Loop
-  for item in dirty_roots + changed_structure_tv_shows:
+  for item in dirty_roots ∪ changed_structure_tv_shows:
     process_root(item)
 
   // #2 Maintenance Pass
@@ -223,7 +223,7 @@ function process_root(item):
       // We just identified a folder as a TV Show. The files inside are currently 
       // generic (Phase 1 didn't parse them because it didn't know the type).
       // We MUST run structural parsing NOW to generate Episodes before enriching.
-      if item.mediaType == 'tv':
+      if item.mediaType == 'tv' and item.process_tv_children:
         // Note: This function respects locked numbers.
         tvShowService.syncTvShowStructure(item)
          

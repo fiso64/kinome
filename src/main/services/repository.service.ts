@@ -521,21 +521,6 @@ export function getAncestors(itemId: string): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-export function getAllItemsAsList(): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-  `
-    )
-    .all() as any[]
-  return rows.map(mapRowToLibraryItem)
-}
 
 // --- Write Operations ---
 
@@ -1224,7 +1209,7 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
 
 /**
  * Phase 2 Preprocessing: Finds TV shows that may need structural sync.
- * Selects TV shows where process_tv_children is active and mtime > last_refreshed_at.
+ * Selects TV shows where process_tv_children is active.
  */
 export function getTvShowsForStructuralSync(): LibraryItem[] {
   const db = getDb()
