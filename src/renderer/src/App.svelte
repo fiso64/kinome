@@ -401,6 +401,62 @@
       },
       focusSearch: () => {
         appHeaderComponent?.focusSearchInput()
+      },
+      rescan: () => {
+        handleRefresh()
+      },
+      toggleFullscreen: () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch((err) => {
+            console.warn(`Error attempting to enable full-screen mode: ${err.message}`)
+          })
+        } else {
+          document.exitFullscreen()
+        }
+      },
+      openSettings: () => {
+        navStore.navigateToSettings()
+      },
+      openViewSettings: () => {
+        openLayoutSelector()
+      },
+      markAsUnwatched: () => {
+        if (navStore.contextItemId && navStore.contextItemId !== 'root') {
+          api.markAsUnwatched(navStore.contextItemId)
+          // Optimistic local update for visual feedback
+          libraryDataService.handleLibraryUpdates(
+            [{ id: navStore.contextItemId, watched: false } as any],
+            false
+          )
+        }
+      },
+      editMetadata: async () => {
+        if (navStore.contextItemId && navStore.contextItemId !== 'root') {
+          // Use fetchItemDetails to ensure we get all normal fields + path
+          const item = await libraryDataService.fetchItemDetails(navStore.contextItemId, [
+            'path',
+            'overview',
+            'genres',
+            'tags',
+            'viewSettings',
+            'scraperSettings'
+          ])
+          if (item) {
+            modalStore.open('itemSettings', {
+              item,
+              initialTab: 'metadata',
+              defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+            })
+          }
+        }
+      },
+      openProperties: async () => {
+        if (navStore.contextItemId) {
+          const item = await api.getItem(navStore.contextItemId, { fields: ['path'] })
+          if (item) {
+            modalStore.open('properties', { item })
+          }
+        }
       }
     })
     return () => cleanupShortcuts()
@@ -464,7 +520,7 @@
 
     <main>
       {#if !settings?.libraryLocation || libraryStatus?.status !== 'ready'}
-        <SetupScreen onComplete={() => {}} onStatusUpdate={refreshLibraryStatus} />
+        <SetupScreen onStatusUpdate={refreshLibraryStatus} />
       {:else}
         <AppHeader
           bind:this={appHeaderComponent}
@@ -511,6 +567,14 @@
     </main>
   </QueryClientProvider>
 {/if}
+
+<svelte:window
+  ondragstart={(e) => {
+    if ((e.target as HTMLElement).tagName === 'IMG') {
+      e.preventDefault()
+    }
+  }}
+/>
 
 <style>
   main {

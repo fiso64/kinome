@@ -63,6 +63,10 @@ export class WebTransport implements ITransport {
     this.broadcast('force-reload-for-new-library', null)
   }
 
+  getCurrentStatus(): ScanStatus {
+    return this.currentStatus
+  }
+
   notifyScanStatusChanged(statusUpdate: Partial<ScanStatus>): void {
     const prevStatus = { ...this.currentStatus }
     this.currentStatus = { ...this.currentStatus, ...statusUpdate }

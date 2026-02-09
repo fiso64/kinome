@@ -5,7 +5,7 @@
   import { useQueryClient } from '@tanstack/svelte-query'
   import FilesystemTreeBrowser from '../setup/FilesystemTreeBrowser.svelte'
 
-  let { onComplete, onStatusUpdate }: { onComplete: () => void; onStatusUpdate?: () => void } =
+  let { onComplete, onStatusUpdate }: { onComplete?: () => void; onStatusUpdate?: () => void } =
     $props()
   const queryClient = useQueryClient()
 
@@ -151,7 +151,11 @@
       if (onStatusUpdate) onStatusUpdate()
 
       setupCompleted = true
-      onComplete()
+      onComplete?.()
+
+      // Force a full reload to ensure the WebSocket connects with the new auth/settings state
+      // and we avoid any "half-initialized" UI states.
+      window.location.reload()
     } catch (err: any) {
       error = err.message || 'Failed to save settings.'
       sessionStorage.removeItem('showInitialFolderSettingsAfterScan')

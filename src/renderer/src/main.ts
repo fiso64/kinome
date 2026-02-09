@@ -22,13 +22,8 @@ try {
   console.error('[Renderer] Failed to mount App:', e)
 }
 
-// Listen for management status messages from main process
-window.api.onAppStatusUpdated((status) => {
-  if (status.forceReloadForNewLibrary) {
-    console.log('[Renderer] Received force-reload-for-new-library. Reloading window...')
-    window.location.reload()
-  }
-})
+// Listeners for management status and global behavior have been moved to App.svelte
+// to better align with the Svelte lifecycle.
 
 // Expose a more user-friendly debug function to the console
 window.debugSearch = async (query) => {
@@ -55,8 +50,4 @@ window.debugSearch = async (query) => {
     console.error('Search failed:', e)
   }
 }
-console.log(
-  'Debug function "debugSearch(\'your query\')" or "debugSearch({ text, tags })" is available on the window object.'
-)
-
 export default app

@@ -205,6 +205,9 @@ const app = new Elysia()
     open(ws) {
       console.log(`[WebTransport] Client connected: ${ws.id}`)
       ws.subscribe('broadcast')
+
+      // Immediately send current scan status so the client doesn't start with a blank state
+      ws.send(JSON.stringify({ type: 'scan-status-changed', data: webTransport.getCurrentStatus() }))
     },
     close(ws) {
       console.log(`[WebTransport] Client disconnected: ${ws.id}`)
@@ -787,6 +790,7 @@ const app = new Elysia()
         // but only if it's a local path (remote settings handles its own data).
         if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
           await libraryService.switchToLibrary(body.libraryLocation)
+          webTransport.forceRendererReload()
         }
 
         const newSettings = await settingsService.readSettings()

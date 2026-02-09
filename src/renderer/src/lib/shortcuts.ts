@@ -3,6 +3,13 @@ interface ShortcutActions {
   navigateForward: () => void
   escapeAction: () => void
   focusSearch: () => void
+  rescan: () => void // Shift+R
+  toggleFullscreen: () => void // F
+  openSettings: () => void // P
+  openViewSettings: () => void // V
+  markAsUnwatched: () => void // Shift+W
+  editMetadata: () => void // E
+  openProperties: () => void // Alt+Enter
 }
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
@@ -28,9 +35,35 @@ export function initializeShortcuts(actions: ShortcutActions): () => void {
     } else if (event.key === 'BrowserForward' || (event.altKey && event.key === 'ArrowRight')) {
       event.preventDefault()
       actions.navigateForward()
-    } else if (event.key === 'd' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    } else if (
+      (event.key === 'd' || event.key === 'D') &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
       event.preventDefault()
       actions.focusSearch()
+    } else if (event.key === 'R' && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      actions.rescan()
+    } else if (event.key === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      actions.toggleFullscreen()
+    } else if (event.key === 'p' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      actions.openSettings()
+    } else if (event.key === 'v' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      actions.openViewSettings()
+    } else if (event.key === 'W' && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      actions.markAsUnwatched()
+    } else if (event.key === 'e' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      actions.editMetadata()
+    } else if (event.key === 'Enter' && event.altKey) {
+      event.preventDefault()
+      actions.openProperties()
     }
   }
 
