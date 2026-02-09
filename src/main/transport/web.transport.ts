@@ -24,14 +24,14 @@ export class WebTransport implements ITransport {
     console.log('[WebTransport] Native WebSocket transport initialized.')
   }
 
-  private broadcast(event: string, data: any) {
+  broadcast(event: string, payload: any) {
     if (!this.server) {
       console.warn(`[WebTransport] Attempted to broadcast ${event} before initialization.`)
       return
     }
     // In Bun/Elysia, we can publish to a topic.
     // We'll assume all clients are subscribed to "broadcast".
-    this.server.publish('broadcast', JSON.stringify({ type: event, data }))
+    this.server.publish('broadcast', JSON.stringify({ type: event, data: payload }))
   }
 
   notifyLibraryItemsUpdated(items: LibraryItem[]): void {

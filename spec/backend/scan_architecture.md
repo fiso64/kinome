@@ -34,8 +34,14 @@ For every file and folder, the scanner persists a **Fingerprint** in the `items`
 - **`retrieve_children_metadata` (Gate A)**: Set on a folder. Enables/disables Phase 2 features for immediate children.
 - **`process_tv_children` (Gate B)**: Set on a TV Show. Enables/disables structural analysis (S/E parsing) and hierarchy propagation.
 - **`is_missing`**: The **Binary Existence Flag**.
-    - **0**: The item was successfully found on disk during the latest scan.
-    - **1**: The item is missing from disk but its record is preserved due to user edits (Ghost Item).
+    - **0**: found on disk.
+    - **1**: missing from disk but its record is preserved due to user edits (Ghost Item).
+- **`is_ignored`**: The **Filesystem Suppression Flag**.
+    - Set to **1** if the folder (or an ancestor) contains an `.ignore` file.
+    - Scanner stops walk at this folder. Prevents discovery/update of children.
+- **`is_hidden`**: The **User Preference Flag**.
+    - Manual hide from UI. 
+    - Like `.ignore`, setting this on a folder stops scanner discovery for that entire branch.
 
 ---
 
@@ -62,9 +68,20 @@ async function syncDiskToDatabase(root):
   queue.push(root)
 
   await queue.process(async (currentDir) => {
-    // 1. Get all entries in this folder
+    // 1. Get all entries (Files and Folders)
     entries = await fs.readdir(currentDir, { withFileTypes: true })
-        
+    
+    // 2. CHECK FOR SUPPRESSION (System .ignore OR User is_hidden)
+    hasIgnoreFile = entries.some(e => e.name === '.ignore')
+    isUserHidden = db.getIsHidden(currentDir)
+
+    if (hasIgnoreFile || isUserHidden):
+       // Mark this folder state and STOP walking subfolders.
+       db.updateFingerprint(currentDir, { is_ignored: hasIgnoreFile, is_hidden: isUserHidden, is_missing: 0 })
+       foundPaths.add(generateId(currentDir))
+       return 
+
+    // 3. PROCESS CHILDREN (Files and Subfolders)
     for (let i = 0; i < entries.length; i += CHILDREN_BATCH_SIZE) {
       const batch = entries.slice(i, i + CHILDREN_BATCH_SIZE)
       

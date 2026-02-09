@@ -20,7 +20,6 @@ export async function processInChunks<T>(
 
 /**
  * A simple queue to serialize asynchronous tasks.
- * Ensures that tasks are executed one after another in the order they were added.
  */
 export class SerializedQueue {
   private promise: Promise<any> = Promise.resolve()
@@ -29,5 +28,58 @@ export class SerializedQueue {
     const next = this.promise.then(() => task())
     this.promise = next.catch(() => { }) // Prevent failure of one task from blocking the rest
     return next
+  }
+}
+
+/**
+ * A Task Queue that supports a global concurrency limit and dynamic task addition (Producer-Consumer).
+ * Ideal for recursive directory scanning.
+ */
+export class GlobalTaskQueue<T> {
+  private queue: T[] = []
+  private activeCount = 0
+  private limit: number
+  private resolveIdle: (() => void) | null = null
+  private onTask: (item: T) => Promise<void>
+
+  constructor(limit: number, onTask: (item: T) => Promise<void>) {
+    this.limit = limit
+    this.onTask = onTask
+  }
+
+  push(item: T) {
+    this.queue.push(item)
+    this.processNext()
+  }
+
+  private processNext() {
+    if (this.activeCount >= this.limit || this.queue.length === 0) {
+      if (this.activeCount === 0 && this.queue.length === 0 && this.resolveIdle) {
+        this.resolveIdle()
+      }
+      return
+    }
+
+    const item = this.queue.shift()!
+    this.activeCount++
+
+    this.onTask(item)
+      .catch((err) => {
+        console.error('[TaskQueue] Task failed:', err)
+      })
+      .finally(() => {
+        this.activeCount--
+        this.processNext()
+      })
+
+    // Try to start more tasks if we have capacity
+    this.processNext()
+  }
+
+  async waitForIdle(): Promise<void> {
+    if (this.activeCount === 0 && this.queue.length === 0) return
+    return new Promise((resolve) => {
+      this.resolveIdle = resolve
+    })
   }
 }

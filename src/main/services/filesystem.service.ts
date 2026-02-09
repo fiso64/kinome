@@ -3,119 +3,87 @@ import fs from 'fs/promises'
 import { type Dirent } from 'fs'
 import * as repositoryService from './repository.service'
 import * as pathsService from './paths.service'
-import type { MediaFolder } from '@shared/types'
+import { GlobalTaskQueue } from '../utils/concurrency'
+import type { LibraryItem, MediaFolder } from '@shared/types'
+import { getTransport } from '../transport.registry'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
 }
 
-
 /**
- * Phase 1: Filesystem Sync (Disk -> DB)
- * Refactored to use Recursive DFS for "Seal the Gate" mtime logic.
+ * Buffered writer for fingerprints to maximize SQLite throughput.
  */
-async function walk(
-  currentPath: string,
-  parentId: string | null,
-  mediaSourcePath: string,
-  db: any,
-  visitedIds: Set<string>,
-  statements: {
-    selectFolderMtime: any
-    upsertItem: any
-    sealFolder: any
-  }
-): Promise<void> {
-  const relativePath = path.relative(mediaSourcePath, currentPath).replace(/\\/g, '/') || '.'
-  const id = repositoryService.generateId(relativePath)
-  visitedIds.add(id)
+class FingerprintBuffer {
+  private buffer: any[] = []
+  private timeout: any = null
+  private upsertStmt: any
 
-  let stats: any
-  try {
-    stats = await fs.stat(currentPath)
-  } catch (e) {
-    log(`Failed to stat: ${currentPath}`)
-    return
+  constructor(db: any) {
+    this.upsertStmt = db.prepare(`
+      INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
+      VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, @inode, @deviceId, 0, @isIgnored, @isHidden)
+      ON CONFLICT(id) DO UPDATE SET
+        is_missing = 0,
+        parent_id = excluded.parent_id,
+        size = excluded.size,
+        mtime = excluded.mtime,
+        birthtime = excluded.birthtime,
+        inode = excluded.inode,
+        device_id = excluded.device_id,
+        is_ignored = excluded.is_ignored,
+        is_hidden = excluded.is_hidden
+    `)
   }
 
-  const isDirectory = stats.isDirectory()
-  const dbMtime = statements.selectFolderMtime.get(id)?.mtime ?? 0
-  const diskMtime = Math.floor(stats.mtimeMs)
-
-  // 1. Initial Gate Check (Folders only)
-  if (isDirectory && id !== repositoryService.generateId('.') && dbMtime === diskMtime) {
-    log(`[Phase 1] mtime unchanged, skipping branch for folder: "${relativePath}"`)
-    // O(1) Skip: Mark all known descendants as visited to prevent they logic from marking them missing
-    const descendantIds = repositoryService.getAllDescendantIdsFast(id)
-    descendantIds.forEach((dId) => visitedIds.add(dId))
-    return
-  }
-
-  // 2. Process CURRENT Level (Files and Folders)
-  // We read the directory entries.
-  let entries: Dirent[]
-  try {
-    entries = isDirectory ? await fs.readdir(currentPath, { withFileTypes: true }) : []
-  } catch (e) {
-    log(`Failed to readdir: ${currentPath}`)
-    return
-  }
-
-  // Filter and process entries
-  const childrenToProcess: { fullPath: string; name: string; isDir: boolean }[] = []
-
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') && entry.name !== '.ignore') continue
-    const isDir = entry.isDirectory()
-    const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
-    if (!isDir && !isVideoFile) continue
-
-    const fullPath = path.join(currentPath, entry.name)
-    const childRelPath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-    const childId = repositoryService.generateId(childRelPath)
-
-    let childStats = { size: 0, mtime: 0, birthtime: 0 }
-    try {
-      const s = await fs.stat(fullPath)
-      childStats = {
-        size: s.size,
-        mtime: Math.floor(s.mtimeMs),
-        birthtime: Math.floor(s.birthtimeMs)
-      }
-    } catch { }
-
-    // Upsert entry (Fingerprint sync)
-    // For folders, we do NOT set mtime here.
-    log(`[Phase 1] Syncing ${isDir ? 'folder' : 'file'}: "${childRelPath}"`)
-    statements.upsertItem.run({
-      '@id': childId,
-      '@parentId': id,
-      '@path': childRelPath,
-      '@name': entry.name,
-      '@type': isDir ? 'folder' : 'file',
-      '@size': childStats.size,
-      '@mtime': isDir ? null : childStats.mtime,
-      '@birthtime': childStats.birthtime
-    })
-
-    visitedIds.add(childId)
-    if (isDir) {
-      childrenToProcess.push({ fullPath, name: entry.name, isDir: true })
+  add(item: any) {
+    this.buffer.push(item)
+    if (this.buffer.length >= 500) {
+      this.flush()
+    } else if (!this.timeout) {
+      this.timeout = setTimeout(() => this.flush(), 1000)
     }
   }
 
-  // 3. Descend RECURSIVELY
-  for (const child of childrenToProcess) {
-    await walk(child.fullPath, id, mediaSourcePath, db, visitedIds, statements)
+  flush() {
+    if (this.buffer.length === 0) return
+    if (this.timeout) {
+      clearTimeout(this.timeout)
+      this.timeout = null
+    }
+
+    repositoryService.runTransaction(() => {
+      for (const item of this.buffer) {
+        this.upsertStmt.run(item)
+      }
+    })
+    this.buffer = []
+  }
+}
+
+/**
+ * Throttled progress broadcaster for the UI.
+ */
+class ProgressBroadcaster {
+  private lastBroadcast = 0
+  private lastPath = ''
+  private foundCount = 0
+
+  update(currentPath: string) {
+    this.foundCount++
+    this.lastPath = currentPath
+
+    const now = Date.now()
+    if (now - this.lastBroadcast > 100) {
+      this.broadcast()
+      this.lastBroadcast = now
+    }
   }
 
-  // 4. Seal the Gate
-  // Update the DB mtime ONLY after all children are successfully processed.
-  if (isDirectory) {
-    log(`[Phase 1] Sealing the gate for folder: "${relativePath}" (mtime: ${diskMtime})`)
-    statements.sealFolder.run({
-      '@id': id,
-      '@mtime': diskMtime
+  broadcast() {
+    getTransport().broadcast('SCANNER_PROGRESS', {
+      path: this.lastPath,
+      count: this.foundCount
     })
   }
 }
@@ -125,55 +93,195 @@ async function syncDiskToDatabase(
   mediaSourcePath: string,
   db: any
 ): Promise<Set<string>> {
-  const visitedIds = new Set<string>()
+  const foundPaths = new Set<string>()
+  const newItemsMap = new Map<string, any>()
+  const fingerprintBuffer = new FingerprintBuffer(db)
+  const progress = new ProgressBroadcaster()
 
-  const statements = {
-    selectFolderMtime: db.prepare('SELECT mtime FROM items WHERE id = ?'),
-    upsertItem: db.prepare(`
-      INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, is_missing)
-      VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, 0)
-      ON CONFLICT(id) DO UPDATE SET
-        is_missing = 0,
-        parent_id = excluded.parent_id,
-        size = excluded.size,
-        mtime = COALESCE(excluded.mtime, items.mtime)
-    `),
-    sealFolder: db.prepare('UPDATE items SET mtime = @mtime WHERE id = @id')
-  }
-
-  // Ensure root exists
   const rootRelPath = path.relative(mediaSourcePath, rootAbsPath).replace(/\\/g, '/') || '.'
   const rootId = repositoryService.generateId(rootRelPath)
-  const rootName = path.basename(rootAbsPath) || 'Library'
 
-  db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, is_missing)
-    VALUES (?, NULL, ?, ?, 'folder', 0)
-    ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
-  `).run(rootId, rootRelPath, rootName)
+  const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
+    const currentRelPath = path.relative(mediaSourcePath, currentPath).replace(/\\/g, '/') || '.'
+    const currentId = repositoryService.generateId(currentRelPath)
 
-  await walk(rootAbsPath, null, mediaSourcePath, db, visitedIds, statements)
+    // 1. Get all entries (Files and Folders)
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true })
+    } catch (e) {
+      log(`Failed to readdir: ${currentPath}`)
+      return
+    }
 
-  // #1 Conditional Cleanup (Ghost Items vs Deletion)
+    // 2. CHECK FOR SUPPRESSION (System .ignore OR User is_hidden)
+    const hasIgnoreFile = entries.some((e) => e.name === '.ignore')
+    const isUserHidden = repositoryService.isItemHidden(currentId)
+
+    if (hasIgnoreFile || isUserHidden) {
+      log(
+        `[Phase 1] branch suppressed (${hasIgnoreFile ? '.ignore' : 'user-hidden'}): ${currentRelPath}`
+      )
+
+      // Mark this folder state and STOP walking subfolders.
+      try {
+        const s = await fs.stat(currentPath)
+        const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
+        const parentId = currentRelPath === '.' ? null : repositoryService.generateId(parentRelPath)
+
+        fingerprintBuffer.add({
+          '@id': currentId,
+          '@parentId': parentId,
+          '@path': currentRelPath,
+          '@name': path.basename(currentPath) || 'Library',
+          '@type': 'folder',
+          '@size': s.size,
+          '@mtime': Math.floor(s.mtimeMs),
+          '@birthtime': Math.floor(s.birthtimeMs),
+          '@inode': s.ino,
+          '@deviceId': s.dev,
+          '@isIgnored': hasIgnoreFile ? 1 : 0,
+          '@isHidden': isUserHidden ? 1 : 0
+        })
+        foundPaths.add(currentId)
+      } catch { }
+      return
+    }
+
+    // 3. PROCESS CHILDREN (Files and Subfolders)
+    const CHILDREN_BATCH_SIZE = 50
+    for (let i = 0; i < entries.length; i += CHILDREN_BATCH_SIZE) {
+      const batch = entries.slice(i, i + CHILDREN_BATCH_SIZE)
+
+      await Promise.all(
+        batch.map(async (entry) => {
+          const fullPath = path.join(currentPath, entry.name)
+          const relPath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
+          const id = repositoryService.generateId(relPath)
+          const isDir = entry.isDirectory()
+
+          const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
+          if (!isDir && !isVideoFile) return
+
+          try {
+            const s = await fs.stat(fullPath)
+            const itemData = {
+              '@id': id,
+              '@parentId': currentId,
+              '@path': relPath,
+              '@name': entry.name,
+              '@type': isDir ? 'folder' : 'file',
+              '@size': s.size,
+              '@mtime': Math.floor(s.mtimeMs),
+              '@birthtime': Math.floor(s.birthtimeMs),
+              '@inode': s.ino,
+              '@deviceId': s.dev,
+              '@isIgnored': 0, // Default for children; will be corrected when if child is processed in queue
+              '@isHidden': repositoryService.isItemHidden(id) ? 1 : 0 // Preserve user preference
+            }
+
+            if (repositoryService.existsById(id)) {
+              fingerprintBuffer.add(itemData)
+              foundPaths.add(id)
+            } else {
+              const key = `${itemData['@deviceId']}_${itemData['@inode']}`
+              newItemsMap.set(key, itemData)
+            }
+
+            if (isDir) {
+              queue.push(fullPath)
+            }
+
+            progress.update(relPath)
+          } catch (e) {
+            log(`Failed to stat: ${fullPath}`)
+          }
+        })
+      )
+    }
+  })
+
+  // Start the crawl
+  queue.push(rootAbsPath)
+
+  // Ensure the root itself is tracked (especially if it's the start of the scan)
+  try {
+    const s = await fs.stat(rootAbsPath)
+    const isUserHidden = repositoryService.isItemHidden(rootId)
+    // We don't check for .ignore here because the queue worker for the root will do it.
+    // However, if the root itself is user-hidden, we should set it.
+    fingerprintBuffer.add({
+      '@id': rootId,
+      '@parentId': null,
+      '@path': rootRelPath,
+      '@name': path.basename(rootAbsPath) || 'Library',
+      '@type': 'folder',
+      '@size': s.size,
+      '@mtime': Math.floor(s.mtimeMs),
+      '@birthtime': Math.floor(s.birthtimeMs),
+      '@inode': s.ino,
+      '@deviceId': s.dev,
+      '@isIgnored': 0,
+      '@isHidden': isUserHidden ? 1 : 0
+    })
+    foundPaths.add(rootId)
+  } catch { }
+
+  await queue.waitForIdle()
+  fingerprintBuffer.flush()
+  progress.broadcast()
+
+  // --- RECONCILIATION PHASE ---
+
   const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const itemsInScope = repositoryService.getItemsForCleanup(scopePath)
+  const missingItems = repositoryService.getItemsForCleanup(scopePath).filter(item => !foundPaths.has(item.id))
 
+  log(`[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`)
+
+  // #2 Identity-Based Rename Rescue (O(N))
+  for (const item of missingItems) {
+    const key = `${item.deviceId}_${item.inode}`
+    const match = newItemsMap.get(key)
+
+    if (match) {
+      log(`[Phase 1] Detected rename: "${item.path}" -> "${match['@path']}"`)
+      repositoryService.migrateRecord(item.id, match['@id'], match['@path'])
+      foundPaths.add(match['@id'])
+      newItemsMap.delete(key)
+      // Note: We don't remove from missingItems because it's a fixed array, we just mark it found.
+    }
+  }
+
+  // #3 Final Sync (Insert remaining new items)
+  if (newItemsMap.size > 0) {
+    log(`[Phase 1] Inserting ${newItemsMap.size} new items.`)
+    repositoryService.runTransaction(() => {
+      // Re-use the existing writer logic
+      for (const itemData of newItemsMap.values()) {
+        fingerprintBuffer.add(itemData)
+        foundPaths.add(itemData['@id'])
+      }
+      fingerprintBuffer.flush()
+    })
+  }
+
+  // #4 Conditional Cleanup
   repositoryService.runTransaction(() => {
-    for (const item of itemsInScope) {
-      if (!visitedIds.has(item.id)) {
-        if (item.hasLocks) {
-          repositoryService.markAsMissing(item.id)
-        } else {
-          repositoryService.deleteItem(item.id)
-        }
+    for (const item of missingItems) {
+      // Optimization: Check if this was rescued (it should be in foundPaths now)
+      if (foundPaths.has(item.id)) continue
+
+      if (item.hasLocks) {
+        repositoryService.markAsMissing(item.id)
+      } else {
+        repositoryService.deleteItem(item.id)
       }
     }
   })
 
-  log(`[Phase 1] Filesystem sync complete. Visited ${visitedIds.size} items.`)
-  return visitedIds
+  log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
+  return foundPaths
 }
-
 
 export async function scanDirectory(
   mediaSourcePath: string,
@@ -183,14 +291,10 @@ export async function scanDirectory(
   } = {}
 ): Promise<MediaFolder | null> {
   const db = repositoryService.getDb()
-  log(
-    `Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`
-  )
+  log(`Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`)
 
   repositoryService.ensureRootExists(mediaSourcePath)
 
-  // Handle initial folder settings if provided (e.g. for the root)
-  // This ensures Gate A/B are established before Phase 2 starts.
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
       const id = repositoryService.generateId(relPath)
@@ -226,7 +330,6 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
     .prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL')
     .all() as { item_id: string; images_json: string }[]
 
-  // Check all images in one pass
   for (const row of rows) {
     const images = JSON.parse(row.images_json || '{}')
     let changed = false
@@ -265,10 +368,6 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
   }
 }
 
-/**
- * Explicitly initializes the root folder in the database.
- * This allows the API to return success immediately while the background scan continues.
- */
 export function initializeRoot(
   mediaSourcePath: string,
   initialFolderSettings?: Record<string, any>
@@ -277,7 +376,6 @@ export function initializeRoot(
   const rootId = repositoryService.generateId('.')
   const rootName = path.basename(mediaSourcePath)
 
-  // Upsert Root
   db.prepare(
     `
       INSERT INTO items (id, parent_id, path, name, type, is_missing)
@@ -286,11 +384,8 @@ export function initializeRoot(
     `
   ).run(rootId, rootName)
 
-  // Apply Root Settings
   if (initialFolderSettings && initialFolderSettings['.']) {
     const rootSettings = initialFolderSettings['.']
-    const hasHint = rootSettings.retrieve_children_metadata && rootSettings.children_type_hint
-
     db.prepare(
       `
       INSERT INTO folder_settings (item_id, scraper_settings_json)

@@ -393,6 +393,11 @@ export interface BaseLibraryItem {
   _v?: number
   overrideChildId?: string
   mtime?: number
+  birthtime?: number
+  size?: number
+  inode?: number
+  deviceId?: number
+  isIgnored?: boolean
 }
 
 export interface ViewHierarchyNode {

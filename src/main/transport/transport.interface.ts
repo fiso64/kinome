@@ -45,4 +45,11 @@ export interface ITransport {
    * @param status The current scan status object.
    */
   notifyScanStatusChanged(status: Partial<ScanStatus>): void
+
+  /**
+   * Broadcasts a generic event to all connected clients.
+   * @param event The event name.
+   * @param payload The data payload.
+   */
+  broadcast(event: string, payload: any): void
 }

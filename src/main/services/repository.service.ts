@@ -33,6 +33,9 @@ const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
   mtime: { sql: 'i.mtime', table: 'i' },
   isMissing: { sql: 'i.is_missing', table: 'i', parser: Boolean },
   isHidden: { sql: 'i.is_hidden', table: 'i', parser: Boolean },
+  isIgnored: { sql: 'i.is_ignored', table: 'i', parser: Boolean },
+  inode: { sql: 'i.inode', table: 'i' },
+  deviceId: { sql: 'i.device_id', table: 'i' },
 
   // Metadata Table
   tmdbId: { sql: 'm.tmdb_id', table: 'm' },
@@ -96,6 +99,7 @@ export interface FindOptions {
   limit?: number
   offset?: number
   includeHidden?: boolean
+  includeIgnored?: boolean
 }
 
 const log = (message: string): void => {
@@ -371,6 +375,23 @@ export function getItemById(id: string): LibraryItem | null {
 }
 
 /**
+ * Lightweight existence check to avoid mapping overhead.
+ */
+export function existsById(id: string): boolean {
+  const db = getDb()
+  return !!db.prepare('SELECT 1 FROM items WHERE id = ?').get(id)
+}
+
+/**
+ * Fast check for user-hidden status.
+ */
+export function isItemHidden(id: string): boolean {
+  const db = getDb()
+  const row = db.prepare('SELECT is_hidden FROM items WHERE id = ?').get(id) as { is_hidden: number } | undefined
+  return !!row?.is_hidden
+}
+
+/**
  * Fast path lookup for streaming. Only returns the path, no joins.
  * Use this when you only need the file path (e.g. streaming endpoints).
  */
@@ -434,12 +455,13 @@ export function findParent(id: string): MediaFolder | null {
  * Returns the immediate children of a folder.
  * Uses the lean find() logic if fields are specified.
  */
-export function getChildren(parentId: string, fields?: string[], includeHidden = true): LibraryItem[] {
-  return find({
-    where: { parentId },
-    fields,
-    includeHidden
-  })
+export function getChildren(
+  parentId: string,
+  fields?: string[],
+  includeHidden = false,
+  includeIgnored = false
+): LibraryItem[] {
+  return find({ where: { parentId }, fields, includeHidden, includeIgnored })
 }
 
 /**
@@ -576,12 +598,16 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   const params: any[] = []
   const conditions: string[] = []
 
-  // Default includeHidden to true unless explicitly FALSE
-  // Note: getChildren() sets it to false.
-  const includeHidden = options.includeHidden ?? true
+  // Default suppression flags to FALSE (Vanish)
+  const includeHidden = options.includeHidden ?? false
+  const includeIgnored = options.includeIgnored ?? false
 
   if (!includeHidden) {
     conditions.push('(i.is_hidden IS NULL OR i.is_hidden = 0)')
+  }
+
+  if (!includeIgnored) {
+    conditions.push('(i.is_ignored IS NULL OR i.is_ignored = 0)')
   }
 
   if (options.where) {
@@ -656,6 +682,26 @@ export function find(options: FindOptions = {}): LibraryItem[] {
 
 export function generateId(relativePath: string): string {
   return crypto.createHash('sha256').update(relativePath).digest('hex')
+}
+
+/**
+ * Migrates a record from an old ID/path to a new one.
+ * Preserves all metadata, user state, and folder settings.
+ */
+export function migrateRecord(oldId: string, newId: string, newPath: string): void {
+  const db = getDb()
+
+  runTransaction(() => {
+    // 1. If destination already exists (e.g. a ghost item), remove it first
+    db.prepare('DELETE FROM items WHERE id = ?').run(newId)
+
+    // 2. Update the existing record (FKs will cascade)
+    db.prepare('UPDATE items SET id = ?, path = ?, is_missing = 0 WHERE id = ?').run(
+      newId,
+      newPath,
+      oldId
+    )
+  })
 }
 
 export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
@@ -1115,24 +1161,36 @@ export function getAllDescendantIdsFast(parentId: string): string[] {
  * Returns items in a scope with their locked fields status.
  * Used for conditional cleanup (Missing vs Delete).
  */
-export function getItemsForCleanup(pathPrefix: string): { id: string; hasLocks: boolean }[] {
+export function getItemsForCleanup(
+  pathPrefix: string
+): { id: string; path: string; hasLocks: boolean; inode: number; deviceId: number }[] {
   const db = getDb()
   const rows = db
     .prepare(
       `
-    SELECT i.id, m.locked_fields_json
+    SELECT i.id, i.path, i.inode, i.device_id, m.locked_fields_json
     FROM items i
     LEFT JOIN metadata m ON i.id = m.item_id
     WHERE i.path LIKE ? OR i.path = ?
   `
     )
-    .all(`${pathPrefix}/%`, pathPrefix) as { id: string; locked_fields_json: string | null }[]
+    .all(`${pathPrefix}/%`, pathPrefix) as {
+      id: string
+      path: string
+      inode: number
+      device_id: number
+      locked_fields_json: string | null
+    }[]
 
-  return rows.map((r) => ({
-    id: r.id,
-    hasLocks: !!r.locked_fields_json && JSON.parse(r.locked_fields_json).length > 0
+  return rows.map((row) => ({
+    id: row.id,
+    path: row.path,
+    hasLocks: !!row.locked_fields_json && row.locked_fields_json !== '[]' && row.locked_fields_json !== 'null',
+    inode: row.inode,
+    deviceId: row.device_id
   }))
 }
+
 
 export function markAsMissing(id: string): void {
   const db = getDb()
@@ -1181,7 +1239,6 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
     WHERE i.type = 'folder' 
       AND m.media_type = 'tv'
       AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
-      AND (i.mtime > m.last_refreshed_at OR m.last_refreshed_at IS NULL)
   `
     )
     .all() as any[]

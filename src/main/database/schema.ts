@@ -13,9 +13,12 @@ CREATE TABLE IF NOT EXISTS items (
     size INTEGER,
     mtime INTEGER,
     birthtime INTEGER,
+    inode INTEGER,
+    device_id INTEGER,
 
     -- State Flags (stored as 0 or 1)
     is_hidden INTEGER DEFAULT 0,
+    is_ignored INTEGER DEFAULT 0,
     is_missing INTEGER DEFAULT 0,
     
     -- Timestamp

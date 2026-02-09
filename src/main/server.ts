@@ -492,7 +492,8 @@ const app = new Elysia()
             orderBy: t.Optional(t.String()),
             sort: t.Optional(t.String()),
             order: t.Optional(t.String()),
-            includeHidden: t.Optional(t.String())
+            includeHidden: t.Optional(t.String()),
+            includeIgnored: t.Optional(t.String())
           })
         }
       )
@@ -913,7 +914,8 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     'sort',
     'order',
     'groupBy',
-    'includeHidden'
+    'includeHidden',
+    'includeIgnored'
   ]
 
   for (const [key, value] of Object.entries(query)) {
@@ -937,6 +939,12 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     options.includeHidden = true
   } else if (query.includeHidden === 'false') {
     options.includeHidden = false
+  }
+
+  if (query.includeIgnored === 'true') {
+    options.includeIgnored = true
+  } else if (query.includeIgnored === 'false') {
+    options.includeIgnored = false
   }
 
   return options

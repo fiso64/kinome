@@ -37,7 +37,6 @@ export function initializeDatabase(): Database {
 
     applySchema()
 
-
     return db
   } catch (error) {
     console.error('[Database] Failed to initialize:', error)
