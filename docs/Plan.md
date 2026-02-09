@@ -31,8 +31,10 @@
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
 - [X] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
-- [ ] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
 - [ ] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
+  - [ ] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
+    - [ ] Starting by implementing real virtual folders alongside current transient virtual folders.
+    - [ ] Then refactor to unify the two types of virtual folders.
   - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
   - [ ] A "Recently Added" section implemented as a virtual folder.
 - [ ] More UI and virtual tag configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
