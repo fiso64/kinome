@@ -62,15 +62,30 @@
     const id = item.id
     // We only need to hydrate if we haven't already.
     // But since 'item' prop doesn't change, this effect runs once on mount.
-    window.api.getItem(id, { fields: ['logoPath', 'backdropPath'] }).then((fullItem) => {
-      // Only update if we don't have overrides yet (to avoid overwriting user actions if they happened fast)
-      // Actually, merging is safer.
-      localOverrides = {
-        ...localOverrides,
-        logoPath: fullItem.logoPath,
-        backdropPath: fullItem.backdropPath
-      }
-    })
+    window.api
+      .getItem(id, { fields: ['logoPath', 'backdropPath', 'posterPath', 'mediaType', '_v'] })
+      .then((fullItem) => {
+        const propVersion = item._v || 0
+        const fetchedVersion = fullItem._v || 0
+
+        if (fetchedVersion < propVersion) {
+          // If fetch is stale compared to prop, only backfill missing fields
+          localOverrides = {
+            ...localOverrides,
+            logoPath: localOverrides.logoPath ?? fullItem.logoPath,
+            backdropPath: localOverrides.backdropPath ?? fullItem.backdropPath
+          } as Partial<LibraryItem>
+        } else {
+          localOverrides = {
+            ...localOverrides,
+            logoPath: fullItem.logoPath,
+            backdropPath: fullItem.backdropPath,
+            posterPath: fullItem.posterPath,
+            mediaType: fullItem.mediaType,
+            _v: fullItem._v
+          } as Partial<LibraryItem>
+        }
+      })
   })
 
   // Merge prop item with local overrides. Overrides take precedence.
@@ -170,7 +185,7 @@
     try {
       // Fetch all potential artwork fields
       const fresh = await window.api.getItem(localItem.id, {
-        fields: ['logoPath', 'backdropPath', 'posterPath']
+        fields: ['logoPath', 'backdropPath', 'posterPath', '_v']
       })
       localOverrides = {
         ...localOverrides,

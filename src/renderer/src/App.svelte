@@ -387,8 +387,11 @@
     manualSearch: async (itemOrId: LibraryItem | string, initialTab: 'match' | 'artwork') => {
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
         'tmdbId',
+        'mediaType',
         'name',
-        'path'
+        'path',
+        'posterPath',
+        '_v'
       ])
       if (targetItem) {
         modalStore.open('manualSearch', { item: targetItem, initialTab })
