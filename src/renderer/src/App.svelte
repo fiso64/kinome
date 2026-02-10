@@ -326,7 +326,10 @@
       }
     },
 
-    editMetadata: async (itemOrId?: LibraryItem | string, initialTab: any = 'metadata') => {
+    editMetadata: async (
+      itemOrId?: LibraryItem | string,
+      initialTab: 'metadata' | 'view' | 'folder' = 'metadata'
+    ) => {
       const id = itemOrId || navStore.contextItemId
       if (!id || id === 'root') return
 

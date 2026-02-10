@@ -195,7 +195,6 @@ export function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
     p.personData = { ...p.personData, ...castMember }
   })
-
   ;(creditsData.crew ?? []).forEach((crewMember: any) => {
     let bestJobIndex = Infinity
     const importantJobsForPerson: string[] = []

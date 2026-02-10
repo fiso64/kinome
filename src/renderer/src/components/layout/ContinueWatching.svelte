@@ -19,6 +19,7 @@
   const dispatch = createEventDispatcher<{
     dismiss: { showId: string }
     itemClick: { item: LibraryItem }
+    showContextMenu: { item: LibraryItem; event: MouseEvent }
   }>()
 </script>
 
@@ -29,6 +30,7 @@
       {glass}
       on:dismiss={(e) => dispatch('dismiss', e.detail)}
       on:itemClick={(e) => dispatch('itemClick', e.detail)}
+      on:showContextMenu={(e) => dispatch('showContextMenu', e.detail)}
     />
   {/each}
 </div>

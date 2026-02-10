@@ -4,7 +4,6 @@
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
-  import FileTab from './_parts/item-settings/FileTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import type {
     StoredViewSettings,
@@ -37,7 +36,7 @@
     item: LibraryItem & VirtualFolderProps
     onClose: () => void
     onNeedRefresh?: () => Promise<void>
-    initialTab?: 'metadata' | 'view' | 'folder' | 'settings'
+    initialTab?: 'metadata' | 'view' | 'folder'
     groupByKeys: string[]
     defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     settings: Settings | null
@@ -50,10 +49,12 @@
 
   // For initializing `activeTab`, directly use the prop `item.isVirtual`
   // to avoid the compiler warning about capturing the initial value of a derived signal.
-  let activeTab = $state<'metadata' | 'view' | 'folder' | 'settings'>(
+  let activeTab = $state<'metadata' | 'view' | 'folder'>(
     item.isVirtual === true && (initialTab === 'metadata' || initialTab === 'folder')
       ? 'view'
-      : initialTab
+      : (initialTab as any) === 'settings'
+        ? 'metadata'
+        : (initialTab as any)
   )
 
   // --- Shared Autocomplete Suggestions ---
@@ -584,10 +585,6 @@
             Settings
           </button>
         {/if}
-      {:else if !isVirtual}
-        <button class:active={activeTab === 'settings'} onclick={() => (activeTab = 'settings')}>
-          Settings
-        </button>
       {/if}
     </div>
   {/snippet}
@@ -636,8 +633,6 @@
         bind:itemsToUnhide
         {onNeedRefresh}
       />
-    {:else if activeTab === 'settings' && !isFolder && !isVirtual}
-      <FileTab />
     {/if}
   </div>
 </ModalWindow>

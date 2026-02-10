@@ -19,7 +19,6 @@
     onEditMetadata,
     onSetLayout,
     onOpenFolderSettings,
-    onOpenFileSettings,
     onManualSearch,
     onEditArtwork,
     onRevealInExplorer,
@@ -40,7 +39,6 @@
     onEditMetadata: () => void
     onSetLayout: () => void
     onOpenFolderSettings: () => void
-    onOpenFileSettings: () => void
     onManualSearch: () => void
     onEditArtwork: () => void
     onRevealInExplorer: () => void
@@ -161,11 +159,6 @@
   function handleFolderSettings() {
     onOpenFolderSettings()
     onClose() // Also close the menu
-  }
-
-  function handleOpenFileSettings() {
-    onOpenFileSettings()
-    onClose()
   }
 
   function handleManualSearch() {
@@ -319,6 +312,36 @@
   onmousedown={(e) => e.stopPropagation()}
   oncontextmenu={(e) => e.stopPropagation()}
 >
+  {#if item.type === 'file' && !isVirtual && !item.isMissing && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
+    <div
+      class="submenu-container"
+      onmouseenter={() => (activeSubmenu = 'play')}
+      onmouseleave={() => (activeSubmenu = null)}
+    >
+      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+        <span class="icon">▶️</span>
+        <span>Play with...</span>
+        <span class="submenu-arrow">▸</span>
+      </button>
+
+      {#if activeSubmenu === 'play'}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu"
+          class:on-left={submenuOnLeft}
+          style="top: {submenuTop}px;"
+          onclick={(e) => e.stopPropagation()}
+        >
+          {#each globalSettings.playerCommands as player}
+            <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
+              <span>{player.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="separator"></div>
+  {/if}
   {#if (layout === 'tree' || layout === 'tabs' || layout === 'sections') && item.type === 'folder'}
     <button
       class="context-menu-item"
@@ -394,16 +417,6 @@
       </button>
     {/if}
   {/if}
-  {#if item.type === 'file'}
-    <button
-      class="context-menu-item"
-      onclick={handleOpenFileSettings}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">⚙️</span>
-      <span>File Settings...</span>
-    </button>
-  {/if}
 
   <div
     class="submenu-container"
@@ -469,67 +482,36 @@
     {/if}
   </div>
 
-  <div class="context-menu-section border-top">
-    {#if item.type === 'file' && !isVirtual && !item.isMissing && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
-      <div
-        class="submenu-container"
-        onmouseenter={() => (activeSubmenu = 'play')}
-        onmouseleave={() => (activeSubmenu = null)}
-      >
-        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-          <span class="icon">▶️</span>
-          <span>Play with...</span>
-          <span class="submenu-arrow">▸</span>
-        </button>
+  {#if !isVirtual && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
+    <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
+    <div
+      class="submenu-container"
+      onmouseenter={() => (activeSubmenu = 'custom')}
+      onmouseleave={() => (activeSubmenu = null)}
+    >
+      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+        <span class="icon">🛠️</span>
+        <span>Custom Actions</span>
+        <span class="submenu-arrow">▸</span>
+      </button>
 
-        {#if activeSubmenu === 'play'}
-          <div
-            bind:this={submenuElement}
-            class="context-menu submenu"
-            class:on-left={submenuOnLeft}
-            style="top: {submenuTop}px;"
-            onclick={(e) => e.stopPropagation()}
-          >
-            {#each globalSettings.playerCommands as player}
-              <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
-                <span>{player.name}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-
-    {#if !isVirtual && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
-      <div
-        class="submenu-container"
-        onmouseenter={() => (activeSubmenu = 'custom')}
-        onmouseleave={() => (activeSubmenu = null)}
-      >
-        <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-          <span class="icon">🛠️</span>
-          <span>Custom Actions</span>
-          <span class="submenu-arrow">▸</span>
-        </button>
-
-        {#if activeSubmenu === 'custom'}
-          <div
-            bind:this={submenuElement}
-            class="context-menu submenu"
-            class:on-left={submenuOnLeft}
-            style="top: {submenuTop}px;"
-            onclick={(e) => e.stopPropagation()}
-          >
-            {#each globalSettings.customActions as action (action.id)}
-              <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
-                <span>{action.name}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+      {#if activeSubmenu === 'custom'}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu"
+          class:on-left={submenuOnLeft}
+          style="top: {submenuTop}px;"
+          onclick={(e) => e.stopPropagation()}
+        >
+          {#each globalSettings.customActions as action (action.id)}
+            <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
+              <span>{action.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if !isVirtual}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>

@@ -20,6 +20,7 @@
   const dispatch = createEventDispatcher<{
     dismiss: { showId: string }
     itemClick: { item: LibraryItem }
+    showContextMenu: { item: LibraryItem; event: MouseEvent }
   }>()
 
   function handleShowDetailsClick() {
@@ -42,6 +43,14 @@
     dispatch('dismiss', { showId })
   }
 
+  function handleContextMenu(event: MouseEvent, target: LibraryItem | 'show') {
+    // We do NOT preventDefault here. We let the store handle it so that it can
+    // distinguish between a first click (app menu) and second click (native menu).
+    event.stopPropagation()
+    const itemToMenu = target === 'show' ? item.show : (target as LibraryItem)
+    dispatch('showContextMenu', { item: itemToMenu, event })
+  }
+
   const posterToShow = $derived(item.nextEpisode.posterPath ?? item.show.posterPath)
 </script>
 
@@ -55,6 +64,7 @@
   aria-label={layout === 'horizontal' ? 'Play next episode' : undefined}
   onclick={layout === 'horizontal' ? () => dispatch('itemClick', { item: item.nextEpisode }) : null}
   onkeydown={layout === 'horizontal' ? (e) => handleItemKeydown(e, item.nextEpisode) : null}
+  oncontextmenu={(e) => handleContextMenu(e, item.nextEpisode)}
 >
   <div
     class="cw-poster"

@@ -502,6 +502,7 @@
               item={continueWatchingInfo!}
               layout="horizontal"
               on:itemClick={(e) => onItemClick(e.detail.item)}
+              on:showContextMenu={(e) => showContextMenu(e.detail.item, e.detail.event)}
               on:dismiss={() => {
                 window.api.setNextUpDismissed(continueWatchingInfo!.show.id)
                 libraryDataService.handleLibraryUpdates(

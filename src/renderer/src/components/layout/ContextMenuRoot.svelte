@@ -26,7 +26,6 @@
     onEditMetadata={() => actions.editMetadata(item)}
     onSetLayout={() => actions.openViewSettings(item)}
     onOpenFolderSettings={() => actions.editMetadata(item, 'folder')}
-    onOpenFileSettings={() => actions.editMetadata(item, 'metadata')}
     onManualSearch={() => actions.manualSearch(item, 'match')}
     onEditArtwork={() => actions.manualSearch(item, 'artwork')}
     onRevealInExplorer={() => actions.revealInExplorer(item)}

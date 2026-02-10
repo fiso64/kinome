@@ -68,6 +68,7 @@
         glass={isGlassActive}
         on:dismiss={(e) => dispatch('dismissContinueWatching', e.detail)}
         on:itemClick={(e) => onItemClick(e.detail.item)}
+        on:showContextMenu={(e) => onShowContextMenu(e.detail.item, e.detail.event)}
       />
     </section>
   {/if}
