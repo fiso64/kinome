@@ -64,7 +64,7 @@ class AuthStore {
         try {
           const data = JSON.parse(text)
           message = data.message || message
-        } catch (e) { }
+        } catch (e) {}
         return { success: false, message }
       }
     } catch (error) {
@@ -99,7 +99,7 @@ class AuthStore {
         try {
           const data = JSON.parse(text)
           message = data.message || message
-        } catch (e) { }
+        } catch (e) {}
         return { success: false, message }
       }
     } catch (error) {

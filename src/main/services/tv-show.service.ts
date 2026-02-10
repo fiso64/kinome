@@ -143,7 +143,9 @@ export async function syncTvShowStructure(
     await updateIfChangedAndBroadcast(allModified)
   }
 
-  log(`[Structure Sync] "${show.name}" scan complete. Found ${allModified.length} internal changes.`)
+  log(
+    `[Structure Sync] "${show.name}" scan complete. Found ${allModified.length} internal changes.`
+  )
   return allModified
 }
 

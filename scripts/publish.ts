@@ -150,7 +150,7 @@ if (isWinTarget) {
     console.log(`   Artifact: ${debPath}`)
   } catch (e) {
     console.error('❌ NFPM Packaging Failed:', e)
-    await fs.rm('nfpm.temp.yaml').catch(() => { })
+    await fs.rm('nfpm.temp.yaml').catch(() => {})
     process.exit(1)
   }
 }

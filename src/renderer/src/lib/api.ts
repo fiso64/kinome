@@ -54,7 +54,10 @@ export interface ApiClient {
   }): Promise<Record<string, unknown>>
   getLibraryRoot(path?: string): Promise<LibraryStatus>
   listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]>
-  performScan(options?: { path?: string; initialFolderSettings?: Record<string, any> }): Promise<{ success: boolean }>
+  performScan(options?: {
+    path?: string
+    initialFolderSettings?: Record<string, any>
+  }): Promise<{ success: boolean }>
   playFile(file: MediaFile): Promise<boolean>
   playFileWith(file: MediaFile, command: string): Promise<boolean>
   recordPlayback(itemId: string): Promise<void>

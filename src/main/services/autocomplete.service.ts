@@ -58,7 +58,7 @@ export const getAutocompleteValues = async (
     // Check tags first, then virtual tags
     const tagMatch = db
       .prepare(
-        "SELECT DISTINCT value FROM metadata, json_each(tags_json) WHERE key = ? AND tags_json IS NOT NULL"
+        'SELECT DISTINCT value FROM metadata, json_each(tags_json) WHERE key = ? AND tags_json IS NOT NULL'
       )
       .all(key)
 
@@ -67,7 +67,7 @@ export const getAutocompleteValues = async (
     } else {
       values = db
         .prepare(
-          "SELECT DISTINCT value FROM metadata, json_each(virtual_tags_json) WHERE key = ? AND virtual_tags_json IS NOT NULL"
+          'SELECT DISTINCT value FROM metadata, json_each(virtual_tags_json) WHERE key = ? AND virtual_tags_json IS NOT NULL'
         )
         .all(key)
         .map((r: any) => r.value)
@@ -114,11 +114,15 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
     .map((r: any) => r.value)
 
   const tagEntries = db
-    .prepare('SELECT DISTINCT key, value FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL')
+    .prepare(
+      'SELECT DISTINCT key, value FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL'
+    )
     .all() as { key: string; value: string }[]
 
   const virtualTagEntries = db
-    .prepare('SELECT DISTINCT key, value FROM metadata, json_each(virtual_tags_json) WHERE virtual_tags_json IS NOT NULL')
+    .prepare(
+      'SELECT DISTINCT key, value FROM metadata, json_each(virtual_tags_json) WHERE virtual_tags_json IS NOT NULL'
+    )
     .all() as { key: string; value: string }[]
 
   const tags: Record<string, string[]> = {}
@@ -144,8 +148,8 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
   const sort = (arr: any[]) =>
     arr.filter((v) => typeof v === 'string').sort((a, b) => a.localeCompare(b))
 
-  Object.keys(tags).forEach(k => tags[k] = sort(tags[k]))
-  Object.keys(virtualTags).forEach(k => virtualTags[k] = sort(virtualTags[k]))
+  Object.keys(tags).forEach((k) => (tags[k] = sort(tags[k])))
+  Object.keys(virtualTags).forEach((k) => (virtualTags[k] = sort(virtualTags[k])))
 
   return {
     mediaType: sort(mediaTypes),
@@ -163,7 +167,9 @@ export const searchPersons = async (query: string, limit: number = 20): Promise<
     const db = getDb()
 
     // Extract distinct person names from both cast and crew JSON arrays
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT DISTINCT json_extract(c.value, '$.name') as name
       FROM metadata, json_each(people_json, '$.cast') as c
       WHERE people_json IS NOT NULL
@@ -171,9 +177,14 @@ export const searchPersons = async (query: string, limit: number = 20): Promise<
       SELECT DISTINCT json_extract(c.value, '$.name') as name
       FROM metadata, json_each(people_json, '$.crew') as c
       WHERE people_json IS NOT NULL
-    `).all() as { name: string }[]
+    `
+      )
+      .all() as { name: string }[]
 
-    personCache = rows.map(r => r.name).filter(Boolean).sort()
+    personCache = rows
+      .map((r) => r.name)
+      .filter(Boolean)
+      .sort()
   }
 
   return fuzzyFilterAndSort(personCache, query, limit)

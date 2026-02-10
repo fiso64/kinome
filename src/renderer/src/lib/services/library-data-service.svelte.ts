@@ -100,19 +100,22 @@ class LibraryDataService {
       enabled?: () => boolean
     } = {}
   ) {
-    return createQuery(() => {
-      const id = idFn()
-      const normalizedId = this.normalizeId(id)
-      const fields = (options.fields ? options.fields() : []).sort()
-      const include = (options.include ? options.include() : []).sort()
-      const isEnabled = options.enabled ? options.enabled() : true
+    return createQuery(
+      () => {
+        const id = idFn()
+        const normalizedId = this.normalizeId(id)
+        const fields = (options.fields ? options.fields() : []).sort()
+        const include = (options.include ? options.include() : []).sort()
+        const isEnabled = options.enabled ? options.enabled() : true
 
-      return {
-        queryKey: [...this.keys.item.details(normalizedId), { fields, include }],
-        queryFn: () => (normalizedId ? api.getItem(id!, { fields, include }) : null),
-        enabled: isEnabled && !!normalizedId
-      }
-    }, () => this.queryClient!)
+        return {
+          queryKey: [...this.keys.item.details(normalizedId), { fields, include }],
+          queryFn: () => (normalizedId ? api.getItem(id!, { fields, include }) : null),
+          enabled: isEnabled && !!normalizedId
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
@@ -152,7 +155,9 @@ class LibraryDataService {
     }
 
     // If it's an object, check if any requested fields are missing
-    const missingFields = fields.filter((f) => !(f in itemOrId) || (itemOrId as any)[f] === undefined)
+    const missingFields = fields.filter(
+      (f) => !(f in itemOrId) || (itemOrId as any)[f] === undefined
+    )
     if (missingFields.length > 0) {
       return await this.fetchItemDetails(itemOrId.id, fields)
     }
@@ -167,17 +172,20 @@ class LibraryDataService {
     idFn: () => string | null | undefined,
     options: { enabled?: () => boolean } = {}
   ) {
-    return createQuery(() => {
-      const id = idFn()
-      const normalizedId = this.normalizeId(id)
-      const isEnabled = options.enabled ? options.enabled() : true
+    return createQuery(
+      () => {
+        const id = idFn()
+        const normalizedId = this.normalizeId(id)
+        const isEnabled = options.enabled ? options.enabled() : true
 
-      return {
-        queryKey: this.keys.credits.byItem(normalizedId),
-        queryFn: () => (normalizedId ? api.getItemCredits(id!) : null),
-        enabled: isEnabled && !!normalizedId
-      }
-    }, () => this.queryClient!)
+        return {
+          queryKey: this.keys.credits.byItem(normalizedId),
+          queryFn: () => (normalizedId ? api.getItemCredits(id!) : null),
+          enabled: isEnabled && !!normalizedId
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
@@ -187,18 +195,21 @@ class LibraryDataService {
     idFn: () => string | null | undefined,
     options: { fields?: () => string[]; enabled?: () => boolean } = {}
   ) {
-    return createQuery(() => {
-      const id = idFn()
-      const normalizedId = this.normalizeId(id)
-      const fields = (options.fields ? options.fields() : []).sort()
-      const isEnabled = options.enabled ? options.enabled() : true
+    return createQuery(
+      () => {
+        const id = idFn()
+        const normalizedId = this.normalizeId(id)
+        const fields = (options.fields ? options.fields() : []).sort()
+        const isEnabled = options.enabled ? options.enabled() : true
 
-      return {
-        queryKey: this.keys.item.tree(normalizedId),
-        queryFn: () => (normalizedId ? api.getItem(id!, { include: ['tree'], fields }) : null),
-        enabled: isEnabled && !!normalizedId
-      }
-    }, () => this.queryClient!)
+        return {
+          queryKey: this.keys.item.tree(normalizedId),
+          queryFn: () => (normalizedId ? api.getItem(id!, { include: ['tree'], fields }) : null),
+          enabled: isEnabled && !!normalizedId
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
@@ -213,42 +224,48 @@ class LibraryDataService {
       enabled?: () => boolean
     } = {}
   ) {
-    return createQuery(() => {
-      const parentId = parentIdFn()
-      const normalizedId = this.normalizeId(parentId)
-      const fields = (options.fields ? options.fields() : []).sort()
-      const groupBy = options.groupBy ? options.groupBy() : undefined
-      const isDetailView = options.isDetailView ? options.isDetailView() : false
-      const isEnabled = options.enabled ? options.enabled() : true
+    return createQuery(
+      () => {
+        const parentId = parentIdFn()
+        const normalizedId = this.normalizeId(parentId)
+        const fields = (options.fields ? options.fields() : []).sort()
+        const groupBy = options.groupBy ? options.groupBy() : undefined
+        const isDetailView = options.isDetailView ? options.isDetailView() : false
+        const isEnabled = options.enabled ? options.enabled() : true
 
-      return {
-        queryKey: this.keys.children.byParent(normalizedId, fields, groupBy, isDetailView),
-        queryFn: () =>
-          normalizedId
-            ? api.getChildren(parentId!, {
-              fields,
-              groupBy
-            })
-            : [],
-        enabled: isEnabled && normalizedId !== undefined && normalizedId !== null
-      }
-    }, () => this.queryClient!)
+        return {
+          queryKey: this.keys.children.byParent(normalizedId, fields, groupBy, isDetailView),
+          queryFn: () =>
+            normalizedId
+              ? api.getChildren(parentId!, {
+                  fields,
+                  groupBy
+                })
+              : [],
+          enabled: isEnabled && normalizedId !== undefined && normalizedId !== null
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
    * Returns a query for the "Continue Watching" list.
    */
   getContinueWatchingQuery(options: { enabled?: () => boolean } = {}) {
-    return createQuery(() => {
-      const isEnabled = options.enabled ? options.enabled() : true
-      return {
-        queryKey: this.keys.continueWatching.all,
-        queryFn: async () => {
-          return await api.getContinueWatchingItems()
-        },
-        enabled: isEnabled
-      }
-    }, () => this.queryClient!)
+    return createQuery(
+      () => {
+        const isEnabled = options.enabled ? options.enabled() : true
+        return {
+          queryKey: this.keys.continueWatching.all,
+          queryFn: async () => {
+            return await api.getContinueWatchingItems()
+          },
+          enabled: isEnabled
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
@@ -258,15 +275,18 @@ class LibraryDataService {
     showIdFn: () => string | null | undefined,
     options: { enabled?: () => boolean } = {}
   ) {
-    return createQuery(() => {
-      const showId = showIdFn()
-      const isEnabled = options.enabled ? options.enabled() : true
-      return {
-        queryKey: this.keys.continueWatching.forShow(showId),
-        queryFn: () => (showId ? api.getContinueWatchingForShow(showId) : null),
-        enabled: isEnabled && !!showId
-      }
-    }, () => this.queryClient!)
+    return createQuery(
+      () => {
+        const showId = showIdFn()
+        const isEnabled = options.enabled ? options.enabled() : true
+        return {
+          queryKey: this.keys.continueWatching.forShow(showId),
+          queryFn: () => (showId ? api.getContinueWatchingForShow(showId) : null),
+          enabled: isEnabled && !!showId
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   /**
@@ -276,15 +296,18 @@ class LibraryDataService {
     itemIdFn: () => string | null | undefined,
     options: { enabled?: () => boolean } = {}
   ) {
-    return createQuery(() => {
-      const itemId = itemIdFn()
-      const isEnabled = options.enabled ? options.enabled() : true
-      return {
-        queryKey: this.keys.parent.byItem(itemId),
-        queryFn: () => (itemId ? api.getParent(itemId) : null),
-        enabled: isEnabled && !!itemId
-      }
-    }, () => this.queryClient!)
+    return createQuery(
+      () => {
+        const itemId = itemIdFn()
+        const isEnabled = options.enabled ? options.enabled() : true
+        return {
+          queryKey: this.keys.parent.byItem(itemId),
+          queryFn: () => (itemId ? api.getParent(itemId) : null),
+          enabled: isEnabled && !!itemId
+        }
+      },
+      () => this.queryClient!
+    )
   }
 
   // --- 3. Synchronization Policy (The "Double-Tap") ---
@@ -293,9 +316,13 @@ class LibraryDataService {
    * Processes a batch of item updates from the backend.
    */
   handleLibraryUpdates(updatedItems: LibraryItem[], isScanning: boolean) {
-    console.log(`[LibraryDataService] handleLibraryUpdates called with ${updatedItems.length} items, isScanning: ${isScanning}`)
+    console.log(
+      `[LibraryDataService] handleLibraryUpdates called with ${updatedItems.length} items, isScanning: ${isScanning}`
+    )
     if (!this.queryClient || !this.throttler) {
-      console.warn('[LibraryDataService] Cannot handle updates - queryClient or throttler not initialized!')
+      console.warn(
+        '[LibraryDataService] Cannot handle updates - queryClient or throttler not initialized!'
+      )
       return
     }
 
@@ -342,7 +369,8 @@ class LibraryDataService {
               // This virtual folder belongs to the physical item being updated.
               // Update its viewSettings from the parent's new virtualFolderSettings map.
               const settingsKey = getVirtualSettingsKey(tokens)
-              const newVirtualSettings = item.viewSettings?.virtualFolderSettings?.[settingsKey] ?? {}
+              const newVirtualSettings =
+                item.viewSettings?.virtualFolderSettings?.[settingsKey] ?? {}
 
               newData[i] = {
                 ...entry,

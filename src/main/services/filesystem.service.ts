@@ -181,7 +181,7 @@ async function syncDiskToDatabase(
               '@inode': s.ino,
               '@deviceId': s.dev,
               '@isIgnored': isDir ? null : 0, // Parent doesn't know folder ignore state yet
-              '@isHidden': isDir ? null : (repositoryService.isItemHidden(id) ? 1 : 0)
+              '@isHidden': isDir ? null : repositoryService.isItemHidden(id) ? 1 : 0
             }
 
             if (repositoryService.existsById(id)) {
@@ -231,7 +231,7 @@ async function syncDiskToDatabase(
       '@isHidden': isUserHidden ? 1 : 0
     })
     foundPaths.add(rootId)
-  } catch { }
+  } catch {}
 
   await queue.waitForIdle()
   fingerprintBuffer.flush()
@@ -240,9 +240,13 @@ async function syncDiskToDatabase(
   // --- RECONCILIATION PHASE ---
 
   const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const missingItems = repositoryService.getItemsForCleanup(scopePath).filter(item => !foundPaths.has(item.id))
+  const missingItems = repositoryService
+    .getItemsForCleanup(scopePath)
+    .filter((item) => !foundPaths.has(item.id))
 
-  log(`[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`)
+  log(
+    `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`
+  )
 
   // #2 Identity-Based Rename Rescue (O(N))
   for (const item of missingItems) {
@@ -272,7 +276,9 @@ async function syncDiskToDatabase(
   }
 
   // #4 Conditional Cleanup
-  log(`[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`)
+  log(
+    `[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`
+  )
   repositoryService.runTransaction(() => {
     for (const item of missingItems) {
       // Optimization: Check if this was rescued (it should be in foundPaths now)
@@ -295,7 +301,7 @@ async function syncDiskToDatabase(
 export async function scanDirectory(
   mediaSourcePath: string,
   options: {
-    skipMetadata?: boolean,
+    skipMetadata?: boolean
     initialFolderSettings?: Record<string, any>
   } = {}
 ): Promise<MediaFolder | null> {
@@ -307,11 +313,13 @@ export async function scanDirectory(
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
       const id = repositoryService.generateId(relPath)
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO folder_settings (item_id, scraper_settings_json)
         VALUES (?, ?)
         ON CONFLICT(item_id) DO UPDATE SET scraper_settings_json = excluded.scraper_settings_json
-      `).run(id, JSON.stringify(settings))
+      `
+      ).run(id, JSON.stringify(settings))
     }
   }
 

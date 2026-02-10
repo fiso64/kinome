@@ -275,7 +275,6 @@
     text-overflow: ellipsis;
   }
 
-
   .cw-item.horizontal .cw-overview {
     -webkit-line-clamp: 2;
     line-clamp: var(--description-rows, 3);

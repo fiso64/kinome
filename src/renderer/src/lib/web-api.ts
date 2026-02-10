@@ -129,10 +129,14 @@ class WebApiClient implements ApiClient {
       this.eventHandlers.set(event, new Set())
     }
     this.eventHandlers.get(event)!.add(callback)
-    console.log(`[WebApiClient] Registered handler for '${event}' (total: ${this.eventHandlers.get(event)!.size})`)
+    console.log(
+      `[WebApiClient] Registered handler for '${event}' (total: ${this.eventHandlers.get(event)!.size})`
+    )
     return () => {
       this.eventHandlers.get(event)?.delete(callback)
-      console.log(`[WebApiClient] Unregistered handler for '${event}' (remaining: ${this.eventHandlers.get(event)?.size || 0})`)
+      console.log(
+        `[WebApiClient] Unregistered handler for '${event}' (remaining: ${this.eventHandlers.get(event)?.size || 0})`
+      )
     }
   }
 
@@ -191,7 +195,8 @@ class WebApiClient implements ApiClient {
     if (options.orderBy)
       params.set('orderBy', `${options.orderBy.field}:${options.orderBy.direction}`)
     if (options.include) params.set('include', options.include.join(','))
-    if (options.includeHidden !== undefined) params.set('includeHidden', String(options.includeHidden))
+    if (options.includeHidden !== undefined)
+      params.set('includeHidden', String(options.includeHidden))
 
     if (options.where) {
       for (const [key, val] of Object.entries(options.where)) {
@@ -202,7 +207,10 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/items?${params.toString()}`)
   }
 
-  getItem(id: string, options: { fields?: string[]; include?: string[] } = {}): Promise<LibraryItem> {
+  getItem(
+    id: string,
+    options: { fields?: string[]; include?: string[] } = {}
+  ): Promise<LibraryItem> {
     if (!id || id === 'null' || id === 'undefined') {
       console.warn(`[WebApiClient] getItem called with invalid ID: "${id}". Skipping request.`)
       return Promise.resolve(null as any)
@@ -237,17 +245,15 @@ class WebApiClient implements ApiClient {
     const params = new URLSearchParams()
     if (options.limit) params.set('limit', options.limit.toString())
     if (options.offset) params.set('offset', options.offset.toString())
-    if (options.fields && options.fields.length > 0)
-      params.set('fields', options.fields.join(','))
+    if (options.fields && options.fields.length > 0) params.set('fields', options.fields.join(','))
     if (options.include && options.include.length > 0)
       params.set('include', options.include.join(','))
     if (options.orderBy) params.set('orderBy', options.orderBy)
     if (options.groupBy) params.set('groupBy', options.groupBy)
-    if (options.includeHidden !== undefined) params.set('includeHidden', String(options.includeHidden))
+    if (options.includeHidden !== undefined)
+      params.set('includeHidden', String(options.includeHidden))
 
-    return this.request(
-      `/api/items/${encodeURIComponent(parentId)}/children?${params.toString()}`
-    )
+    return this.request(`/api/items/${encodeURIComponent(parentId)}/children?${params.toString()}`)
   }
 
   async userUpdateItem(item: Partial<LibraryItem>): Promise<void> {
@@ -277,7 +283,9 @@ class WebApiClient implements ApiClient {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
 
-  performScan(options: { path?: string; initialFolderSettings?: Record<string, any> } = {}): Promise<{ success: boolean }> {
+  performScan(
+    options: { path?: string; initialFolderSettings?: Record<string, any> } = {}
+  ): Promise<{ success: boolean }> {
     return this.request('/api/perform-scan', {
       method: 'POST',
       body: JSON.stringify(options)
@@ -308,7 +316,6 @@ class WebApiClient implements ApiClient {
       body: JSON.stringify({ itemId })
     })
   }
-
 
   getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
     return this.request('/api/autocomplete/suggestions')
@@ -584,7 +591,7 @@ class WebApiClient implements ApiClient {
   // --- Real-time updates (Native WS) ---
 
   onWindowMaximizedStatus(_callback: (isMaximized: boolean) => void): () => void {
-    return () => { }
+    return () => {}
   }
 
   onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
@@ -608,7 +615,7 @@ class WebApiClient implements ApiClient {
   onShowErrorDialog(
     _callback: (options: { title: string; message: string; detail?: string }) => void
   ): () => void {
-    return () => { }
+    return () => {}
   }
 
   onAppStatusUpdated(

@@ -360,9 +360,6 @@
                   <input type="checkbox" id="gray-watched" bind:checked={grayOutWatched} />
                   <span>Gray out watched items in lists</span>
                 </label>
-                <p class="help-text">
-                  Reduces the opacity of items that have been marked as watched.
-                </p>
               </div>
               <div class="form-group">
                 <label for="credits-display">Cast & Crew Display</label>
@@ -441,8 +438,8 @@
           {:else if activeTab === 'virtualTags'}
             <div class="form-section">
               <p class="help-text">
-                Virtual tags are calculated automatically based on rules. They are stored in the
-                database for fast searching and filtering.
+                Virtual tags are calculated automatically based on rules. Can be used to search,
+                filter, and group items.
               </p>
               <div class="virtual-tags-list">
                 {#each virtualTags as tag, i (tag.id)}

@@ -22,7 +22,7 @@ export const autocompleteState = writable<AutocompleteState>({
   loading: false,
   suggestions: [],
   position: { top: 0, left: 0, inputTop: 0 },
-  onSelect: () => { },
+  onSelect: () => {},
   activeIndex: 0,
   targetNode: null
 })
@@ -225,7 +225,7 @@ export function autocomplete(
   }
 
   function handleBlur() {
-    // A small delay is still helpful for event ordering, but we'll 
+    // A small delay is still helpful for event ordering, but we'll
     // also use document mousedown for immediate response.
     setTimeout(() => {
       const state = get(autocompleteState)

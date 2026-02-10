@@ -26,7 +26,7 @@ export interface ListSettings {
  */
 export interface GroupingSettings {
   groupBy: string | null
-  /** 
+  /**
    * Recursively defined settings for virtual folders created by this grouping.
    * Key: token path (e.g. "genre:Action")
    */
@@ -589,10 +589,10 @@ export const CORE_FIELDS = [
   'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
   '_v', // Required for image cache busting
 
-  // TODO: When removing this field from CORE_FIELDS, we must make locking 
-  //       more robust by 1) enforcing that at the repository/update layer, 
+  // TODO: When removing this field from CORE_FIELDS, we must make locking
+  //       more robust by 1) enforcing that at the repository/update layer,
   //       and 2) adding & using helpers to check for field locks everywhere.
-  'lockedFields', // Our locking logic is brittle and might fail if this is not included.
+  'lockedFields' // Our locking logic is brittle and might fail if this is not included.
 ] as const
 
 // --- Property Key Definitions ---
