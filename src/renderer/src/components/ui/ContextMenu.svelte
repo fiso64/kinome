@@ -13,6 +13,7 @@
     item,
     position,
     layout,
+    globalSettings,
     onClose,
     onOpen,
     onEditMetadata,
@@ -33,6 +34,7 @@
     item: LibraryItem
     position: { top: number; left: number }
     layout?: string
+    globalSettings: Settings | null
     onClose: () => void
     onOpen: () => void
     onEditMetadata: () => void
@@ -50,11 +52,6 @@
     onDeleteItemFromDb: () => void
     onAssignSeasons: () => void
   } = $props()
-
-  let settings = $state<Settings | null>(null)
-  $effect(() => {
-    window.api.getSettings().then((s) => (settings = s))
-  })
 
   const isVirtual = $derived((item as any).isVirtual === true)
 
@@ -89,9 +86,9 @@
   })
 
   $effect(() => {
-    // For file items, the menu content can change when `settings` are loaded (e.g. "Play with...").
-    // We must wait for settings to be available before calculating the position to avoid a layout shift.
-    if (menuElement && (item.type !== 'file' || settings)) {
+    // For file items, the menu content can change when `globalSettings` are loaded (e.g. "Play with...").
+    // We must wait for globalSettings to be available before calculating the position to avoid a layout shift.
+    if (menuElement && (item.type !== 'file' || globalSettings)) {
       const menuRect = menuElement.getBoundingClientRect()
       const { innerHeight: windowHeight, innerWidth: windowWidth } = window
       const margin = 5 // a small margin from the edge
@@ -218,7 +215,11 @@
 
   function handlePlayWith(player: PlayerCommandConfig) {
     // The item is guaranteed to be a file because of the #if block.
-    playerLauncherService.playItem(item as MediaFile, settings?.playerCommands || null, player)
+    playerLauncherService.playItem(
+      item as MediaFile,
+      globalSettings?.playerCommands || null,
+      player
+    )
     onClose()
   }
 
@@ -469,7 +470,7 @@
   </div>
 
   <div class="context-menu-section border-top">
-    {#if item.type === 'file' && !isVirtual && !item.isMissing && settings?.playerCommands && settings.playerCommands.length > 0}
+    {#if item.type === 'file' && !isVirtual && !item.isMissing && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
       <div
         class="submenu-container"
         onmouseenter={() => (activeSubmenu = 'play')}
@@ -489,7 +490,7 @@
             style="top: {submenuTop}px;"
             onclick={(e) => e.stopPropagation()}
           >
-            {#each settings.playerCommands as player}
+            {#each globalSettings.playerCommands as player}
               <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
                 <span>{player.name}</span>
               </button>
@@ -499,7 +500,7 @@
       </div>
     {/if}
 
-    {#if !isVirtual && item.path && settings?.customActions && settings.customActions.length > 0}
+    {#if !isVirtual && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
       <div
         class="submenu-container"
         onmouseenter={() => (activeSubmenu = 'custom')}
@@ -519,7 +520,7 @@
             style="top: {submenuTop}px;"
             onclick={(e) => e.stopPropagation()}
           >
-            {#each settings.customActions as action (action.id)}
+            {#each globalSettings.customActions as action (action.id)}
               <button class="context-menu-item" onclick={() => handleCustomAction(action.id)}>
                 <span>{action.name}</span>
               </button>

@@ -20,6 +20,7 @@
     {item}
     {position}
     {layout}
+    globalSettings={settings}
     onClose={() => contextMenuStore.close()}
     onOpen={() => onItemClick(item)}
     onEditMetadata={() => actions.editMetadata(item)}
