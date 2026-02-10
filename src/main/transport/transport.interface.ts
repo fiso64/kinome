@@ -47,7 +47,6 @@ export interface ITransport {
    */
   notifyScanStatusChanged(status: Partial<ScanStatus>): void
 
-
   /**
    * Broadcasts a generic event to all connected clients.
    * @param event The event name.

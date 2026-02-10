@@ -13,7 +13,12 @@ import {
   FindOptions,
   getChildren
 } from './repository.service'
-import { isVirtualId, parseVirtualId, buildVirtualItem, getFiltersFromId } from './virtual-item.factory'
+import {
+  isVirtualId,
+  parseVirtualId,
+  buildVirtualItem,
+  getFiltersFromId
+} from './virtual-item.factory'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 import { getLibraryRoot } from './library.service'
@@ -32,7 +37,7 @@ export async function getGroupedChildren(
   id: string,
   options: FindOptions,
   rawGroupBy?: string
-): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
+): Promise<LibraryItem[] | { error: string; message: string; [key: string]: any }> {
   let targetId = id
 
   // 1. Resolve root alias
@@ -165,7 +170,8 @@ export async function resolveEffectiveSettings(
   let targetId = itemId
   if (itemId === 'root') {
     const status = await getLibraryRoot()
-    if (status.status !== 'ready' || !status.root) return resolveViewSettings(null, settings).settings
+    if (status.status !== 'ready' || !status.root)
+      return resolveViewSettings(null, settings).settings
     targetId = status.root.id
   }
 
@@ -202,9 +208,7 @@ export async function resolveViewHierarchy(
   }
 
   // 2. Fetch or construct Item
-  const item = isVirtualId(targetId)
-    ? getVirtualItem(targetId)
-    : getItemById(targetId)
+  const item = isVirtualId(targetId) ? getVirtualItem(targetId) : getItemById(targetId)
   if (!item) return null
 
   // 3. Resolve Settings
@@ -291,7 +295,9 @@ async function getGroupsOnly(
       where: isVirtualId(parentId) ? getFiltersFromId(parentId) : { parentId },
       fields: ['id', 'type', 'seasonNumber']
     }).filter((c) => !c.isIgnored && !c.isHidden)
-    const physicalFolders = items.filter((c: LibraryItem) => c.type === 'folder').map((c: LibraryItem) => ({ id: c.id }))
+    const physicalFolders = items
+      .filter((c: LibraryItem) => c.type === 'folder')
+      .map((c: LibraryItem) => ({ id: c.id }))
     const looseFiles = items.filter((c: LibraryItem) => c.type === 'file')
 
     const result: { id: string }[] = [...physicalFolders]
@@ -512,7 +518,8 @@ async function groupItemsRecursive(
         // If this folder is a container (e.g. TV Show -> Tabs), we must populate its structure recursively.
         // We reset parentTokenPath to '' because 'folder' is a physical anchor.
         // We pass down its resolved childViewSettings.
-        const nextInheritedSettings = folder.viewSettings?.childViewSettings || resolved.childViewSettings || {}
+        const nextInheritedSettings =
+          folder.viewSettings?.childViewSettings || resolved.childViewSettings || {}
 
         children = await groupItemsRecursive(
           children,
@@ -592,12 +599,11 @@ async function groupItemsRecursive(
       if (unseasonedFiles.length > 0) {
         const groupValue = '__files__'
         const token = `${groupByKey}:${groupValue}`
-        const { id: newId, fullTokenPath, virtualSettings } = getLogicalFolderInfo(
-          currentParentId,
-          token,
-          parentTokenPath,
-          physicalParent
-        )
+        const {
+          id: newId,
+          fullTokenPath,
+          virtualSettings
+        } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
 
         const filesFolder: MediaFolder = {
           id: newId,
@@ -650,12 +656,11 @@ async function groupItemsRecursive(
   const virtualFolders: LibraryItem[] = await Promise.all(
     Object.entries(groups).map(async ([groupValue, groupItems]) => {
       const token = `${groupByKey}:${groupValue}`
-      const { id: newId, fullTokenPath, virtualSettings } = getLogicalFolderInfo(
-        currentParentId,
-        token,
-        parentTokenPath,
-        physicalParent
-      )
+      const {
+        id: newId,
+        fullTokenPath,
+        virtualSettings
+      } = getLogicalFolderInfo(currentParentId, token, parentTokenPath, physicalParent)
 
       const virtualFolder: MediaFolder = {
         id: newId,
@@ -690,7 +695,9 @@ async function groupItemsRecursive(
       ) {
         // If this level is ALSO grouping, we pass its childViewSettings down.
         const nextSettings =
-          virtualFolder.viewSettings?.childViewSettings || effectiveResolution.childViewSettings || {}
+          virtualFolder.viewSettings?.childViewSettings ||
+          effectiveResolution.childViewSettings ||
+          {}
 
         virtualFolder.children = await groupItemsRecursive(
           groupItems,

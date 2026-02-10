@@ -434,7 +434,8 @@
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
         'path',
         'name',
-        'title'
+        'title',
+        'type'
       ])
       if (!targetItem) return
 

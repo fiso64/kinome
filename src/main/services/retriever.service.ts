@@ -79,7 +79,12 @@ export async function search(
 /**
  * Fetch Full Details
  */
-export async function getDetails(id: number, type: 'movie' | 'tv' | 'season', apiKey: string, extras = 'images'): Promise<any | null> {
+export async function getDetails(
+  id: number,
+  type: 'movie' | 'tv' | 'season',
+  apiKey: string,
+  extras = 'images'
+): Promise<any | null> {
   // Seasons need showId in path
   console.log(`[TMDB] getDetails for ${type} ${id}`)
   const res = await fetch(getUrl(`${type}/${id}`, apiKey, { append_to_response: extras }))
@@ -87,7 +92,11 @@ export async function getDetails(id: number, type: 'movie' | 'tv' | 'season', ap
   return res.json()
 }
 
-export async function getSeasonDetails(showId: number, seasonNumber: number, apiKey: string): Promise<any | null> {
+export async function getSeasonDetails(
+  showId: number,
+  seasonNumber: number,
+  apiKey: string
+): Promise<any | null> {
   console.log(`[TMDB] getSeasonDetails for show ${showId} S${seasonNumber}`)
   const res = await fetch(getUrl(`tv/${showId}/season/${seasonNumber}`, apiKey))
   if (!res.ok) return null
@@ -97,7 +106,11 @@ export async function getSeasonDetails(showId: number, seasonNumber: number, api
 /**
  * Fetch Credits (Aggregated for TV)
  */
-export async function getCredits(id: number, type: 'movie' | 'tv', apiKey: string): Promise<any | null> {
+export async function getCredits(
+  id: number,
+  type: 'movie' | 'tv',
+  apiKey: string
+): Promise<any | null> {
   console.log(`[TMDB] getCredits for ${type} ${id}`)
   const endpoint = type === 'tv' ? 'aggregate_credits' : 'credits'
   const res = await fetch(getUrl(`${type}/${id}/${endpoint}`, apiKey))
@@ -108,12 +121,17 @@ export async function getCredits(id: number, type: 'movie' | 'tv', apiKey: strin
 /**
  * Fetch Images (Explicitly)
  */
-export async function getImages(id: number, type: 'movie' | 'tv', apiKey: string, language?: string): Promise<any | null> {
+export async function getImages(
+  id: number,
+  type: 'movie' | 'tv',
+  apiKey: string,
+  language?: string
+): Promise<any | null> {
   const params: Record<string, string> = {}
 
   // TMDB /images is not paginated; it returns all matches in one go.
   // To ensure we get both the requested language AND high-quality textless (null) images,
-  // we must use include_image_language. 
+  // we must use include_image_language.
   if (language && language !== 'none') {
     params.include_image_language = `${language},null`
   }
@@ -153,15 +171,17 @@ export async function manualSearch(
       }))
     }
 
-    return [{
-      id: details.id,
-      title: details.title || details.name,
-      name: details.name,
-      release_date: details.release_date,
-      first_air_date: details.first_air_date,
-      poster_path: details.poster_path,
-      overview: details.overview
-    }]
+    return [
+      {
+        id: details.id,
+        title: details.title || details.name,
+        name: details.name,
+        release_date: details.release_date,
+        first_air_date: details.first_air_date,
+        poster_path: details.poster_path,
+        overview: details.overview
+      }
+    ]
   }
 
   // 2. Text Search

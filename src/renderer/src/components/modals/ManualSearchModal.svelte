@@ -127,16 +127,21 @@
     posters = []
     backdrops = []
     logos = []
-    const tmdbMediaType = (localItem.mediaType === 'movie' ? 'movie' : 'tv') as 'movie' | 'tv'
-    const images = await window.api.getTmdbImages(
-      localItem.tmdbId as number,
-      tmdbMediaType,
-      imageLang
-    )
-    posters = images.posters
-    backdrops = images.backdrops
-    logos = images.logos
-    isFetchingArtwork = false
+    try {
+      const tmdbMediaType = (localItem.mediaType === 'movie' ? 'movie' : 'tv') as 'movie' | 'tv'
+      const images = await window.api.getTmdbImages(
+        localItem.tmdbId as number,
+        tmdbMediaType,
+        imageLang
+      )
+      posters = images.posters
+      backdrops = images.backdrops
+      logos = images.logos
+    } catch (err) {
+      console.error('Failed to fetch TMDB images:', err)
+    } finally {
+      isFetchingArtwork = false
+    }
   }
 
   async function handleRemoveImage(imageType: 'poster' | 'backdrop' | 'logo') {

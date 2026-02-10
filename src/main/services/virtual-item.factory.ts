@@ -75,7 +75,10 @@ export function buildVirtualItem(id: string, parent: MediaFolder): LibraryItem {
   // Resolve Virtual Folder Settings
   const settingsKey = tokens.join('/')
   let appliedSettings: any = {}
-  if (parent.viewSettings?.virtualFolderSettings && parent.viewSettings.virtualFolderSettings[settingsKey]) {
+  if (
+    parent.viewSettings?.virtualFolderSettings &&
+    parent.viewSettings.virtualFolderSettings[settingsKey]
+  ) {
     appliedSettings = parent.viewSettings.virtualFolderSettings[settingsKey]
   }
 

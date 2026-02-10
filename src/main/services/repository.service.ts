@@ -269,7 +269,7 @@ function mapRowToLibraryItem(row: any): LibraryItem {
   //    if tmdbId == null:
   //       if version == null -> undefined
   //       else -> null
-  // 
+  //
   // We need 'version' (aliased as _v) and 'tmdbId' to be resolved first.
   const ver = item._v
   const tid = item.tmdbId
@@ -387,7 +387,9 @@ export function existsById(id: string): boolean {
  */
 export function isItemHidden(id: string): boolean {
   const db = getDb()
-  const row = db.prepare('SELECT is_hidden FROM items WHERE id = ?').get(id) as { is_hidden: number } | undefined
+  const row = db.prepare('SELECT is_hidden FROM items WHERE id = ?').get(id) as
+    | { is_hidden: number }
+    | undefined
   return !!row?.is_hidden
 }
 
@@ -397,13 +399,17 @@ export function isItemHidden(id: string): boolean {
  */
 export function getItemPath(id: string): string | null {
   const db = getDb()
-  const row = db.prepare('SELECT path FROM items WHERE id = ?').get(id) as { path: string } | undefined
+  const row = db.prepare('SELECT path FROM items WHERE id = ?').get(id) as
+    | { path: string }
+    | undefined
   return row?.path ?? null
 }
 
 export function getItemCredits(id: string): any | null {
   const db = getDb()
-  const row = db.prepare('SELECT people_json FROM metadata WHERE item_id = ?').get(id) as { people_json: string } | undefined
+  const row = db.prepare('SELECT people_json FROM metadata WHERE item_id = ?').get(id) as
+    | { people_json: string }
+    | undefined
   if (!row || !row.people_json) return null
   try {
     return JSON.parse(row.people_json)
@@ -521,7 +527,6 @@ export function getAncestors(itemId: string): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-
 // --- Write Operations ---
 
 export function find(options: FindOptions = {}): LibraryItem[] {
@@ -602,11 +607,7 @@ export function find(options: FindOptions = {}): LibraryItem[] {
       if (def) {
         if (value === null) {
           conditions.push(`${def.sql} IS NULL`)
-        } else if (
-          value !== null &&
-          typeof value === 'object' &&
-          (value as any).$ne === null
-        ) {
+        } else if (value !== null && typeof value === 'object' && (value as any).$ne === null) {
           conditions.push(`${def.sql} IS NOT NULL`)
         } else if (Array.isArray(value)) {
           if (value.length > 0) {
@@ -701,13 +702,13 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
       updates.mediaType !== undefined
         ? updates.mediaType
         : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)
-          ?.media_type
+            ?.media_type
 
     if (mediaType === 'tv') {
-      ; (updates as any).seasonNumber = null
-        ; (updates as any).episodeNumber = null
+      ;(updates as any).seasonNumber = null
+      ;(updates as any).episodeNumber = null
     } else if (mediaType === 'season') {
-      ; (updates as any).episodeNumber = null
+      ;(updates as any).episodeNumber = null
     }
 
     // 1. Items Table
@@ -772,9 +773,10 @@ is_hidden = COALESCE(@isHidden, is_hidden),
               ? 1
               : 0
             : existingState.next_up_dismissed,
-        nextUpEpisodeId: (updates as any).nextUpEpisodeId !== undefined
-          ? (updates as any).nextUpEpisodeId
-          : existingState.next_up_episode_id
+        nextUpEpisodeId:
+          (updates as any).nextUpEpisodeId !== undefined
+            ? (updates as any).nextUpEpisodeId
+            : existingState.next_up_episode_id
       }
 
       const userStateParams = {
@@ -1151,12 +1153,14 @@ export function getItemsForCleanup(
   return rows.map((row) => ({
     id: row.id,
     path: row.path,
-    hasLocks: !!row.locked_fields_json && row.locked_fields_json !== '[]' && row.locked_fields_json !== 'null',
+    hasLocks:
+      !!row.locked_fields_json &&
+      row.locked_fields_json !== '[]' &&
+      row.locked_fields_json !== 'null',
     inode: row.inode,
     deviceId: row.device_id
   }))
 }
-
 
 export function markAsMissing(id: string): void {
   const db = getDb()

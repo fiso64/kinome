@@ -9,7 +9,7 @@ export class QueryThrottler {
   private lastExecutionTimes = new Map<string, number>()
   private defaultInterval = 2000 // 2 seconds
 
-  constructor(private queryClient: QueryClient) { }
+  constructor(private queryClient: QueryClient) {}
 
   /**
    * Refetches a query, applying throttling if shouldThrottle is true.

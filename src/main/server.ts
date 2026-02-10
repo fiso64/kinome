@@ -21,12 +21,7 @@ import { isVirtualId } from './services/virtual-item.factory'
 
 // --- Security Middleware & Constants ---
 
-const PUBLIC_PATHS = [
-  '/api/login',
-  '/api/check-auth',
-  '/api/setup-admin',
-  '/api/handler-test'
-]
+const PUBLIC_PATHS = ['/api/login', '/api/check-auth', '/api/setup-admin', '/api/handler-test']
 
 // Simple in-memory rate limiter for login
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
@@ -60,7 +55,6 @@ function recordFailedAttempt(ip: string) {
 function resetRateLimit(ip: string) {
   loginAttempts.delete(ip)
 }
-
 
 // 1. Initialize Services
 const port = process.env.PORT || 3000
@@ -138,7 +132,7 @@ const app = new Elysia()
     const isInstaller = url.startsWith('/install-kinome-handler')
 
     if ((url.startsWith('/api/') || isInstaller) && !isStatic && !isStreamChunk) {
-      ; (request as any)._startTime = Date.now()
+      ;(request as any)._startTime = Date.now()
       console.log(`[API] [REQUEST] ${request.method} ${url}`)
     }
   })
@@ -151,7 +145,9 @@ const app = new Elysia()
     if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
       const start = (request as any)._startTime
       const duration = start ? Date.now() - start : 0
-      console.log(`[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`)
+      console.log(
+        `[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`
+      )
     }
   })
   .onError(({ code, error, request, set }) => {
@@ -186,10 +182,9 @@ const app = new Elysia()
 
       // Check Token
       const authHeader = request.headers.get('authorization')
-      const token =
-        authHeader?.startsWith('Bearer ')
-          ? authHeader.substring(7)
-          : new URL(request.url).searchParams.get('token')
+      const token = authHeader?.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : new URL(request.url).searchParams.get('token')
 
       if (token && authService.validateToken(token)) {
         return { authenticated: true }
@@ -207,7 +202,9 @@ const app = new Elysia()
       ws.subscribe('broadcast')
 
       // Immediately send current scan status so the client doesn't start with a blank state
-      ws.send(JSON.stringify({ type: 'scan-status-changed', data: webTransport.getCurrentStatus() }))
+      ws.send(
+        JSON.stringify({ type: 'scan-status-changed', data: webTransport.getCurrentStatus() })
+      )
     },
     close(ws) {
       console.log(`[WebTransport] Client disconnected: ${ws.id}`)
@@ -334,7 +331,10 @@ const app = new Elysia()
         const rateLimit = checkRateLimit(ip)
         if (!rateLimit.allowed) {
           set.status = 429
-          return { success: false, message: `Too many attempts. Please wait ${rateLimit.waitTime} minutes.` }
+          return {
+            success: false,
+            message: `Too many attempts. Please wait ${rateLimit.waitTime} minutes.`
+          }
         }
 
         const { password } = body as any
@@ -556,9 +556,7 @@ const app = new Elysia()
 
         return listDirectoryService.listDirectory(path)
       })
-      .post('/perform-scan', ({ body }: { body: any }) =>
-        libraryService.performScan(body)
-      )
+      .post('/perform-scan', ({ body }: { body: any }) => libraryService.performScan(body))
       .post('/play-file', ({ body }: { body: any }) =>
         libraryService.playFile(body.file, (opt) => console.log(opt))
       )

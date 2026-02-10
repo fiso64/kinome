@@ -26,7 +26,7 @@ export class SerializedQueue {
 
   async run<T>(task: () => Promise<T>): Promise<T> {
     const next = this.promise.then(() => task())
-    this.promise = next.catch(() => { }) // Prevent failure of one task from blocking the rest
+    this.promise = next.catch(() => {}) // Prevent failure of one task from blocking the rest
     return next
   }
 }

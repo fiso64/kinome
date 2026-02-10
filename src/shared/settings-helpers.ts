@@ -167,7 +167,7 @@ export function resolveViewSettings(
   // 3. Get the list of layout-specific keys for the now-resolved layout.
   const layoutConfig =
     LAYOUT_SPECIFIC_SETTINGS_CONFIG[
-    resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
+      resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
     ] ?? {}
   const specificKeys = Object.keys(layoutConfig)
   const resolvedSpecific: Record<string, any> = {}
@@ -226,7 +226,6 @@ export function resolveViewSettings(
     },
     sources: resolvedSources
   }
-
 
   return result
 }

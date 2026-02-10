@@ -64,7 +64,7 @@ export function getRequiredFieldsForLayout(layout: string, groupBy?: string): st
  * @param viewHierarchy The fully resolved view hierarchy from the backend.
  */
 export function getAllRequiredFields(
-  viewHierarchy: ViewHierarchyNode | undefined | null,
+  viewHierarchy: ViewHierarchyNode | undefined | null
 ): string[] {
   const fields = new Set<string>()
 

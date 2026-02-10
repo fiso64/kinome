@@ -167,7 +167,12 @@ function handleLibraryUpdates(updatedItems: any[]) {
       for (let i = 0; i < nextArr.length; i++) {
         if (nextArr[i].id === updated.id) {
           // Map LibraryItem fields to SearchIndexEntry fields
-          const images = updated.images || updated.images_json ? (typeof updated.images === 'string' ? JSON.parse(updated.images) : updated.images) : null
+          const images =
+            updated.images || updated.images_json
+              ? typeof updated.images === 'string'
+                ? JSON.parse(updated.images)
+                : updated.images
+              : null
 
           nextArr[i] = {
             ...nextArr[i],

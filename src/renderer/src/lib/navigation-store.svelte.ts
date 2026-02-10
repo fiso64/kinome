@@ -57,7 +57,7 @@ function updateUrl(replace = false) {
 
   const queryStr = serializeSearchQuery(currentState.globalQuery)
 
-  // Clean URL Strategy: 
+  // Clean URL Strategy:
   // If a detail item is selected, we don't need to show the search query in the URL.
   // This avoids URL pollution while preserving the search in the HISTORY entry we just left.
   if (currentState.selectedItemId) {

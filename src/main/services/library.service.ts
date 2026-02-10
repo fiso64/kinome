@@ -97,7 +97,10 @@ export async function getLibraryRoot(providedPath?: string): Promise<LibraryStat
 }
 
 // Helper to normalize settings
-function normalizeFolderSettings(mediaSourcePath: string, initialFolderSettings?: Record<string, any>) {
+function normalizeFolderSettings(
+  mediaSourcePath: string,
+  initialFolderSettings?: Record<string, any>
+) {
   const normalizedSettings: Record<string, any> = {}
   if (initialFolderSettings) {
     log(`[Scan] Received initial settings. Keys: ${Object.keys(initialFolderSettings).join(', ')}`)
@@ -147,7 +150,9 @@ async function _runBackgroundScan(
  * - If path is provided (Setup): Updates settings, initializes root, and runs full scan.
  * - If path is missing (Refresh): Reads current settings, runs full scan + image verification.
  */
-export const performScan = async (options: { path?: string; initialFolderSettings?: Record<string, any> } = {}) => {
+export const performScan = async (
+  options: { path?: string; initialFolderSettings?: Record<string, any> } = {}
+) => {
   // 1. Resolve Path & Settings
   let mediaSourcePath: string
   const settings = await settingsService.readSettings()
@@ -191,7 +196,6 @@ export const performScan = async (options: { path?: string; initialFolderSetting
 
   return { success: true }
 }
-
 
 // --- Items ---
 
@@ -327,7 +331,7 @@ async function recalculateNextUpForShow(
   }
 
   if ((show as any).lastWatched !== latestWatchTime) {
-    ; (show as any).lastWatched = latestWatchTime
+    ;(show as any).lastWatched = latestWatchTime
     changed = true
   }
 
@@ -410,7 +414,9 @@ export async function markAsWatched(itemId: string): Promise<void> {
     }
   }
 
-  log(`[Continue Watching] markAsWatched: itemsToUpdate=${itemsToUpdate.length}, newlyWatched=${newlyWatchedEpisodes.length}`)
+  log(
+    `[Continue Watching] markAsWatched: itemsToUpdate=${itemsToUpdate.length}, newlyWatched=${newlyWatchedEpisodes.length}`
+  )
 
   // --- Logic for Un-Dismissing ---
   // Find the parent Show to run checks against
@@ -426,9 +432,15 @@ export async function markAsWatched(itemId: string): Promise<void> {
 
   if (parent) {
     if (parent.mediaType !== 'tv') {
-      throw new Error(`INTERNAL ERROR: markAsWatched reached a non-tv parent for undismiss: ${parent.name} (${parent.mediaType})`)
+      throw new Error(
+        `INTERNAL ERROR: markAsWatched reached a non-tv parent for undismiss: ${parent.name} (${parent.mediaType})`
+      )
     }
-    const undismissedShow = await checkAndUndismissShow(parent.id, newlyWatchedEpisodes, itemsToUpdate)
+    const undismissedShow = await checkAndUndismissShow(
+      parent.id,
+      newlyWatchedEpisodes,
+      itemsToUpdate
+    )
     if (undismissedShow) {
       // Ensure we don't duplicate the show in the update list if it was the target
       if (!itemsToUpdate.find((i) => i.id === undismissedShow.id)) {
@@ -466,7 +478,7 @@ export async function getContinueWatchingItems(
       type: 'folder',
       mediaType: 'tv',
       nextUpEpisodeId: { $ne: null }
-      // We'll filter dismissed in-memory or improve the repository helper 
+      // We'll filter dismissed in-memory or improve the repository helper
       // but for now let's see if we get ANY results.
     },
     orderBy: { field: 'lastWatched', direction: 'DESC' }
@@ -531,8 +543,13 @@ export const getAutocompleteValues = async (key: string, query?: string, limit?:
 
 export const performSearch = searchService.performSearch
 export const debugPerformSearch = searchService.debugPerformSearch
-export const manualSearch = (query: string, type: any, apiKey: string, year?: string, tmdbId?: string) =>
-  retrieverService.manualSearch(query, type, apiKey, { year, tmdbId })
+export const manualSearch = (
+  query: string,
+  type: any,
+  apiKey: string,
+  year?: string,
+  tmdbId?: string
+) => retrieverService.manualSearch(query, type, apiKey, { year, tmdbId })
 export const getTmdbImages = (id: number, type: any, apiKey: string, language?: string) =>
   retrieverService.getImages(id, type, apiKey, language)
 export const executeCustomAction = actionsService.executeCustomAction
@@ -546,7 +563,10 @@ export const trashItem = async (path: string): Promise<{ success: boolean }> => 
   }
   return { success }
 }
-export const renameItem = async (oldPath: string, newName: string): Promise<{ success: boolean }> => {
+export const renameItem = async (
+  oldPath: string,
+  newName: string
+): Promise<{ success: boolean }> => {
   const newPath = await actionsService.renameItem(oldPath, newName)
   await handleItemRenamed(oldPath, newPath)
   return { success: true }
@@ -776,7 +796,8 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
       if (parent) {
         const settingsKey = tokens.join('/')
         if (!parent.viewSettings) parent.viewSettings = {}
-        if (!parent.viewSettings.virtualFolderSettings) parent.viewSettings.virtualFolderSettings = {}
+        if (!parent.viewSettings.virtualFolderSettings)
+          parent.viewSettings.virtualFolderSettings = {}
 
         const currentVirtual = parent.viewSettings.virtualFolderSettings[settingsKey] ?? {}
         parent.viewSettings.virtualFolderSettings[settingsKey] = {
@@ -878,7 +899,11 @@ export const recordPlayback = async (itemId: string) => {
   }
 
   if (parent && isNewWatch && item.mediaType === 'episode') {
-    const undismissedShow = await checkAndUndismissShow(parent.id, [item as MediaFile], modifiedItems)
+    const undismissedShow = await checkAndUndismissShow(
+      parent.id,
+      [item as MediaFile],
+      modifiedItems
+    )
     if (undismissedShow) {
       modifiedItems.push(undismissedShow)
     }
@@ -966,4 +991,3 @@ export async function getItemPath(itemId: string): Promise<string | null> {
   if (!item.path) return null
   return actionsService.getAbsolutePath(item.path)
 }
-

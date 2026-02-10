@@ -86,5 +86,4 @@ export class WebTransport implements ITransport {
     console.log(`[WebTransport] Notifying handler test success: ${sessionId}`)
     this.broadcast('handler-test-success', { sessionId })
   }
-
 }
