@@ -1,4 +1,19 @@
 
+# Next steps
+1. Implement "New virtual folder" feature. In any folder, I can create a new persistent virtual folder which has
+    - Its own settings, metadata, etc (should be near-equivalent to a real folder at repo layer)
+    - Can define which object pool it uses (e.g. current parent folder, or all movies+tv shows). This should be implemented as a boolean-valued virtual tag (the vtag system might have to be extended a bit).
+    - Can be sorted into the current view by user preference.
+    - Example: Recently added section.
+    - Add the ability to define the home view (currently: hardcoded to root folder). Should be able to choose any virtual folder as home view.
+
+2. Implement account support. For now, only differentiate between admin and non-admin users. 
+    - Admin: Can do everything.
+    - Non-admin: Can ONLY watch items.
+    - The only per-user data for now will be the watched state of items.
+    - Admins should have the ability to restrict a particular account to a virtual tag.
+
+
 # Manual episode assignment
 We currently have: tv show, movie, and season-level manual assignment flows, but not episode-level assignment.
 Example: I have a special episode in the S02 folder (Black Mirror S02EXX.Special.White.Christmas.mkv). Tmdb thinks it's part of season 0 (Specials). I cannot link this episode to the metadata from the special season because the episode is in the S02 folder. Want to achieve this without having to move the file (tmdb isn't God, users may prefer to organize differently).
