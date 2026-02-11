@@ -73,7 +73,7 @@ export async function applyMetadataToItem(
 
   // 3. TV Specific
   if (item.mediaType === 'tv' && data.seasons) {
-    ;(item as MediaFolder).tmdbSeasons = data.seasons
+    ; (item as MediaFolder).tmdbSeasons = data.seasons
   }
 
   // 4. Logo (If available in images sub-object)
@@ -189,31 +189,32 @@ export function applyCreditsToItem(item: LibraryItem, creditsData: any) {
     return people.get(personId)!
   }
 
-  ;(creditsData.cast ?? []).forEach((castMember: any) => {
-    const p = ensurePerson(castMember.id, castMember)
-    p.actingScore = Math.min(p.actingScore, castMember.order)
-    p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
-    p.personData = { ...p.personData, ...castMember }
-  })
-  ;(creditsData.crew ?? []).forEach((crewMember: any) => {
-    let bestJobIndex = Infinity
-    const importantJobsForPerson: string[] = []
-
-    ;(crewMember.jobs ?? []).forEach((jobInfo: any) => {
-      const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
-      if (index !== -1) {
-        bestJobIndex = Math.min(bestJobIndex, index)
-        importantJobsForPerson.push(jobInfo.job)
-      }
+    ; (creditsData.cast ?? []).forEach((castMember: any) => {
+      const p = ensurePerson(castMember.id, castMember)
+      p.actingScore = Math.min(p.actingScore, castMember.order)
+      p.characters.push(...(castMember.roles ?? []).map((r: any) => r.character))
+      p.personData = { ...p.personData, ...castMember }
     })
 
-    if (bestJobIndex !== Infinity) {
-      const p = ensurePerson(crewMember.id, crewMember)
-      p.crewScore = Math.min(p.crewScore, bestJobIndex)
-      p.jobs.push(...importantJobsForPerson)
-      p.personData = { ...p.personData, ...crewMember }
-    }
-  })
+    ; (creditsData.crew ?? []).forEach((crewMember: any) => {
+      let bestJobIndex = Infinity
+      const importantJobsForPerson: string[] = []
+
+        ; (crewMember.jobs ?? []).forEach((jobInfo: any) => {
+          const index = IMPORTANT_JOBS.indexOf(jobInfo.job)
+          if (index !== -1) {
+            bestJobIndex = Math.min(bestJobIndex, index)
+            importantJobsForPerson.push(jobInfo.job)
+          }
+        })
+
+      if (bestJobIndex !== Infinity) {
+        const p = ensurePerson(crewMember.id, crewMember)
+        p.crewScore = Math.min(p.crewScore, bestJobIndex)
+        p.jobs.push(...importantJobsForPerson)
+        p.personData = { ...p.personData, ...crewMember }
+      }
+    })
 
   const finalCast: Person[] = []
   const finalCrew: Person[] = []
