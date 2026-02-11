@@ -3,8 +3,10 @@
 1. Implement "New virtual folder" feature. In any folder, I can create a new persistent virtual folder which has
     - Its own settings, metadata, etc (should be near-equivalent to a real folder at repo layer)
     - Can define which object pool it uses (e.g. current parent folder, or all movies+tv shows). This should be implemented as a boolean-valued virtual tag (the vtag system might have to be extended a bit).
+        - Everything must be done in db for performance.
     - Can be sorted into the current view by user preference.
     - Example: Recently added section.
+        - For this, we must also implement sorting.
     - Add the ability to define the home view (currently: hardcoded to root folder). Should be able to choose any virtual folder as home view.
 
 2. Implement account support. For now, only differentiate between admin and non-admin users. 
