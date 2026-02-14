@@ -71,3 +71,11 @@ export function closeDatabase() {
     db = null
   }
 }
+
+/**
+ * Runs a function within a database transaction.
+ */
+export function runTransaction<T>(fn: () => T): T {
+  const connection = getDb()
+  return connection.transaction(fn)()
+}

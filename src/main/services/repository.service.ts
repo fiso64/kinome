@@ -1,112 +1,55 @@
-﻿import path from 'path'
-import crypto from 'crypto'
-import { getDb, initializeDatabase } from '../database/client'
+﻿/**
+ * REPOSITORY SERVICE (Domain Facade)
+ *
+ * PURPOSE:
+ * This is the high-level API for library data. It acts as a "Facade" that abstracts 
+ * the complexity of our multi-table database schema away from the rest of the app.
+ *
+ * PRIMARY RESPONSIBILITIES:
+ * 1. Assembler: Combines raw data from physical repositories (Items, Metadata, UserState, Settings)
+ *    into fully-formed, logical LibraryItem objects using Mappers.
+ * 2. Transaction Coordinator: Manages atomic updates that span multiple tables.
+ * 3. Query Abstraction: Uses the Query Builder to handle complex, joined SQL searches.
+ *
+ * WHAT THIS IS NOT (Avoid Bloat):
+ * - NOT a place for raw SQL strings. All SQL must reside in specialized .repo.ts files.
+ * - NOT a place for feature logic (Scanners, TV Structure, Next Up, etc.). Those belong in 
+ *   orchestration services (LibraryService, MetadataService).
+ *
+ * WHEN TO BYPASS:
+ * - Use specialized repos (e.g., itemsRepo, metadataRepo) directly when performing 
+ *   performance-critical "bulk surgery" or isolated table operations that do not 
+ *   require the overhead of logical LibraryItem mapping.
+ */
+import path from 'path'
+import { getDb, initializeDatabase, runTransaction } from '../database/client'
+import { mapRowToLibraryItem, parseJsonSafe } from '../database/mappers'
+import { buildFindQuery, type FindOptions } from '../database/query-builder'
+import * as itemsRepo from '../database/repositories/filesystem.repo'
+import * as metadataRepo from '../database/repositories/metadata.repo'
+import * as userRepo from '../database/repositories/user.repo'
+import * as settingsRepo from '../database/repositories/settings.repo'
 import type { LibraryItem, MediaFolder } from '@shared/types'
-import { VIEW_SETTINGS_KEYS, CORE_FIELDS } from '@shared/types'
-export { CORE_FIELDS }
-import * as groupingService from './grouping.service'
-import { resolveViewSettings } from '@shared/settings-helpers'
-import { readSettings } from './settings.service'
-
-export interface CheckHelper {
-  (row: any, key: string): any
-}
-
-interface RepositoryFieldDef {
-  sql: string
-  table?: 'i' | 'm' | 'u' | 'f' // Dependency table
-  isJson?: boolean
-  parser?: (val: any) => any
-  getValue?: (item: LibraryItem) => string[] // Symmetrical logic for in-memory grouping
-}
-
-// Centralized Schema Definition
-const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
-  // Items Table
-  id: { sql: 'i.id', table: 'i' },
-  parentId: { sql: 'i.parent_id', table: 'i' },
-  name: { sql: 'i.name', table: 'i' },
-  path: { sql: 'i.path', table: 'i' },
-  type: { sql: 'i.type', table: 'i' },
-  size: { sql: 'i.size', table: 'i' },
-  birthtime: { sql: 'i.birthtime', table: 'i' },
-  mtime: { sql: 'i.mtime', table: 'i' },
-  isMissing: { sql: 'i.is_missing', table: 'i', parser: Boolean },
-  isHidden: { sql: 'i.is_hidden', table: 'i', parser: Boolean },
-  isIgnored: { sql: 'i.is_ignored', table: 'i', parser: Boolean },
-  inode: { sql: 'i.inode', table: 'i' },
-  deviceId: { sql: 'i.device_id', table: 'i' },
-
-  // Metadata Table
-  tmdbId: { sql: 'm.tmdb_id', table: 'm' },
-  mediaType: {
-    sql: 'm.media_type',
-    table: 'm',
-    getValue: (item) => (item.mediaType ? [item.mediaType] : [])
-  },
-  title: { sql: 'm.title', table: 'm' },
-  originalTitle: { sql: 'm.original_title', table: 'm' },
-  overview: { sql: 'm.overview', table: 'm' },
-  releaseDate: { sql: 'm.release_date', table: 'm' },
-  runtime: { sql: 'm.runtime', table: 'm' },
-  year: {
-    sql: 'm.year',
-    table: 'm',
-    getValue: (item) => (item.year ? [item.year.toString()] : [])
-  },
-  seasonNumber: { sql: 'm.season_number', table: 'm' },
-  episodeNumber: { sql: 'm.episode_number', table: 'm' },
-  // Images (JSON extraction helpers)
-  posterPath: { sql: "json_extract(m.images_json, '$.poster')", table: 'm' },
-  backdropPath: { sql: "json_extract(m.images_json, '$.backdrop')", table: 'm' },
-  logoPath: { sql: "json_extract(m.images_json, '$.logo')", table: 'm' },
-  // Metadata JSONs
-  genres: {
-    sql: 'm.genres_json',
-    table: 'm',
-    isJson: true,
-    getValue: (item) => item.genres ?? []
-  },
-  tags: { sql: 'm.tags_json', table: 'm', isJson: true },
-  virtualTags: { sql: 'm.virtual_tags_json', table: 'm', isJson: true },
-  tmdbCredits: { sql: 'm.people_json', table: 'm', isJson: true },
-  tmdbSeasons: { sql: 'm.seasons_json', table: 'm', isJson: true },
-  tmdbEpisodes: { sql: 'm.episodes_json', table: 'm', isJson: true },
-  lockedFields: { sql: 'm.locked_fields_json', table: 'm', isJson: true },
-  lastRefreshedAt: { sql: 'm.last_refreshed_at', table: 'm' },
-  _v: { sql: 'm.version', table: 'm' },
-
-  // User State Table
-  watched: { sql: 'u.watched', table: 'u', parser: Boolean },
-  lastWatched: { sql: 'u.last_watched_at', table: 'u' },
-  continueWatchingDismissed: { sql: 'u.continue_watching_dismissed', table: 'u', parser: Boolean },
-  nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
-  nextUpEpisodeId: { sql: 'u.next_up_episode_id', table: 'u' },
-
-  // Folder Settings
-  scraperSettings: { sql: 'f.scraper_settings_json', table: 'f', isJson: true },
-  viewSettings: { sql: 'f.view_settings_json', table: 'f', isJson: true }
-}
-
-export function isValidField(field: string): boolean {
-  return REPOSITORY_SCHEMA[field] !== undefined
-}
-
-export interface FindOptions {
-  where?: Record<string, any>
-  fields?: string[]
-  orderBy?: { field: string; direction: 'ASC' | 'DESC' }
-  limit?: number
-  offset?: number
-  includeHidden?: boolean
-  includeIgnored?: boolean
-}
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
 }
 
-// --- Initialization ---
+// Bulk update state
+let isBulkUpdating = false
+export const getBulkUpdateStatus = (): boolean => isBulkUpdating
+export const setBulkUpdateStatus = (status: boolean): void => {
+  isBulkUpdating = status
+}
+
+// Re-export core database utilities
+export { getDb, runTransaction } from '../database/client'
+export { generateId, existsById, getItemPath, isItemHidden } from '../database/repositories/filesystem.repo'
+export { REPOSITORY_SCHEMA, getValuesForKey, isValidField, ITEM_TABLE_FIELDS } from '../database/repo-definitions'
+export { type FindOptions } from '../database/query-builder'
+export { CORE_FIELDS } from '@shared/types'
+
+// --- Lifecycle ---
 
 export async function loadDb(): Promise<void> {
   log('Initializing SQLite database...')
@@ -114,221 +57,122 @@ export async function loadDb(): Promise<void> {
 }
 
 export async function writeDb(): Promise<void> {
-  // No-op: Data is persisted immediately in SQLite.
+  // No-op for SQLite
 }
 
-export async function createNewDb(rootNode: MediaFolder | null): Promise<void> {
+export async function createNewDb(_rootNode: MediaFolder | null): Promise<void> {
   const db = getDb()
   db.transaction(() => {
-    // Delete all items. Foreign keys will cascade delete metadata, user_state, etc.
     db.prepare('DELETE FROM items').run()
   })()
-
-  if (rootNode) {
-    // In this architecture, the filesystem service populates the DB.
-    // This function acts as a reset signal.
-  }
 }
 
-/**
- * Ensures a root node exists in the database.
- * If no root node exists, it creates one using the provided media source path.
- */
 export function ensureRootExists(mediaSourcePath: string): void {
-  const root = getRoot()
-  if (root) return
-
-  log(`No root node found. Creating root for: ${mediaSourcePath}`)
-  const db = getDb()
-  const rootId = generateId('.')
-  const rootName =
-    mediaSourcePath === '.' || mediaSourcePath === '/'
-      ? 'Library'
-      : mediaSourcePath.split(/[/\\]/).filter(Boolean).pop() || 'Library'
-
-  db.prepare(
-    `
-    INSERT INTO items (id, parent_id, path, name, type, is_missing)
-    VALUES (?, NULL, '.', ?, 'folder', 0)
-    `
-  ).run(rootId, rootName)
-}
-
-// --- Bulk Updates / Transactions ---
-
-let isBulkUpdating = false
-export const getBulkUpdateStatus = (): boolean => isBulkUpdating
-export const setBulkUpdateStatus = (status: boolean): void => {
-  isBulkUpdating = status
-}
-
-export function runTransaction<T>(fn: () => T): T {
-  const db = getDb()
-  return db.transaction(fn)()
-}
-
-// --- Metadata Helpers ---
-
-/**
- * Checks if a specific field is locked for a library item.
- */
-export function isFieldLocked(item: LibraryItem, field: string): boolean {
-  return item.lockedFields?.includes(field) ?? false
-}
-
-/**
- * Safely parse JSON strings with a fallback value.
- * Ensures the result is never null if a non-null fallback is provided.
- */
-export function parseJsonSafe<T>(jsonString: string | null, fallback: T): T {
-  if (!jsonString) return fallback
-  try {
-    const parsed = JSON.parse(jsonString)
-    return parsed === null ? fallback : parsed
-  } catch (e) {
-    return fallback
-  }
-}
-
-// Helper to get a value from a row, prioritizing the alias but falling back to raw column name if needed.
-// This supports both "SELECT * ..." (raw names) and "SELECT col as alias ..." (aliases).
-function getRowValue(row: any, alias: string, def: RepositoryFieldDef) {
-  if (row[alias] !== undefined) return row[alias]
-
-  // Fallback for raw column names (e.g. 'tmdb_id' instead of 'tmdbId')
-  // We strip table prefixes: 'm.tmdb_id' -> 'tmdb_id'
-  const rawCol = def.sql.includes('.') ? def.sql.split('.')[1] : def.sql
-  // Handle json_extract cases: "json_extract(..., '$.key')" -> we can't easily fallback unless it was selected as raw.
-  // But SELECT * doesn't return extracted values, it returns the blob.
-
-  if (row[rawCol] !== undefined) return row[rawCol]
-
-  return undefined
-}
-
-function mapRowToLibraryItem(row: any): LibraryItem {
-  const item: any = {}
-
-  // 1. Core Identity & Flat Fields
-  // We iterate the schema to populate the item.
-  for (const [alias, def] of Object.entries(REPOSITORY_SCHEMA)) {
-    let val = getRowValue(row, alias, def)
-
-    // Special handling for JSON extraction fallback
-    // If val is undefined (not selected explicitly), check if we have the parent JSON blob
-    const isImage = ['posterPath', 'backdropPath', 'logoPath'].includes(alias)
-    if (val === undefined && isImage && row.images_json) {
-      const images = parseJsonSafe(row.images_json, {}) as any
-      const key = alias.replace('Path', '') // posterPath -> poster
-      val = images[key]
-    }
-
-    // Generic JSON Parsing
-    if (def.isJson) {
-      if (typeof val === 'string') {
-        const isArray = ['lockedFields', 'genres'].includes(alias)
-        const isNullable = ['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)
-        const fallback = isArray ? [] : isNullable ? null : {}
-
-        val = parseJsonSafe(val, fallback)
-
-        // Sanity Check / Auto-Heal:
-        if (
-          (alias === 'tmdbSeasons' || alias === 'tmdbEpisodes') &&
-          val !== null &&
-          !Array.isArray(val)
-        ) {
-          val = null
-        }
-      }
-    }
-
-    // Generic Parser (Boolean etc)
-    if (val !== undefined && def.parser && val !== null) {
-      val = def.parser(val)
-    }
-
-    // Assign to item
-    if (val !== undefined) {
-      item[alias] = val
-    }
-  }
-
-  // 2. Computed / Logic-heavy fields
-
-  // Note: if using explicit selection, we might not have item_id alias.
-  // But we always select m.item_id if metadata is involved?
-  // Actually, 'item_id' is not in our schema aliases. It's a join key.
-  // In `find`, we might need to ensure existence check is possible.
-  // Let's assume schema fields like 'tmdbId' are sufficient.
-  // Re-implement the tri-state tmdbId logic (Found / Not Found / Not Scanned)
-  // Original logic:
-  // if !hasMetadata -> undefined
-  // if hasMetadata:
-  //    if tmdbId != null -> tmdbId
-  //    if tmdbId == null:
-  //       if version == null -> undefined
-  //       else -> null
-  //
-  // We need 'version' (aliased as _v) and 'tmdbId' to be resolved first.
-  const ver = item._v
-  const tid = item.tmdbId
-
-  // Check if we actually HAVE metadata info from the row (raw item_id from join)
-  const metaJoinId = row.item_id // raw column from SELECT * or explicit join
-  // If we don't have row.item_id, maybe we can infer from presence of other m.* fields?
-  // Safe bet: if we requested metadata (joined), row.item_id should be there.
-  // But if we selected specific fields, we might not have selected m.item_id.
-
-  const actuallyHasMetadata =
-    metaJoinId !== undefined
-      ? metaJoinId !== null
-      : item.title !== undefined || item._v !== undefined
-
-  if (!actuallyHasMetadata) {
-    // If no metadata record exists, these should be undefined
-    item.tmdbId = undefined
-    item.mediaType = undefined
-    item.lockedFields = undefined
-  } else {
-    if (tid === null || tid === undefined) {
-      // Scanned but not found (version exists) vs Not Scanned (version null)
-      // Note: using loose equality for null/undefined check on DB values
-      item.tmdbId = ver != null ? null : undefined
-    }
-    // If tid is present, it's already set.
-  }
-
-  // 3. Folder specific logic
-  if (item.type === 'folder') {
-    item.children = null
-  }
-
-  return item as LibraryItem
+  itemsRepo.ensureRootExists(mediaSourcePath)
 }
 
 // --- Read Operations ---
 
-export { getDb } from '../database/client'
-
 export function getRoot(): MediaFolder | null {
+  const row = itemsRepo.fetchRoot()
+  return row ? (mapRowToLibraryItem(row) as MediaFolder) : null
+}
+
+export function getItemById(id: string): LibraryItem | null {
+  const row = itemsRepo.fetchItemById(id)
+  return row ? mapRowToLibraryItem(row) : null
+}
+
+export function findItemByPath(pathStr: string): LibraryItem | null {
+  const row = itemsRepo.fetchItemByPath(pathStr)
+  return row ? mapRowToLibraryItem(row) : null
+}
+
+export function findParent(id: string): MediaFolder | null {
+  const row = itemsRepo.fetchParent(id)
+  return row ? (mapRowToLibraryItem(row) as MediaFolder) : null
+}
+
+export function getChildren(
+  parentId: string,
+  fields?: string[],
+  includeHidden = false,
+  includeIgnored = false
+): LibraryItem[] {
+  return find({ where: { parentId }, fields, includeHidden, includeIgnored })
+}
+
+export function getChildrenForDetailView(parentId: string, fields?: string[]): LibraryItem[] {
+  return getChildren(parentId, fields)
+}
+
+export function getTvShowsForStructuralSync(): LibraryItem[] {
   const db = getDb()
-  const row = db
+  // SPEC(scan_architecture.md §Phase 2, line 163-169):
+  //   process_tv_children is TRUE by default for TV shows.
+  //   LEFT JOIN + IS NOT 0 treats NULL (no folder_settings row) as enabled.
+  const rows = db
     .prepare(
       `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+    SELECT i.*, m.*, f.scraper_settings_json
+    FROM items i
+    JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN folder_settings f ON i.id = f.item_id
+    WHERE i.type = 'folder'
+      AND m.media_type = 'tv'
+      AND i.is_ignored = 0
+      AND i.is_hidden = 0
+      AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
+  `
+    )
+    .all() as any[]
+  return rows.map(mapRowToLibraryItem)
+}
+
+export function getDiscoveryItemsForPhase2(): LibraryItem[] {
+  const db = getDb()
+  // SPEC(scan_architecture.md §Phase 2, line 187-195):
+  //   dirty_roots = items WHERE
+  //     (mediaType IN ('movie', 'tv', NULL) AND lastRefreshedAt IS NULL)
+  //     AND (parent.retrieve_children_metadata == TRUE)
+  //
+  //   Both conditions are ANDed: must be dirty AND have a gated parent.
+  const rows = db
+    .prepare(
+      `
+    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed,
+           u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
     FROM items i
     LEFT JOIN metadata m ON i.id = m.item_id
     LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.parent_id IS NULL
-    LIMIT 1
+    LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
+    WHERE (m.media_type IN ('movie', 'tv') OR m.media_type IS NULL)
+      AND m.last_refreshed_at IS NULL
+      AND i.is_ignored = 0
+      AND i.is_hidden = 0
+      AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1
   `
     )
-    .get() as any
+    .all() as any[]
 
-  if (!row) return null
-  return mapRowToLibraryItem(row) as MediaFolder
+  return rows.map(mapRowToLibraryItem)
+}
+
+export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {
+  const rows = itemsRepo.fetchAllDescendantsRaw(node.id)
+  return rows.map(mapRowToLibraryItem)
+}
+
+export function getAncestors(itemId: string): LibraryItem[] {
+  const rows = itemsRepo.fetchAncestorsRaw(itemId)
+  return rows.map(mapRowToLibraryItem)
+}
+
+export function find(options: FindOptions = {}): LibraryItem[] {
+  const { query, params } = buildFindQuery(options)
+  const rows = itemsRepo.rawFind(query, params)
+  return rows.map(mapRowToLibraryItem)
 }
 
 /**
@@ -355,863 +199,107 @@ export function getFullFolderTree(root: MediaFolder): MediaFolder {
   return root
 }
 
-export function getItemById(id: string): LibraryItem | null {
-  const db = getDb()
-  const row = db
-    .prepare(
-      `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.id = ?
-  `
-    )
-    .get(id)
-
-  if (!row) return null
-  return mapRowToLibraryItem(row)
-}
-
-/**
- * Lightweight existence check to avoid mapping overhead.
- */
-export function existsById(id: string): boolean {
-  const db = getDb()
-  return !!db.prepare('SELECT 1 FROM items WHERE id = ?').get(id)
-}
-
-/**
- * Fast check for user-hidden status.
- */
-export function isItemHidden(id: string): boolean {
-  const db = getDb()
-  const row = db.prepare('SELECT is_hidden FROM items WHERE id = ?').get(id) as
-    | { is_hidden: number }
-    | undefined
-  return !!row?.is_hidden
-}
-
-/**
- * Fast path lookup for streaming. Only returns the path, no joins.
- * Use this when you only need the file path (e.g. streaming endpoints).
- */
-export function getItemPath(id: string): string | null {
-  const db = getDb()
-  const row = db.prepare('SELECT path FROM items WHERE id = ?').get(id) as
-    | { path: string }
-    | undefined
-  return row?.path ?? null
-}
-
 export function getItemCredits(id: string): any | null {
-  const db = getDb()
-  const row = db.prepare('SELECT people_json FROM metadata WHERE item_id = ?').get(id) as
-    | { people_json: string }
-    | undefined
-  if (!row || !row.people_json) return null
-  try {
-    return JSON.parse(row.people_json)
-  } catch (e) {
-    return null
-  }
-}
-
-export function findItemByPath(pathStr: string): LibraryItem | null {
-  const db = getDb()
-  const row = db
-    .prepare(
-      `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.path = ?
-  `
-    )
-    .get(pathStr)
-
-  if (!row) return null
-  return mapRowToLibraryItem(row)
-}
-
-export function findParent(id: string): MediaFolder | null {
-  const db = getDb()
-  const row = db
-    .prepare(
-      `
-    SELECT p.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    JOIN items p ON i.parent_id = p.id
-    LEFT JOIN metadata m ON p.id = m.item_id
-    LEFT JOIN user_state u ON p.id = u.item_id
-    LEFT JOIN folder_settings f ON p.id = f.item_id
-    WHERE i.id = ?
-  `
-    )
-    .get(id)
-
-  if (!row) return null
-  return mapRowToLibraryItem(row) as MediaFolder
-}
-
-/**
- * Returns the immediate children of a folder.
- * Uses the lean find() logic if fields are specified.
- */
-export function getChildren(
-  parentId: string,
-  fields?: string[],
-  includeHidden = false,
-  includeIgnored = false
-): LibraryItem[] {
-  return find({ where: { parentId }, fields, includeHidden, includeIgnored })
-}
-
-/**
- * Recursively gets all descendants using a Common Table Expression (CTE).
- */
-export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    WITH RECURSIVE tree(id) AS (
-      SELECT id FROM items WHERE parent_id = ?
-      UNION ALL
-      SELECT i.id FROM items i
-      JOIN tree t ON i.parent_id = t.id
-    )
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    JOIN tree t ON i.id = t.id
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-  `
-    )
-    .all(node.id) as any[]
-
-  return rows.map(mapRowToLibraryItem)
-}
-
-/**
- * Gets the chain of ancestors from the item up to the root.
- */
-export function getAncestors(itemId: string): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    WITH RECURSIVE ancestors(id, parent_id, level) AS (
-      SELECT id, parent_id, 0 FROM items WHERE id = ?
-      UNION ALL
-      SELECT i.id, i.parent_id, a.level + 1
-      FROM items i
-      JOIN ancestors a ON i.id = a.parent_id
-    )
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    JOIN ancestors a ON i.id = a.id
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.id != ? -- Exclude the item itself
-    ORDER BY a.level ASC -- Immediate parent first
-  `
-    )
-    .all(itemId, itemId) as any[]
-
-  return rows.map(mapRowToLibraryItem)
+  return metadataRepo.fetchCredits(id)
 }
 
 // --- Write Operations ---
 
-export function find(options: FindOptions = {}): LibraryItem[] {
-  const db = getDb()
-  const requestedFields = options.fields || []
-  // Default to CORE_FIELDS if no fields specified (Lean & Lazy)
-  const fieldsToSelect: string[] =
-    requestedFields.length > 0 ? [...requestedFields] : [...CORE_FIELDS]
-
-  // Determine needed tables based on schema
-  const usedTables = new Set<string>()
-  for (const alias of fieldsToSelect) {
-    const def = REPOSITORY_SCHEMA[alias]
-    if (def && def.table) usedTables.add(def.table)
-  }
-
-  // Also check WHERE clause for dependencies
-  if (options.where) {
-    for (const key of Object.keys(options.where)) {
-      const def = REPOSITORY_SCHEMA[key]
-      if (def && def.table) usedTables.add(def.table)
-    }
-  }
-
-  // Build SELECT clause
-  const selectParts: string[] = []
-
-  // Always ensure 'i.id' is selected if not requested explicitly (mapper needs it)
-  if (!fieldsToSelect.includes('id')) {
-    fieldsToSelect.unshift('id')
-  }
-
-  // Also 'item_id' from metadata is needed for checking if metadata exists.
-  if (usedTables.has('m')) {
-    selectParts.push('m.item_id')
-  }
-
-  for (const alias of fieldsToSelect) {
-    const def = REPOSITORY_SCHEMA[alias]
-    if (def) {
-      selectParts.push(`${def.sql} AS ${alias}`)
-    }
-  }
-
-  const selectClause = selectParts.join(', ')
-
-  let query = `SELECT ${selectClause} FROM items i`
-
-  if (usedTables.has('m')) {
-    query += ` LEFT JOIN metadata m ON i.id = m.item_id`
-  }
-  if (usedTables.has('u')) {
-    query += ` LEFT JOIN user_state u ON i.id = u.item_id`
-  }
-  if (usedTables.has('f')) {
-    query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
-  }
-
-  const params: any[] = []
-  const conditions: string[] = []
-
-  // Default suppression flags to FALSE (Vanish)
-  const includeHidden = options.includeHidden ?? false
-  const includeIgnored = options.includeIgnored ?? false
-
-  if (!includeHidden) {
-    conditions.push('(i.is_hidden IS NULL OR i.is_hidden = 0)')
-  }
-
-  if (!includeIgnored) {
-    conditions.push('(i.is_ignored IS NULL OR i.is_ignored = 0)')
-  }
-
-  if (options.where) {
-    for (const [key, value] of Object.entries(options.where)) {
-      // 1. Direct Schema Mapping
-      const def = REPOSITORY_SCHEMA[key]
-      if (def) {
-        if (value === null) {
-          conditions.push(`${def.sql} IS NULL`)
-        } else if (value !== null && typeof value === 'object' && (value as any).$ne === null) {
-          conditions.push(`${def.sql} IS NOT NULL`)
-        } else if (Array.isArray(value)) {
-          if (value.length > 0) {
-            conditions.push(`${def.sql} IN(${value.map(() => '?').join(',')})`)
-            params.push(...value)
-          } else {
-            conditions.push('1 = 0') // Empty IN mismatch
-          }
-        } else {
-          conditions.push(`${def.sql} = ?`)
-          params.push(value)
-        }
-      }
-      // 2. Virtual Tags (virtualTags.key)
-      else if (key.startsWith('virtualTags.')) {
-        const tagKey = key.split('.')[1]
-        conditions.push(`json_extract(m.virtual_tags_json, '$.${tagKey}') = ?`)
-        params.push(value)
-      }
-      // 3. Tags (tags.key)
-      else if (key.startsWith('tags.')) {
-        const tagKey = key.split('.')[1]
-        conditions.push(`json_extract(m.tags_json, '$.${tagKey}') = ?`)
-        params.push(value)
-      }
-      // 4. Genres (Exact match in Array)
-      else if (key === 'genre' || key === 'genres') {
-        conditions.push(`EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)`)
-        params.push(value)
-      }
-    }
-  } // END options.where
-
-  if (conditions.length > 0) {
-    query += ` WHERE ${conditions.join(' AND ')} `
-  }
-
-  if (options.orderBy) {
-    const def = REPOSITORY_SCHEMA[options.orderBy.field]
-    const colRaw = def ? def.sql : 'i.name'
-    query += ` ORDER BY ${colRaw} ${options.orderBy.direction} `
-  }
-
-  if (options.limit) {
-    query += ` LIMIT ? `
-    params.push(options.limit)
-    if (options.offset) {
-      query += ` OFFSET ? `
-      params.push(options.offset)
-    }
-  }
-
-  const rows = db.prepare(query).all(...params) as any[]
-  return rows.map(mapRowToLibraryItem)
+export function deleteItem(itemId: string): LibraryItem | null {
+  const item = getItemById(itemId)
+  if (!item) return null
+  itemsRepo.deleteItem(itemId)
+  return item
 }
 
-// --- Write Operations ---
-
-export function generateId(relativePath: string): string {
-  return crypto.createHash('sha256').update(relativePath).digest('hex')
-}
-
-/**
- * Migrates a record from an old ID/path to a new one.
- * Preserves all metadata, user state, and folder settings.
- */
 export function migrateRecord(oldId: string, newId: string, newPath: string): void {
-  const db = getDb()
-
-  runTransaction(() => {
-    // 1. If destination already exists (e.g. a ghost item), remove it first
-    db.prepare('DELETE FROM items WHERE id = ?').run(newId)
-
-    // 2. Update the existing record (FKs will cascade)
-    db.prepare('UPDATE items SET id = ?, path = ?, is_missing = 0 WHERE id = ?').run(
-      newId,
-      newPath,
-      oldId
-    )
-  })
+  itemsRepo.migrateRecord(oldId, newId, newPath)
 }
 
-export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
-  // log(`[DEBUG] updateItem called for itemId: ${itemId}`)
-  const db = getDb()
+export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {
+  itemsRepo.updateItemPathAndId(oldId, newRelativePath)
+  const newId = itemsRepo.generateId(newRelativePath)
+  return getItemById(newId)
+}
 
-  const transaction = db.transaction(() => {
-    // ---------------------------------------------------------
-    // Phase 0: Invariant Enforcement & Normalization
-    // ---------------------------------------------------------
-    const mediaType =
-      updates.mediaType !== undefined
-        ? updates.mediaType
-        : (db.prepare('SELECT media_type FROM metadata WHERE item_id = ?').get(itemId) as any)
-            ?.media_type
+/**
+ * Orchestrates a multi-table update for a library item.
+ * This is the "Service" level update logic.
+ */
+export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
+  return runTransaction(() => {
+    // 1. Invariant Enforcement
+    const existingMeta = metadataRepo.fetchMetadataRow(itemId)
+    const mediaType = updates.mediaType || existingMeta?.media_type
 
     if (mediaType === 'tv') {
-      ;(updates as any).seasonNumber = null
-      ;(updates as any).episodeNumber = null
+      ; (updates as any).seasonNumber = null
+        ; (updates as any).episodeNumber = null
     } else if (mediaType === 'season') {
-      ;(updates as any).episodeNumber = null
+      ; (updates as any).episodeNumber = null
     }
 
-    // 1. Items Table
+    // 2. Perform Updates across Repositories
     if (updates.isHidden !== undefined || updates.isMissing !== undefined) {
-      db.prepare(
-        `
-        UPDATE items SET
-is_hidden = COALESCE(@isHidden, is_hidden),
-  is_missing = COALESCE(@isMissing, is_missing)
-        WHERE id = @id
-  `
-      ).run({
-        '@id': itemId,
-        '@isHidden': updates.isHidden === undefined ? null : updates.isHidden ? 1 : 0,
-        '@isMissing': updates.isMissing === undefined ? null : updates.isMissing ? 1 : 0
+      itemsRepo.updateItemVisibility(itemId, updates.isHidden, updates.isMissing)
+    }
+
+    if (
+      updates.watched !== undefined ||
+      updates.lastWatched !== undefined ||
+      updates.continueWatchingDismissed !== undefined ||
+      updates.nextUpDismissed !== undefined ||
+      (updates as any).nextUpEpisodeId !== undefined
+    ) {
+      userRepo.updateUserState(itemId, {
+        watched: updates.watched,
+        lastWatchedAt: updates.lastWatched,
+        continueWatchingDismissed: updates.continueWatchingDismissed,
+        nextUpDismissed: updates.nextUpDismissed,
+        nextUpEpisodeId: (updates as any).nextUpEpisodeId
       })
     }
 
-    // 2. User State
-    if (
-      (updates as any).watched !== undefined ||
-      (updates as any).lastWatched !== undefined ||
-      (updates as any).continueWatchingDismissed !== undefined ||
-      (updates as any).nextUpDismissed !== undefined
-    ) {
-      const existingState =
-        (db.prepare('SELECT * FROM user_state WHERE item_id = ?').get(itemId) as any) || {}
-
-      // DEBUG: Check for multiple user states
-      const allStates = db.prepare('SELECT * FROM user_state WHERE item_id = ?').all(itemId)
-      if (allStates.length > 1) {
-        console.warn(
-          `[Repo] WARNING: Multiple user_state rows found for item ${itemId}: `,
-          allStates
-        )
-      }
-
-      // console.log(`[Repo] updateItem ${itemId}`)
-      // console.log(`[Repo] [TRACE] updateItem ${itemId} - Existing State: `, existingState)
-      // console.log(`[Repo] [TRACE] updateItem ${itemId} - Updates: `, updates)
-
-      const val = {
-        watched:
-          (updates as any).watched !== undefined
-            ? (updates as any).watched
-              ? 1
-              : 0
-            : existingState.watched,
-        lastWatched:
-          (updates as any).lastWatched !== undefined
-            ? (updates as any).lastWatched
-            : existingState.last_watched_at,
-        cwd:
-          (updates as any).continueWatchingDismissed !== undefined
-            ? (updates as any).continueWatchingDismissed
-              ? 1
-              : 0
-            : existingState.continue_watching_dismissed,
-        nud:
-          (updates as any).nextUpDismissed !== undefined
-            ? (updates as any).nextUpDismissed
-              ? 1
-              : 0
-            : existingState.next_up_dismissed,
-        nextUpEpisodeId:
-          (updates as any).nextUpEpisodeId !== undefined
-            ? (updates as any).nextUpEpisodeId
-            : existingState.next_up_episode_id
-      }
-
-      const userStateParams = {
-        '@id': itemId,
-        '@watched': val.watched ?? 0,
-        '@lastWatched': val.lastWatched,
-        '@continueWatchingDismissed': val.cwd ?? 0,
-        '@nextUpDismissed': val.nud ?? 0,
-        '@nextUpEpisodeId': val.nextUpEpisodeId
-      }
-      db.prepare(
-        `
-        INSERT INTO user_state(item_id, watched, last_watched_at, continue_watching_dismissed, next_up_dismissed, next_up_episode_id)
-VALUES(@id, @watched, @lastWatched, @continueWatchingDismissed, @nextUpDismissed, @nextUpEpisodeId)
-        ON CONFLICT(item_id, user_id) DO UPDATE SET
-watched = excluded.watched,
-  last_watched_at = excluded.last_watched_at,
-  continue_watching_dismissed = excluded.continue_watching_dismissed,
-  next_up_dismissed = excluded.next_up_dismissed,
-  next_up_episode_id = excluded.next_up_episode_id
-    `
-      ).run(userStateParams)
-    }
-
-    // 3. Metadata
+    // Metadata Updates
     const metadataKeys = [
-      'tmdbId',
-      'mediaType',
-      'title',
-      'overview',
-      'year',
-      'seasonNumber',
-      'episodeNumber',
-      'genres',
-      'tags',
-      'virtualTags',
-      'tmdbCredits',
-      'posterPath',
-      'backdropPath',
-      'logoPath',
-      'lockedFields',
-      'lastRefreshedAt',
-      '_v'
+      'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
+      'genres', 'tags', 'virtualTags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath',
+      'lockedFields', 'lastRefreshedAt', '_v'
     ]
-    const hasMetadataUpdates = metadataKeys.some((k) => k in updates)
-
-    if (hasMetadataUpdates) {
-      const existing =
-        (db.prepare('SELECT * FROM metadata WHERE item_id = ?').get(itemId) as any) || {}
-
-      const currentImages = parseJsonSafe<any>(existing.images_json, {})
+    if (metadataKeys.some((k) => k in updates)) {
+      const currentImages = parseJsonSafe<any>(existingMeta?.images_json, {})
       if (updates.posterPath !== undefined) currentImages.poster = updates.posterPath
       if (updates.backdropPath !== undefined) currentImages.backdrop = updates.backdropPath
       if (updates.logoPath !== undefined) currentImages.logo = updates.logoPath
 
-      const params = {
-        '@id': itemId,
-        '@tmdb_id': updates.tmdbId !== undefined ? updates.tmdbId : existing.tmdb_id,
-        '@media_type': updates.mediaType !== undefined ? updates.mediaType : existing.media_type,
-        '@title': updates.title !== undefined ? updates.title : existing.title,
-        '@overview': updates.overview !== undefined ? updates.overview : existing.overview,
-        '@year': updates.year !== undefined ? updates.year : existing.year,
-        '@season_number':
-          (updates as any).seasonNumber !== undefined
-            ? (updates as any).seasonNumber
-            : existing.season_number,
-        '@episode_number':
-          (updates as any).episodeNumber !== undefined
-            ? (updates as any).episodeNumber
-            : existing.episode_number,
-
-        '@genres_json':
-          updates.genres !== undefined ? JSON.stringify(updates.genres) : existing.genres_json,
-        '@tags_json':
-          updates.tags !== undefined ? JSON.stringify(updates.tags) : existing.tags_json,
-        '@virtual_tags_json':
-          updates.virtualTags !== undefined
-            ? JSON.stringify(updates.virtualTags)
-            : existing.virtual_tags_json,
-
-        '@last_refreshed_at':
-          updates.lastRefreshedAt !== undefined
-            ? updates.lastRefreshedAt
-            : existing.last_refreshed_at,
-
-        '@people_json':
-          (updates as any).tmdbCredits !== undefined
-            ? JSON.stringify((updates as any).tmdbCredits)
-            : existing.people_json,
-
-        '@seasons_json':
-          (updates as any).tmdbSeasons !== undefined
-            ? JSON.stringify((updates as any).tmdbSeasons)
-            : existing.seasons_json,
-        '@episodes_json':
-          (updates as any).tmdbEpisodes !== undefined
-            ? JSON.stringify((updates as any).tmdbEpisodes)
-            : existing.episodes_json,
-
-        '@images_json': JSON.stringify(currentImages),
-
-        '@locked_fields_json':
-          (updates as any).lockedFields !== undefined
-            ? JSON.stringify((updates as any).lockedFields || [])
-            : existing.locked_fields_json,
-
-        '@version': updates._v !== undefined ? updates._v : existing.version
-      }
-
-      db.prepare(
-        `
-        INSERT INTO metadata(
-      item_id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
-      genres_json, tags_json, virtual_tags_json, people_json, seasons_json, episodes_json, images_json, locked_fields_json, last_refreshed_at, version
-    ) VALUES(
-      @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
-      @genres_json, @tags_json, @virtual_tags_json, @people_json, @seasons_json, @episodes_json, @images_json, @locked_fields_json, @last_refreshed_at, @version
-    )
-        ON CONFLICT(item_id) DO UPDATE SET
-tmdb_id = excluded.tmdb_id,
-  media_type = excluded.media_type,
-  title = excluded.title,
-  overview = excluded.overview,
-  version = excluded.version,
-  year = excluded.year,
-  season_number = excluded.season_number,
-  episode_number = excluded.episode_number,
-  genres_json = excluded.genres_json,
-  tags_json = excluded.tags_json,
-  virtual_tags_json = excluded.virtual_tags_json,
-  people_json = excluded.people_json,
-  seasons_json = excluded.seasons_json,
-  episodes_json = excluded.episodes_json,
-  images_json = excluded.images_json,
-  locked_fields_json = excluded.locked_fields_json,
-  last_refreshed_at = excluded.last_refreshed_at
-    `
-      ).run(params)
-    }
-
-    // 4. Folder Settings
-    const hasViewUpdates = updates.viewSettings !== undefined
-    const hasScraperUpdates = (updates as any).scraperSettings !== undefined
-
-    if (hasViewUpdates || hasScraperUpdates) {
-      const existing =
-        (db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any) || {}
-
-      const viewSettings = parseJsonSafe<any>(existing.view_settings_json, {})
-      const scraperSettings = parseJsonSafe<any>(existing.scraper_settings_json, {})
-
-      if (hasViewUpdates && (updates as any).viewSettings) {
-        Object.assign(viewSettings, (updates as any).viewSettings)
-      }
-
-      if (hasScraperUpdates && (updates as any).scraperSettings) {
-        Object.assign(scraperSettings, (updates as any).scraperSettings)
-      }
-
-      db.prepare(
-        `
-            INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
-            VALUES(@id, @view, @scraper)
-            ON CONFLICT(item_id) DO UPDATE SET
-            view_settings_json = excluded.view_settings_json,
-            scraper_settings_json = excluded.scraper_settings_json
-    `
-      ).run({
-        '@id': itemId,
-        '@view': JSON.stringify(viewSettings),
-        '@scraper': JSON.stringify(scraperSettings)
+      metadataRepo.upsertMetadata(itemId, {
+        ...updates,
+        imagesJson: JSON.stringify(currentImages)
       })
     }
+
+    // Folder Settings
+    if (updates.viewSettings !== undefined || (updates as any).scraperSettings !== undefined) {
+      settingsRepo.mergeSettings(itemId, {
+        viewSettings: updates.viewSettings,
+        scraperSettings: (updates as any).scraperSettings
+      })
+    }
+
+    return getItemById(itemId)
   })
-
-  transaction()
-  return getItemById(itemId)
 }
 
-export function deleteItem(itemId: string): LibraryItem | null {
-  const db = getDb()
-  const item = getItemById(itemId)
-  if (!item) return null
+// --- Utilities ---
 
-  db.prepare('DELETE FROM items WHERE id = ?').run(itemId)
-  return item
+export function isFieldLocked(item: LibraryItem, field: string): boolean {
+  return item.lockedFields?.includes(field) ?? false
 }
-
-export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {
-  const db = getDb()
-  const newId = generateId(newRelativePath)
-  const newName = path.basename(newRelativePath)
-
-  db.transaction(() => {
-    db.prepare('UPDATE items SET id = ?, path = ?, name = ? WHERE id = ?').run(
-      newId,
-      newRelativePath,
-      newName,
-      oldId
-    )
-  })()
-
-  return getItemById(newId)
-}
-
-// --- Copy Utilities ---
 
 export function createTransferableCopy(item: LibraryItem): LibraryItem {
   return JSON.parse(JSON.stringify(item))
 }
 
-export async function createForDetailViewCopy(
-  item: LibraryItem,
-  fields?: string[]
-): Promise<LibraryItem> {
-  // Now strictly returns the item metadata, no children bundling.
-  // Standardizing /items/:id to be resource-oriented.
-  const copy = createTransferableCopy(item)
-  return copy
-}
-
-/**
- * Specialized children fetcher for Detail Views.
- * Handles structural bundling (like Season -> Episode) based on the parent's layout.
- */
-export async function getChildrenForDetailView(
-  parentId: string,
-  fields?: string[]
-): Promise<LibraryItem[]> {
-  const parent = getItemById(parentId) as MediaFolder
-  if (!parent || parent.type !== 'folder') return []
-
-  const settings = await readSettings()
-  const { settings: resolved } = resolveViewSettings(parent, settings)
-
-  // 1. Group/Virtualize children (e.g. into Virtual Seasons if layout requires Tabs/Sections)
-  const children = await groupingService.groupItemsForDetailView(parent, { fields })
-
-  // 2. Fetch grandchildren (Essential for physical Season -> Episode structure)
-  // ONLY fetch if the layout is Tabs or Sections (the only views that "open" hierarchy).
-  if (['tabs', 'sections'].includes((resolved as any).layout)) {
-    for (const child of children) {
-      if (child.type === 'folder' && !child.isVirtual) {
-        child.children = getChildren(child.id, fields).filter(
-          (c: LibraryItem) => !c.isHidden && !c.isMissing
-        )
-      }
-    }
-  }
-
-  return children
-}
-
-// --- Grouping Helper ---
-
-export function getValuesForKey(item: LibraryItem, key: string): string[] {
-  // 1. Resolve Shorthand
-  const normalizedKey = key === 'genre' ? 'genres' : key
-
-  // 2. Schema-driven extraction
-  const def = REPOSITORY_SCHEMA[normalizedKey]
-  if (def?.getValue) return def.getValue(item)
-
-  // 3. Dynamic JSON Key Extraction (tags.*, vt.*)
-  if (key.startsWith('tags.')) {
-    const tagKey = key.substring(5)
-    const tagValue = item.tags?.[tagKey]
-    return tagValue ? tagValue.split(',').map((v) => v.trim()) : []
-  }
-
-  if (key.startsWith('vt.')) {
-    const vtKey = key.substring(3)
-    const vtValue = item.virtualTags?.[vtKey]
-    return vtValue ? [vtValue] : []
-  }
-
-  return []
-}
-
-/**
- * Fetches all seasons for a TV Show and populates their episodes.
- * Uses a recursive strategy (Show -> Season -> Episodes).
- * UPDATED: Accepts fields array to ensure lean fetching.
- */
-export function getSeasonsWithEpisodes(showId: string, fields: string[] = []): LibraryItem[] {
-  // 1. Fetch Seasons - apply field filtering
-  const seasons = find({
-    where: { parentId: showId },
-    orderBy: { field: 'seasonNumber', direction: 'ASC' },
-    fields: fields.length > 0 ? fields : undefined
-  })
-
-  // 2. Fetch Episodes for each Season - apply field filtering
-  for (const season of seasons) {
-    if (season.type === 'folder') {
-      const episodes = find({
-        where: { parentId: season.id },
-        orderBy: { field: 'episodeNumber', direction: 'ASC' },
-        fields: fields.length > 0 ? fields : undefined
-      })
-      season.children = episodes
-    }
-  }
-
-  return seasons
-}
-
-// --- Scanner Optimized Operations ---
-
-/**
- * Returns all item IDs that start with a given path prefix.
- * Used for scoped missing detection.
- */
-export function getAllIdsInScope(pathPrefix: string): string[] {
-  const db = getDb()
-  const isRoot = pathPrefix === '' || pathPrefix === '.'
-  const query = isRoot
-    ? 'SELECT id FROM items'
-    : 'SELECT id FROM items WHERE path LIKE ? OR path = ?'
-  const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
-
-  const rows = db.prepare(query).all(...params) as { id: string }[]
-  return rows.map((r) => r.id)
-}
-
-/**
- * Returns a raw list of all descendant IDs for a given folder.
- * Uses a recursive CTE for high performance.
- */
-export function getAllDescendantIdsFast(parentId: string): string[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    WITH RECURSIVE tree(id) AS (
-      SELECT id FROM items WHERE parent_id = ?
-      UNION ALL
-      SELECT i.id FROM items i
-      JOIN tree t ON i.parent_id = t.id
-    )
-    SELECT id FROM tree
-  `
-    )
-    .all(parentId) as { id: string }[]
-  return rows.map((r) => r.id)
-}
-
-/**
- * Returns items in a scope with their locked fields status.
- * Used for conditional cleanup (Missing vs Delete).
- */
-export function getItemsForCleanup(
-  pathPrefix: string
-): { id: string; path: string; hasLocks: boolean; inode: number; deviceId: number }[] {
-  const db = getDb()
-  const isRoot = pathPrefix === '' || pathPrefix === '.'
-
-  const query = `
-    SELECT i.id, i.path, i.inode, i.device_id, m.locked_fields_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    ${isRoot ? '' : 'WHERE i.path LIKE ? OR i.path = ?'}
-  `
-  const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
-
-  const rows = db.prepare(query).all(...params) as {
-    id: string
-    path: string
-    inode: number
-    device_id: number
-    locked_fields_json: string | null
-  }[]
-
-  return rows.map((row) => ({
-    id: row.id,
-    path: row.path,
-    hasLocks:
-      !!row.locked_fields_json &&
-      row.locked_fields_json !== '[]' &&
-      row.locked_fields_json !== 'null',
-    inode: row.inode,
-    deviceId: row.device_id
-  }))
-}
-
-export function markAsMissing(id: string): void {
-  const db = getDb()
-  db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?').run(id)
-}
-
-/**
- * Phase 2 Discovery: Finds all "Logical Entry Points" for enrichment.
- * 1. "Dirty" items (lastRefreshedAt IS NULL)
- * 2. Children of folders where Gate A (retrieve_children_metadata) is enabled.
- */
-export function getDiscoveryItemsForPhase2(): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
-    WHERE (m.media_type IN ('movie', 'tv') OR m.media_type IS NULL) -- Spec line 130
-      AND m.last_refreshed_at IS NULL -- 1. Must be "Dirty"
-      AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1 -- 2. MUST have Gated Parent
-  `
-    )
-    .all() as any[]
-
-  return rows.map(mapRowToLibraryItem)
-}
-
-/**
- * Phase 2 Preprocessing: Finds TV shows that may need structural sync.
- * Selects TV shows where process_tv_children is active.
- */
-export function getTvShowsForStructuralSync(): LibraryItem[] {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `
-    SELECT i.*, m.*, f.scraper_settings_json
-    FROM items i
-    JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.type = 'folder' 
-      AND m.media_type = 'tv'
-      AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
-  `
-    )
-    .all() as any[]
-
-  return rows.map(mapRowToLibraryItem)
+export async function createForDetailViewCopy(item: LibraryItem, _fields?: string[]): Promise<LibraryItem> {
+  return createTransferableCopy(item)
 }

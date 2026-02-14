@@ -18,6 +18,13 @@ import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
 import * as playbackService from './playback.service'
+import {
+  findNextUpEpisode,
+  getComparable,
+  applyContinueWatchingDismissal,
+  applyNextUpDismissal,
+  checkAutoUndismissal,
+} from '../utils/continue-watching'
 
 import {
   VIEW_SETTINGS_KEYS,
@@ -268,27 +275,7 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
 /**
  * Finds the "Next Up" episode for a given show from a list of its episodes.
  */
-function findNextUpEpisode(episodes: MediaFile[]): MediaFile | undefined {
-  if (episodes.length === 0) return undefined
-
-  const watchedEpisodes = episodes.filter((e) => e.watched)
-  if (watchedEpisodes.length === 0) return undefined
-
-  // Helper to convert S01E01 to comparable integer 10001
-  const getComparable = (ep: MediaFile) => (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
-
-  // Sort episodes by season/episode number
-  const sortedEpisodes = [...episodes].sort((a, b) => getComparable(a) - getComparable(b))
-
-  // Find the episode with the highest comparable value that is watched
-  let maxWatchedVal = -1
-  for (const ep of watchedEpisodes) {
-    maxWatchedVal = Math.max(maxWatchedVal, getComparable(ep))
-  }
-
-  // Find the first unwatched episode that comes after the latest watched episode
-  return sortedEpisodes.find((ep) => !ep.watched && getComparable(ep) > maxWatchedVal)
-}
+// findNextUpEpisode is now imported from '../utils/continue-watching'
 
 /**
  * Recalculates the next_up_episode_id for a show and returns the updated show object.
@@ -331,7 +318,7 @@ async function recalculateNextUpForShow(
   }
 
   if ((show as any).lastWatched !== latestWatchTime) {
-    ;(show as any).lastWatched = latestWatchTime
+    ; (show as any).lastWatched = latestWatchTime
     changed = true
   }
 
@@ -349,14 +336,6 @@ async function checkAndUndismissShow(
   }
   if (!show || show.mediaType !== 'tv') return null
 
-  // Optimization: If not dismissed, don't waste time calculating logic
-  if (!show.nextUpDismissed && !show.continueWatchingDismissed) return null
-
-  // Condition 1: Must be a NEW watch
-  if (newlyWatchedEpisodes.length === 0) return null
-
-  // Condition 2: Must be the GREATEST episode among all watched episodes
-
   // Get all episodes for this show (flattened list)
   const descendants = repositoryService.getAllDescendantsAsList(show)
   const allEpisodes = descendants.filter(
@@ -369,25 +348,15 @@ async function checkAndUndismissShow(
     if (mod) Object.assign(ep, mod)
   }
 
-  // Helper to convert S01E01 to comparable integer 10001
-  const getComparable = (ep: MediaFile) => (ep.seasonNumber ?? 0) * 10000 + (ep.episodeNumber ?? 0)
+  const newState = checkAutoUndismissal(
+    { continueWatchingDismissed: !!show.continueWatchingDismissed, nextUpDismissed: !!show.nextUpDismissed },
+    allEpisodes,
+    newlyWatchedEpisodes
+  )
 
-  // Find the max comparable of the NEWLY watched episodes
-  const maxNewVal = newlyWatchedEpisodes.reduce((max, curr) => {
-    return Math.max(max, getComparable(curr))
-  }, 0)
-
-  // Find the max comparable of ALL watched episodes (including the ones we just updated in memory)
-  const maxWatchedVal = allEpisodes.reduce((max, curr) => {
-    if (!curr.watched) return max
-    return Math.max(max, getComparable(curr))
-  }, 0)
-
-  // If the new episode is the greatest (or tied for greatest), un-dismiss
-  // Also un-dismiss if the show was effectively unwatched (maxWatchedVal === 0)
-  if (maxNewVal >= maxWatchedVal || maxWatchedVal === 0) {
-    show.nextUpDismissed = false
-    show.continueWatchingDismissed = false
+  if (newState) {
+    show.nextUpDismissed = newState.nextUpDismissed
+    show.continueWatchingDismissed = newState.continueWatchingDismissed
     return show
   }
 
@@ -680,16 +649,24 @@ export const getContinueWatchingForShow = async (showId: string) => {
 export const setContinueWatchingDismissed = async (showId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
-    item.continueWatchingDismissed = true
-    // Do NOT set nextUpDismissed - this is the independent direction of the one-way rule
+    const newState = applyContinueWatchingDismissal({
+      continueWatchingDismissed: !!item.continueWatchingDismissed,
+      nextUpDismissed: !!item.nextUpDismissed,
+    })
+    item.continueWatchingDismissed = newState.continueWatchingDismissed
+    item.nextUpDismissed = newState.nextUpDismissed
     await updateIfChangedAndBroadcast(item)
   }
 }
 export const setNextUpDismissed = async (showId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
-    item.nextUpDismissed = true
-    item.continueWatchingDismissed = true // One-way rule: dismissing Next Up also dismisses Continue Watching
+    const newState = applyNextUpDismissal({
+      continueWatchingDismissed: !!item.continueWatchingDismissed,
+      nextUpDismissed: !!item.nextUpDismissed,
+    })
+    item.continueWatchingDismissed = newState.continueWatchingDismissed
+    item.nextUpDismissed = newState.nextUpDismissed
     await updateIfChangedAndBroadcast(item)
   }
 }
@@ -871,7 +848,6 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
   const res = repositoryService.deleteItem(id)
   if (res) {
-    // searchService.removeItemFromIndex(id) - Removed, handled by FTS triggers
     getTransport().notifyLibraryItemDeleted(id)
     return { success: true }
   }
@@ -929,7 +905,6 @@ export const handleItemRemovedByPath = async (p: string) => {
   const item = repositoryService.findItemByPath(p)
   if (item) {
     repositoryService.deleteItem(item.id)
-    // searchService.removeItemFromIndex(item.id) - Removed, handled by FTS triggers
     getTransport().notifyLibraryItemDeleted(item.id)
   }
 }

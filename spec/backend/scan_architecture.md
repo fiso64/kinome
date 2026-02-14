@@ -165,6 +165,8 @@ function enrichDatabase():
     WHERE (
         (mediaType == 'tv')
         AND (process_tv_children == TRUE) // this flag is true by default for tv shows
+        AND (is_ignored == FALSE)
+        AND (is_hidden == FALSE)
     )
   """)
   
@@ -191,6 +193,8 @@ function enrichDatabase():
         // This includes only items which we have never successfully TRIED to find on TMDB.
         (mediaType IN ('movie', 'tv', NULL) AND lastRefreshedAt IS NULL)
         AND (parent.retrieve_children_metadata == TRUE)
+        AND (is_ignored == FALSE)
+        AND (is_hidden == FALSE)
     )
   """)
   

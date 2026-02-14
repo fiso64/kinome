@@ -146,10 +146,6 @@
     <input
       bind:this={element}
       bind:value={query.text}
-      oninput={(e) => {
-        // Correcting the oninput handler to update query.text
-        query.text = (e.target as HTMLInputElement).value
-      }}
       use:autocomplete={autocompleteConfig}
       onkeydown={handleKeyDown}
       placeholder={query.tags.length > 0 ? '' : 'Search • Type > for tags'}

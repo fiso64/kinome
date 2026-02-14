@@ -45,6 +45,6 @@ export function shouldBeGreyedOut(
 export function isTypingTag(text: string): boolean {
   if (!text) return false
   // These regexes check if the user is in the middle of typing a tag.
-  // e.g., ":key" or ":key:value"
-  return /:([a-zA-Z0-9_.-]*)$/.test(text) || /:([a-zA-Z0-9_.-]+):([^:]*)$/.test(text)
+  // e.g., ">key" or ">key:value"
+  return />([a-zA-Z0-9_.-]*)$/.test(text) || />([a-zA-Z0-9_.-]+):([^:]*)$/.test(text)
 }

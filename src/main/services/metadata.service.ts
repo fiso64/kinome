@@ -57,7 +57,7 @@ export async function enrichDatabase() {
     // 2. Discovery: Find "Logical Entry Points"
     const discoveredDirtyItems = repositoryService.getDiscoveryItemsForPhase2()
     const itemMap = new Map<string, LibraryItem>()
-    discoveredDirtyItems.forEach((item) => itemMap.set(item.id, item))
+    discoveredDirtyItems.forEach((item: LibraryItem) => itemMap.set(item.id, item))
     tvShowsWithChanges.forEach((item) => itemMap.set(item.id, item))
 
     const entryPoints = Array.from(itemMap.values())
@@ -416,7 +416,7 @@ async function _unlinkItemImages(
       try {
         const p = pathsService.resolveAssetPath(val)
         if (p) await fs.unlink(p)
-      } catch {}
+      } catch { }
     }
   }
 }
@@ -512,7 +512,7 @@ export async function setImage(
     }
 
     const field = `${imageType}Path` as 'posterPath' | 'backdropPath' | 'logoPath'
-    ;(item as any)[field] = fileName
+      ; (item as any)[field] = fileName
     item._v = Date.now()
     await updateIfChangedAndBroadcast(item)
     return item
@@ -528,7 +528,7 @@ export async function removeImage(
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (item) {
-    ;(item as any)[`${imageType}Path`] = null
+    ; (item as any)[`${imageType}Path`] = null
     item._v = Date.now()
     await updateIfChangedAndBroadcast(item)
   }

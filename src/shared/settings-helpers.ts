@@ -139,101 +139,78 @@ export function resolveViewSettings(
 
   const resolvedBase: any = {
     layout: layoutLayer?.settings.layout ?? 'grid',
-    clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
-    childViewSettings: resolvedChildViewSettings
+    clickAction: clickActionLayer?.settings.clickAction ?? 'detail'
   }
 
-  // If no explicit child settings exist (or they only contain overrides/redirections),
-  // apply the implicit default for the media type.
-  // e.g. TV Shows implicitly use the "Default Season" layout for their children.
+  // Invariant I3: Mixed Content Fallback (TV Show -> Season Defaults)
   const hasEffectiveChildLayout =
-    resolvedBase.childViewSettings &&
-    Object.keys(resolvedBase.childViewSettings).some(
-      (k) => !['overrides', 'virtualFolderSettings'].includes(k)
-    )
+    resolvedChildViewSettings &&
+    Object.keys(resolvedChildViewSettings).some((k) => !['overrides', 'virtualFolderSettings'].includes(k))
 
   if (!hasEffectiveChildLayout && item?.mediaType === 'tv' && settings) {
-    // We inject the Season settings as the effective childViewSettings
-    resolvedBase.childViewSettings = {
+    resolvedChildViewSettings = {
       ...(settings.defaultLayouts.season as any),
-      ...(resolvedBase.childViewSettings || {}) // Preserve any overrides that were already found
+      ...(resolvedChildViewSettings || {})
     }
   }
+
+  // Resolve groupBy (defaults to 'folder' for tabs/sections)
+  const groupByLayer = cascadeLayers.find((layer) => layer.settings.groupBy)
+  let resolvedGroupBy = groupByLayer?.settings.groupBy ?? null
+  if (!resolvedGroupBy && (resolvedBase.layout === 'tabs' || resolvedBase.layout === 'sections')) {
+    resolvedGroupBy = 'folder'
+  }
+
+  // Merge virtualFolderSettings from all layers (additive map merge)
+  let resolvedVFS: Record<string, StoredViewSettings> | undefined = undefined
+  let vfsSource: ResolutionSource | undefined = undefined
+
+  for (const layer of [...cascadeLayers].reverse()) {
+    const val = layer.settings.virtualFolderSettings
+    if (val) {
+      resolvedVFS = { ...(resolvedVFS || {}), ...val }
+      vfsSource = layer.sourceInfo
+    }
+  }
+
+  resolvedBase.childViewSettings = resolvedChildViewSettings
+  resolvedBase.groupBy = resolvedGroupBy
+  resolvedBase.virtualFolderSettings = resolvedVFS
 
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
   if (childSettingsSource) (resolvedSources as any).childViewSettings = childSettingsSource
+  if (groupByLayer) (resolvedSources as any).groupBy = groupByLayer.sourceInfo
+  if (vfsSource) (resolvedSources as any).virtualFolderSettings = vfsSource
 
-  // 3. Get the list of layout-specific keys for the now-resolved layout.
-  const layoutConfig =
-    LAYOUT_SPECIFIC_SETTINGS_CONFIG[
-      resolvedBase.layout as keyof typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
-    ] ?? {}
-  const specificKeys = Object.keys(layoutConfig)
+  // 3. Resolve aesthetics (layout-specific settings)
+  const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
+  const specificKeys = Object.keys(layoutConfig).filter(k => k !== 'groupBy')
   const resolvedSpecific: Record<string, any> = {}
 
-  // 4. For each layout-specific key, resolve its value using the cascade.
   for (const key of specificKeys) {
-    if (key === 'virtualFolderSettings') {
-      // Special case: Merge virtual folder settings maps from all layers
-      let merged: Record<string, any> = {}
-      let primarySource: ResolutionSource | undefined = undefined
-      for (const layer of [...cascadeLayers].reverse()) {
-        const val = (layer.settings as any)[key]
-        if (val) {
-          merged = { ...merged, ...val }
-          primarySource = layer.sourceInfo
-        }
-      }
-
-      if (Object.keys(merged).length > 0) {
-        resolvedSpecific[key] = merged
-        resolvedSources[key as keyof ResolvedViewSettings] = primarySource!
-      }
-      continue
-    }
-
-    // Find the first settings object in the cascade that defines this key.
     const winningLayer = cascadeLayers.find((layer: any) => layer.settings[key] != null)
 
     if (winningLayer) {
       resolvedSpecific[key] = (winningLayer.settings as any)[key]
       resolvedSources[key as keyof ResolvedViewSettings] = winningLayer.sourceInfo
     } else {
-      // If no override is found, use the global default from `defaultLayoutSettings`.
       const globalDefault = (settings.defaultLayoutSettings as any)[resolvedBase.layout]?.[key]
       resolvedSpecific[key] = globalDefault
       if (globalDefault !== undefined) {
-        resolvedSources[key as keyof ResolvedViewSettings] = {
-          source: 'global',
-          sourceKey: '_default'
-        }
-      } else {
-        // Fallback: If not even in global defaults, assume it is implicitly set by the layout structure
-        resolvedSources[key as keyof ResolvedViewSettings] = {
-          source: 'type',
-          sourceKey: 'configured'
-        }
+        resolvedSources[key as keyof ResolvedViewSettings] = { source: 'global', sourceKey: '_default' }
       }
     }
   }
 
-  // 5. Combine and return the final, complete settings object.
-  const result = {
-    settings: {
-      ...resolvedBase,
-      ...resolvedSpecific
-    },
+  return {
+    settings: { ...resolvedBase, ...resolvedSpecific },
     sources: resolvedSources
   }
-
-  return result
 }
 
 /**
  * Creates a human-readable string describing a layout and its grouping.
- * @param viewSettings The view settings object to format.
- * @returns A descriptive string like "Tabs by Genre" or "Grid".
  */
 export function formatLayoutString(viewSettings: StoredViewSettings | null | undefined): string {
   if (!viewSettings?.layout) return 'Not set'

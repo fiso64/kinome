@@ -1,11 +1,16 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { type Dirent } from 'fs'
-import * as repositoryService from './repository.service'
+import * as itemsRepo from '../database/repositories/filesystem.repo'
+import * as settingsRepo from '../database/repositories/settings.repo'
+import * as metadataRepo from '../database/repositories/metadata.repo'
+import * as searchRepo from '../database/repositories/search.repo'
+import { runTransaction } from '../database/client'
 import * as pathsService from './paths.service'
 import { GlobalTaskQueue } from '../utils/concurrency'
-import type { LibraryItem, MediaFolder } from '@shared/types'
+import type { MediaFolder } from '@shared/types'
 import { getTransport } from '../transport.registry'
+import * as repositoryService from './repository.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -17,24 +22,6 @@ const log = (message: string): void => {
 class FingerprintBuffer {
   private buffer: any[] = []
   private timeout: any = null
-  private upsertStmt: any
-
-  constructor(db: any) {
-    this.upsertStmt = db.prepare(`
-      INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
-      VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, @inode, @deviceId, 0, @isIgnored, @isHidden)
-      ON CONFLICT(id) DO UPDATE SET
-        is_missing = 0,
-        parent_id = excluded.parent_id,
-        size = excluded.size,
-        mtime = excluded.mtime,
-        birthtime = excluded.birthtime,
-        inode = excluded.inode,
-        device_id = excluded.device_id,
-        is_ignored = COALESCE(excluded.is_ignored, is_ignored),
-        is_hidden = COALESCE(excluded.is_hidden, is_hidden)
-    `)
-  }
 
   add(item: any) {
     this.buffer.push(item)
@@ -52,10 +39,8 @@ class FingerprintBuffer {
       this.timeout = null
     }
 
-    repositoryService.runTransaction(() => {
-      for (const item of this.buffer) {
-        this.upsertStmt.run(item)
-      }
+    runTransaction(() => {
+      itemsRepo.upsertLibraryItems(this.buffer)
     })
     this.buffer = []
   }
@@ -90,20 +75,19 @@ class ProgressBroadcaster {
 
 async function syncDiskToDatabase(
   rootAbsPath: string,
-  mediaSourcePath: string,
-  db: any
+  mediaSourcePath: string
 ): Promise<Set<string>> {
   const foundPaths = new Set<string>()
   const newItemsMap = new Map<string, any>()
-  const fingerprintBuffer = new FingerprintBuffer(db)
+  const fingerprintBuffer = new FingerprintBuffer()
   const progress = new ProgressBroadcaster()
 
   const rootRelPath = path.relative(mediaSourcePath, rootAbsPath).replace(/\\/g, '/') || '.'
-  const rootId = repositoryService.generateId(rootRelPath)
+  const rootId = itemsRepo.generateId(rootRelPath)
 
   const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
     const currentRelPath = path.relative(mediaSourcePath, currentPath).replace(/\\/g, '/') || '.'
-    const currentId = repositoryService.generateId(currentRelPath)
+    const currentId = itemsRepo.generateId(currentRelPath)
 
     // 1. Get all entries (Files and Folders)
     let entries: Dirent[]
@@ -116,12 +100,12 @@ async function syncDiskToDatabase(
 
     // 2. Authoritative State Update
     const hasIgnoreFile = entries.some((e) => e.name === '.ignore')
-    const isUserHidden = repositoryService.isItemHidden(currentId)
+    const isUserHidden = itemsRepo.isItemHidden(currentId)
 
     try {
       const s = await fs.stat(currentPath)
       const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
-      const parentId = currentRelPath === '.' ? null : repositoryService.generateId(parentRelPath)
+      const parentId = currentRelPath === '.' ? null : itemsRepo.generateId(parentRelPath)
 
       fingerprintBuffer.add({
         '@id': currentId,
@@ -161,7 +145,7 @@ async function syncDiskToDatabase(
         batch.map(async (entry) => {
           const fullPath = path.join(currentPath, entry.name)
           const relPath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-          const id = repositoryService.generateId(relPath)
+          const id = itemsRepo.generateId(relPath)
           const isDir = entry.isDirectory()
 
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
@@ -181,10 +165,10 @@ async function syncDiskToDatabase(
               '@inode': s.ino,
               '@deviceId': s.dev,
               '@isIgnored': isDir ? null : 0, // Parent doesn't know folder ignore state yet
-              '@isHidden': isDir ? null : repositoryService.isItemHidden(id) ? 1 : 0
+              '@isHidden': isDir ? null : itemsRepo.isItemHidden(id) ? 1 : 0
             }
 
-            if (repositoryService.existsById(id)) {
+            if (itemsRepo.existsById(id)) {
               if (isDir) log(`[Phase 1] Discovered EXISTING folder: ${relPath} (${id})`)
               fingerprintBuffer.add(itemData)
               foundPaths.add(id)
@@ -213,9 +197,7 @@ async function syncDiskToDatabase(
   // Ensure the root itself is tracked (especially if it's the start of the scan)
   try {
     const s = await fs.stat(rootAbsPath)
-    const isUserHidden = repositoryService.isItemHidden(rootId)
-    // We don't check for .ignore here because the queue worker for the root will do it.
-    // However, if the root itself is user-hidden, we should set it.
+    const isUserHidden = itemsRepo.isItemHidden(rootId)
     fingerprintBuffer.add({
       '@id': rootId,
       '@parentId': null,
@@ -231,7 +213,7 @@ async function syncDiskToDatabase(
       '@isHidden': isUserHidden ? 1 : 0
     })
     foundPaths.add(rootId)
-  } catch {}
+  } catch { }
 
   await queue.waitForIdle()
   fingerprintBuffer.flush()
@@ -240,9 +222,7 @@ async function syncDiskToDatabase(
   // --- RECONCILIATION PHASE ---
 
   const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const missingItems = repositoryService
-    .getItemsForCleanup(scopePath)
-    .filter((item) => !foundPaths.has(item.id))
+  const missingItems = itemsRepo.getItemsForCleanup(scopePath).filter((item) => !foundPaths.has(item.id))
 
   log(
     `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`
@@ -255,41 +235,36 @@ async function syncDiskToDatabase(
 
     if (match) {
       log(`[Phase 1] Detected rename: "${item.path}" -> "${match['@path']}"`)
-      repositoryService.migrateRecord(item.id, match['@id'], match['@path'])
+      itemsRepo.migrateRecord(item.id, match['@id'], match['@path'])
       foundPaths.add(match['@id'])
       newItemsMap.delete(key)
-      // Note: We don't remove from missingItems because it's a fixed array, we just mark it found.
     }
   }
 
   // #3 Final Sync (Insert remaining new items)
   if (newItemsMap.size > 0) {
     log(`[Phase 1] Inserting ${newItemsMap.size} new items.`)
-    repositoryService.runTransaction(() => {
-      // Re-use the existing writer logic
-      for (const itemData of newItemsMap.values()) {
-        fingerprintBuffer.add(itemData)
-        foundPaths.add(itemData['@id'])
-      }
-      fingerprintBuffer.flush()
-    })
+    itemsRepo.upsertLibraryItems(Array.from(newItemsMap.values()))
+    for (const item of newItemsMap.values()) {
+      foundPaths.add(item['@id'])
+    }
   }
 
   // #4 Conditional Cleanup
   log(
     `[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`
   )
-  repositoryService.runTransaction(() => {
+  runTransaction(() => {
     for (const item of missingItems) {
       // Optimization: Check if this was rescued (it should be in foundPaths now)
       if (foundPaths.has(item.id)) continue
 
       if (item.hasLocks) {
         log(`[Phase 1] Marking AS MISSING (has locks): ${item.path}`)
-        repositoryService.markAsMissing(item.id)
+        itemsRepo.markAsMissing(item.id)
       } else {
         log(`[Phase 1] DELETING (no locks): ${item.path}`)
-        repositoryService.deleteItem(item.id)
+        itemsRepo.deleteItem(item.id)
       }
     }
   })
@@ -305,31 +280,23 @@ export async function scanDirectory(
     initialFolderSettings?: Record<string, any>
   } = {}
 ): Promise<MediaFolder | null> {
-  const db = repositoryService.getDb()
   log(`Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`)
 
-  repositoryService.ensureRootExists(mediaSourcePath)
+  itemsRepo.ensureRootExists(mediaSourcePath)
 
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
-      const id = repositoryService.generateId(relPath)
-      db.prepare(
-        `
-        INSERT INTO folder_settings (item_id, scraper_settings_json)
-        VALUES (?, ?)
-        ON CONFLICT(item_id) DO UPDATE SET scraper_settings_json = excluded.scraper_settings_json
-      `
-      ).run(id, JSON.stringify(settings))
+      const id = itemsRepo.generateId(relPath)
+      settingsRepo.updateFolderScraperSettings(id, settings)
     }
   }
 
-  await syncDiskToDatabase(mediaSourcePath, mediaSourcePath, db)
+  await syncDiskToDatabase(mediaSourcePath, mediaSourcePath)
 
   return repositoryService.getRoot()
 }
 
 export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
-  const db = repositoryService.getDb()
   if (!node.path) {
     log(`Cannot sync subtree with undefined path: ${node.name}`)
     return
@@ -338,14 +305,14 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
 
   log(`Syncing subtree: ${node.path}`)
 
-  await syncDiskToDatabase(rootAbsPath, mediaSourcePath, db)
+  await syncDiskToDatabase(rootAbsPath, mediaSourcePath)
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
-  const db = repositoryService.getDb()
-  const rows = db
-    .prepare('SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL')
-    .all() as { item_id: string; images_json: string }[]
+  const rows = searchRepo.executeSearchSql(
+    'SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL',
+    []
+  ) as { item_id: string; images_json: string }[]
 
   for (const row of rows) {
     const images = JSON.parse(row.images_json || '{}')
@@ -377,10 +344,7 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
     }
 
     if (changed) {
-      db.prepare('UPDATE metadata SET images_json = ? WHERE item_id = ?').run(
-        JSON.stringify(images),
-        row.item_id
-      )
+      metadataRepo.updateMetadataImages(row.item_id, images)
     }
   }
 }
@@ -389,30 +353,14 @@ export function initializeRoot(
   mediaSourcePath: string,
   initialFolderSettings?: Record<string, any>
 ): void {
-  const db = repositoryService.getDb()
-  const rootId = repositoryService.generateId('.')
+  const rootId = itemsRepo.generateId('.')
   const rootName = path.basename(mediaSourcePath)
+  const rootSettings = initialFolderSettings ? initialFolderSettings['.'] : undefined
 
-  db.prepare(
-    `
-      INSERT INTO items (id, parent_id, path, name, type, is_missing)
-      VALUES (?, NULL, '.', ?, 'folder', 0)
-      ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
-    `
-  ).run(rootId, rootName)
-
-  if (initialFolderSettings && initialFolderSettings['.']) {
-    const rootSettings = initialFolderSettings['.']
-    db.prepare(
-      `
-      INSERT INTO folder_settings (item_id, scraper_settings_json)
-      VALUES (@id, @settingsJson)
-      ON CONFLICT(item_id) DO UPDATE SET
-        scraper_settings_json = excluded.scraper_settings_json
-    `
-    ).run({
-      '@id': rootId,
-      '@settingsJson': JSON.stringify(rootSettings)
-    })
-  }
+  runTransaction(() => {
+    itemsRepo.upsertRootItem(rootId, rootName)
+    if (rootSettings) {
+      settingsRepo.updateFolderScraperSettings(rootId, rootSettings)
+    }
+  })
 }

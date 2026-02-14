@@ -1,4 +1,4 @@
-import { getDb } from '../database/client'
+import * as metadataRepo from '../database/repositories/metadata.repo'
 import type { VirtualTagConfig, VirtualTagCondition, LibraryItem, Settings } from '@shared/types'
 
 const log = (message: string): void => {
@@ -81,18 +81,8 @@ function generateCaseSql(tag: VirtualTagConfig): string {
  * If itemIds is provided, only updates those items.
  */
 export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?: string[]): void {
-  const db = getDb()
-
   if (!tags || tags.length === 0) {
-    // Clear all virtual tags
-    if (itemIds && itemIds.length > 0) {
-      const placeholders = itemIds.map(() => '?').join(',')
-      db.prepare(
-        `UPDATE metadata SET virtual_tags_json = '{}' WHERE item_id IN (${placeholders})`
-      ).run(...itemIds)
-    } else {
-      db.prepare(`UPDATE metadata SET virtual_tags_json = '{}'`).run()
-    }
+    metadataRepo.clearVirtualTags(itemIds)
     return
   }
 
@@ -106,33 +96,12 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
   const jsonBuildSql = `json_object(${args.join(', ')})`
 
   try {
-    // Every item (except the root) from the items table needs a row in metadata
-    // table to ensure virtual tags are persisted.
+    const changes = metadataRepo.applyVirtualTagsUpdate(jsonBuildSql, itemIds)
     if (itemIds && itemIds.length > 0) {
-      db.prepare(
-        `INSERT OR IGNORE INTO metadata (item_id) VALUES ${itemIds.map(() => '(?)').join(',')}`
-      ).run(...itemIds)
+      log(`Applied virtual tags to ${changes} metadata rows using SQL.`)
     } else {
-      db.prepare(
-        `INSERT OR IGNORE INTO metadata (item_id) SELECT id FROM items WHERE parent_id IS NOT NULL`
-      ).run()
+      log(`Applied virtual tags to ${changes} metadata rows (full update) using SQL.`)
     }
-
-    let sql = `UPDATE metadata SET virtual_tags_json = ${jsonBuildSql}`
-
-    if (itemIds && itemIds.length > 0) {
-      const placeholders = itemIds.map(() => '?').join(',')
-      sql += ` WHERE item_id IN (${placeholders})`
-      const info = db.prepare(sql).run(...itemIds)
-      log(`Applied virtual tags to ${info.changes} metadata rows using SQL.`)
-    } else {
-      // Full update - exclude root
-      sql += ` WHERE item_id IN (SELECT id FROM items WHERE parent_id IS NOT NULL)`
-      const info = db.prepare(sql).run()
-      log(`Applied virtual tags to ${info.changes} metadata rows (full update) using SQL.`)
-    }
-
-    // log(`Applied ${tags.length} virtual tags to ${itemIds ? itemIds.length : 'all'} items.`)
   } catch (e) {
     console.error('[VirtualTags] Failed to apply tags SQL:', e)
   }

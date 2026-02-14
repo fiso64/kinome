@@ -8,6 +8,7 @@
   "scripts": {
     "format": "prettier --plugin prettier-plugin-svelte --write .",
     "lint": "eslint --cache .",
+    "test": "bun test",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "svelte-check": "svelte-check --tsconfig ./tsconfig.web.json",
     "typecheck": "bun run typecheck:node && bun run svelte-check",

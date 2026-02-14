@@ -1,6 +1,8 @@
-import { getDb } from '../database/client'
+import * as metadataRepo from '../database/repositories/metadata.repo'
+import * as settingsRepo from '../database/repositories/settings.repo'
 import * as settingsService from './settings.service'
 import type { AutocompleteSuggestions } from '@shared/types'
+import * as repositoryService from './repository.service'
 
 const fuzzyFilterAndSort = (items: string[], query: string, limit: number): string[] => {
   const lowerQuery = query.toLowerCase().trim()
@@ -34,58 +36,39 @@ export const getAutocompleteValues = async (
     return searchPersons(query, limit)
   }
 
-  const db = getDb()
   let values: string[] = []
 
   if (key === 'mediaType') {
-    values = db
-      .prepare('SELECT DISTINCT media_type FROM metadata WHERE media_type IS NOT NULL')
-      .all()
-      .map((r: any) => r.media_type)
+    values = metadataRepo.getDistinctMetadataValues('media_type')
   } else if (key === 'genre') {
-    values = db
-      .prepare(
-        'SELECT DISTINCT value FROM metadata, json_each(genres_json) WHERE genres_json IS NOT NULL AND value IS NOT NULL'
-      )
-      .all()
-      .map((r: any) => r.value)
+    values = metadataRepo
+      .getDistinctJsonEntries('genres_json')
+      .map((e) => e.value)
   } else if (key === 'year') {
-    values = db
-      .prepare('SELECT DISTINCT year FROM metadata WHERE year IS NOT NULL')
-      .all()
-      .map((r: any) => r.year.toString())
+    values = metadataRepo.getDistinctMetadataValues('year')
   } else {
     // Check tags first, then virtual tags
-    const tagMatch = db
-      .prepare(
-        'SELECT DISTINCT value FROM metadata, json_each(tags_json) WHERE key = ? AND tags_json IS NOT NULL'
-      )
-      .all(key)
+    const tagMatch = metadataRepo.getDistinctJsonEntries('tags_json', key)
 
     if (tagMatch.length > 0) {
       values = tagMatch.map((r: any) => r.value)
     } else {
-      values = db
-        .prepare(
-          'SELECT DISTINCT value FROM metadata, json_each(virtual_tags_json) WHERE key = ? AND virtual_tags_json IS NOT NULL'
-        )
-        .all(key)
+      values = metadataRepo
+        .getDistinctJsonEntries('virtual_tags_json', key)
         .map((r: any) => r.value)
     }
   }
 
-  const list = values.filter(Boolean).sort()
-  return fuzzyFilterAndSort(list, query, limit)
+  const uniqueValues = Array.from(new Set(values.filter(Boolean))).sort()
+  return fuzzyFilterAndSort(uniqueValues, query, limit)
 }
 
 export const getGroupByKeys = async () => {
   const settings = await settingsService.readSettings()
-  const db = getDb()
 
-  const tagKeys = db
-    .prepare('SELECT DISTINCT key FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL')
-    .all()
-    .map((r: any) => r.key)
+  const tagKeys = metadataRepo
+    .getDistinctJsonEntries('tags_json')
+    .map((r) => r.key)
 
   return [
     'folder',
@@ -93,37 +76,20 @@ export const getGroupByKeys = async () => {
     'genre',
     'year',
     ...(settings.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
-    ...tagKeys.sort().map((k) => `tags.${k}`)
+    ...[...new Set(tagKeys)].sort().map((k) => `tags.${k}`)
   ]
 }
 
 export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggestions> => {
   const settings = await settingsService.readSettings()
-  const db = getDb()
 
-  const mediaTypes = db
-    .prepare('SELECT DISTINCT media_type FROM metadata WHERE media_type IS NOT NULL')
-    .all()
-    .map((r: any) => r.media_type)
+  const mediaTypes = metadataRepo.getDistinctMetadataValues('media_type')
+  const genres = metadataRepo
+    .getDistinctJsonEntries('genres_json')
+    .map((e) => e.value)
 
-  const genres = db
-    .prepare(
-      'SELECT DISTINCT value FROM metadata, json_each(genres_json) WHERE genres_json IS NOT NULL AND value IS NOT NULL'
-    )
-    .all()
-    .map((r: any) => r.value)
-
-  const tagEntries = db
-    .prepare(
-      'SELECT DISTINCT key, value FROM metadata, json_each(tags_json) WHERE tags_json IS NOT NULL'
-    )
-    .all() as { key: string; value: string }[]
-
-  const virtualTagEntries = db
-    .prepare(
-      'SELECT DISTINCT key, value FROM metadata, json_each(virtual_tags_json) WHERE virtual_tags_json IS NOT NULL'
-    )
-    .all() as { key: string; value: string }[]
+  const tagEntries = metadataRepo.getDistinctJsonEntries('tags_json')
+  const virtualTagEntries = metadataRepo.getDistinctJsonEntries('virtual_tags_json')
 
   const tags: Record<string, string[]> = {}
   for (const entry of tagEntries) {
@@ -144,16 +110,18 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
     }
   }
 
-  // Sort all arrays - Filter out any nulls/non-strings just in case
-  const sort = (arr: any[]) =>
-    arr.filter((v) => typeof v === 'string').sort((a, b) => a.localeCompare(b))
+  // Sort and Deduplicate
+  const sortUnique = (arr: any[]) =>
+    Array.from(new Set(arr))
+      .filter((v) => typeof v === 'string')
+      .sort((a, b) => a.localeCompare(b))
 
-  Object.keys(tags).forEach((k) => (tags[k] = sort(tags[k])))
-  Object.keys(virtualTags).forEach((k) => (virtualTags[k] = sort(virtualTags[k])))
+  Object.keys(tags).forEach((k) => (tags[k] = sortUnique(tags[k])))
+  Object.keys(virtualTags).forEach((k) => (virtualTags[k] = sortUnique(virtualTags[k])))
 
   return {
-    mediaType: sort(mediaTypes),
-    genre: sort(genres),
+    mediaType: sortUnique(mediaTypes),
+    genre: sortUnique(genres),
     person: null, // Signalling that person suggestions are server-side
     tags,
     virtualTags
@@ -164,27 +132,7 @@ let personCache: string[] | null = null
 
 export const searchPersons = async (query: string, limit: number = 20): Promise<string[]> => {
   if (!personCache) {
-    const db = getDb()
-
-    // Extract distinct person names from both cast and crew JSON arrays
-    const rows = db
-      .prepare(
-        `
-      SELECT DISTINCT json_extract(c.value, '$.name') as name
-      FROM metadata, json_each(people_json, '$.cast') as c
-      WHERE people_json IS NOT NULL
-      UNION
-      SELECT DISTINCT json_extract(c.value, '$.name') as name
-      FROM metadata, json_each(people_json, '$.crew') as c
-      WHERE people_json IS NOT NULL
-    `
-      )
-      .all() as { name: string }[]
-
-    personCache = rows
-      .map((r) => r.name)
-      .filter(Boolean)
-      .sort()
+    personCache = metadataRepo.getDistinctPersonNames().sort()
   }
 
   return fuzzyFilterAndSort(personCache, query, limit)

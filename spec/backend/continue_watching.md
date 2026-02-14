@@ -56,7 +56,7 @@ The "next episode" is determined by:
 2. Otherwise → First unwatched episode that comes AFTER the highest watched episode (by season/episode number)
 3. If all episodes are watched → Next episode is `null`
 
-**Example:** If S02E01 is watched but S01E05 is not, next up is S01E05 (not S02E02).
+**Example:** If S02E01 is watched but S01E05 is not, next up is **S02E02** (the first unwatched episode *after* the progress point). This ensures we don't force users to "backtrack" to episodes they intentionally skipped.
 
 #### Rule 2: Dismissal Logic (THE ONE-WAY RULE)
 

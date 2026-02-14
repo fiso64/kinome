@@ -37,7 +37,7 @@ export async function getGroupedChildren(
   id: string,
   options: FindOptions,
   rawGroupBy?: string
-): Promise<LibraryItem[] | { error: string; message: string; [key: string]: any }> {
+): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
   let targetId = id
 
   // 1. Resolve root alias
@@ -375,7 +375,7 @@ async function getGroupsOnly(
     for (const item of items) {
       const vals = getValuesForKey(item, groupByKey)
       if (vals.length === 0) uniqueValues.add('Uncategorized')
-      else vals.forEach((v) => uniqueValues.add(v))
+      else vals.forEach((v: string) => uniqueValues.add(v))
     }
 
     // Generate logical info for each unique value
@@ -428,11 +428,17 @@ export async function getGroups(
   groupByKey: string,
   options: FindOptions
 ): Promise<LibraryItem[]> {
-  const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : undefined
+  const fieldsToSelect = options.fields && options.fields.length > 0 ? options.fields : []
+
+  // Ensure the grouping key is included in the fields so the mapper pulls it
+  const fieldsWithGroupKey = [...fieldsToSelect]
+  if (!fieldsWithGroupKey.includes(groupByKey)) {
+    fieldsWithGroupKey.push(groupByKey)
+  }
 
   const items = find({
     ...options,
-    fields: fieldsToSelect
+    fields: fieldsWithGroupKey
   })
 
   let physicalParentId = parentId
