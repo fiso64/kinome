@@ -34,23 +34,23 @@ describe('Search Repository (Integration)', () => {
         initializeDatabase()
         db = getDb()
 
-        // Seed Data
-        db.prepare(`INSERT INTO items (id, path, name, type, is_ignored, is_hidden) VALUES 
-            ('1', 'movie1.mkv', 'The Matrix', 'file', 0, 0),
-            ('2', 'movie2.mkv', 'The Matrix Reloaded', 'file', 0, 0),
-            ('3', 'movie3.mkv', 'Hidden Movie', 'file', 0, 1),
-            ('4', 'movie4.mkv', 'Ignored Movie', 'file', 1, 0),
-            ('5', 'anime1.mkv', 'Spirited Away', 'file', 0, 0),
-            ('6', 'short.mkv', 'D', 'file', 0, 0)
+        // Seed Data: Create entities first, then items linked to them
+        db.prepare(`INSERT INTO media_entities (id, title, media_type, genres_json, tags_json) VALUES 
+            ('e1', 'The Matrix', 'movie', '["Sci-Fi", "Action"]', '{"quality": "4K"}'),
+            ('e2', 'The Matrix Reloaded', 'movie', '["Sci-Fi", "Action"]', '{"quality": "1080p"}'),
+            ('e3', 'Hidden Movie', 'movie', '["Drama"]', '{}'),
+            ('e4', 'Ignored Movie', 'movie', '["Action"]', '{}'),
+            ('e5', 'Spirited Away', 'movie', '["Animation", "Fantasy"]', '{"studio": "Ghibli"}'),
+            ('e6', 'D', 'movie', '["Short"]', '{"is_animated": "Animation"}')
         `).run()
 
-        db.prepare(`INSERT INTO metadata (item_id, title, media_type, genres_json, tags_json) VALUES 
-            ('1', 'The Matrix', 'movie', '["Sci-Fi", "Action"]', '{"quality": "4K"}'),
-            ('2', 'The Matrix Reloaded', 'movie', '["Sci-Fi", "Action"]', '{"quality": "1080p"}'),
-            ('3', 'Hidden Movie', 'movie', '["Drama"]', '{}'),
-            ('4', 'Ignored Movie', 'movie', '["Action"]', '{}'),
-            ('5', 'Spirited Away', 'movie', '["Animation", "Fantasy"]', '{"studio": "Ghibli"}'),
-            ('6', 'D', 'movie', '["Short"]', '{"is_animated": "Animation"}')
+        db.prepare(`INSERT INTO items (id, path, name, type, is_ignored, is_hidden, entity_id) VALUES 
+            ('1', 'movie1.mkv', 'The Matrix', 'file', 0, 0, 'e1'),
+            ('2', 'movie2.mkv', 'The Matrix Reloaded', 'file', 0, 0, 'e2'),
+            ('3', 'movie3.mkv', 'Hidden Movie', 'file', 0, 1, 'e3'),
+            ('4', 'movie4.mkv', 'Ignored Movie', 'file', 1, 0, 'e4'),
+            ('5', 'anime1.mkv', 'Spirited Away', 'file', 0, 0, 'e5'),
+            ('6', 'short.mkv', 'D', 'file', 0, 0, 'e6')
         `).run()
 
         // Important: Rebuild FTS for the tests

@@ -1,4 +1,5 @@
 // REMINDER: Absolutely no migrations.
+// Breaking Changes are OK — user deletes library.db and re-scans.
 
 export const SCHEMA_SQL = `
 -- The physical filesystem structure
@@ -16,6 +17,9 @@ CREATE TABLE IF NOT EXISTS items (
     inode INTEGER,
     device_id INTEGER,
 
+    -- Link to logical content entity
+    entity_id TEXT,
+
     -- State Flags (stored as 0 or 1)
     is_hidden INTEGER DEFAULT 0,
     is_ignored INTEGER DEFAULT 0,
@@ -24,16 +28,18 @@ CREATE TABLE IF NOT EXISTS items (
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
 
-    FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
+CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
 
 
--- Content Metadata (TMDB, Scraped Info)
-CREATE TABLE IF NOT EXISTS metadata (
-    item_id TEXT PRIMARY KEY,
+-- Logical Content Entity (Movie, TV Show, Season, Episode)
+CREATE TABLE IF NOT EXISTS media_entities (
+    id TEXT PRIMARY KEY,
     
     -- Identifiers & Core Info
     tmdb_id INTEGER,
@@ -50,26 +56,32 @@ CREATE TABLE IF NOT EXISTS metadata (
     -- TV Specifics
     season_number INTEGER,
     episode_number INTEGER,
+
+    -- Hierarchy
+    parent_entity_id TEXT,
+
+    -- Images (stored as individual columns for direct access)
+    poster_path TEXT,
+    backdrop_path TEXT,
+    logo_path TEXT,
     
-    -- Images (Stored as JSON: { poster, backdrop, logo })
-    images_json TEXT,
-    
-    -- Rich Data (Stored as JSON arrays/objects)
+    -- Rich Data (Stored as JSON arrays/objects — to be normalized in future)
     genres_json TEXT, -- ["Action", "Sci-Fi"]
     tags_json TEXT,   -- {"resolution": "4k"}
     people_json TEXT, -- { cast: [...], crew: [...] }
     virtual_tags_json TEXT, -- Calculated virtual tags
     
     -- TV Cached Data
-      seasons_json TEXT, -- For TV Shows: Cache of all seasons from TMDB
-      episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
-      locked_fields_json TEXT, -- Array of locked field names
-      last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
-      version INTEGER DEFAULT 0,
-      FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
-    );
+    seasons_json TEXT, -- For TV Shows: Cache of all seasons from TMDB
+    episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
+    locked_fields_json TEXT, -- Array of locked field names
+    last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
+    version INTEGER DEFAULT 0,
 
-CREATE INDEX IF NOT EXISTS idx_metadata_tmdb_id ON metadata(tmdb_id);
+    FOREIGN KEY(parent_entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_entities_tmdb_id ON media_entities(tmdb_id);
 
 
 -- User State (Watched status, etc.)
@@ -130,15 +142,16 @@ BEGIN
 END;
 
 -- Phase 2 Fix: Only re-index metadata if searchable content drifts.
-CREATE TRIGGER IF NOT EXISTS metadata_ai AFTER INSERT ON metadata BEGIN
+CREATE TRIGGER IF NOT EXISTS media_entities_ai AFTER INSERT ON media_entities BEGIN
+  -- Update the FTS row that was already created by the items trigger
   UPDATE items_fts SET 
     title = new.title,
     original_title = new.original_title,
     overview = new.overview
-  WHERE id = new.item_id;
+  WHERE id = (SELECT id FROM items WHERE entity_id = new.id LIMIT 1);
 END;
 
-CREATE TRIGGER IF NOT EXISTS metadata_au AFTER UPDATE OF title, original_title, overview ON metadata
+CREATE TRIGGER IF NOT EXISTS media_entities_au AFTER UPDATE OF title, original_title, overview ON media_entities
 FOR EACH ROW
 WHEN (
     OLD.title IS NOT NEW.title OR 
@@ -150,10 +163,11 @@ BEGIN
     title = new.title,
     original_title = new.original_title,
     overview = new.overview
-  WHERE id = new.item_id;
+  WHERE id = (SELECT id FROM items WHERE entity_id = new.id LIMIT 1);
 END;
 
-CREATE TRIGGER IF NOT EXISTS metadata_ad AFTER DELETE ON metadata BEGIN
-  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL WHERE id = old.item_id;
+CREATE TRIGGER IF NOT EXISTS media_entities_ad AFTER DELETE ON media_entities BEGIN
+  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL
+  WHERE id = (SELECT id FROM items WHERE entity_id = old.id LIMIT 1);
 END;
 `

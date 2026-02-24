@@ -90,12 +90,11 @@ export function performSearch(query: {
 }
 
 function mapRowToEntry(row: any): SearchIndexEntry {
-  const images = row.images_json ? JSON.parse(row.images_json) : {}
   const entry = {
     id: row.id,
     title: row.title ?? row.name,
     type: row.type,
-    posterPath: images.poster,
+    posterPath: row.poster_path ?? null,
     overview: row.overview,
     mediaType: row.media_type,
     year: row.year,

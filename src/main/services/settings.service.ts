@@ -176,7 +176,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
       const merged = { ...currentSettings }
       for (const [key, value] of Object.entries(settings)) {
         if (value !== undefined) {
-          ;(merged as any)[key] = value
+          ; (merged as any)[key] = value
         }
       }
 
@@ -191,9 +191,9 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
       // Distribute fields based on SERVER_SETTING_KEYS
       for (const key of Object.keys(merged)) {
         if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-          ;(server as any)[key] = (merged as any)[key]
+          ; (server as any)[key] = (merged as any)[key]
         } else {
-          ;(libraryDefaults as any)[key] = (merged as any)[key]
+          ; (libraryDefaults as any)[key] = (merged as any)[key]
         }
       }
 
@@ -385,9 +385,9 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   for (const [key, value] of Object.entries(settingsToSave)) {
     if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
-      ;(serverChanges as any)[key] = value
+      ; (serverChanges as any)[key] = value
     } else {
-      ;(libraryChanges as any)[key] = value
+      ; (libraryChanges as any)[key] = value
     }
   }
 

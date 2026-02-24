@@ -13,6 +13,33 @@ export function generateId(relativePath: string): string {
     return crypto.createHash('sha256').update(relativePath).digest('hex')
 }
 
+// --- Shared SQL fragments ---
+// CRITICAL: We CANNOT use `e.*` because `e.id` would shadow `i.id` in bun:sqlite's
+// row-to-object conversion (last column with same name wins). Instead, we explicitly
+// list all media_entities columns except `id`, which is only selected as `_entity_id`.
+export const ENTITY_COLUMNS_SQL = `
+    e.id AS _entity_id,
+    e.tmdb_id, e.media_type, e.title, e.original_title, e.overview,
+    e.release_date, e.year, e.runtime,
+    e.season_number, e.episode_number, e.parent_entity_id,
+    e.poster_path, e.backdrop_path, e.logo_path,
+    e.genres_json, e.tags_json, e.people_json, e.virtual_tags_json,
+    e.seasons_json, e.episodes_json,
+    e.locked_fields_json, e.last_refreshed_at, e.version`
+
+const FULL_JOIN_SQL = `
+    FROM items i
+    LEFT JOIN media_entities e ON i.entity_id = e.id
+    LEFT JOIN user_state u ON i.id = u.item_id
+    LEFT JOIN folder_settings f ON i.id = f.item_id
+`
+
+const FULL_SELECT_SQL = `
+    SELECT i.*, ${ENTITY_COLUMNS_SQL},
+           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
+           f.view_settings_json, f.scraper_settings_json
+`
+
 // --- READ OPERATIONS ---
 
 /**
@@ -21,17 +48,7 @@ export function generateId(relativePath: string): string {
 export function fetchRoot(): any {
     const db = getDb()
     return db
-        .prepare(
-            `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.parent_id IS NULL
-    LIMIT 1
-  `
-        )
+        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.parent_id IS NULL LIMIT 1`)
         .get()
 }
 
@@ -41,16 +58,7 @@ export function fetchRoot(): any {
 export function fetchItemById(id: string): any {
     const db = getDb()
     return db
-        .prepare(
-            `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.id = ?
-  `
-        )
+        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.id = ?`)
         .get(id)
 }
 
@@ -60,16 +68,7 @@ export function fetchItemById(id: string): any {
 export function fetchItemByPath(pathStr: string): any {
     const db = getDb()
     return db
-        .prepare(
-            `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
-    FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
-    LEFT JOIN user_state u ON i.id = u.item_id
-    LEFT JOIN folder_settings f ON i.id = f.item_id
-    WHERE i.path = ?
-  `
-        )
+        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.path = ?`)
         .get(pathStr)
 }
 
@@ -81,10 +80,12 @@ export function fetchParent(id: string): any {
     return db
         .prepare(
             `
-    SELECT p.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+    SELECT p.*, ${ENTITY_COLUMNS_SQL},
+           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
+           f.view_settings_json, f.scraper_settings_json
     FROM items i
     JOIN items p ON i.parent_id = p.id
-    LEFT JOIN metadata m ON p.id = m.item_id
+    LEFT JOIN media_entities e ON p.entity_id = e.id
     LEFT JOIN user_state u ON p.id = u.item_id
     LEFT JOIN folder_settings f ON p.id = f.item_id
     WHERE i.id = ?
@@ -107,10 +108,12 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
       SELECT i.id FROM items i
       JOIN tree t ON i.parent_id = t.id
     )
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+    SELECT i.*, ${ENTITY_COLUMNS_SQL},
+           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
+           f.view_settings_json, f.scraper_settings_json
     FROM items i
     JOIN tree t ON i.id = t.id
-    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
@@ -133,10 +136,12 @@ export function fetchAncestorsRaw(itemId: string): any[] {
       FROM items i
       JOIN ancestors a ON i.id = a.parent_id
     )
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+    SELECT i.*, ${ENTITY_COLUMNS_SQL},
+           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
+           f.view_settings_json, f.scraper_settings_json
     FROM items i
     JOIN ancestors a ON i.id = a.id
-    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.id != ?
@@ -232,9 +237,9 @@ export function getItemsForCleanup(
     const isRoot = pathPrefix === '' || pathPrefix === '.'
 
     const query = `
-    SELECT i.id, i.path, i.inode, i.device_id, m.locked_fields_json
+    SELECT i.id, i.path, i.inode, i.device_id, e.locked_fields_json
     FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN media_entities e ON i.entity_id = e.id
     ${isRoot ? '' : 'WHERE i.path LIKE ? OR i.path = ?'}
   `
     const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
@@ -387,4 +392,12 @@ export function updateItemVisibility(itemId: string, hidden?: boolean, missing?:
         '@isHidden': hidden === undefined ? null : hidden ? 1 : 0,
         '@isMissing': missing === undefined ? null : missing ? 1 : 0
     })
+}
+
+/**
+ * Links an item to a media entity.
+ */
+export function setEntityId(itemId: string, entityId: string | null): void {
+    const db = getDb()
+    db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run(entityId, itemId)
 }

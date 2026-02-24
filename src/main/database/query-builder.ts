@@ -27,10 +27,10 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         if (def && def.table) {
             usedTables.add(def.table)
         } else if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
-            usedTables.add('m')
+            usedTables.add('e')
             effectiveFields.add('virtualTags')
         } else if (field.startsWith('tags.')) {
-            usedTables.add('m')
+            usedTables.add('e')
             effectiveFields.add('tags')
         }
     }
@@ -58,8 +58,8 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     }
 
     const selectParts: string[] = []
-    if (usedTables.has('m')) {
-        selectParts.push('m.item_id')
+    if (usedTables.has('e')) {
+        selectParts.push('e.id AS _entity_id')
     }
 
     for (const alias of finalFields) {
@@ -72,8 +72,8 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     const selectClause = selectParts.join(', ')
     let query = `SELECT ${selectClause} FROM items i`
 
-    if (usedTables.has('m')) {
-        query += ` LEFT JOIN metadata m ON i.id = m.item_id`
+    if (usedTables.has('e')) {
+        query += ` LEFT JOIN media_entities e ON i.entity_id = e.id`
     }
     if (usedTables.has('u')) {
         query += ` LEFT JOIN user_state u ON i.id = u.item_id`
@@ -119,18 +119,18 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
             // Virtual Tags
             else if (key.startsWith('virtualTags.') || key.startsWith('vt.')) {
                 const tagKey = key.split('.')[1]
-                conditions.push(`json_extract(m.virtual_tags_json, '$.${tagKey}') = ?`)
+                conditions.push(`json_extract(e.virtual_tags_json, '$.${tagKey}') = ?`)
                 params.push(value)
             }
             // Manual Tags
             else if (key.startsWith('tags.')) {
                 const tagKey = key.split('.')[1]
-                conditions.push(`json_extract(m.tags_json, '$.${tagKey}') = ?`)
+                conditions.push(`json_extract(e.tags_json, '$.${tagKey}') = ?`)
                 params.push(value)
             }
             // Genres
             else if (key === 'genre' || key === 'genres') {
-                conditions.push(`EXISTS (SELECT 1 FROM json_each(m.genres_json) WHERE value = ?)`)
+                conditions.push(`EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE value = ?)`)
                 params.push(value)
             }
         }

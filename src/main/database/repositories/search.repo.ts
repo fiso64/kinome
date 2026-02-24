@@ -16,9 +16,9 @@ export function rebuildFtsIndex(): void {
       INSERT INTO items_fts (id, name, title, original_title, overview)
       SELECT 
         i.id, i.name, 
-        m.title, m.original_title, m.overview
+        e.title, e.original_title, e.overview
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
     `
         ).run()
     })
@@ -63,15 +63,16 @@ export function findByShortQuery(
     let sql = `
           SELECT 
             i.id, i.type, i.name, i.path,
-            m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
-            m.people_json, m.episode_number, m.virtual_tags_json,
+            e.title, e.overview, e.media_type, e.year, e.genres_json, e.tags_json,
+            e.poster_path, e.backdrop_path, e.logo_path,
+            e.people_json, e.episode_number, e.virtual_tags_json,
             u.watched,
             0 as rank,
             0 as static_score
           FROM items i
-          LEFT JOIN metadata m ON i.id = m.item_id
+          LEFT JOIN media_entities e ON i.entity_id = e.id
           LEFT JOIN user_state u ON i.id = u.item_id
-          WHERE (i.name LIKE @likeQuery OR m.title LIKE @likeQuery)
+          WHERE (i.name LIKE @likeQuery OR e.title LIKE @likeQuery)
             AND i.is_ignored = 0
             AND i.is_hidden = 0
         `
@@ -82,16 +83,16 @@ export function findByShortQuery(
         const tagValue = tag.value.toLowerCase()
 
         if (tag.key === 'mediaType') {
-            sql += ` AND m.media_type = ${pKey}`
+            sql += ` AND e.media_type = ${pKey}`
             params[pKey] = tagValue
         } else if (tag.key === 'year') {
-            sql += ` AND m.year = ${pKey}`
+            sql += ` AND e.year = ${pKey}`
             params[pKey] = parseInt(tagValue) || 0
         } else if (tag.key === 'genre') {
-            sql += ` AND lower(m.genres_json) LIKE ${pKey}`
+            sql += ` AND lower(e.genres_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else if (tag.key === 'person') {
-            sql += ` AND lower(m.people_json) LIKE ${pKey}`
+            sql += ` AND lower(e.people_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else {
             const pValKey = `@tagVal${idx}`
@@ -101,22 +102,22 @@ export function findByShortQuery(
             params[pValLikeKey] = `%${tagValue}%`
             params[pPathKey] = `$.${tag.key}`
             sql += ` AND (
-                    lower(json_extract(m.tags_json, ${pPathKey})) = ${pValKey} OR 
-                    lower(json_extract(m.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
-                    lower(json_extract(m.virtual_tags_json, ${pPathKey})) = ${pValKey}
+                    lower(json_extract(e.tags_json, ${pPathKey})) = ${pValKey} OR 
+                    lower(json_extract(e.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
+                    lower(json_extract(e.virtual_tags_json, ${pPathKey})) = ${pValKey}
                 )`
         }
     })
 
     sql += ` ORDER BY 
-          CASE WHEN m.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
+          CASE WHEN e.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
           CASE 
-            WHEN lower(coalesce(m.title, '')) LIKE @startQuery THEN 1 
-            WHEN lower(coalesce(m.title, '')) LIKE @likeQuery THEN 2 
+            WHEN lower(coalesce(e.title, '')) LIKE @startQuery THEN 1 
+            WHEN lower(coalesce(e.title, '')) LIKE @likeQuery THEN 2 
             WHEN lower(i.name) LIKE @startQuery THEN 3 
             ELSE 4 
           END ASC, 
-          m.title ASC, i.name ASC LIMIT @limit`
+          e.title ASC, i.name ASC LIMIT @limit`
 
     return db.prepare(sql).all(params) as any[]
 }
@@ -136,14 +137,15 @@ export function findByFtsQuery(
     let sql = `
           SELECT 
             i.id, i.type, i.name, i.path,
-            m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
-            m.people_json, m.episode_number, m.virtual_tags_json,
+            e.title, e.overview, e.media_type, e.year, e.genres_json, e.tags_json,
+            e.poster_path, e.backdrop_path, e.logo_path,
+            e.people_json, e.episode_number, e.virtual_tags_json,
             u.watched,
             items_fts.rank,
             0 as static_score
           FROM items_fts
           JOIN items i ON items_fts.id = i.id
-          LEFT JOIN metadata m ON i.id = m.item_id
+          LEFT JOIN media_entities e ON i.entity_id = e.id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE items_fts MATCH @matchQuery
             AND i.is_ignored = 0
@@ -157,16 +159,16 @@ export function findByFtsQuery(
         const tagValue = tag.value.toLowerCase()
 
         if (tag.key === 'mediaType') {
-            sql += ` AND m.media_type = ${pKey}`
+            sql += ` AND e.media_type = ${pKey}`
             params[pKey] = tagValue
         } else if (tag.key === 'year') {
-            sql += ` AND m.year = ${pKey}`
+            sql += ` AND e.year = ${pKey}`
             params[pKey] = parseInt(tagValue) || 0
         } else if (tag.key === 'genre') {
-            sql += ` AND lower(m.genres_json) LIKE ${pKey}`
+            sql += ` AND lower(e.genres_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else if (tag.key === 'person') {
-            sql += ` AND lower(m.people_json) LIKE ${pKey}`
+            sql += ` AND lower(e.people_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else {
             const pValKey = `@tagVal${idx}`
@@ -176,14 +178,14 @@ export function findByFtsQuery(
             params[pValLikeKey] = `%${tagValue}%`
             params[pPathKey] = `$.${tag.key}`
             sql += ` AND (
-                    lower(json_extract(m.tags_json, ${pPathKey})) = ${pValKey} OR 
-                    lower(json_extract(m.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
-                    lower(json_extract(m.virtual_tags_json, ${pPathKey})) = ${pValKey}
+                    lower(json_extract(e.tags_json, ${pPathKey})) = ${pValKey} OR 
+                    lower(json_extract(e.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
+                    lower(json_extract(e.virtual_tags_json, ${pPathKey})) = ${pValKey}
                 )`
         }
     })
 
-    sql += ` ORDER BY (CASE WHEN m.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
+    sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
     return db.prepare(sql).all(params) as any[]
 }
@@ -201,13 +203,14 @@ export function findByTagsOnly(
     let sql = `
       SELECT 
         i.id, i.type, i.name, i.path,
-        m.title, m.overview, m.media_type, m.year, m.genres_json, m.tags_json, m.images_json,
-        m.people_json, m.episode_number, m.virtual_tags_json,
+        e.title, e.overview, e.media_type, e.year, e.genres_json, e.tags_json,
+        e.poster_path, e.backdrop_path, e.logo_path,
+        e.people_json, e.episode_number, e.virtual_tags_json,
         u.watched,
         0 as rank,
         0 as static_score
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
       LEFT JOIN user_state u ON i.id = u.item_id
       WHERE i.is_ignored = 0
         AND i.is_hidden = 0
@@ -219,16 +222,16 @@ export function findByTagsOnly(
         const tagValue = tag.value.toLowerCase()
 
         if (tag.key === 'mediaType') {
-            sql += ` AND m.media_type = ${pKey}`
+            sql += ` AND e.media_type = ${pKey}`
             params[pKey] = tagValue
         } else if (tag.key === 'year') {
-            sql += ` AND m.year = ${pKey}`
+            sql += ` AND e.year = ${pKey}`
             params[pKey] = parseInt(tagValue) || 0
         } else if (tag.key === 'genre') {
-            sql += ` AND lower(m.genres_json) LIKE ${pKey}`
+            sql += ` AND lower(e.genres_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else if (tag.key === 'person') {
-            sql += ` AND lower(m.people_json) LIKE ${pKey}`
+            sql += ` AND lower(e.people_json) LIKE ${pKey}`
             params[pKey] = `%"${tagValue}"%`
         } else {
             const pValKey = `@tagVal${idx}`
@@ -238,14 +241,14 @@ export function findByTagsOnly(
             params[pValLikeKey] = `%${tagValue}%`
             params[pPathKey] = `$.${tag.key}`
             sql += ` AND (
-            lower(json_extract(m.tags_json, ${pPathKey})) = ${pValKey} OR 
-            lower(json_extract(m.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
-            lower(json_extract(m.virtual_tags_json, ${pPathKey})) = ${pValKey}
+            lower(json_extract(e.tags_json, ${pPathKey})) = ${pValKey} OR 
+            lower(json_extract(e.tags_json, ${pPathKey})) LIKE ${pValLikeKey} OR
+            lower(json_extract(e.virtual_tags_json, ${pPathKey})) = ${pValKey}
           )`
         }
     })
 
-    sql += ` ORDER BY m.title ASC, i.name ASC LIMIT @limit`
+    sql += ` ORDER BY e.title ASC, i.name ASC LIMIT @limit`
 
     return db.prepare(sql).all(params) as any[]
 }

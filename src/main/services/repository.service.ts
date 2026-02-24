@@ -6,7 +6,7 @@
  * the complexity of our multi-table database schema away from the rest of the app.
  *
  * PRIMARY RESPONSIBILITIES:
- * 1. Assembler: Combines raw data from physical repositories (Items, Metadata, UserState, Settings)
+ * 1. Assembler: Combines raw data from physical repositories (Items, MediaEntities, UserState, Settings)
  *    into fully-formed, logical LibraryItem objects using Mappers.
  * 2. Transaction Coordinator: Manages atomic updates that span multiple tables.
  * 3. Query Abstraction: Uses the Query Builder to handle complex, joined SQL searches.
@@ -26,6 +26,7 @@ import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem, parseJsonSafe } from '../database/mappers'
 import { buildFindQuery, type FindOptions } from '../database/query-builder'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
+import { ENTITY_COLUMNS_SQL } from '../database/repositories/filesystem.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
@@ -114,12 +115,12 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
   const rows = db
     .prepare(
       `
-    SELECT i.*, m.*, f.scraper_settings_json
+    SELECT i.*, ${ENTITY_COLUMNS_SQL}, f.scraper_settings_json
     FROM items i
-    JOIN metadata m ON i.id = m.item_id
+    JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
-      AND m.media_type = 'tv'
+      AND e.media_type = 'tv'
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
@@ -140,15 +141,16 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
   const rows = db
     .prepare(
       `
-    SELECT i.*, m.*, u.watched, u.last_watched_at, u.continue_watching_dismissed,
+    SELECT i.*, ${ENTITY_COLUMNS_SQL},
+           u.watched, u.last_watched_at, u.continue_watching_dismissed,
            u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
     FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
-    WHERE (m.media_type IN ('movie', 'tv') OR m.media_type IS NULL)
-      AND m.last_refreshed_at IS NULL
+    WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
+      AND e.last_refreshed_at IS NULL
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1
@@ -200,7 +202,7 @@ export function getFullFolderTree(root: MediaFolder): MediaFolder {
 }
 
 export function getItemCredits(id: string): any | null {
-  return metadataRepo.fetchCredits(id)
+  return metadataRepo.fetchCreditsByItemId(id)
 }
 
 // --- Write Operations ---
@@ -260,22 +262,14 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
       })
     }
 
-    // Metadata Updates
+    // Metadata Updates (writes to media_entities via metadataRepo)
     const metadataKeys = [
       'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
       'genres', 'tags', 'virtualTags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath',
       'lockedFields', 'lastRefreshedAt', '_v'
     ]
     if (metadataKeys.some((k) => k in updates)) {
-      const currentImages = parseJsonSafe<any>(existingMeta?.images_json, {})
-      if (updates.posterPath !== undefined) currentImages.poster = updates.posterPath
-      if (updates.backdropPath !== undefined) currentImages.backdrop = updates.backdropPath
-      if (updates.logoPath !== undefined) currentImages.logo = updates.logoPath
-
-      metadataRepo.upsertMetadata(itemId, {
-        ...updates,
-        imagesJson: JSON.stringify(currentImages)
-      })
+      metadataRepo.upsertMetadata(itemId, updates)
     }
 
     // Folder Settings

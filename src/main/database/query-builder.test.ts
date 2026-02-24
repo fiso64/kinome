@@ -2,7 +2,7 @@
  * Query Builder Field Dependency Tests
  *
  * These tests enforce that when grouping by virtual tags (vt.*) or
- * manual tags (tags.*), the metadata table is joined and the relevant
+ * manual tags (tags.*), the media_entities table is joined and the relevant
  * JSON blob is available for in-memory extraction.
  */
 import { describe, it, expect, beforeEach } from 'bun:test'
@@ -25,20 +25,21 @@ describe('query-builder field dependencies', () => {
         // Root → Folder → File with virtual tags and manual tags
         db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, NULL, '.', 'Library', 'folder')`).run('root')
         db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, ?, 'Movies', 'Movies', 'folder')`).run('folder1', 'root')
-        db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, ?, 'Movies/movie.mkv', 'movie.mkv', 'file')`).run('file1', 'folder1')
-        db.prepare(`INSERT INTO metadata (item_id, media_type) VALUES (?, 'movie')`).run('file1')
-        db.prepare(`UPDATE metadata SET virtual_tags_json = ?, tags_json = ? WHERE item_id = ?`).run(
+        db.prepare(`INSERT INTO media_entities (id, media_type) VALUES (?, 'movie')`).run('entity1')
+        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run('entity1', 'file1')
+        db.prepare(`INSERT INTO items (id, parent_id, path, name, type, entity_id) VALUES (?, ?, 'Movies/movie.mkv', 'movie.mkv', 'file', ?)`).run('file1', 'folder1', 'entity1')
+        db.prepare(`UPDATE media_entities SET virtual_tags_json = ?, tags_json = ? WHERE id = ?`).run(
             JSON.stringify({ quality: '4K', source: 'BluRay' }),
             JSON.stringify({ resolution: '2160p' }),
-            'file1'
+            'entity1'
         )
     })
 
-    it('virtual tag data is available when metadata table is joined', () => {
+    it('virtual tag data is available when media_entities table is joined', () => {
         const rows = db.prepare(`
-      SELECT i.id, m.virtual_tags_json
+      SELECT i.id, e.virtual_tags_json
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
       WHERE i.parent_id = ?
     `).all('folder1') as any[]
 
@@ -47,11 +48,11 @@ describe('query-builder field dependencies', () => {
         expect(vtags.quality).toBe('4K')
     })
 
-    it('manual tag data is available when metadata table is joined', () => {
+    it('manual tag data is available when media_entities table is joined', () => {
         const rows = db.prepare(`
-      SELECT i.id, m.tags_json
+      SELECT i.id, e.tags_json
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
       WHERE i.parent_id = ?
     `).all('folder1') as any[]
 
@@ -64,9 +65,9 @@ describe('query-builder field dependencies', () => {
         const rows = db.prepare(`
       SELECT i.id
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
       WHERE i.parent_id = ?
-        AND json_extract(m.virtual_tags_json, '$.quality') = ?
+        AND json_extract(e.virtual_tags_json, '$.quality') = ?
     `).all('folder1', '4K') as any[]
 
         expect(rows.length).toBe(1)
@@ -77,9 +78,9 @@ describe('query-builder field dependencies', () => {
         const rows = db.prepare(`
       SELECT i.id
       FROM items i
-      LEFT JOIN metadata m ON i.id = m.item_id
+      LEFT JOIN media_entities e ON i.entity_id = e.id
       WHERE i.parent_id = ?
-        AND json_extract(m.virtual_tags_json, '$.quality') = ?
+        AND json_extract(e.virtual_tags_json, '$.quality') = ?
     `).all('folder1', '1080p') as any[]
 
         expect(rows.length).toBe(0)

@@ -150,10 +150,9 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
 
     it('marks item as missing (ghost) when it has locked fields', () => {
         insertItem({ id: 'locked1', type: 'file' })
-        db.prepare(`
-      INSERT INTO metadata (item_id, locked_fields_json)
-      VALUES (?, ?)
-    `).run('locked1', JSON.stringify(['title', 'posterPath']))
+        const entityId = 'entity-locked1'
+        db.prepare(`INSERT INTO media_entities (id, locked_fields_json) VALUES (?, ?)`).run(entityId, JSON.stringify(['title', 'posterPath']))
+        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'locked1')
 
         // Simulate: item not found on disk → mark as missing
         db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?').run('locked1')
@@ -161,18 +160,17 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         const row = db.prepare('SELECT is_missing FROM items WHERE id = ?').get('locked1') as any
         expect(row.is_missing).toBe(1)
 
-        // Metadata should still exist (not cascade-deleted)
-        const meta = db.prepare('SELECT locked_fields_json FROM metadata WHERE item_id = ?').get('locked1') as any
+        // Entity should still exist (not cascade-deleted from item)
+        const meta = db.prepare('SELECT locked_fields_json FROM media_entities WHERE id = ?').get(entityId) as any
         expect(meta).not.toBeNull()
         expect(JSON.parse(meta.locked_fields_json)).toContain('title')
     })
 
     it('fully deletes item when it has no locked fields', () => {
         insertItem({ id: 'unlocked1', type: 'file' })
-        db.prepare(`
-      INSERT INTO metadata (item_id, locked_fields_json)
-      VALUES (?, ?)
-    `).run('unlocked1', '[]')
+        const entityId = 'entity-unlocked1'
+        db.prepare(`INSERT INTO media_entities (id, locked_fields_json) VALUES (?, ?)`).run(entityId, '[]')
+        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'unlocked1')
 
         // Simulate: item not found on disk → delete entirely
         db.prepare('DELETE FROM items WHERE id = ?').run('unlocked1')
@@ -180,20 +178,23 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         const row = db.prepare('SELECT * FROM items WHERE id = ?').get('unlocked1')
         expect(row).toBeNull()
 
-        // Metadata should also be deleted (CASCADE)
-        const meta = db.prepare('SELECT * FROM metadata WHERE item_id = ?').get('unlocked1')
-        expect(meta).toBeNull()
+        // Entity should still exist (ON DELETE SET NULL, not CASCADE)
+        const meta = db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId)
+        expect(meta).not.toBeNull()
     })
 
-    it('cascade-deletes metadata when item is deleted', () => {
+    it('cascade-deletes user_state when item is deleted', () => {
         insertItem({ id: 'cascade1', type: 'file' })
-        db.prepare(`INSERT INTO metadata (item_id, title) VALUES (?, ?)`).run('cascade1', 'Some Movie')
+        const entityId = 'entity-cascade1'
+        db.prepare(`INSERT INTO media_entities (id, title) VALUES (?, ?)`).run(entityId, 'Some Movie')
+        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'cascade1')
         db.prepare(`INSERT INTO user_state (item_id) VALUES (?)`).run('cascade1')
 
         db.prepare('DELETE FROM items WHERE id = ?').run('cascade1')
 
-        // Both metadata and user_state should be gone
-        expect(db.prepare('SELECT * FROM metadata WHERE item_id = ?').get('cascade1')).toBeNull()
+        // user_state should be gone (CASCADE from items)
         expect(db.prepare('SELECT * FROM user_state WHERE item_id = ?').get('cascade1')).toBeNull()
+        // Entity should still exist (SET NULL, not CASCADE)
+        expect(db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId)).not.toBeNull()
     })
 })

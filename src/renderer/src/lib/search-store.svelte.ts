@@ -166,19 +166,11 @@ function handleLibraryUpdates(updatedItems: any[]) {
     for (const updated of updatedItems) {
       for (let i = 0; i < nextArr.length; i++) {
         if (nextArr[i].id === updated.id) {
-          // Map LibraryItem fields to SearchIndexEntry fields
-          const images =
-            updated.images || updated.images_json
-              ? typeof updated.images === 'string'
-                ? JSON.parse(updated.images)
-                : updated.images
-              : null
-
           nextArr[i] = {
             ...nextArr[i],
             ...updated,
             title: updated.title ?? updated.name ?? nextArr[i].title,
-            posterPath: images?.poster ?? updated.posterPath ?? nextArr[i].posterPath
+            posterPath: updated.posterPath ?? nextArr[i].posterPath
           }
           changed = true
         }

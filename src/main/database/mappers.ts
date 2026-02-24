@@ -34,14 +34,6 @@ export function mapRowToLibraryItem(row: any): LibraryItem {
     for (const [alias, def] of Object.entries(REPOSITORY_SCHEMA)) {
         let val = getRowValue(row, alias, def)
 
-        // Special handling for JSON extraction fallback
-        const isImage = ['posterPath', 'backdropPath', 'logoPath'].includes(alias)
-        if (val === undefined && isImage && row.images_json) {
-            const images = parseJsonSafe(row.images_json, {}) as any
-            const key = alias.replace('Path', '') // posterPath -> poster
-            val = images[key]
-        }
-
         // Generic JSON Parsing
         if (def.isJson) {
             if (typeof val === 'string') {
@@ -74,11 +66,11 @@ export function mapRowToLibraryItem(row: any): LibraryItem {
     // 2. Computed / Logic-heavy fields
     const ver = item._v
     const tid = item.tmdbId
-    const metaJoinId = row.item_id
+    const entityJoinId = row._entity_id
 
     const actuallyHasMetadata =
-        metaJoinId !== undefined
-            ? metaJoinId !== null
+        entityJoinId !== undefined
+            ? entityJoinId !== null
             : item.title !== undefined || item._v !== undefined
 
     if (!actuallyHasMetadata) {

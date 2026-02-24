@@ -26,22 +26,23 @@ function insertItem(item: {
     path?: string
     name?: string
     type?: 'file' | 'folder'
+    entityId?: string | null
 }) {
     db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(item.id, item.parentId ?? null, item.path ?? item.id, item.name ?? item.id, item.type ?? 'folder')
+    INSERT INTO items (id, parent_id, path, name, type, entity_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(item.id, item.parentId ?? null, item.path ?? item.id, item.name ?? item.id, item.type ?? 'folder', item.entityId ?? null)
 }
 
-function insertMetadata(meta: {
-    itemId: string
+function insertEntity(entity: {
+    id: string
     mediaType?: string | null
     lastRefreshedAt?: number | null
 }) {
     db.prepare(`
-    INSERT INTO metadata (item_id, media_type, last_refreshed_at)
+    INSERT INTO media_entities (id, media_type, last_refreshed_at)
     VALUES (?, ?, ?)
-  `).run(meta.itemId, meta.mediaType ?? null, meta.lastRefreshedAt ?? null)
+  `).run(entity.id, entity.mediaType ?? null, entity.lastRefreshedAt ?? null)
 }
 
 function insertFolderSettings(settings: {
@@ -62,12 +63,12 @@ function insertFolderSettings(settings: {
 
 describe('getTvShowsForStructuralSync', () => {
     const QUERY = `
-    SELECT i.*, m.*, f.scraper_settings_json
+    SELECT i.id AS item_id, i.type, e.media_type, f.scraper_settings_json
     FROM items i
-    JOIN metadata m ON i.id = m.item_id
+    JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
-      AND m.media_type = 'tv'
+      AND e.media_type = 'tv'
       AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
   `
 
@@ -76,45 +77,49 @@ describe('getTvShowsForStructuralSync', () => {
     })
 
     it('includes TV shows WITHOUT a folder_settings row (default-enabled gate)', () => {
-        insertItem({ id: 'show1', type: 'folder' })
-        insertMetadata({ itemId: 'show1', mediaType: 'tv' })
+        const entityId = 'entity-show1'
+        insertEntity({ id: entityId, mediaType: 'tv' })
+        insertItem({ id: 'show1', type: 'folder', entityId })
         // Deliberately NO folder_settings row
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).toContain('show1')
+        expect(results.map((r: any) => r.item_id)).toContain('show1')
     })
 
     it('includes TV shows where process_tv_children is explicitly true', () => {
-        insertItem({ id: 'show2', type: 'folder' })
-        insertMetadata({ itemId: 'show2', mediaType: 'tv' })
+        const entityId = 'entity-show2'
+        insertEntity({ id: entityId, mediaType: 'tv' })
+        insertItem({ id: 'show2', type: 'folder', entityId })
         insertFolderSettings({ itemId: 'show2', scraperSettings: { process_tv_children: 1 } })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).toContain('show2')
+        expect(results.map((r: any) => r.item_id)).toContain('show2')
     })
 
     it('EXCLUDES TV shows where process_tv_children is explicitly disabled', () => {
-        insertItem({ id: 'show3', type: 'folder' })
-        insertMetadata({ itemId: 'show3', mediaType: 'tv' })
+        const entityId = 'entity-show3'
+        insertEntity({ id: entityId, mediaType: 'tv' })
+        insertItem({ id: 'show3', type: 'folder', entityId })
         insertFolderSettings({ itemId: 'show3', scraperSettings: { process_tv_children: 0 } })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('show3')
+        expect(results.map((r: any) => r.item_id)).not.toContain('show3')
     })
 
     it('EXCLUDES non-TV items', () => {
-        insertItem({ id: 'movie1', type: 'folder' })
-        insertMetadata({ itemId: 'movie1', mediaType: 'movie' })
+        const entityId = 'entity-movie1'
+        insertEntity({ id: entityId, mediaType: 'movie' })
+        insertItem({ id: 'movie1', type: 'folder', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('movie1')
+        expect(results.map((r: any) => r.item_id)).not.toContain('movie1')
     })
 
-    it('EXCLUDES items without metadata', () => {
+    it('EXCLUDES items without an entity link', () => {
         insertItem({ id: 'bare1', type: 'folder' })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('bare1')
+        expect(results.map((r: any) => r.item_id)).not.toContain('bare1')
     })
 })
 
@@ -129,12 +134,12 @@ describe('getTvShowsForStructuralSync', () => {
 
 describe('getDiscoveryItemsForPhase2', () => {
     const QUERY = `
-    SELECT i.*, m.*
+    SELECT i.id AS item_id, i.type, e.media_type, e.last_refreshed_at
     FROM items i
-    LEFT JOIN metadata m ON i.id = m.item_id
+    LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
-    WHERE (m.media_type IN ('movie', 'tv') OR m.media_type IS NULL)
-      AND m.last_refreshed_at IS NULL
+    WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
+      AND e.last_refreshed_at IS NULL
       AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1
   `
 
@@ -146,45 +151,50 @@ describe('getDiscoveryItemsForPhase2', () => {
     })
 
     it('returns dirty items with a gated parent (both conditions met)', () => {
-        insertItem({ id: 'movie1', parentId: 'root', type: 'file' })
-        insertMetadata({ itemId: 'movie1', mediaType: 'movie', lastRefreshedAt: null })
+        const entityId = 'entity-movie1'
+        insertEntity({ id: entityId, mediaType: 'movie', lastRefreshedAt: null })
+        insertItem({ id: 'movie1', parentId: 'root', type: 'file', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).toContain('movie1')
+        expect(results.map((r: any) => r.item_id)).toContain('movie1')
     })
 
     it('returns items with NULL mediaType (unknown type, needs identification)', () => {
-        insertItem({ id: 'unknown1', parentId: 'root', type: 'file' })
-        insertMetadata({ itemId: 'unknown1', mediaType: null, lastRefreshedAt: null })
+        const entityId = 'entity-unknown1'
+        insertEntity({ id: entityId, mediaType: null, lastRefreshedAt: null })
+        insertItem({ id: 'unknown1', parentId: 'root', type: 'file', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).toContain('unknown1')
+        expect(results.map((r: any) => r.item_id)).toContain('unknown1')
     })
 
     it('EXCLUDES already-refreshed items even if parent is gated', () => {
-        insertItem({ id: 'fresh1', parentId: 'root', type: 'file' })
-        insertMetadata({ itemId: 'fresh1', mediaType: 'movie', lastRefreshedAt: Date.now() })
+        const entityId = 'entity-fresh1'
+        insertEntity({ id: entityId, mediaType: 'movie', lastRefreshedAt: Date.now() })
+        insertItem({ id: 'fresh1', parentId: 'root', type: 'file', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('fresh1')
+        expect(results.map((r: any) => r.item_id)).not.toContain('fresh1')
     })
 
     it('EXCLUDES dirty items whose parent is NOT gated', () => {
         insertItem({ id: 'ungated-folder', parentId: 'root', type: 'folder' })
         // No folder_settings for ungated-folder (Gate A not enabled)
 
-        insertItem({ id: 'orphan1', parentId: 'ungated-folder', type: 'file' })
-        insertMetadata({ itemId: 'orphan1', mediaType: 'movie', lastRefreshedAt: null })
+        const entityId = 'entity-orphan1'
+        insertEntity({ id: entityId, mediaType: 'movie', lastRefreshedAt: null })
+        insertItem({ id: 'orphan1', parentId: 'ungated-folder', type: 'file', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('orphan1')
+        expect(results.map((r: any) => r.item_id)).not.toContain('orphan1')
     })
 
     it('EXCLUDES non-content types (seasons, episodes are synced via process_show)', () => {
-        insertItem({ id: 'season1', parentId: 'root', type: 'folder' })
-        insertMetadata({ itemId: 'season1', mediaType: 'season', lastRefreshedAt: null })
+        const entityId = 'entity-season1'
+        insertEntity({ id: entityId, mediaType: 'season', lastRefreshedAt: null })
+        insertItem({ id: 'season1', parentId: 'root', type: 'folder', entityId })
 
         const results = db.prepare(QUERY).all() as any[]
-        expect(results.map((r: any) => r.id)).not.toContain('season1')
+        expect(results.map((r: any) => r.item_id)).not.toContain('season1')
     })
 })

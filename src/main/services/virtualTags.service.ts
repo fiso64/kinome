@@ -14,33 +14,33 @@ function buildConditionSql(condition: VirtualTagCondition): string {
 
   switch (condition.target) {
     case 'year':
-      column = 'metadata.year'
+      column = 'media_entities.year'
       break
     case 'title':
-      column = 'metadata.title'
+      column = 'media_entities.title'
       break
     case 'mediaType':
-      column = 'metadata.media_type'
+      column = 'media_entities.media_type'
       break
     case 'path':
       // Correlated subquery to get path from items table
-      column = '(SELECT path FROM items WHERE id = metadata.item_id)'
+      column = '(SELECT path FROM items WHERE entity_id = media_entities.id LIMIT 1)'
       break
     case 'genre':
       if (condition.operator === 'contains') {
         return `EXISTS (
-          SELECT 1 FROM json_each(metadata.genres_json) 
+          SELECT 1 FROM json_each(media_entities.genres_json) 
           WHERE value LIKE '%${escapeString(String(condition.value))}%'
         )`
       }
       // For equals/others on array, we check exact match in array
       return `EXISTS (
-          SELECT 1 FROM json_each(metadata.genres_json) 
+          SELECT 1 FROM json_each(media_entities.genres_json) 
           WHERE value = '${escapeString(String(condition.value))}'
         )`
     case 'tag':
       if (!condition.targetKey) return '0' // False
-      column = `json_extract(metadata.tags_json, '$.${escapeString(condition.targetKey)}')`
+      column = `json_extract(media_entities.tags_json, '$.${escapeString(condition.targetKey)}')`
       break
     default:
       return '0'

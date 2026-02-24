@@ -2,7 +2,7 @@ import type { LibraryItem } from '@shared/types'
 
 export interface RepositoryFieldDef {
     sql: string
-    table?: 'i' | 'm' | 'u' | 'f' // Dependency table
+    table?: 'i' | 'e' | 'u' | 'f' // i=items, e=media_entities, u=user_state, f=folder_settings
     isJson?: boolean
     parser?: (val: any) => any
     getValue?: (item: LibraryItem) => string[] // Symmetrical logic for in-memory grouping
@@ -24,45 +24,46 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     isIgnored: { sql: 'i.is_ignored', table: 'i', parser: Boolean },
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
+    entityId: { sql: 'i.entity_id', table: 'i' },
 
-    // Metadata Table
-    tmdbId: { sql: 'm.tmdb_id', table: 'm' },
+    // Media Entities Table
+    tmdbId: { sql: 'e.tmdb_id', table: 'e' },
     mediaType: {
-        sql: 'm.media_type',
-        table: 'm',
+        sql: 'e.media_type',
+        table: 'e',
         getValue: (item) => (item.mediaType ? [item.mediaType] : [])
     },
-    title: { sql: 'm.title', table: 'm' },
-    originalTitle: { sql: 'm.original_title', table: 'm' },
-    overview: { sql: 'm.overview', table: 'm' },
-    releaseDate: { sql: 'm.release_date', table: 'm' },
-    runtime: { sql: 'm.runtime', table: 'm' },
+    title: { sql: 'e.title', table: 'e' },
+    originalTitle: { sql: 'e.original_title', table: 'e' },
+    overview: { sql: 'e.overview', table: 'e' },
+    releaseDate: { sql: 'e.release_date', table: 'e' },
+    runtime: { sql: 'e.runtime', table: 'e' },
     year: {
-        sql: 'm.year',
-        table: 'm',
+        sql: 'e.year',
+        table: 'e',
         getValue: (item) => (item.year ? [item.year.toString()] : [])
     },
-    seasonNumber: { sql: 'm.season_number', table: 'm' },
-    episodeNumber: { sql: 'm.episode_number', table: 'm' },
-    // Images (JSON extraction helpers)
-    posterPath: { sql: "json_extract(m.images_json, '$.poster')", table: 'm' },
-    backdropPath: { sql: "json_extract(m.images_json, '$.backdrop')", table: 'm' },
-    logoPath: { sql: "json_extract(m.images_json, '$.logo')", table: 'm' },
-    // Metadata JSONs
+    seasonNumber: { sql: 'e.season_number', table: 'e' },
+    episodeNumber: { sql: 'e.episode_number', table: 'e' },
+    // Images (direct columns now, not JSON extraction)
+    posterPath: { sql: 'e.poster_path', table: 'e' },
+    backdropPath: { sql: 'e.backdrop_path', table: 'e' },
+    logoPath: { sql: 'e.logo_path', table: 'e' },
+    // Entity JSONs
     genres: {
-        sql: 'm.genres_json',
-        table: 'm',
+        sql: 'e.genres_json',
+        table: 'e',
         isJson: true,
         getValue: (item) => item.genres ?? []
     },
-    tags: { sql: 'm.tags_json', table: 'm', isJson: true },
-    virtualTags: { sql: 'm.virtual_tags_json', table: 'm', isJson: true },
-    tmdbCredits: { sql: 'm.people_json', table: 'm', isJson: true },
-    tmdbSeasons: { sql: 'm.seasons_json', table: 'm', isJson: true },
-    tmdbEpisodes: { sql: 'm.episodes_json', table: 'm', isJson: true },
-    lockedFields: { sql: 'm.locked_fields_json', table: 'm', isJson: true },
-    lastRefreshedAt: { sql: 'm.last_refreshed_at', table: 'm' },
-    _v: { sql: 'm.version', table: 'm' },
+    tags: { sql: 'e.tags_json', table: 'e', isJson: true },
+    virtualTags: { sql: 'e.virtual_tags_json', table: 'e', isJson: true },
+    tmdbCredits: { sql: 'e.people_json', table: 'e', isJson: true },
+    tmdbSeasons: { sql: 'e.seasons_json', table: 'e', isJson: true },
+    tmdbEpisodes: { sql: 'e.episodes_json', table: 'e', isJson: true },
+    lockedFields: { sql: 'e.locked_fields_json', table: 'e', isJson: true },
+    lastRefreshedAt: { sql: 'e.last_refreshed_at', table: 'e' },
+    _v: { sql: 'e.version', table: 'e' },
 
     // User State Table
     watched: { sql: 'u.watched', table: 'u', parser: Boolean },

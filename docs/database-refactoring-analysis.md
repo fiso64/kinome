@@ -1,226 +1,198 @@
 
 # Database Refactoring Analysis & Detailed Plan
 
-## 1. Current State & Technical Debt Analysis
+## Implementation Status
 
-The current database structure in Kinome follows a **"Filesystem-First"** approach. This is its core identity: the app is a lens over your disk, not a detached metadata database. However, the internal implementation has drifted into patterns that hinder this goal:
+### ✅ Phase 1A Complete: Schema Foundation & Repository Layer Migration
+**Date**: 2026-02-24
 
-### A. Identification vs. Location (The "Fragile Path" Problem)
-- **The Issue**: Every item's identity (`id`) is currently a hash of its `path`. 
-- **The Impact**: While the scanner has a "Rename Rescue" mechanism (using Inodes), it's a fallback. The *primary* identity is the path. If a folder rename isn't captured perfectly, the system "forgets" everything about those files: watched status, custom metadata, and locks.
-- **Drive Moves**: Relying solely on Inodes (which change when moving cross-drive) is just as fragile.
-- **Rename Costs**: Renaming a folder currently requires a "destructive cascade" (DELETE old IDs, INSERT new IDs, UPDATE all child foreign keys).
-- **The UUID Solution**: By using random, persistent UUIDs for `library_items`:
-    - Renames become cheap metadata updates (`UPDATE items SET path = ...`) instead of destructive operations.
-    - Identity is totally decoupled from location.
-    - **Trade-off**: IDs are no longer deterministic based on path. However, state is preserved via the `media_entities` layer (Content Matching), making this acceptable and even advantageous.
+All changes verified: `bun typecheck` ✅, `bun test` ✅ — 146/146 passing. Manually tested via dev server ✅.
 
-### B. Relational Data Trapped in JSON (The "Opaque" Data problem)
-- **Redundancy**: `people_json`, `genres_json`, `seasons_json`, and `episodes_json` store structured data as local blobs in `metadata`.
-- **Scaling/Query Problem**: TMDB IDs for actors and genres are duplicated across thousands of rows. You cannot ask a simple SQL question like "Find all movies with Action + Tom Cruise" without expensive full-text scans or parsing JSON during queries. In complex UI layouts like Sections querying via Virtual Tags, this degrades performance.
+1. **Schema (`schema.ts`)**: 
+   - Renamed `metadata` table → `media_entities`
+   - Added `entity_id TEXT` column to `items` with `FOREIGN KEY → media_entities(id) ON DELETE SET NULL`
+   - Added `parent_entity_id` to `media_entities` for Season/Episode hierarchies
+   - Images moved from `images_json` blob to direct columns: `poster_path`, `backdrop_path`, `logo_path`
+   - FTS triggers updated to resolve through `entity_id` link
+   - Added index on `items(entity_id)`
 
-### C. The Folder Settings Paradox
-- **Scraper & View Settings**: These are per-folder and inherently hierarchical (inheritance). Unlike cast/crew, which is global metadata, these are **local document-style configurations**.
-- **Refactoring Decision**: Refactoring `folder_settings` into a fully normalized schema (e.g., a `settings_overrides` table with key-value pairs) would likely degrade performance and make the recursive inheritance logic much harder to maintain. **These should remain as JSON blobs.**
+2. **Repository Layer**:
+   - `repo-definitions.ts`: Table alias `m` → `e` (media_entities), image fields use direct columns
+   - `query-builder.ts`: JOINs changed from `metadata m ON i.id = m.item_id` → `media_entities e ON i.entity_id = e.id`
+   - `filesystem.repo.ts`: All queries use `entity_id` link. Introduced `ENTITY_COLUMNS_SQL` — shared explicit column list that prevents `e.id` shadowing
+   - `metadata.repo.ts`: Full rewrite — entities are independent rows, `ensureEntityForItem()` creates+links on demand
+   - `search.repo.ts`: All search queries updated to `entity_id` join pattern
+   - `mappers.ts`: Metadata presence detected via `_entity_id` column alias
 
----
+3. **Service Layer**:
+   - `repository.service.ts`: Updated TV show and discovery queries, image handling simplified
+   - `virtualTags.service.ts`: SQL references updated from `metadata.*` → `media_entities.*`
+   - `filesystem.service.ts`: `verifyImagePaths` uses direct columns instead of JSON blob
+   - `search.service.ts`: `mapRowToEntry()` updated to read `poster_path` directly (was still using dead `images_json` blob)
+   - `search-store.svelte.ts` (frontend): Removed dead `images_json` parsing from live-update handler
 
-## 2. Refactored "Filesystem-First" Architecture
+4. **Tests**: 
+   - `query-builder.test.ts`, `scan-phase1.test.ts`, `scanner-discovery.test.ts`, `search.repo.test.ts`, `settings.repo.test.ts` — updated for new schema
+   - `root-retrieval.test.ts` — **NEW**, regression guard for the column shadowing bug + end-to-end item retrieval flow
 
-We will move to a **Three-Layer Model** that balances filesystem accuracy with metadata stability:
+#### Gotchas & Lessons Learned
 
-### A. The Schema Layers
-1.  **Filesystem Layer (`library_items`)**: Tracks path, mtime, stats (`inode`, `device_id`), and physical parent/child relationships. Its primary job is representing the files and folders on disk. The primary key (`id`) is a persistent UUID.
-2.  **Entity Layer (`media_entities`)**: Tracks logical identity (TMDB ID, Media Type, Season/Episode structure). This is a purely logical layer representing movies, shows, seasons, and episodes.
-3.  **User State Layer (`user_state`)**: Tracks "watched status", playback timestamps, and progress. Crucially, this attaches to `entity_id` rather than `item_id`.
-4.  **Metadata Layer (Relational)**: Normalized junction tables for `people`, `credits`, `genres`, and `tags`.
+- **`bun:sqlite` column shadowing**: When `SELECT i.*, e.*` is used and both tables have an `id` column, the result JS object only keeps the **last** `id` (from `e.id`). When the entity is NULL (no metadata), this makes `item.id` silently become `null`, breaking all downstream code. **Fix**: Never use `e.*`. Use the exported `ENTITY_COLUMNS_SQL` fragment which explicitly lists all entity columns except `id`, selecting it only as `_entity_id`.
+- **Stale mapping code**: When schema changes remove a column (`images_json`), all code that reads that column must be updated — including private mapping functions like `search.service.ts:mapRowToEntry()` that don't show up in type checks because they use `any` types.
 
-### B. Stable Identity (The "Triple Match" Strategy)
-During scanning and Phase 1 (`syncDiskToDatabase`), we resolve identity using this priority to maintain resilience:
-1.  **Path Hash / Exact Match**: Look up if we know the physical path. Since IDs are UUIDs, we must query by `path`.
-2.  **Inode/DeviceID (Rescue match)**: "The path changed, but the disk says it's the same physical file on the same drive." O(1) map-based lookup during Phase 1 sync.
-3.  **Entity Link (Content/Fuzzy match)**: "Path and Inode changed (e.g., cross-drive move or file replacement), but the filename and size exactly matches an existing item, or we re-identified this fast." We link this new `library_item` to the existing `media_entity`.
+### ❌ Phase 1B Deferred: UUID Identity & Triple Match
+*Decision: 2026-02-24 — Deferred indefinitely.*
 
----
+The original plan proposed replacing path-hash IDs with random UUIDs and implementing "Triple Match" identity resolution. After review, this was deemed **high-cost, low-reward**:
+- **Path-as-identity is correct for "filesystem first"** — the path IS the canonical identity. This isn't a bug, it's the design.
+- **Rename rescue already works** — `handleItemRenamed` + inode-based rescue handles the common cases. The only gap (cross-drive moves) is too niche to justify the blast radius.
+- **Deterministic IDs are valuable** — `SHA-256(path)` is debuggable, reproducible, and simple. UUID matching heuristics would add complexity and subtle bugs.
+- **Phase 1A already achieved the key architectural win** — decoupling metadata (`media_entities`) from items via `entity_id` means metadata survives item deletion and can be shared/relinked. This was the real value of the refactoring.
 
-## 3. Detailed Implementation Plan & Migration Strategy
+### ⬜ Phase 2: Normalized Relational Metadata
+*Next step. Scope finalized 2026-02-24.*
 
-### Phase 1: The Schema Foundation (Breaking Changes Allowed)
+#### Goal
+Eliminate JSON blobs for relational data (`genres_json`, `people_json`, `tags_json`, `virtual_tags_json`) in favor of proper normalized tables. Drop `seasons_json`/`episodes_json` in favor of in-memory caching during enrichment.
 
-Per the established `migration.service.ts` policy, Kinome does **not** support traditional database migrations or zero-data-loss transformations for major architectural shifts. This avoids technical debt and keeps the backend lean.
-
-1.  **Fresh Database Setup**: The user handles schema changes by deleting their previous `library.db`.
-2.  **Schema Creation**: On startup, completely new tables and virtual tables are initialized: `media_entities`, `people`, `credits`, `genres`, `entity_genres`, `entity_tags`, `library_items` (replacing `items`), and the new `user_state` mapping.
-3.  **Authoritative Rescan**: The scanner relies entirely on Phase 1 (Filesystem Sync) to rebuild the `library_items` tree using persistent UUIDs and Phase 2 (Metadata Enrichment) to reconstitute the `media_entities` and relationships (e.g., Season and Episode entities) via TMDB data. 
-    - Note: Because watched history currently lives in the local DB, wiping the schema *will* clear user state (`watched` statuses, custom tags). This is accepted per the current "Breaking Changes are OK" migration policy.
-
-### Phase 2: Refactoring Core Architectural Components
-
-Refactoring the repository and query builders is the highest-risk step.
-
-#### A. Repository Service & Query Builder (`repository.service.ts` & `query-builder.ts`)
-- **Query Builder (`buildFindQuery`)**: Must be completely overhauled to support JOINs.
-  - Base query: `SELECT li.*, me.* FROM library_items li LEFT JOIN media_entities me ON li.entity_id = me.id`.
-  - Relation loading: If `options.fields` includes `genres`, we must apply a `GROUP_CONCAT` or a lateral join to select array data efficiently, OR we execute separate fetching logic in the Mapper. *Decision*: To maintain SQLite performance, `query-builder.ts` will use `json_group_array()` to pack relational data (`genres`, `tags`) back into JSON strings during the `find` operation, allowing `mappers.ts` to deserialize them into lists inside the `LibraryItem` interface.
-- **The Single Source of Truth Principle**: `repository.service.ts` continues to orchestrate across repositories. `_updateItem` will now branch: `title` -> `media_entities`, `is_hidden` -> `library_items`, `watched` -> `user_state`.
-- **Parameter Prefix Rule (`@`)**: Ensure all batch inserts and updates (especially for the relational metadata) strictly use the `@` prefix for bun:sqlite binding variables.
-
-#### B. Scanner Phase 1: Filesystem Sync (`scan_architecture.md`)
-- Updates to `syncDiskToDatabase` inside `filesystem.service.ts`.
-- The `FingerprintBuffer` logic changes: Missing items detection now relies on `library_items`, and updates to `mtime`/`size` happen natively.
-- Renames / Rename Rescue: When a file is moved, the ID (UUID) is simply retained. We issue `UPDATE library_items SET path = @path, parent_id = @parent_id WHERE id = @id`. This avoids cascade deletes entirely.
-
-#### C. Phase 2 Enrichment & TV Parsing (`metadata.service.ts` & `tv_parsing.md`)
-- **Metadata Mapping**: `applyMetadataToItem` and `applyTvShowData` will no longer serialize `seasons_json` directly into the database. Instead:
-  - When TMDB data is fetched, the service verifies the `media_entities` hierarchy.
-  - If TMDB reports 5 seasons, it UPSERTs 5 Season `media_entities` linking to the Show `media_entity`.
-  - When parsing local directories via `syncTvShowStructure` (`tv_parsing.md`), the regex identifies `seasonNumber = 1`. The `library_item` for `/S01/` is updated, and its `entity_id` is linked directly to the Season `media_entity` for Season 1.
-  - This guarantees perfect adherence to the "Decoupled Architecture Rule"; locks are maintained on the `media_entities` row.
-- **Episodes**: The TV parsing module assigns `episodeNumber` to files. The Phase 2 orchestrator will link these `library_items` to the Episode `media_entities` populated by the TMDB sync.
-
-#### D. The Grouping Service (`grouping.service.ts` & `spec/grouping_and_layouts.md`)
-- **Constraint Checklist**: We must preserve the layout-driven logical grouping.
-- Currently, `getGroupsOnly` and `groupItemsRecursive` extract values from memory using `getValuesForKey(item, 'genres')`.
-- Because `repository.service.ts` + `query-builder.ts` will automatically reconstitute the hierarchical fields (via `json_group_array`), the `LibraryItem` interface remains identical to the application code.
-- **Performance Fixes**: Instead of fetching all items into memory and sorting/grouping in JS, the new schema enables SQL-native group counts if needed. However, since Kinome operates on specific subsets of folders (`parentId = ...`), reading JSON-hydrated objects from SQLite remains extremely fast.
-- `Virtual IDs`: The system generating `virtual--{parentUUID}--{tokenPath}` remains completely functional because it operates on `LibraryItem` objects post-hydration.
-
-### Phase 3: Edge Cases and Refinement
-
-1.  **User State Decoupling (`user_state`)**: User state currently points to `item_id`. By pointing to `media_entity.id`, if a user replaces an `x264` file with an `HEVC` file, and the path changes but the TMDB match succeeds, their watched status natively transfers over without extra scripts.
-2.  **API Fallbacks (`server.ts`)**: `server.ts` uses fallback `options.fields`. We must ensure the `CORE_FIELDS` constant exactly matches the properties that the new joined queries naturally provide, preventing `undefined` field errors in the frontend.
-3.  **Search (FTS)**: We use triggers on `media_entities` to populate the FTS tables. The FTS index ignores `library_items` paths entirely and focuses strictly on logical entity names, summaries, and now dynamically grouped cast names from the `people` bridge.
-
----
-
-## 4. Proposed SQL Schema (Finalized Draft)
+#### New Tables
 
 ```sql
--- 1. Represents the Disk (Filesystem Layer)
-CREATE TABLE library_items (
-    id TEXT PRIMARY KEY,       -- Stable UUID
-    parent_id TEXT,            -- Recursive linkage within library_items
-    path TEXT NOT NULL UNIQUE, -- Filesystem anchor
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('file', 'folder')),
-    size INTEGER,
-    birthtime INTEGER,
-    mtime INTEGER,
-    inode INTEGER,
-    device_id INTEGER,
-    entity_id TEXT,            -- Link to the "Brain"
-    added_at INTEGER,
-    is_hidden INTEGER DEFAULT 0,
-    is_ignored INTEGER DEFAULT 0,
-    is_missing INTEGER DEFAULT 0,
-    FOREIGN KEY(parent_id) REFERENCES library_items(id) ON DELETE CASCADE,
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE SET NULL
-);
-
--- 2. Represents the "Thing" (Movie/Show) (Entity Layer)
-CREATE TABLE media_entities (
-    id TEXT PRIMARY KEY,      -- Generic UUID
-    tmdb_id INTEGER,
-    media_type TEXT NOT NULL, -- movie, tv, season, episode
-    title TEXT,
-    original_title TEXT,
-    overview TEXT,
-    release_date TEXT,
-    year INTEGER,
-    runtime INTEGER,
-    parent_entity_id TEXT,    -- For Season/Episode hierarchy
-    season_number INTEGER,
-    episode_number INTEGER,
-    
-    -- Images stay as simple paths/URLs
-    poster_path TEXT,
-    backdrop_path TEXT,
-    logo_path TEXT,
-    
-    locked_fields_json TEXT,  -- Lock logic preserved
-    last_refreshed_at INTEGER,
-    version INTEGER DEFAULT 0,
-    FOREIGN KEY(parent_entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
-);
-
--- 3. Folder-Specific Document Data (JSON is appropriate here)
-CREATE TABLE folder_settings (
-    item_id TEXT PRIMARY KEY,
-    view_settings_json TEXT,    -- Click actions, layouts
-    scraper_settings_json TEXT, -- Control flags
-    FOREIGN KEY(item_id) REFERENCES library_items(id) ON DELETE CASCADE
-);
-
--- 4. Global Normalized Metadata
-CREATE TABLE people (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, 
-    tmdb_id INTEGER UNIQUE,
-    name TEXT,
-    profile_path TEXT
-);
-
-CREATE TABLE credits (
-    entity_id TEXT,
-    person_id INTEGER,
-    role TEXT, -- 'cast', 'crew'
-    job TEXT,
-    character_name TEXT,
-    order_index INTEGER,
-    PRIMARY KEY (entity_id, person_id, role, job, character_name),
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
-    FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
-);
-
+-- Deduplicated genres (TMDB genre names)
 CREATE TABLE genres (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
+    name TEXT UNIQUE NOT NULL
 );
 
+-- Junction: which entity has which genres  
 CREATE TABLE entity_genres (
     entity_id TEXT NOT NULL,
     genre_id INTEGER NOT NULL,
     PRIMARY KEY (entity_id, genre_id),
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
-    FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE CASCADE
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
+    FOREIGN KEY (genre_id) REFERENCES genres(id) ON DELETE CASCADE
 );
 
+-- Deduplicated people (keyed by TMDB person ID)
+CREATE TABLE people (
+    id INTEGER PRIMARY KEY,   -- TMDB person ID
+    name TEXT NOT NULL,
+    profile_path TEXT
+);
+
+-- Junction: which entity has which person in which role
+CREATE TABLE credits (
+    entity_id TEXT NOT NULL,
+    person_id INTEGER NOT NULL,
+    credit_type TEXT NOT NULL,   -- 'cast' or 'crew'
+    character TEXT,              -- for cast
+    job TEXT,                    -- for crew  
+    display_order INTEGER,
+    PRIMARY KEY (entity_id, person_id, credit_type),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+);
+
+-- User-defined key-value tags (e.g. {"resolution": "4k", "source": "bluray"})
 CREATE TABLE entity_tags (
     entity_id TEXT NOT NULL,
-    tag_key TEXT NOT NULL,
-    tag_value TEXT NOT NULL,
-    tag_type TEXT NOT NULL CHECK(tag_type IN ('custom', 'virtual')),
-    PRIMARY KEY (entity_id, tag_key, tag_type),
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (entity_id, key),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
 );
 
--- 5. User History
-CREATE TABLE user_state (
-    entity_id TEXT,         -- Stable across file moves AND cross-drive swaps!
-    user_id TEXT DEFAULT 'default',
-    watched INTEGER DEFAULT 0,
-    last_watched_at INTEGER,
-    continue_watching_dismissed INTEGER DEFAULT 0,
-    next_up_dismissed INTEGER DEFAULT 0,
-    next_up_episode_id TEXT,    -- Link to child media_entity
-    PRIMARY KEY (entity_id, user_id),
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
-);
-
--- 6. Search Index (FTS)
-CREATE VIRTUAL TABLE media_entities_fts USING fts5(
-    id UNINDEXED,         -- media_entity.id
-    title,
-    original_title,
-    overview,
-    tokenize = 'trigram'
+-- Computed virtual tags (same shape, separate table for isolation)
+-- Wiped and regenerated in bulk during maintenance pass.
+CREATE TABLE entity_virtual_tags (
+    entity_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (entity_id, key),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
 );
 ```
 
-### 5. Summary of Impacts & Resolutions
+#### Orphan Cleanup (Triggers)
+```sql
+-- Auto-delete genres with no remaining references
+CREATE TRIGGER cleanup_orphan_genres AFTER DELETE ON entity_genres
+BEGIN
+    DELETE FROM genres WHERE id = OLD.genre_id
+    AND NOT EXISTS (SELECT 1 FROM entity_genres WHERE genre_id = OLD.genre_id);
+END;
 
-- **Consumer Grouping Logic (`spec/grouping_and_layouts.md`)**: Fully preserved. Consumers will continue to receive JSON-deserialized `genres` and `tags` strings due to structural reconstitution via SQLite `json_group_array()` within the Service Query Builders. The abstraction cleanly protects downstream layout generators and recursive virtualization functions.
-- **TV Specs (`spec/backend/tv_parsing.md`)**: The Phase 1 TV analyzer operates on paths/regexes and writes `seasonNumber` and `episodeNumber` properties to `media_entities`. Since multiple files can map to a single Entity, duplicate resolutions naturally merge into a single entity record.
-- **Scan Architecture (`spec/backend/scan_architecture.md`)**: Phase 1 avoids database deadlocks and simplifies tree pruning. If `folder_A` is renamed to `folder_B`, Phase 1 identifies the inode and merely updates the `library_items` path string recursively, without severing user-watched history which now permanently clings to `media_entities`.
+-- Auto-delete people with no remaining references
+CREATE TRIGGER cleanup_orphan_people AFTER DELETE ON credits
+BEGIN
+    DELETE FROM people WHERE id = OLD.person_id
+    AND NOT EXISTS (SELECT 1 FROM credits WHERE person_id = OLD.person_id);
+END;
+```
 
-This refactoring acts as an irreversible paradigm shift towards enterprise robustness, trading single-table query simplicity for resilient, multi-layered identity management.
+#### Columns Removed from `media_entities`
+- `genres_json` → replaced by `entity_genres` JOIN
+- `people_json` → replaced by `credits` + `people` JOIN
+- `tags_json` → replaced by `entity_tags`
+- `virtual_tags_json` → replaced by `entity_virtual_tags`
+- `seasons_json` → **dropped entirely**, passed in-memory during `process_show()` enrichment
+- `episodes_json` → **dropped entirely**, same as above
 
+#### Read Path (API Compatibility)
+Queries that need genres/credits use `json_group_array()` subqueries:
+```sql
+-- Genres as JSON array
+(SELECT json_group_array(g.name) FROM entity_genres eg
+ JOIN genres g ON eg.genre_id = g.id
+ WHERE eg.entity_id = e.id) AS genres_json
+
+-- Tags as JSON object  
+(SELECT json_group_object(t.key, t.value) FROM entity_tags t
+ WHERE t.entity_id = e.id) AS tags_json
+```
+
+#### Write Path
+`upsertMetadata()` handles junction inserts:
+1. **Genres**: `INSERT OR IGNORE INTO genres (name)` for each, then `DELETE FROM entity_genres WHERE entity_id = ?` + re-insert
+2. **Credits**: `INSERT OR REPLACE INTO people (id, name, profile_path)` for each, then `DELETE FROM credits WHERE entity_id = ?` + re-insert
+3. **Tags**: `DELETE FROM entity_tags WHERE entity_id = ?` + re-insert
+
+#### Design Decisions
+- **Separate tables for tags vs virtual tags**: Virtual tags are bulk-wiped during maintenance. Isolating them prevents accidental user tag deletion and simplifies the re-evaluation pass.
+- **`seasons_json`/`episodes_json` dropped, not normalized**: These are ephemeral TMDB API caches used only during `process_show()`. Passing data in-memory as function arguments is simpler and eliminates stale cache risk. See `spec/backend/scan_architecture.md` lines 261-296.
+- **Virtual tags still persisted (not computed on-the-fly)**: The query builder filters by virtual tags in WHERE clauses. Computing them at query time would require evaluating JS rule logic inside SQL, which isn't possible.
+
+---
+
+## Original Analysis (Context)
+
+*The sections below are retained as historical context for the refactoring decisions. Some proposals were deferred or revised — see the Implementation Status above for the authoritative state.*
+
+### Technical Debt Identified
+
+**A. Relational Data Trapped in JSON (The "Opaque" Data problem)**
+- **Redundancy**: `people_json`, `genres_json` store structured data as local blobs.
+- **Scaling/Query Problem**: TMDB IDs for actors and genres are duplicated across thousands of rows. You cannot ask a simple SQL question like "Find all movies with Action + Tom Cruise" without expensive full-text scans or parsing JSON during queries.
+- **Resolution**: Phase 2 normalizes these into proper relational tables.
+
+**B. The Folder Settings Paradox**
+- **Scraper & View Settings**: These are per-folder and inherently hierarchical (inheritance). Unlike cast/crew, which is global metadata, these are **local document-style configurations**.
+- **Decision**: `folder_settings` remains as JSON blobs. This is the correct choice for document-style config with recursive inheritance.
+
+**C. Identification vs. Location** *(Deferred — see Phase 1B)*
+- The original analysis proposed replacing path-hash IDs with UUIDs and implementing "Triple Match" identity resolution.
+- After review, this was deferred: path-as-identity is correct for "filesystem first", rename rescue already works, and the Phase 1A `entity_id` decoupling achieved the key architectural win.
+
+### Architecture: Three-Layer Model
+
+The implemented architecture follows a layered model:
+1. **Filesystem Layer (`items`)**: Tracks path, mtime, stats, and physical parent/child relationships. ID = `SHA-256(path)`.
+2. **Entity Layer (`media_entities`)**: Tracks logical identity (TMDB ID, Media Type). Linked from items via `entity_id`.
+3. **User State Layer (`user_state`)**: Tracks watched status, progress. Keyed by `item_id` (not `entity_id` — Phase 1B deferral).
+4. **Relational Metadata Layer** *(Phase 2)*: Normalized tables for `people`, `credits`, `genres`, `entity_tags`, `entity_virtual_tags`.
+
+### Consumer Impact
+
+- **Grouping Logic** (`spec/grouping_and_layouts.md`): Fully preserved. Consumers receive JSON-deserialized `genres` and `tags` via `json_group_array()` structural reconstitution in the query builders.
+- **TV Specs** (`spec/backend/tv_parsing.md`): The Phase 1 TV analyzer operates on paths/regexes and writes `seasonNumber` and `episodeNumber` to `media_entities`.
+- **Scan Architecture** (`spec/backend/scan_architecture.md`): Phase 1 filesystem sync unchanged. Phase 2 enrichment passes TMDB season/episode data in-memory instead of caching in the DB.

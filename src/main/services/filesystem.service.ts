@@ -310,12 +310,19 @@ export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): 
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
   const rows = searchRepo.executeSearchSql(
-    'SELECT item_id, images_json FROM metadata WHERE images_json IS NOT NULL',
+    `SELECT i.id AS item_id, e.poster_path, e.backdrop_path, e.logo_path
+     FROM items i
+     JOIN media_entities e ON i.entity_id = e.id
+     WHERE e.poster_path IS NOT NULL OR e.backdrop_path IS NOT NULL OR e.logo_path IS NOT NULL`,
     []
-  ) as { item_id: string; images_json: string }[]
+  ) as { item_id: string; poster_path: string | null; backdrop_path: string | null; logo_path: string | null }[]
 
   for (const row of rows) {
-    const images = JSON.parse(row.images_json || '{}')
+    const images = {
+      poster: row.poster_path,
+      backdrop: row.backdrop_path,
+      logo: row.logo_path
+    }
     let changed = false
 
     if (images.poster) {
