@@ -24,8 +24,10 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     // Helper to handle prefixed fields (vt.*, tags.*)
     const processField = (field: string) => {
         const def = REPOSITORY_SCHEMA[field]
-        if (def && def.table) {
-            usedTables.add(def.table)
+        if (def) {
+            if (def.table) usedTables.add(def.table)
+            // Subquery fields reference e.id, so they need the entity table joined
+            if (def.isSubquery) usedTables.add('e')
         } else if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
             usedTables.add('e')
             effectiveFields.add('virtualTags')
@@ -116,21 +118,21 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
                     params.push(value)
                 }
             }
-            // Virtual Tags
+            // Virtual Tags (normalized table)
             else if (key.startsWith('virtualTags.') || key.startsWith('vt.')) {
                 const tagKey = key.split('.')[1]
-                conditions.push(`json_extract(e.virtual_tags_json, '$.${tagKey}') = ?`)
-                params.push(value)
+                conditions.push(`EXISTS (SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                params.push(tagKey, value)
             }
-            // Manual Tags
+            // Manual Tags (normalized table)
             else if (key.startsWith('tags.')) {
                 const tagKey = key.split('.')[1]
-                conditions.push(`json_extract(e.tags_json, '$.${tagKey}') = ?`)
-                params.push(value)
+                conditions.push(`EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                params.push(tagKey, value)
             }
-            // Genres
+            // Genres (normalized table)
             else if (key === 'genre' || key === 'genres') {
-                conditions.push(`EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE value = ?)`)
+                conditions.push(`EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND g.name = ?)`)
                 params.push(value)
             }
         }

@@ -34,27 +34,13 @@ export function mapRowToLibraryItem(row: any): LibraryItem {
     for (const [alias, def] of Object.entries(REPOSITORY_SCHEMA)) {
         let val = getRowValue(row, alias, def)
 
-        // Generic JSON Parsing
-        if (def.isJson) {
-            if (typeof val === 'string') {
-                const isArray = ['lockedFields', 'genres'].includes(alias)
-                const isNullable = ['tmdbCredits', 'tmdbSeasons', 'tmdbEpisodes'].includes(alias)
-                const fallback = isArray ? [] : isNullable ? null : {}
-                val = parseJsonSafe(val, fallback)
-
-                // Sanity Check / Auto-Heal
-                if (
-                    (alias === 'tmdbSeasons' || alias === 'tmdbEpisodes') &&
-                    val !== null &&
-                    !Array.isArray(val)
-                ) {
-                    val = null
-                }
-            }
+        // 1. JSON Parsing (subqueries and blob columns both return JSON strings)
+        if (def.isJson && typeof val === 'string') {
+            val = parseJsonSafe(val, def.jsonDefault ?? {})
         }
 
-        // Generic Parser (Boolean etc)
-        if (val !== undefined && def.parser && val !== null) {
+        // 2. Transform (field-specific cleanup for JSON, Boolean coercion for flags, etc.)
+        if (val !== undefined && val !== null && def.parser) {
             val = def.parser(val)
         }
 

@@ -41,20 +41,18 @@ export const getAutocompleteValues = async (
   if (key === 'mediaType') {
     values = metadataRepo.getDistinctMetadataValues('media_type')
   } else if (key === 'genre') {
-    values = metadataRepo
-      .getDistinctJsonEntries('genres_json')
-      .map((e) => e.value)
+    values = metadataRepo.getDistinctGenreNames()
   } else if (key === 'year') {
     values = metadataRepo.getDistinctMetadataValues('year')
   } else {
     // Check tags first, then virtual tags
-    const tagMatch = metadataRepo.getDistinctJsonEntries('tags_json', key)
+    const tagMatch = metadataRepo.getDistinctTagEntries('entity_tags', key)
 
     if (tagMatch.length > 0) {
       values = tagMatch.map((r: any) => r.value)
     } else {
       values = metadataRepo
-        .getDistinctJsonEntries('virtual_tags_json', key)
+        .getDistinctTagEntries('entity_virtual_tags', key)
         .map((r: any) => r.value)
     }
   }
@@ -67,7 +65,7 @@ export const getGroupByKeys = async () => {
   const settings = await settingsService.readSettings()
 
   const tagKeys = metadataRepo
-    .getDistinctJsonEntries('tags_json')
+    .getDistinctTagEntries('entity_tags')
     .map((r) => r.key)
 
   return [
@@ -84,12 +82,10 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
   const settings = await settingsService.readSettings()
 
   const mediaTypes = metadataRepo.getDistinctMetadataValues('media_type')
-  const genres = metadataRepo
-    .getDistinctJsonEntries('genres_json')
-    .map((e) => e.value)
+  const genres = metadataRepo.getDistinctGenreNames()
 
-  const tagEntries = metadataRepo.getDistinctJsonEntries('tags_json')
-  const virtualTagEntries = metadataRepo.getDistinctJsonEntries('virtual_tags_json')
+  const tagEntries = metadataRepo.getDistinctTagEntries('entity_tags')
+  const virtualTagEntries = metadataRepo.getDistinctTagEntries('entity_virtual_tags')
 
   const tags: Record<string, string[]> = {}
   for (const entry of tagEntries) {

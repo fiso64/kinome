@@ -90,6 +90,30 @@ export function performSearch(query: {
 }
 
 function mapRowToEntry(row: any): SearchIndexEntry {
+  // json_group_array returns [null] for empty sets, json_group_object returns {"null":null}
+  const parseJsonArray = (raw: string | null): any[] => {
+    if (!raw) return []
+    try {
+      const arr = JSON.parse(raw)
+      return Array.isArray(arr) ? arr.filter((v: any) => v !== null) : []
+    } catch { return [] }
+  }
+  const parseJsonObject = (raw: string | null): Record<string, any> => {
+    if (!raw) return {}
+    try {
+      const obj = JSON.parse(raw)
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        // Remove null keys/values from json_group_object edge case
+        const cleaned: Record<string, any> = {}
+        for (const [k, v] of Object.entries(obj)) {
+          if (k !== 'null' && v !== null) cleaned[k] = v
+        }
+        return cleaned
+      }
+      return {}
+    } catch { return {} }
+  }
+
   const entry = {
     id: row.id,
     title: row.title ?? row.name,
@@ -98,9 +122,9 @@ function mapRowToEntry(row: any): SearchIndexEntry {
     overview: row.overview,
     mediaType: row.media_type,
     year: row.year,
-    genres: row.genres_json ? JSON.parse(row.genres_json) : [],
-    tags: row.tags_json ? JSON.parse(row.tags_json) : {},
-    virtualTags: row.virtual_tags_json ? JSON.parse(row.virtual_tags_json) : {},
+    genres: parseJsonArray(row.genres_json),
+    tags: parseJsonObject(row.tags_json),
+    virtualTags: parseJsonObject(row.virtual_tags_json),
     watched: Boolean(row.watched),
     episodeNumber: row.episode_number,
     isMissing: false,

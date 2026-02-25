@@ -4,6 +4,8 @@ export interface RepositoryFieldDef {
     sql: string
     table?: 'i' | 'e' | 'u' | 'f' // i=items, e=media_entities, u=user_state, f=folder_settings
     isJson?: boolean
+    isSubquery?: boolean // If true, sql is a self-contained subquery (not a column reference)
+    jsonDefault?: any // Default value when JSON is null/empty (only used with isJson)
     parser?: (val: any) => any
     getValue?: (item: LibraryItem) => string[] // Symmetrical logic for in-memory grouping
 }
@@ -45,23 +47,68 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     },
     seasonNumber: { sql: 'e.season_number', table: 'e' },
     episodeNumber: { sql: 'e.episode_number', table: 'e' },
-    // Images (direct columns now, not JSON extraction)
+    // Images (direct columns, not JSON extraction)
     posterPath: { sql: 'e.poster_path', table: 'e' },
     backdropPath: { sql: 'e.backdrop_path', table: 'e' },
     logoPath: { sql: 'e.logo_path', table: 'e' },
-    // Entity JSONs
+    // Relational data (hydrated via subqueries)
     genres: {
-        sql: 'e.genres_json',
-        table: 'e',
+        sql: `(SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id)`,
         isJson: true,
+        isSubquery: true,
+        jsonDefault: [],
+        // json_group_array returns [null] for empty sets
+        parser: (val) => Array.isArray(val) ? val.filter((v: any) => v !== null) : [],
         getValue: (item) => item.genres ?? []
     },
-    tags: { sql: 'e.tags_json', table: 'e', isJson: true },
-    virtualTags: { sql: 'e.virtual_tags_json', table: 'e', isJson: true },
-    tmdbCredits: { sql: 'e.people_json', table: 'e', isJson: true },
-    tmdbSeasons: { sql: 'e.seasons_json', table: 'e', isJson: true },
-    tmdbEpisodes: { sql: 'e.episodes_json', table: 'e', isJson: true },
-    lockedFields: { sql: 'e.locked_fields_json', table: 'e', isJson: true },
+    tags: {
+        sql: `(SELECT json_group_object(t.key, t.value) FROM entity_tags t WHERE t.entity_id = e.id)`,
+        isJson: true,
+        isSubquery: true,
+        jsonDefault: {},
+        // json_group_object returns {"null":null} for empty sets
+        parser: (val) => {
+            if (!val || typeof val !== 'object' || Array.isArray(val)) return {}
+            const cleaned: Record<string, any> = {}
+            for (const [k, v] of Object.entries(val)) {
+                if (k !== 'null' && v !== null) cleaned[k] = v
+            }
+            return cleaned
+        },
+    },
+    virtualTags: {
+        sql: `(SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id)`,
+        isJson: true,
+        isSubquery: true,
+        jsonDefault: {},
+        parser: (val) => {
+            if (!val || typeof val !== 'object' || Array.isArray(val)) return {}
+            const cleaned: Record<string, any> = {}
+            for (const [k, v] of Object.entries(val)) {
+                if (k !== 'null' && v !== null) cleaned[k] = v
+            }
+            return cleaned
+        },
+    },
+    tmdbCredits: {
+        sql: `(SELECT json_group_array(json_object('id', p.id, 'name', p.name, 'profile_path', p.profile_path, 'credit_type', c.credit_type, 'character', c.character, 'job', c.job, 'order', c.display_order)) FROM credits c JOIN people p ON c.person_id = p.id WHERE c.entity_id = e.id)`,
+        isJson: true,
+        isSubquery: true,
+        jsonDefault: null,
+        // Restructure flat credits array into {cast, crew} shape
+        parser: (val) => {
+            if (!Array.isArray(val)) return null
+            const nonNull = val.filter((v: any) => v !== null)
+            if (nonNull.length === 0) return null
+            return {
+                cast: nonNull.filter((c: any) => c.credit_type === 'cast')
+                    .map((c: any) => ({ id: c.id, name: c.name, profile_path: c.profile_path, character: c.character, order: c.order })),
+                crew: nonNull.filter((c: any) => c.credit_type === 'crew')
+                    .map((c: any) => ({ id: c.id, name: c.name, profile_path: c.profile_path, job: c.job, order: c.order }))
+            }
+        },
+    },
+    lockedFields: { sql: 'e.locked_fields_json', table: 'e', isJson: true, jsonDefault: [] },
     lastRefreshedAt: { sql: 'e.last_refreshed_at', table: 'e' },
     _v: { sql: 'e.version', table: 'e' },
 

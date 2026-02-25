@@ -64,16 +64,8 @@ CREATE TABLE IF NOT EXISTS media_entities (
     poster_path TEXT,
     backdrop_path TEXT,
     logo_path TEXT,
-    
-    -- Rich Data (Stored as JSON arrays/objects — to be normalized in future)
-    genres_json TEXT, -- ["Action", "Sci-Fi"]
-    tags_json TEXT,   -- {"resolution": "4k"}
-    people_json TEXT, -- { cast: [...], crew: [...] }
-    virtual_tags_json TEXT, -- Calculated virtual tags
-    
-    -- TV Cached Data
-    seasons_json TEXT, -- For TV Shows: Cache of all seasons from TMDB
-    episodes_json TEXT, -- For Seasons: Cache of all episodes from TMDB
+
+    -- Metadata control
     locked_fields_json TEXT, -- Array of locked field names
     last_refreshed_at INTEGER, -- Timestamp of last successful atomic metadata fetch
     version INTEGER DEFAULT 0,
@@ -82,6 +74,74 @@ CREATE TABLE IF NOT EXISTS media_entities (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_entities_tmdb_id ON media_entities(tmdb_id);
+
+
+-- Normalized Relational Metadata
+
+CREATE TABLE IF NOT EXISTS genres (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entity_genres (
+    entity_id TEXT NOT NULL,
+    genre_id INTEGER NOT NULL,
+    PRIMARY KEY (entity_id, genre_id),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
+    FOREIGN KEY (genre_id) REFERENCES genres(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS people (
+    id INTEGER PRIMARY KEY,   -- TMDB person ID
+    name TEXT NOT NULL,
+    profile_path TEXT
+);
+
+CREATE TABLE IF NOT EXISTS credits (
+    entity_id TEXT NOT NULL,
+    person_id INTEGER NOT NULL,
+    credit_type TEXT NOT NULL,   -- 'cast' or 'crew'
+    character TEXT,              -- for cast
+    job TEXT,                    -- for crew
+    display_order INTEGER,
+    PRIMARY KEY (entity_id, person_id, credit_type),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS entity_tags (
+    entity_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (entity_id, key),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS entity_virtual_tags (
+    entity_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (entity_id, key),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_genres_entity_id ON entity_genres(entity_id);
+CREATE INDEX IF NOT EXISTS idx_credits_entity_id ON credits(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_tags_entity_id ON entity_tags(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_virtual_tags_entity_id ON entity_virtual_tags(entity_id);
+
+-- Orphan cleanup triggers
+CREATE TRIGGER IF NOT EXISTS cleanup_orphan_genres AFTER DELETE ON entity_genres
+BEGIN
+    DELETE FROM genres WHERE id = OLD.genre_id
+    AND NOT EXISTS (SELECT 1 FROM entity_genres WHERE genre_id = OLD.genre_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS cleanup_orphan_people AFTER DELETE ON credits
+BEGIN
+    DELETE FROM people WHERE id = OLD.person_id
+    AND NOT EXISTS (SELECT 1 FROM credits WHERE person_id = OLD.person_id);
+END;
 
 
 -- User State (Watched status, etc.)

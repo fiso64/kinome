@@ -35,14 +35,35 @@ describe('Search Repository (Integration)', () => {
         db = getDb()
 
         // Seed Data: Create entities first, then items linked to them
-        db.prepare(`INSERT INTO media_entities (id, title, media_type, genres_json, tags_json) VALUES 
-            ('e1', 'The Matrix', 'movie', '["Sci-Fi", "Action"]', '{"quality": "4K"}'),
-            ('e2', 'The Matrix Reloaded', 'movie', '["Sci-Fi", "Action"]', '{"quality": "1080p"}'),
-            ('e3', 'Hidden Movie', 'movie', '["Drama"]', '{}'),
-            ('e4', 'Ignored Movie', 'movie', '["Action"]', '{}'),
-            ('e5', 'Spirited Away', 'movie', '["Animation", "Fantasy"]', '{"studio": "Ghibli"}'),
-            ('e6', 'D', 'movie', '["Short"]', '{"is_animated": "Animation"}')
+        db.prepare(`INSERT INTO media_entities (id, title, media_type) VALUES 
+            ('e1', 'The Matrix', 'movie'),
+            ('e2', 'The Matrix Reloaded', 'movie'),
+            ('e3', 'Hidden Movie', 'movie'),
+            ('e4', 'Ignored Movie', 'movie'),
+            ('e5', 'Spirited Away', 'movie'),
+            ('e6', 'D', 'movie')
         `).run()
+
+        // Genres
+        db.prepare(`INSERT INTO genres (name) VALUES ('Sci-Fi'), ('Action'), ('Drama'), ('Animation'), ('Fantasy'), ('Short')`).run()
+        const genreIds: Record<string, number> = {}
+        for (const row of db.prepare('SELECT id, name FROM genres').all() as any[]) {
+            genreIds[row.name] = row.id
+        }
+        const insertGenre = db.prepare('INSERT INTO entity_genres (entity_id, genre_id) VALUES (?, ?)')
+        insertGenre.run('e1', genreIds['Sci-Fi']); insertGenre.run('e1', genreIds['Action'])
+        insertGenre.run('e2', genreIds['Sci-Fi']); insertGenre.run('e2', genreIds['Action'])
+        insertGenre.run('e3', genreIds['Drama'])
+        insertGenre.run('e4', genreIds['Action'])
+        insertGenre.run('e5', genreIds['Animation']); insertGenre.run('e5', genreIds['Fantasy'])
+        insertGenre.run('e6', genreIds['Short'])
+
+        // Tags
+        const insertTag = db.prepare('INSERT INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)')
+        insertTag.run('e1', 'quality', '4K')
+        insertTag.run('e2', 'quality', '1080p')
+        insertTag.run('e5', 'studio', 'Ghibli')
+        insertTag.run('e6', 'is_animated', 'Animation')
 
         db.prepare(`INSERT INTO items (id, path, name, type, is_ignored, is_hidden, entity_id) VALUES 
             ('1', 'movie1.mkv', 'The Matrix', 'file', 0, 0, 'e1'),

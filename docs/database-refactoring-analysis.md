@@ -49,8 +49,10 @@ The original plan proposed replacing path-hash IDs with random UUIDs and impleme
 - **Deterministic IDs are valuable** — `SHA-256(path)` is debuggable, reproducible, and simple. UUID matching heuristics would add complexity and subtle bugs.
 - **Phase 1A already achieved the key architectural win** — decoupling metadata (`media_entities`) from items via `entity_id` means metadata survives item deletion and can be shared/relinked. This was the real value of the refactoring.
 
-### ⬜ Phase 2: Normalized Relational Metadata
-*Next step. Scope finalized 2026-02-24.*
+### ✅ Phase 2 Complete: Normalized Relational Metadata
+**Date**: 2026-02-25
+
+All changes verified: `bun typecheck` ✅, `bun test` ✅ — 146/146 passing.
 
 #### Goal
 Eliminate JSON blobs for relational data (`genres_json`, `people_json`, `tags_json`, `virtual_tags_json`) in favor of proper normalized tables. Drop `seasons_json`/`episodes_json` in favor of in-memory caching during enrichment.

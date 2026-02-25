@@ -23,9 +23,11 @@ export const ENTITY_COLUMNS_SQL = `
     e.release_date, e.year, e.runtime,
     e.season_number, e.episode_number, e.parent_entity_id,
     e.poster_path, e.backdrop_path, e.logo_path,
-    e.genres_json, e.tags_json, e.people_json, e.virtual_tags_json,
-    e.seasons_json, e.episodes_json,
-    e.locked_fields_json, e.last_refreshed_at, e.version`
+    e.locked_fields_json, e.last_refreshed_at, e.version,
+    (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres,
+    (SELECT json_group_object(t.key, t.value) FROM entity_tags t WHERE t.entity_id = e.id) AS tags,
+    (SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id) AS virtualTags,
+    (SELECT json_group_array(json_object('id', p.id, 'name', p.name, 'profile_path', p.profile_path, 'credit_type', c.credit_type, 'character', c.character, 'job', c.job, 'order', c.display_order)) FROM credits c JOIN people p ON c.person_id = p.id WHERE c.entity_id = e.id) AS tmdbCredits`
 
 const FULL_JOIN_SQL = `
     FROM items i
