@@ -1,6 +1,5 @@
 
 # Next steps
-0. Database. See docs/database-refactoring-analysis.md.
 
 1. Implement "New virtual folder" feature. In any folder, I can create a new persistent virtual folder which has
     - Its own settings, metadata, etc (should be near-equivalent to a real folder at repo layer)
