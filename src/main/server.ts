@@ -17,7 +17,6 @@ import * as repositoryService from './services/repository.service'
 import * as groupingService from './services/grouping.service'
 import * as playbackService from './services/playback.service'
 import * as handlerService from './services/handler.service'
-import { isVirtualId } from './services/virtual-item.factory'
 
 // --- Security Middleware & Constants ---
 
@@ -415,15 +414,6 @@ const app = new Elysia()
           id = status.root!.id
         }
 
-        if (isVirtualId(id)) {
-          const virtualItem = groupingService.getVirtualItem(id)
-          if (!virtualItem) {
-            set.status = 404
-            return { error: 'Virtual item not found' }
-          }
-          return virtualItem
-        }
-
         const options = parseFindOptions(query)
         options.where = { ...options.where, id }
         options.limit = 1
@@ -477,7 +467,7 @@ const app = new Elysia()
         '/items/:id/children',
         async ({ params: { id }, query, set }) => {
           const options = parseFindOptions(query)
-          const result = await groupingService.getGroupedChildren(id, options, query.groupBy)
+          const result = await groupingService.getChildren(id, options)
 
           if ('error' in result) {
             set.status = 404

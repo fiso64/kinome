@@ -33,7 +33,6 @@ import {
   StoredViewSettings
 } from '@shared/types'
 import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
-import { isVirtualId, parseVirtualId } from './virtual-item.factory'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Library Service] ${message}`)
@@ -717,18 +716,11 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     const parentId = updates.id
     const childId = updates.overrideChildId
 
-    // 1. Resolve the ACTUAL physical item where we store settings
-    // (If the parent is virtual, we actually store it on the physical ancestor)
+    // 1. Resolve the storage item — virtual folders are first-class rows with their own settings
     let storageItem: MediaFolder | null = null
-    let settingsPath: string[] = [] // Path within parent's viewSettings for virtual deep nesting
+    let settingsPath: string[] = []
 
-    if (isVirtualId(parentId)) {
-      const { parentId: pid, tokens } = parseVirtualId(parentId)
-      storageItem = (repositoryService.getItemById(pid || '') as MediaFolder) || null
-      settingsPath = tokens || []
-    } else {
-      storageItem = (repositoryService.getItemById(parentId) as MediaFolder) || null
-    }
+    storageItem = (repositoryService.getItemById(parentId) as MediaFolder) || null
 
     if (storageItem) {
       if (!storageItem.viewSettings) storageItem.viewSettings = {}
@@ -760,36 +752,9 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     }
   }
 
-  // --- 2. Check for Virtual Folder Redirection ---
-  // TODO: We accept the side effect on parents for now, because this is where virtual folders store their OWN settings.
-  //       (This isn't great design)
-  if (isVirtualId(updates.id)) {
-    log(`Redirection triggered for virtual item: ${updates.id}`)
-
-    const { parentId: physicalParentId, tokens } = parseVirtualId(updates.id)
-
-    if (physicalParentId && tokens && tokens.length > 0) {
-      const parent = repositoryService.getItemById(physicalParentId) as MediaFolder
-      if (parent) {
-        const settingsKey = tokens.join('/')
-        if (!parent.viewSettings) parent.viewSettings = {}
-        if (!parent.viewSettings.virtualFolderSettings)
-          parent.viewSettings.virtualFolderSettings = {}
-
-        const currentVirtual = parent.viewSettings.virtualFolderSettings[settingsKey] ?? {}
-        parent.viewSettings.virtualFolderSettings[settingsKey] = {
-          ...currentVirtual,
-          ...(updates.viewSettings ?? {})
-        }
-
-        // Propagate update to parent (Renderer will re-generate the virtual item)
-        await updateIfChangedAndBroadcast([parent])
-        return
-      }
-    }
-  }
-
-  // --- 3. Standard Item Update with Robust Locking ---
+  // --- 2. Standard Item Update with Robust Locking ---
+  // Virtual folders are first-class items with their own folder_settings rows;
+  // no settings redirect needed.
   const existing = repositoryService.getItemById(updates.id)
   if (existing && isUser) {
     const currentLocks = new Set(existing.lockedFields ?? [])
