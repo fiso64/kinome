@@ -1,29 +1,254 @@
 # Spec: Full Virtual Filesystem
 
-**Version:** 0.1
-**Status:** Idea
-**Related:** `virtual_tags.md`
+**Version:** 2.0
+**Status:** Planned — see `docs/virtual-filesystem-analysis.md` for implementation plan
+**Related:** `virtual_tags.md`, `scan_architecture.md`
 
 ---
 
+## Abstract
 
-This spec proposes an upgrade to the current virtual tag system to support a full virtual filesystem. Instead of just being able to group some views by virtual tags (which automatically creates corresponding virtual folders), users will be able to create custom virtual folders that can be populated with media items using a set of rules. 
+This spec defines the architecture for persistent virtual folders — first-class rows in the `items` table that the rest of the system treats like real folders. Virtual folders replace the current transient, encoded-ID grouping system.
+
+The fundamental invariant: **real items never move**. A real item's `parent_id` always points to its filesystem parent, permanently. Virtual folders define their contents via a stored pool query that is compiled to SQL at read time. Multiple virtual folders can independently include the same real item without conflict.
+
+---
+
+## Goals
+
+- Virtual folders are real `items` rows with stable UUID identity and their own `folder_settings`.
+- Grouping is a **write operation** on a folder, not a read-time transformation. The children endpoint stops doing in-memory grouping.
+- Frontend `isVirtual` checks collapse to a single boolean flag. No more encoded-ID parsing anywhere.
+- The scanner is unaware of virtual items; they are excluded from all scanner-adjacent queries by `is_virtual = 1`.
+
+---
+
+## Virtual Folder Types
+
+### `virtual_type = 'grouping'`
+
+Created when a user applies a grouping to a real folder (e.g., "group Movies by Year"). One virtual folder is created per unique group value, each with a `pool_query_json` that selects matching real children of the parent folder. Real items are never moved.
+
+**Lifecycle:** Created by `applyGrouping(folderId, key)`. Blown away and rebuilt atomically when grouping changes. Destroyed by `removeGrouping`. May have their own `folder_settings` row (controls the expanded full view of the folder). Settings are lost when regrouping — this is expected. The parent's `childViewSettings` separately controls how grouping folders appear when rendered inline as tabs/sections.
+
+### `virtual_type = 'season'`
+
+Created automatically by the scanner (Phase 2, post-`syncTvShowStructure`) when loose episode files exist in a TV show folder without a physical season subfolder. One virtual season folder per distinct `seasonNumber`, with a pool query selecting episodes of that season.
+
+**Lifecycle:** Created/destroyed by the scanner. Uses a **deterministic ID** (`sha256('virtual:season:' + tvShowFolderId + ':' + seasonNumber)`) so that rescan is idempotent — an already-existing season folder is left untouched, preserving any `folder_settings` the user may have configured. Orphaned season folders (no matching episodes remaining) are deleted on rescan.
+
+### `virtual_type = 'user'`
+
+Created explicitly by the user. Stable UUID — never rebuilt. Defines contents via `pool_query_json`, or is left as a plain folder with manually added children.
+
+**Lifecycle:** Created by user action. Destroyed by explicit user deletion. Has its own `folder_settings` row; settings survive indefinitely.
+
+---
+
+## Schema
+
+New columns on the `items` table:
+
+```sql
+is_virtual      INTEGER DEFAULT 0,
+virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
+pool_query_json TEXT
+```
+
+Virtual items use:
+- `id` = `crypto.randomUUID()`
+- `path` = `virtual://{id}` — satisfies `NOT NULL UNIQUE`, namespace-separated from real paths
+- Filesystem stat columns (`size`, `mtime`, `inode`, etc.) are `NULL`
+
+---
+
+## Pool Queries
+
+A `pool_query_json` defines what a virtual folder shows. Compiled to SQL at read time on every request — never cached.
+
+```json
+{
+  "scope": { "parentId": "uuid-of-real-folder" },
+  "filters": {
+    "year": "2024",
+    "vtag.is_anime": "Yes",
+    "addedWithinDays": 30
+  }
+}
+```
+
+**Supported scope (v1):** `parentId` — direct real children of a given folder (implicitly excludes `is_virtual = 1`).
+
+**Supported filters (v1):**
+- Any field in `REPOSITORY_SCHEMA` with equality match
+- `vtag.{key}: value` — matched via `entity_virtual_tags`
+- `addedWithinDays: N` — matched via `added_at` column
+
+Pool queries reference vtag values as one filter dimension. They do not interact with vtag computation.
+
+---
+
+## Children Endpoint Logic
+
+The children endpoint has three branches based on the type of the requested item:
+
+```
+getChildren(folderId):
+
+  if item.isVirtual:
+    → compile item.poolQuery and run find()
+
+  else if item.viewSettings.appliedGrouping:
+    → WHERE parent_id = folderId
+        AND (virtual_type = 'grouping' OR virtual_type = 'user')
+
+  else:
+    → WHERE parent_id = folderId
+        AND (is_virtual = 0 OR virtual_type = 'user')
+```
+
+When grouping is active, real children and grouping virtual folders coexist under the same `parent_id` in the DB. Only one set is returned at a time. The `appliedGrouping` field on the parent's `folder_settings` is the switch.
+
+User-created virtual folders (`virtual_type = 'user'`) appear in both states — they are always visible alongside whatever the parent folder is showing.
+
+---
+
+## Grouping Behavior
+
+Applied via `POST /api/items/:id/grouping { groupBy: string | null }`.
+
+**Applying grouping:**
+1. Fetch all real children of the folder.
+2. Collect unique values for `groupByKey` across those children.
+3. In a transaction:
+   - Delete existing `virtual_type='grouping'` children.
+   - For each unique value: `insertVirtualItem` with `pool_query_json = { scope: { parentId: folderId }, filters: { [groupByKey]: value } }`.
+   - Set `appliedGrouping = groupByKey` in the folder's settings.
+
+**Removing grouping (`groupBy: null`):**
+1. Delete all `virtual_type='grouping'` children.
+2. Clear `appliedGrouping` from the folder's settings.
+
+No reparenting occurs in either direction. Real items are untouched.
+
+---
+
+## `appliedGrouping` Setting
+
+Replaces the old `groupBy` view setting. Set and cleared atomically with the grouping virtual folders. It is:
+- Never inherited by child folders.
+- Not directly user-editable — only `applyGrouping()` / `removeGrouping()` touch it.
+- Read by the UI to show what grouping is active and offer to change or remove it.
+- Read by the children endpoint to determine which branch to take.
+
+---
+
+## Home Virtual Folder
+
+A special `virtual_type='user'` item created at startup if it doesn't exist. Its `pool_query_json` defaults to all direct children of the library root (configurable). `/?folder=home` resolves to this item's UUID. `/?folder=root` is treated as any other real folder with no special logic.
+
+---
 
 ## Examples
 
-### Pooling
+### Movies folder grouped by Year
 
-Consider a user with two folders, `root/movies` and `root/tv shows`. They might want to see all movies and tv shows in a single view. While it is currently possible to use the root view with a sections layout grouped by folder to see all movies and tv shows inline, users may want a different grouping. For example, maybe we want to group by genre.
-Conceptual flow: Define a virtual folder named "All Media" and a rule that includes all items in the library, or a rule that includes all items whose parent is root. Using a new configuration option that determined the default "Home" view, the user could set "All Media" as their home view instead of root. All items will appear as a flat list. User can then use existing grouping functionality to group by genre, year, etc.
+**On disk / in the `items` table** (permanent, never changes):
+```
+movies/        parent_id=root,   is_virtual=0
+Oppenheimer/   parent_id=movies, is_virtual=0, year=2023
+Barbie/        parent_id=movies, is_virtual=0, year=2023
+Dune 2/        parent_id=movies, is_virtual=0, year=2024
+```
 
-### Recently Added
+**After `applyGrouping(movies, 'year')`** — new rows written to DB:
+```
+2023/          parent_id=movies, is_virtual=1, virtual_type='grouping',
+               pool_query={ scope:{parentId:movies}, filters:{year:2023} }
+2024/          parent_id=movies, is_virtual=1, virtual_type='grouping',
+               pool_query={ scope:{parentId:movies}, filters:{year:2024} }
+```
+`appliedGrouping='year'` is also set on movies' folder_settings. Real items are untouched.
 
-Each real or virtual folder will be allowed to have custom user-defined child virtual folders. 
-Take a setup as in the pooling example above. User creates a virtual folder "Recently Added" as a child of "All Media" and a rule that includes all items whose added date is within the last 30 days. We would also pair this with a custom sort feature, allowed user to determine that
-1. The contents of the Recently Added folder should be sorted by added date, descending.
-2. The All Media folder displays the Recently Added section first before any other section.
+**`GET /items/movies/children`** — `appliedGrouping` is set, returns grouping virtual folders:
+```json
+[
+  { "id": "2023-uuid", "name": "2023", "isVirtual": true },
+  { "id": "2024-uuid", "name": "2024", "isVirtual": true }
+]
+```
 
-## Edge Cases & Unresolved Questions
+**`GET /items/2023-uuid/children`** — virtual folder, compiles pool query:
+```json
+[
+  { "id": "oppenheimer-id", "name": "Oppenheimer", "isVirtual": false },
+  { "id": "barbie-id",      "name": "Barbie",      "isVirtual": false }
+]
+```
 
-- How to make it performant?
-- Should we use/switch to an id-based system for virtual folder setting storage, instead of identity=definition?
+---
+
+### TV show with loose episodes
+
+**On disk / in the `items` table** (permanent):
+```
+Breaking Bad/   parent_id=root, is_virtual=0
+S01E01.mkv      parent_id=Breaking Bad, is_virtual=0, seasonNumber=1
+S01E02.mkv      parent_id=Breaking Bad, is_virtual=0, seasonNumber=1
+S02E01.mkv      parent_id=Breaking Bad, is_virtual=0, seasonNumber=2
+```
+
+**After scanner runs** — new virtual season rows:
+```
+Season 1/       parent_id=Breaking Bad, is_virtual=1, virtual_type='season',
+                pool_query={ scope:{parentId:Breaking Bad}, filters:{seasonNumber:1} }
+Season 2/       parent_id=Breaking Bad, is_virtual=1, virtual_type='season',
+                pool_query={ scope:{parentId:Breaking Bad}, filters:{seasonNumber:2} }
+```
+`appliedGrouping='seasonNumber'` set on Breaking Bad's folder_settings.
+
+**`GET /items/Breaking Bad/children`**:
+```json
+[
+  { "id": "s1-uuid", "name": "Season 1", "isVirtual": true },
+  { "id": "s2-uuid", "name": "Season 2", "isVirtual": true }
+]
+```
+
+**`GET /items/s1-uuid/children`** — compiles pool query:
+```json
+[
+  { "id": "s01e01-id", "name": "S01E01.mkv" },
+  { "id": "s01e02-id", "name": "S01E02.mkv" }
+]
+```
+
+---
+
+### User-created "Recently Added"
+
+**In the `items` table:**
+```
+Home/             parent_id=root, is_virtual=1, virtual_type='user',
+                  pool_query={ scope:{parentId:root} }
+Recently Added/   parent_id=Home, is_virtual=1, virtual_type='user',
+                  pool_query={ filters:{addedWithinDays:30} }
+```
+
+Real items (Dune 2, etc.) live wherever they live on disk. Their `parent_id` is unchanged.
+
+**`GET /items/Recently-Added-uuid/children`** — compiles pool query, returns real items added in the last 30 days:
+```json
+[
+  { "id": "dune2-id", "name": "Dune 2", "isVirtual": false, "parentId": "movies-id" },
+  ...
+]
+```
+
+Note that the returned items' `parentId` still points to their real filesystem parent, not to the "Recently Added" folder.
+
+---
+
+## What Remains Transient
+
+The **"Files"** group (catch-all for loose items that don't match any grouping virtual folder in a tabs/sections layout) is not persisted. It is a rendering concern created at read time. It is never written to the database.

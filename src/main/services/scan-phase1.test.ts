@@ -198,3 +198,102 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         expect(db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId)).not.toBeNull()
     })
 })
+
+// =================================================================
+// SPEC(virtual-filesystem-analysis.md §Phase 1):
+//   getAllIdsInScope path prefix boundary behavior.
+//
+//   The SQL is:
+//     isRoot → SELECT id FROM items
+//     else   → SELECT id FROM items WHERE path LIKE ? OR path = ?
+//              params: [`${prefix}/%`, prefix]
+//
+//   Critical: 'movies' prefix must NOT match 'movies-extra/foo.mkv'.
+//   The trailing slash in LIKE ensures exact directory boundary.
+// =================================================================
+
+describe('getAllIdsInScope path prefix boundary', () => {
+    // Mirrors the exact SQL from filesystem.repo.ts getAllIdsInScope
+    function getAllIdsInScope(pathPrefix: string): string[] {
+        const isRoot = pathPrefix === '' || pathPrefix === '.'
+        const query = isRoot
+            ? 'SELECT id FROM items'
+            : 'SELECT id FROM items WHERE path LIKE ? OR path = ?'
+        const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
+        const rows = db.prepare(query).all(...params) as { id: string }[]
+        return rows.map((r) => r.id)
+    }
+
+    beforeEach(() => {
+        db = createTestDb()
+        // Library root
+        insertItem({ id: 'root', parentId: null, path: '.', type: 'folder' })
+        // movies folder and two children
+        insertItem({ id: 'movies', parentId: 'root', path: 'movies', type: 'folder' })
+        insertItem({ id: 'mov1', parentId: 'movies', path: 'movies/a.mkv' })
+        insertItem({ id: 'mov2', parentId: 'movies', path: 'movies/b.mkv' })
+        // movies/action subfolder and a child
+        insertItem({ id: 'action', parentId: 'movies', path: 'movies/action', type: 'folder' })
+        insertItem({ id: 'act1', parentId: 'action', path: 'movies/action/hero.mkv' })
+        // sibling folder whose name starts with 'movies' — must NOT be included
+        insertItem({ id: 'movies-extra', parentId: 'root', path: 'movies-extra', type: 'folder' })
+        insertItem({ id: 'extra1', parentId: 'movies-extra', path: 'movies-extra/x.mkv' })
+        // unrelated folder
+        insertItem({ id: 'tv', parentId: 'root', path: 'tv', type: 'folder' })
+        insertItem({ id: 'tv1', parentId: 'tv', path: 'tv/show.mkv' })
+    })
+
+    it('empty prefix returns every item in the library', () => {
+        const ids = getAllIdsInScope('')
+        // All 10 items must be present
+        expect(ids).toContain('root')
+        expect(ids).toContain('movies')
+        expect(ids).toContain('mov1')
+        expect(ids).toContain('mov2')
+        expect(ids).toContain('action')
+        expect(ids).toContain('act1')
+        expect(ids).toContain('movies-extra')
+        expect(ids).toContain('extra1')
+        expect(ids).toContain('tv')
+        expect(ids).toContain('tv1')
+        expect(ids.length).toBe(10)
+    })
+
+    it('"." prefix is treated as root and returns every item', () => {
+        const ids = getAllIdsInScope('.')
+        expect(ids.length).toBe(10)
+    })
+
+    it('prefix "movies" returns the folder itself and all descendants', () => {
+        const ids = getAllIdsInScope('movies')
+        expect(ids).toContain('movies')
+        expect(ids).toContain('mov1')
+        expect(ids).toContain('mov2')
+        expect(ids).toContain('action')
+        expect(ids).toContain('act1')
+    })
+
+    it('prefix "movies" does NOT include items from "movies-extra"', () => {
+        const ids = getAllIdsInScope('movies')
+        expect(ids).not.toContain('movies-extra')
+        expect(ids).not.toContain('extra1')
+    })
+
+    it('prefix "movies" does NOT include unrelated sibling folders', () => {
+        const ids = getAllIdsInScope('movies')
+        expect(ids).not.toContain('tv')
+        expect(ids).not.toContain('tv1')
+        expect(ids).not.toContain('root')
+    })
+
+    it('prefix "movies/action" returns only that subfolder and its children', () => {
+        const ids = getAllIdsInScope('movies/action')
+        expect(ids).toContain('action')
+        expect(ids).toContain('act1')
+        // Parent and siblings must be excluded
+        expect(ids).not.toContain('movies')
+        expect(ids).not.toContain('mov1')
+        expect(ids).not.toContain('mov2')
+        expect(ids.length).toBe(2)
+    })
+})

@@ -17,6 +17,8 @@ temp*
 .env.local
 .env.*.local
 
+.claude
+
 # Log files
 *.log*
 npm-debug.log*
