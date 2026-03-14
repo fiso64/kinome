@@ -86,6 +86,12 @@ export interface StoredViewSettings
   childViewSettings?: StoredViewSettings
   overrides?: Record<string, StoredViewSettings>
   title?: string
+  /**
+   * Set atomically by applyGrouping() / removeGrouping(). Describes which grouping key
+   * is currently reflected in the DB as virtual grouping folders under this folder.
+   * Never inherited. Not user-editable directly.
+   */
+  appliedGrouping?: string | null
 }
 
 /**
@@ -331,7 +337,6 @@ export interface MediaFolder {
   isVirtual?: boolean
   virtualType?: 'user' | 'grouping' | 'season'
   poolQuery?: PoolQuery | null
-  addedAt?: number
 
   // --- View & Behavior Settings (Preserved) ---
   viewSettings?: StoredViewSettings
@@ -407,6 +412,9 @@ export interface BaseLibraryItem {
   inode?: number
   deviceId?: number
   isIgnored?: boolean
+  isVirtual?: boolean
+  virtualType?: 'user' | 'grouping' | 'season'
+  addedAt?: number
 }
 
 export interface ViewHierarchyNode {
