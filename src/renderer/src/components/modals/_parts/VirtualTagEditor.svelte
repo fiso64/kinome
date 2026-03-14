@@ -1,45 +1,41 @@
 <script lang="ts">
-  import type {
-    VirtualTagConfig,
-    VirtualTagCondition,
-    VirtualTagTarget,
-    VirtualTagOperator
-  } from '@shared/types'
+  import type { VirtualTagConfig, VirtualTagCase, LibraryConditionOp } from '@shared/types'
 
   let { tag = $bindable(), onDelete }: { tag: VirtualTagConfig; onDelete: () => void } = $props()
 
-  function addCondition() {
-    tag.conditions = [
-      ...tag.conditions,
-      {
-        target: 'genre',
-        operator: 'contains',
-        value: '',
-        result: ''
-      }
+  function addCase() {
+    tag.cases = [
+      ...tag.cases,
+      { filter: { conditions: [{ field: 'genre', op: 'contains', value: '' }] }, result: '' }
     ]
   }
 
-  function removeCondition(index: number) {
-    const newConds = [...tag.conditions]
-    newConds.splice(index, 1)
-    tag.conditions = newConds
+  function removeCase(index: number) {
+    const updated = [...tag.cases]
+    updated.splice(index, 1)
+    tag.cases = updated
   }
 
-  const targets: { value: VirtualTagTarget; label: string }[] = [
+  // Each case editor works on the first condition of the filter (single-condition UI)
+  function getCondition(vtCase: VirtualTagCase) {
+    return vtCase.filter.conditions?.[0] ?? { field: 'genre', op: 'contains' as LibraryConditionOp, value: '' }
+  }
+
+  const fields: { value: string; label: string }[] = [
     { value: 'genre', label: 'Genre' },
-    { value: 'tag', label: 'Custom Tag' },
     { value: 'year', label: 'Year' },
     { value: 'title', label: 'Title' },
     { value: 'mediaType', label: 'Media Type' },
-    { value: 'path', label: 'File Path' }
+    { value: 'path', label: 'File Path' },
+    { value: 'addedDaysAgo', label: 'Days Since Added' }
   ]
 
-  const operators: { value: VirtualTagOperator; label: string }[] = [
-    { value: 'equals', label: 'Equals' },
+  const operators: { value: LibraryConditionOp; label: string }[] = [
+    { value: 'eq', label: 'Equals' },
+    { value: 'ne', label: 'Not Equals' },
     { value: 'contains', label: 'Contains' },
-    { value: 'greaterThan', label: 'Greater Than' },
-    { value: 'lessThan', label: 'Less Than' }
+    { value: 'gt', label: 'Greater Than' },
+    { value: 'lt', label: 'Less Than' }
   ]
 </script>
 
@@ -55,42 +51,34 @@
   </div>
 
   <div class="conditions-list">
-    {#each tag.conditions as condition, i}
+    {#each tag.cases as vtCase, i}
+      {@const cond = getCondition(vtCase)}
       <div class="condition-row">
         <span class="if-label">{i === 0 ? 'If' : 'Else If'}</span>
-        <select bind:value={condition.target}>
-          {#each targets as t}
-            <option value={t.value}>{t.label}</option>
+        <select bind:value={cond.field}>
+          {#each fields as f}
+            <option value={f.value}>{f.label}</option>
           {/each}
         </select>
 
-        {#if condition.target === 'tag'}
-          <input
-            type="text"
-            bind:value={condition.targetKey}
-            placeholder="Tag Key"
-            class="small-input"
-          />
-        {/if}
-
-        <select bind:value={condition.operator}>
+        <select bind:value={cond.op}>
           {#each operators as op}
             <option value={op.value}>{op.label}</option>
           {/each}
         </select>
 
-        <input type="text" bind:value={condition.value} placeholder="Value" />
+        <input type="text" bind:value={cond.value} placeholder="Value" />
 
         <span class="then-label">Then</span>
-        <input type="text" bind:value={condition.result} placeholder="Result (e.g. Yes)" />
+        <input type="text" bind:value={vtCase.result} placeholder="Result (e.g. Yes)" />
 
-        <button class="remove-condition-btn" onclick={() => removeCondition(i)}>&times;</button>
+        <button class="remove-condition-btn" onclick={() => removeCase(i)}>&times;</button>
       </div>
     {/each}
   </div>
 
   <div class="footer-row">
-    <button class="secondary small" onclick={addCondition}>+ Add Condition</button>
+    <button class="secondary small" onclick={addCase}>+ Add Case</button>
 
     <div class="default-result">
       <span>Else</span>
@@ -143,10 +131,7 @@
     border-radius: 4px;
     flex-wrap: wrap;
   }
-  .small-input {
-    width: 80px;
-  }
-  .if-label,
+.if-label,
   .then-label {
     font-weight: bold;
     font-size: 0.9rem;

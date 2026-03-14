@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS items (
     -- Virtual Folder
     is_virtual      INTEGER DEFAULT 0,
     virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
-    pool_query_json TEXT,
+    filter_json TEXT,
 
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),

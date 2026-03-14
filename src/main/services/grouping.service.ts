@@ -9,7 +9,7 @@ import {
   getItemById,
   FindOptions
 } from './repository.service'
-import { compilePoolQuery } from './virtualFolders.service'
+import { compileFilter } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 import { getLibraryRoot } from './library.service'
@@ -69,15 +69,14 @@ export async function getChildren(
   let items: LibraryItem[]
 
   if (item.isVirtual) {
-    // Branch A: virtual folder — compile pool query and run find()
-    const poolQuery = (item as MediaFolder).poolQuery
-    if (!poolQuery) {
+    // Branch A: virtual folder — compile filter and run find()
+    const filter = (item as MediaFolder).filter
+    if (!filter) {
       items = []
     } else {
-      const compiled = compilePoolQuery(poolQuery)
+      const compiled = compileFilter(filter)
       items = find({
-        where: compiled.where,
-        rawConditions: compiled.rawConditions,
+        ...compiled,
         fields: options.fields,
         orderBy: options.orderBy,
         limit: options.limit,

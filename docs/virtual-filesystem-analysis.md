@@ -42,29 +42,27 @@ Identity is `crypto.randomUUID()`. Two identically-defined virtual folders in di
 
 ### 4. Real items never move
 
-**`parent_id` on a real item never changes.** Real items always point to their filesystem parent. Virtual folders resolve their children dynamically via `pool_query_json` — they do not own children in the DB sense. Multiple virtual folders can independently include the same real item without conflict.
+**`parent_id` on a real item never changes.** Real items always point to their filesystem parent. Virtual folders resolve their children dynamically via `filter_json` — they do not own children in the DB sense. Multiple virtual folders can independently include the same real item without conflict.
 
 There is no reparenting. There is no `real_parent_id` column.
 
-### 5. `pool_query_json` — how virtual folders define their contents
+### 5. `filter_json` — how virtual folders define their contents
 
-Every virtual folder has a `pool_query_json` that is compiled to SQL at read time:
+Every virtual folder has a `filter_json` that stores a `LibraryFilter` compiled to SQL at read time:
 
 ```json
 {
   "scope": { "parentId": "uuid-of-real-folder" },
-  "filters": {
-    "year": "2024",
-    "vtag.is_anime": "Yes",
-    "addedWithinDays": 30
-  }
+  "conditions": [
+    { "field": "year", "op": "eq", "value": "2024" },
+    { "field": "vt.is_anime", "op": "eq", "value": "Yes" },
+    { "field": "addedDaysAgo", "op": "lt", "value": 30 }
+  ]
 }
 ```
 
-Supported scope (v1): `parentId` — direct children of a given folder (excludes `is_virtual = 1` implicitly).
-Supported filters (v1): any `REPOSITORY_SCHEMA` field with equality match, `vtag.{key}`, `addedWithinDays`.
-
-Pool query extension (richer scoping, new filter types) is **out of scope for this refactor**.
+Supported scope (v1): `parentId` — direct children of a given folder (implicitly excludes `is_virtual = 1`).
+Supported conditions (v1): any `REPOSITORY_SCHEMA` field, `vt.{key}`, `tags.{key}`, `genre`, computed fields (`addedDaysAgo`). All operators: `eq`, `ne`, `contains`, `gt`, `lt`.
 
 ### 6. Children endpoint logic
 
@@ -75,7 +73,7 @@ getChildren(folderId):
   item = getItemById(folderId)
 
   if item.isVirtual:
-    return find(compilePoolQuery(item.poolQuery))
+    return find(compileFilter(item.filter))
 
   else if item.viewSettings.appliedGrouping:
     // Grouping is active — show the grouping virtual folders (plus any user virtual folders at this level)
@@ -104,7 +102,7 @@ All virtual folder types can have their own `folder_settings` rows. This is inde
 
 ### 9. Vtag storage kept
 
-`entity_virtual_tags` remains a materialized cache for performance. Pool queries reference vtag values as a filter dimension — pool queries are not vtags, and vtags are not pool queries.
+`entity_virtual_tags` remains a materialized cache for performance. Virtual folder filters and virtual tag cases share the same `LibraryFilter` condition language and `compileFilter` compiler. Vtag storage (`entity_virtual_tags`) remains a materialized cache — it is not replaced by filters, it is one of the things filters can reference.
 
 ---
 
@@ -115,7 +113,7 @@ All virtual folder types can have their own `folder_settings` rows. This is inde
 ```sql
 is_virtual      INTEGER DEFAULT 0,
 virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
-pool_query_json TEXT
+filter_json TEXT
 ```
 
 ### New indexes
@@ -128,10 +126,11 @@ CREATE INDEX IF NOT EXISTS idx_items_virtual_type ON items(virtual_type);
 ### `REPOSITORY_SCHEMA` additions (`repo-definitions.ts`)
 
 ```ts
-isVirtual:   { sql: 'i.is_virtual',      table: 'i', parser: Boolean },
-virtualType: { sql: 'i.virtual_type',    table: 'i' },
-poolQuery:   { sql: 'i.pool_query_json', table: 'i', isJson: true },
-addedAt:     { sql: 'i.added_at',        table: 'i' },
+isVirtual:    { sql: 'i.is_virtual',   table: 'i', parser: Boolean },
+virtualType:  { sql: 'i.virtual_type', table: 'i' },
+filter:       { sql: 'i.filter_json',  table: 'i', isJson: true },
+addedAt:      { sql: 'i.added_at',     table: 'i' },
+addedDaysAgo: { sql: `((cast(strftime('%s','now') as int) - i.added_at / 1000) / 86400)`, table: 'i' },
 ```
 
 Note: `added_at` exists in the schema today but is absent from `REPOSITORY_SCHEMA` — add it here.
@@ -157,7 +156,7 @@ Add the 4 fields listed above to `REPOSITORY_SCHEMA`.
 Also add the `virtual_type IN (...)` and `is_virtual = 0 OR virtual_type = 'user'` filter patterns to `buildFindQuery`. The `where` clause today only supports equality; the children endpoint needs compound OR conditions. Add a `rawConditions?: string[]` field to `FindOptions` as an escape hatch for pre-built SQL fragments.
 
 ### `mappers.ts`
-Map `is_virtual → isVirtual` (boolean), `virtual_type`, `pool_query_json` from raw rows.
+Map `is_virtual → isVirtual` (boolean), `virtual_type`, `filter_json` from raw rows.
 
 ### Tests
 - All 146 existing tests pass (schema-only change).
@@ -179,12 +178,12 @@ Map `is_virtual → isVirtual` (boolean), `virtual_type`, `pool_query_json` from
    a. deleteVirtualItemsByType(folderId, 'grouping')
    b. For each unique value:
       - id = crypto.randomUUID()
-      - poolQuery = { scope: { parentId: folderId }, filters: { [groupByKey]: value } }
-      - insertVirtualItem({ id, parentId: folderId, name: value, virtualType: 'grouping', poolQueryJson })
+      - filter = { scope: { parentId: folderId }, conditions: [{ field: groupByKey, op: 'eq', value }] }
+      - insertVirtualItem({ id, parentId: folderId, name: value, virtualType: 'grouping', filterJson })
    c. Update folder_settings: set appliedGrouping = groupByKey
 ```
 
-Real items are never touched. Every grouping virtual folder gets a `pool_query_json` regardless of whether the key is single-valued or multi-valued. No distinction needed.
+Real items are never touched. Every grouping virtual folder gets a `filter_json` regardless of whether the key is single-valued or multi-valued. No distinction needed.
 
 ### `removeGrouping(folderId)`
 
@@ -193,21 +192,21 @@ Real items are never touched. Every grouping virtual folder gets a `pool_query_j
 2. Update folder_settings: clear appliedGrouping
 ```
 
-### `createUserVirtualFolder(parentId, name, poolQueryJson?)`
+### `createUserVirtualFolder(parentId, name, filter?)`
 
-Creates a `virtual_type='user'` item with a stable UUID and `pool_query_json`. Returns the new item.
+Creates a `virtual_type='user'` item with a stable UUID and `filter_json`. Returns the new item.
 
 ### `deleteVirtualFolder(id)`
 
 Asserts `virtual_type='user'`. Calls `deleteItem(id)` — `folder_settings` and `user_state` cascade-delete automatically.
 
-### Pool Query Compiler
+### Filter Compiler
 
 ```ts
-function compilePoolQuery(poolQuery: PoolQuery): FindOptions
+function compileFilter(filter: LibraryFilter): FindOptions
 ```
 
-Maps `poolQuery.scope.parentId` to `where.parentId` and `poolQuery.filters` to `where` entries. `addedWithinDays` maps to a `rawConditions` entry: `i.added_at > (unixepoch() - N * 86400) * 1000`.
+Maps `filter.scope.parentId` to `where.parentId` and `filter.conditions` to typed WHERE clauses. Non-equality operators (`gt`, `lt`, `contains`) use `typedWhere`; equality conditions use `where`. Always adds `rawCondition: 'i.is_virtual = 0'`.
 
 ---
 
@@ -251,7 +250,7 @@ async function getChildren(id, options):
   // 4. Child resolution:
   item = getItemById(resolvedId)
   if item.isVirtual:
-    items = find(compilePoolQuery(item.poolQuery))
+    items = find(compileFilter(item.filter))
   else if item.viewSettings?.appliedGrouping:
     items = find({ parentId: id, virtualType: IN ['grouping', 'user'] })
   else:
@@ -320,7 +319,7 @@ Episodes remain in the TV show folder (`parent_id = tvShowFolderId`). The virtua
 
 ## Phase 5: Home Virtual Folder
 
-At startup (`ensureRootExists`-adjacent), create a `virtual_type='user'` item named `__home__` with `pool_query_json = { scope: { parentId: rootId } }` if none exists.
+At startup (`ensureRootExists`-adjacent), create a `virtual_type='user'` item named `__home__` with `filter_json = { scope: { parentId: rootId } }` if none exists.
 
 `GET /api/items/home/children` resolves to this item's UUID. `/?folder=root` is treated as any other real folder.
 
@@ -330,7 +329,7 @@ At startup (`ensureRootExists`-adjacent), create a `virtual_type='user'` item na
 
 New endpoint: `POST /api/items/:id/grouping { groupBy: string | null }`
 
-New endpoint: `POST /api/items/:parentId/virtual-folders { name, poolQuery? }`
+New endpoint: `POST /api/items/:parentId/virtual-folders { name, filter? }`
 
 Frontend `isVirtual` checks collapse from encoded-ID string parsing to `item.isVirtual` boolean.
 
@@ -346,7 +345,7 @@ Grouping UI: becomes a trigger for the write endpoint, not a view settings dropd
 
 ### 2. `buildFindQuery` needs compound OR conditions
 
-The children endpoint needs `WHERE parent_id = ? AND (is_virtual = 0 OR virtual_type = 'user')` which the current query builder can't express. Add `rawConditions?: string[]` to `FindOptions` as an escape hatch for pre-built SQL fragments. Use sparingly — only for the children endpoint filter logic.
+The children endpoint needs `WHERE parent_id = ? AND (is_virtual = 0 OR virtual_type = 'user')` which the current query builder can't express. `rawConditions` was added as an escape hatch for compound OR conditions, and `typedWhere` was added for operator-aware parameterized conditions. The gotcha is resolved.
 
 ### 3. `StoredViewSettings` — removing `groupBy`
 

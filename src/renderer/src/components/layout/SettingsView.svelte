@@ -95,7 +95,7 @@
       virtualTags = (s.virtualTags ?? []).map((vt) => ({
         ...vt,
         id: vt.id || crypto.randomUUID(),
-        conditions: vt.conditions || []
+        cases: vt.cases || []
       }))
       libraryDataLocation = s.libraryLocation
       mediaSourcePath = s.mediaSourcePath ?? ''
@@ -454,7 +454,7 @@
                 onclick={() =>
                   (virtualTags = [
                     ...virtualTags,
-                    { id: crypto.randomUUID(), name: '', conditions: [] }
+                    { id: crypto.randomUUID(), name: '', cases: [] }
                   ])}
               >
                 + Add Virtual Tag

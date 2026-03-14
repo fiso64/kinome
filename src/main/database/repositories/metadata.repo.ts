@@ -4,7 +4,8 @@
  * (genres, entity_genres, people, credits, entity_tags, entity_virtual_tags).
  */
 import { getDb, runTransaction } from '../client'
-import type { VirtualTagConfig, VirtualTagCondition } from '@shared/types'
+import { compileFilter, buildWhereFragment } from '../query-builder'
+import type { VirtualTagConfig } from '@shared/types'
 
 // ─── Credits (Normalized) ───────────────────────────────────────────────────
 
@@ -289,117 +290,75 @@ export function clearVirtualTags(itemIds?: string[]): void {
 }
 
 /**
- * Evaluates virtual tag configs as SQL CASE expressions against media_entities
- * and inserts the results into entity_virtual_tags.
+ * Evaluates virtual tag configs and inserts results into entity_virtual_tags.
+ *
+ * Each tag's cases are evaluated in order using INSERT OR IGNORE, so the first
+ * matching case wins (priority ordering). The defaultResult is applied last for
+ * items that matched no case.
+ *
  * Returns total number of rows inserted.
  */
 export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?: string[]): number {
     const db = getDb()
     let totalInserted = 0
 
+    const scopeCondition = itemIds && itemIds.length > 0
+        ? `AND i.id IN (${itemIds.map(() => '?').join(',')})`
+        : ''
+    const scopeParams = itemIds && itemIds.length > 0 ? itemIds : []
+
     for (const tag of tags) {
-        const caseSql = generateCaseSql(tag)
-        const tagName = escapeString(tag.name)
+        // Evaluate each case in order — INSERT OR IGNORE preserves first-match-wins
+        for (const vtCase of tag.cases) {
+            const compiled = compileFilter(vtCase.filter)
+            // Override includeHidden/includeIgnored: vtags apply to all items
+            const { conditions, params, tables } = buildWhereFragment({
+                ...compiled,
+                includeHidden: true,
+                includeIgnored: true
+            })
 
-        let scopeSql: string
-        let scopeParams: any[] = []
+            const baseConditions = [
+                'i.entity_id IS NOT NULL',
+                'i.parent_id IS NOT NULL',
+                ...conditions
+            ]
+            const whereSql = baseConditions.length
+                ? `WHERE ${baseConditions.join(' AND ')} ${scopeCondition}`
+                : `WHERE 1=1 ${scopeCondition}`
 
-        if (itemIds && itemIds.length > 0) {
-            const placeholders = itemIds.map(() => '?').join(',')
-            scopeSql = `
-                SELECT media_entities.id AS entity_id, ${caseSql} AS tag_value
-                FROM media_entities
-                WHERE media_entities.id IN (SELECT entity_id FROM items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL)
+            const joinSql = tables.has('e')
+                ? 'LEFT JOIN media_entities e ON i.entity_id = e.id'
+                : ''
+
+            const insertSql = `
+                INSERT OR IGNORE INTO entity_virtual_tags (entity_id, key, value)
+                SELECT i.entity_id, ?, ?
+                FROM items i ${joinSql}
+                ${whereSql}
             `
-            scopeParams = itemIds
-        } else {
-            scopeSql = `
-                SELECT media_entities.id AS entity_id, ${caseSql} AS tag_value
-                FROM media_entities
-                WHERE media_entities.id IN (SELECT entity_id FROM items WHERE parent_id IS NOT NULL AND entity_id IS NOT NULL)
-            `
+            const result = db.prepare(insertSql).run(tag.name, vtCase.result, ...params, ...scopeParams)
+            totalInserted += result.changes
         }
 
-        const insertSql = `
-            INSERT OR REPLACE INTO entity_virtual_tags (entity_id, key, value)
-            SELECT entity_id, '${tagName}', tag_value
-            FROM (${scopeSql})
-            WHERE tag_value IS NOT NULL
-        `
-        const result = db.prepare(insertSql).run(...scopeParams)
-        totalInserted += result.changes
+        // Apply defaultResult for items not matched by any case
+        if (tag.defaultResult) {
+            const defaultSql = `
+                INSERT OR IGNORE INTO entity_virtual_tags (entity_id, key, value)
+                SELECT i.entity_id, ?, ?
+                FROM items i
+                WHERE i.entity_id IS NOT NULL
+                  AND i.parent_id IS NOT NULL
+                  AND i.is_virtual = 0
+                  ${scopeCondition}
+                  AND i.entity_id NOT IN (
+                    SELECT entity_id FROM entity_virtual_tags WHERE key = ?
+                  )
+            `
+            const result = db.prepare(defaultSql).run(tag.name, tag.defaultResult, ...scopeParams, tag.name)
+            totalInserted += result.changes
+        }
     }
 
     return totalInserted
-}
-
-// ─── Virtual Tag SQL Builders (internal) ────────────────────────────────────
-
-function escapeString(str: string): string {
-    return str.replace(/'/g, "''")
-}
-
-function buildConditionSql(condition: VirtualTagCondition): string {
-    let column = ''
-
-    switch (condition.target) {
-        case 'year':
-            column = 'media_entities.year'
-            break
-        case 'title':
-            column = 'media_entities.title'
-            break
-        case 'mediaType':
-            column = 'media_entities.media_type'
-            break
-        case 'path':
-            column = '(SELECT path FROM items WHERE entity_id = media_entities.id LIMIT 1)'
-            break
-        case 'genre':
-            if (condition.operator === 'contains') {
-                return `EXISTS (
-                    SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id
-                    WHERE eg.entity_id = media_entities.id AND g.name LIKE '%${escapeString(String(condition.value))}%'
-                )`
-            }
-            return `EXISTS (
-                SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id
-                WHERE eg.entity_id = media_entities.id AND g.name = '${escapeString(String(condition.value))}'
-            )`
-        case 'tag':
-            if (!condition.targetKey) return '0'
-            column = `(SELECT value FROM entity_tags WHERE entity_id = media_entities.id AND key = '${escapeString(condition.targetKey)}')`
-            break
-        default:
-            return '0'
-    }
-
-    const valStr = escapeString(String(condition.value))
-    const valQuoted = `'${valStr}'`
-
-    switch (condition.operator) {
-        case 'equals':
-            return `${column} = ${valQuoted}`
-        case 'contains':
-            return `${column} LIKE '%${valStr}%'`
-        case 'greaterThan':
-            return `CAST(${column} AS NUMERIC) > CAST(${valQuoted} AS NUMERIC)`
-        case 'lessThan':
-            return `CAST(${column} AS NUMERIC) < CAST(${valQuoted} AS NUMERIC)`
-        default:
-            return '0'
-    }
-}
-
-function generateCaseSql(tag: VirtualTagConfig): string {
-    const conditionsSql = tag.conditions
-        .map((cond) => {
-            const whenSql = buildConditionSql(cond)
-            return `WHEN ${whenSql} THEN '${escapeString(cond.result)}'`
-        })
-        .join(' ')
-
-    const defaultSql = tag.defaultResult ? `ELSE '${escapeString(tag.defaultResult)}'` : 'ELSE NULL'
-
-    return `CASE ${conditionsSql} ${defaultSql} END`
 }

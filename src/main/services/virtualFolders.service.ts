@@ -2,60 +2,28 @@
  * VIRTUAL FOLDERS SERVICE
  *
  * Owns all write-side operations on virtual folder items:
- *   - compilePoolQuery  — converts a stored PoolQuery descriptor into FindOptions
  *   - applyGrouping     — creates/rebuilds grouping virtual folders for a real folder
  *   - removeGrouping    — tears down grouping virtual folders
  *   - createUserVirtualFolder — creates a user-defined virtual folder
  *   - deleteVirtualFolder     — deletes a user-defined virtual folder
+ *   - syncVirtualSeasonFolders — syncs season virtual folders for a flat TV show
  *
  * The children endpoint (read side) lives in grouping.service.ts and calls
- * compilePoolQuery directly to resolve virtual folder contents.
+ * compileFilter (from query-builder) directly to resolve virtual folder contents.
  */
 import crypto from 'crypto'
 import { runTransaction } from '../database/client'
-import type { FindOptions } from '../database/query-builder'
 import {
     insertVirtualItem,
     deleteVirtualItemsByType,
+    deleteItem,
     getDistinctSeasonNumbers,
     getVirtualSeasonFolderIds
 } from '../database/repositories/filesystem.repo'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { getValuesForKey } from '../database/repo-definitions'
-import { find, getItemById, deleteItem } from './repository.service'
-import type { PoolQuery } from '@shared/types'
-
-/**
- * Compiles a PoolQuery descriptor into FindOptions for use with find().
- *
- * Always excludes virtual items from results — pool queries operate over
- * real items only, regardless of scope.
- */
-export function compilePoolQuery(poolQuery: PoolQuery): FindOptions {
-    const options: FindOptions = {
-        rawConditions: ['i.is_virtual = 0']
-    }
-
-    if (poolQuery.scope?.parentId) {
-        options.where = { parentId: poolQuery.scope.parentId }
-    }
-
-    if (poolQuery.filters) {
-        for (const [key, value] of Object.entries(poolQuery.filters)) {
-            if (key === 'addedWithinDays') {
-                const n = Number(value)
-                options.rawConditions = [
-                    ...(options.rawConditions ?? []),
-                    `i.added_at > (cast(strftime('%s','now') as int) - ${n} * 86400) * 1000`
-                ]
-            } else {
-                options.where = { ...(options.where ?? {}), [key]: value }
-            }
-        }
-    }
-
-    return options
-}
+import { find, getItemById } from './repository.service'
+import type { LibraryFilter } from '@shared/types'
 
 /**
  * Applies a grouping to a real folder.
@@ -87,16 +55,16 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
 
         for (const value of uniqueValues) {
             const id = crypto.randomUUID()
-            const poolQuery: PoolQuery = {
+            const filter: LibraryFilter = {
                 scope: { parentId: folderId },
-                filters: { [groupByKey]: value }
+                conditions: [{ field: groupByKey, op: 'eq', value }]
             }
             insertVirtualItem({
                 id,
                 parentId: folderId,
                 name: value,
                 virtualType: 'grouping',
-                poolQueryJson: JSON.stringify(poolQuery)
+                filterJson: JSON.stringify(filter)
             })
         }
 
@@ -124,7 +92,7 @@ export function removeGrouping(folderId: string): void {
 export function createUserVirtualFolder(
     parentId: string,
     name: string,
-    poolQuery?: PoolQuery
+    filter?: LibraryFilter
 ): string {
     const id = crypto.randomUUID()
     insertVirtualItem({
@@ -132,7 +100,7 @@ export function createUserVirtualFolder(
         parentId,
         name,
         virtualType: 'user',
-        poolQueryJson: poolQuery ? JSON.stringify(poolQuery) : undefined
+        filterJson: filter ? JSON.stringify(filter) : undefined
     })
     return id
 }
@@ -171,16 +139,16 @@ export function syncVirtualSeasonFolders(showId: string): void {
 
         for (const seasonNumber of seasonNumbers) {
             const id = seasonFolderId(showId, seasonNumber)
-            const poolQuery: PoolQuery = {
+            const filter: LibraryFilter = {
                 scope: { parentId: showId },
-                filters: { seasonNumber }
+                conditions: [{ field: 'seasonNumber', op: 'eq', value: seasonNumber }]
             }
             insertVirtualItem({
                 id,
                 parentId: showId,
                 name: `Season ${seasonNumber}`,
                 virtualType: 'season',
-                poolQueryJson: JSON.stringify(poolQuery),
+                filterJson: JSON.stringify(filter),
                 insertOrIgnore: true
             })
         }

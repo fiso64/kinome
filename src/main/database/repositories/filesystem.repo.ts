@@ -413,13 +413,13 @@ export function insertVirtualItem(params: {
     parentId: string
     name: string
     virtualType: 'user' | 'grouping' | 'season'
-    poolQueryJson?: string
+    filterJson?: string
     insertOrIgnore?: boolean
 }): void {
     const db = getDb()
     const verb = params.insertOrIgnore ? 'INSERT OR IGNORE' : 'INSERT'
     db.prepare(`
-        ${verb} INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, pool_query_json)
+        ${verb} INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, filter_json)
         VALUES (?, ?, ?, ?, 'folder', 1, ?, ?)
     `).run(
         params.id,
@@ -427,7 +427,7 @@ export function insertVirtualItem(params: {
         `virtual://${params.id}`,
         params.name,
         params.virtualType,
-        params.poolQueryJson ?? null
+        params.filterJson ?? null
     )
 }
 

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { evaluateVirtualTagsForItem } from './virtualTags.service'
-import type { LibraryItem, Settings, VirtualTagConfig } from '@shared/types'
+import type { LibraryItem, Settings, VirtualTagConfig, VirtualTagCase } from '@shared/types'
 
 function makeItem(overrides: Partial<LibraryItem> = {}): LibraryItem {
     return {
@@ -28,9 +28,13 @@ function makeSettings(virtualTags: VirtualTagConfig[]): Settings {
 
 // =================================================================
 // SPEC: virtual_tags.md §4.A
-// Virtual Tags are computed by evaluating conditions against item metadata.
-// Each condition has a target, operator, value, and result.
+// Virtual Tags are computed by evaluating LibraryFilter cases against item metadata.
+// Each case has a filter (LibraryFilter) and a result string.
 // =================================================================
+
+function makeCase(conditions: VirtualTagCase['filter']['conditions'], result: string): VirtualTagCase {
+    return { filter: { conditions }, result }
+}
 
 describe('evaluateVirtualTagsForItem', () => {
     it('returns empty object when no virtual tags are defined', () => {
@@ -44,7 +48,7 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-root',
             name: 'test',
-            conditions: [{ target: 'year', operator: 'equals', value: '2024', result: 'Yes' }],
+            cases: [makeCase([{ field: 'year', op: 'eq', value: '2024' }], 'Yes')],
         }])
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result).toEqual({})
@@ -52,14 +56,13 @@ describe('evaluateVirtualTagsForItem', () => {
 
     // --- Genre conditions ---
 
-    it('evaluates genre "equals" condition', () => {
+    it('evaluates genre "eq" condition', () => {
         const item = makeItem({ genres: ['Animation', 'Comedy'] })
         const settings = makeSettings([{
             id: 'tag-1',
             name: 'is_anime',
-            conditions: [{ target: 'genre', operator: 'equals', value: 'Animation', result: 'Yes' }],
+            cases: [makeCase([{ field: 'genre', op: 'eq', value: 'Animation' }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_anime).toBe('Yes')
     })
@@ -69,9 +72,8 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-2',
             name: 'is_scifi',
-            conditions: [{ target: 'genre', operator: 'contains', value: 'Science', result: 'Yes' }],
+            cases: [makeCase([{ field: 'genre', op: 'contains', value: 'Science' }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_scifi).toBe('Yes')
     })
@@ -81,47 +83,43 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-3',
             name: 'is_anime',
-            conditions: [{ target: 'genre', operator: 'equals', value: 'Animation', result: 'Yes' }],
+            cases: [makeCase([{ field: 'genre', op: 'eq', value: 'Animation' }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_anime).toBeUndefined()
     })
 
     // --- Year conditions ---
 
-    it('evaluates year "equals" condition', () => {
+    it('evaluates year "eq" condition', () => {
         const item = makeItem({ year: 2024 })
         const settings = makeSettings([{
             id: 'tag-4',
             name: 'decade',
-            conditions: [{ target: 'year', operator: 'equals', value: '2024', result: '2020s' }],
+            cases: [makeCase([{ field: 'year', op: 'eq', value: '2024' }], '2020s')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.decade).toBe('2020s')
     })
 
-    it('evaluates year "greaterThan" condition', () => {
+    it('evaluates year "gt" condition', () => {
         const item = makeItem({ year: 2024 })
         const settings = makeSettings([{
             id: 'tag-5',
             name: 'is_recent',
-            conditions: [{ target: 'year', operator: 'greaterThan', value: '2020', result: 'Yes' }],
+            cases: [makeCase([{ field: 'year', op: 'gt', value: 2020 }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_recent).toBe('Yes')
     })
 
-    it('evaluates year "lessThan" condition', () => {
+    it('evaluates year "lt" condition', () => {
         const item = makeItem({ year: 1990 })
         const settings = makeSettings([{
             id: 'tag-6',
             name: 'is_classic',
-            conditions: [{ target: 'year', operator: 'lessThan', value: '2000', result: 'Yes' }],
+            cases: [makeCase([{ field: 'year', op: 'lt', value: 2000 }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_classic).toBe('Yes')
     })
@@ -133,9 +131,8 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-franchise',
             name: 'franchise',
-            conditions: [{ target: 'title', operator: 'contains', value: 'Lord of the Rings', result: 'LotR' }],
+            cases: [makeCase([{ field: 'title', op: 'contains', value: 'Lord of the Rings' }], 'LotR')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.franchise).toBe('LotR')
     })
@@ -145,9 +142,8 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-test-name',
             name: 'test',
-            conditions: [{ target: 'title', operator: 'contains', value: 'My Movie', result: 'Yes' }],
+            cases: [makeCase([{ field: 'title', op: 'contains', value: 'My Movie' }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.test).toBe('Yes')
     })
@@ -157,52 +153,48 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-anime-path',
             name: 'is_anime',
-            conditions: [{ target: 'path', operator: 'contains', value: 'Anime', result: 'Yes' }],
+            cases: [makeCase([{ field: 'path', op: 'contains', value: 'Anime' }], 'Yes')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_anime).toBe('Yes')
     })
 
     // --- mediaType conditions ---
 
-    it('evaluates mediaType "equals" condition', () => {
+    it('evaluates mediaType "eq" condition', () => {
         const item = makeItem({ mediaType: 'movie' })
         const settings = makeSettings([{
             id: 'tag-content-type',
             name: 'content_type',
-            conditions: [{ target: 'mediaType', operator: 'equals', value: 'movie', result: 'Movie' }],
+            cases: [makeCase([{ field: 'mediaType', op: 'eq', value: 'movie' }], 'Movie')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.content_type).toBe('Movie')
     })
 
     // --- Manual tag conditions ---
 
-    it('evaluates custom tag condition', () => {
+    it('evaluates tags.key condition', () => {
         const item = makeItem({ tags: { resolution: '4K' } })
         const settings = makeSettings([{
             id: 'tag-quality',
             name: 'quality',
-            conditions: [{ target: 'tag', operator: 'equals', value: '4K', result: 'UHD', targetKey: 'resolution' }],
+            cases: [makeCase([{ field: 'tags.resolution', op: 'eq', value: '4K' }], 'UHD')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.quality).toBe('UHD')
     })
 
     // --- Default result ---
 
-    it('applies defaultResult when no condition matches', () => {
+    it('applies defaultResult when no case matches', () => {
         const item = makeItem({ year: 2024 })
         const settings = makeSettings([{
             id: 'tag-era-1',
             name: 'era',
-            conditions: [{ target: 'year', operator: 'lessThan', value: '2000', result: 'Classic' }],
+            cases: [makeCase([{ field: 'year', op: 'lt', value: 2000 }], 'Classic')],
             defaultResult: 'Modern',
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.era).toBe('Modern')
     })
@@ -212,9 +204,8 @@ describe('evaluateVirtualTagsForItem', () => {
         const settings = makeSettings([{
             id: 'tag-era-2',
             name: 'era',
-            conditions: [{ target: 'year', operator: 'lessThan', value: '2000', result: 'Classic' }],
+            cases: [makeCase([{ field: 'year', op: 'lt', value: 2000 }], 'Classic')],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.era).toBeUndefined()
     })
@@ -227,34 +218,61 @@ describe('evaluateVirtualTagsForItem', () => {
             {
                 id: 'tag-anime',
                 name: 'is_anime',
-                conditions: [{ target: 'genre', operator: 'equals', value: 'Animation', result: 'Yes' }],
+                cases: [makeCase([{ field: 'genre', op: 'eq', value: 'Animation' }], 'Yes')],
             },
             {
                 id: 'tag-recent',
                 name: 'is_recent',
-                conditions: [{ target: 'year', operator: 'greaterThan', value: '2020', result: 'Yes' }],
+                cases: [makeCase([{ field: 'year', op: 'gt', value: 2020 }], 'Yes')],
             },
         ])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.is_anime).toBe('Yes')
         expect(result.is_recent).toBe('Yes')
     })
 
-    // --- First matching condition wins ---
+    // --- First matching case wins ---
 
-    it('uses first matching condition result (short-circuits)', () => {
+    it('uses first matching case result (short-circuits)', () => {
         const item = makeItem({ genres: ['Animation', 'Action'] })
         const settings = makeSettings([{
             id: 'tag-category',
             name: 'category',
-            conditions: [
-                { target: 'genre', operator: 'equals', value: 'Animation', result: 'Animated' },
-                { target: 'genre', operator: 'equals', value: 'Action', result: 'Action' },
+            cases: [
+                makeCase([{ field: 'genre', op: 'eq', value: 'Animation' }], 'Animated'),
+                makeCase([{ field: 'genre', op: 'eq', value: 'Action' }], 'Action'),
             ],
         }])
-
         const result = evaluateVirtualTagsForItem(item, settings)
         expect(result.category).toBe('Animated') // First match wins
+    })
+
+    // --- addedDaysAgo computed field ---
+
+    it('evaluates addedDaysAgo "lt" condition for recently added items', () => {
+        const recentItem = makeItem({ addedAt: Date.now() - 5 * 86400000 }) // 5 days ago
+        const oldItem = makeItem({ addedAt: Date.now() - 60 * 86400000 })   // 60 days ago
+        const settings = makeSettings([{
+            id: 'tag-new',
+            name: 'new',
+            cases: [makeCase([{ field: 'addedDaysAgo', op: 'lt', value: 30 }], 'Yes')],
+        }])
+        expect(evaluateVirtualTagsForItem(recentItem, settings).new).toBe('Yes')
+        expect(evaluateVirtualTagsForItem(oldItem, settings).new).toBeUndefined()
+    })
+
+    // --- Scope filter ---
+
+    it('respects scope.parentId — does not match items in other folders', () => {
+        const item = makeItem({ year: 2024, parentId: 'folder-b' })
+        const settings = makeSettings([{
+            id: 'tag-scoped',
+            name: 'scoped',
+            cases: [{
+                filter: { scope: { parentId: 'folder-a' }, conditions: [{ field: 'year', op: 'gt', value: 2020 }] },
+                result: 'Yes'
+            }],
+        }])
+        expect(evaluateVirtualTagsForItem(item, settings).scoped).toBeUndefined()
     })
 })

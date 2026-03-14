@@ -7,7 +7,7 @@
  *    Kept from the old test file: these tests are entirely unchanged and
  *    have nothing to do with the deleted grouping engine.
  *
- * B) compilePoolQuery + children branch SQL contracts — new tests for the
+ * B) compileFilter + children branch SQL contracts — new tests for the
  *    DB-driven virtual folder architecture. Use in-memory SQLite directly
  *    (same pattern as query-builder.test.ts and scan-phase1.test.ts).
  */
@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
 import { resolveViewSettings } from '@shared/settings-helpers'
-import { compilePoolQuery } from './virtualFolders.service'
+import { compileFilter } from '../database/query-builder'
 import type { StoredViewSettings, Settings, MediaFolder } from '@shared/types'
 
 // =================================================================
@@ -177,52 +177,64 @@ describe('Layout Resolution Sensitivity Matrix', () => {
 })
 
 // =================================================================
-// B) compilePoolQuery — pure function tests
+// B) compileFilter — pure function tests
 // =================================================================
 
-describe('compilePoolQuery', () => {
+describe('compileFilter', () => {
     it('always includes is_virtual = 0 rawCondition', () => {
-        const result = compilePoolQuery({})
+        const result = compileFilter({})
         expect(result.rawConditions).toContain('i.is_virtual = 0')
     })
 
     it('maps scope.parentId to where.parentId', () => {
-        const result = compilePoolQuery({ scope: { parentId: 'abc' } })
+        const result = compileFilter({ scope: { parentId: 'abc' } })
         expect(result.where?.parentId).toBe('abc')
     })
 
-    it('maps scalar filters to where entries', () => {
-        const result = compilePoolQuery({ filters: { year: '2024' } })
+    it('maps eq condition to where entry', () => {
+        const result = compileFilter({ conditions: [{ field: 'year', op: 'eq', value: '2024' }] })
         expect(result.where?.year).toBe('2024')
     })
 
-    it('maps addedWithinDays to a rawCondition, not a where entry', () => {
-        const result = compilePoolQuery({ filters: { addedWithinDays: 30 } })
-        expect(result.where?.addedWithinDays).toBeUndefined()
-        expect(result.rawConditions?.some((c) => c.includes('added_at'))).toBe(true)
+    it('maps non-eq condition to typedWhere', () => {
+        const result = compileFilter({ conditions: [{ field: 'year', op: 'gt', value: 2020 }] })
+        expect(result.where?.year).toBeUndefined()
+        expect(result.typedWhere).toEqual([{ field: 'year', op: 'gt', value: 2020 }])
     })
 
-    it('vtag filter passes through to where for query-builder handling', () => {
-        const result = compilePoolQuery({ filters: { 'vtag.is_anime': 'Yes' } })
-        expect(result.where?.['vtag.is_anime']).toBe('Yes')
+    it('maps addedDaysAgo lt to typedWhere (no special-casing)', () => {
+        const result = compileFilter({ conditions: [{ field: 'addedDaysAgo', op: 'lt', value: 30 }] })
+        expect(result.typedWhere).toEqual([{ field: 'addedDaysAgo', op: 'lt', value: 30 }])
+        expect(result.rawConditions).toEqual(['i.is_virtual = 0'])
     })
 
-    it('combines scope and multiple filters correctly', () => {
-        const result = compilePoolQuery({
+    it('routes vt.* condition to typedWhere', () => {
+        const result = compileFilter({ conditions: [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }] })
+        expect(result.typedWhere).toEqual([{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }])
+    })
+
+    it('combines scope and multiple conditions correctly', () => {
+        const result = compileFilter({
             scope: { parentId: 'movies' },
-            filters: { year: '2023', 'vtag.is_anime': 'Yes', addedWithinDays: 7 }
+            conditions: [
+                { field: 'year', op: 'eq', value: '2023' },
+                { field: 'vt.is_anime', op: 'eq', value: 'Yes' },
+                { field: 'addedDaysAgo', op: 'lt', value: 7 }
+            ]
         })
         expect(result.where?.parentId).toBe('movies')
         expect(result.where?.year).toBe('2023')
-        expect(result.where?.['vtag.is_anime']).toBe('Yes')
-        expect(result.where?.addedWithinDays).toBeUndefined()
+        expect(result.typedWhere).toEqual([
+            { field: 'vt.is_anime', op: 'eq', value: 'Yes' },
+            { field: 'addedDaysAgo', op: 'lt', value: 7 }
+        ])
         expect(result.rawConditions).toContain('i.is_virtual = 0')
-        expect(result.rawConditions?.some((c) => c.includes('added_at'))).toBe(true)
     })
 
-    it('empty pool query produces only the is_virtual guard', () => {
-        const result = compilePoolQuery({})
+    it('empty filter produces only the is_virtual guard', () => {
+        const result = compileFilter({})
         expect(result.where).toBeUndefined()
+        expect(result.typedWhere).toBeUndefined()
         expect(result.rawConditions).toEqual(['i.is_virtual = 0'])
     })
 })

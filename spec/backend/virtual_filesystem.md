@@ -27,7 +27,7 @@ The fundamental invariant: **real items never move**. A real item's `parent_id` 
 
 ### `virtual_type = 'grouping'`
 
-Created when a user applies a grouping to a real folder (e.g., "group Movies by Year"). One virtual folder is created per unique group value, each with a `pool_query_json` that selects matching real children of the parent folder. Real items are never moved.
+Created when a user applies a grouping to a real folder (e.g., "group Movies by Year"). One virtual folder is created per unique group value, each with a `filter_json` that selects matching real children of the parent folder. Real items are never moved.
 
 **Lifecycle:** Created by `applyGrouping(folderId, key)`. Blown away and rebuilt atomically when grouping changes. Destroyed by `removeGrouping`. May have their own `folder_settings` row (controls the expanded full view of the folder). Settings are lost when regrouping — this is expected. The parent's `childViewSettings` separately controls how grouping folders appear when rendered inline as tabs/sections.
 
@@ -39,7 +39,7 @@ Created automatically by the scanner (Phase 2, post-`syncTvShowStructure`) when 
 
 ### `virtual_type = 'user'`
 
-Created explicitly by the user. Stable UUID — never rebuilt. Defines contents via `pool_query_json`, or is left as a plain folder with manually added children.
+Created explicitly by the user. Stable UUID — never rebuilt. Defines contents via `filter_json`, or is left as a plain folder with manually added children.
 
 **Lifecycle:** Created by user action. Destroyed by explicit user deletion. Has its own `folder_settings` row; settings survive indefinitely.
 
@@ -52,7 +52,7 @@ New columns on the `items` table:
 ```sql
 is_virtual      INTEGER DEFAULT 0,
 virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
-pool_query_json TEXT
+filter_json TEXT
 ```
 
 Virtual items use:
@@ -62,29 +62,33 @@ Virtual items use:
 
 ---
 
-## Pool Queries
+## LibraryFilter
 
-A `pool_query_json` defines what a virtual folder shows. Compiled to SQL at read time on every request — never cached.
+A `filter_json` defines what a virtual folder shows. Stored as a `LibraryFilter` JSON object, compiled to SQL at read time on every request — never cached.
 
 ```json
 {
   "scope": { "parentId": "uuid-of-real-folder" },
-  "filters": {
-    "year": "2024",
-    "vtag.is_anime": "Yes",
-    "addedWithinDays": 30
-  }
+  "conditions": [
+    { "field": "year", "op": "eq", "value": "2024" },
+    { "field": "vt.is_anime", "op": "eq", "value": "Yes" },
+    { "field": "addedDaysAgo", "op": "lt", "value": 30 }
+  ]
 }
 ```
 
 **Supported scope (v1):** `parentId` — direct real children of a given folder (implicitly excludes `is_virtual = 1`).
 
-**Supported filters (v1):**
-- Any field in `REPOSITORY_SCHEMA` with equality match
-- `vtag.{key}: value` — matched via `entity_virtual_tags`
-- `addedWithinDays: N` — matched via `added_at` column
+**Supported conditions (v1):**
+- Any field in `REPOSITORY_SCHEMA` with any operator
+- `vt.{key}` — matched via `entity_virtual_tags`
+- `tags.{key}` — matched via `entity_tags`
+- `genre` — matched via `entity_genres`
+- `addedDaysAgo` — computed field: `((now_unix - added_at / 1000) / 86400)`
 
-Pool queries reference vtag values as one filter dimension. They do not interact with vtag computation.
+**Operators:** `eq`, `ne`, `contains` (case-insensitive), `gt`, `lt`
+
+`LibraryFilter` is the same condition language used by `VirtualTagConfig.cases` — virtual folder filters and virtual tag cases share `compileFilter()` as a single compiler.
 
 ---
 
@@ -96,7 +100,7 @@ The children endpoint has three branches based on the type of the requested item
 getChildren(folderId):
 
   if item.isVirtual:
-    → compile item.poolQuery and run find()
+    → compile item.filter and run find()
 
   else if item.viewSettings.appliedGrouping:
     → WHERE parent_id = folderId
@@ -122,7 +126,7 @@ Applied via `POST /api/items/:id/grouping { groupBy: string | null }`.
 2. Collect unique values for `groupByKey` across those children.
 3. In a transaction:
    - Delete existing `virtual_type='grouping'` children.
-   - For each unique value: `insertVirtualItem` with `pool_query_json = { scope: { parentId: folderId }, filters: { [groupByKey]: value } }`.
+   - For each unique value: `insertVirtualItem` with `filter_json = { scope: { parentId: folderId }, conditions: [{ field: groupByKey, op: 'eq', value }] }`.
    - Set `appliedGrouping = groupByKey` in the folder's settings.
 
 **Removing grouping (`groupBy: null`):**
@@ -145,7 +149,7 @@ Replaces the old `groupBy` view setting. Set and cleared atomically with the gro
 
 ## Home Virtual Folder
 
-A special `virtual_type='user'` item created at startup if it doesn't exist. Its `pool_query_json` defaults to all direct children of the library root (configurable). `/?folder=home` resolves to this item's UUID. `/?folder=root` is treated as any other real folder with no special logic.
+A special `virtual_type='user'` item created at startup if it doesn't exist. Its `filter_json` defaults to all direct children of the library root (configurable). `/?folder=home` resolves to this item's UUID. `/?folder=root` is treated as any other real folder with no special logic.
 
 ---
 
@@ -164,9 +168,9 @@ Dune 2/        parent_id=movies, is_virtual=0, year=2024
 **After `applyGrouping(movies, 'year')`** — new rows written to DB:
 ```
 2023/          parent_id=movies, is_virtual=1, virtual_type='grouping',
-               pool_query={ scope:{parentId:movies}, filters:{year:2023} }
+               filter={ scope:{parentId:movies}, conditions:[{field:'year',op:'eq',value:2023}] }
 2024/          parent_id=movies, is_virtual=1, virtual_type='grouping',
-               pool_query={ scope:{parentId:movies}, filters:{year:2024} }
+               filter={ scope:{parentId:movies}, conditions:[{field:'year',op:'eq',value:2024}] }
 ```
 `appliedGrouping='year'` is also set on movies' folder_settings. Real items are untouched.
 
@@ -201,9 +205,9 @@ S02E01.mkv      parent_id=Breaking Bad, is_virtual=0, seasonNumber=2
 **After scanner runs** — new virtual season rows:
 ```
 Season 1/       parent_id=Breaking Bad, is_virtual=1, virtual_type='season',
-                pool_query={ scope:{parentId:Breaking Bad}, filters:{seasonNumber:1} }
+                filter={ scope:{parentId:Breaking Bad}, conditions:[{field:'seasonNumber',op:'eq',value:1}] }
 Season 2/       parent_id=Breaking Bad, is_virtual=1, virtual_type='season',
-                pool_query={ scope:{parentId:Breaking Bad}, filters:{seasonNumber:2} }
+                filter={ scope:{parentId:Breaking Bad}, conditions:[{field:'seasonNumber',op:'eq',value:2}] }
 ```
 `appliedGrouping='seasonNumber'` set on Breaking Bad's folder_settings.
 
@@ -230,14 +234,14 @@ Season 2/       parent_id=Breaking Bad, is_virtual=1, virtual_type='season',
 **In the `items` table:**
 ```
 Home/             parent_id=root, is_virtual=1, virtual_type='user',
-                  pool_query={ scope:{parentId:root} }
+                  filter={ scope:{parentId:root} }
 Recently Added/   parent_id=Home, is_virtual=1, virtual_type='user',
-                  pool_query={ filters:{addedWithinDays:30} }
+                  filter={ conditions:[{field:'addedDaysAgo',op:'lt',value:30}] }
 ```
 
 Real items (Dune 2, etc.) live wherever they live on disk. Their `parent_id` is unchanged.
 
-**`GET /items/Recently-Added-uuid/children`** — compiles pool query, returns real items added in the last 30 days:
+**`GET /items/Recently-Added-uuid/children`** — compiles filter, returns real items added in the last 30 days:
 ```json
 [
   { "id": "dune2-id", "name": "Dune 2", "isVirtual": false, "parentId": "movies-id" },

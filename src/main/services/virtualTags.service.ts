@@ -1,5 +1,5 @@
 import * as metadataRepo from '../database/repositories/metadata.repo'
-import type { VirtualTagConfig, VirtualTagCondition, LibraryItem, Settings } from '@shared/types'
+import type { LibraryFilter, LibraryCondition, LibraryItem, Settings, VirtualTagConfig } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [VirtualTags] ${message}`)
@@ -32,6 +32,7 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
 
 /**
  * Evaluates virtual tags for a single item in-memory.
+ * Used during item updates to avoid an extra DB roundtrip for change detection.
  */
 export function evaluateVirtualTagsForItem(
   item: LibraryItem,
@@ -39,13 +40,13 @@ export function evaluateVirtualTagsForItem(
 ): Record<string, string> {
   const result: Record<string, string> = {}
   if (!settings.virtualTags || settings.virtualTags.length === 0) return result
-  if (!item.parentId) return result // Root items don't have virtual tags
+  if (!item.parentId) return result
 
   for (const tag of settings.virtualTags) {
     let matched = false
-    for (const condition of tag.conditions) {
-      if (evaluateCondition(item, condition)) {
-        result[tag.name] = String(condition.result)
+    for (const vtCase of tag.cases) {
+      if (matchesFilter(item, vtCase.filter)) {
+        result[tag.name] = vtCase.result
         matched = true
         break
       }
@@ -58,56 +59,61 @@ export function evaluateVirtualTagsForItem(
   return result
 }
 
-function evaluateCondition(item: LibraryItem, condition: VirtualTagCondition): boolean {
-  let itemValue: any = undefined
+function matchesFilter(item: LibraryItem, filter: LibraryFilter): boolean {
+  if (filter.scope?.parentId && item.parentId !== filter.scope.parentId) return false
+  for (const cond of filter.conditions ?? []) {
+    if (!matchesCondition(item, cond)) return false
+  }
+  return true
+}
 
-  switch (condition.target) {
-    case 'year':
-      itemValue = item.year
-      break
-    case 'title':
-      itemValue = item.title ?? item.name
-      break
-    case 'mediaType':
-      itemValue = item.mediaType
-      break
-    case 'path':
-      itemValue = item.path
-      break
-    case 'genre':
-      if (Array.isArray(item.genres)) {
-        if (condition.operator === 'contains') {
-          return item.genres.some((g) =>
-            String(g).toLowerCase().includes(String(condition.value).toLowerCase())
-          )
-        }
-        return item.genres.some((g) => String(g) === String(condition.value))
-      }
-      return false
-    case 'tag':
-      if (condition.targetKey && item.tags) {
-        itemValue = item.tags[condition.targetKey]
-      }
-      break
-    default:
-      return false
+function matchesCondition(item: LibraryItem, cond: LibraryCondition): boolean {
+  const { field, op, value } = cond
+
+  // Computed field
+  if (field === 'addedDaysAgo') {
+    const days = Math.floor((Date.now() - ((item as any).addedAt ?? 0)) / 86400000)
+    return compareValues(days, op, Number(value))
   }
 
-  if (itemValue === undefined || itemValue === null) return false
+  // Genre
+  if (field === 'genre' || field === 'genres') {
+    if (!Array.isArray(item.genres)) return false
+    const target = String(value)
+    if (op === 'contains') return item.genres.some((g) => String(g).toLowerCase().includes(target.toLowerCase()))
+    if (op === 'eq') return item.genres.some((g) => String(g) === target)
+    return false
+  }
 
-  const valStr = String(condition.value)
-  const itemStr = String(itemValue)
+  // Manual tags
+  if (field.startsWith('tags.')) {
+    const itemValue = item.tags?.[field.slice(5)]
+    return itemValue !== undefined && compareValues(itemValue, op, value)
+  }
 
-  switch (condition.operator) {
-    case 'equals':
-      return itemStr === valStr
-    case 'contains':
-      return itemStr.toLowerCase().includes(valStr.toLowerCase())
-    case 'greaterThan':
-      return Number(itemValue) > Number(condition.value)
-    case 'lessThan':
-      return Number(itemValue) < Number(condition.value)
-    default:
-      return false
+  // Virtual tags
+  if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
+    const key = field.split('.')[1]
+    const itemValue = (item as any).virtualTags?.[key]
+    return itemValue !== undefined && compareValues(itemValue, op, value)
+  }
+
+  // title falls back to name
+  const itemValue = field === 'title'
+    ? (item.title ?? item.name)
+    : (item as any)[field]
+
+  if (itemValue === undefined || itemValue === null) return op === 'eq' && value === null
+  return compareValues(itemValue, op, value)
+}
+
+function compareValues(itemValue: any, op: string, value: any): boolean {
+  switch (op) {
+    case 'eq':       return String(itemValue) === String(value)
+    case 'ne':       return String(itemValue) !== String(value)
+    case 'contains': return String(itemValue).toLowerCase().includes(String(value).toLowerCase())
+    case 'gt':       return Number(itemValue) > Number(value)
+    case 'lt':       return Number(itemValue) < Number(value)
+    default:         return false
   }
 }

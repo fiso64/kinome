@@ -187,21 +187,45 @@ export interface LibraryStatus {
   root?: MediaFolder
 }
 
-export type VirtualTagOperator = 'equals' | 'contains' | 'greaterThan' | 'lessThan'
-export type VirtualTagTarget = 'genre' | 'tag' | 'year' | 'title' | 'path' | 'mediaType'
+export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt'
 
-export interface VirtualTagCondition {
-  target: VirtualTagTarget
-  targetKey?: string // For 'tag' target
-  operator: VirtualTagOperator
-  value: string | number
+/**
+ * A single filter predicate against a library item field.
+ * Shared by LibraryFilter (virtual folders / pool queries) and VirtualTagConfig (vtag cases).
+ *
+ * field: a REPOSITORY_SCHEMA key, 'genre', 'tags.{key}', or 'vt.{key}'.
+ *        Computed fields (e.g. 'addedDaysAgo') are also valid.
+ * op:    comparison operator; 'contains' is case-insensitive substring match.
+ * value: the comparison value; null is only valid with op 'eq'/'ne'.
+ */
+export interface LibraryCondition {
+  field: string
+  op: LibraryConditionOp
+  value: string | number | null
+}
+
+/**
+ * A declarative filter over library items. Used as the definition for:
+ *   - virtual folder contents (stored as filter_json)
+ *   - individual cases within a VirtualTagConfig
+ *
+ * scope.parentId restricts results to direct children of that folder.
+ * conditions is an AND-joined list of LibraryCondition predicates.
+ */
+export interface LibraryFilter {
+  scope?: { parentId: string }
+  conditions?: LibraryCondition[]
+}
+
+export interface VirtualTagCase {
+  filter: LibraryFilter
   result: string
 }
 
 export interface VirtualTagConfig {
   id: string
   name: string
-  conditions: VirtualTagCondition[]
+  cases: VirtualTagCase[]
   defaultResult?: string
 }
 
@@ -321,11 +345,6 @@ export interface MediaFile {
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
-export interface PoolQuery {
-  scope?: { parentId: string }
-  filters?: Record<string, any>
-}
-
 export interface MediaFolder {
   // --- Core Properties (Preserved) ---
   id: string // Stable ID (e.g., hash of relative path)
@@ -336,7 +355,7 @@ export interface MediaFolder {
   children: LibraryItem[] | null
   isVirtual?: boolean
   virtualType?: 'user' | 'grouping' | 'season'
-  poolQuery?: PoolQuery | null
+  filter?: LibraryFilter | null
 
   // --- View & Behavior Settings (Preserved) ---
   viewSettings?: StoredViewSettings

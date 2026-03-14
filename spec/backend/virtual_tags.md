@@ -1,16 +1,16 @@
 # Spec: Virtual Tags & Dynamic Categorization
 
-**Version:** 2.0
+**Version:** 3.0
 **Status:** Implemented
-**Related:** `scan_architecture.md`, `api_rewrite.md`, `metadata_locking.md`
+**Related:** `scan_architecture.md`, `virtual_filesystem.md`, `metadata_locking.md`
 
 ---
 
 ## 1. Abstract
 
-**Virtual Tags** are a system for creating dynamic, rule-based categories (e.g., "Is Anime", "Is 4K") derived from item metadata (Genres, Resolution, Paths). Unlike static tags applied manually by users, Virtual Tags are automatically computed by the system. This spec defines the architecture for defining, calculating, persisting, and querying these tags.
+**Virtual Tags** are a system for creating dynamic, rule-based categories (e.g., "Is Anime", "Is 4K") derived from item metadata. Unlike static tags applied manually by users, Virtual Tags are automatically computed by the system and stored in the database.
 
-**v2.0 Update:** Introduces **Recursive Virtualization**, allowing users to nest virtual groupings indefinitely (e.g., "Anime" -> "2024" -> "Studio Ghibli").
+**v3.0 Update:** Virtual tag rules now use the same **`LibraryFilter`** condition language as virtual folder filters. Both systems share a single compiler (`compileFilter` → `buildWhereFragment`), eliminating the previously separate rule engine for virtual tags. The old encoded virtual folder ID scheme (`virtual--PARENT--KEY--VALUE`) has been replaced by first-class `items` rows.
 
 ## 2. Problem Statement / Motivation
 
@@ -18,133 +18,165 @@ Users need a way to organize content based on dynamic criteria without manually 
 -   **Example:** A user wants a "Kids Movies" section. They define a rule: "If Genre contains 'Family' OR 'Animation'".
 -   **Pain Point:** Doing this manually is impossible for large libraries.
 -   **Scalability:** The system must support filtering and grouping purely via database queries for performance (Lean & Lazy Architecture).
--   **Recursion (v2.0):** Users often want todrill down further once inside a category (e.g., filtering "Kids Movies" by "Year").
+-   **Nesting:** Users often want to drill down further once inside a category (e.g., virtual folder "Anime" with grouping by "Year").
 
 ## 3. Goals and Non-Goals
 
 ### Goals
--   **Configurable Rules:** Users can define rules in settings (e.g., `is_anime = Genre contains 'Animation'`).
--   **Persistence:** Tags are stored in the database (`virtual_tags_json`) to allow efficient SQL querying, sorting, and indexing.
--   **Automatic Synchronization:** Tags must automatically update whenever the source data (Genres, Title, Path) changes.
--   **Database-Side Filtering:** The API must support filtering by virtual tags directly in SQL (e.g., `json_extract(virtual_tags_json, '$.is_anime') = 'Yes'`).
--   **Infinite Nesting (v2.0):** Support recursive virtual folders (Virtual inside Virtual).
+-   **Configurable Rules:** Users can define rules in settings using `LibraryFilter` conditions (e.g., `is_anime` = Genre eq 'Animation').
+-   **Persistence:** Tags are stored in the `entity_virtual_tags` table (keyed by `(entity_id, key)`) to allow efficient SQL querying.
+-   **Automatic Synchronization:** Tags update whenever source data (Genres, Title, etc.) changes.
+-   **Database-Side Filtering:** The repository supports filtering by virtual tags directly in SQL via an EXISTS subquery.
+-   **Unified Rule Language:** Virtual tag rules and virtual folder filters both use `LibraryFilter`, compiled by the same code path.
 
 ### Non-Goals
 -   **Complex Code Execution:** Rules are simple metadata comparisons, not arbitrary JavaScript code execution.
 
 ## 4. Technical Design
 
-### A. The "Materialized View" Strategy
+### A. Data Types
 
-The system uses a **Persistence Model** (effectively a Materialized View). Virtual Tags are computed and saved to the `virtual_tags_json` column.
+```ts
+type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt'
+
+interface LibraryCondition {
+  field: string           // any REPOSITORY_SCHEMA key, e.g. 'genres', 'year', 'addedDaysAgo'
+  op: LibraryConditionOp
+  value: string | number | null
+}
+
+interface LibraryFilter {
+  scope?: { parentId: string }  // optional: restrict to a specific parent folder
+  conditions?: LibraryCondition[]
+}
+
+interface VirtualTagCase {
+  filter: LibraryFilter
+  result: string          // the tag value assigned when this case matches
+}
+
+interface VirtualTagConfig {
+  id: string
+  name: string            // the tag key, e.g. 'is_anime'
+  cases: VirtualTagCase[] // evaluated in order; first match wins
+  defaultResult?: string  // assigned if no case matches
+}
+```
+
+**Supported fields include computed values.** For example, `addedDaysAgo` is a computed column in `REPOSITORY_SCHEMA` (`((cast(strftime('%s','now') as int) - i.added_at / 1000) / 86400)`) — no special-casing needed:
+
+```json
+{
+  "filter": { "conditions": [{ "field": "addedDaysAgo", "op": "lt", "value": 30 }] },
+  "result": "New"
+}
+```
+
+### B. Storage
+
+Virtual tag values live in a dedicated `entity_virtual_tags` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS entity_virtual_tags (
+    entity_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (entity_id, key),
+    FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
+);
+```
+
+The `PRIMARY KEY (entity_id, key)` constraint is exploited during bulk evaluation: `INSERT OR IGNORE` statements are issued in case priority order, so the first matching case wins without any `CASE WHEN` complexity.
+
+### C. The "Materialized View" Strategy
+
+The system uses a **Persistence Model** (effectively a Materialized View). Virtual Tags are computed and saved to `entity_virtual_tags`.
 
 **Computation is Hybrid:**
-1.  **Bulk Updates (SQL):** When settings change, we use efficient SQL `CASE WHEN` statements to update the entire library in seconds without moving data to Node.js.
-2.  **Incremental Updates (JavaScript):** When a single item is processed (scanned/edited), we calculate the tags in memory (JavaScript) before saving, avoiding the need for a re-read.
+1.  **Bulk Updates (SQL):** When settings change, `evaluateAndInsertVirtualTags` runs one `INSERT OR IGNORE` per case per tag, in order. The `(entity_id, key)` UNIQUE constraint ensures the first matching case wins.
+2.  **Incremental Updates (JavaScript):** When a single item is processed (scanned/edited), `evaluateVirtualTagsForItem` evaluates tags in-memory using `matchesFilter()`, avoiding an extra DB roundtrip.
 
 #### Why Persistence?
-1.  **Read Performance:** The API can query `SELECT * FROM items WHERE virtualTags.is_anime = 'Yes'` using simple JSON extraction. It effectively flattens complex logic into a simple key-value pair.
-2.  **Indexing:** We can create SQLite indexes on specific virtual tags if needed for performance.
+1.  **Read Performance:** The API can filter with a simple EXISTS subquery against `entity_virtual_tags`. It effectively flattens complex logic into a simple key-value lookup.
+2.  **Indexing:** We index `entity_virtual_tags(entity_id)` for fast per-entity lookups.
 3.  **Consistency:** The frontend receives a simple dictionary `{"is_anime": "Yes"}` without needing to know the complex rules that generated it.
 
-### B. Synchronization Logic (The "Write" Trigger)
+### D. Shared Compiler (Unified Rule Language)
 
-To maintain data integrity, we hook into the **Write Path** of the system.
+Virtual tag case evaluation uses the same compiler as virtual folder filter resolution:
+
+```
+VirtualTagCase.filter  ──┐
+                          ├──▶ compileFilter() ──▶ buildWhereFragment() ──▶ SQL WHERE fragment
+LibraryFilter (folder) ──┘
+```
+
+Both `evaluateAndInsertVirtualTags` (write path) and `buildFindQuery` (read path) call `buildWhereFragment`. This eliminates a previously separate condition engine for virtual tags and ensures both systems handle the same field set, operators, and special cases (genres EXISTS subquery, `tags.*` key-value lookup, `vt.*` virtual tag lookup, computed fields like `addedDaysAgo`).
+
+### E. Synchronization Logic (The "Write" Trigger)
 
 **1. Manual Edits (User Action)**
--   **Trigger:** User edits metadata via API (calls `libraryService.updateItem`).
--   **Action:** `libraryService` calls `_finalizeItemUpdate`, which:
-    1.  Calculates new Virtual Tags in memory.
-    2.  Writes to `metadata` table.
+-   **Trigger:** User edits metadata via API.
+-   **Action:** `item-update.service` calls `evaluateVirtualTagsForItem` (in-memory), diffs against existing tags, and writes only changed rows.
 
 **2. Automated Enrichment (Background Job)**
 -   **Trigger:** `MetadataService` fetches new data from TMDB (e.g., Genres).
 -   **Action:**
     1.  Fetch TMDB Data.
-    2.  Apply to Item Object (e.g., `item.genres = ['Animation']`).
-    3.  **CRITICAL:** Recalculate Virtual Tags immediately: `item.virtualTags = evaluateVirtualTags(item)`.
-    4.  Save entire object to DB.
+    2.  Apply to item entity.
+    3.  **CRITICAL:** Recalculate Virtual Tags immediately via in-memory evaluator.
+    4.  Save entity to DB.
 
-### C. Database Querying (The "Read" Path)
-Refactored to "Lean & Lazy" principles (See `api_rewrite.md`).
+**3. Settings Change (Bulk Re-evaluation)**
+-   **Trigger:** User changes a `VirtualTagConfig` definition.
+-   **Action:** `evaluateAndInsertVirtualTags` runs a bulk SQL pass over all affected items using `INSERT OR IGNORE` in case priority order. Existing tags for the changed key are deleted first, then re-inserted.
 
--   **Frontend Request:** `GET /items/:id/children?groupByKey=vt.is_anime&groupByValue=Yes`
--   **API Layer (`v2.ts`):** Parses the request.
--   **Repository Layer (`repository.service.ts`):** Generates optimized SQL:
-    ```sql
-    FROM items
-    JOIN metadata m ON items.id = m.item_id
-    WHERE json_extract(m.virtual_tags_json, '$.is_anime') = 'Yes'
-    ```
+### F. Database Querying (The "Read" Path)
 
-### D. Virtual Folder Settings & Persistence (v2.0)
+Virtual tag values are surfaced on `LibraryItem` as a `virtualTags: Record<string, string>` dictionary, hydrated from `entity_virtual_tags` via subquery in `REPOSITORY_SCHEMA`:
 
-With recursive virtualization, virtual items (e.g., "Anime" -> "2024") still need view settings. Since these items do not exist in the DB, we persist settings on the **Physical Parent**.
-
-#### 1. Recursive ID Schema
-We replace the flat `virtual--PARENT--KEY--VALUE` schema with a token-based path.
-
-**Format:** `virtual--{PhysicalParentID}--{Token1}--{Token2}--...`
-*   **Token:** Represents a filter step, encoded safely (e.g., Base64 or URL-safe encoding of `Key:Value`).
-*   **Example (Level 1):** `virtual--123--genre:Animation`
-*   **Example (Level 2):** `virtual--123--genre:Animation--year:2024`
-
-#### 2. Settings Data Structure
-The `virtualFolderSettings` column on the physical parent now stores settings keyed by the **Full Filter Path** instead of a flat grouping key.
-
-`Filter Path -> Settings Object`
-
-**Example:**
-```json
-{
-  "genre:Animation": {
-    "layout": "grid",
-    "gridPosterSize": 400
-  },
-  "genre:Animation/year:2024": {
-    "layout": "list",
-    "listDescriptionRows": 3
-  }
+```ts
+virtualTags: {
+  sql: `(SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id)`,
+  isJson: true,
+  isSubquery: true
 }
 ```
 
-#### 3. Update Logic (Redirection)
-1.  **Request:** `PUT /api/items/virtual--123--genre:Animation--year:2024`
-2.  **API Layer:** Calls `libraryService.updateItem`.
-3.  **Backend Interceptor:**
-    *   Parses the ID into tokens: `["genre:Animation", "year:2024"]`.
-    *   Constructs the full path key: `"genre:Animation/year:2024"`.
-    *   Updates the JSON on Physical Parent `123`.
-    *   Saves Parent `123` to DB.
-    *   Does **NOT** save the virtual item row.
+Filtering by virtual tag (e.g., `vt.is_anime = 'Yes'`) compiles to an EXISTS subquery in `buildWhereFragment`:
 
-## 5. Persistence vs. On-Demand (Unresolved Questions)
+```sql
+EXISTS (
+  SELECT 1 FROM entity_virtual_tags vt
+  WHERE vt.entity_id = e.id AND vt.key = 'is_anime' AND vt.value = 'Yes'
+)
+```
 
-**Question:** Why not calculate Virtual Tags on-the-fly during `SELECT` (On-Demand)?
--   *Argument for On-Demand:* It eliminates synchronization bugs. "Is Anime" is always true if "Genre = Animation". You never have stale tags.
+## 5. Persistence vs. On-Demand
+
+**Question:** Why not calculate Virtual Tags on-the-fly during `SELECT`?
+
+-   *Argument for On-Demand:* Eliminates synchronization bugs. "Is Anime" is always true if "Genre = Animation". Never stale.
 -   *Argument for Persistence (Chosen):*
-    1.  **Performance:** Generating complex SQL `CASE WHEN` statements for every single user-defined rule on every `SELECT` is expensive and complex to maintain.
-    2.  **Schema Stability:** User rules change. Dynamically altering the SQL query structure for every request is fragile.
+    1.  **Performance:** Dynamically generating EXISTS subqueries for every user-defined rule on every `SELECT` adds latency proportional to the number of tag configs.
+    2.  **Schema Stability:** User rules change often. Dynamically altering the SQL query structure for every request is fragile.
 
-**Decision:** We stick with **Persistence** for now, unless we encouter related bugs.
--   **Mitigation:** We implemented robust "Write Guards" in both `library.service` and `metadata.service` to ensure `virtual_tags_json` is never stale.
+**Decision:** Persistence, with robust write guards ensuring `entity_virtual_tags` stays in sync on every item write path.
 
 ## 6. Edge Cases
 
--   **Rule Changes:** When a user changes the definition of a Virtual Tag (e.g., adds "Shonen" to "Is Anime"):
-    -   **Action:** The system triggers a **Full Library Re-evaluation**.
-    -   **Logic:** `libraryService.reapplyVirtualTagsAfterSettingsChange()` iterates every item in the DB, recalculates tags, and bulk-updates the `virtual_tags_json` column.
+-   **Rule Changes:** When a user changes a Virtual Tag definition:
+    -   **Action:** Full library re-evaluation via `evaluateAndInsertVirtualTags`.
+    -   **Logic:** Delete all rows for the changed tag key, then re-insert via bulk `INSERT OR IGNORE` in case priority order.
 
--   **Path Collision:**
+-   **Namespace Collision:**
     -   **Scenario:** A user manually tags items with "Animation" AND defines a Virtual Tag "Animation".
-    -   **Resolution:** Virtual Tags (prefixed `vt.`) are namespaced separately from manual Tags (`tags.`) in the database. Code references must respect this namespace.
+    -   **Resolution:** Virtual Tags (prefixed `vt.` in filter fields, stored in `entity_virtual_tags`) are namespaced separately from manual Tags (`tags.`, stored in `entity_tags`). No collision is possible at the storage level.
 
--   **Circular Recursion (v2.0):**
-    -   **Scenario:** Grouping by "Genre" inside a "Genre" view.
-    -   **Resolution:** The UI should prevent grouping by a key that is already present in the current filter stack (Token List).
+-   **No-match Items:**
+    -   **Scenario:** An item matches no case in a `VirtualTagConfig`.
+    -   **Resolution:** If `defaultResult` is set, a final `INSERT OR IGNORE` assigns it. Otherwise the item has no entry for that tag key.
 
--   **Performance Depth:**
-    -   **Scenario:** User nests 10 levels deep.
-    -   **Impact:** The ID becomes very long.
-    -   **Mitigation:** Browser URL limits (2kB) are the hard limit. Practically, 3-4 levels is the max useful depth.
-
+-   **Computed Fields in Rules:**
+    -   **Scenario:** A rule uses `addedDaysAgo` or other computed fields.
+    -   **Resolution:** `addedDaysAgo` is a first-class entry in `REPOSITORY_SCHEMA` with its SQL expression. `buildWhereFragment` compiles it like any other field — no special-casing. The in-memory evaluator in `virtualTags.service.ts` also handles `addedDaysAgo` explicitly.
