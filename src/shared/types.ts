@@ -307,11 +307,17 @@ export interface MediaFile {
   // --- Internal State & Cache Properties (Reset or Managed Internally) ---
   isHidden?: boolean
   isMissing?: boolean
+  addedAt?: number
   lastRefreshedAt?: number | null // Timestamp of last successful full fetch
   virtualTags?: Record<string, string>
   _v?: number // Cache-busting version number
   lockedFields?: string[] // Array of field names that are locked (e.g. ['title', 'overview'])
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
+}
+
+export interface PoolQuery {
+  scope?: { parentId: string }
+  filters?: Record<string, any>
 }
 
 export interface MediaFolder {
@@ -322,7 +328,10 @@ export interface MediaFolder {
   path?: string // Full path to the file (Optional/Lazy)
   type: 'folder'
   children: LibraryItem[] | null
-  isVirtual?: boolean // Transient property for virtual folders
+  isVirtual?: boolean
+  virtualType?: 'user' | 'grouping' | 'season'
+  poolQuery?: PoolQuery | null
+  addedAt?: number
 
   // --- View & Behavior Settings (Preserved) ---
   viewSettings?: StoredViewSettings
@@ -588,6 +597,8 @@ export const CORE_FIELDS = [
   'episodeNumber',
   'tmdbId', // Required for "Fix Match" / "Find Artwork" buttons
   '_v', // Required for image cache busting
+  'isVirtual',
+  'virtualType',
 
   // TODO: When removing this field from CORE_FIELDS, we must make locking
   //       more robust by 1) enforcing that at the repository/update layer,

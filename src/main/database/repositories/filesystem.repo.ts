@@ -200,8 +200,8 @@ export function getAllIdsInScope(pathPrefix: string): string[] {
     const db = getDb()
     const isRoot = pathPrefix === '' || pathPrefix === '.'
     const query = isRoot
-        ? 'SELECT id FROM items'
-        : 'SELECT id FROM items WHERE path LIKE ? OR path = ?'
+        ? 'SELECT id FROM items WHERE is_virtual = 0'
+        : 'SELECT id FROM items WHERE (path LIKE ? OR path = ?) AND is_virtual = 0'
     const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
 
     const rows = db.prepare(query).all(...params) as { id: string }[]
@@ -242,7 +242,7 @@ export function getItemsForCleanup(
     SELECT i.id, i.path, i.inode, i.device_id, e.locked_fields_json
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    ${isRoot ? '' : 'WHERE i.path LIKE ? OR i.path = ?'}
+    ${isRoot ? 'WHERE i.is_virtual = 0' : 'WHERE (i.path LIKE ? OR i.path = ?) AND i.is_virtual = 0'}
   `
     const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
 
@@ -402,4 +402,46 @@ export function updateItemVisibility(itemId: string, hidden?: boolean, missing?:
 export function setEntityId(itemId: string, entityId: string | null): void {
     const db = getDb()
     db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run(entityId, itemId)
+}
+
+/**
+ * Inserts a virtual folder item.
+ * Pass insertOrIgnore=true for idempotent season folder creation (deterministic IDs).
+ */
+export function insertVirtualItem(params: {
+    id: string
+    parentId: string
+    name: string
+    virtualType: 'user' | 'grouping' | 'season'
+    poolQueryJson?: string
+    insertOrIgnore?: boolean
+}): void {
+    const db = getDb()
+    const verb = params.insertOrIgnore ? 'INSERT OR IGNORE' : 'INSERT'
+    db.prepare(`
+        ${verb} INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, pool_query_json)
+        VALUES (?, ?, ?, ?, 'folder', 1, ?, ?)
+    `).run(
+        params.id,
+        params.parentId,
+        `virtual://${params.id}`,
+        params.name,
+        params.virtualType,
+        params.poolQueryJson ?? null
+    )
+}
+
+/**
+ * Deletes all virtual children of a given parent with the specified virtual_type.
+ * Used to atomically rebuild grouping folders and to clean up orphaned season folders.
+ */
+export function deleteVirtualItemsByType(
+    parentId: string,
+    virtualType: 'user' | 'grouping' | 'season'
+): void {
+    const db = getDb()
+    db.prepare('DELETE FROM items WHERE parent_id = ? AND virtual_type = ?').run(
+        parentId,
+        virtualType
+    )
 }

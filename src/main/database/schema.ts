@@ -24,7 +24,12 @@ CREATE TABLE IF NOT EXISTS items (
     is_hidden INTEGER DEFAULT 0,
     is_ignored INTEGER DEFAULT 0,
     is_missing INTEGER DEFAULT 0,
-    
+
+    -- Virtual Folder
+    is_virtual      INTEGER DEFAULT 0,
+    virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
+    pool_query_json TEXT,
+
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
 
@@ -35,6 +40,8 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
 CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
+CREATE INDEX IF NOT EXISTS idx_items_is_virtual ON items(is_virtual);
+CREATE INDEX IF NOT EXISTS idx_items_virtual_type ON items(virtual_type);
 
 
 -- Logical Content Entity (Movie, TV Show, Season, Episode)

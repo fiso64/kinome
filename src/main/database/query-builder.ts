@@ -3,6 +3,7 @@ import { CORE_FIELDS } from '@shared/types'
 
 export interface FindOptions {
     where?: Record<string, any>
+    rawConditions?: string[]
     fields?: string[]
     orderBy?: { field: string; direction: 'ASC' | 'DESC' }
     limit?: number
@@ -135,6 +136,12 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
                 conditions.push(`EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND g.name = ?)`)
                 params.push(value)
             }
+        }
+    }
+
+    if (options.rawConditions) {
+        for (const cond of options.rawConditions) {
+            conditions.push(cond)
         }
     }
 
