@@ -8,6 +8,7 @@ import {
 } from '../utils/tv-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
+import { syncVirtualSeasonFolders } from './virtualFolders.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [TV Show Service] ${message}`)
@@ -141,6 +142,12 @@ export async function syncTvShowStructure(
   // Finalize all structural changes at once to minimize IPC overhead
   if (allModified.length > 0) {
     await updateIfChangedAndBroadcast(allModified)
+  }
+
+  // Sync virtual season folders for flat shows (loose episodes directly under the show).
+  // Must run after updateIfChangedAndBroadcast so season numbers are committed to DB.
+  if (isFlatShow) {
+    syncVirtualSeasonFolders(show.id)
   }
 
   log(

@@ -16,7 +16,9 @@ import { runTransaction } from '../database/client'
 import type { FindOptions } from '../database/query-builder'
 import {
     insertVirtualItem,
-    deleteVirtualItemsByType
+    deleteVirtualItemsByType,
+    getDistinctSeasonNumbers,
+    getVirtualSeasonFolderIds
 } from '../database/repositories/filesystem.repo'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { getValuesForKey } from '../database/repo-definitions'
@@ -133,6 +135,62 @@ export function createUserVirtualFolder(
         poolQueryJson: poolQuery ? JSON.stringify(poolQuery) : undefined
     })
     return id
+}
+
+/**
+ * Syncs virtual season folders for a flat TV show (episodes loose under the show root).
+ *
+ * Called as a post-step after syncTvShowStructure assigns season numbers to files.
+ * Uses deterministic IDs (sha256('virtual:season:' + showId + ':' + seasonNumber))
+ * so INSERT OR IGNORE is a no-op on existing folders, preserving their folder_settings.
+ *
+ * Orphaned virtual season folders (season no longer present in episodes) are deleted.
+ * If no seasons are found, all virtual season folders are cleaned up and
+ * appliedGrouping is cleared.
+ */
+export function syncVirtualSeasonFolders(showId: string): void {
+    const seasonNumbers = getDistinctSeasonNumbers(showId)
+
+    if (seasonNumbers.length === 0) {
+        runTransaction(() => {
+            deleteVirtualItemsByType(showId, 'season')
+            mergeSettings(showId, { viewSettings: { appliedGrouping: null } })
+        })
+        return
+    }
+
+    const currentIds = new Set(seasonNumbers.map((n) => seasonFolderId(showId, n)))
+    const existingIds = getVirtualSeasonFolderIds(showId)
+
+    runTransaction(() => {
+        for (const existingId of existingIds) {
+            if (!currentIds.has(existingId)) {
+                deleteItem(existingId)
+            }
+        }
+
+        for (const seasonNumber of seasonNumbers) {
+            const id = seasonFolderId(showId, seasonNumber)
+            const poolQuery: PoolQuery = {
+                scope: { parentId: showId },
+                filters: { seasonNumber }
+            }
+            insertVirtualItem({
+                id,
+                parentId: showId,
+                name: `Season ${seasonNumber}`,
+                virtualType: 'season',
+                poolQueryJson: JSON.stringify(poolQuery),
+                insertOrIgnore: true
+            })
+        }
+
+        mergeSettings(showId, { viewSettings: { appliedGrouping: 'seasonNumber' } })
+    })
+}
+
+function seasonFolderId(showId: string, seasonNumber: number): string {
+    return crypto.createHash('sha256').update(`virtual:season:${showId}:${seasonNumber}`).digest('hex')
 }
 
 /**

@@ -432,6 +432,33 @@ export function insertVirtualItem(params: {
 }
 
 /**
+ * Returns distinct season numbers from real file children of the given parent.
+ * Used by syncVirtualSeasonFolders to know which virtual season folders are needed.
+ */
+export function getDistinctSeasonNumbers(parentId: string): number[] {
+    const db = getDb()
+    const rows = db.prepare(`
+        SELECT DISTINCT e.season_number
+        FROM items i
+        LEFT JOIN media_entities e ON i.entity_id = e.id
+        WHERE i.parent_id = ? AND i.is_virtual = 0 AND i.type = 'file' AND e.season_number IS NOT NULL
+    `).all(parentId) as { season_number: number }[]
+    return rows.map((r) => r.season_number)
+}
+
+/**
+ * Returns IDs of all virtual season folders under a given parent.
+ * Used by syncVirtualSeasonFolders to detect orphans.
+ */
+export function getVirtualSeasonFolderIds(parentId: string): string[] {
+    const db = getDb()
+    const rows = db.prepare(
+        `SELECT id FROM items WHERE parent_id = ? AND virtual_type = 'season'`
+    ).all(parentId) as { id: string }[]
+    return rows.map((r) => r.id)
+}
+
+/**
  * Deletes all virtual children of a given parent with the specified virtual_type.
  * Used to atomically rebuild grouping folders and to clean up orphaned season folders.
  */
