@@ -15,6 +15,7 @@ import * as listDirectoryService from './services/list-directory.service'
 import * as pathsService from './services/paths.service'
 import * as repositoryService from './services/repository.service'
 import * as groupingService from './services/grouping.service'
+import * as virtualFoldersService from './services/virtualFolders.service'
 import * as playbackService from './services/playback.service'
 import * as handlerService from './services/handler.service'
 
@@ -509,6 +510,20 @@ const app = new Elysia()
         return ancestors.filter((a) => a.id !== id)
       })
       .get('/items/:id/credits', ({ params }) => libraryService.getItemCredits(params.id))
+      .post('/items/:id/grouping', ({ params: { id }, body }: { params: { id: string }; body: any }) => {
+        const { groupByKey } = body as { groupByKey: string | null }
+        if (groupByKey) {
+          virtualFoldersService.applyGrouping(id, groupByKey)
+        } else {
+          virtualFoldersService.removeGrouping(id)
+        }
+        return { success: true }
+      })
+      .post('/items/:parentId/virtual-folders', ({ params: { parentId }, body }: { params: { parentId: string }; body: any }) => {
+        const { name, filter } = body as { name: string; filter?: any }
+        const id = virtualFoldersService.createUserVirtualFolder(parentId, name, filter)
+        return { id }
+      })
       .patch('/items', async ({ body }: { body: any }) => {
         await libraryService.updateItem(body, true)
         return { success: true }

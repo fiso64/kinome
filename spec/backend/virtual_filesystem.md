@@ -51,7 +51,7 @@ New columns on the `items` table:
 
 ```sql
 is_virtual      INTEGER DEFAULT 0,
-virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
+virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
 filter_json TEXT
 ```
 
@@ -149,7 +149,9 @@ Replaces the old `groupBy` view setting. Set and cleared atomically with the gro
 
 ## Home Virtual Folder
 
-A special `virtual_type='user'` item created at startup if it doesn't exist. Its `filter_json` defaults to all direct children of the library root (configurable). `/?folder=home` resolves to this item's UUID. `/?folder=root` is treated as any other real folder with no special logic.
+A singleton `virtual_type='home'` item with constant ID `'virtual-home'`, created at startup by `ensureRootExists` via `INSERT OR IGNORE`. Its `filter_json` scopes to all direct children of the library root. `/?folder=home` resolves via the `'home'` alias in `getChildren`. `/?folder=root` is treated as any other real folder.
+
+The `'home'` type is distinct from `'user'` so that `deleteVirtualFolder` (which requires `virtualType === 'user'`) naturally rejects deletion attempts.
 
 ---
 

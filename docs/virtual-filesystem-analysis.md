@@ -7,8 +7,8 @@
 ### ✅ Phase 2: Virtual Folder Write Service
 ### ✅ Phase 3: Children Endpoint Simplification
 ### ✅ Phase 4: Virtual Season Folders (Scanner Integration)
-### ❌ Phase 5: Home Virtual Folder
-### ❌ Phase 6: API & Frontend
+### ✅ Phase 5: Home Virtual Folder
+### ✅ Phase 6: API & Frontend
 
 ---
 
@@ -39,6 +39,7 @@ Identity is `crypto.randomUUID()`. Two identically-defined virtual folders in di
 | `'grouping'` | `applyGrouping()` | `applyGrouping()` rebuild / `removeGrouping()` | No |
 | `'season'` | Scanner (Phase 2) | Re-scan | No |
 | `'user'` | User action | User deletion | Yes |
+| `'home'` | `ensureRootExists()` at startup | Never (singleton) | N/A |
 
 ### 4. Real items never move
 
@@ -112,7 +113,7 @@ All virtual folder types can have their own `folder_settings` rows. This is inde
 
 ```sql
 is_virtual      INTEGER DEFAULT 0,
-virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
+virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
 filter_json TEXT
 ```
 
@@ -319,9 +320,11 @@ Episodes remain in the TV show folder (`parent_id = tvShowFolderId`). The virtua
 
 ## Phase 5: Home Virtual Folder
 
-At startup (`ensureRootExists`-adjacent), create a `virtual_type='user'` item named `__home__` with `filter_json = { scope: { parentId: rootId } }` if none exists.
+At startup (`ensureRootExists`), create a `virtual_type='home'` item named `__home__` with a constant ID (`'virtual-home'`) and `filter_json = { scope: { parentId: rootId } }` via `INSERT OR IGNORE`.
 
-`GET /api/items/home/children` resolves to this item's UUID. `/?folder=root` is treated as any other real folder.
+`GET /api/items/home/children` resolves via the `'home'` alias in `getChildren`. `/?folder=root` is treated as any other real folder.
+
+The `'home'` type is distinct from `'user'` so that `deleteVirtualFolder` (which requires `virtualType === 'user'`) naturally rejects attempts to delete it.
 
 ---
 

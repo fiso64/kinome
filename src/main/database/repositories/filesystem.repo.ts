@@ -412,7 +412,7 @@ export function insertVirtualItem(params: {
     id: string
     parentId: string
     name: string
-    virtualType: 'user' | 'grouping' | 'season'
+    virtualType: 'user' | 'grouping' | 'season' | 'home'
     filterJson?: string
     insertOrIgnore?: boolean
 }): void {
@@ -482,7 +482,7 @@ export function ensureHomeVirtualFolder(rootId: string): void {
  */
 export function deleteVirtualItemsByType(
     parentId: string,
-    virtualType: 'user' | 'grouping' | 'season'
+    virtualType: 'user' | 'grouping' | 'season' | 'home'
 ): void {
     const db = getDb()
     db.prepare('DELETE FROM items WHERE parent_id = ? AND virtual_type = ?').run(

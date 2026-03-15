@@ -105,7 +105,7 @@ export async function updateIfChangedAndBroadcast(
       }
 
       // Always persist to DB to ensure system fields (like lastRefreshedAt) are saved
-      if (!item.id.startsWith('virtual--')) {
+      if (!item.isVirtual) {
         repositoryService._updateItem(item.id, item)
       }
     }

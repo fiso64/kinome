@@ -2,7 +2,6 @@ import { QueryClient, createQuery } from '@tanstack/svelte-query'
 import { QueryThrottler } from '@lib/query-throttler'
 import { api } from '@lib/api'
 import type { LibraryItem } from '@shared/types'
-import { isVirtualId, parseVirtualId, getVirtualSettingsKey } from '@shared/virtual-logic'
 
 /**
  * LibraryDataService: The authoritative "Middle Man" for all library-related data.
@@ -363,25 +362,6 @@ class LibraryDataService {
           if (entry.id === item.id) {
             newData[i] = { ...entry, ...item }
             changed = true
-          } else if (isVirtualId(entry.id)) {
-            const { parentId, tokens } = parseVirtualId(entry.id)
-            if (this.isIdMatch(parentId, item.id)) {
-              // This virtual folder belongs to the physical item being updated.
-              // Update its viewSettings from the parent's new virtualFolderSettings map.
-              const settingsKey = getVirtualSettingsKey(tokens)
-              const newVirtualSettings =
-                item.viewSettings?.virtualFolderSettings?.[settingsKey] ?? {}
-
-              newData[i] = {
-                ...entry,
-                ...newVirtualSettings,
-                viewSettings: {
-                  ...newVirtualSettings,
-                  virtualFolderSettings: item.viewSettings?.virtualFolderSettings
-                }
-              }
-              changed = true
-            }
           }
         }
         return changed ? newData : oldData

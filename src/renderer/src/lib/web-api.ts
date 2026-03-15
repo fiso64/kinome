@@ -392,6 +392,20 @@ class WebApiClient implements ApiClient {
     }).then((r) => r.success)
   }
 
+  setGrouping(folderId: string, groupByKey: string | null): Promise<void> {
+    return this.request(`/api/items/${encodeURIComponent(folderId)}/grouping`, {
+      method: 'POST',
+      body: JSON.stringify({ groupByKey })
+    })
+  }
+
+  createVirtualFolder(parentId: string, name: string, filter?: any): Promise<{ id: string }> {
+    return this.request(`/api/items/${encodeURIComponent(parentId)}/virtual-folders`, {
+      method: 'POST',
+      body: JSON.stringify({ name, filter })
+    })
+  }
+
   getItemCredits(id: string): Promise<any | null> {
     return this.request(`/api/items/${encodeURIComponent(id)}/credits`)
   }

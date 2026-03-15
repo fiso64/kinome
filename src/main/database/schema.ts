@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS items (
 
     -- Virtual Folder
     is_virtual      INTEGER DEFAULT 0,
-    virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season')),
+    virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
     filter_json TEXT,
 
     -- Timestamp
