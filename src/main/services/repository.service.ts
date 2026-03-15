@@ -26,7 +26,7 @@ import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem, parseJsonSafe } from '../database/mappers'
 import { buildFindQuery, type FindOptions } from '../database/query-builder'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
-import { ENTITY_COLUMNS_SQL } from '../database/repositories/filesystem.repo'
+import { ENTITY_COLUMNS_SQL, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
@@ -70,6 +70,12 @@ export async function createNewDb(_rootNode: MediaFolder | null): Promise<void> 
 
 export function ensureRootExists(mediaSourcePath: string): void {
   itemsRepo.ensureRootExists(mediaSourcePath)
+  const rootId = itemsRepo.generateId('.')
+  itemsRepo.ensureHomeVirtualFolder(rootId)
+}
+
+export function getHomeFolderId(): string {
+  return HOME_FOLDER_ID
 }
 
 // --- Read Operations ---

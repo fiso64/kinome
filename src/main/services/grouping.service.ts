@@ -7,6 +7,7 @@ import {
 import {
   find,
   getItemById,
+  getHomeFolderId,
   FindOptions
 } from './repository.service'
 import { compileFilter } from '../database/query-builder'
@@ -33,8 +34,10 @@ export async function getChildren(
 ): Promise<LibraryItem[] | { error: string; message: string; [key: string]: any }> {
   let targetId = id
 
-  // 1. Resolve root alias
-  if (id === 'root') {
+  // 1. Resolve aliases
+  if (id === 'home') {
+    targetId = getHomeFolderId()
+  } else if (id === 'root') {
     const status = await getLibraryRoot()
     if (status.status !== 'ready') {
       return {

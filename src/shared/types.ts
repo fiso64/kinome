@@ -354,7 +354,7 @@ export interface MediaFolder {
   type: 'folder'
   children: LibraryItem[] | null
   isVirtual?: boolean
-  virtualType?: 'user' | 'grouping' | 'season'
+  virtualType?: 'user' | 'grouping' | 'season' | 'home'
   filter?: LibraryFilter | null
 
   // --- View & Behavior Settings (Preserved) ---
@@ -432,7 +432,7 @@ export interface BaseLibraryItem {
   deviceId?: number
   isIgnored?: boolean
   isVirtual?: boolean
-  virtualType?: 'user' | 'grouping' | 'season'
+  virtualType?: 'user' | 'grouping' | 'season' | 'home'
   addedAt?: number
 }
 

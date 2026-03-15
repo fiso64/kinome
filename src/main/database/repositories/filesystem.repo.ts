@@ -458,6 +458,24 @@ export function getVirtualSeasonFolderIds(parentId: string): string[] {
     return rows.map((r) => r.id)
 }
 
+/** Stable ID for the singleton home virtual folder. */
+export const HOME_FOLDER_ID = 'virtual-home'
+
+/**
+ * Ensures the home virtual folder exists.
+ * Uses INSERT OR IGNORE with a fixed ID so it is safe to call on every startup.
+ * The home folder has virtual_type='home' and a filter scoped to the library root.
+ */
+export function ensureHomeVirtualFolder(rootId: string): void {
+    const db = getDb()
+    const filterJson = JSON.stringify({ scope: { parentId: rootId } })
+    db.prepare(`
+        INSERT OR IGNORE INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, filter_json)
+        VALUES (?, ?, 'virtual://home', '__home__', 'folder', 1, 'home', ?)
+    `).run(HOME_FOLDER_ID, rootId, filterJson)
+}
+
+
 /**
  * Deletes all virtual children of a given parent with the specified virtual_type.
  * Used to atomically rebuild grouping folders and to clean up orphaned season folders.
