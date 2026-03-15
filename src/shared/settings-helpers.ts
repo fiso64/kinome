@@ -121,18 +121,11 @@ export function resolveViewSettings(
       childSettingsSource = layer.sourceInfo
 
       const prevOverrides = resolvedChildViewSettings.overrides
-      const prevVirtual = resolvedChildViewSettings.virtualFolderSettings
 
       Object.assign(resolvedChildViewSettings, layerChild)
 
       if (layerChild.overrides) {
         resolvedChildViewSettings.overrides = { ...prevOverrides, ...layerChild.overrides }
-      }
-      if (layerChild.virtualFolderSettings) {
-        resolvedChildViewSettings.virtualFolderSettings = {
-          ...prevVirtual,
-          ...layerChild.virtualFolderSettings
-        }
       }
     }
   }
@@ -145,7 +138,7 @@ export function resolveViewSettings(
   // Invariant I3: Mixed Content Fallback (TV Show -> Season Defaults)
   const hasEffectiveChildLayout =
     resolvedChildViewSettings &&
-    Object.keys(resolvedChildViewSettings).some((k) => !['overrides', 'virtualFolderSettings'].includes(k))
+    Object.keys(resolvedChildViewSettings).some((k) => k !== 'overrides')
 
   if (!hasEffectiveChildLayout && item?.mediaType === 'tv' && settings) {
     resolvedChildViewSettings = {
@@ -161,27 +154,13 @@ export function resolveViewSettings(
     resolvedGroupBy = 'folder'
   }
 
-  // Merge virtualFolderSettings from all layers (additive map merge)
-  let resolvedVFS: Record<string, StoredViewSettings> | undefined = undefined
-  let vfsSource: ResolutionSource | undefined = undefined
-
-  for (const layer of [...cascadeLayers].reverse()) {
-    const val = layer.settings.virtualFolderSettings
-    if (val) {
-      resolvedVFS = { ...(resolvedVFS || {}), ...val }
-      vfsSource = layer.sourceInfo
-    }
-  }
-
   resolvedBase.childViewSettings = resolvedChildViewSettings
   resolvedBase.groupBy = resolvedGroupBy
-  resolvedBase.virtualFolderSettings = resolvedVFS
 
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
   if (childSettingsSource) (resolvedSources as any).childViewSettings = childSettingsSource
   if (groupByLayer) (resolvedSources as any).groupBy = groupByLayer.sourceInfo
-  if (vfsSource) (resolvedSources as any).virtualFolderSettings = vfsSource
 
   // 3. Resolve aesthetics (layout-specific settings)
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}

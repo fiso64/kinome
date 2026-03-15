@@ -4,12 +4,6 @@
   import { shouldBeGreyedOut } from '@lib/view-helpers'
   import { getAssetUrl } from '@lib/api'
   type DisplayableItem = LibraryItem | SearchIndexEntry
-  type VirtualFolder = MediaFolder & {
-    isVirtual: boolean
-    physicalParentId: string
-    groupByKey: string
-    groupByValue: string
-  }
 
   let {
     items,
@@ -27,7 +21,7 @@
       options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     grayOutWatched: boolean
-    parentItem?: MediaFolder | VirtualFolder
+    parentItem?: MediaFolder
     gridPosterSize?: number | null
   } = $props()
 </script>

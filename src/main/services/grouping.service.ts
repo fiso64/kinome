@@ -15,7 +15,17 @@ import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 import { getLibraryRoot } from './library.service'
 
-const log = (msg: string) => console.log(`[GroupingService] ${msg}`)
+/**
+ * Returns the SQL filter condition for listing a real folder's children.
+ * Branch B (grouping active): show grouping/season/user virtual folders.
+ * Branch C (no grouping): show real items + user virtual folders.
+ */
+function childrenFilter(item: LibraryItem): string {
+  if (item.viewSettings?.appliedGrouping) {
+    return `(i.virtual_type IN ('grouping', 'season', 'user'))`
+  }
+  return `(i.is_virtual = 0 OR i.virtual_type = 'user')`
+}
 
 /**
  * Entry point for fetching folder children. Handles:
@@ -49,22 +59,23 @@ export async function getChildren(
     targetId = status.root!.id
   }
 
-  // 2. Default hidden/ignored policy
-  if (options.includeHidden === undefined) options.includeHidden = false
-  if (options.includeIgnored === undefined) options.includeIgnored = false
+  // 2. Apply defaults (without mutating the caller's object)
+  const opts = { ...options }
+  if (opts.includeHidden === undefined) opts.includeHidden = false
+  if (opts.includeIgnored === undefined) opts.includeIgnored = false
 
   // 3. Fetch item
   const item = getItemById(targetId)
   if (!item) return { error: 'not_found', message: `Item ${targetId} not found` }
 
   // 4. Contextual default sorting
-  if (!options.orderBy) {
+  if (!opts.orderBy) {
     if (item.mediaType === 'season') {
-      options.orderBy = { field: 'episodeNumber', direction: 'ASC' }
+      opts.orderBy = { field: 'episodeNumber', direction: 'ASC' }
     } else if (item.mediaType === 'tv') {
-      options.orderBy = { field: 'seasonNumber', direction: 'ASC' }
+      opts.orderBy = { field: 'seasonNumber', direction: 'ASC' }
     } else {
-      options.orderBy = { field: 'name', direction: 'ASC' }
+      opts.orderBy = { field: 'name', direction: 'ASC' }
     }
   }
 
@@ -80,42 +91,30 @@ export async function getChildren(
       const compiled = compileFilter(filter)
       items = find({
         ...compiled,
-        fields: options.fields,
-        orderBy: options.orderBy,
-        limit: options.limit,
-        offset: options.offset,
-        includeHidden: options.includeHidden,
-        includeIgnored: options.includeIgnored
+        fields: opts.fields,
+        orderBy: opts.orderBy,
+        limit: opts.limit,
+        offset: opts.offset,
+        includeHidden: opts.includeHidden,
+        includeIgnored: opts.includeIgnored
       })
     }
-  } else if (item.viewSettings?.appliedGrouping) {
-    // Branch B: grouping active — show grouping virtual folders + user virtual folders
-    items = find({
-      where: { parentId: targetId },
-      rawConditions: [`(i.virtual_type = 'grouping' OR i.virtual_type = 'user')`],
-      fields: options.fields,
-      orderBy: options.orderBy,
-      limit: options.limit,
-      offset: options.offset,
-      includeHidden: options.includeHidden,
-      includeIgnored: options.includeIgnored
-    })
   } else {
-    // Branch C: no grouping — show real items + user virtual folders
+    // Branch B/C: list real folder's children (grouping-aware)
     items = find({
       where: { parentId: targetId },
-      rawConditions: [`(i.is_virtual = 0 OR i.virtual_type = 'user')`],
-      fields: options.fields,
-      orderBy: options.orderBy,
-      limit: options.limit,
-      offset: options.offset,
-      includeHidden: options.includeHidden,
-      includeIgnored: options.includeIgnored
+      rawConditions: [childrenFilter(item)],
+      fields: opts.fields,
+      orderBy: opts.orderBy,
+      limit: opts.limit,
+      offset: opts.offset,
+      includeHidden: opts.includeHidden,
+      includeIgnored: opts.includeIgnored
     })
   }
 
   // 6. Eagerly embed children for container-layout folders
-  return embedChildrenForContainers(items, options)
+  return embedChildrenForContainers(items, opts)
 }
 
 /**
@@ -152,7 +151,7 @@ export async function resolveEffectiveSettings(
   visited: Set<string> = new Set()
 ): Promise<any> {
   if (visited.has(itemId)) {
-    log(`Circular dependency detected for ${itemId}, breaking recursion.`)
+    console.log(`[GroupingService] Circular dependency detected for ${itemId}, breaking recursion.`)
     return resolveViewSettings(null, settings).settings
   }
   visited.add(itemId)
@@ -173,8 +172,7 @@ export async function resolveEffectiveSettings(
     return resolveViewSettings(item as any, settings).settings
   }
 
-  const inherited: any = undefined
-  return resolveViewSettings(item as any, settings, new Set(), inherited).settings
+  return resolveViewSettings(item as any, settings).settings
 }
 
 /**
@@ -222,21 +220,11 @@ export async function resolveViewHierarchy(
   if (recursive && ['tabs', 'sections'].includes(resolution.settings.layout)) {
     node.children = {}
 
-    // Get the folder-type children using the same branch logic as getChildren
-    let childFolders: LibraryItem[]
-    if (item.viewSettings?.appliedGrouping) {
-      childFolders = find({
-        where: { parentId: targetId },
-        rawConditions: [`(i.virtual_type = 'grouping' OR i.virtual_type = 'user')`],
-        fields: ['id', 'type', 'viewSettings']
-      }).filter((c) => c.type === 'folder')
-    } else {
-      childFolders = find({
-        where: { parentId: targetId },
-        rawConditions: [`(i.is_virtual = 0 OR i.virtual_type = 'user')`],
-        fields: ['id', 'type', 'viewSettings']
-      }).filter((c) => c.type === 'folder')
-    }
+    const childFolders = find({
+      where: { parentId: targetId },
+      rawConditions: [childrenFilter(item)],
+      fields: ['id', 'type', 'viewSettings']
+    }).filter((c) => c.type === 'folder')
 
     for (const child of childFolders) {
       const childNode = await resolveViewHierarchy(

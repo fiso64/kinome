@@ -26,11 +26,6 @@ export interface ListSettings {
  */
 export interface GroupingSettings {
   groupBy: string | null
-  /**
-   * Recursively defined settings for virtual folders created by this grouping.
-   * Key: token path (e.g. "genre:Action")
-   */
-  virtualFolderSettings?: Record<string, StoredViewSettings>
 }
 
 /**
@@ -187,7 +182,7 @@ export interface LibraryStatus {
   root?: MediaFolder
 }
 
-export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt'
+export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull'
 
 /**
  * A single filter predicate against a library item field.
@@ -196,12 +191,13 @@ export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt'
  * field: a REPOSITORY_SCHEMA key, 'genre', 'tags.{key}', or 'vt.{key}'.
  *        Computed fields (e.g. 'addedDaysAgo') are also valid.
  * op:    comparison operator; 'contains' is case-insensitive substring match.
- * value: the comparison value; null is only valid with op 'eq'/'ne'.
+ *        'isNull'/'isNotNull' ignore value.
+ * value: the comparison value; ignored for isNull/isNotNull ops.
  */
 export interface LibraryCondition {
   field: string
   op: LibraryConditionOp
-  value: string | number | null
+  value?: string | number | null
 }
 
 /**
@@ -360,10 +356,6 @@ export interface MediaFolder {
   // --- View & Behavior Settings (Preserved) ---
   viewSettings?: StoredViewSettings
   scraperSettings?: any
-  virtualFolderSettings?: Record<string, Partial<MediaFolder>>
-  groupByKey?: string
-  groupByValue?: string
-
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string | null
   overview?: string | null
@@ -663,8 +655,7 @@ export const VIEW_SETTINGS_KEYS = [
   'showHorizontalScrollbar',
   'groupBy',
   // Special settings
-  'childViewSettings',
-  'virtualFolderSettings'
+  'childViewSettings'
 ] as const
 
 export const FOLDER_BEHAVIOR_SETTINGS_KEYS = [

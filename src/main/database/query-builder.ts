@@ -8,8 +8,8 @@ import type { LibraryFilter } from '@shared/types'
  */
 export interface TypedWhereClause {
     field: string
-    op: 'eq' | 'ne' | 'contains' | 'gt' | 'lt'
-    value: string | number | null
+    op: 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull'
+    value?: string | number | null
 }
 
 export interface FindOptions {
@@ -49,7 +49,9 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
 
     for (const cond of filter.conditions ?? []) {
         const { field, op, value } = cond
-        if (op === 'eq' && field !== 'genre' && field !== 'genres' &&
+        if (op === 'isNull' || op === 'isNotNull') {
+            typedWhere.push({ field, op })
+        } else if (op === 'eq' && field !== 'genre' && field !== 'genres' &&
             !field.startsWith('tags.') && !field.startsWith('vt.') && !field.startsWith('virtualTags.')) {
             where[field] = value
         } else {
@@ -126,31 +128,50 @@ export function buildWhereFragment(options: FindOptions): {
         for (const { field, op, value } of options.typedWhere) {
             if (field === 'genre' || field === 'genres') {
                 tables.add('e')
-                if (op === 'contains') {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND g.name LIKE ?)`)
+                const subquery = `SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id`
+                if (op === 'isNull') {
+                    conditions.push(`NOT EXISTS (${subquery})`)
+                } else if (op === 'isNotNull') {
+                    conditions.push(`EXISTS (${subquery})`)
+                } else if (op === 'contains') {
+                    conditions.push(`EXISTS (${subquery} AND g.name LIKE ?)`)
                     params.push(`%${value}%`)
                 } else {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND g.name = ?)`)
+                    conditions.push(`EXISTS (${subquery} AND g.name = ?)`)
                     params.push(value)
                 }
             } else if (field.startsWith('tags.')) {
                 const key = field.slice(5)
                 tables.add('e')
-                if (op === 'contains') {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ? AND value LIKE ?)`)
+                const subquery = `SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ?`
+                if (op === 'isNull') {
+                    conditions.push(`NOT EXISTS (${subquery})`)
+                    params.push(key)
+                } else if (op === 'isNotNull') {
+                    conditions.push(`EXISTS (${subquery})`)
+                    params.push(key)
+                } else if (op === 'contains') {
+                    conditions.push(`EXISTS (${subquery} AND value LIKE ?)`)
                     params.push(key, `%${value}%`)
                 } else {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                    conditions.push(`EXISTS (${subquery} AND value = ?)`)
                     params.push(key, value)
                 }
             } else if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
                 const key = field.split('.')[1]
                 tables.add('e')
-                if (op === 'contains') {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ? AND value LIKE ?)`)
+                const subquery = `SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ?`
+                if (op === 'isNull') {
+                    conditions.push(`NOT EXISTS (${subquery})`)
+                    params.push(key)
+                } else if (op === 'isNotNull') {
+                    conditions.push(`EXISTS (${subquery})`)
+                    params.push(key)
+                } else if (op === 'contains') {
+                    conditions.push(`EXISTS (${subquery} AND value LIKE ?)`)
                     params.push(key, `%${value}%`)
                 } else {
-                    conditions.push(`EXISTS (SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                    conditions.push(`EXISTS (${subquery} AND value = ?)`)
                     params.push(key, value)
                 }
             } else {
@@ -158,11 +179,13 @@ export function buildWhereFragment(options: FindOptions): {
                 if (def) {
                     if (def.table) tables.add(def.table)
                     switch (op) {
-                        case 'eq':  conditions.push(`${def.sql} = ?`);        params.push(value); break
-                        case 'ne':  conditions.push(`${def.sql} != ?`);       params.push(value); break
-                        case 'contains': conditions.push(`${def.sql} LIKE ?`); params.push(`%${value}%`); break
-                        case 'gt':  conditions.push(`${def.sql} > ?`);        params.push(value); break
-                        case 'lt':  conditions.push(`${def.sql} < ?`);        params.push(value); break
+                        case 'eq':       conditions.push(`${def.sql} = ?`);        params.push(value); break
+                        case 'ne':       conditions.push(`${def.sql} != ?`);       params.push(value); break
+                        case 'contains': conditions.push(`${def.sql} LIKE ?`);     params.push(`%${value}%`); break
+                        case 'gt':       conditions.push(`${def.sql} > ?`);        params.push(value); break
+                        case 'lt':       conditions.push(`${def.sql} < ?`);        params.push(value); break
+                        case 'isNull':   conditions.push(`${def.sql} IS NULL`);    break
+                        case 'isNotNull': conditions.push(`${def.sql} IS NOT NULL`); break
                     }
                 }
             }

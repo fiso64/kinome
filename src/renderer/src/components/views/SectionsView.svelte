@@ -6,12 +6,6 @@
   // import { triggerSeasonEpisodeFetch } from '@lib/item-store'
   import type { AutocompleteSuggestions, Settings } from '@shared/types'
 
-  type VirtualFolder = MediaFolder & {
-    isVirtual: boolean
-    physicalParentId: string
-    groupByKey: string
-    groupByValue: string
-  }
   type DisplayableItem = LibraryItem | SearchIndexEntry
 
   let {
@@ -23,8 +17,8 @@
     settings,
     viewNode
   }: {
-    container?: MediaFolder | VirtualFolder
-    folders: (MediaFolder | VirtualFolder)[]
+    container?: MediaFolder
+    folders: (MediaFolder)[]
     onItemClick: (item: DisplayableItem) => void
     onShowContextMenu: (
       item: DisplayableItem,

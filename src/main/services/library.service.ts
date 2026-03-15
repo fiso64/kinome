@@ -29,8 +29,7 @@ import {
 import {
   VIEW_SETTINGS_KEYS,
   FOLDER_BEHAVIOR_SETTINGS_KEYS,
-  METADATA_KEYS,
-  StoredViewSettings
+  METADATA_KEYS
 } from '@shared/types'
 import type { MediaFolder, LibraryItem, MediaFile, LibraryStatus } from '@shared/types'
 
@@ -717,35 +716,19 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     const childId = updates.overrideChildId
 
     // 1. Resolve the storage item — virtual folders are first-class rows with their own settings
-    let storageItem: MediaFolder | null = null
-    let settingsPath: string[] = []
-
-    storageItem = (repositoryService.getItemById(parentId) as MediaFolder) || null
+    const storageItem = (repositoryService.getItemById(parentId) as MediaFolder) || null
 
     if (storageItem) {
       if (!storageItem.viewSettings) storageItem.viewSettings = {}
 
-      // Locate the target StoredViewSettings object that should own the overrides
-      let targetSettings: StoredViewSettings = storageItem.viewSettings
-      if (settingsPath.length > 0) {
-        if (!storageItem.viewSettings.virtualFolderSettings) {
-          storageItem.viewSettings.virtualFolderSettings = {}
-        }
-        const tokenKey = settingsPath.join('/')
-        if (!storageItem.viewSettings.virtualFolderSettings[tokenKey]) {
-          storageItem.viewSettings.virtualFolderSettings[tokenKey] = {}
-        }
-        targetSettings = storageItem.viewSettings.virtualFolderSettings[tokenKey]
-      }
-
       // Ensure the override plumbing exists
-      if (!targetSettings.childViewSettings) targetSettings.childViewSettings = {}
-      if (!targetSettings.childViewSettings.overrides) {
-        targetSettings.childViewSettings.overrides = {}
+      if (!storageItem.viewSettings.childViewSettings) storageItem.viewSettings.childViewSettings = {}
+      if (!storageItem.viewSettings.childViewSettings.overrides) {
+        storageItem.viewSettings.childViewSettings.overrides = {}
       }
 
       // Update the override
-      targetSettings.childViewSettings.overrides[childId] = updates.viewSettings ?? {}
+      storageItem.viewSettings.childViewSettings.overrides[childId] = updates.viewSettings ?? {}
 
       await updateIfChangedAndBroadcast([storageItem])
       return

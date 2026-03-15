@@ -16,13 +16,6 @@
     ResolutionSource
   } from '@shared/types'
 
-  type VirtualFolderProps = {
-    isVirtual?: boolean
-    physicalParentId?: string
-    groupByKey?: string
-    groupByValue?: string
-  }
-
   let {
     item,
     onClose,
@@ -33,7 +26,7 @@
     settings,
     overrideParent
   }: {
-    item: LibraryItem & VirtualFolderProps
+    item: LibraryItem
     onClose: () => void
     onNeedRefresh?: () => Promise<void>
     initialTab?: 'metadata' | 'view' | 'folder'
@@ -344,63 +337,7 @@
       return null
     }
 
-    if (isVirtual && item.physicalParentId) {
-      // --- Editing a Virtual Folder (Legacy Redirection) ---
-      // Note: We are moving towards 'overrides', but we still support the legacy
-      // virtualFolderSettings storage for now.
-      const settingsToSave: any = {
-        id: item.id,
-        isVirtual: true,
-        physicalParentId: item.physicalParentId,
-        groupByKey: item.groupByKey,
-        groupByValue: item.groupByValue,
-        viewSettings: {}
-      }
-
-      applyViewSettings(settingsToSave.viewSettings)
-
-      if (childViewSettings) {
-        settingsToSave.viewSettings.childViewSettings = JSON.parse(
-          JSON.stringify(childViewSettings)
-        )
-      }
-
-      if (
-        hasChanged(settingsToSave.viewSettings.layout, initialValues.selectedLayout, 'layout') ||
-        hasChanged(
-          settingsToSave.viewSettings.clickAction,
-          initialValues.selectedClickAction,
-          'clickAction'
-        ) ||
-        hasChanged(settingsToSave.viewSettings.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
-        hasChanged(
-          settingsToSave.viewSettings.gridPosterSize,
-          initialValues.gridPosterSize,
-          'gridPosterSize'
-        ) ||
-        hasChanged(
-          settingsToSave.viewSettings.listDescriptionRows,
-          initialValues.listDescriptionRows,
-          'listDescriptionRows'
-        ) ||
-        hasChanged(
-          settingsToSave.viewSettings.showHorizontalScrollbar,
-          initialValues.showHorizontalScrollbar,
-          'showHorizontalScrollbar'
-        ) ||
-        hasChanged(
-          settingsToSave.viewSettings.childViewSettings,
-          initialValues.childViewSettings,
-          'childViewSettings'
-        )
-      ) {
-        console.log(`[ItemSettingsModal] [DEBUG] Virtual folder changes detected.`, settingsToSave)
-        return settingsToSave as LibraryItem
-      }
-      return null
-    }
-
-    // --- Editing a Standard Physical Item ---
+    // --- Editing a Standard Item (Physical or Virtual) ---
 
     // 1. Metadata Changes
     const trimmedTitle = title.trim() ? title.trim() : undefined

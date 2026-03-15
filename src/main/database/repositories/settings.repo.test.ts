@@ -3,7 +3,7 @@
  *
  * These tests enforce that mergeSettings() MERGES partial updates
  * into existing JSON blobs, preserving nested keys like
- * childViewSettings and virtualFolderSettings.
+ * childViewSettings.
  */
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
@@ -32,14 +32,13 @@ describe('mergeSettings (folder_settings merge contract)', () => {
   })
 
   it('preserves existing nested keys when saving a partial update', () => {
-    // Initial state: has childViewSettings and virtualFolderSettings
+    // Initial state: has childViewSettings
     db.prepare(`
       INSERT INTO folder_settings (item_id, view_settings_json)
       VALUES (?, ?)
     `).run('folder1', JSON.stringify({
       layout: 'grid',
-      childViewSettings: { layout: 'list' },
-      virtualFolderSettings: { 'genre:Action': { sortBy: 'year' } }
+      childViewSettings: { layout: 'list' }
     }))
 
     // Simulate a partial merge update (user changes layout only)
@@ -57,7 +56,6 @@ describe('mergeSettings (folder_settings merge contract)', () => {
 
     expect(finalSettings.layout).toBe('list') // Updated
     expect(finalSettings.childViewSettings).toEqual({ layout: 'list' }) // Preserved
-    expect(finalSettings.virtualFolderSettings).toEqual({ 'genre:Action': { sortBy: 'year' } }) // Preserved
   })
 
   it('handles first-time insert (no existing row)', () => {

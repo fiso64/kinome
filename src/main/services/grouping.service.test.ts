@@ -107,32 +107,6 @@ describe('Layout Resolution Sensitivity Matrix', () => {
     })
 
     describe('Additive Merging of Complex Maps', () => {
-        it('merges virtualFolderSettings across all layers', () => {
-            const item = {
-                id: 'f1',
-                mediaType: 'movie',
-                viewSettings: {
-                    layout: 'tabs',
-                    virtualFolderSettings: { 'v1': { title: 'Local V1' } }
-                }
-            } as unknown as MediaFolder
-
-            const inherited: StoredViewSettings = {
-                virtualFolderSettings: { 'v2': { title: 'Inherited V2' } }
-            }
-
-            mockSettings.defaultLayouts.movie = {
-                ...(mockSettings.defaultLayouts.movie as any),
-                virtualFolderSettings: { 'v3': { title: 'Type V3' } }
-            } as any
-
-            const res = resolveViewSettings(item, mockSettings, new Set(), inherited).settings
-            const vfs = res.virtualFolderSettings!
-            expect(vfs['v1'].title).toBe('Local V1')
-            expect(vfs['v2'].title).toBe('Inherited V2')
-            expect(vfs['v3'].title).toBe('Type V3')
-        })
-
         it('merges childViewSettings.overrides across layers', () => {
             const parent = {
                 id: 'p1',
@@ -152,7 +126,7 @@ describe('Layout Resolution Sensitivity Matrix', () => {
         })
     })
 
-    describe('TV Show Defaults', () => {
+    describe('TV Show Defaults (Invariant I3)', () => {
         it('injects season childViewSettings for TV shows', () => {
             const show = { id: 'show1', mediaType: 'tv' } as MediaFolder
             const res = resolveViewSettings(show, mockSettings).settings
@@ -172,6 +146,141 @@ describe('Layout Resolution Sensitivity Matrix', () => {
             const res = resolveViewSettings(show, mockSettings).settings
             expect(res.childViewSettings?.layout).toBe('list')
             expect(res.childViewSettings?.overrides?.['spec'].title).toBe('Special Episode')
+        })
+
+        it('does NOT inject season defaults for non-TV folders', () => {
+            const folder = { id: 'f1', mediaType: 'movie' } as MediaFolder
+            const res = resolveViewSettings(folder, mockSettings).settings
+            // movie default is grid — childViewSettings should not have season layout injected
+            expect(res.childViewSettings?.layout).toBeUndefined()
+        })
+    })
+
+    describe('groupBy Resolution', () => {
+        it('defaults groupBy to "folder" for tabs layout', () => {
+            const item = { id: 'f1', viewSettings: { layout: 'tabs' } } as unknown as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.groupBy).toBe('folder')
+        })
+
+        it('defaults groupBy to "folder" for sections layout', () => {
+            const item = { id: 'f1', viewSettings: { layout: 'sections' } } as unknown as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.groupBy).toBe('folder')
+        })
+
+        it('does NOT default groupBy for grid layout', () => {
+            const item = { id: 'f1' } as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.layout).toBe('grid')
+            expect(res.groupBy).toBeNull()
+        })
+
+        it('explicit groupBy from a layer overrides the default', () => {
+            const item = {
+                id: 'f1',
+                viewSettings: { layout: 'tabs', groupBy: 'year' }
+            } as unknown as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.groupBy).toBe('year')
+        })
+    })
+
+    describe('Layout-Specific Settings', () => {
+        it('pulls gridPosterSize from defaultLayoutSettings when no layer sets it', () => {
+            const item = { id: 'f1' } as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.layout).toBe('grid')
+            expect(res.gridPosterSize).toBe(250) // from defaultLayoutSettings.grid
+        })
+
+        it('layout-specific settings from a winning layer override defaultLayoutSettings', () => {
+            const item = {
+                id: 'f1',
+                viewSettings: { gridPosterSize: 400 }
+            } as unknown as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.gridPosterSize).toBe(400)
+        })
+
+        it('switching layout switches which specific keys are resolved', () => {
+            const item = {
+                id: 'f1',
+                viewSettings: { layout: 'list' }
+            } as unknown as MediaFolder
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.layout).toBe('list')
+            expect(res.listDescriptionRows).toBe(5) // from defaultLayoutSettings.list
+            expect(res.gridPosterSize).toBeUndefined() // grid-specific, not resolved for list
+        })
+    })
+
+    describe('Null/Missing Settings Fallback', () => {
+        it('returns safe defaults when settings is null', () => {
+            const item = { id: 'f1' } as MediaFolder
+            const res = resolveViewSettings(item, null).settings
+            expect(res.layout).toBe('grid')
+            expect(res.clickAction).toBe('detail')
+        })
+
+        it('respects item viewSettings even when global settings is null', () => {
+            const item = {
+                id: 'f1',
+                viewSettings: { layout: 'list', clickAction: 'navigate' }
+            } as unknown as MediaFolder
+            const res = resolveViewSettings(item, null).settings
+            expect(res.layout).toBe('list')
+            expect(res.clickAction).toBe('navigate')
+        })
+
+        it('respects inherited settings when global settings is null', () => {
+            const item = { id: 'f1' } as MediaFolder
+            const inherited: StoredViewSettings = { layout: 'sections' }
+            const res = resolveViewSettings(item, null, new Set(), inherited).settings
+            expect(res.layout).toBe('sections')
+        })
+    })
+
+    describe('Invariant I1: Direct View Isolation', () => {
+        it('without inherited context, parent styling does not leak', () => {
+            // When a user navigates directly to a folder, inheritedSettings is undefined.
+            // The folder should show its own settings, not whatever a parent might have set.
+            const item = {
+                id: 'child1',
+                viewSettings: { layout: 'grid' }
+            } as unknown as MediaFolder
+            // No inherited param → direct navigation
+            const res = resolveViewSettings(item, mockSettings).settings
+            expect(res.layout).toBe('grid')
+        })
+    })
+
+    describe('Invariant I2: Inline Inheritance', () => {
+        it('inherited context overrides local settings (inline/embedded view)', () => {
+            const item = {
+                id: 'child1',
+                viewSettings: { layout: 'grid' }
+            } as unknown as MediaFolder
+            const inherited: StoredViewSettings = { layout: 'list' }
+            const res = resolveViewSettings(item, mockSettings, new Set(), inherited).settings
+            expect(res.layout).toBe('list')
+        })
+
+        it('same item resolves differently depending on inherited context', () => {
+            const item = {
+                id: 'child1',
+                viewSettings: { layout: 'grid', gridPosterSize: 400 }
+            } as unknown as MediaFolder
+            // Direct view — no inheritance
+            const direct = resolveViewSettings(item, mockSettings).settings
+            expect(direct.layout).toBe('grid')
+
+            // Inline view — parent says sections
+            const inline = resolveViewSettings(
+                item, mockSettings, new Set(),
+                { layout: 'sections' }
+            ).settings
+            expect(inline.layout).toBe('sections')
         })
     })
 })
@@ -236,6 +345,17 @@ describe('compileFilter', () => {
         expect(result.where).toBeUndefined()
         expect(result.typedWhere).toBeUndefined()
         expect(result.rawConditions).toEqual(['i.is_virtual = 0'])
+    })
+
+    it('routes isNull to typedWhere without a value', () => {
+        const result = compileFilter({ conditions: [{ field: 'year', op: 'isNull' }] })
+        expect(result.typedWhere).toEqual([{ field: 'year', op: 'isNull' }])
+        expect(result.where).toBeUndefined()
+    })
+
+    it('routes isNotNull to typedWhere without a value', () => {
+        const result = compileFilter({ conditions: [{ field: 'vt.is_anime', op: 'isNotNull' }] })
+        expect(result.typedWhere).toEqual([{ field: 'vt.is_anime', op: 'isNotNull' }])
     })
 })
 

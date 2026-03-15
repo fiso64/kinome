@@ -25,18 +25,14 @@ The user changes the title from "Terminator" to "The Terminator".
 ```
 
 ### Scenario B: User Changes View Settings
-The user changes the sort order of a folder. Metadata (Title, Overview) is untouched.
+The user changes the layout of a folder. Metadata (Title, Overview) is untouched.
 
 **Payload:**
 ```json
 {
   "id": "987fcdeb-51a2-43c1-z789-123456789000",
-  "virtualFolderSettings": {
-    "groupByKey": "genre",
-    "groupByValue": "Action",
-    "settings": {
-      "layout": "list"
-    }
+  "viewSettings": {
+    "layout": "list"
   }
 }
 ```

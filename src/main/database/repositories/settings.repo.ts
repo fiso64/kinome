@@ -15,7 +15,7 @@ export function fetchSettings(itemId: string): any {
 
 /**
  * MERGES partial updates into existing folder settings.
- * Uses Object.assign to preserve nested keys (e.g. childViewSettings, virtualFolderSettings).
+ * Uses Object.assign to preserve nested keys (e.g. childViewSettings).
  * If you need full replacement, write a separate replaceSettings function.
  */
 export function mergeSettings(itemId: string, updates: any): void {
@@ -23,7 +23,7 @@ export function mergeSettings(itemId: string, updates: any): void {
   const existing = (db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any) || {}
 
   // IMPORTANT: We MERGE partial updates into the existing JSON blob, not replace.
-  // This preserves nested keys like childViewSettings and virtualFolderSettings.
+  // This preserves nested keys like childViewSettings.
   const viewSettings = parseJsonSafe(existing.view_settings_json, {})
   if (updates.viewSettings !== undefined && updates.viewSettings !== null) {
     Object.assign(viewSettings, updates.viewSettings)

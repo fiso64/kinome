@@ -44,9 +44,10 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
     })
 
     const uniqueValues = new Set<string>()
+    let hasUncategorized = false
     for (const item of realChildren) {
         const vals = getValuesForKey(item, groupByKey)
-        if (vals.length === 0) uniqueValues.add('Uncategorized')
+        if (vals.length === 0) hasUncategorized = true
         else vals.forEach((v) => uniqueValues.add(v))
     }
 
@@ -63,6 +64,21 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 id,
                 parentId: folderId,
                 name: value,
+                virtualType: 'grouping',
+                filterJson: JSON.stringify(filter)
+            })
+        }
+
+        if (hasUncategorized) {
+            const id = crypto.randomUUID()
+            const filter: LibraryFilter = {
+                scope: { parentId: folderId },
+                conditions: [{ field: groupByKey, op: 'isNull' }]
+            }
+            insertVirtualItem({
+                id,
+                parentId: folderId,
+                name: 'Uncategorized',
                 virtualType: 'grouping',
                 filterJson: JSON.stringify(filter)
             })

@@ -3,12 +3,6 @@
   import { getAssetUrl } from '@lib/api'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
   type DisplayableItem = LibraryItem | SearchIndexEntry
-  type VirtualFolder = MediaFolder & {
-    isVirtual: boolean
-    physicalParentId: string
-    groupByKey: string
-    groupByValue: string
-  }
 
   let {
     items,
@@ -29,7 +23,7 @@
     ) => void
     highlightedIndex?: number | null
     grayOutWatched: boolean
-    parentItem?: MediaFolder | VirtualFolder
+    parentItem?: MediaFolder
     listDescriptionRows?: number | null
     fixedAspectRatio?: boolean
   } = $props()

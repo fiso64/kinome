@@ -79,3 +79,20 @@ export function runTransaction<T>(fn: () => T): T {
   const connection = getDb()
   return connection.transaction(fn)()
 }
+
+/**
+ * Replaces the active database connection with the provided one.
+ * Used by integration tests to point all service code at an in-memory test DB.
+ */
+export function _setDbForTesting(testDb: Database): void {
+  if (db) db.close()
+  db = testDb
+}
+
+/**
+ * Clears the active database reference after test cleanup.
+ * This allows other test files using initializeDatabase() to work correctly.
+ */
+export function _clearDbForTesting(): void {
+  db = null
+}

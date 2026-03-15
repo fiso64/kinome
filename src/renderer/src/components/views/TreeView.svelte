@@ -4,12 +4,6 @@
   import TreeItem from '../ui/TreeItem.svelte'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry
-  type VirtualFolder = MediaFolder & {
-    isVirtual: boolean
-    physicalParentId: string
-    groupByKey: string
-    groupByValue: string
-  }
 
   let {
     items,
@@ -26,7 +20,7 @@
       options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
     grayOutWatched: boolean
-    parentItem?: MediaFolder | VirtualFolder
+    parentItem?: MediaFolder
   } = $props()
 </script>
 

@@ -2,13 +2,6 @@
   import type { MediaFolder, StoredViewSettings, Settings } from '@shared/types'
   import ViewConfigurator from '@ui/ViewConfigurator.svelte'
 
-  type VirtualFolderProps = {
-    isVirtual?: boolean
-    physicalParentId?: string
-    groupByKey?: string
-    groupByValue?: string
-  }
-
   let {
     item,
     groupByKeys,
@@ -23,7 +16,7 @@
     inheritedLabel,
     settings
   }: {
-    item: MediaFolder & VirtualFolderProps
+    item: MediaFolder
     groupByKeys: string[]
     selectedLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     selectedClickAction: 'detail' | 'navigate'
