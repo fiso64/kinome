@@ -11,11 +11,14 @@
  *    DB-driven virtual folder architecture. Use in-memory SQLite directly
  *    (same pattern as query-builder.test.ts and scan-phase1.test.ts).
  */
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { compileFilter } from '../database/query-builder'
+import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
+import { applyGrouping } from './virtualFolders.service'
+import { find, getItemById } from './repository.service'
 import type { StoredViewSettings, Settings, MediaFolder } from '@shared/types'
 
 // =================================================================
@@ -549,4 +552,89 @@ describe('Branch A: pool query SQL contract', () => {
 
         expect(rows.map((r) => r.id)).not.toContain('virt')
     })
+})
+
+// =================================================================
+// Grouping staleness — groups must stay in sync with data changes
+// =================================================================
+
+describe('grouping staleness', () => {
+  let ctx: ServiceTestContext
+
+  beforeEach(() => {
+    ctx = createServiceTestContext()
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', year: 2023 },
+      { id: 'e2', mediaType: 'movie', year: 2024 },
+      { id: 'e3', mediaType: 'movie', year: 2023 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
+      { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
+      { id: 'film3', parentId: 'movies', path: 'movies/film3', entityId: 'e3' },
+    ])
+    ctx.seedGenres('e1', ['Action'])
+    ctx.seedGenres('e2', ['Action', 'Drama'])
+    ctx.seedGenres('e3', ['Comedy'])
+  })
+
+  afterEach(() => {
+    ctx.cleanup()
+  })
+
+  function getGroupNames(parentId: string) {
+    return find({
+      where: { parentId },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    }).map((f) => f.name).sort()
+  }
+
+  it('new genre added after grouping → new group should appear', () => {
+    applyGrouping('movies', 'genre')
+    expect(getGroupNames('movies')).toEqual(['Action', 'Comedy', 'Drama'])
+
+    // Add 'Horror' to film3
+    ctx.seedGenres('e3', ['Comedy', 'Horror'])
+
+    expect(getGroupNames('movies')).toContain('Horror')
+  })
+
+  it('genre emptied after grouping → empty group should disappear', () => {
+    applyGrouping('movies', 'genre')
+    expect(getGroupNames('movies')).toContain('Comedy')
+
+    // Remove Comedy from film3, give it Action instead
+    ctx.db.prepare(`DELETE FROM entity_genres WHERE entity_id = 'e3'`).run()
+    ctx.seedGenres('e3', ['Action'])
+
+    expect(getGroupNames('movies')).not.toContain('Comedy')
+  })
+
+  it('new item with new year added after grouping → new group should appear', () => {
+    applyGrouping('movies', 'year')
+    expect(getGroupNames('movies')).toEqual(['2023', '2024'])
+
+    ctx.seedEntities([{ id: 'e4', mediaType: 'movie', year: 2025 }])
+    ctx.seedItems([{ id: 'film4', parentId: 'movies', path: 'movies/film4', entityId: 'e4' }])
+
+    expect(getGroupNames('movies')).toContain('2025')
+  })
+
+  it('virtual tag changed after grouping → groups should update', () => {
+    ctx.seedVirtualTags('e1', { quality: '4K' })
+    ctx.seedVirtualTags('e2', { quality: '4K' })
+    ctx.seedVirtualTags('e3', { quality: '1080p' })
+
+    applyGrouping('movies', 'vt.quality')
+    expect(getGroupNames('movies')).toEqual(['1080p', '4K'])
+
+    // Change film3 from 1080p to 720p (a new value)
+    ctx.db.prepare(`UPDATE entity_virtual_tags SET value = '720p' WHERE entity_id = 'e3' AND key = 'quality'`).run()
+
+    // 720p group should appear, 1080p should disappear (no items left)
+    expect(getGroupNames('movies')).toContain('720p')
+    expect(getGroupNames('movies')).not.toContain('1080p')
+  })
 })
