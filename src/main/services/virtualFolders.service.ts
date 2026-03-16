@@ -27,6 +27,8 @@ import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { getValuesForKey } from '../database/repo-definitions'
 import { find, getItemById } from './repository.service'
 import { compileFilter } from '../database/query-builder'
+import { fetchSettings } from '../database/repositories/settings.repo'
+import { parseJsonSafe } from '../database/mappers'
 import { displayTitle } from '@shared/display-names'
 import type { LibraryFilter, MediaFolder } from '@shared/types'
 
@@ -62,7 +64,11 @@ function resolveChildrenAndScope(folderId: string) {
         ? folder.filter.scope
         : { parentId: folderId }
 
-    return { realChildren, filterScope }
+    // Carry forward the parent's filter conditions so sub-groupings
+    // intersect with them (e.g., Animation > Movies = genre:Animation AND mediaType:movie)
+    const inheritedConditions = (folder?.isVirtual && folder.filter?.conditions) || []
+
+    return { realChildren, filterScope, inheritedConditions }
 }
 
 /**
@@ -86,7 +92,7 @@ function collectUniqueValues(items: any[], groupByKey: string) {
  * Incrementally adds new groups and removes orphaned ones.
  */
 export function applyGrouping(folderId: string, groupByKey: string): void {
-    const { realChildren, filterScope } = resolveChildrenAndScope(folderId)
+    const { realChildren, filterScope, inheritedConditions } = resolveChildrenAndScope(folderId)
     const { uniqueValues, hasUncategorized } = collectUniqueValues(realChildren, groupByKey)
 
     // Build the desired set of IDs
@@ -113,7 +119,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
             const id = groupingFolderId(folderId, groupByKey, value)
             const filter: LibraryFilter = {
                 scope: filterScope,
-                conditions: [{ field: groupByKey, op: 'eq', value }]
+                conditions: [...inheritedConditions, { field: groupByKey, op: 'eq', value }]
             }
             insertVirtualItem({
                 id,
@@ -130,7 +136,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
             const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
             const filter: LibraryFilter = {
                 scope: filterScope,
-                conditions: [{ field: groupByKey, op: 'isNull' }]
+                conditions: [...inheritedConditions, { field: groupByKey, op: 'isNull' }]
             }
             insertVirtualItem({
                 id,
@@ -145,6 +151,18 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
 
         mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
     })
+
+    // Propagate nested groupings from parent's childViewSettings.
+    // If the parent says "children should group by X", apply that to each
+    // newly created grouping folder (up to a reasonable depth).
+    const parentRow = fetchSettings(folderId)
+    const parentViewSettings = parseJsonSafe(parentRow?.view_settings_json, {}) as any
+    const childGroupBy = parentViewSettings?.childViewSettings?.groupBy
+    if (childGroupBy && childGroupBy !== 'folder' && childGroupBy !== groupByKey) {
+        for (const id of desiredIds) {
+            applyGrouping(id, childGroupBy)
+        }
+    }
 }
 
 /**

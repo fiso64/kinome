@@ -44,10 +44,11 @@ mock.module(LIBRARY_SERVICE_PATH, () => ({
 }))
 
 // Import AFTER mocks are set up
-import { getChildren } from './grouping.service'
+import { getChildren, resolveViewHierarchy } from './grouping.service'
 import { applyGrouping, createUserVirtualFolder, syncVirtualSeasonFolders } from './virtualFolders.service'
+import { mergeSettings } from '../database/repositories/settings.repo'
 import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
-import { getItemById } from './repository.service'
+import { getItemById, find } from './repository.service'
 import type { MediaFolder, LibraryItem } from '@shared/types'
 
 let ctx: ServiceTestContext
@@ -574,5 +575,258 @@ describe('getChildren — end-to-end round-trip', () => {
     const items = expectItems(await getChildren('home', {}))
     expect(items).toHaveLength(2)
     expect(items.map((i) => i.id).sort()).toEqual(['movies', 'tv'])
+  })
+})
+
+// =================================================================
+// Nested grouping propagation (childViewSettings → sub-groupings)
+// =================================================================
+
+describe('getChildren — nested grouping via childViewSettings', () => {
+  beforeEach(() => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', title: 'Spirited Away' },
+      { id: 'e2', mediaType: 'movie', title: 'Rocky' },
+      { id: 'e3', mediaType: 'tv', title: 'Death Note' },
+      { id: 'e4', mediaType: 'tv', title: 'Breaking Bad' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'f1', parentId: 'root', path: 'f1', entityId: 'e1' },
+      { id: 'f2', parentId: 'root', path: 'f2', entityId: 'e2' },
+      { id: 'f3', parentId: 'root', path: 'f3', entityId: 'e3' },
+      { id: 'f4', parentId: 'root', path: 'f4', entityId: 'e4' },
+    ])
+    ctx.seedGenres('e1', ['Animation'])
+    ctx.seedGenres('e2', ['Action'])
+    ctx.seedGenres('e3', ['Animation'])
+    ctx.seedGenres('e4', ['Action'])
+
+    // Configure: root → sections by genre, child layout → sections by mediaType
+    mockSettings = {
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+      },
+      defaultLayoutSettings: {
+        grid: { gridPosterSize: 250 },
+        list: {},
+        tabs: {},
+        sections: {},
+      },
+      virtualTags: [],
+    }
+  })
+
+  it('grouping folders inherit childViewSettings.groupBy as sub-groupings', async () => {
+    // 1. Set childViewSettings on root: each genre folder should group by mediaType
+    mergeSettings('root', {
+      viewSettings: {
+        layout: 'sections',
+        groupBy: 'genre',
+        childViewSettings: {
+          layout: 'sections',
+          groupBy: 'mediaType',
+        },
+      },
+    })
+
+    // 2. Apply genre grouping on root (reads parent's childViewSettings and propagates)
+    applyGrouping('root', 'genre')
+
+    // 3. Get genre grouping folders
+    const genreFolders = find({
+      where: { parentId: 'root' },
+      rawConditions: ['i.is_virtual = 1 AND i.virtual_type = \'grouping\''],
+      fields: ['id', 'name'],
+    })
+    expect(genreFolders.length).toBe(2)
+
+    // 4. Each genre folder should have sub-grouping folders by mediaType
+    for (const genreFolder of genreFolders) {
+      const children = expectItems(await getChildren(genreFolder.id, {}))
+      const subFolders = children.filter((c: any) => c.isVirtual && c.virtualType === 'grouping')
+      expect(subFolders.length).toBeGreaterThan(0)
+
+      const subNames = subFolders.map((f: any) => f.name).sort()
+      // Each genre has both a movie and a tv item, so should have both mediaType sub-groups
+      expect(subNames).toEqual(['movie', 'tv'])
+    }
+
+    // 5. The sub-grouping folders should actually contain the right items
+    //    e.g., Animation > Movies should contain only animated movies
+    const animationFolder = genreFolders.find((f: any) => f.name === 'Animation')!
+    const animSubFolders = expectItems(await getChildren(animationFolder.id, {}))
+    const animMovies = animSubFolders.find((f: any) => f.name === 'movie')!
+    const animMovieChildren = expectItems(await getChildren(animMovies.id, {}))
+    expect(animMovieChildren.length).toBe(1)
+    expect(animMovieChildren[0].id).toBe('f1') // Spirited Away (Animation + movie)
+  })
+
+  it('getChildren embeds children through nested grouping folders', async () => {
+    // Configure root as sections by genre, children as sections by mediaType
+    mergeSettings('root', {
+      viewSettings: {
+        layout: 'sections',
+        groupBy: 'genre',
+        childViewSettings: {
+          layout: 'sections',
+          groupBy: 'mediaType',
+        },
+      },
+    })
+    applyGrouping('root', 'genre')
+
+    // Fetch root's children (the genre grouping folders)
+    // Since root is sections layout, embedChildrenForContainers should run.
+    // Each genre folder has appliedGrouping → its children (mediaType folders)
+    // should also have their children embedded.
+    const rootChildren = expectItems(await getChildren('root', {}))
+    const animation = rootChildren.find((c: any) => c.name === 'Animation')! as MediaFolder
+    expect(animation.children).toBeDefined()
+    expect(animation.children).not.toBeNull()
+    expect(animation.children!.length).toBe(2) // Movies, TV Shows
+
+    const movies = animation.children!.find((c: any) => c.name === 'movie')! as MediaFolder
+    expect(movies.children).toBeDefined()
+    expect(movies.children).not.toBeNull()
+    expect(movies.children!.length).toBe(1)
+    expect(movies.children![0].id).toBe('f1') // Spirited Away
+  })
+
+  it('syncAllGroupings propagates childViewSettings set after initial grouping', async () => {
+    // 1. Apply genre grouping FIRST (no childViewSettings yet)
+    applyGrouping('root', 'genre')
+
+    // Verify: no sub-grouping folders yet
+    const genreFolders = find({
+      where: { parentId: 'root' },
+      rawConditions: ['i.is_virtual = 1 AND i.virtual_type = \'grouping\''],
+      fields: ['id', 'name'],
+    })
+    for (const gf of genreFolders) {
+      const subs = find({
+        where: { parentId: gf.id },
+        rawConditions: ['i.is_virtual = 1'],
+        fields: ['id'],
+      })
+      expect(subs.length).toBe(0)
+    }
+
+    // 2. NOW set childViewSettings
+    mergeSettings('root', {
+      viewSettings: {
+        childViewSettings: {
+          layout: 'sections',
+          groupBy: 'mediaType',
+        },
+      },
+    })
+
+    // 3. Re-sync (triggered by updateIfChangedAndBroadcast in production)
+    const { syncAllGroupings } = await import('./virtualFolders.service')
+    syncAllGroupings()
+
+    // 4. Sub-grouping folders should now exist
+    for (const gf of genreFolders) {
+      const subs = find({
+        where: { parentId: gf.id },
+        rawConditions: ['i.is_virtual = 1 AND i.virtual_type = \'grouping\''],
+        fields: ['id', 'name'],
+      })
+      const subNames = subs.map((s: any) => s.name).sort()
+      expect(subNames).toEqual(['movie', 'tv'])
+    }
+  })
+
+  it('resolveViewHierarchy propagates childViewSettings to grouping folders', async () => {
+    applyGrouping('root', 'genre')
+    mergeSettings('root', {
+      viewSettings: {
+        layout: 'sections',
+        groupBy: 'genre',
+        childViewSettings: {
+          layout: 'sections',
+          groupBy: 'mediaType',
+        },
+      },
+    })
+
+    const hierarchy = await resolveViewHierarchy('root')
+    expect(hierarchy).not.toBeNull()
+    expect(hierarchy!.effective.layout).toBe('sections')
+
+    // Each genre child node should inherit sections by mediaType
+    const childNodes = Object.values(hierarchy!.children ?? {})
+    expect(childNodes.length).toBe(2)
+
+    for (const childNode of childNodes) {
+      expect(childNode.effective.layout).toBe('sections')
+      expect(childNode.effective.groupBy).toBe('mediaType')
+    }
+  })
+})
+
+// =================================================================
+// Invariants I1 & I2 — View Isolation and Inline Inheritance
+// =================================================================
+
+describe('Invariants I1 & I2 — resolveViewHierarchy', () => {
+  beforeEach(() => {
+    ctx = createServiceTestContext()
+
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', title: 'Film A' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'child-folder', parentId: 'root', path: 'child', type: 'folder' },
+      { id: 'f1', parentId: 'child-folder', path: 'child/f1', entityId: 'e1' },
+    ])
+
+    // Parent says: children should use list layout
+    mergeSettings('root', {
+      viewSettings: {
+        layout: 'sections',
+        childViewSettings: { layout: 'list' },
+      },
+    })
+
+    mockSettings = {
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+      },
+      defaultLayoutSettings: {
+        grid: { gridPosterSize: 250 },
+        list: {},
+        tabs: {},
+        sections: {},
+      },
+      virtualTags: [],
+    }
+  })
+
+  afterEach(() => {
+    ctx.cleanup()
+  })
+
+  it('I1: direct navigation resolves in a vacuum (no parent inheritance)', async () => {
+    // Resolving child-folder at the top level (as if the user navigated to it).
+    // It has no own viewSettings → should fall back to global default (grid),
+    // NOT inherit parent's childViewSettings (list).
+    const hierarchy = await resolveViewHierarchy('child-folder', false)
+    expect(hierarchy).not.toBeNull()
+    expect(hierarchy!.effective.layout).toBe('grid')
+  })
+
+  it('I2: inline rendering inherits parent childViewSettings', async () => {
+    // Resolving from root (sections layout) → child-folder is rendered inline.
+    // It should inherit root's childViewSettings (list).
+    const hierarchy = await resolveViewHierarchy('root')
+    expect(hierarchy).not.toBeNull()
+    expect(hierarchy!.effective.layout).toBe('sections')
+
+    const childNode = hierarchy!.children?.['child-folder']
+    expect(childNode).toBeDefined()
+    expect(childNode!.effective.layout).toBe('list')
   })
 })

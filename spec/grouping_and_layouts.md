@@ -137,6 +137,6 @@ To enable responsive navigation and "Deep Tabs," Kinome provides a side-channel 
 
 ## 7. Edge Cases & Error Handling
 
-- **Circular Nesting**: `resolveEffectiveSettings` maintains a `visited` set to prevent infinite loops.
+- **Circular Nesting**: `resolveViewHierarchy` maintains a depth counter (capped at 10) to prevent infinite loops.
 - **Orphan Cleanup**: `syncVirtualSeasonFolders` deletes virtual season folders whose season number no longer appears in any child episode.
 - **Uncategorized Filter**: Uses `{op: 'isNull'}` to correctly match items with NULL values for the grouping key, rather than comparing against a sentinel string.

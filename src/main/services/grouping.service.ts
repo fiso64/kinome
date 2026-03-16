@@ -127,10 +127,13 @@ export async function getChildren(
     })
   }
 
-  // 6. Eagerly embed children for container-layout folders
+  // 6. Eagerly embed children for container-layout folders.
+  // Also embed when the folder has an active grouping — its children are
+  // virtual grouping folders that need their own children pre-fetched.
   const settings = await readSettings()
-  const parentSettings = await resolveEffectiveSettings(targetId, settings)
-  if (['tabs', 'sections'].includes(parentSettings.layout)) {
+  const ownSettings = resolveViewSettings(item as any, settings).settings
+  const hasGrouping = !!item.viewSettings?.appliedGrouping
+  if (['tabs', 'sections'].includes(ownSettings.layout) || hasGrouping) {
     await embedChildrenForContainers(items, opts)
   }
 
@@ -153,40 +156,6 @@ async function embedChildrenForContainers(
       ;(item as MediaFolder).children = result
     }
   }
-}
-
-/**
- * Consistently resolves the effective view settings for any item ID,
- * correctly handling the inheritance chain.
- */
-export async function resolveEffectiveSettings(
-  itemId: string,
-  settings: any,
-  visited: Set<string> = new Set()
-): Promise<any> {
-  if (visited.has(itemId)) {
-    console.log(`[GroupingService] Circular dependency detected for ${itemId}, breaking recursion.`)
-    return resolveViewSettings(null, settings).settings
-  }
-  visited.add(itemId)
-
-  let targetId = itemId
-  if (itemId === 'root') {
-    const status = await getLibraryRoot()
-    if (status.status !== 'ready' || !status.root)
-      return resolveViewSettings(null, settings).settings
-    targetId = status.root.id
-  }
-
-  const item = getItemById(targetId)
-  if (!item) return resolveViewSettings(null, settings).settings
-
-  // Base case: root real items have no inheritance
-  if (!item.isVirtual && (!item.parentId || item.parentId === 'root')) {
-    return resolveViewSettings(item as any, settings).settings
-  }
-
-  return resolveViewSettings(item as any, settings).settings
 }
 
 /**

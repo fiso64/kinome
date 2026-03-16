@@ -228,8 +228,6 @@ Maps `filter.scope.parentId` to `where.parentId` and `filter.conditions` to type
 
 ### What to keep / rewrite
 
-**`resolveEffectiveSettings`** — unchanged.
-
 **`resolveViewHierarchy`** — survives. Replace the `getGroupsOnly` call with a direct DB folder children query. The recursion structure and settings-resolution logic inside are otherwise unchanged:
 
 ```ts
@@ -269,13 +267,11 @@ This second job must survive. After the refactor it is much simpler:
 ```ts
 async function embedChildrenForContainers(items, options):
   for each item where item.type === 'folder':
-    effectiveSettings = resolveEffectiveSettings(item.id)
-    if effectiveSettings.layout in ['tabs', 'sections']:
-      item.children = await getChildren(item.id, options)  // recurses naturally
+    item.children = await getChildren(item.id, options)  // recurses naturally
   return items
 ```
 
-`getChildren` is called recursively on each container child. Since `getChildren` itself handles pool query compilation for virtual folders, the embedding works identically for real folders and virtual grouping folders — no special-casing needed.
+Embedding is triggered in `getChildren` when the folder's resolved layout is `tabs`/`sections` OR when it has an active grouping (`appliedGrouping`). `getChildren` is called recursively on each container child. Since it handles pool query compilation for virtual folders, the embedding works identically for real folders and virtual grouping folders — no special-casing needed.
 
 The "Files" transient group (catch-all for loose non-folder items within a container level) is built inside `embedChildrenForContainers` when a pool query or real children query returns loose file-type items alongside folders.
 

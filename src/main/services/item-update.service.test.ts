@@ -97,6 +97,7 @@ describe('updateIfChangedAndBroadcast', () => {
   it('re-evaluates virtual tags when item metadata changes', async () => {
     const settings = makeSettings({
       virtualTags: [{
+        id: 'vt-animated',
         name: 'is_animated',
         cases: [
           {
