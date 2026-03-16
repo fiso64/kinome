@@ -18,6 +18,7 @@ import { resolveViewSettings } from '@shared/settings-helpers'
 import { compileFilter } from '../database/query-builder'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { applyGrouping, syncAllGroupings } from './virtualFolders.service'
+import { applyVirtualTags } from './virtualTags.service'
 import { find, getItemById } from './repository.service'
 import type { StoredViewSettings, Settings, MediaFolder } from '@shared/types'
 
@@ -640,5 +641,48 @@ describe('grouping staleness', () => {
     // 720p group should appear, 1080p should disappear (no items left)
     expect(getGroupNames('movies')).toContain('720p')
     expect(getGroupNames('movies')).not.toContain('1080p')
+  })
+
+  it('genre change triggers vtag re-evaluation and grouping update', () => {
+    // Setup: is_animated vtag depends on genres containing "Animation"
+    const vtagConfig = [{
+      id: 'vt-animated',
+      name: 'is_animated',
+      cases: [{ filter: { conditions: [{ field: 'genre', op: 'contains' as const, value: 'Animation' }] }, result: 'Animated' }],
+      defaultResult: 'Live Action'
+    }]
+
+    // film1 has Animation genre, film2 and film3 don't
+    ctx.seedGenres('e1', ['Action', 'Animation'])
+    ctx.seedGenres('e2', ['Action'])
+    ctx.seedGenres('e3', ['Drama'])
+
+    // Compute and persist vtags
+    applyVirtualTags(vtagConfig)
+
+    // Group by the vtag
+    applyGrouping('movies', 'vt.is_animated')
+    expect(getGroupNames('movies')).toEqual(['Animated', 'Live Action'])
+
+    // Now add Animation to film2's genres
+    ctx.db.prepare(`DELETE FROM entity_genres WHERE entity_id = 'e2'`).run()
+    ctx.seedGenres('e2', ['Action', 'Animation'])
+
+    // Re-evaluate vtags for the changed item, then sync groupings.
+    // This is what updateIfChangedAndBroadcast should do after persisting.
+    applyVirtualTags(vtagConfig, ['film2'])
+    syncAllGroupings()
+
+    // Verify the Animated group now contains both film1 and film2
+    const animatedFolder = find({
+      where: { parentId: 'movies' },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    }).find((f) => f.name === 'Animated')!
+    const full = getItemById(animatedFolder.id) as MediaFolder
+    const children = find(compileFilter(full.filter!))
+
+    // This FAILS: film2 should now be Animated, but entity_virtual_tags wasn't updated
+    expect(children).toHaveLength(2)
+    expect(children.map((c) => c.id).sort()).toEqual(['film1', 'film2'])
   })
 })

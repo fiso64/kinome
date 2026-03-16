@@ -114,9 +114,17 @@ export async function updateIfChangedAndBroadcast(
 
   if (modifiedItems.length === 0) return
 
+  // Re-evaluate virtual tags for modified items. The in-memory evaluation
+  // (evaluateVirtualTagsForItem above) only sets values on the item object
+  // for broadcasting — it doesn't persist to entity_virtual_tags.
+  // applyVirtualTags writes to the DB via SQL so downstream queries see
+  // updated vtag values (e.g. grouping by vt.is_animated after a genre change).
+  if (settings.virtualTags?.length) {
+    const itemIds = modifiedItems.map((i) => i.id)
+    virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
+  }
+
   // Re-sync grouping virtual folders if any active groupings exist.
-  // This is cheap (one query + set diff per active grouping) and ensures
-  // grouping folders stay in sync after metadata changes.
   syncAllGroupings()
 
   const plainItems = JSON.parse(JSON.stringify(modifiedItems))
