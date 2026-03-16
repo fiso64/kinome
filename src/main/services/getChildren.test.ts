@@ -322,10 +322,44 @@ describe('getChildren — contextual sorting', () => {
 // =================================================================
 
 describe('getChildren — embedChildrenForContainers', () => {
-  beforeEach(() => {
+  it('tabs parent embeds children for grid-layout child folders', async () => {
+    // Simulates: TV show (tabs) → physical Season folders (grid) → episodes
     ctx.seedEntities([
-      { id: 'e1', mediaType: 'movie', year: 2023 },
-      { id: 'e2', mediaType: 'movie', year: 2024 },
+      { id: 'e-show', mediaType: 'tv' },
+      { id: 'e-s1', mediaType: 'season', seasonNumber: 1 },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'e-s1' },
+      { id: 'ep1', parentId: 's1', path: 'show/s1/ep1', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 's1', path: 'show/s1/ep2', entityId: 'e-ep2' },
+    ])
+    // show gets tabs layout via TV default; season children get grid
+    mockSettings = {
+      ...mockSettings,
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+        tv: { layout: 'tabs', clickAction: 'navigate' },
+      },
+    }
+
+    const result = await getChildren('show', {})
+    const items = expectItems(result)
+
+    const s1Item = items.find((i) => i.id === 's1') as MediaFolder
+    expect(s1Item).toBeTruthy()
+    expect(Array.isArray(s1Item.children)).toBe(true)
+    expect(s1Item.children).toHaveLength(2)
+    expect(s1Item.children!.map((c: any) => c.id).sort()).toEqual(['ep1', 'ep2'])
+  })
+
+  it('sections parent embeds children for child folders', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie' },
+      { id: 'e2', mediaType: 'movie' },
     ])
     ctx.seedItems([
       { id: 'root', parentId: null, path: '.', type: 'folder' },
@@ -333,35 +367,29 @@ describe('getChildren — embedChildrenForContainers', () => {
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
     ])
-  })
-
-  it('embeds children for folders with tabs layout', async () => {
-    // Apply grouping so movies has grouping folders as children
+    // Apply grouping so movies has virtual grouping children
     applyGrouping('movies', 'year')
-
-    // Set root to use tabs layout so its children (movies) get embedded
     mockSettings = {
       ...mockSettings,
       defaultLayouts: {
-        _default: { layout: 'tabs', clickAction: 'detail' },
+        _default: { layout: 'sections', clickAction: 'detail' },
       },
     }
 
     const result = await getChildren('root', {})
     const items = expectItems(result)
 
-    // root → movies (a folder with tabs layout → children should be embedded)
     const moviesItem = items.find((i) => i.id === 'movies') as MediaFolder
     expect(moviesItem).toBeTruthy()
-    // Since movies has appliedGrouping, its embedded children should be grouping folders
-    if (moviesItem.children) {
-      expect(Array.isArray(moviesItem.children)).toBe(true)
-      const childNames = moviesItem.children!.map((c: any) => c.name).sort()
-      expect(childNames).toEqual(['2023', '2024'])
-    }
+    expect(Array.isArray(moviesItem.children)).toBe(true)
   })
 
-  it('does NOT embed children for folders with grid layout', async () => {
+  it('grid parent does NOT embed children', async () => {
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'sub', parentId: 'root', path: 'sub', type: 'folder' },
+      { id: 'child', parentId: 'sub', path: 'sub/child' },
+    ])
     mockSettings = {
       ...mockSettings,
       defaultLayouts: {
@@ -372,10 +400,45 @@ describe('getChildren — embedChildrenForContainers', () => {
     const result = await getChildren('root', {})
     const items = expectItems(result)
 
-    const moviesItem = items.find((i) => i.id === 'movies') as MediaFolder
-    expect(moviesItem).toBeTruthy()
-    // Grid layout → children should NOT be embedded (null from folder init)
-    expect(moviesItem.children).toBeNull()
+    const subItem = items.find((i) => i.id === 'sub') as MediaFolder
+    expect(subItem).toBeTruthy()
+    expect(subItem.children).toBeNull()
+  })
+
+  it('embedding recurses for nested container layouts', async () => {
+    // root (tabs) → section-folder (sections) → inner-folder (grid) → items
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'section-folder', parentId: 'root', path: 'sf', type: 'folder' },
+      { id: 'inner-folder', parentId: 'section-folder', path: 'sf/inner', type: 'folder' },
+      { id: 'item1', parentId: 'inner-folder', path: 'sf/inner/item1' },
+    ])
+    // section-folder explicitly uses sections layout
+    ctx.seedFolderSettings([
+      { itemId: 'section-folder', viewSettings: { layout: 'sections' } },
+    ])
+    mockSettings = {
+      ...mockSettings,
+      defaultLayouts: {
+        _default: { layout: 'tabs', clickAction: 'detail' },
+      },
+    }
+
+    const result = await getChildren('root', {})
+    const items = expectItems(result)
+
+    // root is tabs → section-folder gets children embedded
+    const sf = items.find((i) => i.id === 'section-folder') as MediaFolder
+    expect(sf).toBeTruthy()
+    expect(Array.isArray(sf.children)).toBe(true)
+    expect(sf.children).toHaveLength(1)
+
+    // section-folder is sections → inner-folder gets children embedded too
+    const inner = sf.children![0] as MediaFolder
+    expect(inner.id).toBe('inner-folder')
+    expect(Array.isArray(inner.children)).toBe(true)
+    expect(inner.children).toHaveLength(1)
+    expect(inner.children![0].id).toBe('item1')
   })
 })
 
@@ -467,6 +530,37 @@ describe('getChildren — end-to-end round-trip', () => {
     const s2Episodes = expectItems(await getChildren(s2.id, {}))
     expect(s2Episodes).toHaveLength(1)
     expect(s2Episodes[0].id).toBe('ep3')
+  })
+
+  it('full cycle: home with grouping → returns grouping virtual folders, not raw pool items', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie' },
+      { id: 'e2', mediaType: 'tv' },
+      { id: 'e3', mediaType: 'movie' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'film1', type: 'folder', entityId: 'e1' },
+      { id: 'show1', parentId: 'root', path: 'show1', type: 'folder', entityId: 'e2' },
+      { id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e3' },
+    ])
+    ensureHomeVirtualFolder('root')
+
+    // Apply grouping by mediaType on the home virtual folder
+    applyGrouping(HOME_FOLDER_ID, 'mediaType')
+
+    // getChildren('home') should return grouping virtual folders (movie, tv),
+    // NOT the raw pool items (film1, show1, film2)
+    const result = await getChildren('home', {})
+    const items = expectItems(result)
+
+    expect(items).toHaveLength(2)
+    const names = items.map((i) => i.name).sort()
+    expect(names).toEqual(['movie', 'tv'])
+    for (const item of items) {
+      expect(item.isVirtual).toBe(true)
+      expect(item.virtualType).toBe('grouping')
+    }
   })
 
   it('full cycle: home → shows root children including virtual folders', async () => {

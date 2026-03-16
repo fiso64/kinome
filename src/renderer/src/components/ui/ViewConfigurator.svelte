@@ -352,53 +352,51 @@
     </div>
   {/if}
 
-  <!-- Tabs/Sections-specific settings -->
-  {#if layoutToShowOptionsFor === 'tabs' || layoutToShowOptionsFor === 'sections'}
+  <!-- Group By -->
+  <div class="divider"></div>
+  <div class="heading-with-action">
+    <h4>Group By</h4>
+    {#if !configMode}
+      {#if isGroupByOverridden}
+        <button class="link-button" onclick={() => (selectedGroupBy = null)}
+          >Reset to default</button
+        >
+      {:else}
+        <span class="inherited-value-text-inline">
+          Using default from <strong>{formatSource(inheritedInfo.sources.groupBy)}</strong>
+        </span>
+      {/if}
+    {/if}
+  </div>
+  <p class="help-text">
+    Choose the {configMode ? 'default ' : ''}metadata field to group contents by. Items will be organized into virtual subfolders.
+  </p>
+  <div class="form-group">
+    <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
+      {#if groupByKeys}
+        {#each groupByKeys as key (key)}
+          <option value={key}>{formatKey(key)}</option>
+        {/each}
+      {/if}
+    </select>
+  </div>
+
+  {#if !configMode}
     <div class="divider"></div>
     <div class="heading-with-action">
-      <h4>Group By</h4>
-      {#if !configMode}
-        {#if isGroupByOverridden}
-          <button class="link-button" onclick={() => (selectedGroupBy = null)}
-            >Reset to default</button
-          >
-        {:else}
-          <span class="inherited-value-text-inline">
-            Using default from <strong>{formatSource(inheritedInfo.sources.groupBy)}</strong>
-          </span>
-        {/if}
+      <h4>Child Item Layout</h4>
+      {#if childViewSettings}
+        <button class="link-button" onclick={() => (childViewSettings = null)}>Reset</button>
       {/if}
     </div>
     <p class="help-text">
-      Choose the {configMode ? 'default ' : ''}metadata field to group contents into {layoutToShowOptionsFor}.
+      Optionally override the layout used for items inside each group. If not set, each
+      item will use its own default view.
     </p>
-    <div class="form-group">
-      <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
-        {#if groupByKeys}
-          {#each groupByKeys as key (key)}
-            <option value={key}>{formatKey(key)}</option>
-          {/each}
-        {/if}
-      </select>
+    <div class="view-config-row" onclick={openChildSettings}>
+      <span>{formatLayoutString(childViewSettings)}</span>
+      <button class="secondary" tabindex="-1">Configure...</button>
     </div>
-
-    {#if !configMode}
-      <div class="divider"></div>
-      <div class="heading-with-action">
-        <h4>Child Item Layout</h4>
-        {#if childViewSettings}
-          <button class="link-button" onclick={() => (childViewSettings = null)}>Reset</button>
-        {/if}
-      </div>
-      <p class="help-text">
-        Optionally override the layout used for items *inside* each tab or section. If not set, each
-        item will use its own default view.
-      </p>
-      <div class="view-config-row" onclick={openChildSettings}>
-        <span>{formatLayoutString(childViewSettings)}</span>
-        <button class="secondary" tabindex="-1">Configure...</button>
-      </div>
-    {/if}
   {/if}
   <!-- List-specific settings -->
   {#if layoutToShowOptionsFor === 'list'}
@@ -439,6 +437,7 @@
     </div>
   {/if}
 
+  <!-- On Click settings hidden for now — feature exists but adds UI clutter
   {#if !configMode && showClickAction}
     <div class="divider"></div>
     <div class="heading-with-action">
@@ -470,6 +469,7 @@
       {/each}
     </div>
   {/if}
+  -->
 </div>
 
 <style>

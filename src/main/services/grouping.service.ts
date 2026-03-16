@@ -83,14 +83,11 @@ export async function getChildren(
   let items: LibraryItem[]
 
   if (item.isVirtual) {
-    // Branch A: virtual folder — compile filter and run find()
-    const filter = (item as MediaFolder).filter
-    if (!filter) {
-      items = []
-    } else {
-      const compiled = compileFilter(filter)
+    if (item.viewSettings?.appliedGrouping) {
+      // Branch A1: virtual folder with grouping — return grouping/season/user children
       items = find({
-        ...compiled,
+        where: { parentId: targetId },
+        rawConditions: [childrenFilter(item)],
         fields: opts.fields,
         orderBy: opts.orderBy,
         limit: opts.limit,
@@ -98,6 +95,23 @@ export async function getChildren(
         includeHidden: opts.includeHidden,
         includeIgnored: opts.includeIgnored
       })
+    } else {
+      // Branch A2: virtual folder without grouping — compile filter and run find()
+      const filter = (item as MediaFolder).filter
+      if (!filter) {
+        items = []
+      } else {
+        const compiled = compileFilter(filter)
+        items = find({
+          ...compiled,
+          fields: opts.fields,
+          orderBy: opts.orderBy,
+          limit: opts.limit,
+          offset: opts.offset,
+          includeHidden: opts.includeHidden,
+          includeIgnored: opts.includeIgnored
+        })
+      }
     }
   } else {
     // Branch B/C: list real folder's children (grouping-aware)
@@ -114,31 +128,31 @@ export async function getChildren(
   }
 
   // 6. Eagerly embed children for container-layout folders
-  return embedChildrenForContainers(items, opts)
+  const settings = await readSettings()
+  const parentSettings = await resolveEffectiveSettings(targetId, settings)
+  if (['tabs', 'sections'].includes(parentSettings.layout)) {
+    await embedChildrenForContainers(items, opts)
+  }
+
+  return items
 }
 
 /**
- * For any folder item using a tabs or sections layout, recursively fetches
- * and embeds its children. Prevents N+1 requests from the frontend.
+ * When a parent uses a tabs or sections layout, its child folders need their
+ * children pre-fetched so the frontend can render tab content without N+1.
+ * Recurses if a child is itself a container layout.
  */
 async function embedChildrenForContainers(
   items: LibraryItem[],
   options: FindOptions
-): Promise<LibraryItem[]> {
-  const settings = await readSettings()
-
+): Promise<void> {
   for (const item of items) {
     if (item.type !== 'folder') continue
-    const effectiveSettings = await resolveEffectiveSettings(item.id, settings)
-    if (['tabs', 'sections'].includes(effectiveSettings.layout)) {
-      const result = await getChildren(item.id, { fields: options.fields })
-      if (Array.isArray(result)) {
-        ;(item as MediaFolder).children = result
-      }
+    const result = await getChildren(item.id, { fields: options.fields })
+    if (Array.isArray(result)) {
+      ;(item as MediaFolder).children = result
     }
   }
-
-  return items
 }
 
 /**

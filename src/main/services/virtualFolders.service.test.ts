@@ -199,6 +199,20 @@ describe('applyGrouping — complex', () => {
     const actionChildren = find(compileFilter(action.filter!))
     expect(actionChildren).toHaveLength(2)
     expect(actionChildren.map((c) => c.id).sort()).toEqual(['film1', 'film2'])
+
+    // Sci-Fi folder should contain only film1
+    const scifiRaw = groupingFolders.find((f) => f.name === 'Sci-Fi')!
+    const scifi = getItemById(scifiRaw.id) as MediaFolder
+    const scifiChildren = find(compileFilter(scifi.filter!))
+    expect(scifiChildren).toHaveLength(1)
+    expect(scifiChildren[0].id).toBe('film1')
+
+    // Uncategorized should contain film3 (no genres)
+    const uncatRaw = groupingFolders.find((f) => f.name === 'Uncategorized')!
+    const uncat = getItemById(uncatRaw.id) as MediaFolder
+    const uncatChildren = find(compileFilter(uncat.filter!))
+    expect(uncatChildren).toHaveLength(1)
+    expect(uncatChildren[0].id).toBe('film3')
   })
 
   it('switching grouping key replaces old grouping folders', () => {
@@ -226,6 +240,99 @@ describe('applyGrouping — complex', () => {
 
     const moviesFolder = getItemById('movies') as MediaFolder
     expect(moviesFolder.viewSettings?.appliedGrouping).toBe('vt.quality')
+  })
+})
+
+// =================================================================
+// applyGrouping on virtual folders
+// =================================================================
+
+describe('applyGrouping on virtual folders', () => {
+  beforeEach(() => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', year: 2023 },
+      { id: 'e2', mediaType: 'tv', year: 2024 },
+      { id: 'e3', mediaType: 'movie', year: 2024 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'film1', type: 'folder', entityId: 'e1' },
+      { id: 'show1', parentId: 'root', path: 'show1', type: 'folder', entityId: 'e2' },
+      { id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e3' },
+    ])
+    ensureHomeVirtualFolder('root')
+  })
+
+  it('groups the home virtual folder by mediaType', () => {
+    applyGrouping(HOME_FOLDER_ID, 'mediaType')
+
+    const groupingFolders = find({
+      where: { parentId: HOME_FOLDER_ID },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    })
+    expect(groupingFolders).toHaveLength(2)
+    expect(groupingFolders.map((f) => f.name).sort()).toEqual(['movie', 'tv'])
+  })
+
+  it('grouping folder filters scope to the virtual folder pool, not the virtual folder ID', () => {
+    applyGrouping(HOME_FOLDER_ID, 'mediaType')
+
+    const movieFolder = find({
+      where: { parentId: HOME_FOLDER_ID },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    }).find((f) => f.name === 'movie')!
+
+    const full = getItemById(movieFolder.id) as MediaFolder
+    const children = find(compileFilter(full.filter!))
+
+    // Should find both movies (film1, film2) — scoped to root's children, not virtual-home's
+    expect(children).toHaveLength(2)
+    expect(children.map((c) => c.id).sort()).toEqual(['film1', 'film2'])
+  })
+
+  it('groups home by genre (singular alias key)', () => {
+    ctx.seedGenres('e1', ['Action', 'Sci-Fi'])
+    ctx.seedGenres('e2', ['Drama'])
+    ctx.seedGenres('e3', ['Action'])
+
+    // Frontend sends 'genre' (singular) via the groupBy keys list,
+    // but the schema field is 'genres' (plural).
+    applyGrouping(HOME_FOLDER_ID, 'genre')
+
+    const groupingFolders = find({
+      where: { parentId: HOME_FOLDER_ID },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    })
+    const names = groupingFolders.map((f) => f.name).sort()
+    expect(names).toEqual(['Action', 'Drama', 'Sci-Fi'])
+
+    // Action should contain film1 and film2
+    const actionRaw = groupingFolders.find((f) => f.name === 'Action')!
+    const action = getItemById(actionRaw.id) as MediaFolder
+    const actionChildren = find(compileFilter(action.filter!))
+    expect(actionChildren).toHaveLength(2)
+    expect(actionChildren.map((c) => c.id).sort()).toEqual(['film1', 'film2'])
+  })
+
+  it('applyGrouping with unresolved alias "home" throws (must resolve to real ID first)', () => {
+    // Reproduces the real bug: the PATCH endpoint was passing 'home' (alias)
+    // instead of 'virtual-home' (the real DB id). The FK constraint catches this.
+    expect(() => applyGrouping('home', 'mediaType')).toThrow()
+  })
+
+  it('grouping folder filters resolve correctly for tv mediaType', () => {
+    applyGrouping(HOME_FOLDER_ID, 'mediaType')
+
+    const tvFolder = find({
+      where: { parentId: HOME_FOLDER_ID },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    }).find((f) => f.name === 'tv')!
+
+    const full = getItemById(tvFolder.id) as MediaFolder
+    const children = find(compileFilter(full.filter!))
+
+    expect(children).toHaveLength(1)
+    expect(children[0].id).toBe('show1')
   })
 })
 

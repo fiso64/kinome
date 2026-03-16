@@ -86,9 +86,9 @@
   })
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
 
-  const isRoot = $derived(currentFolderId === 'root' || currentFolder?.path === '.')
+  const isHome = $derived(currentFolderId === 'home' || currentFolder?.id === 'virtual-home')
   const latestBackdrop = $derived(
-    isRoot && settings?.showContinueWatching ? continueWatchingItems[0]?.show?.backdropPath : null
+    isHome && settings?.showContinueWatching ? continueWatchingItems[0]?.show?.backdropPath : null
   )
   function handleScroll(e: Event) {
     const target = e.target as HTMLElement
@@ -109,7 +109,7 @@
     {#key currentFolder.id}
       <div class="view-transition-inner">
         <ViewContextProvider id={currentFolder.id}>
-          {#if isRoot}
+          {#if isHome}
             <HomeView
               {continueWatchingItems}
               parentItem={currentFolder}

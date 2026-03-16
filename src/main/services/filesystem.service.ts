@@ -282,7 +282,7 @@ export async function scanDirectory(
 ): Promise<MediaFolder | null> {
   log(`Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`)
 
-  itemsRepo.ensureRootExists(mediaSourcePath)
+  repositoryService.ensureRootExists(mediaSourcePath)
 
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {

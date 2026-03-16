@@ -147,12 +147,9 @@ export function resolveViewSettings(
     }
   }
 
-  // Resolve groupBy (defaults to 'folder' for tabs/sections)
+  // Resolve groupBy (defaults to 'folder' — no grouping)
   const groupByLayer = cascadeLayers.find((layer) => layer.settings.groupBy)
-  let resolvedGroupBy = groupByLayer?.settings.groupBy ?? null
-  if (!resolvedGroupBy && (resolvedBase.layout === 'tabs' || resolvedBase.layout === 'sections')) {
-    resolvedGroupBy = 'folder'
-  }
+  let resolvedGroupBy = groupByLayer?.settings.groupBy ?? 'folder'
 
   resolvedBase.childViewSettings = resolvedChildViewSettings
   resolvedBase.groupBy = resolvedGroupBy

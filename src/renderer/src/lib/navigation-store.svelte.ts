@@ -5,7 +5,7 @@ import { viewStateStore } from './view-state-store.svelte'
 // --- Types ---
 
 interface NavigationState {
-  currentFolderId: string // 'root' = Root
+  currentFolderId: string // 'home' = Home virtual folder
   selectedItemId: string | null // For Detail View
   path: string // '/' or '/settings'
   globalQuery: SearchQuery // Unified source of truth for global search
@@ -14,7 +14,7 @@ interface NavigationState {
 // --- State ---
 
 let currentState = $state<NavigationState>({
-  currentFolderId: 'root',
+  currentFolderId: 'home',
   selectedItemId: null,
   path: '/',
   globalQuery: { text: '', tags: [] }
@@ -32,7 +32,7 @@ function getUrlParams(): URLSearchParams {
 
 function parseUrl() {
   const params = getUrlParams()
-  const folder = params.get('folder')?.trim() || 'root'
+  const folder = params.get('folder')?.trim() || 'home'
   const item = params.get('item')?.trim() || null
   const queryStr = params.get('q')?.trim() || null
   const queryObj = deserializeSearchQuery(queryStr)
@@ -89,11 +89,11 @@ function navigateToFolder(folderId: string) {
   updateUrl()
 }
 
-function navigateToRoot() {
-  currentState.currentFolderId = 'root'
+function navigateToHome() {
+  currentState.currentFolderId = 'home'
   currentState.selectedItemId = null
   currentState.path = '/'
-  currentState.globalQuery = { text: '', tags: [] } // Clear search on root
+  currentState.globalQuery = { text: '', tags: [] }
   updateUrl()
 }
 
@@ -139,7 +139,7 @@ function goBack() {
   if (window.history.length > 1) {
     history.back()
   } else {
-    navigateToRoot()
+    navigateToHome()
   }
 }
 
@@ -164,7 +164,7 @@ export const navStore = {
   },
   get canGoBack() {
     return (
-      (currentState.currentFolderId !== 'root' && currentState.currentFolderId !== null) ||
+      (currentState.currentFolderId !== 'home' && currentState.currentFolderId !== null) ||
       currentState.selectedItemId !== null ||
       currentState.path !== '/'
     )
@@ -173,8 +173,8 @@ export const navStore = {
   navigateToFolder: (folderId: string) => {
     navigateToFolder(folderId)
   },
-  navigateToRoot: () => {
-    navigateToRoot()
+  navigateToHome: () => {
+    navigateToHome()
   },
   navigateToSettings: () => {
     navigateToSettings()

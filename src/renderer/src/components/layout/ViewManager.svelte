@@ -74,7 +74,7 @@
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
   const isHomeView = $derived(
     navStore.state.path === '/' &&
-      navStore.state.currentFolderId === 'root' &&
+      navStore.state.currentFolderId === 'home' &&
       !navStore.state.selectedItemId
   )
 

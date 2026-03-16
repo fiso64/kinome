@@ -169,11 +169,11 @@ describe('Layout Resolution Sensitivity Matrix', () => {
             expect(res.groupBy).toBe('folder')
         })
 
-        it('does NOT default groupBy for grid layout', () => {
+        it('defaults groupBy to "folder" for all layouts including grid', () => {
             const item = { id: 'f1' } as MediaFolder
             const res = resolveViewSettings(item, mockSettings).settings
             expect(res.layout).toBe('grid')
-            expect(res.groupBy).toBeNull()
+            expect(res.groupBy).toBe('folder')
         })
 
         it('explicit groupBy from a layer overrides the default', () => {

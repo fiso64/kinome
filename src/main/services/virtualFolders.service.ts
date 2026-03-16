@@ -21,12 +21,15 @@ import {
     getVirtualSeasonFolderIds
 } from '../database/repositories/filesystem.repo'
 import { mergeSettings } from '../database/repositories/settings.repo'
+import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { getValuesForKey } from '../database/repo-definitions'
 import { find, getItemById } from './repository.service'
-import type { LibraryFilter } from '@shared/types'
+import { compileFilter } from '../database/query-builder'
+import { displayTitle } from '@shared/display-names'
+import type { LibraryFilter, MediaFolder } from '@shared/types'
 
 /**
- * Applies a grouping to a real folder.
+ * Applies a grouping to a folder (real or virtual).
  *
  * Fetches all real (non-virtual) children, collects unique values for the
  * grouping key, then atomically:
@@ -34,14 +37,32 @@ import type { LibraryFilter } from '@shared/types'
  *   2. Inserts one new grouping virtual folder per unique value.
  *   3. Sets appliedGrouping on the folder's stored view settings.
  *
+ * For virtual folders, children are resolved via the folder's filter.
  * Real items are never touched.
  */
 export function applyGrouping(folderId: string, groupByKey: string): void {
-    const realChildren = find({
-        where: { parentId: folderId },
-        rawConditions: ['i.is_virtual = 0'],
-        fields: ['id', 'type', 'mediaType', 'seasonNumber', 'year', 'virtualTags', 'tags', 'genres']
-    })
+    const folder = getItemById(folderId) as MediaFolder | null
+    const fields = ['id', 'type', 'mediaType', 'seasonNumber', 'year', 'virtualTags', 'tags', 'genres']
+
+    let realChildren
+    if (folder?.isVirtual && folder.filter) {
+        // Virtual folder: resolve children via its filter
+        const compiled = compileFilter(folder.filter)
+        realChildren = find({ ...compiled, fields })
+    } else {
+        // Real folder: direct parent_id lookup
+        realChildren = find({
+            where: { parentId: folderId },
+            rawConditions: ['i.is_virtual = 0'],
+            fields
+        })
+    }
+
+    // Determine the scope for grouping filters: for virtual folders,
+    // inherit the parent's filter scope; for real folders, scope to self.
+    const filterScope = (folder?.isVirtual && folder.filter?.scope)
+        ? folder.filter.scope
+        : { parentId: folderId }
 
     const uniqueValues = new Set<string>()
     let hasUncategorized = false
@@ -57,7 +78,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
         for (const value of uniqueValues) {
             const id = crypto.randomUUID()
             const filter: LibraryFilter = {
-                scope: { parentId: folderId },
+                scope: filterScope,
                 conditions: [{ field: groupByKey, op: 'eq', value }]
             }
             insertVirtualItem({
@@ -67,12 +88,13 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 virtualType: 'grouping',
                 filterJson: JSON.stringify(filter)
             })
+            upsertMetadata(id, { title: displayTitle(groupByKey, value) })
         }
 
         if (hasUncategorized) {
             const id = crypto.randomUUID()
             const filter: LibraryFilter = {
-                scope: { parentId: folderId },
+                scope: filterScope,
                 conditions: [{ field: groupByKey, op: 'isNull' }]
             }
             insertVirtualItem({
@@ -82,6 +104,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 virtualType: 'grouping',
                 filterJson: JSON.stringify(filter)
             })
+            upsertMetadata(id, { title: 'Uncategorized' })
         }
 
         mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })

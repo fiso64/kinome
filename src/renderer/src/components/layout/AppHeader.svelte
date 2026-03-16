@@ -47,7 +47,7 @@
   const contextItemToConfigure = $derived(contextItem)
 
   const isAtHome = $derived(
-    navStore.state.currentFolderId === 'root' &&
+    navStore.state.currentFolderId === 'home' &&
       !navStore.isDetailViewActive &&
       navStore.state.path === '/'
   )
@@ -179,7 +179,7 @@
       <button
         class="home-button"
         class:hidden={isAtHome}
-        onclick={() => navStore.navigateToRoot()}
+        onclick={() => navStore.navigateToHome()}
         title="Go Home"
       >
         <svg

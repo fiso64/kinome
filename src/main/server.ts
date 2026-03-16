@@ -413,6 +413,8 @@ const app = new Elysia()
             }
           }
           id = status.root!.id
+        } else if (id === 'home') {
+          id = repositoryService.getHomeFolderId()
         }
 
         const options = parseFindOptions(query)
@@ -504,6 +506,8 @@ const app = new Elysia()
             }
           }
           id = status.root!.id
+        } else if (id === 'home') {
+          id = repositoryService.getHomeFolderId()
         }
 
         const ancestors = repositoryService.getAncestors(id)
@@ -519,12 +523,15 @@ const app = new Elysia()
         }
         return { success: true }
       })
-      .post('/items/:parentId/virtual-folders', ({ params: { parentId }, body }: { params: { parentId: string }; body: any }) => {
+      .post('/items/:id/virtual-folders', ({ params: { id: parentId }, body }: { params: { id: string }; body: any }) => {
         const { name, filter } = body as { name: string; filter?: any }
-        const id = virtualFoldersService.createUserVirtualFolder(parentId, name, filter)
-        return { id }
+        const newId = virtualFoldersService.createUserVirtualFolder(parentId, name, filter)
+        return { id: newId }
       })
       .patch('/items', async ({ body }: { body: any }) => {
+        if (body.id === 'home') {
+          body.id = repositoryService.getHomeFolderId()
+        }
         await libraryService.updateItem(body, true)
         return { success: true }
       })

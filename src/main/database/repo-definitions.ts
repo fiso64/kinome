@@ -139,8 +139,11 @@ export const ITEM_TABLE_FIELDS = Object.entries(REPOSITORY_SCHEMA)
 /**
  * Extracts grouping values from a LibraryItem based on schema definitions.
  */
+const FIELD_ALIASES: Record<string, string> = { genre: 'genres' }
+
 export function getValuesForKey(item: LibraryItem, key: string): string[] {
-    const def = REPOSITORY_SCHEMA[key]
+    const resolvedKey = FIELD_ALIASES[key] ?? key
+    const def = REPOSITORY_SCHEMA[resolvedKey]
     if (def?.getValue) return def.getValue(item)
 
     // Handle nested Virtual Tags (vt.Key or virtualTags.Key)

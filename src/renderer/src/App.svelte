@@ -257,15 +257,14 @@
     return unlisten
   })
 
-  // Force Root Navigation if Setup is required
+  // Force Home Navigation if Setup is required
   $effect(() => {
     if (authStore.isAuthenticated && !isInitializing) {
       const needsSetup = !settings?.libraryLocation || libraryStatus?.status !== 'ready'
       if (needsSetup) {
-        // If we are not at root view, force it.
         if (navStore.canGoBack) {
-          log('Setup required: Forcing navigation to root.')
-          navStore.navigateToRoot()
+          log('Setup required: Forcing navigation to home.')
+          navStore.navigateToHome()
         }
       }
     }
@@ -331,7 +330,7 @@
       initialTab: 'metadata' | 'view' | 'folder' = 'metadata'
     ) => {
       const id = itemOrId || navStore.contextItemId
-      if (!id || id === 'root') return
+      if (!id || id === 'root' || id === 'home') return
 
       const targetItem = await libraryDataService.ensureItemWithFields(id, [
         'type',
@@ -373,7 +372,7 @@
 
     markUnwatched: async (itemOrId?: LibraryItem | string) => {
       const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id || navStore.contextItemId
-      if (!id || id === 'root') return
+      if (!id || id === 'root' || id === 'home') return
 
       api.markAsUnwatched(id)
       // Optimistic local update for visual feedback

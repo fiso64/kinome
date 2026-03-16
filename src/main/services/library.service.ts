@@ -12,6 +12,7 @@ import * as repositoryService from './repository.service'
 import * as filesystemService from './filesystem.service'
 import * as tvShowService from './tv-show.service'
 import * as actionsService from './actions.service'
+import * as virtualFoldersService from './virtualFolders.service'
 import * as metadataService from './metadata.service'
 import { closeDatabase } from '../database/client'
 import { updateIfChangedAndBroadcast } from './item-update.service'
@@ -775,22 +776,22 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   }
 
   // --- 4. Final Normalization ---
-  // Ensure groupBy is null if the layout doesn't support it
-  if (updates.viewSettings) {
-    const isGroupingLayout = ['tabs', 'sections'].includes(updates.viewSettings.layout as string)
-    if (updates.viewSettings.layout !== undefined && !isGroupingLayout) {
-      updates.viewSettings.groupBy = null
-    }
+  // (groupBy is now independent of layout — no clearing needed)
 
-    if (
-      updates.viewSettings.childViewSettings?.layout &&
-      !['tabs', 'sections'].includes(updates.viewSettings.childViewSettings.layout)
-    ) {
-      updates.viewSettings.childViewSettings.groupBy = null
+  // --- 5. Sync grouping virtual folders when groupBy changes ---
+  if (updates.viewSettings && 'groupBy' in updates.viewSettings) {
+    const newGroupBy = updates.viewSettings.groupBy
+    const oldGroupBy = (existing as MediaFolder)?.viewSettings?.appliedGrouping ?? null
+    if (newGroupBy && newGroupBy !== 'folder' && newGroupBy !== oldGroupBy) {
+      virtualFoldersService.applyGrouping(updates.id, newGroupBy)
+    } else if (!newGroupBy || newGroupBy === 'folder') {
+      if (oldGroupBy) {
+        virtualFoldersService.removeGrouping(updates.id)
+      }
     }
   }
 
-  // --- 5. Execution ---
+  // --- 6. Execution ---
   await updateIfChangedAndBroadcast([updates], { updateSuggestions: true })
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
