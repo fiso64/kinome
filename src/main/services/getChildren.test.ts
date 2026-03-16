@@ -533,6 +533,35 @@ describe('getChildren — end-to-end round-trip', () => {
     expect(s2Episodes[0].id).toBe('ep3')
   })
 
+  it('season grouping returns loose files alongside season folders', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Death Note' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
+      { id: 'e-loose', mediaType: null, title: null },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: 'ep1', parentId: 'show', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'show', path: 'Death Note/e02.mkv', entityId: 'e-ep2' },
+      { id: 'loose', parentId: 'show', path: 'Death Note/ending-not-an-episode.mkv', entityId: 'e-loose' },
+    ])
+
+    syncVirtualSeasonFolders('show')
+
+    const result = await getChildren('show', {})
+    const items = expectItems(result)
+
+    // Should have Season 1 + the loose file
+    const seasonFolders = items.filter((i: any) => i.virtualType === 'season')
+    expect(seasonFolders.length).toBe(1)
+
+    // The loose file must be returned — it has no seasonNumber
+    // and isn't covered by any season folder
+    expect(items.map((i) => i.id)).toContain('loose')
+  })
+
   it('full cycle: home with grouping → returns grouping virtual folders, not raw pool items', async () => {
     ctx.seedEntities([
       { id: 'e1', mediaType: 'movie' },

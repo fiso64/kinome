@@ -14,17 +14,43 @@ import { compileFilter } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 import { getLibraryRoot } from './library.service'
+import { REPOSITORY_SCHEMA } from '../database/repo-definitions'
 
 /**
  * Returns the SQL filter condition for listing a real folder's children.
- * Branch B (grouping active): show grouping/season/user virtual folders.
- * Branch C (no grouping): show real items + user virtual folders.
+ * Grouping active: show grouping/season/user virtual folders.
+ * No grouping: show real items + user virtual folders.
  */
 function childrenFilter(item: LibraryItem): string {
   if (item.viewSettings?.appliedGrouping) {
     return `(i.virtual_type IN ('grouping', 'season', 'user'))`
   }
   return `(i.is_virtual = 0 OR i.virtual_type = 'user')`
+}
+
+/**
+ * When grouping is active and the grouping key maps to a simple column,
+ * returns an extra SQL condition to also include real items where the field
+ * IS NULL — "loose" items not covered by any virtual folder.
+ *
+ * For subquery-based keys (e.g. genres), applyGrouping already creates an
+ * Uncategorized folder, so no extra condition is needed.
+ *
+ * Returns null if no extra condition is needed.
+ */
+function looseItemCondition(item: LibraryItem): { condition: string; field: string } | null {
+  const groupBy = item.viewSettings?.appliedGrouping
+  if (!groupBy) return null
+  const FIELD_ALIASES: Record<string, string> = { genre: 'genres' }
+  const resolvedKey = FIELD_ALIASES[groupBy] ?? groupBy
+  const def = REPOSITORY_SCHEMA[resolvedKey]
+  if (def && !def.isSubquery) {
+    return {
+      condition: `(i.virtual_type IN ('grouping', 'season', 'user') OR (i.is_virtual = 0 AND ${def.sql} IS NULL))`,
+      field: resolvedKey
+    }
+  }
+  return null
 }
 
 /**
@@ -85,6 +111,7 @@ export async function getChildren(
   if (item.isVirtual) {
     if (item.viewSettings?.appliedGrouping) {
       // Branch A1: virtual folder with grouping — return grouping/season/user children
+      // (virtual folders don't have loose real children, so no looseItemCondition needed)
       items = find({
         where: { parentId: targetId },
         rawConditions: [childrenFilter(item)],
@@ -115,10 +142,17 @@ export async function getChildren(
     }
   } else {
     // Branch B/C: list real folder's children (grouping-aware)
+    const loose = looseItemCondition(item)
+    const fields = opts.fields ? [...opts.fields] : undefined
+    // If the loose-item condition references an entity column, ensure
+    // that column is in the field list so the query builder JOINs the table.
+    if (loose && fields && !fields.includes(loose.field)) {
+      fields.push(loose.field)
+    }
     items = find({
       where: { parentId: targetId },
-      rawConditions: [childrenFilter(item)],
-      fields: opts.fields,
+      rawConditions: [loose ? loose.condition : childrenFilter(item)],
+      fields,
       orderBy: opts.orderBy,
       limit: opts.limit,
       offset: opts.offset,

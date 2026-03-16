@@ -138,17 +138,19 @@
 
     // 2. Separate Folders (which may be Virtual Groups from backend) vs Loose Items
     if (layout === 'tabs' || layout === 'sections') {
-      // For these layouts, we expect the input `items` to ALREADY be grouped (virtual folders)
-      // if a groupBy setting is active.
-      // Or they are just physical subfolders.
-
-      // If we have a groupBy, the backend returns Virtual Folders.
-      // We just treat them as folders.
       const folders = filteredItems.filter((i) => i.type === 'folder') as MediaFolder[]
+      const looseItems = filteredItems.filter((i) => i.type !== 'folder')
 
-      // If we still have loose files here, it means they are NOT grouped or 'groupBy' is off.
-      // In that case, we can't really show them in Tabs/Sections properly unless we wrap them??
-      // But typically Tabs/Sections implies we want to see Groups.
+      // Wrap loose items in a synthetic "Files" folder so they appear as a tab/section
+      if (looseItems.length > 0) {
+        folders.push({
+          id: `_files:${parentItem?.id ?? 'root'}`,
+          name: 'Files',
+          type: 'folder',
+          children: looseItems
+        } as MediaFolder)
+      }
+
       return {
         itemsForViews: [],
         foldersForTabsOrSections: folders.sort(compareItems) as MediaFolder[]

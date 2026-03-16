@@ -259,6 +259,7 @@ export function syncVirtualSeasonFolders(showId: string): void {
                 filterJson: JSON.stringify(filter),
                 insertOrIgnore: true
             })
+            upsertMetadata(id, { seasonNumber, mediaType: 'season' })
         }
 
         mergeSettings(showId, { viewSettings: { appliedGrouping: 'seasonNumber' } })
