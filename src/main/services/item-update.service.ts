@@ -5,6 +5,7 @@ import * as virtualTagsService from './virtualTags.service'
 import { getTransport } from '../transport.registry'
 import type { LibraryItem } from '@shared/types'
 import * as autocompleteService from './autocomplete.service'
+import { syncAllGroupings } from './virtualFolders.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Item Update Service] ${message}`)
@@ -112,6 +113,11 @@ export async function updateIfChangedAndBroadcast(
   })
 
   if (modifiedItems.length === 0) return
+
+  // Re-sync grouping virtual folders if any active groupings exist.
+  // This is cheap (one query + set diff per active grouping) and ensures
+  // grouping folders stay in sync after metadata changes.
+  syncAllGroupings()
 
   const plainItems = JSON.parse(JSON.stringify(modifiedItems))
   for (const item of plainItems) {

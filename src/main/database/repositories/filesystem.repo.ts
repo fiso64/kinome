@@ -458,6 +458,31 @@ export function getVirtualSeasonFolderIds(parentId: string): string[] {
     return rows.map((r) => r.id)
 }
 
+/**
+ * Returns IDs of all grouping virtual folders under a given parent.
+ */
+export function getVirtualGroupingFolderIds(parentId: string): string[] {
+    const db = getDb()
+    const rows = db.prepare(
+        `SELECT id FROM items WHERE parent_id = ? AND virtual_type = 'grouping'`
+    ).all(parentId) as { id: string }[]
+    return rows.map((r) => r.id)
+}
+
+/**
+ * Returns all folder IDs that have an active appliedGrouping (excluding season grouping).
+ * Used by the sync hook to know which folders need grouping refresh.
+ */
+export function getFoldersWithActiveGrouping(): { item_id: string, group_by_key: string }[] {
+    const db = getDb()
+    return db.prepare(`
+        SELECT item_id, json_extract(view_settings_json, '$.appliedGrouping') AS group_by_key
+        FROM folder_settings
+        WHERE json_extract(view_settings_json, '$.appliedGrouping') IS NOT NULL
+          AND json_extract(view_settings_json, '$.appliedGrouping') != 'seasonNumber'
+    `).all() as { item_id: string, group_by_key: string }[]
+}
+
 /** Stable ID for the singleton home virtual folder. */
 export const HOME_FOLDER_ID = 'virtual-home'
 

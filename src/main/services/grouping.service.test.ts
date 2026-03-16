@@ -17,7 +17,7 @@ import { SCHEMA_SQL } from '../database/schema'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { compileFilter } from '../database/query-builder'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { applyGrouping } from './virtualFolders.service'
+import { applyGrouping, syncAllGroupings } from './virtualFolders.service'
 import { find, getItemById } from './repository.service'
 import type { StoredViewSettings, Settings, MediaFolder } from '@shared/types'
 
@@ -597,6 +597,7 @@ describe('grouping staleness', () => {
 
     // Add 'Horror' to film3
     ctx.seedGenres('e3', ['Comedy', 'Horror'])
+    syncAllGroupings()
 
     expect(getGroupNames('movies')).toContain('Horror')
   })
@@ -608,6 +609,7 @@ describe('grouping staleness', () => {
     // Remove Comedy from film3, give it Action instead
     ctx.db.prepare(`DELETE FROM entity_genres WHERE entity_id = 'e3'`).run()
     ctx.seedGenres('e3', ['Action'])
+    syncAllGroupings()
 
     expect(getGroupNames('movies')).not.toContain('Comedy')
   })
@@ -618,6 +620,7 @@ describe('grouping staleness', () => {
 
     ctx.seedEntities([{ id: 'e4', mediaType: 'movie', year: 2025 }])
     ctx.seedItems([{ id: 'film4', parentId: 'movies', path: 'movies/film4', entityId: 'e4' }])
+    syncAllGroupings()
 
     expect(getGroupNames('movies')).toContain('2025')
   })
@@ -632,6 +635,7 @@ describe('grouping staleness', () => {
 
     // Change film3 from 1080p to 720p (a new value)
     ctx.db.prepare(`UPDATE entity_virtual_tags SET value = '720p' WHERE entity_id = 'e3' AND key = 'quality'`).run()
+    syncAllGroupings()
 
     // 720p group should appear, 1080p should disappear (no items left)
     expect(getGroupNames('movies')).toContain('720p')

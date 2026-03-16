@@ -18,7 +18,9 @@ import {
     deleteVirtualItemsByType,
     deleteItem,
     getDistinctSeasonNumbers,
-    getVirtualSeasonFolderIds
+    getVirtualSeasonFolderIds,
+    getVirtualGroupingFolderIds,
+    getFoldersWithActiveGrouping
 } from '../database/repositories/filesystem.repo'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { upsertMetadata } from '../database/repositories/metadata.repo'
@@ -29,28 +31,26 @@ import { displayTitle } from '@shared/display-names'
 import type { LibraryFilter, MediaFolder } from '@shared/types'
 
 /**
- * Applies a grouping to a folder (real or virtual).
- *
- * Fetches all real (non-virtual) children, collects unique values for the
- * grouping key, then atomically:
- *   1. Deletes existing grouping virtual folders under this parent.
- *   2. Inserts one new grouping virtual folder per unique value.
- *   3. Sets appliedGrouping on the folder's stored view settings.
- *
- * For virtual folders, children are resolved via the folder's filter.
- * Real items are never touched.
+ * Deterministic ID for a grouping virtual folder.
+ * Stable across re-syncs so folder_settings (user customizations) are preserved.
  */
-export function applyGrouping(folderId: string, groupByKey: string): void {
+function groupingFolderId(parentId: string, groupByKey: string, value: string): string {
+    return crypto.createHash('sha256').update(`virtual:grouping:${parentId}:${groupByKey}:${value}`).digest('hex')
+}
+
+/**
+ * Resolves the real children and filter scope for a folder (real or virtual).
+ * Shared by applyGrouping and syncGrouping.
+ */
+function resolveChildrenAndScope(folderId: string) {
     const folder = getItemById(folderId) as MediaFolder | null
     const fields = ['id', 'type', 'mediaType', 'seasonNumber', 'year', 'virtualTags', 'tags', 'genres']
 
     let realChildren
     if (folder?.isVirtual && folder.filter) {
-        // Virtual folder: resolve children via its filter
         const compiled = compileFilter(folder.filter)
         realChildren = find({ ...compiled, fields })
     } else {
-        // Real folder: direct parent_id lookup
         realChildren = find({
             where: { parentId: folderId },
             rawConditions: ['i.is_virtual = 0'],
@@ -58,25 +58,59 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
         })
     }
 
-    // Determine the scope for grouping filters: for virtual folders,
-    // inherit the parent's filter scope; for real folders, scope to self.
     const filterScope = (folder?.isVirtual && folder.filter?.scope)
         ? folder.filter.scope
         : { parentId: folderId }
 
+    return { realChildren, filterScope }
+}
+
+/**
+ * Collects unique values for a grouping key from a set of items.
+ */
+function collectUniqueValues(items: any[], groupByKey: string) {
     const uniqueValues = new Set<string>()
     let hasUncategorized = false
-    for (const item of realChildren) {
+    for (const item of items) {
         const vals = getValuesForKey(item, groupByKey)
         if (vals.length === 0) hasUncategorized = true
         else vals.forEach((v) => uniqueValues.add(v))
     }
+    return { uniqueValues, hasUncategorized }
+}
+
+/**
+ * Applies a grouping to a folder (real or virtual).
+ *
+ * Uses deterministic IDs so re-applying preserves existing folder settings.
+ * Incrementally adds new groups and removes orphaned ones.
+ */
+export function applyGrouping(folderId: string, groupByKey: string): void {
+    const { realChildren, filterScope } = resolveChildrenAndScope(folderId)
+    const { uniqueValues, hasUncategorized } = collectUniqueValues(realChildren, groupByKey)
+
+    // Build the desired set of IDs
+    const desiredIds = new Set<string>()
+    for (const value of uniqueValues) {
+        desiredIds.add(groupingFolderId(folderId, groupByKey, value))
+    }
+    if (hasUncategorized) {
+        desiredIds.add(groupingFolderId(folderId, groupByKey, '__uncategorized__'))
+    }
+
+    const existingIds = new Set(getVirtualGroupingFolderIds(folderId))
 
     runTransaction(() => {
-        deleteVirtualItemsByType(folderId, 'grouping')
+        // Remove orphaned grouping folders
+        for (const existingId of existingIds) {
+            if (!desiredIds.has(existingId)) {
+                deleteItem(existingId)
+            }
+        }
 
+        // Add new grouping folders (insertOrIgnore preserves existing rows)
         for (const value of uniqueValues) {
-            const id = crypto.randomUUID()
+            const id = groupingFolderId(folderId, groupByKey, value)
             const filter: LibraryFilter = {
                 scope: filterScope,
                 conditions: [{ field: groupByKey, op: 'eq', value }]
@@ -86,13 +120,14 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 parentId: folderId,
                 name: value,
                 virtualType: 'grouping',
-                filterJson: JSON.stringify(filter)
+                filterJson: JSON.stringify(filter),
+                insertOrIgnore: true
             })
             upsertMetadata(id, { title: displayTitle(groupByKey, value) })
         }
 
         if (hasUncategorized) {
-            const id = crypto.randomUUID()
+            const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
             const filter: LibraryFilter = {
                 scope: filterScope,
                 conditions: [{ field: groupByKey, op: 'isNull' }]
@@ -102,13 +137,29 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 parentId: folderId,
                 name: 'Uncategorized',
                 virtualType: 'grouping',
-                filterJson: JSON.stringify(filter)
+                filterJson: JSON.stringify(filter),
+                insertOrIgnore: true
             })
             upsertMetadata(id, { title: 'Uncategorized' })
         }
 
         mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
     })
+}
+
+/**
+ * Re-syncs all active groupings.
+ *
+ * Called after item metadata changes to keep grouping folders in sync.
+ * For each folder with appliedGrouping, diffs the current unique values
+ * against existing grouping folders and incrementally adds/removes as needed.
+ * Deterministic IDs ensure existing folder settings are preserved.
+ */
+export function syncAllGroupings(): void {
+    const activeGroupings = getFoldersWithActiveGrouping()
+    for (const { item_id, group_by_key } of activeGroupings) {
+        applyGrouping(item_id, group_by_key)
+    }
 }
 
 /**

@@ -143,7 +143,7 @@
 
     const tagsToSave = plainVirtualTags
       .map((vt) => ({ ...vt, name: vt.name.trim() }))
-      .filter((vt) => vt.name && vt.conditions.length > 0)
+      .filter((vt) => vt.name && vt.cases?.length > 0)
 
     await api.saveSettings({
       playerCommands: JSON.parse(JSON.stringify(playerCommands)),
