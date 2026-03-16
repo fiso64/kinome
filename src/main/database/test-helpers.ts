@@ -19,7 +19,22 @@
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from './schema'
 import { _setDbForTesting, _clearDbForTesting } from './client'
+import { setTransport } from '../transport.registry'
+import type { ITransport } from '../transport/transport.interface'
 import type { LibraryConditionOp } from '@shared/types'
+
+/** No-op transport for tests — satisfies the ITransport contract without side effects. */
+function createNoopTransport(): ITransport {
+  return {
+    notifyLibraryItemsUpdated: () => {},
+    notifyMetadataIndexUpdated: () => {},
+    notifyLibraryItemDeleted: () => {},
+    notifySettingsUpdated: () => {},
+    forceRendererReload: () => {},
+    notifyScanStatusChanged: () => {},
+    broadcast: () => {}
+  }
+}
 
 export interface SeedItem {
   id: string
@@ -66,6 +81,9 @@ export function createServiceTestContext(): ServiceTestContext {
 
   // Point the global singleton at this DB so service code works
   _setDbForTesting(db)
+
+  // Wire up a no-op transport so services that broadcast don't crash
+  setTransport(createNoopTransport())
 
   const seedItems = (items: SeedItem[]) => {
     const stmt = db.prepare(`

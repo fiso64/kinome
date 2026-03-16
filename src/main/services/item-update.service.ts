@@ -3,7 +3,7 @@ import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as virtualTagsService from './virtualTags.service'
 import { getTransport } from '../transport.registry'
-import type { LibraryItem } from '@shared/types'
+import type { LibraryItem, Settings } from '@shared/types'
 import * as autocompleteService from './autocomplete.service'
 import { syncAllGroupings } from './virtualFolders.service'
 
@@ -61,12 +61,12 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
 
 export async function updateIfChangedAndBroadcast(
   items: LibraryItem | LibraryItem[],
-  options: { updateSuggestions?: boolean } = {}
+  options: { updateSuggestions?: boolean; settings?: Settings } = {}
 ): Promise<void> {
   if (!items || (Array.isArray(items) && items.length === 0)) return
   const itemsArray = Array.isArray(items) ? items : [items]
 
-  const settings = await settingsService.readSettings()
+  const settings = options.settings ?? (await settingsService.readSettings())
   const modifiedItems: LibraryItem[] = []
 
   repositoryService.runTransaction(() => {
