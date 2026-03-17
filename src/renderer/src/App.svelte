@@ -303,13 +303,15 @@
       const id = itemOrId || navStore.contextItemId
       if (!id) return
 
+      // Capture parentItem before any await — contextMenuStore.close() may null it
+      const parentItem = contextMenuStore.parentItem
+
       const targetItem = await libraryDataService.ensureItemWithFields(id, [
         'type',
         'mediaType',
         'viewSettings'
       ])
       if (targetItem && targetItem.type === 'folder') {
-        const parentItem = contextMenuStore.parentItem
         const isSelf = parentItem?.id === targetItem.id
         modalStore.open('itemSettings', {
           item: targetItem,

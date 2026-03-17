@@ -129,7 +129,10 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 filterJson: JSON.stringify(filter),
                 insertOrIgnore: true
             })
-            upsertMetadata(id, { title: displayTitle(groupByKey, value) })
+            // Only set default title for newly created folders — preserve user edits
+            if (!existingIds.has(id)) {
+                upsertMetadata(id, { title: displayTitle(groupByKey, value) })
+            }
         }
 
         if (hasUncategorized) {
@@ -146,7 +149,9 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
                 filterJson: JSON.stringify(filter),
                 insertOrIgnore: true
             })
-            upsertMetadata(id, { title: 'Uncategorized' })
+            if (!existingIds.has(id)) {
+                upsertMetadata(id, { title: 'Uncategorized' })
+            }
         }
 
         mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })

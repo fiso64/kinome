@@ -171,20 +171,39 @@ describe('updateIfChangedAndBroadcast', () => {
     expect(groupNames).toEqual(['Action', 'Comedy', 'Drama'])
   })
 
-  it('skips virtual items during DB persistence', async () => {
-    ctx.seedItems([
-      { id: 'root', parentId: null, type: 'folder' }
+  it('persists metadata edits on virtual grouping folders', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', title: 'Spirited Away' },
+      { id: 'e2', mediaType: 'movie', title: 'The Godfather' }
     ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'movie1', parentId: 'root', type: 'file', entityId: 'e1' },
+      { id: 'movie2', parentId: 'root', type: 'file', entityId: 'e2' }
+    ])
+    ctx.seedGenres('e1', ['Animation'])
+    ctx.seedGenres('e2', ['Crime'])
 
-    // Updating a virtual item should not crash
+    // Apply genre grouping
+    applyGrouping('root', 'genre')
+
+    const groups = find({
+      where: { parentId: 'root' },
+      rawConditions: ['i.is_virtual = 1'],
+      fields: ['id', 'title']
+    })
+    const animationFolder = groups.find((g: any) => g.title === 'Animation')
+    expect(animationFolder).toBeDefined()
+
+    // User edits the title of the Animation grouping folder
     await updateIfChangedAndBroadcast(
-      { id: 'virtual-item', isVirtual: true, name: 'Virtual' } as any,
+      { id: animationFolder!.id, title: 'Animated Films' } as LibraryItem,
       { settings: DEFAULT_SETTINGS }
     )
 
-    // Virtual item should NOT be in the items table
-    const item = getItemById('virtual-item')
-    expect(item).toBeNull()
+    // The custom title must survive — syncAllGroupings should not overwrite it
+    const afterUpdate = getItemById(animationFolder!.id)
+    expect(afterUpdate?.title).toBe('Animated Films')
   })
 })
 

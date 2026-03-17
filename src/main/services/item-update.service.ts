@@ -105,10 +105,8 @@ export async function updateIfChangedAndBroadcast(
         autocompleteService.invalidateCache()
       }
 
-      // Always persist to DB to ensure system fields (like lastRefreshedAt) are saved
-      if (!item.isVirtual) {
-        repositoryService._updateItem(item.id, item)
-      }
+      // Always persist to DB — virtual items are first-class rows
+      repositoryService._updateItem(item.id, item)
     }
   })
 

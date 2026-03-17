@@ -351,32 +351,30 @@
       Open
     </button>
   {/if}
-  {#if !isVirtual}
-    <button
-      class="context-menu-item"
-      onclick={handleEdit}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">✏️</span>
-      <span>Edit Metadata</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleManualSearch}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">🔍</span>
-      <span>Manual Search...</span>
-    </button>
-    <button
-      class="context-menu-item"
-      onclick={handleArtwork}
-      onmouseenter={() => (activeSubmenu = null)}
-    >
-      <span class="icon">🖼️</span>
-      <span>Artwork...</span>
-    </button>
-  {/if}
+  <button
+    class="context-menu-item"
+    onclick={handleEdit}
+    onmouseenter={() => (activeSubmenu = null)}
+  >
+    <span class="icon">✏️</span>
+    <span>Edit Metadata</span>
+  </button>
+  <button
+    class="context-menu-item"
+    onclick={handleManualSearch}
+    onmouseenter={() => (activeSubmenu = null)}
+  >
+    <span class="icon">🔍</span>
+    <span>Manual Search...</span>
+  </button>
+  <button
+    class="context-menu-item"
+    onclick={handleArtwork}
+    onmouseenter={() => (activeSubmenu = null)}
+  >
+    <span class="icon">🖼️</span>
+    <span>Artwork...</span>
+  </button>
 
   {#if item.type === 'folder'}
     <!-- "Set View..." is applicable to both physical and virtual folders -->
