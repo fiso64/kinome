@@ -237,9 +237,15 @@ export async function resolveViewHierarchy(
   if (recursive && ['tabs', 'sections'].includes(resolution.settings.layout)) {
     node.children = {}
 
+    // When grouping is active, include real folders (e.g. Extras) alongside
+    // virtual ones so they appear in the hierarchy and get inherited settings.
+    // The .filter(folder) below ensures only folders are recursed into.
+    const hierarchyFilter = item.viewSettings?.appliedGrouping
+      ? `(i.virtual_type IN ('grouping', 'season', 'user') OR i.is_virtual = 0)`
+      : childrenFilter(item)
     const childFolders = find({
       where: { parentId: targetId },
-      rawConditions: [childrenFilter(item)],
+      rawConditions: [hierarchyFilter],
       fields: ['id', 'type', 'viewSettings']
     }).filter((c) => c.type === 'folder')
 

@@ -14,7 +14,8 @@
     Settings,
     AutocompleteSuggestions,
     SearchIndexEntry,
-    ViewHierarchyNode
+    ViewHierarchyNode,
+    StoredViewSettings
   } from '@shared/types'
 
   type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
@@ -162,6 +163,36 @@
     const sortedItems = isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)
     return { itemsForViews: sortedItems, foldersForTabsOrSections: [] }
   })
+
+  // Extend the viewNode with a synthetic entry for the "Files" tab so it
+  // receives inherited settings (e.g. I3 season defaults) like real folders.
+  const effectiveViewNode = $derived.by(() => {
+    if (!viewNode?.children) return viewNode
+    const filesId = `_files:${parentItem?.id ?? 'root'}`
+    if (viewNode.children[filesId]) return viewNode // already has an entry
+
+    // Only inject if the Files tab actually exists
+    const hasFiles = foldersForTabsOrSections.some((f) => f.id === filesId)
+    if (!hasFiles) return viewNode
+
+    const childSettings = viewNode.effective.childViewSettings
+    const filesEffective = childSettings
+      ? resolveViewSettings({ id: filesId, type: 'folder' } as any, settings, new Set(), childSettings).settings
+      : resolveViewSettings({ id: filesId, type: 'folder' } as any, settings).settings
+
+    return {
+      ...viewNode,
+      children: {
+        ...viewNode.children,
+        [filesId]: {
+          id: filesId,
+          stored: {} as StoredViewSettings,
+          effective: filesEffective,
+          children: undefined
+        }
+      }
+    }
+  })
 </script>
 
 {#if settings}
@@ -217,7 +248,7 @@
         {onShowContextMenu}
         {suggestions}
         {settings}
-        {viewNode}
+        viewNode={effectiveViewNode}
       />
     {:else if layout === 'sections'}
       <SectionsView
@@ -227,7 +258,7 @@
         {onShowContextMenu}
         {suggestions}
         {settings}
-        {viewNode}
+        viewNode={effectiveViewNode}
       />
     {/if}
   </div>
