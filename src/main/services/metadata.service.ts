@@ -479,13 +479,18 @@ function _resetItemMetadataFields(
 export async function setImage(
   itemId: string,
   imageType: 'poster' | 'backdrop' | 'logo',
-  source: { type: 'tmdb'; path: string } | { type: 'local'; path: string }
+  source:
+    | { type: 'tmdb'; path: string }
+    | { type: 'local'; path: string }
+    | { type: 'local'; buffer: Buffer; originalName: string }
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
-  const libraryDataPath = pathsService.getLibraryDataPath()
 
-  const extension = path.extname(source.path) || '.jpg'
+  const sourcePath = 'path' in source ? source.path : undefined
+  const originalName = 'originalName' in source ? source.originalName : undefined
+  const extension = path.extname(sourcePath || originalName || '') || '.jpg'
+
   let fileName = ''
   switch (imageType) {
     case 'poster':
@@ -507,6 +512,8 @@ export async function setImage(
       const size = imageType === 'backdrop' ? 'original' : 'w500'
       const url = `https://image.tmdb.org/t/p/${size}${source.path}`
       await downloadImage(url, destPath)
+    } else if ('buffer' in source) {
+      await fs.writeFile(destPath, source.buffer)
     } else {
       await fs.copyFile(source.path, destPath)
     }

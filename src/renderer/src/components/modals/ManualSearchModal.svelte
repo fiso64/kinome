@@ -380,8 +380,7 @@
                   {/if}
                 </div>
               </div>
-              <!-- Web Upload TBD -->
-              <button class="secondary" disabled title="Upload not implemented yet"
+              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('poster', { type: 'local' })}
                 >Upload File</button
               >
             </div>
@@ -426,7 +425,7 @@
                   {/if}
                 </div>
               </div>
-              <button class="secondary" disabled title="Upload not implemented yet"
+              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('logo', { type: 'local' })}
                 >Upload File</button
               >
             </div>
@@ -471,7 +470,7 @@
                   {/if}
                 </div>
               </div>
-              <button class="secondary" disabled title="Upload not implemented yet"
+              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('backdrop', { type: 'local' })}
                 >Upload File</button
               >
             </div>
