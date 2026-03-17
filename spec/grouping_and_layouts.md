@@ -109,8 +109,8 @@ When a user navigates to a folder (Full View), the `inheritedSettings` context i
 A parent only influences a child when that child is rendered *inside* the parent (Tabs/Sections). This inheritance is temporary and context-bound.
 
 ### I3: Invariant of Mixed Content Fallback
-**"TV shows must default to Season content layouts even when customized."**
-If a TV show defines child overrides (e.g., for an "Extras" folder) but does *not* define a general layout for its children, the engine automatically injects the **Season Default** into the cascade. This prevents episodes/seasons from accidentally inheriting a "TV Show" (Tabs) layout.
+**"TV shows must default to Season content layouts for all children."**
+If a TV show defines child overrides (e.g., for an "Extras" folder) but does *not* define a general layout for its children, the engine automatically injects the **Season Default** (`defaultLayouts.season`) into the `childViewSettings` cascade. This ensures **all** children of a TV show — virtual season folders, real sub-folders (Extras, etc.), and the transient "Files" catch-all — resolve to the same season-appropriate layout by default. Without this, non-season children would fall through to `_default` (grid), creating an inconsistent viewing experience within the same TV show.
 
 ### I4: Invariant of Real Item Immutability
 **"Real items never move."**

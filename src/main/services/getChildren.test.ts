@@ -859,3 +859,69 @@ describe('Invariants I1 & I2 — resolveViewHierarchy', () => {
     expect(childNode!.effective.layout).toBe('list')
   })
 })
+
+// =================================================================
+// I3: TV show children — all tabs inherit season defaults
+// =================================================================
+
+describe('getChildren — I3: TV show child tab layout consistency', () => {
+  beforeEach(() => {
+    // Set up mockSettings with tv and season defaults
+    mockSettings = {
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+        tv: { layout: 'tabs', clickAction: 'detail' },
+        season: { layout: 'list', clickAction: 'play' },
+      },
+      defaultLayoutSettings: {
+        grid: {},
+        list: {},
+        tabs: {},
+        sections: {},
+      },
+      virtualTags: [],
+    }
+
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Death Note' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1, title: 'Rebirth' },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2, title: 'Confrontation' },
+      { id: 'e-loose', mediaType: null, title: null },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: 'ep1', parentId: 'show', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'show', path: 'Death Note/e02.mkv', entityId: 'e-ep2' },
+      { id: 'loose', parentId: 'show', path: 'Death Note/ending.mkv', entityId: 'e-loose' },
+      { id: 'extras', parentId: 'show', path: 'Death Note/Extras', type: 'folder' },
+    ])
+    syncVirtualSeasonFolders('show')
+  })
+
+  it('viewHierarchy includes real folders alongside season virtual folders', async () => {
+    const hierarchy = await resolveViewHierarchy('show')
+    expect(hierarchy).not.toBeNull()
+    expect(hierarchy!.effective.layout).toBe('tabs')
+
+    // The hierarchy should include BOTH the virtual Season 1 folder
+    // AND the real Extras folder
+    const childIds = Object.keys(hierarchy!.children ?? {})
+    expect(childIds.length).toBeGreaterThanOrEqual(2)
+
+    // Extras (real folder) must be in the hierarchy
+    expect(childIds).toContain('extras')
+  })
+
+  it('real sub-folder (Extras) inherits season layout via viewHierarchy', async () => {
+    const hierarchy = await resolveViewHierarchy('show')
+    expect(hierarchy).not.toBeNull()
+
+    const extrasNode = hierarchy!.children?.['extras']
+    expect(extrasNode).toBeDefined()
+
+    // I3: Extras should inherit list from the TV show's childViewSettings
+    // (which gets season defaults injected), not fall to _default (grid)
+    expect(extrasNode!.effective.layout).toBe('list')
+  })
+})
