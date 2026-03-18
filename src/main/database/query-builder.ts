@@ -149,6 +149,11 @@ export function compileConditionGroups(groups: LibraryCondition[][]): CompiledSq
  * them into a single CompiledSql fragment via compileConditionGroups.
  */
 export function compileFilter(filter: LibraryFilter): FindOptions {
+    // Manual scope: no dynamic children — return impossible condition
+    if (filter.scope?.manual) {
+        return { rawConditions: ['0 = 1'] }
+    }
+
     const where: Record<string, any> = {}
     const rawConditions: string[] = ['i.is_virtual = 0']
 

@@ -212,7 +212,7 @@ export interface LibraryCondition {
  * If both are set, conditionGroups takes precedence.
  */
 export interface LibraryFilter {
-  scope?: { parentId: string }
+  scope?: { parentId?: string; manual?: boolean }
   conditions?: LibraryCondition[]
   conditionGroups?: LibraryCondition[][]
 }
