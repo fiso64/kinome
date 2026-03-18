@@ -198,9 +198,6 @@
 {#if settings}
   <div
     class="media-grid-container"
-    oncontextmenu={parentItem
-      ? (e) => onShowContextMenu(parentItem, e, { layout, parentItem: contextParent })
-      : undefined}
   >
     {#if layout === 'grid'}
       <GridView

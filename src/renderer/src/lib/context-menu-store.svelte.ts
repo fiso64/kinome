@@ -62,6 +62,29 @@ async function open(
   isVisible = true
 }
 
+/**
+ * Always shows the context menu for a folder background right-click.
+ * Unlike `open()`, this bypasses the duplicate-click guard so that
+ * right-clicking on empty space in a folder always shows the app menu
+ * instead of the browser's native context menu.
+ */
+function openForBackground(
+  target: LibraryItem,
+  event: MouseEvent,
+  options?: ContextMenuOptions & { parentItem?: LibraryItem }
+) {
+  event.preventDefault()
+  event.stopPropagation()
+
+  lastClick = { x: event.clientX, y: event.clientY, time: event.timeStamp }
+
+  item = target
+  layout = options?.layout
+  parentItem = options?.parentItem || null
+  position = { top: event.clientY, left: event.clientX }
+  isVisible = true
+}
+
 function close() {
   item = null
   parentItem = null
@@ -90,5 +113,6 @@ export const contextMenuStore = {
     return lastClick
   },
   open,
+  openForBackground,
   close
 }

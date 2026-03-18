@@ -15,6 +15,7 @@
   import { getViewKey } from '@lib/view-state-store.svelte'
   import { getAssetUrl } from '@lib/api'
   import ViewContextProvider from './ViewContextProvider.svelte'
+  import { contextMenuStore } from '@lib/context-menu-store.svelte'
 
   import type {
     Settings,
@@ -101,6 +102,17 @@
     class="view-wrapper"
     class:has-backdrop={hasBackdrop}
     onscroll={handleScroll}
+    oncontextmenu={(e) => {
+      // Catch any right-click that bubbles up from an unhandled area
+      // (padding, section titles, CW background, gaps between grid items, etc.).
+      // Item-level handlers call stopPropagation(), so this only fires for
+      // genuine "empty space" clicks — show the current folder's menu.
+      if (currentFolder) {
+        contextMenuStore.openForBackground(currentFolder, e)
+      } else {
+        e.preventDefault()
+      }
+    }}
     use:scrollPersistence={{
       key: getViewKey('vertical'),
       disabled
