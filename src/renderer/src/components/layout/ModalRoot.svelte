@@ -5,6 +5,7 @@
   import PropertiesModal from '../modals/PropertiesModal.svelte'
   import RenameModal from '../modals/RenameModal.svelte'
   import AssignSeasonsModal from '../modals/AssignSeasonsModal.svelte'
+  import CreateVirtualFolderModal from '../modals/CreateVirtualFolderModal.svelte'
   import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
 
   // --- Props (Global state passed in from App.svelte) ---
@@ -48,6 +49,12 @@
       item={active.props.item}
       onClose={() => modalStore.close()}
       onNeedRefresh={onRefresh}
+    />
+  {:else if active.type === 'createVirtualFolder'}
+    <CreateVirtualFolderModal
+      parentItem={active.props.parentItem}
+      onClose={() => modalStore.close()}
+      onCreated={active.props.onCreated}
     />
   {:else if active.type === 'assignSeasons'}
     <AssignSeasonsModal item={active.props.item} onClose={() => modalStore.close()} />

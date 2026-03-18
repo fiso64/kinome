@@ -115,6 +115,7 @@ export interface ApiClient {
   executeCustomAction(itemId: string, commandId: string): Promise<void>
   revealInExplorer(path: string): void
   trashItem(path: string): Promise<boolean>
+  createVirtualFolder(parentId: string, name: string, filter?: any): Promise<{ id: string }>
   deleteItemFromDb(itemId: string): Promise<boolean>
   renameItem(oldPath: string, newName: string): Promise<boolean>
   getItemProperties(path: string): Promise<MediaProperties | null>

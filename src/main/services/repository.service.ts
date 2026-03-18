@@ -278,6 +278,11 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
       metadataRepo.upsertMetadata(itemId, updates)
     }
 
+    // Virtual Folder Filter
+    if ((updates as any).filter !== undefined) {
+      itemsRepo.updateFilterJson(itemId, (updates as any).filter ? JSON.stringify((updates as any).filter) : null)
+    }
+
     // Folder Settings
     if (updates.viewSettings !== undefined || (updates as any).scraperSettings !== undefined) {
       settingsRepo.mergeSettings(itemId, {

@@ -8,11 +8,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { applyGrouping, removeGrouping, createUserVirtualFolder, deleteVirtualFolder, syncVirtualSeasonFolders } from './virtualFolders.service'
-import { find } from './repository.service'
+import { find, _updateItem } from './repository.service'
 import { compileFilter } from '../database/query-builder'
 import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
 import { getItemById } from './repository.service'
-import type { MediaFolder } from '@shared/types'
+import type { MediaFolder, LibraryFilter } from '@shared/types'
 
 let ctx: ServiceTestContext
 
@@ -481,6 +481,29 @@ describe('ensureHomeVirtualFolder', () => {
     expect(children).toHaveLength(2)
     const ids = children.map((c) => c.id).sort()
     expect(ids).toEqual(['movies', 'tv'])
+  })
+
+  it('_updateItem persists filter changes for virtual folders', () => {
+    ctx.seedItems([
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'test-vf', {
+      scope: { parentId: 'root' },
+      conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]]
+    })
+
+    // Update the filter via _updateItem
+    const newFilter: LibraryFilter = {
+      scope: { parentId: 'root' },
+      conditionGroups: [[{ field: 'title', op: 'eq', value: 'movies' }]]
+    }
+    _updateItem(vfId, { filter: newFilter } as any)
+
+    // Re-read and verify the filter was persisted
+    const updated = getItemById(vfId) as MediaFolder
+    expect(updated.filter).toEqual(newFilter)
   })
 })
 

@@ -22,6 +22,8 @@ export function itemCapabilities(item: Pick<LibraryItem, 'type' | 'isVirtual' | 
     canHide: !isVirtual,
     canDelete: (isMissing && !isVirtual) || (isVirtual && item.virtualType === 'user'),
     canAssignSeasons: isFolder && !isVirtual && item.mediaType === 'tv',
+    canCreateVirtualFolder: isFolder,
+    canEditVirtualFolder: isVirtual && (item.virtualType === 'user' || item.virtualType === 'home'),
     canCustomActions: !isVirtual,
   }
 }

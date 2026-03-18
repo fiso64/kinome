@@ -4,6 +4,7 @@
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
+  import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
   import type {
@@ -11,6 +12,7 @@
     MediaFolder,
     MediaFile,
     LibraryItem,
+    LibraryFilter,
     Settings,
     AutocompleteSuggestions,
     ResolutionInfo,
@@ -30,7 +32,7 @@
     item: LibraryItem
     onClose: () => void
     onNeedRefresh?: () => Promise<void>
-    initialTab?: 'metadata' | 'view' | 'folder'
+    initialTab?: 'metadata' | 'view' | 'folder' | 'virtualFolder'
     groupByKeys: string[]
     defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
     settings: Settings | null
@@ -42,9 +44,10 @@
   const caps = $derived(itemCapabilities(item))
 
   // Redirect to a valid tab if the requested one isn't available for this item
-  let activeTab = $state<'metadata' | 'view' | 'folder'>(
+  let activeTab = $state<'metadata' | 'view' | 'folder' | 'virtualFolder'>(
     (() => {
       const c = itemCapabilities(item)
+      if (initialTab === 'virtualFolder' && !c.canEditVirtualFolder) return 'metadata'
       if (initialTab === 'folder' && !c.canEditFolderSettings) return c.canEditView ? 'view' : 'metadata'
       if ((initialTab as any) === 'settings') return 'metadata'
       return initialTab as any
@@ -91,7 +94,8 @@
       childViewSettings: childViewSettings ? JSON.parse(JSON.stringify(childViewSettings)) : null,
       retrieveChildrenMetadata,
       childrenTypeHint,
-      processTvChildren
+      processTvChildren,
+      vfolderFilter: JSON.parse(JSON.stringify(vfolderFilter))
     }
   }
 
@@ -237,6 +241,13 @@
     _isFolder ? (item.scraperSettings?.process_tv_children ?? true) : true
   )
   let itemsToUnhide = $state<string[]>([])
+
+  // --- Virtual Folder Filter State ---
+  let vfolderFilter = $state<LibraryFilter>(
+    _isFolder && item.isVirtual && (item as MediaFolder).filter
+      ? JSON.parse(JSON.stringify((item as MediaFolder).filter))
+      : { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }
+  )
 
   // Capture initial state from props/initialization
   captureInitialValues()
@@ -454,6 +465,14 @@
       }
     }
 
+    // 4. Virtual Folder Filter Changes
+    if (caps.canEditVirtualFolder) {
+      if (hasChanged(vfolderFilter, initialValues.vfolderFilter, 'filter')) {
+        updates.filter = JSON.parse(JSON.stringify(vfolderFilter))
+        changed = true
+      }
+    }
+
     return changed ? (updates as LibraryItem) : null
   }
 
@@ -524,6 +543,11 @@
           Settings
         </button>
       {/if}
+      {#if caps.canEditVirtualFolder}
+        <button class:active={activeTab === 'virtualFolder'} onclick={() => (activeTab = 'virtualFolder')}>
+          Virtual Folder
+        </button>
+      {/if}
     </div>
   {/snippet}
 
@@ -562,6 +586,8 @@
         bind:showHorizontalScrollbar
         bind:childViewSettings
       />
+    {:else if activeTab === 'virtualFolder' && caps.canEditVirtualFolder}
+      <VirtualFolderTab bind:filter={vfolderFilter} parentId={item.parentId ?? ''} {suggestions} />
     {:else if activeTab === 'folder' && caps.canEditFolderSettings}
       <FolderTab
         item={item as MediaFolder}

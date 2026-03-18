@@ -329,10 +329,10 @@
 
     editMetadata: async (
       itemOrId?: LibraryItem | string,
-      initialTab: 'metadata' | 'view' | 'folder' = 'metadata'
+      initialTab: 'metadata' | 'view' | 'folder' | 'virtualFolder' = 'metadata'
     ) => {
       const id = itemOrId || navStore.contextItemId
-      if (!id || id === 'root' || id === 'home') return
+      if (!id || id === 'root') return
 
       const targetItem = await libraryDataService.ensureItemWithFields(id, [
         'type',
@@ -347,7 +347,9 @@
         'viewSettings',
         'scraperSettings',
         'isVirtual',
-        'virtualType'
+        'virtualType',
+        'filter',
+        'parentId'
       ])
 
       if (targetItem) {
@@ -537,6 +539,21 @@
       if (confirmed) {
         await api.deleteItemFromDb(targetItem.id)
       }
+    },
+
+    createVirtualFolder: async (itemOrId: LibraryItem | string) => {
+      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['type', 'name'])
+      if (!targetItem || targetItem.type !== 'folder') return
+
+      modalStore.open('createVirtualFolder', {
+        parentItem: targetItem,
+        onCreated: (newId: string) => {
+          modalStore.close()
+          handleRefresh().then(() => {
+            navStore.navigateToFolder(newId)
+          })
+        }
+      })
     }
   }
 

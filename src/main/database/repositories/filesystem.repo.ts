@@ -405,6 +405,14 @@ export function setEntityId(itemId: string, entityId: string | null): void {
 }
 
 /**
+ * Updates the filter_json column for a virtual folder item.
+ */
+export function updateFilterJson(itemId: string, filterJson: string | null): void {
+    const db = getDb()
+    db.prepare('UPDATE items SET filter_json = ? WHERE id = ?').run(filterJson, itemId)
+}
+
+/**
  * Inserts a virtual folder item.
  * Pass insertOrIgnore=true for idempotent season folder creation (deterministic IDs).
  */

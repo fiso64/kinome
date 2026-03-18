@@ -25,7 +25,7 @@
     onOpen={() => onItemClick(item)}
     onEditMetadata={() => actions.editMetadata(item)}
     onSetLayout={() => actions.openViewSettings(item)}
-    onOpenFolderSettings={() => actions.editMetadata(item, 'folder')}
+    onOpenFolderSettings={() => actions.editMetadata(item, item.isVirtual ? 'virtualFolder' : 'folder')}
     onManualSearch={() => actions.manualSearch(item, 'match')}
     onEditArtwork={() => actions.manualSearch(item, 'artwork')}
     onRevealInExplorer={() => actions.revealInExplorer(item)}
@@ -36,5 +36,6 @@
     onHideItem={() => actions.hideItem(item)}
     onAssignSeasons={() => actions.assignSeasons(item)}
     onDeleteItemFromDb={() => actions.deleteFromDb(item)}
+    onCreateVirtualFolder={() => actions.createVirtualFolder(item)}
   />
 {/if}

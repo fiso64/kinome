@@ -81,35 +81,39 @@ export function getFuzzySuggestions(items: string[], query: string): Autocomplet
 
 let textMirror: HTMLSpanElement | null = null
 
-function handleKeydown(event: KeyboardEvent) {
+/**
+ * Capture-phase window listener — runs before the modal's own capture listener,
+ * so calling preventDefault here is enough to make the modal skip its handling.
+ * This keeps the autocomplete fully self-contained; ModalWindow never needs to
+ * inspect autocompleteState.
+ */
+function captureKeydown(event: KeyboardEvent) {
   const state = get(autocompleteState)
   if (!state.show || state.suggestions.length === 0) return
 
-  let handled = false
   if (event.key === 'ArrowDown') {
-    handled = true
+    event.preventDefault()
     autocompleteState.update((s) => ({
       ...s,
       activeIndex: (s.activeIndex + 1) % s.suggestions.length
     }))
   } else if (event.key === 'ArrowUp') {
-    handled = true
+    event.preventDefault()
     autocompleteState.update((s) => ({
       ...s,
       activeIndex: (s.activeIndex - 1 + s.suggestions.length) % s.suggestions.length
     }))
   } else if (event.key === 'Enter' || event.key === 'Tab') {
-    handled = true
+    event.preventDefault()
     state.onSelect(state.suggestions[state.activeIndex])
   } else if (event.key === 'Escape') {
-    handled = true
+    event.preventDefault()
     autocompleteState.update((s) => ({ ...s, show: false }))
   }
+}
 
-  if (handled) {
-    event.preventDefault()
-    event.stopPropagation()
-  }
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', captureKeydown, true)
 }
 
 function calculatePosition(node: HTMLElement, text: string, cursorPos: number) {
@@ -235,13 +239,6 @@ export function autocomplete(
     }, 100)
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    const state = get(autocompleteState)
-    if (state.show && state.targetNode === node) {
-      handleKeydown(e)
-    }
-  }
-
   // Handle clicking elsewhere to close immediately
   function onDocumentMousedown(e: MouseEvent) {
     const state = get(autocompleteState)
@@ -258,7 +255,6 @@ export function autocomplete(
   node.addEventListener('input', updateSuggestions)
   node.addEventListener('focus', handleFocus)
   node.addEventListener('blur', handleBlur)
-  node.addEventListener('keydown', onKeydown)
   document.addEventListener('mousedown', onDocumentMousedown)
 
   return {
@@ -266,7 +262,6 @@ export function autocomplete(
       node.removeEventListener('input', updateSuggestions)
       node.removeEventListener('focus', handleFocus)
       node.removeEventListener('blur', handleBlur)
-      node.removeEventListener('keydown', onKeydown)
       document.removeEventListener('mousedown', onDocumentMousedown)
 
       // Close the menu if this node was the one that opened it

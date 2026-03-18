@@ -29,7 +29,8 @@
     onClearMetadata,
     onHideItem,
     onDeleteItemFromDb,
-    onAssignSeasons
+    onAssignSeasons,
+    onCreateVirtualFolder
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -50,6 +51,7 @@
     onHideItem: () => void
     onDeleteItemFromDb: () => void
     onAssignSeasons: () => void
+    onCreateVirtualFolder: () => void
   } = $props()
 
   const caps = $derived(itemCapabilities(item))
@@ -206,6 +208,12 @@
     onAssignSeasons()
     onClose()
   }
+
+  function handleCreateVirtualFolder() {
+    onCreateVirtualFolder()
+    onClose()
+  }
+
 
   function handlePlayWith(player: PlayerCommandConfig) {
     // The item is guaranteed to be a file because of the #if block.
@@ -406,7 +414,7 @@
       <span>Set View...</span>
     </button>
   {/if}
-  {#if caps.canEditFolderSettings}
+  {#if caps.canEditFolderSettings || caps.canEditVirtualFolder}
     <button
       class="context-menu-item"
       onclick={handleFolderSettings}
@@ -416,7 +424,6 @@
       <span>Folder Settings...</span>
     </button>
   {/if}
-
   <div
     class="submenu-container"
     onmouseenter={() => (activeSubmenu = 'actions')}
@@ -454,12 +461,12 @@
             <span>Assign Seasons & Episodes...</span>
           </button>
         {/if}
-        <!-- {#if item.type === 'file' && !isVirtual && !item.isMissing}
-          <button class="context-menu-item" onclick={handleDownload}>
-            <span class="icon">⬇️</span>
-            <span>Download File</span>
+        {#if caps.canCreateVirtualFolder}
+          <button class="context-menu-item" onclick={handleCreateVirtualFolder}>
+            <span class="icon">📂</span>
+            <span>Create Virtual Folder...</span>
           </button>
-        {/if} -->
+        {/if}
         <div class="separator"></div>
         <button class="context-menu-item danger" onclick={handleClearMetadata}>
           <span class="icon">🔥</span>

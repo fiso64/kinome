@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autocomplete, getFuzzySuggestions, type AutocompleteConfig } from '@lib/autocomplete-manager'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
 
   let {
@@ -62,6 +63,26 @@
   function removeCondition(gi: number, ci: number) {
     groups = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ci) : g)).filter((g) => g.length > 0)
   }
+
+  function getValuesForField(field: string): string[] {
+    if (!suggestions) return []
+    if (field === 'genre') return suggestions.genre ?? []
+    if (field === 'mediaType') return suggestions.mediaType ?? []
+    if (field.startsWith('vt.')) return suggestions.virtualTags?.[field.slice(3)] ?? []
+    if (field.startsWith('tags.')) return suggestions.tags?.[field.slice(5)] ?? []
+    return []
+  }
+
+  function makeAutocompleteConfig(cond: LibraryCondition): AutocompleteConfig {
+    return {
+      getSuggestions: (text) => getFuzzySuggestions(getValuesForField(cond.field), text),
+      onSelect: (suggestion, node) => {
+        cond.value = suggestion.label
+        ;(node as HTMLInputElement).value = suggestion.label
+      },
+      triggerOnFocus: true
+    }
+  }
 </script>
 
 <div class="filter-editor">
@@ -89,7 +110,12 @@
             {/each}
           </select>
           {#if cond.op !== 'isNull' && cond.op !== 'isNotNull' && cond.op !== 'isEmpty' && cond.op !== 'isNotEmpty'}
-            <input type="text" bind:value={cond.value} placeholder="value" class="value-input" />
+            {@const values = getValuesForField(cond.field)}
+            {#if values.length > 0}
+              <input type="text" bind:value={cond.value} placeholder="value" class="value-input" use:autocomplete={makeAutocompleteConfig(cond)} />
+            {:else}
+              <input type="text" bind:value={cond.value} placeholder="value" class="value-input" />
+            {/if}
           {/if}
           <button class="remove-btn" onclick={() => removeCondition(gi, ci)} title="Remove condition">&times;</button>
         </div>

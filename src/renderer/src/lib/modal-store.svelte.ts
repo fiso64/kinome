@@ -1,4 +1,4 @@
-import type { LibraryItem, MediaFolder, StoredViewSettings } from '@shared/types'
+import type { LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter } from '@shared/types'
 
 // --- Types ---
 
@@ -8,7 +8,7 @@ export type ModalConfig =
       type: 'itemSettings'
       props: {
         item: LibraryItem
-        initialTab: 'metadata' | 'view' | 'folder' | 'settings'
+        initialTab: 'metadata' | 'view' | 'folder' | 'virtualFolder' | 'settings'
         defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
         overrideParent?: LibraryItem
       }
@@ -24,6 +24,13 @@ export type ModalConfig =
   | { type: 'rename'; props: { item: LibraryItem } }
   | { type: 'initialFolderSettings'; props: { root: MediaFolder } }
   | { type: 'assignSeasons'; props: { item: MediaFolder } }
+  | {
+      type: 'createVirtualFolder'
+      props: {
+        parentItem: LibraryItem
+        onCreated: (newId: string) => void
+      }
+    }
   | {
       type: 'viewSettings'
       props: {
