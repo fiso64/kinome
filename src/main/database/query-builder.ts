@@ -1,6 +1,6 @@
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
-import type { LibraryFilter } from '@shared/types'
+import type { LibraryFilter, LibraryCondition } from '@shared/types'
 
 /**
  * An operator-aware WHERE condition that maps to a REPOSITORY_SCHEMA field
@@ -8,14 +8,24 @@ import type { LibraryFilter } from '@shared/types'
  */
 export interface TypedWhereClause {
     field: string
-    op: 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull'
+    op: 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
     value?: string | number | null
+}
+
+/**
+ * A compiled SQL fragment with its bound params and required table joins.
+ */
+export interface CompiledSql {
+    sql: string
+    params: any[]
+    tables: Set<string>
 }
 
 export interface FindOptions {
     where?: Record<string, any>
     typedWhere?: TypedWhereClause[]
     rawConditions?: string[]
+    compiledConditions?: CompiledSql
     fields?: string[]
     orderBy?: { field: string; direction: 'ASC' | 'DESC' }
     limit?: number
@@ -24,47 +34,146 @@ export interface FindOptions {
     includeIgnored?: boolean
 }
 
+// =================================================================
+// Primitive: compile a single LibraryCondition to SQL
+// =================================================================
+
+/**
+ * Compiles a single LibraryCondition into a SQL fragment, params, and required tables.
+ * This is the shared primitive used by both compileFilter (OR-of-AND groups)
+ * and buildWhereFragment (typedWhere clauses).
+ */
+export function compileConditionToSql(field: string, op: string, value?: string | number | null): CompiledSql {
+    const params: any[] = []
+    const tables = new Set<string>()
+
+    if (field === 'genre' || field === 'genres') {
+        tables.add('e')
+        const subquery = `SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id`
+        if (op === 'isNull' || op === 'isEmpty') return { sql: `NOT EXISTS (${subquery})`, params, tables }
+        if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: `EXISTS (${subquery})`, params, tables }
+        if (op === 'contains') { params.push(`%${value}%`); return { sql: `EXISTS (${subquery} AND g.name LIKE ?)`, params, tables } }
+        params.push(value)
+        return { sql: `EXISTS (${subquery} AND g.name = ?)`, params, tables }
+    }
+
+    if (field.startsWith('tags.')) {
+        const key = field.slice(5)
+        tables.add('e')
+        const subquery = `SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ?`
+        if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
+        if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
+        if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        params.push(key, value)
+        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
+    }
+
+    if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
+        const key = field.split('.')[1]
+        tables.add('e')
+        const subquery = `SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ?`
+        if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
+        if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
+        if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        params.push(key, value)
+        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
+    }
+
+    const def = REPOSITORY_SCHEMA[field]
+    if (!def) return { sql: '1=1', params, tables }
+    if (def.table) tables.add(def.table)
+
+    switch (op) {
+        case 'eq':         params.push(value); return { sql: `${def.sql} = ?`, params, tables }
+        case 'ne':         params.push(value); return { sql: `${def.sql} != ?`, params, tables }
+        case 'contains':   params.push(`%${value}%`); return { sql: `${def.sql} LIKE ?`, params, tables }
+        case 'gt':         params.push(value); return { sql: `${def.sql} > ?`, params, tables }
+        case 'lt':         params.push(value); return { sql: `${def.sql} < ?`, params, tables }
+        case 'isNull':     return { sql: `${def.sql} IS NULL`, params, tables }
+        case 'isNotNull':  return { sql: `${def.sql} IS NOT NULL`, params, tables }
+        case 'isEmpty':    return { sql: `(${def.sql} IS NULL OR ${def.sql} = '')`, params, tables }
+        case 'isNotEmpty': return { sql: `(${def.sql} IS NOT NULL AND ${def.sql} != '')`, params, tables }
+        default:           return { sql: '1=1', params, tables }
+    }
+}
+
+// =================================================================
+// Compile condition groups (OR-of-AND) into a single SQL fragment
+// =================================================================
+
+function mergeTables(target: Set<string>, source: Set<string>): void {
+    for (const t of source) target.add(t)
+}
+
+/**
+ * Compiles an array of AND-groups (joined by OR) into a single CompiledSql.
+ * Each group's conditions are AND-joined; groups are OR-joined.
+ */
+export function compileConditionGroups(groups: LibraryCondition[][]): CompiledSql {
+    const allParams: any[] = []
+    const tables = new Set<string>()
+
+    if (groups.length === 0) return { sql: '', params: allParams, tables }
+
+    const groupSqls: string[] = []
+    for (const group of groups) {
+        if (group.length === 0) {
+            groupSqls.push('1=1')
+            continue
+        }
+        const parts: string[] = []
+        for (const cond of group) {
+            const compiled = compileConditionToSql(cond.field, cond.op, cond.value)
+            parts.push(compiled.sql)
+            allParams.push(...compiled.params)
+            mergeTables(tables, compiled.tables)
+        }
+        groupSqls.push(parts.length === 1 ? parts[0] : `(${parts.join(' AND ')})`)
+    }
+
+    const sql = groupSqls.length === 1 ? groupSqls[0] : `(${groupSqls.join(' OR ')})`
+    return { sql, params: allParams, tables }
+}
+
+// =================================================================
+// compileFilter: LibraryFilter → FindOptions (single code path)
+// =================================================================
+
 /**
  * Compiles a LibraryFilter into FindOptions for use with find() or buildFindQuery().
  *
  * Always adds `i.is_virtual = 0` — pool queries and vtag filters operate over
  * real items only, regardless of scope.
  *
- * Handles:
- *   scope.parentId  → where.parentId (equality)
- *   conditions[].field  →
- *     'genre'/'genres'          → typedWhere (EXISTS on entity_genres)
- *     'tags.{key}'              → typedWhere (EXISTS on entity_tags)
- *     'vt.{key}'/'virtualTags.{key}' → typedWhere (EXISTS on entity_virtual_tags)
- *     REPOSITORY_SCHEMA key     → where (eq) or typedWhere (other ops)
+ * Normalizes conditions/conditionGroups into OR-of-AND groups and compiles
+ * them into a single CompiledSql fragment via compileConditionGroups.
  */
 export function compileFilter(filter: LibraryFilter): FindOptions {
     const where: Record<string, any> = {}
-    const typedWhere: TypedWhereClause[] = []
     const rawConditions: string[] = ['i.is_virtual = 0']
 
     if (filter.scope?.parentId) {
         where.parentId = filter.scope.parentId
     }
 
-    for (const cond of filter.conditions ?? []) {
-        const { field, op, value } = cond
-        if (op === 'isNull' || op === 'isNotNull') {
-            typedWhere.push({ field, op })
-        } else if (op === 'eq' && field !== 'genre' && field !== 'genres' &&
-            !field.startsWith('tags.') && !field.startsWith('vt.') && !field.startsWith('virtualTags.')) {
-            where[field] = value
-        } else {
-            typedWhere.push({ field, op, value })
-        }
+    // Normalize: conditionGroups takes precedence over legacy conditions
+    const groups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [])
+
+    let compiledConditions: CompiledSql | undefined
+    if (groups.length > 0) {
+        compiledConditions = compileConditionGroups(groups)
     }
 
     return {
         where: Object.keys(where).length ? where : undefined,
-        typedWhere: typedWhere.length ? typedWhere : undefined,
-        rawConditions
+        rawConditions,
+        compiledConditions,
     }
 }
+
+// =================================================================
+// buildWhereFragment: FindOptions → SQL conditions + params + tables
+// =================================================================
 
 /**
  * Builds the WHERE conditions, params, and required table set from FindOptions.
@@ -124,72 +233,21 @@ export function buildWhereFragment(options: FindOptions): {
         }
     }
 
+    // typedWhere: still supported for manual FindOptions construction (parseFindOptions, etc.)
     if (options.typedWhere) {
         for (const { field, op, value } of options.typedWhere) {
-            if (field === 'genre' || field === 'genres') {
-                tables.add('e')
-                const subquery = `SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id`
-                if (op === 'isNull') {
-                    conditions.push(`NOT EXISTS (${subquery})`)
-                } else if (op === 'isNotNull') {
-                    conditions.push(`EXISTS (${subquery})`)
-                } else if (op === 'contains') {
-                    conditions.push(`EXISTS (${subquery} AND g.name LIKE ?)`)
-                    params.push(`%${value}%`)
-                } else {
-                    conditions.push(`EXISTS (${subquery} AND g.name = ?)`)
-                    params.push(value)
-                }
-            } else if (field.startsWith('tags.')) {
-                const key = field.slice(5)
-                tables.add('e')
-                const subquery = `SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ?`
-                if (op === 'isNull') {
-                    conditions.push(`NOT EXISTS (${subquery})`)
-                    params.push(key)
-                } else if (op === 'isNotNull') {
-                    conditions.push(`EXISTS (${subquery})`)
-                    params.push(key)
-                } else if (op === 'contains') {
-                    conditions.push(`EXISTS (${subquery} AND value LIKE ?)`)
-                    params.push(key, `%${value}%`)
-                } else {
-                    conditions.push(`EXISTS (${subquery} AND value = ?)`)
-                    params.push(key, value)
-                }
-            } else if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
-                const key = field.split('.')[1]
-                tables.add('e')
-                const subquery = `SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ?`
-                if (op === 'isNull') {
-                    conditions.push(`NOT EXISTS (${subquery})`)
-                    params.push(key)
-                } else if (op === 'isNotNull') {
-                    conditions.push(`EXISTS (${subquery})`)
-                    params.push(key)
-                } else if (op === 'contains') {
-                    conditions.push(`EXISTS (${subquery} AND value LIKE ?)`)
-                    params.push(key, `%${value}%`)
-                } else {
-                    conditions.push(`EXISTS (${subquery} AND value = ?)`)
-                    params.push(key, value)
-                }
-            } else {
-                const def = REPOSITORY_SCHEMA[field]
-                if (def) {
-                    if (def.table) tables.add(def.table)
-                    switch (op) {
-                        case 'eq':       conditions.push(`${def.sql} = ?`);        params.push(value); break
-                        case 'ne':       conditions.push(`${def.sql} != ?`);       params.push(value); break
-                        case 'contains': conditions.push(`${def.sql} LIKE ?`);     params.push(`%${value}%`); break
-                        case 'gt':       conditions.push(`${def.sql} > ?`);        params.push(value); break
-                        case 'lt':       conditions.push(`${def.sql} < ?`);        params.push(value); break
-                        case 'isNull':   conditions.push(`${def.sql} IS NULL`);    break
-                        case 'isNotNull': conditions.push(`${def.sql} IS NOT NULL`); break
-                    }
-                }
-            }
+            const compiled = compileConditionToSql(field, op, value)
+            conditions.push(compiled.sql)
+            params.push(...compiled.params)
+            mergeTables(tables, compiled.tables)
         }
+    }
+
+    // compiledConditions: structured SQL from compileFilter (params tied to SQL)
+    if (options.compiledConditions) {
+        conditions.push(options.compiledConditions.sql)
+        params.push(...options.compiledConditions.params)
+        mergeTables(tables, options.compiledConditions.tables)
     }
 
     if (options.rawConditions) {
@@ -200,6 +258,10 @@ export function buildWhereFragment(options: FindOptions): {
 
     return { conditions, params, tables }
 }
+
+// =================================================================
+// buildFindQuery: FindOptions → full SELECT query
+// =================================================================
 
 /**
  * Builds a dynamic SQL query based on find options.
@@ -239,6 +301,11 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
 
     if (options.orderBy) {
         processField(options.orderBy.field)
+    }
+
+    // compiledConditions may require table joins — register them before building JOINs
+    if (options.compiledConditions) {
+        mergeTables(usedTables, options.compiledConditions.tables)
     }
 
     // Resolve WHERE conditions early so their table requirements inform JOIN decisions

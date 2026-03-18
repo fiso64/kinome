@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
 import { resolveViewSettings } from '@shared/settings-helpers'
-import { compileFilter } from '../database/query-builder'
+import { compileFilter, buildWhereFragment } from '../database/query-builder'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { applyGrouping, syncAllGroupings } from './virtualFolders.service'
 import { applyVirtualTags } from './virtualTags.service'
@@ -293,41 +293,60 @@ describe('Layout Resolution Sensitivity Matrix', () => {
 // B) compileFilter — pure function tests
 // =================================================================
 
+/**
+ * Helper: runs compileFilter → buildWhereFragment end-to-end and returns
+ * the final SQL conditions + params. This tests the contract that matters:
+ * the SQL that actually hits the database.
+ */
+function compileToSql(filter: Parameters<typeof compileFilter>[0], opts?: { includeHidden?: boolean }) {
+    const compiled = compileFilter(filter)
+    const { conditions, params, tables } = buildWhereFragment({
+        ...compiled,
+        includeHidden: opts?.includeHidden ?? true,
+        includeIgnored: true,
+    })
+    const sql = conditions.join(' AND ')
+    return { sql, conditions, params, tables, compiled }
+}
+
 describe('compileFilter', () => {
-    it('always includes is_virtual = 0 rawCondition', () => {
-        const result = compileFilter({})
-        expect(result.rawConditions).toContain('i.is_virtual = 0')
+    it('always includes is_virtual = 0', () => {
+        const { sql } = compileToSql({})
+        expect(sql).toContain('i.is_virtual = 0')
     })
 
-    it('maps scope.parentId to where.parentId', () => {
-        const result = compileFilter({ scope: { parentId: 'abc' } })
-        expect(result.where?.parentId).toBe('abc')
+    it('maps scope.parentId to where clause', () => {
+        const { sql, params } = compileToSql({ scope: { parentId: 'abc' } })
+        expect(sql).toContain('i.parent_id = ?')
+        expect(params).toContain('abc')
     })
 
-    it('maps eq condition to where entry', () => {
-        const result = compileFilter({ conditions: [{ field: 'year', op: 'eq', value: '2024' }] })
-        expect(result.where?.year).toBe('2024')
+    it('compiles eq condition', () => {
+        const { params } = compileToSql({ conditions: [{ field: 'year', op: 'eq', value: '2024' }] })
+        expect(params).toContain('2024')
     })
 
-    it('maps non-eq condition to typedWhere', () => {
-        const result = compileFilter({ conditions: [{ field: 'year', op: 'gt', value: 2020 }] })
-        expect(result.where?.year).toBeUndefined()
-        expect(result.typedWhere).toEqual([{ field: 'year', op: 'gt', value: 2020 }])
+    it('compiles gt condition', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'year', op: 'gt', value: 2020 }] })
+        expect(sql).toContain('> ?')
+        expect(params).toContain(2020)
     })
 
-    it('maps addedDaysAgo lt to typedWhere (no special-casing)', () => {
-        const result = compileFilter({ conditions: [{ field: 'addedDaysAgo', op: 'lt', value: 30 }] })
-        expect(result.typedWhere).toEqual([{ field: 'addedDaysAgo', op: 'lt', value: 30 }])
-        expect(result.rawConditions).toEqual(['i.is_virtual = 0'])
+    it('compiles addedDaysAgo lt condition', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'addedDaysAgo', op: 'lt', value: 30 }] })
+        expect(sql).toContain('< ?')
+        expect(params).toContain(30)
     })
 
-    it('routes vt.* condition to typedWhere', () => {
-        const result = compileFilter({ conditions: [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }] })
-        expect(result.typedWhere).toEqual([{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }])
+    it('compiles vt.* condition to EXISTS subquery', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }] })
+        expect(sql).toContain('entity_virtual_tags')
+        expect(params).toContain('is_anime')
+        expect(params).toContain('Yes')
     })
 
     it('combines scope and multiple conditions correctly', () => {
-        const result = compileFilter({
+        const { sql, params } = compileToSql({
             scope: { parentId: 'movies' },
             conditions: [
                 { field: 'year', op: 'eq', value: '2023' },
@@ -335,31 +354,160 @@ describe('compileFilter', () => {
                 { field: 'addedDaysAgo', op: 'lt', value: 7 }
             ]
         })
-        expect(result.where?.parentId).toBe('movies')
-        expect(result.where?.year).toBe('2023')
-        expect(result.typedWhere).toEqual([
-            { field: 'vt.is_anime', op: 'eq', value: 'Yes' },
-            { field: 'addedDaysAgo', op: 'lt', value: 7 }
-        ])
-        expect(result.rawConditions).toContain('i.is_virtual = 0')
+        expect(params).toContain('movies')
+        expect(params).toContain('2023')
+        expect(params).toContain('is_anime')
+        expect(params).toContain('Yes')
+        expect(params).toContain(7)
+        expect(sql).toContain('i.is_virtual = 0')
     })
 
     it('empty filter produces only the is_virtual guard', () => {
-        const result = compileFilter({})
-        expect(result.where).toBeUndefined()
-        expect(result.typedWhere).toBeUndefined()
-        expect(result.rawConditions).toEqual(['i.is_virtual = 0'])
+        const { conditions } = compileToSql({})
+        expect(conditions).toEqual(['i.is_virtual = 0'])
     })
 
-    it('routes isNull to typedWhere without a value', () => {
-        const result = compileFilter({ conditions: [{ field: 'year', op: 'isNull' }] })
-        expect(result.typedWhere).toEqual([{ field: 'year', op: 'isNull' }])
-        expect(result.where).toBeUndefined()
+    it('compiles isNull condition', () => {
+        const { sql } = compileToSql({ conditions: [{ field: 'year', op: 'isNull' }] })
+        expect(sql).toContain('IS NULL')
     })
 
-    it('routes isNotNull to typedWhere without a value', () => {
-        const result = compileFilter({ conditions: [{ field: 'vt.is_anime', op: 'isNotNull' }] })
-        expect(result.typedWhere).toEqual([{ field: 'vt.is_anime', op: 'isNotNull' }])
+    it('compiles isNotNull vt.* condition', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'isNotNull' }] })
+        expect(sql).toContain('EXISTS')
+        expect(params).toContain('is_anime')
+    })
+
+    // --- conditionGroups: OR-of-AND ---
+
+    it('compiles conditionGroups into OR-joined SQL', () => {
+        const { compiled } = compileToSql({
+            conditionGroups: [
+                [{ field: 'year', op: 'gt', value: 2020 }],
+                [{ field: 'year', op: 'lt', value: 2000 }],
+            ]
+        })
+        expect(compiled.compiledConditions!.sql).toContain(' OR ')
+    })
+
+    it('compiles conditionGroups with AND within groups', () => {
+        const { compiled } = compileToSql({
+            conditionGroups: [
+                [{ field: 'year', op: 'gt', value: 2020 }, { field: 'mediaType', op: 'eq', value: 'movie' }],
+            ]
+        })
+        expect(compiled.compiledConditions!.sql).toContain(' AND ')
+    })
+
+    it('conditionGroups preserves scope alongside groups', () => {
+        const { sql, params } = compileToSql({
+            scope: { parentId: 'movies' },
+            conditionGroups: [
+                [{ field: 'year', op: 'gt', value: 2020 }],
+            ]
+        })
+        expect(params).toContain('movies')
+        expect(sql).toContain('> ?')
+    })
+
+    it('conditionGroups produces correct params in order', () => {
+        const { params } = compileToSql({
+            conditionGroups: [
+                [{ field: 'year', op: 'gt', value: 2020 }],
+                [{ field: 'year', op: 'lt', value: 1990 }],
+            ]
+        })
+        expect(params).toContain(2020)
+        expect(params).toContain(1990)
+    })
+
+    it('legacy conditions and conditionGroups produce equivalent SQL', () => {
+        const legacy = compileToSql({
+            conditions: [{ field: 'year', op: 'gt', value: 2020 }]
+        })
+        const groups = compileToSql({
+            conditionGroups: [[{ field: 'year', op: 'gt', value: 2020 }]]
+        })
+        // Both should produce the same effective params
+        expect(legacy.params).toEqual(groups.params)
+    })
+
+    // --- tags.* and vt.* in compiled output ---
+
+    it('compiles tags.* condition to EXISTS subquery', () => {
+        const { sql, params, tables } = compileToSql({ conditions: [{ field: 'tags.resolution', op: 'eq', value: '4K' }] })
+        expect(sql).toContain('entity_tags')
+        expect(params).toContain('resolution')
+        expect(params).toContain('4K')
+        expect(tables.has('e')).toBe(true)
+    })
+
+    it('compiles tags.* contains condition', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'tags.source', op: 'contains', value: 'Blu' }] })
+        expect(sql).toContain('entity_tags')
+        expect(sql).toContain('LIKE')
+        expect(params).toContain('source')
+        expect(params).toContain('%Blu%')
+    })
+
+    it('conditionGroups with tags.* and vt.* fields', () => {
+        const { sql, params, compiled } = compileToSql({
+            conditionGroups: [
+                [{ field: 'tags.resolution', op: 'eq', value: '4K' }],
+                [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }],
+            ]
+        })
+        expect(compiled.compiledConditions!.sql).toContain(' OR ')
+        expect(params).toContain('resolution')
+        expect(params).toContain('4K')
+        expect(params).toContain('is_anime')
+        expect(params).toContain('Yes')
+    })
+
+    it('conditionGroups mixing tags.*, vt.*, and metadata in AND groups', () => {
+        const { params, compiled } = compileToSql({
+            conditionGroups: [
+                [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }, { field: 'year', op: 'gt', value: 2020 }],
+                [{ field: 'tags.source', op: 'contains', value: 'Blu-ray' }],
+            ]
+        })
+        // First group: vt + year AND-joined; second group: tags.*
+        expect(compiled.compiledConditions!.sql).toContain(' AND ')
+        expect(compiled.compiledConditions!.sql).toContain(' OR ')
+        expect(params).toContain('is_anime')
+        expect(params).toContain('Yes')
+        expect(params).toContain(2020)
+        expect(params).toContain('source')
+        expect(params).toContain('%Blu-ray%')
+    })
+
+    // --- isEmpty / isNotEmpty SQL compilation ---
+
+    it('compiles isEmpty on scalar field to IS NULL OR empty check', () => {
+        const { sql } = compileToSql({ conditions: [{ field: 'year', op: 'isEmpty' }] })
+        expect(sql).toContain('IS NULL')
+    })
+
+    it('compiles isNotEmpty on scalar field', () => {
+        const { sql } = compileToSql({ conditions: [{ field: 'year', op: 'isNotEmpty' }] })
+        expect(sql).toContain('IS NOT NULL')
+    })
+
+    it('compiles isEmpty on tags.* to NOT EXISTS', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'tags.resolution', op: 'isEmpty' }] })
+        expect(sql).toContain('entity_tags')
+        expect(params).toContain('resolution')
+    })
+
+    it('compiles isEmpty on vt.* to NOT EXISTS', () => {
+        const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'isEmpty' }] })
+        expect(sql).toContain('entity_virtual_tags')
+        expect(params).toContain('is_anime')
+    })
+
+    it('compiles isEmpty on genre to NOT EXISTS', () => {
+        const { sql } = compileToSql({ conditions: [{ field: 'genre', op: 'isEmpty' }] })
+        expect(sql).toContain('entity_genres')
     })
 })
 

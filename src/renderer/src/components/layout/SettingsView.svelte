@@ -445,6 +445,7 @@
                 {#each virtualTags as tag, i (tag.id)}
                   <VirtualTagEditor
                     bind:tag={virtualTags[i]}
+                    {suggestions}
                     onDelete={() => (virtualTags = virtualTags.filter((t) => t.id !== tag.id))}
                   />
                 {/each}

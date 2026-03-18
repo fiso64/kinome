@@ -182,7 +182,7 @@ export interface LibraryStatus {
   root?: MediaFolder
 }
 
-export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull'
+export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
 
 /**
  * A single filter predicate against a library item field.
@@ -206,11 +206,15 @@ export interface LibraryCondition {
  *   - individual cases within a VirtualTagConfig
  *
  * scope.parentId restricts results to direct children of that folder.
- * conditions is an AND-joined list of LibraryCondition predicates.
+ * conditions is a legacy shorthand for a single AND-joined group.
+ * conditionGroups is an array of AND-groups, joined by OR.
+ *   e.g. [[c1, c2], [c3]] → (c1 AND c2) OR (c3)
+ * If both are set, conditionGroups takes precedence.
  */
 export interface LibraryFilter {
   scope?: { parentId: string }
   conditions?: LibraryCondition[]
+  conditionGroups?: LibraryCondition[][]
 }
 
 export interface VirtualTagCase {
