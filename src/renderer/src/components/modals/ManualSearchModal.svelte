@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LibraryItem, TmdbSearchResult, TmdbImage } from '@shared/types'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
 
@@ -13,7 +14,8 @@
     initialTab?: 'match' | 'artwork'
   } = $props()
 
-  let activeTab: 'match' | 'artwork' = $state(initialTab)
+  const caps = itemCapabilities(item)
+  let activeTab: 'match' | 'artwork' = $state(caps.canManualSearch ? initialTab : 'artwork')
 
   // --- Granular Loading States ---
   let isSearching = $state(false)
@@ -247,9 +249,11 @@
 <ModalWindow title="Manual Search" {onClose} cancelText="Close" maxWidth="900px">
   {#snippet header()}
     <div class="tabs">
-      <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
-        >Match</button
-      >
+      {#if caps.canManualSearch}
+        <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
+          >Match</button
+        >
+      {/if}
       <button class:active={activeTab === 'artwork'} onclick={() => (activeTab = 'artwork')}
         >Artwork</button
       >

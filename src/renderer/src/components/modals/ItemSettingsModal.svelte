@@ -5,6 +5,7 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import type {
     StoredViewSettings,
     MediaFolder,
@@ -38,16 +39,16 @@
 
   const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
   const isFolder = $derived(item.type === 'folder') // Reactive derived value for the template
-  const isVirtual = $derived(item.isVirtual === true) // This derived value is fine for the template
+  const caps = $derived(itemCapabilities(item))
 
-  // For initializing `activeTab`, directly use the prop `item.isVirtual`
-  // to avoid the compiler warning about capturing the initial value of a derived signal.
+  // Redirect to a valid tab if the requested one isn't available for this item
   let activeTab = $state<'metadata' | 'view' | 'folder'>(
-    item.isVirtual === true && (initialTab === 'metadata' || initialTab === 'folder')
-      ? 'view'
-      : (initialTab as any) === 'settings'
-        ? 'metadata'
-        : (initialTab as any)
+    (() => {
+      const c = itemCapabilities(item)
+      if (initialTab === 'folder' && !c.canEditFolderSettings) return c.canEditView ? 'view' : 'metadata'
+      if ((initialTab as any) === 'settings') return 'metadata'
+      return initialTab as any
+    })()
   )
 
   // --- Shared Autocomplete Suggestions ---
@@ -96,7 +97,7 @@
 
   // --- Metadata State ---
   async function refreshItemDetails() {
-    if (isVirtual || !item.id) return
+    if (!item.id) return
     try {
       const freshItem = await window.api.getItem(item.id)
       if (freshItem) {
@@ -508,26 +509,26 @@
 >
   {#snippet header()}
     <div class="tabs">
-      {#if !isVirtual}
+      {#if caps.canEditMetadata}
         <button class:active={activeTab === 'metadata'} onclick={() => (activeTab = 'metadata')}>
           Metadata
         </button>
       {/if}
-      {#if isFolder}
+      {#if caps.canEditView}
         <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>
           View
         </button>
-        {#if !isVirtual}
-          <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
-            Settings
-          </button>
-        {/if}
+      {/if}
+      {#if caps.canEditFolderSettings}
+        <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
+          Settings
+        </button>
       {/if}
     </div>
   {/snippet}
 
   <div class="scroll-area">
-    {#if activeTab === 'metadata' && !isVirtual}
+    {#if activeTab === 'metadata' && caps.canEditMetadata}
       <MetadataTab
         {item}
         bind:title
@@ -541,7 +542,7 @@
         bind:episodeSeasonNumber
         {suggestions}
       />
-    {:else if activeTab === 'view' && isFolder}
+    {:else if activeTab === 'view' && caps.canEditView}
       {@const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored}
       {@const inheritedSettings = parentStored?.childViewSettings}
       {@const inheritedLabel = overrideParent
@@ -561,7 +562,7 @@
         bind:showHorizontalScrollbar
         bind:childViewSettings
       />
-    {:else if activeTab === 'folder' && isFolder && !isVirtual}
+    {:else if activeTab === 'folder' && caps.canEditFolderSettings}
       <FolderTab
         item={item as MediaFolder}
         bind:retrieveChildrenMetadata

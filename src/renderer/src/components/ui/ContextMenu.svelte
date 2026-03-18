@@ -2,6 +2,7 @@
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { getDownloadUrl } from '@lib/api'
   import { playerLauncherService } from '@lib/services/player-launcher.service'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import type {
     LibraryItem,
     MediaFolder,
@@ -51,7 +52,7 @@
     onAssignSeasons: () => void
   } = $props()
 
-  const isVirtual = $derived((item as any).isVirtual === true)
+  const caps = $derived(itemCapabilities(item))
 
   let menuElement = $state<HTMLDivElement>()
   let submenuElement = $state<HTMLDivElement>()
@@ -312,7 +313,7 @@
   onmousedown={(e) => e.stopPropagation()}
   oncontextmenu={(e) => e.stopPropagation()}
 >
-  {#if item.type === 'file' && !isVirtual && !item.isMissing && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
+  {#if caps.canPlay && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
     <div
       class="submenu-container"
       onmouseenter={() => (activeSubmenu = 'play')}
@@ -359,14 +360,16 @@
     <span class="icon">✏️</span>
     <span>Edit Metadata</span>
   </button>
-  <button
-    class="context-menu-item"
-    onclick={handleManualSearch}
-    onmouseenter={() => (activeSubmenu = null)}
-  >
-    <span class="icon">🔍</span>
-    <span>Manual Search...</span>
-  </button>
+  {#if caps.canManualSearch}
+    <button
+      class="context-menu-item"
+      onclick={handleManualSearch}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon">🔍</span>
+      <span>Manual Search...</span>
+    </button>
+  {/if}
   <button
     class="context-menu-item"
     onclick={handleArtwork}
@@ -376,8 +379,7 @@
     <span>Artwork...</span>
   </button>
 
-  {#if item.type === 'folder'}
-    <!-- "Set View..." is applicable to both physical and virtual folders -->
+  {#if caps.canEditView}
     <button
       class="context-menu-item"
       onclick={handleLayout}
@@ -403,17 +405,16 @@
       </span>
       <span>Set View...</span>
     </button>
-    {#if !isVirtual}
-      <!-- "Folder Settings..." is only for physical folders -->
-      <button
-        class="context-menu-item"
-        onclick={handleFolderSettings}
-        onmouseenter={() => (activeSubmenu = null)}
-      >
-        <span class="icon">⚙️</span>
-        <span>Folder Settings...</span>
-      </button>
-    {/if}
+  {/if}
+  {#if caps.canEditFolderSettings}
+    <button
+      class="context-menu-item"
+      onclick={handleFolderSettings}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon">⚙️</span>
+      <span>Folder Settings...</span>
+    </button>
   {/if}
 
   <div
@@ -447,7 +448,7 @@
             <span>Mark as Unwatched</span>
           </button>
         {/if}
-        {#if item.mediaType === 'tv' && !isVirtual}
+        {#if caps.canAssignSeasons}
           <button class="context-menu-item" onclick={handleAssignSeasons}>
             <span class="icon">🔢</span>
             <span>Assign Seasons & Episodes...</span>
@@ -464,23 +465,23 @@
           <span class="icon">🔥</span>
           <span>Clear Metadata...</span>
         </button>
-        {#if !isVirtual}
+        {#if caps.canHide}
           <button class="context-menu-item danger" onclick={handleHideItem}>
             <span class="icon">🚫</span>
             <span>Hide Item...</span>
           </button>
-          {#if item.isMissing}
-            <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
-              <span class="icon">🗑️</span>
-              <span>Delete from Database...</span>
-            </button>
-          {/if}
+        {/if}
+        {#if caps.canDelete}
+          <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
+            <span class="icon">🗑️</span>
+            <span>Delete from Database...</span>
+          </button>
         {/if}
       </div>
     {/if}
   </div>
 
-  {#if !isVirtual && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
+  {#if caps.canCustomActions && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
     <div
       class="submenu-container"
@@ -511,7 +512,7 @@
     </div>
   {/if}
 
-  {#if !isVirtual}
+  {#if caps.canFilesystemOps}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
     <div
       class="submenu-container"
@@ -521,14 +522,13 @@
       <button
         class="context-menu-item has-submenu"
         onclick={(e) => e.preventDefault()}
-        disabled={item.isMissing}
       >
         <span class="icon">📄</span>
         <span>File</span>
         <span class="submenu-arrow">▸</span>
       </button>
 
-      {#if activeSubmenu === 'file' && !item.isMissing}
+      {#if activeSubmenu === 'file'}
         <div
           bind:this={submenuElement}
           class="context-menu submenu"

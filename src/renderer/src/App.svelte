@@ -345,7 +345,9 @@
         'seasonNumber',
         'episodeNumber',
         'viewSettings',
-        'scraperSettings'
+        'scraperSettings',
+        'isVirtual',
+        'virtualType'
       ])
 
       if (targetItem) {
@@ -395,7 +397,9 @@
         'name',
         'path',
         'posterPath',
-        '_v'
+        '_v',
+        'isVirtual',
+        'virtualType'
       ])
       if (targetItem) {
         modalStore.open('manualSearch', { item: targetItem, initialTab })

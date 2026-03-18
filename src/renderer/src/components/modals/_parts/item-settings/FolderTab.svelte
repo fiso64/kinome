@@ -16,8 +16,6 @@
     onNeedRefresh: () => Promise<void>
   } = $props()
 
-  const isVirtual = $derived((item as any).isVirtual === true)
-
   let hiddenChildren = $state<LibraryItem[]>([])
 
   async function fetchHiddenChildren() {
@@ -33,51 +31,47 @@
   }
 
   $effect(() => {
-    if (!isVirtual) {
-      fetchHiddenChildren()
-    }
+    fetchHiddenChildren()
   })
 </script>
 
 <div class="content">
-  {#if !isVirtual}
+  <div class="settings-group">
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
+      <span>This folder directly contains media items (e.g., movies or TV shows)</span>
+    </label>
+    <p class="help-text">
+      Enable this to fetch movie or TV show metadata for direct children of this folder.
+    </p>
+  </div>
+
+  <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
+    <label for="children-type-hint">Children Type Hint</label>
+    <select
+      id="children-type-hint"
+      bind:value={childrenTypeHint}
+      disabled={!retrieveChildrenMetadata}
+    >
+      <option value="auto">Automatic Detection</option>
+      <option value="movie">Movie</option>
+      <option value="tv">TV Show</option>
+    </select>
+    <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
+  </div>
+
+  {#if item.mediaType === 'tv'}
     <div class="settings-group">
       <label class="checkbox-label">
-        <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
-        <span>This folder directly contains media items (e.g., movies or TV shows)</span>
+        <input type="checkbox" bind:checked={processTvChildren} />
+        <span>Enable TV show processing (seasons & episodes)</span>
       </label>
       <p class="help-text">
-        Enable this to fetch movie or TV show metadata for direct children of this folder.
+        If enabled, the app will analyze file/folder names to identify seasons and episodes, and
+        fetch their specific metadata. Disable this for folders that contain TV shows but should
+        be treated as simple folders.
       </p>
     </div>
-
-    <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
-      <label for="children-type-hint">Children Type Hint</label>
-      <select
-        id="children-type-hint"
-        bind:value={childrenTypeHint}
-        disabled={!retrieveChildrenMetadata}
-      >
-        <option value="auto">Automatic Detection</option>
-        <option value="movie">Movie</option>
-        <option value="tv">TV Show</option>
-      </select>
-      <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
-    </div>
-
-    {#if item.mediaType === 'tv'}
-      <div class="settings-group">
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={processTvChildren} />
-          <span>Enable TV show processing (seasons & episodes)</span>
-        </label>
-        <p class="help-text">
-          If enabled, the app will analyze file/folder names to identify seasons and episodes, and
-          fetch their specific metadata. Disable this for folders that contain TV shows but should
-          be treated as simple folders.
-        </p>
-      </div>
-    {/if}
   {/if}
 
   {#if hiddenChildren.length > 0}
