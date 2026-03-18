@@ -46,10 +46,11 @@ function groupingFolderId(parentId: string, groupByKey: string, value: string): 
  */
 function resolveChildrenAndScope(folderId: string) {
     const folder = getItemById(folderId) as MediaFolder | null
+    if (!folder) throw new Error(`applyGrouping: folder '${folderId}' not found`)
     const fields = ['id', 'type', 'mediaType', 'seasonNumber', 'year', 'virtualTags', 'tags', 'genres']
 
     let realChildren
-    if (folder?.isVirtual && folder.filter) {
+    if (folder.isVirtual && folder.filter) {
         const compiled = compileFilter(folder.filter)
         realChildren = find({ ...compiled, fields })
     } else {
@@ -106,56 +107,61 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
 
     const existingIds = new Set(getVirtualGroupingFolderIds(folderId))
 
-    runTransaction(() => {
-        // Remove orphaned grouping folders
-        for (const existingId of existingIds) {
-            if (!desiredIds.has(existingId)) {
-                deleteItem(existingId)
-            }
-        }
+    // Fast path: nothing changed — skip the write transaction
+    const unchanged = desiredIds.size === existingIds.size && [...desiredIds].every(id => existingIds.has(id))
 
-        // Add new grouping folders (insertOrIgnore preserves existing rows)
-        for (const value of uniqueValues) {
-            const id = groupingFolderId(folderId, groupByKey, value)
-            const filter: LibraryFilter = {
-                scope: filterScope,
-                conditions: [...inheritedConditions, { field: groupByKey, op: 'eq', value }]
+    if (!unchanged) {
+        runTransaction(() => {
+            // Remove orphaned grouping folders
+            for (const existingId of existingIds) {
+                if (!desiredIds.has(existingId)) {
+                    deleteItem(existingId)
+                }
             }
-            insertVirtualItem({
-                id,
-                parentId: folderId,
-                name: value,
-                virtualType: 'grouping',
-                filterJson: JSON.stringify(filter),
-                insertOrIgnore: true
-            })
-            // Only set default title for newly created folders — preserve user edits
-            if (!existingIds.has(id)) {
-                upsertMetadata(id, { title: displayTitle(groupByKey, value) })
-            }
-        }
 
-        if (hasUncategorized) {
-            const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
-            const filter: LibraryFilter = {
-                scope: filterScope,
-                conditions: [...inheritedConditions, { field: groupByKey, op: 'isNull' }]
+            // Add new grouping folders (insertOrIgnore preserves existing rows)
+            for (const value of uniqueValues) {
+                const id = groupingFolderId(folderId, groupByKey, value)
+                const filter: LibraryFilter = {
+                    scope: filterScope,
+                    conditions: [...inheritedConditions, { field: groupByKey, op: 'eq', value }]
+                }
+                insertVirtualItem({
+                    id,
+                    parentId: folderId,
+                    name: value,
+                    virtualType: 'grouping',
+                    filterJson: JSON.stringify(filter),
+                    insertOrIgnore: true
+                })
+                // Only set default title for newly created folders — preserve user edits
+                if (!existingIds.has(id)) {
+                    upsertMetadata(id, { title: displayTitle(groupByKey, value) })
+                }
             }
-            insertVirtualItem({
-                id,
-                parentId: folderId,
-                name: 'Uncategorized',
-                virtualType: 'grouping',
-                filterJson: JSON.stringify(filter),
-                insertOrIgnore: true
-            })
-            if (!existingIds.has(id)) {
-                upsertMetadata(id, { title: 'Uncategorized' })
-            }
-        }
 
-        mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
-    })
+            if (hasUncategorized) {
+                const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
+                const filter: LibraryFilter = {
+                    scope: filterScope,
+                    conditions: [...inheritedConditions, { field: groupByKey, op: 'isNull' }]
+                }
+                insertVirtualItem({
+                    id,
+                    parentId: folderId,
+                    name: 'Uncategorized',
+                    virtualType: 'grouping',
+                    filterJson: JSON.stringify(filter),
+                    insertOrIgnore: true
+                })
+                if (!existingIds.has(id)) {
+                    upsertMetadata(id, { title: 'Uncategorized' })
+                }
+            }
+
+            mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
+        })
+    }
 
     // Propagate nested groupings from parent's childViewSettings.
     // If the parent says "children should group by X", apply that to each
