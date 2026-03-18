@@ -509,9 +509,6 @@
     display: flex;
     gap: 1rem;
   }
-  .layout-options.vertical {
-    flex-direction: column;
-  }
   .layout-options.horizontal {
     flex-direction: row;
     overflow-x: auto;
@@ -533,31 +530,6 @@
     transition:
       border-color 0.2s,
       background-color 0.2s;
-  }
-
-  /* Vertical Layout Items (for Click Action) */
-  .vertical-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 1rem;
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-  }
-  .vertical-item:hover {
-    background-color: var(--color-background);
-  }
-  .vertical-item input[type='radio'] {
-    margin-top: 0.2rem;
-    width: 1rem;
-    height: 1rem;
-  }
-  .option-label {
-    font-weight: bold;
-  }
-  .option-description {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
   }
 
   /* Horizontal Layout Items (for View As) */

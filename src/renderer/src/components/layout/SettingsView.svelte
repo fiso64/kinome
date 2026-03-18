@@ -8,6 +8,7 @@
   import CustomActionsModal from '@modals/CustomActionsModal.svelte'
   import VirtualTagEditor from '@modals/_parts/VirtualTagEditor.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
+  import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '@shared/types'
   import type {
     PlayerCommandConfig,
@@ -348,6 +349,11 @@
                 bind:mediaSourcePathIsRelative
                 bind:libraryLocation={libraryDataLocation}
               />
+            </div>
+            <div class="form-section">
+              <h3>Folder Settings</h3>
+              <p class="help-text">Configure metadata retrieval for each folder in your library.</p>
+              <LibraryTreeBrowser />
             </div>
           {:else if activeTab === 'view'}
             <div class="form-section">
