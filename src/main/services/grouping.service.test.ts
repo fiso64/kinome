@@ -19,6 +19,7 @@ import { compileFilter, buildWhereFragment } from '../database/query-builder'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { applyGrouping, syncAllGroupings } from './virtualFolders.service'
 import { applyVirtualTags } from './virtualTags.service'
+import { reapplyVirtualTags } from './library.service'
 import { find, getItemById } from './repository.service'
 import type { StoredViewSettings, Settings, MediaFolder } from '@shared/types'
 
@@ -789,6 +790,38 @@ describe('grouping staleness', () => {
     // 720p group should appear, 1080p should disappear (no items left)
     expect(getGroupNames('movies')).toContain('720p')
     expect(getGroupNames('movies')).not.toContain('1080p')
+  })
+
+  it('vtag result value renamed → stale group disappears, new group appears', () => {
+    // Setup: is_animated vtag with result "Animation"
+    const vtagConfig = [{
+      id: 'vt-animated',
+      name: 'is_animated',
+      cases: [{ filter: { conditions: [{ field: 'genre', op: 'contains' as const, value: 'Animation' }] }, result: 'Animation' }],
+      defaultResult: 'Live Action'
+    }]
+
+    ctx.seedGenres('e1', ['Action', 'Animation'])
+    ctx.seedGenres('e2', ['Action'])
+    ctx.seedGenres('e3', ['Drama'])
+
+    applyVirtualTags(vtagConfig)
+    applyGrouping('movies', 'vt.is_animated')
+    expect(getGroupNames('movies')).toEqual(['Animation', 'Live Action'])
+
+    // User changes result value: "Animation" → "Animation 2" and saves settings.
+    // reapplyVirtualTagsAfterSettingsChange calls applyVirtualTags but must also
+    // sync groupings — otherwise stale grouping folders remain.
+    const updatedConfig = [{
+      ...vtagConfig[0],
+      cases: [{ filter: { conditions: [{ field: 'genre', op: 'contains' as const, value: 'Animation' }] }, result: 'Animation 2' }],
+    }]
+    reapplyVirtualTags(updatedConfig)
+
+    // "Animation" group should be gone, "Animation 2" should exist
+    expect(getGroupNames('movies')).not.toContain('Animation')
+    expect(getGroupNames('movies')).toContain('Animation 2')
+    expect(getGroupNames('movies')).toContain('Live Action')
   })
 
   it('genre change triggers vtag re-evaluation and grouping update', () => {

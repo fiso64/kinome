@@ -881,13 +881,20 @@ export const applyInitialFolderSettings = async (
   metadataService.enrichDatabase().catch(console.error)
 }
 
+/**
+ * Synchronous core: reapply virtual tags and sync any affected groupings.
+ * Extracted so it can be tested directly without async/IO dependencies.
+ */
+export function reapplyVirtualTags(virtualTags: Parameters<typeof virtualTagsService.applyVirtualTags>[0]): void {
+  virtualTagsService.applyVirtualTags(virtualTags)
+  virtualFoldersService.syncAllGroupings()
+}
+
 export const reapplyVirtualTagsAfterSettingsChange = async () => {
   const settings = await settingsService.readSettings()
+  reapplyVirtualTags(settings.virtualTags)
 
-  // 1. Efficiently apply tags in DB massively via SQL (Single transaction)
-  virtualTagsService.applyVirtualTags(settings.virtualTags)
-
-  // 2. Refresh suggestions and group-by keys, and tell UI to invalidate item cache
+  // Refresh suggestions and group-by keys, and tell UI to invalidate item cache
   const [suggestions, groupByKeys] = await Promise.all([
     getAutocompleteSuggestions(),
     getGroupByKeys()
