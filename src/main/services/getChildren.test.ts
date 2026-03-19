@@ -1006,3 +1006,183 @@ describe('getChildren — I3: TV show child tab layout consistency', () => {
     expect(extrasNode!.effective.layout).toBe('list')
   })
 })
+
+// =================================================================
+// Parent field conditions (parent.field syntax)
+// =================================================================
+
+describe('getChildren — parent field conditions', () => {
+  beforeEach(() => {
+    mockSettings = {
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+      },
+      defaultLayoutSettings: {
+        grid: { gridPosterSize: 250 },
+        list: {},
+        tabs: {},
+        sections: {},
+      },
+      virtualTags: [],
+    }
+  })
+
+  it('parent.scraperSettings.retrieve_children_metadata filters to children of scraper-enabled folders', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', title: 'Film A' },
+      { id: 'e2', mediaType: 'movie', title: 'Film B' },
+      { id: 'e3', mediaType: 'movie', title: 'Film C' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: 'misc', parentId: 'root', path: 'misc', type: 'folder' },
+      { id: 'film1', parentId: 'movies', path: 'movies/film1', type: 'folder', entityId: 'e1' },
+      { id: 'film2', parentId: 'movies', path: 'movies/film2', type: 'folder', entityId: 'e2' },
+      { id: 'film3', parentId: 'misc', path: 'misc/film3', type: 'folder', entityId: 'e3' },
+    ])
+    // Only 'movies' has retrieve_children_metadata enabled
+    ctx.seedFolderSettings([
+      { itemId: 'movies', scraperSettings: { retrieve_children_metadata: 1 } },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'Scraper Content', {
+      conditionGroups: [[
+        { field: 'parent.scraperSettings.retrieve_children_metadata', op: 'eq', value: 1 },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    // Only film1 and film2 (children of scraper-enabled 'movies'), not film3
+    expect(items.map((i) => i.id).sort()).toEqual(['film1', 'film2'])
+  })
+
+  it('parent.mediaType filters items by their parent entity media type', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Breaking Bad' },
+      { id: 'e-movie-folder', mediaType: 'movie', title: 'The Godfather' },
+      { id: 'e-ep1', mediaType: 'episode', title: 'Pilot' },
+      { id: 'e-file', mediaType: null },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: 'movie', parentId: 'root', path: 'movie', type: 'folder', entityId: 'e-movie-folder' },
+      { id: 'ep1', parentId: 'show', path: 'show/ep1', entityId: 'e-ep1' },
+      { id: 'file1', parentId: 'movie', path: 'movie/file.mkv', entityId: 'e-file' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'TV Children', {
+      conditionGroups: [[
+        { field: 'parent.mediaType', op: 'eq', value: 'tv' },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('ep1')
+  })
+
+  it('parent.parent.field traverses two levels', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Breaking Bad' },
+      { id: 'e-season', mediaType: 'season', seasonNumber: 1 },
+      { id: 'e-ep1', mediaType: 'episode', episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', episodeNumber: 1 },
+      { id: 'e-movie', mediaType: 'movie' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'e-season' },
+      { id: 'ep1', parentId: 's1', path: 'show/s1/ep1', entityId: 'e-ep1' },
+      // An episode under a non-tv grandparent (shouldn't match)
+      { id: 'movie-folder', parentId: 'root', path: 'mf', type: 'folder', entityId: 'e-movie' },
+      { id: 'sub', parentId: 'movie-folder', path: 'mf/sub', type: 'folder' },
+      { id: 'ep2', parentId: 'sub', path: 'mf/sub/ep2', entityId: 'e-ep2' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'TV Grandchildren', {
+      conditionGroups: [[
+        { field: 'parent.parent.mediaType', op: 'eq', value: 'tv' },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    // Only ep1 — its grandparent 'show' has mediaType 'tv'
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('ep1')
+  })
+
+  it('parent.name filters by parent folder name', async () => {
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder', name: 'Movies' },
+      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder', name: 'TV Shows' },
+      { id: 'f1', parentId: 'movies', path: 'movies/f1', name: 'file1' },
+      { id: 'f2', parentId: 'movies', path: 'movies/f2', name: 'file2' },
+      { id: 'f3', parentId: 'tv', path: 'tv/f3', name: 'file3' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'Movie Files', {
+      conditionGroups: [[
+        { field: 'parent.name', op: 'eq', value: 'Movies' },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    expect(items.map((i) => i.id).sort()).toEqual(['f1', 'f2'])
+  })
+
+  it('parent field condition with no matching items returns empty', async () => {
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'folder', parentId: 'root', path: 'folder', type: 'folder' },
+      { id: 'child', parentId: 'folder', path: 'folder/child' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'No Match', {
+      conditionGroups: [[
+        { field: 'parent.name', op: 'eq', value: 'NonExistent' },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    expect(items).toHaveLength(0)
+  })
+
+  it('parent field condition works with isNotNull operator', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'matched', parentId: 'root', path: 'matched', type: 'folder', entityId: 'e1' },
+      { id: 'unmatched', parentId: 'root', path: 'unmatched', type: 'folder' },
+      { id: 'child1', parentId: 'matched', path: 'matched/c1' },
+      { id: 'child2', parentId: 'unmatched', path: 'unmatched/c2' },
+    ])
+
+    const vfId = createUserVirtualFolder('root', 'Under Matched Parents', {
+      conditionGroups: [[
+        { field: 'parent.mediaType', op: 'isNotNull' },
+      ]],
+    })
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('child1')
+  })
+})

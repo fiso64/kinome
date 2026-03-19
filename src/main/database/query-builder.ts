@@ -45,7 +45,105 @@ export interface FindOptions {
  * This is the shared primitive used by both compileFilter (OR-of-AND groups)
  * and buildWhereFragment (typedWhere clauses).
  */
+/**
+ * Resolves a parent-prefixed field into a correlated EXISTS subquery.
+ * Supports arbitrary depth: parent.field, parent.parent.field, etc.
+ *
+ * parent.mediaType = 'tv' →
+ *   EXISTS (SELECT 1 FROM items p1
+ *     LEFT JOIN media_entities p1e ON p1.entity_id = p1e.id
+ *     WHERE p1.id = i.parent_id AND p1e.media_type = ?)
+ *
+ * parent.parent.mediaType = 'tv' →
+ *   EXISTS (SELECT 1 FROM items p1
+ *     JOIN items p2 ON p2.id = p1.parent_id
+ *     LEFT JOIN media_entities p2e ON p2.entity_id = p2e.id
+ *     WHERE p1.id = i.parent_id AND p2e.media_type = ?)
+ *
+ * JSON sub-paths (e.g., scraperSettings.retrieve_children_metadata)
+ * are handled via json_extract().
+ */
+function compileParentCondition(field: string, op: string, value?: string | number | null): CompiledSql {
+    const params: any[] = []
+    const tables = new Set<string>()
+
+    // Count parent depth and extract the remaining field path
+    let depth = 0
+    let remaining = field
+    while (remaining.startsWith('parent.')) {
+        depth++
+        remaining = remaining.slice(7)
+    }
+
+    // p1 is the direct parent (anchored via WHERE p1.id = i.parent_id)
+    // p2..pN are chained via JOINs
+    const joins: string[] = []
+    for (let d = 2; d <= depth; d++) {
+        joins.push(`JOIN items p${d} ON p${d}.id = p${d - 1}.parent_id`)
+    }
+    const target = `p${depth}` // alias of the ancestor we're querying
+
+    // Resolve the remaining field path against REPOSITORY_SCHEMA
+    const parts = remaining.split('.')
+    const schemaKey = parts[0]
+    const def = REPOSITORY_SCHEMA[schemaKey]
+    if (!def) return { sql: '1=1', params, tables }
+
+    // Remap table aliases: i→target, e→targete, f→targetf, u→targetu
+    const remap: Record<string, string> = {
+        'i': target, 'e': `${target}e`, 'f': `${target}f`, 'u': `${target}u`,
+    }
+
+    // Join the related table on the target parent if needed
+    if (def.table === 'e') {
+        joins.push(`LEFT JOIN media_entities ${remap['e']} ON ${target}.entity_id = ${remap['e']}.id`)
+    } else if (def.table === 'f') {
+        joins.push(`LEFT JOIN folder_settings ${remap['f']} ON ${target}.id = ${remap['f']}.item_id`)
+    } else if (def.table === 'u') {
+        joins.push(`LEFT JOIN user_state ${remap['u']} ON ${target}.id = ${remap['u']}.item_id`)
+    }
+
+    // Remap the column SQL to the parent alias
+    let columnSql = def.sql
+    if (def.table) {
+        columnSql = columnSql.replace(new RegExp(`\\b${def.table}\\.`, 'g'), `${remap[def.table]}.`)
+    } else {
+        columnSql = columnSql.replace(/\bi\./g, `${target}.`)
+    }
+
+    // Handle JSON sub-paths (e.g., scraperSettings.retrieve_children_metadata)
+    if (parts.length > 1 && def.isJson) {
+        const jsonPath = '$.' + parts.slice(1).join('.')
+        columnSql = `json_extract(${columnSql}, '${jsonPath}')`
+    }
+
+    // Build the inner condition
+    let conditionSql: string
+    switch (op) {
+        case 'eq':         params.push(value); conditionSql = `${columnSql} = ?`; break
+        case 'ne':         params.push(value); conditionSql = `${columnSql} != ?`; break
+        case 'contains':   params.push(`%${value}%`); conditionSql = `${columnSql} LIKE ?`; break
+        case 'gt':         params.push(value); conditionSql = `${columnSql} > ?`; break
+        case 'lt':         params.push(value); conditionSql = `${columnSql} < ?`; break
+        case 'isNull':     conditionSql = `${columnSql} IS NULL`; break
+        case 'isNotNull':  conditionSql = `${columnSql} IS NOT NULL`; break
+        case 'isEmpty':    conditionSql = `(${columnSql} IS NULL OR ${columnSql} = '')`; break
+        case 'isNotEmpty': conditionSql = `(${columnSql} IS NOT NULL AND ${columnSql} != '')`; break
+        default:           conditionSql = '1=1'; break
+    }
+
+    const joinClause = joins.length > 0 ? ' ' + joins.join(' ') : ''
+    const sql = `EXISTS (SELECT 1 FROM items p1${joinClause} WHERE p1.id = i.parent_id AND ${conditionSql})`
+
+    return { sql, params, tables }
+}
+
 export function compileConditionToSql(field: string, op: string, value?: string | number | null): CompiledSql {
+    // Handle parent.* field references
+    if (field.startsWith('parent.')) {
+        return compileParentCondition(field, op, value)
+    }
+
     const params: any[] = []
     const tables = new Set<string>()
 
