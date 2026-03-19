@@ -241,7 +241,6 @@
               onShowContextMenu={(item, e) =>
                 dispatch('showContextMenu', { item: item as any, event: e })}
               highlightedIndex={searchStore.highlightedDetailIndex}
-              isPreSorted={true}
               {settings}
               listFixedAspectRatio={true}
             />

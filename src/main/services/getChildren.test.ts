@@ -303,6 +303,64 @@ describe('getChildren — contextual sorting', () => {
     expect(items.map((i) => i.id)).toEqual(['ep2', 'ep3', 'ep1'])
   })
 
+  it('sorts season folders before other folders and files (Breaking Bad structure)', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Breaking Bad' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 2, episodeNumber: 1 },
+      { id: 'e-loose', mediaType: null },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'bb', parentId: 'root', path: 'Breaking Bad', type: 'folder', entityId: 'e-show' },
+      { id: 'extras', parentId: 'bb', path: 'Breaking Bad/Extras', type: 'folder', name: 'Extras' },
+      { id: 'ep1', parentId: 'bb', path: 'Breaking Bad/S01/e01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'bb', path: 'Breaking Bad/S02/e01.mkv', entityId: 'e-ep2' },
+      { id: 'loose', parentId: 'bb', path: 'Breaking Bad/file.mkv', entityId: 'e-loose' },
+    ])
+    syncVirtualSeasonFolders('bb')
+
+    const result = await getChildren('bb', {})
+    const items = expectItems(result)
+    const names = items.map((i) => i.name)
+
+    // Season folders first (by season number), then Extras folder, then loose file
+    expect(names[0]).toBe('Season 1')
+    expect(names[1]).toBe('Season 2')
+    expect(names.indexOf('Extras')).toBeGreaterThan(names.indexOf('Season 2'))
+  })
+
+  it('sorts virtual season folders before other folders and files (Death Note structure)', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Death Note' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
+      { id: 'e-ep3', mediaType: 'episode', seasonNumber: 1, episodeNumber: 3 },
+      { id: 'e-loose', mediaType: null },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'dn', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: 'extras', parentId: 'dn', path: 'Death Note/Extras', type: 'folder', name: 'Extras' },
+      { id: 'other', parentId: 'dn', path: 'Death Note/Other Folder', type: 'folder', name: 'Other Folder' },
+      { id: 'ep1', parentId: 'dn', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'dn', path: 'Death Note/e02.mkv', entityId: 'e-ep2' },
+      { id: 'ep3', parentId: 'dn', path: 'Death Note/e03.mkv', entityId: 'e-ep3' },
+      { id: 'loose', parentId: 'dn', path: 'Death Note/ending-not-an-episode.mkv', entityId: 'e-loose' },
+    ])
+    // Death Note has no physical season folders — seasons are virtual
+    syncVirtualSeasonFolders('dn')
+
+    const result = await getChildren('dn', {})
+    const items = expectItems(result)
+    const names = items.map((i) => i.name)
+
+    // Virtual Season 1 first, then Extras and Other Folder, then loose files
+    expect(names[0]).toBe('Season 1')
+    expect(names.indexOf('Extras')).toBeGreaterThan(0)
+    expect(names.indexOf('Other Folder')).toBeGreaterThan(0)
+  })
+
   it('sorts by name for generic folders', async () => {
     ctx.seedItems([
       { id: 'root', parentId: null, path: '.', type: 'folder' },
@@ -315,6 +373,29 @@ describe('getChildren — contextual sorting', () => {
     const items = expectItems(result)
 
     expect(items.map((i) => i.name)).toEqual(['Apple', 'Zebra'])
+  })
+
+  it('sorts by metadata title when available, falling back to file name', async () => {
+    ctx.seedEntities([
+      { id: 'e-godfather', mediaType: 'movie', title: 'The Godfather' },
+      { id: 'e-spirited', mediaType: 'movie', title: 'Spirited Away' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      // File name "godfather" would sort before "zebra-unmatched", but
+      // metadata title "The Godfather" sorts after "Spirited Away"
+      { id: 'f1', parentId: 'movies', path: 'movies/godfather', name: 'godfather', entityId: 'e-godfather' },
+      { id: 'f2', parentId: 'movies', path: 'movies/spirited-away', name: 'spirited-away', entityId: 'e-spirited' },
+      // No entity — falls back to file name
+      { id: 'f3', parentId: 'movies', path: 'movies/zebra-unmatched', name: 'zebra-unmatched' },
+    ])
+
+    const result = await getChildren('movies', {})
+    const items = expectItems(result)
+
+    // Sorted by displayName: "Spirited Away", "The Godfather", "zebra-unmatched"
+    expect(items.map((i) => i.id)).toEqual(['f2', 'f1', 'f3'])
   })
 })
 

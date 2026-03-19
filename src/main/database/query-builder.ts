@@ -21,13 +21,15 @@ export interface CompiledSql {
     tables: Set<string>
 }
 
+export interface OrderByClause { field: string; direction: 'ASC' | 'DESC' }
+
 export interface FindOptions {
     where?: Record<string, any>
     typedWhere?: TypedWhereClause[]
     rawConditions?: string[]
     compiledConditions?: CompiledSql
     fields?: string[]
-    orderBy?: { field: string; direction: 'ASC' | 'DESC' }
+    orderBy?: OrderByClause | OrderByClause[]
     limit?: number
     offset?: number
     includeHidden?: boolean
@@ -305,7 +307,8 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     }
 
     if (options.orderBy) {
-        processField(options.orderBy.field)
+        const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+        for (const c of clauses) processField(c.field)
     }
 
     // compiledConditions may require table joins — register them before building JOINs
@@ -355,9 +358,12 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     }
 
     if (options.orderBy) {
-        const def = REPOSITORY_SCHEMA[options.orderBy.field]
-        if (def) {
-            query += ` ORDER BY ${def.sql} ${options.orderBy.direction}`
+        const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+        const parts = clauses
+            .map(c => { const def = REPOSITORY_SCHEMA[c.field]; return def ? `${def.sql} ${c.direction}` : null })
+            .filter(Boolean)
+        if (parts.length > 0) {
+            query += ` ORDER BY ${parts.join(', ')}`
         }
     }
 

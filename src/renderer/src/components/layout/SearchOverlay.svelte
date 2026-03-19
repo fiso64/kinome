@@ -70,7 +70,6 @@
             dispatch('showContextMenu', { item, event: e, options })}
           {suggestions}
           highlightedIndex={highlightedSearchItemIndex}
-          isPreSorted={true}
           {settings}
           listFixedAspectRatio={true}
         />

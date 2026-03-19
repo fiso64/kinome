@@ -97,11 +97,21 @@ export async function getChildren(
   // 4. Contextual default sorting
   if (!opts.orderBy) {
     if (item.mediaType === 'season') {
-      opts.orderBy = { field: 'episodeNumber', direction: 'ASC' }
+      opts.orderBy = [
+        { field: 'typeRank', direction: 'ASC' },
+        { field: 'episodeNumber', direction: 'ASC' },
+      ]
     } else if (item.mediaType === 'tv') {
-      opts.orderBy = { field: 'seasonNumber', direction: 'ASC' }
+      opts.orderBy = [
+        { field: 'typeRank', direction: 'ASC' },
+        { field: 'seasonNumber', direction: 'ASC' },
+        { field: 'displayName', direction: 'ASC' },
+      ]
     } else {
-      opts.orderBy = { field: 'name', direction: 'ASC' }
+      opts.orderBy = [
+        { field: 'typeRank', direction: 'ASC' },
+        { field: 'displayName', direction: 'ASC' },
+      ]
     }
   }
 

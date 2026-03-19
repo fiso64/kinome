@@ -29,6 +29,9 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     filter: { sql: 'i.filter_json', table: 'i', isJson: true },
     addedAt: { sql: 'i.added_at', table: 'i' },
     addedDaysAgo: { sql: `((cast(strftime('%s','now') as int) - i.added_at / 1000) / 86400)`, table: 'i' },
+    // Computed sort keys
+    typeRank: { sql: `CASE WHEN e.media_type = 'season' THEN 0 WHEN i.type = 'folder' THEN 1 ELSE 2 END`, table: 'e' },
+    displayName: { sql: `COALESCE(e.title, i.name)`, table: 'e' },
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
     entityId: { sql: 'i.entity_id', table: 'i' },

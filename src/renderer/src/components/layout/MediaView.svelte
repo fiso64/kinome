@@ -30,7 +30,6 @@
     searchQuery,
     suggestions,
     highlightedIndex,
-    isPreSorted = false,
     settings,
     listFixedAspectRatio = false,
     viewNode,
@@ -48,7 +47,6 @@
     searchQuery?: { text: string; tags: { key: string; value: string }[] }
     suggestions?: AutocompleteSuggestions
     highlightedIndex?: number | null
-    isPreSorted?: boolean
     settings?: Settings | null
     listFixedAspectRatio?: boolean
     viewNode?: ViewHierarchyNode
@@ -88,50 +86,9 @@
     }
   })
 
-  // --- Helpers for data processing ---
-
-  function compareItems(a: DisplayableItem, b: DisplayableItem): number {
-    // The properties 'seasonNumber' and 'episodeNumber' might not exist on SearchIndexEntry
-    const aSeason = 'seasonNumber' in a ? (a as any).seasonNumber : undefined
-    const bSeason = 'seasonNumber' in b ? (b as any).seasonNumber : undefined
-    const aEpisode = 'episodeNumber' in a ? (a as any).episodeNumber : undefined
-    const bEpisode = 'episodeNumber' in b ? (b as any).episodeNumber : undefined
-
-    // Handle season numbers (nulls last)
-    if (aSeason != null && bSeason != null) {
-      if (aSeason !== bSeason) return aSeason - bSeason
-    } else if (aSeason != null) {
-      return -1 // a has season, b doesn't. a comes first.
-    } else if (bSeason != null) {
-      return 1 // b has season, a doesn't. b comes first.
-    }
-
-    // Handle episode numbers (nulls last)
-    if (aEpisode != null && bEpisode != null) {
-      if (aEpisode !== bEpisode) return aEpisode - bEpisode
-    } else if (aEpisode != null) {
-      return -1
-    } else if (bEpisode != null) {
-      return 1
-    }
-
-    // Primary sort: files before folders
-    if (a.type === 'file' && b.type === 'folder') {
-      return -1
-    }
-    if (a.type === 'folder' && b.type === 'file') {
-      return 1
-    }
-
-    // If types are the same, fallback to alphabetical name sort
-    const aName = a.title ?? ('name' in a ? (a as LibraryItem).name : '')
-    const bName = b.title ?? ('name' in b ? (b as LibraryItem).name : '')
-    return aName.localeCompare(bName, undefined, { numeric: true })
-  }
-
   // --- Data Processing ---
-  // The API (and Query) now handles grouping.
-  // We simply filter (search/tags) and then sort for simple views.
+  // The API handles sorting (ORDER BY) and grouping.
+  // We simply filter (search/tags) using the frontend state.
 
   const { itemsForViews, foldersForTabsOrSections } = $derived.by(() => {
     // 1. Filter first.
@@ -143,6 +100,7 @@
       const looseItems = filteredItems.filter((i) => i.type !== 'folder')
 
       // Wrap loose items in a synthetic "Files" folder so they appear as a tab/section
+      // Since we just push it, it naturally appears at the end of the layout.
       if (looseItems.length > 0) {
         folders.push({
           id: `_files:${parentItem?.id ?? 'root'}`,
@@ -154,14 +112,12 @@
 
       return {
         itemsForViews: [],
-        foldersForTabsOrSections: folders.sort(compareItems) as MediaFolder[]
+        foldersForTabsOrSections: folders
       }
     }
 
     // 3. Simple Views (Grid, List, Tree)
-    // Just sort everything.
-    const sortedItems = isPreSorted ? filteredItems : [...filteredItems].sort(compareItems)
-    return { itemsForViews: sortedItems, foldersForTabsOrSections: [] }
+    return { itemsForViews: filteredItems, foldersForTabsOrSections: [] }
   })
 
   // Extend the viewNode with a synthetic entry for the "Files" tab so it
