@@ -30,7 +30,7 @@ import { compileFilter } from '../database/query-builder'
 import { fetchSettings } from '../database/repositories/settings.repo'
 import { parseJsonSafe } from '../database/mappers'
 import { displayTitle } from '@shared/display-names'
-import type { LibraryFilter, MediaFolder } from '@shared/types'
+import type { LibraryCondition, LibraryFilter, MediaFolder } from '@shared/types'
 
 /**
  * Deterministic ID for a grouping virtual folder.
@@ -61,15 +61,16 @@ function resolveChildrenAndScope(folderId: string) {
         })
     }
 
-    const filterScope = (folder?.isVirtual && folder.filter?.scope)
-        ? folder.filter.scope
-        : { parentId: folderId }
+    // Build the inherited filter base for sub-grouping folders.
+    // Sub-groupings intersect the parent's filter with their own grouping condition.
+    let inheritedFilter: LibraryFilter
+    if (folder.isVirtual && folder.filter) {
+        inheritedFilter = folder.filter
+    } else {
+        inheritedFilter = { scope: { parentId: folderId } }
+    }
 
-    // Carry forward the parent's filter conditions so sub-groupings
-    // intersect with them (e.g., Animation > Movies = genre:Animation AND mediaType:movie)
-    const inheritedConditions = (folder?.isVirtual && folder.filter?.conditions) || []
-
-    return { realChildren, filterScope, inheritedConditions }
+    return { realChildren, inheritedFilter }
 }
 
 /**
@@ -87,13 +88,28 @@ function collectUniqueValues(items: any[], groupByKey: string) {
 }
 
 /**
+ * Builds a grouping sub-folder filter by intersecting the parent's filter
+ * with an additional grouping condition.
+ * If the parent uses conditionGroups, the condition is appended to each group.
+ * If it uses flat conditions (or none), a single group is built.
+ */
+function buildGroupingFilter(parent: LibraryFilter, extra: LibraryCondition): LibraryFilter {
+    const groups = parent.conditionGroups
+        ?? (parent.conditions ? [parent.conditions] : [[]])
+    return {
+        scope: parent.scope,
+        conditionGroups: groups.map(group => [...group, extra]),
+    }
+}
+
+/**
  * Applies a grouping to a folder (real or virtual).
  *
  * Uses deterministic IDs so re-applying preserves existing folder settings.
  * Incrementally adds new groups and removes orphaned ones.
  */
 export function applyGrouping(folderId: string, groupByKey: string): void {
-    const { realChildren, filterScope, inheritedConditions } = resolveChildrenAndScope(folderId)
+    const { realChildren, inheritedFilter } = resolveChildrenAndScope(folderId)
     const { uniqueValues, hasUncategorized } = collectUniqueValues(realChildren, groupByKey)
 
     // Build the desired set of IDs
@@ -122,10 +138,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
             // Add new grouping folders (insertOrIgnore preserves existing rows)
             for (const value of uniqueValues) {
                 const id = groupingFolderId(folderId, groupByKey, value)
-                const filter: LibraryFilter = {
-                    scope: filterScope,
-                    conditions: [...inheritedConditions, { field: groupByKey, op: 'eq', value }]
-                }
+                const filter = buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'eq', value })
                 insertVirtualItem({
                     id,
                     parentId: folderId,
@@ -142,10 +155,7 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
 
             if (hasUncategorized) {
                 const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
-                const filter: LibraryFilter = {
-                    scope: filterScope,
-                    conditions: [...inheritedConditions, { field: groupByKey, op: 'isNull' }]
-                }
+                const filter = buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'isNull' })
                 insertVirtualItem({
                     id,
                     parentId: folderId,

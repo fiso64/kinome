@@ -16,7 +16,8 @@
     { value: 'title', label: 'Title' },
     { value: 'mediaType', label: 'Media Type' },
     { value: 'path', label: 'File Path' },
-    { value: 'addedDaysAgo', label: 'Days Since Added' }
+    { value: 'addedDaysAgo', label: 'Days Since Added' },
+    { value: 'retrieveChildrenMetadata', label: 'Retrieve Children Metadata' }
   ]
 
   const fields = $derived.by(() => {
@@ -43,6 +44,24 @@
     { value: 'isEmpty', label: 'is empty' },
     { value: 'isNotEmpty', label: 'is not empty' }
   ]
+
+  function getTarget(field: string): 'item' | 'parent' {
+    return field.startsWith('parent.') ? 'parent' : 'item'
+  }
+
+  function getBaseField(field: string): string {
+    return field.startsWith('parent.') ? field.slice(7) : field
+  }
+
+  function setTarget(cond: LibraryCondition, target: 'item' | 'parent') {
+    const base = getBaseField(cond.field)
+    cond.field = target === 'parent' ? `parent.${base}` : base
+  }
+
+  function setField(cond: LibraryCondition, base: string) {
+    const target = getTarget(cond.field)
+    cond.field = target === 'parent' ? `parent.${base}` : base
+  }
 
   function defaultCondition(): LibraryCondition {
     return { field: 'genre', op: 'contains', value: '' }
@@ -75,7 +94,7 @@
 
   function makeAutocompleteConfig(cond: LibraryCondition): AutocompleteConfig {
     return {
-      getSuggestions: (text) => getFuzzySuggestions(getValuesForField(cond.field), text),
+      getSuggestions: (text) => getFuzzySuggestions(getValuesForField(getBaseField(cond.field)), text),
       onSelect: (suggestion, node) => {
         cond.value = suggestion.label
         ;(node as HTMLInputElement).value = suggestion.label
@@ -96,12 +115,16 @@
           {#if ci > 0}
             <span class="and-label">AND</span>
           {/if}
-          <select bind:value={cond.field} class="field-select">
+          <select value={getTarget(cond.field)} onchange={(e) => setTarget(cond, e.currentTarget.value as 'item' | 'parent')} class="target-select">
+            <option value="item">Item</option>
+            <option value="parent">Parent</option>
+          </select>
+          <select value={getBaseField(cond.field)} onchange={(e) => setField(cond, e.currentTarget.value)} class="field-select">
             {#each fields as f}
               <option value={f.value}>{f.label}</option>
             {/each}
-            {#if !fields.some((f) => f.value === cond.field)}
-              <option value={cond.field}>{cond.field}</option>
+            {#if !fields.some((f) => f.value === getBaseField(cond.field))}
+              <option value={getBaseField(cond.field)}>{getBaseField(cond.field)}</option>
             {/if}
           </select>
           <select bind:value={cond.op} class="op-select">
@@ -110,7 +133,7 @@
             {/each}
           </select>
           {#if cond.op !== 'isNull' && cond.op !== 'isNotNull' && cond.op !== 'isEmpty' && cond.op !== 'isNotEmpty'}
-            {@const values = getValuesForField(cond.field)}
+            {@const values = getValuesForField(getBaseField(cond.field))}
             {#if values.length > 0}
               <input type="text" bind:value={cond.value} placeholder="value" class="value-input" use:autocomplete={makeAutocompleteConfig(cond)} />
             {:else}
@@ -153,6 +176,9 @@
     text-transform: uppercase;
     width: 2rem;
     flex-shrink: 0;
+  }
+  .target-select {
+    min-width: 4.5rem;
   }
   .field-select {
     min-width: 7rem;

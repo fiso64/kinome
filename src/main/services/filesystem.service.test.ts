@@ -46,14 +46,21 @@ describe('ensureRootExists', () => {
     expect(home!.parentId).toBe(root!.id)
   })
 
-  it('home virtual folder has a filter scoped to root', () => {
+  it('home virtual folder has a filter with parent.retrieveChildrenMetadata and mediaType conditions', () => {
     repositoryService.ensureRootExists('/media/library')
 
-    const root = repositoryService.getRoot()
-    const home = repositoryService.getItemById(HOME_FOLDER_ID) as any
     const row = ctx.db.prepare('SELECT filter_json FROM items WHERE id = ?').get(HOME_FOLDER_ID) as any
     const filter = JSON.parse(row?.filter_json ?? 'null')
-    expect(filter).toEqual({ scope: { parentId: root!.id } })
+    expect(filter.conditionGroups).toHaveLength(3)
+    expect(filter.conditionGroups[0]).toEqual([
+      { field: 'parent.retrieveChildrenMetadata', op: 'eq', value: 1 },
+    ])
+    expect(filter.conditionGroups[1]).toEqual([
+      { field: 'mediaType', op: 'eq', value: 'movie' },
+    ])
+    expect(filter.conditionGroups[2]).toEqual([
+      { field: 'mediaType', op: 'eq', value: 'tv' },
+    ])
   })
 
   it('is idempotent — calling twice does not duplicate', () => {

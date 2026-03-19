@@ -501,7 +501,14 @@ export const HOME_FOLDER_ID = 'virtual-home'
  */
 export function ensureHomeVirtualFolder(rootId: string): void {
     const db = getDb()
-    const filterJson = JSON.stringify({ scope: { parentId: rootId } })
+    const filter: import('@shared/types').LibraryFilter = {
+        conditionGroups: [
+            [{ field: 'parent.retrieveChildrenMetadata', op: 'eq', value: 1 }],
+            [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+            [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+        ],
+    }
+    const filterJson = JSON.stringify(filter)
     db.prepare(`
         INSERT OR IGNORE INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, filter_json)
         VALUES (?, ?, 'virtual://home', '__home__', 'folder', 1, 'home', ?)

@@ -251,12 +251,20 @@ describe('getChildren — alias resolution', () => {
   })
 
   it('"home" alias resolves to the home virtual folder', async () => {
+    ctx.seedEntities([
+      { id: 'e-movies', mediaType: 'movie' },
+      { id: 'e-tv', mediaType: 'tv' },
+    ])
+    ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-movies', 'movies')
+    ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-tv', 'tv')
+    ctx.seedFolderSettings([
+      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
+    ])
     ensureHomeVirtualFolder('root')
 
     const result = await getChildren('home', {})
     const items = expectItems(result)
 
-    // Home folder's filter scopes to root children
     expect(items).toHaveLength(2)
     expect(items.map((i) => i.id).sort()).toEqual(['movies', 'tv'])
   })
@@ -655,6 +663,9 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'show1', parentId: 'root', path: 'show1', type: 'folder', entityId: 'e2' },
       { id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e3' },
     ])
+    ctx.seedFolderSettings([
+      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
+    ])
     ensureHomeVirtualFolder('root')
 
     // Apply grouping by mediaType on the home virtual folder
@@ -674,11 +685,18 @@ describe('getChildren — end-to-end round-trip', () => {
     }
   })
 
-  it('full cycle: home → shows root children including virtual folders', async () => {
+  it('full cycle: home → shows matching items including virtual folders', async () => {
+    ctx.seedEntities([
+      { id: 'e-movies', mediaType: 'movie' },
+      { id: 'e-tv', mediaType: 'tv' },
+    ])
     ctx.seedItems([
       { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
-      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder' },
+      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder', entityId: 'e-movies' },
+      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder', entityId: 'e-tv' },
+    ])
+    ctx.seedFolderSettings([
+      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
     ])
     ensureHomeVirtualFolder('root')
 
