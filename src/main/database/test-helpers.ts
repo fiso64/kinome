@@ -60,7 +60,7 @@ export interface SeedEntity {
 export interface SeedFolderSettings {
   itemId: string
   viewSettings?: Record<string, any>
-  scraperSettings?: Record<string, any>
+  folderSettings?: { retrieveChildrenMetadata?: boolean; childrenTypeHint?: string | null; processTvChildren?: boolean }
 }
 
 export interface ServiceTestContext {
@@ -117,14 +117,16 @@ export function createServiceTestContext(): ServiceTestContext {
 
   const seedFolderSettings = (settings: SeedFolderSettings[]) => {
     const stmt = db.prepare(`
-      INSERT INTO folder_settings (item_id, view_settings_json, scraper_settings_json)
-      VALUES (?, ?, ?)
+      INSERT INTO folder_settings (item_id, view_settings_json, retrieve_children_metadata, children_type_hint, process_tv_children)
+      VALUES (?, ?, ?, ?, ?)
     `)
     for (const s of settings) {
       stmt.run(
         s.itemId,
         s.viewSettings ? JSON.stringify(s.viewSettings) : null,
-        s.scraperSettings ? JSON.stringify(s.scraperSettings) : null
+        s.folderSettings?.retrieveChildrenMetadata ? 1 : 0,
+        s.folderSettings?.childrenTypeHint ?? null,
+        s.folderSettings?.processTvChildren === false ? 0 : 1,
       )
     }
   }

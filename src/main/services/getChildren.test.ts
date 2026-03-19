@@ -1027,7 +1027,7 @@ describe('getChildren — parent field conditions', () => {
     }
   })
 
-  it('parent.scraperSettings.retrieve_children_metadata filters to children of scraper-enabled folders', async () => {
+  it('parent.retrieveChildrenMetadata filters to children of scraper-enabled folders', async () => {
     ctx.seedEntities([
       { id: 'e1', mediaType: 'movie', title: 'Film A' },
       { id: 'e2', mediaType: 'movie', title: 'Film B' },
@@ -1043,12 +1043,12 @@ describe('getChildren — parent field conditions', () => {
     ])
     // Only 'movies' has retrieve_children_metadata enabled
     ctx.seedFolderSettings([
-      { itemId: 'movies', scraperSettings: { retrieve_children_metadata: 1 } },
+      { itemId: 'movies', folderSettings: { retrieveChildrenMetadata: true } },
     ])
 
     const vfId = createUserVirtualFolder('root', 'Scraper Content', {
       conditionGroups: [[
-        { field: 'parent.scraperSettings.retrieve_children_metadata', op: 'eq', value: 1 },
+        { field: 'parent.retrieveChildrenMetadata', op: 'eq', value: 1 },
       ]],
     })
 

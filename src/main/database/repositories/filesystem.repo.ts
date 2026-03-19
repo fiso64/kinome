@@ -39,7 +39,7 @@ const FULL_JOIN_SQL = `
 const FULL_SELECT_SQL = `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.scraper_settings_json
+           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
 `
 
 // --- READ OPERATIONS ---
@@ -84,7 +84,7 @@ export function fetchParent(id: string): any {
             `
     SELECT p.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.scraper_settings_json
+           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN items p ON i.parent_id = p.id
     LEFT JOIN media_entities e ON p.entity_id = e.id
@@ -112,7 +112,7 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.scraper_settings_json
+           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN tree t ON i.id = t.id
     LEFT JOIN media_entities e ON i.entity_id = e.id
@@ -140,7 +140,7 @@ export function fetchAncestorsRaw(itemId: string): any[] {
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.scraper_settings_json
+           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN ancestors a ON i.id = a.id
     LEFT JOIN media_entities e ON i.entity_id = e.id

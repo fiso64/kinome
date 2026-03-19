@@ -442,8 +442,7 @@ const app = new Elysia()
             'genres',
             'tags',
             'virtualTags',
-            'viewSettings',
-            'scraperSettings'
+            'viewSettings'
           ]
         }
 

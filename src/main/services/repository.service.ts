@@ -121,7 +121,7 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
   const rows = db
     .prepare(
       `
-    SELECT i.*, ${ENTITY_COLUMNS_SQL}, f.scraper_settings_json
+    SELECT i.*, ${ENTITY_COLUMNS_SQL}, f.process_tv_children
     FROM items i
     JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
@@ -129,7 +129,7 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
       AND e.media_type = 'tv'
       AND i.is_ignored = 0
       AND i.is_hidden = 0
-      AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
+      AND (f.process_tv_children IS NULL OR f.process_tv_children != 0)
   `
     )
     .all() as any[]
@@ -149,7 +149,7 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed,
-           u.next_up_dismissed, f.view_settings_json, f.scraper_settings_json
+           u.next_up_dismissed, f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id
@@ -159,7 +159,7 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
       AND e.last_refreshed_at IS NULL
       AND i.is_ignored = 0
       AND i.is_hidden = 0
-      AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1
+      AND pf.retrieve_children_metadata = 1
   `
     )
     .all() as any[]
@@ -284,10 +284,10 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
     }
 
     // Folder Settings
-    if (updates.viewSettings !== undefined || (updates as any).scraperSettings !== undefined) {
+    if (updates.viewSettings !== undefined || updates.folderSettings !== undefined) {
       settingsRepo.mergeSettings(itemId, {
         viewSettings: updates.viewSettings,
-        scraperSettings: (updates as any).scraperSettings
+        folderSettings: updates.folderSettings
       })
     }
 

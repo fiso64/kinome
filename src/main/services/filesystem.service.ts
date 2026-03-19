@@ -287,7 +287,11 @@ export async function scanDirectory(
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
       const id = itemsRepo.generateId(relPath)
-      settingsRepo.updateFolderScraperSettings(id, settings)
+      settingsRepo.mergeSettings(id, { folderSettings: {
+        retrieveChildrenMetadata: !!settings.retrieve_children_metadata,
+        childrenTypeHint: settings.children_type_hint ?? null,
+        processTvChildren: settings.process_tv_children !== false,
+      } })
     }
   }
 
@@ -367,7 +371,11 @@ export function initializeRoot(
   runTransaction(() => {
     itemsRepo.upsertRootItem(rootId, rootName)
     if (rootSettings) {
-      settingsRepo.updateFolderScraperSettings(rootId, rootSettings)
+      settingsRepo.mergeSettings(rootId, { folderSettings: {
+        retrieveChildrenMetadata: !!rootSettings.retrieve_children_metadata,
+        childrenTypeHint: rootSettings.children_type_hint ?? null,
+        processTvChildren: rootSettings.process_tv_children !== false,
+      } })
     }
   })
 }

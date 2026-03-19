@@ -76,9 +76,9 @@ describe('mergeSettings (folder_settings merge contract)', () => {
 
   it('does not cross-contaminate view and scraper settings', () => {
     db.prepare(`
-      INSERT INTO folder_settings (item_id, view_settings_json, scraper_settings_json)
+      INSERT INTO folder_settings (item_id, view_settings_json, retrieve_children_metadata)
       VALUES (?, ?, ?)
-    `).run('folder1', JSON.stringify({ layout: 'grid' }), JSON.stringify({ retrieve_children_metadata: 1 }))
+    `).run('folder1', JSON.stringify({ layout: 'grid' }), 1)
 
     // Update only view settings via merge
     const existing = db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get('folder1') as any
@@ -91,7 +91,6 @@ describe('mergeSettings (folder_settings merge contract)', () => {
 
     // Scraper settings must be untouched
     const final = db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get('folder1') as any
-    const scraperSettings = JSON.parse(final.scraper_settings_json)
-    expect(scraperSettings.retrieve_children_metadata).toBe(1)
+    expect(final.retrieve_children_metadata).toBe(1)
   })
 })

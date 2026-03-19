@@ -154,9 +154,9 @@
           childViewSettings = stored.childViewSettings ?? null
 
           // Refresh Folder Settings
-          retrieveChildrenMetadata = folder.scraperSettings?.retrieve_children_metadata ?? false
-          childrenTypeHint = folder.scraperSettings?.children_type_hint ?? 'auto'
-          processTvChildren = folder.scraperSettings?.process_tv_children ?? true
+          retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
+          childrenTypeHint = folder.folderSettings?.childrenTypeHint ?? 'auto'
+          processTvChildren = folder.folderSettings?.processTvChildren ?? true
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
           episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''
@@ -232,13 +232,13 @@
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
-    _isFolder ? (item.scraperSettings?.retrieve_children_metadata ?? false) : false
+    _isFolder ? (item.folderSettings?.retrieveChildrenMetadata ?? false) : false
   )
   let childrenTypeHint = $state<'auto' | 'movie' | 'tv'>(
-    _isFolder ? (item.scraperSettings?.children_type_hint ?? 'auto') : 'auto'
+    _isFolder ? (item.folderSettings?.childrenTypeHint ?? 'auto') : 'auto'
   )
   let processTvChildren = $state(
-    _isFolder ? (item.scraperSettings?.process_tv_children ?? true) : true
+    _isFolder ? (item.folderSettings?.processTvChildren ?? true) : true
   )
   let itemsToUnhide = $state<string[]>([])
 
@@ -447,20 +447,20 @@
         updates.viewSettings.childViewSettings = finalChildViewSettings
         changed = true
       }
-      // 3. Folder Settings (Scraper, etc)
-      const scraperSettings: any = {}
+      // 3. Folder Behavior Settings
+      const folderSettingsUpdate: Record<string, any> = {}
       if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
-        scraperSettings.retrieve_children_metadata = retrieveChildrenMetadata
+        folderSettingsUpdate.retrieveChildrenMetadata = retrieveChildrenMetadata
       }
       if (hasChanged(childrenTypeHint, initialValues.childrenTypeHint)) {
-        scraperSettings.children_type_hint = childrenTypeHint
+        folderSettingsUpdate.childrenTypeHint = childrenTypeHint
       }
       if (hasChanged(processTvChildren, initialValues.processTvChildren)) {
-        scraperSettings.process_tv_children = processTvChildren
+        folderSettingsUpdate.processTvChildren = processTvChildren
       }
 
-      if (Object.keys(scraperSettings).length > 0) {
-        updates.scraperSettings = scraperSettings
+      if (Object.keys(folderSettingsUpdate).length > 0) {
+        updates.folderSettings = folderSettingsUpdate as any
         changed = true
       }
     }
@@ -481,12 +481,12 @@
     let needsRefresh = false
     if (itemToUpdate) {
       const wasEnabled =
-        item.type === 'folder' ? (item.scraperSettings?.retrieve_children_metadata ?? false) : false
+        item.type === 'folder' ? (item.folderSettings?.retrieveChildrenMetadata ?? false) : false
       console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
       await window.api.userUpdateItem(itemToUpdate)
       if (
         itemToUpdate.type === 'folder' &&
-        itemToUpdate.scraperSettings?.retrieve_children_metadata &&
+        itemToUpdate.folderSettings?.retrieveChildrenMetadata &&
         !wasEnabled
       ) {
         needsRefresh = true

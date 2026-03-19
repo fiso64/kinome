@@ -47,12 +47,17 @@ function insertEntity(entity: {
 
 function insertFolderSettings(settings: {
     itemId: string
-    scraperSettings?: Record<string, any>
+    folderSettings?: { retrieveChildrenMetadata?: boolean; childrenTypeHint?: string | null; processTvChildren?: boolean }
 }) {
     db.prepare(`
-    INSERT INTO folder_settings (item_id, scraper_settings_json)
-    VALUES (?, ?)
-  `).run(settings.itemId, settings.scraperSettings ? JSON.stringify(settings.scraperSettings) : null)
+    INSERT INTO folder_settings (item_id, retrieve_children_metadata, children_type_hint, process_tv_children)
+    VALUES (?, ?, ?, ?)
+  `).run(
+        settings.itemId,
+        settings.folderSettings?.retrieveChildrenMetadata ? 1 : 0,
+        settings.folderSettings?.childrenTypeHint ?? null,
+        settings.folderSettings?.processTvChildren === false ? 0 : 1,
+    )
 }
 
 // =================================================================
@@ -63,13 +68,13 @@ function insertFolderSettings(settings: {
 
 describe('getTvShowsForStructuralSync', () => {
     const QUERY = `
-    SELECT i.id AS item_id, i.type, e.media_type, f.scraper_settings_json
+    SELECT i.id AS item_id, i.type, e.media_type, f.process_tv_children
     FROM items i
     JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
       AND e.media_type = 'tv'
-      AND (json_extract(f.scraper_settings_json, '$.process_tv_children') IS NOT 0)
+      AND (f.process_tv_children IS NULL OR f.process_tv_children != 0)
   `
 
     beforeEach(() => {
@@ -90,7 +95,7 @@ describe('getTvShowsForStructuralSync', () => {
         const entityId = 'entity-show2'
         insertEntity({ id: entityId, mediaType: 'tv' })
         insertItem({ id: 'show2', type: 'folder', entityId })
-        insertFolderSettings({ itemId: 'show2', scraperSettings: { process_tv_children: 1 } })
+        insertFolderSettings({ itemId: 'show2', folderSettings: { processTvChildren: true } })
 
         const results = db.prepare(QUERY).all() as any[]
         expect(results.map((r: any) => r.item_id)).toContain('show2')
@@ -100,7 +105,7 @@ describe('getTvShowsForStructuralSync', () => {
         const entityId = 'entity-show3'
         insertEntity({ id: entityId, mediaType: 'tv' })
         insertItem({ id: 'show3', type: 'folder', entityId })
-        insertFolderSettings({ itemId: 'show3', scraperSettings: { process_tv_children: 0 } })
+        insertFolderSettings({ itemId: 'show3', folderSettings: { processTvChildren: false } })
 
         const results = db.prepare(QUERY).all() as any[]
         expect(results.map((r: any) => r.item_id)).not.toContain('show3')
@@ -140,14 +145,14 @@ describe('getDiscoveryItemsForPhase2', () => {
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
       AND e.last_refreshed_at IS NULL
-      AND json_extract(pf.scraper_settings_json, '$.retrieve_children_metadata') = 1
+      AND pf.retrieve_children_metadata = 1
   `
 
     beforeEach(() => {
         db = createTestDb()
         // Root folder with Gate A enabled
         insertItem({ id: 'root', path: '.', name: 'Library' })
-        insertFolderSettings({ itemId: 'root', scraperSettings: { retrieve_children_metadata: 1 } })
+        insertFolderSettings({ itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } })
     })
 
     it('returns dirty items with a gated parent (both conditions met)', () => {

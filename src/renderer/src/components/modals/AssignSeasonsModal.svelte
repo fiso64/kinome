@@ -13,7 +13,7 @@
   } = $props()
 
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
-    fields: () => ['id', 'scraperSettings']
+    fields: () => ['id', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren']
   })
 
   // Use the fetched item data if available, otherwise fallback to the initial item prop.
@@ -25,7 +25,7 @@
   let isSaving = $state(false)
 
   // TV show processing is enabled by default (undefined or true), and disabled if explicitly false.
-  const isTvProcessingEnabled = $derived(item.scraperSettings?.process_tv_children !== false)
+  const isTvProcessingEnabled = $derived(item.folderSettings?.processTvChildren !== false)
 
   $effect(() => {
     if (isTvProcessingEnabled) {

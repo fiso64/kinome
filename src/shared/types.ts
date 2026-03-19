@@ -345,8 +345,14 @@ export interface MediaFile {
   ancestorIds?: string[] // Populated during broadcast for targeted query invalidation
 }
 
+export interface FolderSettings {
+  retrieveChildrenMetadata: boolean
+  childrenTypeHint: 'auto' | 'movie' | 'tv' | null
+  processTvChildren: boolean
+}
+
 export interface MediaFolder {
-  // --- Core Properties (Preserved) ---
+  // --- Core Properties ---
   id: string // Stable ID (e.g., hash of relative path)
   parentId?: string
   name: string
@@ -357,9 +363,10 @@ export interface MediaFolder {
   virtualType?: 'user' | 'grouping' | 'season' | 'home'
   filter?: LibraryFilter | null
 
-  // --- View & Behavior Settings (Preserved) ---
+  // --- View & Behavior Settings ---
+  // TODO: Maybe combine viewSettings and folderSettings into a single settings object. Subkeys like "viewSettings", "scraperSettings", etc.
   viewSettings?: StoredViewSettings
-  scraperSettings?: any
+  folderSettings?: FolderSettings
   // --- Fetched & User-Editable Metadata (Reset by "Clear Metadata") ---
   title?: string | null
   overview?: string | null
@@ -418,7 +425,7 @@ export interface BaseLibraryItem {
   lastRefreshedAt?: number | null
   lockedFields?: string[]
   viewSettings?: StoredViewSettings
-  scraperSettings?: any
+  folderSettings?: FolderSettings
   _v?: number
   overrideChildId?: string
   mtime?: number
@@ -663,9 +670,9 @@ export const VIEW_SETTINGS_KEYS = [
 ] as const
 
 export const FOLDER_BEHAVIOR_SETTINGS_KEYS = [
-  'retrieve_children_metadata',
-  'children_type_hint',
-  'process_tv_children'
+  'retrieveChildrenMetadata',
+  'childrenTypeHint',
+  'processTvChildren'
 ] as const
 
 // --- Combined & Functional Key Lists ---

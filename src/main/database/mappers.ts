@@ -72,6 +72,17 @@ export function mapRowToLibraryItem(row: any): LibraryItem {
     // 3. Folder specific logic
     if (item.type === 'folder') {
         item.children = null
+        // Assemble folderSettings from individual DB columns
+        if (item.retrieveChildrenMetadata !== undefined || item.childrenTypeHint !== undefined || item.processTvChildren !== undefined) {
+            item.folderSettings = {
+                retrieveChildrenMetadata: !!item.retrieveChildrenMetadata,
+                childrenTypeHint: item.childrenTypeHint ?? null,
+                processTvChildren: item.processTvChildren !== false && item.processTvChildren !== 0,
+            }
+            delete item.retrieveChildrenMetadata
+            delete item.childrenTypeHint
+            delete item.processTvChildren
+        }
     }
 
     return item as LibraryItem

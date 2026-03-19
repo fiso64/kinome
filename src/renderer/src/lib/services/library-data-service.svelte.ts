@@ -344,7 +344,7 @@ class LibraryDataService {
 
           // If view settings or scraper settings were updated, the server-side viewHierarchy is stale.
           // We clear it so components fall back to live resolution until the refetch completes.
-          if ('viewSettings' in item || 'scraperSettings' in item) {
+          if ('viewSettings' in item || 'folderSettings' in item) {
             delete (patched as any).viewHierarchy
           }
           return patched

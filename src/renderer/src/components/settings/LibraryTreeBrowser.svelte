@@ -26,8 +26,8 @@
       isExpanded: false,
       children: null,
       isLoading: false,
-      retrieveChildrenMetadata: (item as any).scraperSettings?.retrieve_children_metadata ?? false,
-      childrenTypeHint: (item as any).scraperSettings?.children_type_hint ?? 'auto'
+      retrieveChildrenMetadata: (item as any).folderSettings?.retrieveChildrenMetadata ?? false,
+      childrenTypeHint: (item as any).folderSettings?.childrenTypeHint ?? 'auto'
     }
   }
 
@@ -35,7 +35,7 @@
     isInitializing = true
     try {
       const rootItem = await window.api.getItem('root', {
-        fields: ['id', 'name', 'title', 'type', 'mediaType', 'scraperSettings'],
+        fields: ['id', 'name', 'title', 'type', 'mediaType', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren'],
       })
       if (rootItem) {
         rootNodes = [itemToNode(rootItem)]
@@ -57,7 +57,7 @@
       node.isLoading = true
       try {
         const children = await window.api.getChildren(node.id, {
-          fields: ['id', 'name', 'title', 'type', 'mediaType', 'scraperSettings'],
+          fields: ['id', 'name', 'title', 'type', 'mediaType', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren'],
         })
         node.children = children.filter(c => c.type === 'folder').map(itemToNode)
       } catch (err) {
@@ -71,10 +71,10 @@
   async function saveSettings(node: FolderNode) {
     await window.api.userUpdateItem({
       id: node.id,
-      scraperSettings: {
-        retrieve_children_metadata: node.retrieveChildrenMetadata,
-        children_type_hint: node.childrenTypeHint === 'auto' ? null : node.childrenTypeHint
-      }
+      folderSettings: {
+        retrieveChildrenMetadata: node.retrieveChildrenMetadata,
+        childrenTypeHint: node.childrenTypeHint === 'auto' ? null : node.childrenTypeHint,
+      },
     } as any)
   }
 

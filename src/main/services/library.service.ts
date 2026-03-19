@@ -867,9 +867,10 @@ export const applyInitialFolderSettings = async (
     const item = repositoryService.getItemById(s.id)
     if (item && item.type === 'folder') {
       const folder = item as MediaFolder
-      folder.scraperSettings = {
-        retrieve_children_metadata: s.retrieve,
-        children_type_hint: s.hint
+      folder.folderSettings = {
+        retrieveChildrenMetadata: s.retrieve,
+        childrenTypeHint: s.hint ?? null,
+        processTvChildren: folder.folderSettings?.processTvChildren ?? true
       }
       itemsToUpdate.push(folder)
     }

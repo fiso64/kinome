@@ -1,9 +1,10 @@
 /**
  * SETTINGS REPOSITORY (Folder Contextual Behavior)
- * Owns the 'folder_settings' table. Handles view configurations and scraper behavior.
+ * Owns the 'folder_settings' table. Handles view configurations and folder behavior.
  */
 import { getDb } from '../client'
 import { parseJsonSafe } from '../mappers'
+import type { FolderSettings } from '@shared/types'
 
 /**
  * Fetches folder settings raw row.
@@ -18,7 +19,10 @@ export function fetchSettings(itemId: string): any {
  * Uses Object.assign to preserve nested keys (e.g. childViewSettings).
  * If you need full replacement, write a separate replaceSettings function.
  */
-export function mergeSettings(itemId: string, updates: any): void {
+export function mergeSettings(itemId: string, updates: {
+  viewSettings?: Record<string, any>
+  folderSettings?: Partial<FolderSettings>
+}): void {
   const db = getDb()
   const existing = (db.prepare('SELECT * FROM folder_settings WHERE item_id = ?').get(itemId) as any) || {}
 
@@ -29,29 +33,30 @@ export function mergeSettings(itemId: string, updates: any): void {
     Object.assign(viewSettings, updates.viewSettings)
   }
 
-  const scraperSettings = parseJsonSafe(existing.scraper_settings_json, {})
-  if (updates.scraperSettings !== undefined && updates.scraperSettings !== null) {
-    Object.assign(scraperSettings, updates.scraperSettings)
-  }
+  // Folder behavior settings: merge individual columns
+  const retrieveChildrenMetadata = updates.folderSettings?.retrieveChildrenMetadata
+    ?? existing.retrieve_children_metadata ?? 0
+  const childrenTypeHint = updates.folderSettings?.childrenTypeHint !== undefined
+    ? updates.folderSettings.childrenTypeHint
+    : (existing.children_type_hint ?? null)
+  const processTvChildren = updates.folderSettings?.processTvChildren
+    ?? existing.process_tv_children ?? 1
 
   db.prepare(
     `
-    INSERT INTO folder_settings(item_id, view_settings_json, scraper_settings_json)
-    VALUES(@id, @view, @scraper)
+    INSERT INTO folder_settings(item_id, view_settings_json, retrieve_children_metadata, children_type_hint, process_tv_children)
+    VALUES(@id, @view, @retrieve, @hint, @processTv)
     ON CONFLICT(item_id) DO UPDATE SET
       view_settings_json = excluded.view_settings_json,
-      scraper_settings_json = excluded.scraper_settings_json
+      retrieve_children_metadata = excluded.retrieve_children_metadata,
+      children_type_hint = excluded.children_type_hint,
+      process_tv_children = excluded.process_tv_children
     `
   ).run({
     '@id': itemId,
     '@view': JSON.stringify(viewSettings),
-    '@scraper': JSON.stringify(scraperSettings)
+    '@retrieve': retrieveChildrenMetadata ? 1 : 0,
+    '@hint': childrenTypeHint,
+    '@processTv': processTvChildren === false ? 0 : 1,
   })
-}
-
-/**
- * Filesystem: Updates folder scraper settings.
- */
-export function updateFolderScraperSettings(id: string, settings: any): void {
-  mergeSettings(id, { scraperSettings: settings })
 }

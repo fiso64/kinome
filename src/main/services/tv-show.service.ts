@@ -25,7 +25,7 @@ export async function syncTvShowStructure(
   episodeStrategy: 'smart' | 'alphabetic' = 'smart',
   options: { force?: boolean; scopedToId?: string } = {}
 ): Promise<LibraryItem[]> {
-  const processingDisabled = show.scraperSettings?.process_tv_children === false
+  const processingDisabled = show.folderSettings?.processTvChildren === false
   const isTargeted = !!options.scopedToId
   const isForced = !!options.force
 

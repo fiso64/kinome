@@ -128,7 +128,9 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     nextUpEpisodeId: { sql: 'u.next_up_episode_id', table: 'u' },
 
     // Folder Settings
-    scraperSettings: { sql: 'f.scraper_settings_json', table: 'f', isJson: true },
+    retrieveChildrenMetadata: { sql: 'f.retrieve_children_metadata', table: 'f', parser: Boolean },
+    childrenTypeHint: { sql: 'f.children_type_hint', table: 'f' },
+    processTvChildren: { sql: 'f.process_tv_children', table: 'f', parser: Boolean },
     viewSettings: { sql: 'f.view_settings_json', table: 'f', isJson: true }
 }
 

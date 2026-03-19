@@ -60,8 +60,7 @@ export interface FindOptions {
  *     LEFT JOIN media_entities p2e ON p2.entity_id = p2e.id
  *     WHERE p1.id = i.parent_id AND p2e.media_type = ?)
  *
- * JSON sub-paths (e.g., scraperSettings.retrieve_children_metadata)
- * are handled via json_extract().
+ * JSON sub-paths (e.g., viewSettings.layout) are handled via json_extract().
  */
 function compileParentCondition(field: string, op: string, value?: string | number | null): CompiledSql {
     const params: any[] = []
@@ -111,7 +110,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
         columnSql = columnSql.replace(/\bi\./g, `${target}.`)
     }
 
-    // Handle JSON sub-paths (e.g., scraperSettings.retrieve_children_metadata)
+    // Handle JSON sub-paths (e.g., viewSettings.layout)
     if (parts.length > 1 && def.isJson) {
         const jsonPath = '$.' + parts.slice(1).join('.')
         columnSql = `json_extract(${columnSql}, '${jsonPath}')`

@@ -142,7 +142,7 @@ export async function fetchAndApplyMetadata(
         ? (repositoryService.getItemById(item.parentId) as MediaFolder)
         : null
       const typeHint =
-        parent?.scraperSettings?.children_type_hint || (item.type === 'file' ? 'movie' : 'multi')
+        parent?.folderSettings?.childrenTypeHint || (item.type === 'file' ? 'movie' : 'multi')
 
       const results = await retrieverService.search(query, typeHint as any, apiKey, {
         year: options.year?.toString()
@@ -154,7 +154,7 @@ export async function fetchAndApplyMetadata(
         item.mediaType = result.media_type || (typeHint === 'multi' ? 'movie' : typeHint)
         if (
           item.mediaType === 'tv' &&
-          (item as MediaFolder).scraperSettings?.process_tv_children !== false
+          (item as MediaFolder).folderSettings?.processTvChildren !== false
         ) {
           await tvShowService.syncTvShowStructure(item as MediaFolder)
         }
@@ -190,7 +190,7 @@ export async function fetchAndApplyMetadata(
     if (
       item.type === 'folder' &&
       item.mediaType === 'tv' &&
-      (item.scraperSettings?.process_tv_children !== false || options.force)
+      (item.folderSettings?.processTvChildren !== false || options.force)
     ) {
       const structuralChanges = await tvShowService.syncTvShowStructure(item as MediaFolder)
       allModifiedItems.push(...structuralChanges)
@@ -198,7 +198,7 @@ export async function fetchAndApplyMetadata(
 
     // 4. Managed Copy (TV propagation)
     if (
-      (item.mediaType === 'tv' && item.scraperSettings?.process_tv_children !== false) ||
+      (item.mediaType === 'tv' && item.folderSettings?.processTvChildren !== false) ||
       item.mediaType === 'season' ||
       options.force
     ) {

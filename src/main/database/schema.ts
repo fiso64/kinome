@@ -172,10 +172,12 @@ CREATE TABLE IF NOT EXISTS folder_settings (
     item_id TEXT PRIMARY KEY,
     
     -- JSON blob matching StoredViewSettings interface
-    view_settings_json TEXT, 
-    
-    -- JSON blob for scraper behavior (retrieve_children_metadata, etc.)
-    scraper_settings_json TEXT, 
+    view_settings_json TEXT,
+
+    -- Scraper behavior flags
+    retrieve_children_metadata INTEGER NOT NULL DEFAULT 0,
+    children_type_hint TEXT,
+    process_tv_children INTEGER NOT NULL DEFAULT 1,
 
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
