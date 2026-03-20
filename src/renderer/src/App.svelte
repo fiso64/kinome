@@ -334,6 +334,8 @@
       const id = itemOrId || navStore.contextItemId
       if (!id || id === 'root') return
 
+      const parentItem = contextMenuStore.parentItem
+
       const targetItem = await libraryDataService.ensureItemWithFields(id, [
         'type',
         'mediaType',
@@ -355,10 +357,17 @@
       ])
 
       if (targetItem) {
+        const isSelf = parentItem?.id === targetItem.id
         modalStore.open('itemSettings', {
           item: targetItem,
           initialTab: initialTab,
-          defaultLayout: resolveViewSettings(targetItem as any, settings).settings.layout as any
+          overrideParent: isSelf ? undefined : parentItem,
+          defaultLayout: resolveViewSettings(
+            targetItem as any,
+            settings,
+            new Set(),
+            parentItem?.viewSettings?.childViewSettings
+          ).settings.layout as any
         })
       }
     },

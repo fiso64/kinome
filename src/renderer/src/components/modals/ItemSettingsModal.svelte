@@ -137,9 +137,17 @@
             keyof StoredViewSettings,
             ResolutionSource
           ][]) {
+            if (key === 'groupBy') continue
+            
             if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
               ;(stored as any)[key] = (resolution.settings as any)[key]
             }
+          }
+
+          // GroupBy is strictly an item-level concept. Never pull it from overrides.
+          const itemResolution = resolveViewSettings(folder, settings)
+          if (itemResolution.sources.groupBy?.source === 'item') {
+            stored.groupBy = itemResolution.settings.groupBy
           }
 
           seasonNumber = folder.seasonNumber?.toString() ?? ''
@@ -212,9 +220,17 @@
       keyof StoredViewSettings,
       ResolutionSource
     ][]) {
+      if (key === 'groupBy') continue
+
       if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
         ;(stored as any)[key] = (resolution.settings as any)[key]
       }
+    }
+
+    // GroupBy is strictly an item-level concept. Never pull it from overrides.
+    const itemResolution = resolveViewSettings(folder, settings)
+    if (itemResolution.sources.groupBy?.source === 'item') {
+      stored.groupBy = itemResolution.settings.groupBy
     }
 
     return stored
@@ -259,19 +275,20 @@
    * This centralizes the logic for both physical and virtual folders.
    * @param target The object to apply view settings to (either a LibraryItem or a virtual folder settings object).
    */
-  function applyViewSettings(target: Partial<StoredViewSettings>) {
+  function applyViewSettings(target: Partial<StoredViewSettings>, includeGroupBy: boolean = true) {
     target.layout = selectedLayout
     target.clickAction = selectedClickAction
     target.gridPosterSize = gridPosterSize
     target.listDescriptionRows = listDescriptionRows
     target.showHorizontalScrollbar = showHorizontalScrollbar
-    target.groupBy =
-      selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
+    if (includeGroupBy) {
+      target.groupBy =
+        selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
+    }
   }
 
-  async function buildUpdatedItem(): Promise<LibraryItem | null> {
-    const updates: any = { id: item.id }
-    let changed = false
+  async function buildUpdatedItems(): Promise<LibraryItem[]> {
+    const itemsToReturn: LibraryItem[] = []
 
     const hasChanged = (current: any, initial: any, fieldName?: string): boolean => {
       // Treat null and undefined as equal for change detection
@@ -308,7 +325,7 @@
         viewSettings: {}
       }
 
-      applyViewSettings(parentUpdates.viewSettings)
+      applyViewSettings(parentUpdates.viewSettings, false) // groupBy is ignored in overrides
       if (childViewSettings) {
         parentUpdates.viewSettings.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
       }
@@ -321,7 +338,6 @@
           initialValues.selectedClickAction,
           'clickAction'
         ) ||
-        hasChanged(parentUpdates.viewSettings.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
         hasChanged(
           parentUpdates.viewSettings.gridPosterSize,
           initialValues.gridPosterSize,
@@ -344,12 +360,13 @@
         )
       ) {
         console.log(`[ItemSettingsModal] [DEBUG] Override mode changes detected.`, parentUpdates)
-        return parentUpdates as LibraryItem
+        itemsToReturn.push(parentUpdates as LibraryItem)
       }
-      return null
     }
 
     // --- Editing a Standard Item (Physical or Virtual) ---
+    const updates: any = { id: item.id }
+    let changed = false
 
     // 1. Metadata Changes
     const trimmedTitle = title.trim() ? title.trim() : undefined
@@ -414,39 +431,52 @@
 
     // 2. View and Folder Setting Changes (for folders)
     if (isFolder) {
-      const viewUpdates: any = {}
-      applyViewSettings(viewUpdates)
+      // If we don't have an override parent, view settings are saved to the item itself.
+      if (!overrideParent) {
+        const viewUpdates: any = {}
+        applyViewSettings(viewUpdates, true)
 
-      if (
-        hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
-        hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
-        hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
-        hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
-        hasChanged(
-          viewUpdates.listDescriptionRows,
-          initialValues.listDescriptionRows,
-          'listDescriptionRows'
-        ) ||
-        hasChanged(
-          viewUpdates.showHorizontalScrollbar,
-          initialValues.showHorizontalScrollbar,
-          'showHorizontalScrollbar'
-        )
-      ) {
-        updates.viewSettings = viewUpdates
-        changed = true
+        if (
+          hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
+          hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
+          hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
+          hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
+          hasChanged(
+            viewUpdates.listDescriptionRows,
+            initialValues.listDescriptionRows,
+            'listDescriptionRows'
+          ) ||
+          hasChanged(
+            viewUpdates.showHorizontalScrollbar,
+            initialValues.showHorizontalScrollbar,
+            'showHorizontalScrollbar'
+          )
+        ) {
+          updates.viewSettings = viewUpdates
+          changed = true
+        }
+
+        const finalChildViewSettings = childViewSettings
+          ? JSON.parse(JSON.stringify(childViewSettings))
+          : null
+        if (
+          hasChanged(finalChildViewSettings, initialValues.childViewSettings, 'childViewSettings')
+        ) {
+          if (!updates.viewSettings) updates.viewSettings = {}
+          updates.viewSettings.childViewSettings = finalChildViewSettings
+          changed = true
+        }
+      } else {
+        // We DO have an override parent, but we STILL need to save groupBy to the item itself!
+        const viewUpdates: any = {}
+        viewUpdates.groupBy = selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
+        if (hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy')) {
+          updates.viewSettings = updates.viewSettings || {}
+          updates.viewSettings.groupBy = viewUpdates.groupBy
+          changed = true
+        }
       }
 
-      const finalChildViewSettings = childViewSettings
-        ? JSON.parse(JSON.stringify(childViewSettings))
-        : null
-      if (
-        hasChanged(finalChildViewSettings, initialValues.childViewSettings, 'childViewSettings')
-      ) {
-        if (!updates.viewSettings) updates.viewSettings = {}
-        updates.viewSettings.childViewSettings = finalChildViewSettings
-        changed = true
-      }
       // 3. Folder Behavior Settings
       const folderSettingsUpdate: Record<string, any> = {}
       if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
@@ -473,15 +503,20 @@
       }
     }
 
-    return changed ? (updates as LibraryItem) : null
+    if (changed) {
+      itemsToReturn.push(updates as LibraryItem)
+    }
+
+    return itemsToReturn
   }
 
   async function handleSave() {
-    const itemToUpdate = await buildUpdatedItem()
+    const itemsToUpdate = await buildUpdatedItems()
     let needsRefresh = false
-    if (itemToUpdate) {
+    
+    for (const itemToUpdate of itemsToUpdate) {
       const wasEnabled =
-        item.type === 'folder' ? (item.folderSettings?.retrieveChildrenMetadata ?? false) : false
+        itemToUpdate.type === 'folder' ? (itemToUpdate.folderSettings?.retrieveChildrenMetadata ?? false) : false
       console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
       await window.api.userUpdateItem(itemToUpdate)
       if (
@@ -521,7 +556,7 @@
 </script>
 
 <ModalWindow
-  title={overrideParent ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
+  title={overrideParent && activeTab === 'view' ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
   onClose={handleClose}
   onSave={handleSave}
   maxWidth="700px"
