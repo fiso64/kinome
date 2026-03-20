@@ -174,7 +174,9 @@
       <button class="add-link" onclick={() => addCondition(gi)}>+ AND</button>
     </div>
   {/each}
-  <button class="add-link add-or" onclick={addGroup}>+ OR group</button>
+  <button class="add-link add-or" onclick={addGroup}>
+    {groups.length === 0 ? '+ Add condition' : '+ OR group'}
+  </button>
 </div>
 
 <style>

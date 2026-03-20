@@ -461,7 +461,13 @@
                 onclick={() =>
                   (virtualTags = [
                     ...virtualTags,
-                    { id: crypto.randomUUID(), name: '', cases: [] }
+                    { 
+                      id: crypto.randomUUID(), 
+                      name: '', 
+                      cases: [
+                        { filter: { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }, result: '' }
+                      ] 
+                    }
                   ])}
               >
                 + Add Virtual Tag

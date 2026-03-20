@@ -16,7 +16,7 @@
   let name = $state('')
   let filter = $state<LibraryFilter>({
     scope: { parentId: parentItem.id },
-    conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]]
+    conditionGroups: []
   })
 
   let nameInput = $state<HTMLInputElement | undefined>(undefined)

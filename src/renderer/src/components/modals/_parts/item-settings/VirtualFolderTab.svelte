@@ -19,7 +19,7 @@
   if (!filter.conditionGroups) {
     filter.conditionGroups = filter.conditions?.length
       ? [filter.conditions]
-      : [[{ field: 'genre', op: 'contains', value: '' }]]
+      : []
     filter.conditions = undefined
   }
 
