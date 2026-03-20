@@ -235,6 +235,35 @@ describe('getChildren — Branch A (virtual folder)', () => {
     const children = expectItems(result)
     expect(children).toHaveLength(0)
   })
+
+  it('virtual folder with filter also returns manually parented virtual children', async () => {
+    // 1. Create parent virtual folder 'A' with a filter (e.g. all movies from 'movies' folder)
+    const folderAId = createUserVirtualFolder('root', 'Folder A', {
+      scope: { parentId: 'movies' },
+      conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+    })
+
+    // 2. Create a child virtual folder 'B' manually parented to 'A'
+    const folderBId = createUserVirtualFolder(folderAId, 'Folder B')
+
+    // 3. getChildren('A') should return:
+    //    - Real items matching the filter (film1, film2, film3)
+    //    - Manually parented virtual children (Folder B)
+    const result = await getChildren(folderAId, {})
+    const children = expectItems(result)
+
+    expect(children).toHaveLength(4) // 3 films + 1 virtual folder
+    const ids = children.map((c) => c.id)
+    expect(ids).toContain('film1')
+    expect(ids).toContain('film2')
+    expect(ids).toContain('film3')
+    expect(ids).toContain(folderBId)
+
+    // Verify Folder B is properly flagged as virtual
+    const folderB = children.find(c => c.id === folderBId)!
+    expect(folderB.isVirtual).toBe(true)
+    expect(folderB.name).toBe('Folder B')
+  })
 })
 
 // =================================================================
@@ -267,6 +296,161 @@ describe('getChildren — alias resolution', () => {
 
     expect(items).toHaveLength(2)
     expect(items.map((i) => i.id).sort()).toEqual(['movies', 'tv'])
+  })
+
+  it('nested virtual folder with complex parent filter correctly resolves items', async () => {
+    // 1. Setup environment
+    ctx.seedEntities([
+      { id: 'e1', title: 'Dumbo', mediaType: 'movie', year: 1941 },
+      { id: 'e2', title: 'Akira', mediaType: 'movie', year: 1988 },
+      { id: 'e3', title: 'Rick and Morty', mediaType: 'tv', year: 2013 },
+      { id: 'e4', title: 'Die Hard', mediaType: 'movie', year: 1988 },
+    ])
+    ctx.seedGenres('e1', ['Animation', 'Family'])
+    ctx.seedGenres('e2', ['Animation', 'Action'])
+    ctx.seedGenres('e3', ['Animation', 'Comedy'])
+    ctx.seedGenres('e4', ['Action']) // No Animation
+
+    ctx.seedItems([
+      { id: 'repro_root', parentId: null, path: 'repro_root', type: 'folder' },
+      { id: 'repro_movies_dir', parentId: 'repro_root', path: 'repro_root/Movies', type: 'folder' },
+      { id: 'repro_film1', parentId: 'repro_movies_dir', path: 'repro_root/Movies/Dumbo.mkv', entityId: 'e1' },
+      { id: 'repro_film2', parentId: 'repro_root', path: 'repro_root/Akira.mkv', entityId: 'e2' },
+      { id: 'repro_show1', parentId: 'repro_root', path: 'repro_root/RickAndMorty.mkv', entityId: 'e3' },
+      { id: 'repro_film4', parentId: 'repro_root', path: 'repro_root/DieHard.mkv', entityId: 'e4' },
+    ])
+
+    // Enable 'retrieveChildrenMetadata' for 'repro_movies_dir'
+    ctx.seedFolderSettings([
+      { itemId: 'repro_movies_dir', folderSettings: { retrieveChildrenMetadata: true } },
+    ])
+
+    // 2. Ensure Home exists with its default complex filter
+    ensureHomeVirtualFolder('repro_root')
+
+    // Verify Home has children (Dumbo via parent settings, Akira/Rick via mediaType)
+    const homeItems = expectItems(await getChildren('home', {}))
+    // We expect our 3 seeded items + potentially others from beforeEach if they match.
+    // To be safe, just check if OUR items are present.
+    const homeIds = homeItems.map(i => i.id)
+    expect(homeIds).toContain('repro_film1')
+    expect(homeIds).toContain('repro_film2')
+    expect(homeIds).toContain('repro_show1')
+    expect(homeIds).toContain('repro_film4') // repro_film4 is a movie, so it should be in Home
+
+    // 3. Create 'Animation' folder inside Home
+    // Use 'Parent Folder' scope. If the system doesn't merge conditions, this will fail.
+    const animationId = createUserVirtualFolder(HOME_FOLDER_ID, 'Animation', {
+      scope: { parentId: HOME_FOLDER_ID },
+      conditions: [{ field: 'genres', op: 'contains', value: 'Animation' }],
+    })
+
+    // 4. Test visibility
+    const result = await getChildren(animationId, {})
+    const items = expectItems(result)
+    // console.log(`[REPRO DEBUG] Animation folder returned IDs: ${JSON.stringify(items.map(i => i.id))}`)
+
+    // EXPECTATION: Dumbo, Akira, Rick and Morty should be here if inheritance worked
+    const animIds = items.map(i => i.id)
+    expect(animIds).toContain('repro_film1')
+    expect(animIds).toContain('repro_film2')
+    expect(animIds).toContain('repro_show1')
+    expect(animIds).toHaveLength(3)
+  })
+
+  it('virtual folder with scope: parent inherits conditions but not siblings', async () => {
+    // 1. Setup
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie', year: 2023 }, // Matches filter
+      { id: 'e2', mediaType: 'tv', year: 2023 },    // Does not match
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: 'root', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'root/film1', entityId: 'e1' },
+      { id: 'file2', parentId: 'root', path: 'root/file2', entityId: 'e2' },
+    ])
+
+    // Create a parent virtual folder with a filter
+    const parentVId = createUserVirtualFolder('root', 'Parent V', {
+      scope: { parentId: 'root' },
+      conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+    })
+
+    // Create a sibling of our target child
+    const siblingId = createUserVirtualFolder(parentVId, 'Sibling')
+
+    // 2. Create target child with 'scope: parent'
+    const childId = createUserVirtualFolder(parentVId, 'Target Child', {
+      scope: { parentId: parentVId },
+      // No extra conditions — just plain inheritance
+    })
+
+    // 3. Test visibility
+    const result = await getChildren(childId, {})
+    const items = expectItems(result)
+
+    // EXPECTATION:
+    // - Should contain 'film1' (inherited from Parent V)
+    // - Should NOT contain 'childId' or 'siblingId'
+    const itemIds = items.map(i => i.id)
+
+    // THIS IS CURRENTLY RED: it will be empty []
+    expect(itemIds).toContain('film1')
+    expect(itemIds).not.toContain(childId)
+    expect(itemIds).not.toContain(siblingId)
+    expect(itemIds).toHaveLength(1)
+  })
+
+  it('virtual folder with scope: parent inherits conditions recursively (A > B > C)', async () => {
+    // 1. Setup
+    ctx.seedEntities([
+      { id: 'e1', title: 'Dumbo', mediaType: 'movie', year: 1941 },
+      { id: 'e2', title: 'Pinocchio', mediaType: 'movie', year: 1940 },
+      { id: 'e3', title: 'Fantasia', mediaType: 'tv', year: 1940 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: 'root', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'root/film1', entityId: 'e1' },
+      { id: 'film2', parentId: 'root', path: 'root/film2', entityId: 'e2' },
+      { id: 'film3', parentId: 'root', path: 'root/film3', entityId: 'e3' },
+    ])
+
+    // A: All movies from root
+    const folderAId = createUserVirtualFolder('root', 'Folder A', {
+      scope: { parentId: 'root' },
+      conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+    })
+
+    // B: inheriting A, filtering by year 1940
+    const folderBId = createUserVirtualFolder(folderAId, 'Folder B', {
+      scope: { parentId: folderAId },
+      conditions: [{ field: 'year', op: 'eq', value: 1940 }],
+    })
+
+    // C: inheriting B, filtering by title Dumbo
+    const folderCId = createUserVirtualFolder(folderBId, 'Folder C', {
+      scope: { parentId: folderBId },
+      conditions: [{ field: 'title', op: 'eq', value: 'Dumbo' }],
+    })
+
+    // 2. Test resolutions
+    // Folder B should show Pinocchio (is a movie AND year 1940)
+    const bItems = expectItems(await getChildren(folderBId, {}))
+    expect(bItems.map(i => i.id)).toContain('film2')
+    expect(bItems.map(i => i.id)).not.toContain('film1')
+    expect(bItems.map(i => i.id)).not.toContain('film3')
+    expect(bItems).toHaveLength(1)
+
+    // Folder C should show NOTHING if inheritance worked for all three
+    // because Dumbo is 1941, and B only shows 1940.
+    const cItems = expectItems(await getChildren(folderCId, {}))
+    expect(cItems).toHaveLength(0)
+
+    // Alternative: make Dumbo 1940 and confirm it shows
+    ctx.seedEntities([{ id: 'e1', title: 'Dumbo', mediaType: 'movie', year: 1940 }])
+    const cItemsFixed = expectItems(await getChildren(folderCId, {}))
+    expect(cItemsFixed.map(i => i.id)).toContain('film1')
+    expect(cItemsFixed).toHaveLength(1)
   })
 
   it('"root" alias resolves to the actual root folder', async () => {
