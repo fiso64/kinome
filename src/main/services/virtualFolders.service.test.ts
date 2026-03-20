@@ -338,6 +338,23 @@ describe('applyGrouping on virtual folders', () => {
     expect(children).toHaveLength(1)
     expect(children[0].id).toBe('show1')
   })
+
+  it('applyGrouping on a user virtual folder inheriting from home creates grouping subfolders', async () => {
+    const vfId = createUserVirtualFolder('root', 'Inherited VF', {
+      scope: { parentId: HOME_FOLDER_ID },
+      conditionGroups: []
+    })
+
+    applyGrouping(vfId, 'mediaType')
+
+    const groupingFolders = find({
+      where: { parentId: vfId },
+      rawConditions: [`i.virtual_type = 'grouping'`],
+    })
+
+    const names = groupingFolders.map((f) => f.name).sort()
+    expect(names).toEqual(['movie', 'tv'])
+  })
 })
 
 // =================================================================
