@@ -477,7 +477,7 @@ describe('getChildren — alias resolution', () => {
     const result = await getChildren(vfId, {})
     const items = expectItems(result)
     const ids = items.map(c => c.id).sort()
-    
+
     // Both items have 'test' in the title, but 'item2' should be filtered out by the home folder constraints
     expect(ids).toEqual(['item1'])
   })
@@ -503,10 +503,8 @@ describe('getChildren — alias resolution', () => {
     const result = await getChildren(vfId, {})
     const items = expectItems(result)
     const ids = items.map(c => c.id).sort()
-    
+
     // item2 should be filtered out by the home folder constraints.
-    // Without the fix, conditionGroups: [] produces an empty Cartesian product 
-    // resulting in no filters, and item2 incorrectly shows up.
     expect(ids).toEqual(['item1'])
   })
 
@@ -543,7 +541,7 @@ describe('getChildren — alias resolution', () => {
     // ignoring A's grouping settings.
     const bItems = expectItems(await getChildren(folderBId, {}))
     const bRealIds = bItems.filter(i => !i.isVirtual).map(i => i.id)
-    
+
     expect(bRealIds).toContain('test_film1')
     expect(bRealIds).not.toContain('test_file2')
     expect(bRealIds).toHaveLength(1)

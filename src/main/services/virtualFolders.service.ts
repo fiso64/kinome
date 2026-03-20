@@ -42,8 +42,11 @@ export async function resolveEffectiveFilter(filter: LibraryFilter): Promise<Lib
   const effectiveParent = await resolveEffectiveFilter(parent.filter)
 
   // Merge: Each group in the parent is combined with every group in the child (cross product)
-  const childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
-  const parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
+  let childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
+  if (childGroups.length === 0) childGroups = [[]]
+
+  let parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
+  if (parentGroups.length === 0) parentGroups = [[]]
 
   const mergedGroups: LibraryCondition[][] = []
   for (const pg of parentGroups) {
