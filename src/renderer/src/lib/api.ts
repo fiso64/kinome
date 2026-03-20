@@ -61,7 +61,7 @@ export interface ApiClient {
   playFile(file: MediaFile): Promise<boolean>
   playFileWith(file: MediaFile, command: string): Promise<boolean>
   recordPlayback(itemId: string): Promise<void>
-  getAutocompleteSuggestions(): Promise<AutocompleteSuggestions>
+  getAutocompleteSuggestions(options?: { excludeHidden?: boolean }): Promise<AutocompleteSuggestions>
   getAutocompleteValues(key: string, query?: string, limit?: number): Promise<string[]>
   getGroupByKeys(): Promise<string[]>
   getHiddenChildren(parentId: string): Promise<LibraryItem[]>

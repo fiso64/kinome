@@ -78,7 +78,9 @@ export const getGroupByKeys = async () => {
   ]
 }
 
-export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggestions> => {
+export const getAutocompleteSuggestions = async (options?: {
+  excludeHidden?: boolean
+}): Promise<AutocompleteSuggestions> => {
   const settings = await settingsService.readSettings()
 
   const mediaTypes = metadataRepo.getDistinctMetadataValues('media_type')
@@ -89,12 +91,14 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
 
   const tags: Record<string, string[]> = {}
   for (const entry of tagEntries) {
+    if (options?.excludeHidden && entry.key.startsWith('_')) continue
     if (!tags[entry.key]) tags[entry.key] = []
     if (entry.value) tags[entry.key].push(entry.value)
   }
 
   const virtualTags: Record<string, string[]> = {}
   for (const entry of virtualTagEntries) {
+    if (options?.excludeHidden && entry.key.startsWith('_')) continue
     if (!virtualTags[entry.key]) virtualTags[entry.key] = []
     if (entry.value) virtualTags[entry.key].push(entry.value)
   }
@@ -102,6 +106,7 @@ export const getAutocompleteSuggestions = async (): Promise<AutocompleteSuggesti
   // Ensure all defined virtual tags are present in the keys, even if empty
   if (settings.virtualTags) {
     for (const vt of settings.virtualTags) {
+      if (options?.excludeHidden && vt.name.startsWith('_')) continue
       if (!virtualTags[vt.name]) virtualTags[vt.name] = []
     }
   }

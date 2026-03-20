@@ -317,8 +317,11 @@ class WebApiClient implements ApiClient {
     })
   }
 
-  getAutocompleteSuggestions(): Promise<AutocompleteSuggestions> {
-    return this.request('/api/autocomplete/suggestions')
+  getAutocompleteSuggestions(options?: { excludeHidden?: boolean }): Promise<AutocompleteSuggestions> {
+    const params = new URLSearchParams()
+    if (options?.excludeHidden) params.set('excludeHidden', 'true')
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/api/autocomplete/suggestions${q}`)
   }
 
   getAutocompleteValues(key: string, query?: string, limit?: number): Promise<string[]> {

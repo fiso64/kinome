@@ -152,7 +152,7 @@
 
       // 2. Fetch all other metadata
       const dataPromise = Promise.allSettled([
-        api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getAutocompleteSuggestions({ excludeHidden: true }).then((s) => (allAutocompleteSuggestions = s)),
         api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
         api.getSettings().then((s) => (settings = s))
       ])
@@ -199,7 +199,7 @@
     // Also refresh other state if library is now ready
     if (status.status === 'ready') {
       Promise.allSettled([
-        api.getAutocompleteSuggestions().then((s) => (allAutocompleteSuggestions = s)),
+        api.getAutocompleteSuggestions({ excludeHidden: true }).then((s) => (allAutocompleteSuggestions = s)),
         api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
         api.getSettings().then((s) => (settings = s))
       ])

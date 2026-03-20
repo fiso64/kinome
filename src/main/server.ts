@@ -542,7 +542,11 @@ const app = new Elysia()
       .get('/parent/:id', ({ params }) => libraryService.getParent(params.id))
       .group('/autocomplete', (group) =>
         group
-          .get('/suggestions', () => libraryService.getAutocompleteSuggestions())
+          .get('/suggestions', ({ query }) =>
+            libraryService.getAutocompleteSuggestions({
+              excludeHidden: query.excludeHidden === 'true'
+            })
+          )
           .get('/values/:key', ({ params, query }) =>
             libraryService.getAutocompleteValues(
               params.key,
