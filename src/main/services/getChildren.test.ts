@@ -808,6 +808,49 @@ describe('getChildren — embedChildrenForContainers', () => {
     expect(inner.children).toHaveLength(1)
     expect(inner.children![0].id).toBe('item1')
   })
+
+  it('does NOT embed children for grouped virtual folders if layout is not container', async () => {
+    ctx.seedEntities([
+      { id: 'e1', mediaType: 'movie' },
+      { id: 'e2', mediaType: 'movie' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'film1', entityId: 'e1' },
+      { id: 'film2', parentId: 'root', path: 'film2', entityId: 'e2' },
+    ])
+    ctx.seedGenres('e1', ['Action'])
+    ctx.seedGenres('e2', ['Comedy'])
+
+    mockSettings = {
+      ...mockSettings,
+      defaultLayouts: {
+        _default: { layout: 'grid', clickAction: 'detail' },
+      },
+    }
+
+    const vfId = createUserVirtualFolder('root', 'Genres', {
+      scope: { parentId: 'root' },
+      conditionGroups: []
+    })
+
+    applyGrouping(vfId, 'genre')
+
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+
+    expect(items).toHaveLength(2)
+    const action = items.find((i) => i.name === 'Action') as MediaFolder
+    const comedy = items.find((i) => i.name === 'Comedy') as MediaFolder
+
+    expect(action).toBeTruthy()
+    expect(comedy).toBeTruthy()
+
+    // Since vf uses the default grid layout, children should NOT be embedded
+    // despite having grouping active.
+    expect(action.children).toBeFalsy()
+    expect(comedy.children).toBeFalsy()
+  })
 })
 
 // =================================================================
