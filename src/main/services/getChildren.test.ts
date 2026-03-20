@@ -14,9 +14,10 @@ import { createServiceTestContext, type ServiceTestContext } from '../database/t
 // --- Mock I/O boundaries BEFORE importing the module under test ---
 
 const SETTINGS_SERVICE_PATH = path.resolve(__dirname, './settings.service.ts')
-const LIBRARY_SERVICE_PATH = path.resolve(__dirname, './library.service.ts')
+const NAVIGATION_SERVICE_PATH = path.resolve(__dirname, './navigation.service.ts')
 
 let mockSettings: any = {
+  libraryLocation: 'mock_root',
   defaultLayouts: {
     _default: { layout: 'grid', clickAction: 'detail' },
   },
@@ -34,17 +35,23 @@ mock.module(SETTINGS_SERVICE_PATH, () => ({
   checkLibraryExists: () => Promise.resolve({ settingsExists: true, dbExists: true }),
 }))
 
-// Mock getLibraryRoot to return a ready status pointing at 'root'
-mock.module(LIBRARY_SERVICE_PATH, () => ({
-  getLibraryRoot: () =>
-    Promise.resolve({
-      status: 'ready',
-      root: { id: 'root', type: 'folder', name: 'root', children: [] },
-    }),
-}))
+// Mock getLibraryRoot from navigation service to return a ready status pointing at 'root'
+mock.module(NAVIGATION_SERVICE_PATH, () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const original = require('./navigation.service')
+  return {
+    ...original,
+    getLibraryRoot: () =>
+      Promise.resolve({
+        status: 'ready',
+        root: { id: 'root', name: 'Root', type: 'folder', children: [] },
+      }),
+  }
+})
+
 
 // Import AFTER mocks are set up
-import { getChildren, resolveViewHierarchy } from './grouping.service'
+import { getChildren, resolveViewHierarchy } from './navigation.service'
 import { applyGrouping, createUserVirtualFolder, syncVirtualSeasonFolders } from './virtualFolders.service'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'

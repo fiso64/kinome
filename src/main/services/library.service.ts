@@ -14,6 +14,9 @@ import * as tvShowService from './tv-show.service'
 import * as actionsService from './actions.service'
 import * as virtualFoldersService from './virtualFolders.service'
 import * as metadataService from './metadata.service'
+import * as navigationService from './navigation.service'
+import { getHomeFolderId, FindOptions } from './repository.service'
+import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
@@ -66,41 +69,7 @@ export async function switchToLibrary(newPath: string): Promise<void> {
   log(`Successfully switched library to ${newPath}`)
 }
 
-export async function getLibraryRoot(providedPath?: string): Promise<LibraryStatus> {
-  const currentSettings = await settingsService.readSettings()
-  const pathToCheck = providedPath || currentSettings.libraryLocation
-
-  if (!pathToCheck) {
-    return { status: 'no_location' }
-  }
-
-  const discovery = await settingsService.checkLibraryExists(pathToCheck)
-
-  if (!discovery.settingsExists) {
-    return { status: 'no_settings' }
-  }
-
-  if (!discovery.dbExists) {
-    return { status: 'db_missing', settings: discovery.settings }
-  }
-
-  // If DB exists, the root should exist (discovery.dbExists now checks for root)
-  const root = repositoryService.getRoot()
-  if (!root) {
-    // This should technically not happen if discovery.dbExists is true,
-    // but we handle it for safety.
-    return { status: 'db_missing', settings: discovery.settings }
-  }
-
-  root.children = []
-  const item = repositoryService.createTransferableCopy(root) as MediaFolder
-
-  return {
-    status: 'ready',
-    root: item,
-    settings: discovery.settings
-  }
-}
+export const getLibraryRoot = navigationService.getLibraryRoot
 
 // Helper to normalize settings
 function normalizeFolderSettings(
@@ -543,14 +512,8 @@ export const getItemById = async (id: string) => {
   const item = repositoryService.getItemById(id)
   return item ? repositoryService.createTransferableCopy(item) : null
 }
-export const getParent = async (id: string) => {
-  const parent = repositoryService.findParent(id)
-  return parent ? repositoryService.createTransferableCopy(parent) : null
-}
-export const getChildren = async (id: string) => {
-  const children = repositoryService.getChildren(id, undefined, false)
-  return children.map(repositoryService.createTransferableCopy)
-}
+export const getParent = navigationService.getParent
+export const getChildren = navigationService.getChildren
 export const getHiddenChildren = async (parentId: string): Promise<LibraryItem[]> => {
   const children = repositoryService.getChildren(
     parentId,

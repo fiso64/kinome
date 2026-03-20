@@ -1,15 +1,10 @@
 /**
- * VIRTUAL FOLDERS SERVICE
- *
- * Owns all write-side operations on virtual folder items:
- *   - applyGrouping     — creates/rebuilds grouping virtual folders for a real folder
- *   - removeGrouping    — tears down grouping virtual folders
+ * Owns all operations on virtual folder items:
+ *   - applyGrouping          — creates/rebuilds grouping virtual folders for a real folder
+ *   - resolveEffectiveFilter — recursively inherits parent filters for scope:parent
+ *   - getVirtualChildren     — read-side entry point for resolving virtual folder contents
  *   - createUserVirtualFolder — creates a user-defined virtual folder
- *   - deleteVirtualFolder     — deletes a user-defined virtual folder
  *   - syncVirtualSeasonFolders — syncs season virtual folders for a flat TV show
- *
- * The children endpoint (read side) lives in grouping.service.ts and calls
- * compileFilter (from query-builder) directly to resolve virtual folder contents.
  */
 import crypto from 'crypto'
 import { runTransaction } from '../database/client'
@@ -22,15 +17,104 @@ import {
     getVirtualGroupingFolderIds,
     getFoldersWithActiveGrouping
 } from '../database/repositories/filesystem.repo'
+import {
+    LibraryItem,
+    MediaFolder,
+    LibraryFilter,
+    LibraryCondition
+} from '@shared/types'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { getValuesForKey } from '../database/repo-definitions'
-import { find, getItemById } from './repository.service'
-import { compileFilter } from '../database/query-builder'
+import { find, getItemById, FindOptions } from './repository.service'
+import { compileFilter, buildWhereFragment } from '../database/query-builder'
 import { fetchSettings } from '../database/repositories/settings.repo'
+import { REPOSITORY_SCHEMA } from '../database/repo-definitions'
 import { parseJsonSafe } from '../database/mappers'
 import { displayTitle } from '@shared/display-names'
-import type { LibraryCondition, LibraryFilter, MediaFolder } from '@shared/types'
+
+// --- Read operations ---
+
+/**
+ * Recursively resolves the "effective" filter of a virtual folder by
+ * inheriting conditions from its parent if scope.parentId points to another
+ * virtual folder.
+ */
+export async function resolveEffectiveFilter(filter: LibraryFilter): Promise<LibraryFilter> {
+    const parentId = filter.scope?.parentId
+    if (!parentId || parentId === 'root' || filter.scope?.manual) {
+        return filter
+    }
+
+    // Check if parent is virtual
+    const parent = await getItemById(parentId)
+    if (!parent || parent.type !== 'folder' || !parent.isVirtual || !parent.filter) {
+        return filter
+    }
+
+    // Recursively resolve parent's effective filter
+    const effectiveParent = await resolveEffectiveFilter(parent.filter)
+
+    // Merge: Each group in the parent is combined with every group in the child (cross product)
+    const childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
+    const parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
+
+    const mergedGroups: LibraryCondition[][] = []
+    for (const pg of parentGroups) {
+        for (const cg of childGroups) {
+            mergedGroups.push([...pg, ...cg])
+        }
+    }
+
+    return {
+        scope: effectiveParent.scope, // Inherit terminal filesystem scope (e.g. 'movies' root)
+        conditionGroups: mergedGroups
+    }
+}
+
+/**
+ * Entry point for resolving the contents of a virtual folder (Branch A2).
+ * Compiles the effective filter and merges with manually parented virtual children.
+ */
+export async function getVirtualChildren(
+    item: MediaFolder,
+    options: FindOptions
+): Promise<LibraryItem[]> {
+    const filter = item.filter
+    if (!filter) return []
+
+    const effectiveFilter = await resolveEffectiveFilter(filter)
+    const compiled = compileFilter(effectiveFilter)
+
+    // Merge manually parented virtual children with the results of the filter.
+    const fragment = buildWhereFragment({
+        ...compiled,
+        includeHidden: true,
+        includeIgnored: true
+    })
+
+    const filterPart = `(${fragment.conditions.join(' AND ')})`
+    const virtualChildrenSql = `(i.parent_id = ? AND i.is_virtual = 1)`
+
+    const combinedSql = `(${filterPart} OR ${virtualChildrenSql})`
+    const combinedParams = [...fragment.params, item.id]
+
+    return find({
+        compiledConditions: {
+            sql: combinedSql,
+            params: combinedParams,
+            tables: fragment.tables
+        },
+        fields: options.fields,
+        orderBy: options.orderBy,
+        limit: options.limit,
+        offset: options.offset,
+        includeHidden: options.includeHidden,
+        includeIgnored: options.includeIgnored
+    })
+}
+
+// --- Write operations ---
 
 /**
  * Deterministic ID for a grouping virtual folder.

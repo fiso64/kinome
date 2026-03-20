@@ -14,6 +14,7 @@ import * as authService from './services/auth.service'
 import * as listDirectoryService from './services/list-directory.service'
 import * as pathsService from './services/paths.service'
 import * as repositoryService from './services/repository.service'
+import * as navigationService from './services/navigation.service'
 import * as groupingService from './services/grouping.service'
 import * as virtualFoldersService from './services/virtualFolders.service'
 import * as playbackService from './services/playback.service'
@@ -403,7 +404,7 @@ const app = new Elysia()
       .get('/items/:id', async ({ params: { id: rawId }, query, set }) => {
         let id = rawId
         if (id === 'root') {
-          const status = await libraryService.getLibraryRoot()
+          const status = await navigationService.getLibraryRoot()
           if (status.status !== 'ready') {
             set.status = 404
             return {
@@ -456,7 +457,7 @@ const app = new Elysia()
           // Handle side-channel view hierarchy request
           const include = query.include ? (query.include as string).split(',') : []
           if (include.includes('viewHierarchy')) {
-            const hierarchy = await groupingService.resolveViewHierarchy(item.id)
+            const hierarchy = await navigationService.resolveViewHierarchy(item.id)
             if (hierarchy) {
               item.viewHierarchy = hierarchy
             }
@@ -469,7 +470,7 @@ const app = new Elysia()
         '/items/:id/children',
         async ({ params: { id }, query, set }) => {
           const options = parseFindOptions(query)
-          const result = await groupingService.getChildren(id, options)
+          const result = await navigationService.getChildren(id, options)
 
           if ('error' in result) {
             set.status = 404
@@ -495,7 +496,7 @@ const app = new Elysia()
       .get('/items/:id/ancestors', async ({ params: { id: rawId }, set }) => {
         let id = rawId
         if (id === 'root') {
-          const status = await libraryService.getLibraryRoot()
+          const status = await navigationService.getLibraryRoot()
           if (status.status !== 'ready') {
             set.status = 404
             return {
@@ -808,7 +809,7 @@ const app = new Elysia()
         webTransport.notifySettingsUpdated(sanitized as any)
         return sanitized
       })
-      .get('/library-root', ({ query }) => libraryService.getLibraryRoot(query.path as string))
+      .get('/library-root', ({ query }) => navigationService.getLibraryRoot(query.path as string))
   )
 
 // ... (imports and middleware setup remain the same) ...
