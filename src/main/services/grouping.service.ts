@@ -2,7 +2,9 @@ import {
   LibraryItem,
   MediaFolder,
   ViewHierarchyNode,
-  StoredViewSettings
+  StoredViewSettings,
+  LibraryFilter,
+  LibraryCondition
 } from '@shared/types'
 import {
   find,
@@ -10,7 +12,7 @@ import {
   getHomeFolderId,
   FindOptions
 } from './repository.service'
-import { compileFilter } from '../database/query-builder'
+import { compileFilter, buildWhereFragment } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings } from './settings.service'
 import { getLibraryRoot } from './library.service'
@@ -64,10 +66,52 @@ function looseItemCondition(item: LibraryItem): { condition: string; field: stri
  *    c. No grouping       → return real + user virtual children
  * 5. Eager child embedding for container layouts (prevents N+1)
  */
+
+/**
+ * Recursively resolves the "effective" filter of a virtual folder by
+ * inheriting conditions from its parent if scope.parentId points to another
+ * virtual folder.
+ *
+ * This allows A > B > C chain where each level adds more filters while
+ * inheriting all previous ones, while the final query correctly targets
+ * the terminal filesystem scope.
+ */
+async function resolveEffectiveFilter(filter: LibraryFilter): Promise<LibraryFilter> {
+  const parentId = filter.scope?.parentId
+  if (!parentId || parentId === 'root' || filter.scope?.manual) {
+    return filter
+  }
+
+  // Check if parent is virtual
+  const parent = await getItemById(parentId)
+  if (!parent || parent.type !== 'folder' || !parent.isVirtual || !parent.filter) {
+    return filter
+  }
+
+  // Recursively resolve parent's effective filter
+  const effectiveParent = await resolveEffectiveFilter(parent.filter)
+
+  // Merge: Each group in the parent is combined with every group in the child (cross product)
+  const childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
+  const parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
+
+  const mergedGroups: LibraryCondition[][] = []
+  for (const pg of parentGroups) {
+    for (const cg of childGroups) {
+      mergedGroups.push([...pg, ...cg])
+    }
+  }
+
+  return {
+    scope: effectiveParent.scope, // Inherit terminal filesystem scope (e.g. 'movies' root)
+    conditionGroups: mergedGroups
+  }
+}
+
 export async function getChildren(
   id: string,
   options: FindOptions
-): Promise<LibraryItem[] | { error: string; message: string; [key: string]: any }> {
+): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
   let targetId = id
 
   // 1. Resolve aliases
@@ -91,8 +135,8 @@ export async function getChildren(
   if (opts.includeIgnored === undefined) opts.includeIgnored = false
 
   // 3. Fetch item
-  const item = getItemById(targetId)
-  if (!item) return { error: 'not_found', message: `Item ${targetId} not found` }
+  const item = await getItemById(targetId)
+  if (!item || item.type !== 'folder') return { error: 'not_found', message: 'Item not found' }
 
   // 4. Contextual default sorting
   if (!opts.orderBy) {
@@ -116,7 +160,7 @@ export async function getChildren(
   }
 
   // 5. Resolve children
-  let items: LibraryItem[]
+  let items: LibraryItem[] | Promise<LibraryItem[]>
 
   if (item.isVirtual) {
     if (item.viewSettings?.appliedGrouping) {
@@ -133,14 +177,34 @@ export async function getChildren(
         includeIgnored: opts.includeIgnored
       })
     } else {
-      // Branch A2: virtual folder without grouping — compile filter and run find()
+      // Branch A2: virtual folder without grouping — compile effective filter
       const filter = (item as MediaFolder).filter
       if (!filter) {
         items = []
       } else {
-        const compiled = compileFilter(filter)
-        items = find({
+        const effectiveFilter = await resolveEffectiveFilter(filter)
+        const compiled = compileFilter(effectiveFilter)
+
+        // Merge manually parented virtual children with the results of the filter.
+        // Doing this via a single query ensures sorting and pagination work correctly.
+        const fragment = buildWhereFragment({
           ...compiled,
+          includeHidden: true,
+          includeIgnored: true
+        })
+
+        const filterPart = `(${fragment.conditions.join(' AND ')})`
+        const virtualChildrenSql = `(i.parent_id = ? AND i.is_virtual = 1)`
+
+        const combinedSql = `(${filterPart} OR ${virtualChildrenSql})`
+        const combinedParams = [...fragment.params, targetId]
+
+        items = find({
+          compiledConditions: {
+            sql: combinedSql,
+            params: combinedParams,
+            tables: fragment.tables
+          },
           fields: opts.fields,
           orderBy: opts.orderBy,
           limit: opts.limit,
@@ -197,7 +261,7 @@ async function embedChildrenForContainers(
     if (item.type !== 'folder') continue
     const result = await getChildren(item.id, { fields: options.fields })
     if (Array.isArray(result)) {
-      ;(item as MediaFolder).children = result
+      ; (item as MediaFolder).children = result
     }
   }
 }

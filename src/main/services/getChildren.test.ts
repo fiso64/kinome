@@ -361,18 +361,18 @@ describe('getChildren — alias resolution', () => {
   it('virtual folder with scope: parent inherits conditions but not siblings', async () => {
     // 1. Setup
     ctx.seedEntities([
-      { id: 'e1', mediaType: 'movie', year: 2023 }, // Matches filter
-      { id: 'e2', mediaType: 'tv', year: 2023 },    // Does not match
+      { id: 'e_inh1', mediaType: 'movie', year: 2023 }, // Matches filter
+      { id: 'e_inh2', mediaType: 'tv', year: 2023 },    // Does not match
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: 'root', type: 'folder' },
-      { id: 'film1', parentId: 'root', path: 'root/film1', entityId: 'e1' },
-      { id: 'file2', parentId: 'root', path: 'root/file2', entityId: 'e2' },
+      { id: 'test_root_inh', parentId: null, path: 'test_root_inh', type: 'folder' },
+      { id: 'test_film1', parentId: 'test_root_inh', path: 'test_root_inh/film1', entityId: 'e_inh1' },
+      { id: 'test_file2', parentId: 'test_root_inh', path: 'test_root_inh/file2', entityId: 'e_inh2' },
     ])
 
     // Create a parent virtual folder with a filter
-    const parentVId = createUserVirtualFolder('root', 'Parent V', {
-      scope: { parentId: 'root' },
+    const parentVId = createUserVirtualFolder('test_root_inh', 'Parent V', {
+      scope: { parentId: 'test_root_inh' },
       conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
     })
 
@@ -390,12 +390,11 @@ describe('getChildren — alias resolution', () => {
     const items = expectItems(result)
 
     // EXPECTATION:
-    // - Should contain 'film1' (inherited from Parent V)
+    // - Should contain 'test_film1' (inherited from Parent V)
     // - Should NOT contain 'childId' or 'siblingId'
     const itemIds = items.map(i => i.id)
 
-    // THIS IS CURRENTLY RED: it will be empty []
-    expect(itemIds).toContain('film1')
+    expect(itemIds).toContain('test_film1')
     expect(itemIds).not.toContain(childId)
     expect(itemIds).not.toContain(siblingId)
     expect(itemIds).toHaveLength(1)
@@ -404,20 +403,20 @@ describe('getChildren — alias resolution', () => {
   it('virtual folder with scope: parent inherits conditions recursively (A > B > C)', async () => {
     // 1. Setup
     ctx.seedEntities([
-      { id: 'e1', title: 'Dumbo', mediaType: 'movie', year: 1941 },
-      { id: 'e2', title: 'Pinocchio', mediaType: 'movie', year: 1940 },
-      { id: 'e3', title: 'Fantasia', mediaType: 'tv', year: 1940 },
+      { id: 'e_abc1', title: 'Dumbo', mediaType: 'movie', year: 1940 },
+      { id: 'e_abc2', title: 'Pinocchio', mediaType: 'movie', year: 1940 },
+      { id: 'e_abc3', title: 'Fantasia', mediaType: 'tv', year: 1940 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: 'root', type: 'folder' },
-      { id: 'film1', parentId: 'root', path: 'root/film1', entityId: 'e1' },
-      { id: 'film2', parentId: 'root', path: 'root/film2', entityId: 'e2' },
-      { id: 'film3', parentId: 'root', path: 'root/film3', entityId: 'e3' },
+      { id: 'test_root_abc', parentId: null, path: 'test_root_abc', type: 'folder' },
+      { id: 'test_abc_f1', parentId: 'test_root_abc', path: 'test_root_abc/film1', entityId: 'e_abc1' },
+      { id: 'test_abc_f2', parentId: 'test_root_abc', path: 'test_root_abc/film2', entityId: 'e_abc2' },
+      { id: 'test_abc_f3', parentId: 'test_root_abc', path: 'test_root_abc/film3', entityId: 'e_abc3' },
     ])
 
     // A: All movies from root
-    const folderAId = createUserVirtualFolder('root', 'Folder A', {
-      scope: { parentId: 'root' },
+    const folderAId = createUserVirtualFolder('test_root_abc', 'Folder A', {
+      scope: { parentId: 'test_root_abc' },
       conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
     })
 
@@ -434,23 +433,56 @@ describe('getChildren — alias resolution', () => {
     })
 
     // 2. Test resolutions
-    // Folder B should show Pinocchio (is a movie AND year 1940)
+    // Folder B should show Dumbo AND Pinocchio (both are movies AND 1940)
+    // We filter out virtual children (Folder C) to just check real items.
     const bItems = expectItems(await getChildren(folderBId, {}))
-    expect(bItems.map(i => i.id)).toContain('film2')
-    expect(bItems.map(i => i.id)).not.toContain('film1')
-    expect(bItems.map(i => i.id)).not.toContain('film3')
-    expect(bItems).toHaveLength(1)
+    const bRealIds = bItems.filter(i => !i.isVirtual).map(i => i.id).sort()
+    expect(bRealIds).toEqual(['test_abc_f1', 'test_abc_f2'])
+    expect(bRealIds).not.toContain('test_abc_f3')
 
-    // Folder C should show NOTHING if inheritance worked for all three
-    // because Dumbo is 1941, and B only shows 1940.
+    // Folder C should show ONLY Dumbo (inherited A movie + B 1940 + C title)
     const cItems = expectItems(await getChildren(folderCId, {}))
-    expect(cItems).toHaveLength(0)
+    const cRealIds = cItems.filter(i => !i.isVirtual).map(i => i.id)
+    expect(cRealIds).toEqual(['test_abc_f1'])
+  })
 
-    // Alternative: make Dumbo 1940 and confirm it shows
-    ctx.seedEntities([{ id: 'e1', title: 'Dumbo', mediaType: 'movie', year: 1940 }])
-    const cItemsFixed = expectItems(await getChildren(folderCId, {}))
-    expect(cItemsFixed.map(i => i.id)).toContain('film1')
-    expect(cItemsFixed).toHaveLength(1)
+  it('virtual folder with scope: parent inherits conditions even from grouped parent', async () => {
+    // 1. Setup
+    ctx.seedEntities([
+      { id: 'e_grp1', mediaType: 'movie', title: 'Film 1' },
+      { id: 'e_grp2', mediaType: 'tv', title: 'Show 1' },
+    ])
+    ctx.seedItems([
+      { id: 'test_root_grp', parentId: null, path: 'test_root_grp', type: 'folder' },
+      { id: 'test_film1', parentId: 'test_root_grp', path: 'test_root_grp/film1', entityId: 'e_grp1' },
+      { id: 'test_file2', parentId: 'test_root_grp', path: 'test_root_grp/file2', entityId: 'e_grp2' },
+    ])
+
+    // Parent A: All movies from root, grouped by genre (e.g. Action, Comedy tabs)
+    const folderAId = createUserVirtualFolder('test_root_grp', 'Folder A', {
+      scope: { parentId: 'test_root_grp' },
+      conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+    })
+    // Simulate active grouping on parent
+    ctx.seedFolderSettings([
+      { itemId: folderAId, viewSettings: { appliedGrouping: 'genre' } }
+    ])
+
+    // Child B: inheriting A
+    const folderBId = createUserVirtualFolder(folderAId, 'Child B', {
+      scope: { parentId: folderAId },
+    })
+
+    // 2. Test resolutions
+    // Folder A with grouping would normally return grouping subfolders via Branch A1.
+    // Child B inheriting A should return the real items that match A's movie filter,
+    // ignoring A's grouping settings.
+    const bItems = expectItems(await getChildren(folderBId, {}))
+    const bRealIds = bItems.filter(i => !i.isVirtual).map(i => i.id)
+    
+    expect(bRealIds).toContain('test_film1')
+    expect(bRealIds).not.toContain('test_file2')
+    expect(bRealIds).toHaveLength(1)
   })
 
   it('"root" alias resolves to the actual root folder', async () => {

@@ -107,7 +107,7 @@ export function createServiceTestContext(): ServiceTestContext {
 
   const seedEntities = (entities: SeedEntity[]) => {
     const stmt = db.prepare(`
-      INSERT INTO media_entities (id, media_type, title, year, season_number, episode_number)
+      INSERT OR REPLACE INTO media_entities (id, media_type, title, year, season_number, episode_number)
       VALUES (?, ?, ?, ?, ?, ?)
     `)
     for (const e of entities) {
