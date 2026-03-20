@@ -31,11 +31,12 @@ const log = (message: string): void => {
  */
 async function embedChildrenForContainers(
   items: LibraryItem[],
-  options: FindOptions
+  options: FindOptions,
+  inheritedSettings?: StoredViewSettings
 ): Promise<void> {
   for (const item of items) {
     if (item.type !== 'folder') continue
-    const result = await getChildren(item.id, { fields: options.fields })
+    const result = await getChildren(item.id, { fields: options.fields }, inheritedSettings)
     if (Array.isArray(result)) {
       ; (item as MediaFolder).children = result
     }
@@ -48,8 +49,9 @@ async function embedChildrenForContainers(
  */
 export async function getChildren(
   id: string,
-  options: FindOptions = {}
-): Promise<LibraryItem[] | { error: string; message: string; [key: string]: any }> {
+  options: FindOptions = {},
+  inheritedSettings?: StoredViewSettings
+): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
   let targetId = id
 
   // 1. Resolve aliases
@@ -120,9 +122,14 @@ export async function getChildren(
 
   // 6. Post-processing: Eager embedding
   const globalSettings = await readSettings()
-  const { settings: ownSettings } = resolveViewSettings(item as MediaFolder, globalSettings)
-  if (['tabs', 'sections'].includes(ownSettings.layout) || item.viewSettings?.appliedGrouping) {
-    await embedChildrenForContainers(results, opts)
+  const { settings: ownSettings } = resolveViewSettings(
+    item as MediaFolder,
+    globalSettings,
+    new Set(),
+    inheritedSettings
+  )
+  if (['tabs', 'sections'].includes(ownSettings.layout)) {
+    await embedChildrenForContainers(results, opts, ownSettings.childViewSettings)
   }
 
   return results
