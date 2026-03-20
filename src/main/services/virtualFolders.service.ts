@@ -26,20 +26,20 @@ import { compileFilter, buildWhereFragment } from '../database/query-builder'
  * inheriting conditions from its parent if scope.parentId points to another
  * virtual folder.
  */
-export async function resolveEffectiveFilter(filter: LibraryFilter): Promise<LibraryFilter> {
+export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
   const parentId = filter.scope?.parentId
   if (!parentId || parentId === 'root' || filter.scope?.manual) {
     return filter
   }
 
   // Check if parent is virtual
-  const parent = await getItemById(parentId)
+  const parent = getItemById(parentId)
   if (!parent || parent.type !== 'folder' || !parent.isVirtual || !parent.filter) {
     return filter
   }
 
   // Recursively resolve parent's effective filter
-  const effectiveParent = await resolveEffectiveFilter(parent.filter)
+  const effectiveParent = resolveEffectiveFilter(parent.filter)
 
   // Merge: Each group in the parent is combined with every group in the child (cross product)
   let childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
@@ -72,7 +72,7 @@ export async function getVirtualChildren(
   const filter = item.filter
   if (!filter) return []
 
-  const effectiveFilter = await resolveEffectiveFilter(filter)
+  const effectiveFilter = resolveEffectiveFilter(filter)
   const compiled = compileFilter(effectiveFilter)
 
   // Merge manually parented virtual children with the results of the filter.

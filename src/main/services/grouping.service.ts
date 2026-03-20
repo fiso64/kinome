@@ -22,6 +22,7 @@ import { find, getItemById, type FindOptions } from './repository.service'
 import { compileFilter } from '../database/query-builder'
 import { parseJsonSafe } from '../database/mappers'
 import { displayTitle } from '@shared/display-names'
+import { resolveEffectiveFilter } from './virtualFolders.service'
 
 /**
  * Returns the SQL filter condition for listing a real folder's children.
@@ -102,7 +103,8 @@ function resolveChildrenAndScope(folderId: string) {
 
   let realChildren
   if (folder.isVirtual && folder.filter) {
-    const compiled = compileFilter(folder.filter)
+    const effectiveFilter = resolveEffectiveFilter(folder.filter)
+    const compiled = compileFilter(effectiveFilter)
     realChildren = find({ ...compiled, fields })
   } else {
     realChildren = find({
