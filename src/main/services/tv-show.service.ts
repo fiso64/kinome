@@ -8,7 +8,7 @@ import {
 } from '../utils/tv-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
-import { syncVirtualSeasonFolders } from './virtualFolders.service'
+import { syncVirtualSeasonFolders } from './grouping.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [TV Show Service] ${message}`)

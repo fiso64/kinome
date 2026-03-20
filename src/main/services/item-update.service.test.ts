@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { updateIfChangedAndBroadcast, isItemDataSame } from './item-update.service'
-import { applyGrouping } from './virtualFolders.service'
+import { applyGrouping } from './grouping.service'
 import { getItemById, find } from './repository.service'
 import type { LibraryItem, Settings } from '@shared/types'
 

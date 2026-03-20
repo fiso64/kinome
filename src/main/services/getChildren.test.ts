@@ -52,7 +52,8 @@ mock.module(NAVIGATION_SERVICE_PATH, () => {
 
 // Import AFTER mocks are set up
 import { getChildren, resolveViewHierarchy } from './navigation.service'
-import { applyGrouping, createUserVirtualFolder, syncVirtualSeasonFolders } from './virtualFolders.service'
+import { createUserVirtualFolder } from './virtualFolders.service'
+import { applyGrouping, syncVirtualSeasonFolders, syncAllGroupings } from './grouping.service'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
 import { getItemById, find } from './repository.service'
@@ -1073,8 +1074,7 @@ describe('getChildren — nested grouping via childViewSettings', () => {
       },
     })
 
-    // 3. Re-sync (triggered by updateIfChangedAndBroadcast in production)
-    const { syncAllGroupings } = await import('./virtualFolders.service')
+    // 3. Re-sync
     syncAllGroupings()
 
     // 4. Sub-grouping folders should now exist

@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { applyGrouping, removeGrouping, createUserVirtualFolder, deleteVirtualFolder, syncVirtualSeasonFolders } from './virtualFolders.service'
+import { createUserVirtualFolder, deleteVirtualFolder } from './virtualFolders.service'
+import { applyGrouping, removeGrouping, syncVirtualSeasonFolders } from './grouping.service'
 import { find, _updateItem } from './repository.service'
 import { compileFilter } from '../database/query-builder'
 import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'

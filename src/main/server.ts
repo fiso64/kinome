@@ -517,9 +517,9 @@ const app = new Elysia()
       .post('/items/:id/grouping', ({ params: { id }, body }: { params: { id: string }; body: any }) => {
         const { groupByKey } = body as { groupByKey: string | null }
         if (groupByKey) {
-          virtualFoldersService.applyGrouping(id, groupByKey)
+          groupingService.applyGrouping(id, groupByKey)
         } else {
-          virtualFoldersService.removeGrouping(id)
+          groupingService.removeGrouping(id)
         }
         return { success: true }
       })

@@ -15,6 +15,7 @@ import * as actionsService from './actions.service'
 import * as virtualFoldersService from './virtualFolders.service'
 import * as metadataService from './metadata.service'
 import * as navigationService from './navigation.service'
+import * as groupingService from './grouping.service'
 import { getHomeFolderId, FindOptions } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
@@ -746,10 +747,10 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
     const newGroupBy = updates.viewSettings.groupBy
     const oldGroupBy = (existing as MediaFolder)?.viewSettings?.appliedGrouping ?? null
     if (newGroupBy && newGroupBy !== 'folder' && newGroupBy !== oldGroupBy) {
-      virtualFoldersService.applyGrouping(updates.id, newGroupBy)
+      groupingService.applyGrouping(updates.id, newGroupBy)
     } else if (!newGroupBy || newGroupBy === 'folder') {
       if (oldGroupBy) {
-        virtualFoldersService.removeGrouping(updates.id)
+        groupingService.removeGrouping(updates.id)
       }
     }
   }
@@ -851,7 +852,7 @@ export const applyInitialFolderSettings = async (
  */
 export function reapplyVirtualTags(virtualTags: Parameters<typeof virtualTagsService.applyVirtualTags>[0]): void {
   virtualTagsService.applyVirtualTags(virtualTags)
-  virtualFoldersService.syncAllGroupings()
+  groupingService.syncAllGroupings()
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {

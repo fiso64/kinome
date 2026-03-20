@@ -5,7 +5,7 @@ import * as virtualTagsService from './virtualTags.service'
 import { getTransport } from '../transport.registry'
 import type { LibraryItem, Settings } from '@shared/types'
 import * as autocompleteService from './autocomplete.service'
-import { syncAllGroupings } from './virtualFolders.service'
+import { syncAllGroupings } from './grouping.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Item Update Service] ${message}`)

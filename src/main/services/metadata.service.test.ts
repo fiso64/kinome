@@ -12,7 +12,7 @@ import { createServiceTestContext, type ServiceTestContext } from '../database/t
 import { setImage, removeImage } from './metadata.service'
 import { getItemById } from './repository.service'
 import { setLibraryDataPath } from './paths.service'
-import { applyGrouping } from './virtualFolders.service'
+import { applyGrouping } from './grouping.service'
 
 let ctx: ServiceTestContext
 let tmpDir: string
