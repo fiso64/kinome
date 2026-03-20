@@ -39,12 +39,15 @@
     return result
   })
 
-  const operators: { value: LibraryConditionOp; label: string }[] = [
+  const operators: { value: LibraryConditionOp; label: string }[] =[
     { value: 'eq', label: '=' },
     { value: 'ne', label: '≠' },
     { value: 'contains', label: 'contains' },
+    { value: 'notContains', label: 'does not contain' },
     { value: 'gt', label: '>' },
+    { value: 'gte', label: '≥' },
     { value: 'lt', label: '<' },
+    { value: 'lte', label: '≤' },
     { value: 'isEmpty', label: 'is empty' },
     { value: 'isNotEmpty', label: 'is not empty' }
   ]

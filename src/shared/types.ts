@@ -182,7 +182,7 @@ export interface LibraryStatus {
   root?: MediaFolder
 }
 
-export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
+export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'notContains' | 'gt' | 'gte' | 'lt' | 'lte' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
 
 /**
  * A single filter predicate against a library item field.

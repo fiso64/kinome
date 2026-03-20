@@ -116,10 +116,12 @@ function applyOperator(resolved: ResolvedField, op: string, value: any): boolean
     const empty = resolved.values.length === 0
     if (op === 'isNull' || op === 'isEmpty') return empty
     if (op === 'isNotNull' || op === 'isNotEmpty') return !empty
-    if (empty) return false
+    if (empty) return op === 'notContains' || op === 'ne'
     const target = String(value)
     if (op === 'contains') return resolved.values.some(v => String(v).toLowerCase().includes(target.toLowerCase()))
+    if (op === 'notContains') return !resolved.values.some(v => String(v).toLowerCase().includes(target.toLowerCase()))
     if (op === 'eq') return resolved.values.some(v => String(v) === target)
+    if (op === 'ne') return !resolved.values.some(v => String(v) === target)
     return false
   }
 
@@ -139,11 +141,14 @@ function matchesCondition(item: LibraryItem, cond: LibraryCondition): boolean {
 
 function compareValues(itemValue: any, op: string, value: any): boolean {
   switch (op) {
-    case 'eq':       return String(itemValue) === String(value)
-    case 'ne':       return String(itemValue) !== String(value)
-    case 'contains': return String(itemValue).toLowerCase().includes(String(value).toLowerCase())
-    case 'gt':       return Number(itemValue) > Number(value)
-    case 'lt':       return Number(itemValue) < Number(value)
-    default:         return false
+    case 'eq':          return String(itemValue) === String(value)
+    case 'ne':          return String(itemValue) !== String(value)
+    case 'contains':    return String(itemValue).toLowerCase().includes(String(value).toLowerCase())
+    case 'notContains': return !String(itemValue).toLowerCase().includes(String(value).toLowerCase())
+    case 'gt':          return Number(itemValue) > Number(value)
+    case 'gte':         return Number(itemValue) >= Number(value)
+    case 'lt':          return Number(itemValue) < Number(value)
+    case 'lte':         return Number(itemValue) <= Number(value)
+    default:            return false
   }
 }

@@ -8,7 +8,7 @@ import type { LibraryFilter, LibraryCondition } from '@shared/types'
  */
 export interface TypedWhereClause {
     field: string
-    op: 'eq' | 'ne' | 'contains' | 'gt' | 'lt' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
+    op: 'eq' | 'ne' | 'contains' | 'notContains' | 'gt' | 'gte' | 'lt' | 'lte' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
     value?: string | number | null
 }
 
@@ -122,8 +122,11 @@ function compileParentCondition(field: string, op: string, value?: string | numb
         case 'eq':         params.push(value); conditionSql = `${columnSql} = ?`; break
         case 'ne':         params.push(value); conditionSql = `${columnSql} != ?`; break
         case 'contains':   params.push(`%${value}%`); conditionSql = `${columnSql} LIKE ?`; break
+        case 'notContains':params.push(`%${value}%`); conditionSql = `${columnSql} NOT LIKE ?`; break
         case 'gt':         params.push(value); conditionSql = `${columnSql} > ?`; break
+        case 'gte':        params.push(value); conditionSql = `${columnSql} >= ?`; break
         case 'lt':         params.push(value); conditionSql = `${columnSql} < ?`; break
+        case 'lte':        params.push(value); conditionSql = `${columnSql} <= ?`; break
         case 'isNull':     conditionSql = `${columnSql} IS NULL`; break
         case 'isNotNull':  conditionSql = `${columnSql} IS NOT NULL`; break
         case 'isEmpty':    conditionSql = `(${columnSql} IS NULL OR ${columnSql} = '')`; break
@@ -152,6 +155,8 @@ export function compileConditionToSql(field: string, op: string, value?: string 
         if (op === 'isNull' || op === 'isEmpty') return { sql: `NOT EXISTS (${subquery})`, params, tables }
         if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: `EXISTS (${subquery})`, params, tables }
         if (op === 'contains') { params.push(`%${value}%`); return { sql: `EXISTS (${subquery} AND g.name LIKE ?)`, params, tables } }
+        if (op === 'notContains') { params.push(`%${value}%`); return { sql: `NOT EXISTS (${subquery} AND g.name LIKE ?)`, params, tables } }
+        if (op === 'ne') { params.push(value); return { sql: `NOT EXISTS (${subquery} AND g.name = ?)`, params, tables } }
         params.push(value)
         return { sql: `EXISTS (${subquery} AND g.name = ?)`, params, tables }
     }
@@ -163,6 +168,8 @@ export function compileConditionToSql(field: string, op: string, value?: string 
         if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
         if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
         if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'notContains') { params.push(key, `%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'ne') { params.push(key, value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
         params.push(key, value)
         return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
     }
@@ -174,6 +181,8 @@ export function compileConditionToSql(field: string, op: string, value?: string 
         if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
         if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
         if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'notContains') { params.push(key, `%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'ne') { params.push(key, value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
         params.push(key, value)
         return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
     }
@@ -186,8 +195,11 @@ export function compileConditionToSql(field: string, op: string, value?: string 
         case 'eq':         params.push(value); return { sql: `${def.sql} = ?`, params, tables }
         case 'ne':         params.push(value); return { sql: `${def.sql} != ?`, params, tables }
         case 'contains':   params.push(`%${value}%`); return { sql: `${def.sql} LIKE ?`, params, tables }
+        case 'notContains':params.push(`%${value}%`); return { sql: `${def.sql} NOT LIKE ?`, params, tables }
         case 'gt':         params.push(value); return { sql: `${def.sql} > ?`, params, tables }
+        case 'gte':        params.push(value); return { sql: `${def.sql} >= ?`, params, tables }
         case 'lt':         params.push(value); return { sql: `${def.sql} < ?`, params, tables }
+        case 'lte':        params.push(value); return { sql: `${def.sql} <= ?`, params, tables }
         case 'isNull':     return { sql: `${def.sql} IS NULL`, params, tables }
         case 'isNotNull':  return { sql: `${def.sql} IS NOT NULL`, params, tables }
         case 'isEmpty':    return { sql: `(${def.sql} IS NULL OR ${def.sql} = '')`, params, tables }
