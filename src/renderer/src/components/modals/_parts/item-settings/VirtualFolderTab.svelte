@@ -24,16 +24,17 @@
   }
 
   // Determine initial scope mode from filter state
-  function detectScope(): 'none' | 'parent' | 'root' | 'library' {
+  function detectScope(): 'none' | 'parent' | 'root' | 'library' | 'home' {
     if (filter.scope?.manual) return 'none'
     const scopeId = filter.scope?.parentId
     if (!scopeId) return 'library'
     if (rootId && scopeId === rootId) return 'root'
+    if (scopeId === 'virtual-home') return 'home'
     if (scopeId === parentId) return 'parent'
-    return 'parent'
+    return 'parent' // fallback
   }
 
-  let scope = $state<'none' | 'parent' | 'root' | 'library'>(detectScope())
+  let scope = $state<'none' | 'parent' | 'root' | 'library' | 'home'>(detectScope())
   let conditionGroups = $state<LibraryCondition[][]>(filter.conditionGroups)
 
   // Sync local state back to filter prop
@@ -48,6 +49,8 @@
       filter.scope = { parentId }
     } else if (scope === 'root' && rootId) {
       filter.scope = { parentId: rootId }
+    } else if (scope === 'home') {
+      filter.scope = { parentId: 'virtual-home' }
     } else if (scope === 'library') {
       filter.scope = undefined
     }
@@ -61,6 +64,7 @@
     <select id="vf-scope" bind:value={scope}>
       <option value="none">None (Manual)</option>
       <option value="parent">Parent Folder</option>
+      <option value="home">Home Folder</option>
       <option value="root">Root Folder</option>
       <option value="library">Full Library — all files and folders</option>
     </select>

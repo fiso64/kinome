@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { autocomplete, getFuzzySuggestions, type AutocompleteConfig } from '@lib/autocomplete-manager'
+  import {
+    autocomplete,
+    getFuzzySuggestions,
+    type AutocompleteConfig
+  } from '@lib/autocomplete-manager'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
 
   let {
@@ -80,7 +84,9 @@
   }
 
   function removeCondition(gi: number, ci: number) {
-    groups = groups.map((g, i) => (i === gi ? g.filter((_, j) => j !== ci) : g)).filter((g) => g.length > 0)
+    groups = groups
+      .map((g, i) => (i === gi ? g.filter((_, j) => j !== ci) : g))
+      .filter((g) => g.length > 0)
   }
 
   function getValuesForField(field: string): string[] {
@@ -94,7 +100,8 @@
 
   function makeAutocompleteConfig(cond: LibraryCondition): AutocompleteConfig {
     return {
-      getSuggestions: (text) => getFuzzySuggestions(getValuesForField(getBaseField(cond.field)), text),
+      getSuggestions: (text) =>
+        getFuzzySuggestions(getValuesForField(getBaseField(cond.field)), text),
       onSelect: (suggestion, node) => {
         cond.value = suggestion.label
         ;(node as HTMLInputElement).value = suggestion.label
@@ -115,11 +122,19 @@
           {#if ci > 0}
             <span class="and-label">AND</span>
           {/if}
-          <select value={getTarget(cond.field)} onchange={(e) => setTarget(cond, e.currentTarget.value as 'item' | 'parent')} class="target-select">
+          <select
+            value={getTarget(cond.field)}
+            onchange={(e) => setTarget(cond, e.currentTarget.value as 'item' | 'parent')}
+            class="target-select"
+          >
             <option value="item">Item</option>
             <option value="parent">Parent</option>
           </select>
-          <select value={getBaseField(cond.field)} onchange={(e) => setField(cond, e.currentTarget.value)} class="field-select">
+          <select
+            value={getBaseField(cond.field)}
+            onchange={(e) => setField(cond, e.currentTarget.value)}
+            class="field-select"
+          >
             {#each fields as f}
               <option value={f.value}>{f.label}</option>
             {/each}
@@ -135,12 +150,22 @@
           {#if cond.op !== 'isNull' && cond.op !== 'isNotNull' && cond.op !== 'isEmpty' && cond.op !== 'isNotEmpty'}
             {@const values = getValuesForField(getBaseField(cond.field))}
             {#if values.length > 0}
-              <input type="text" bind:value={cond.value} placeholder="value" class="value-input" use:autocomplete={makeAutocompleteConfig(cond)} />
+              <input
+                type="text"
+                bind:value={cond.value}
+                placeholder="value"
+                class="value-input"
+                use:autocomplete={makeAutocompleteConfig(cond)}
+              />
             {:else}
               <input type="text" bind:value={cond.value} placeholder="value" class="value-input" />
             {/if}
           {/if}
-          <button class="remove-btn" onclick={() => removeCondition(gi, ci)} title="Remove condition">&times;</button>
+          <button
+            class="remove-btn"
+            onclick={() => removeCondition(gi, ci)}
+            title="Remove condition">&times;</button
+          >
         </div>
       {/each}
       <button class="add-link" onclick={() => addCondition(gi)}>+ AND</button>

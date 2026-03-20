@@ -454,6 +454,34 @@ describe('getChildren — alias resolution', () => {
     expect(cRealIds).toEqual(['test_abc_f1'])
   })
 
+  it('virtual folder explicitly inheriting from HOME_FOLDER_ID inherits conditions and scopes correctly', async () => {
+    ctx.seedEntities([
+      { id: 'e-movie', mediaType: 'movie', title: 'test movie' },
+      { id: 'e-other', mediaType: 'other', title: 'test other' },
+    ])
+    ctx.seedItems([
+      { id: 'folder1', parentId: 'root', path: 'folder1', type: 'folder' },
+      { id: 'item1', parentId: 'folder1', path: 'folder1/item1', type: 'file', entityId: 'e-movie' }, // matches home via mediaType
+      { id: 'item2', parentId: 'folder1', path: 'folder1/item2', type: 'file', entityId: 'e-other' }, // does NOT match home
+    ])
+
+    // Enable home folder logic by giving parent retrieve metadata, or just relying on mediaType
+    ensureHomeVirtualFolder('root')
+
+    const vfId = createUserVirtualFolder('root', 'custom-vf-home-inherited', {
+      scope: { parentId: HOME_FOLDER_ID },
+      conditionGroups: [[{ field: 'title', op: 'contains', value: 'test' }]]
+    })
+
+    // Resolve via getChildren
+    const result = await getChildren(vfId, {})
+    const items = expectItems(result)
+    const ids = items.map(c => c.id).sort()
+    
+    // Both items have 'test' in the title, but 'item2' should be filtered out by the home folder constraints
+    expect(ids).toEqual(['item1'])
+  })
+
   it('virtual folder with scope: parent inherits conditions even from grouped parent', async () => {
     // 1. Setup
     ctx.seedEntities([
