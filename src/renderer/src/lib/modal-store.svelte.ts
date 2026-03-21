@@ -44,6 +44,7 @@ export type ModalConfig =
         groupByKeys: string[]
       }
     }
+  | { type: 'sortPinning'; props: { item: MediaFolder; initialSortTop?: string[]; initialSortBottom?: string[]; onSaved?: (sortTop: string[], sortBottom: string[]) => void } }
 
 export type ModalType = ModalConfig['type']
 

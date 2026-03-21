@@ -7,6 +7,7 @@
   import AssignSeasonsModal from '../modals/AssignSeasonsModal.svelte'
   import CreateVirtualFolderModal from '../modals/CreateVirtualFolderModal.svelte'
   import DefaultViewSettingsModal from '../modals/DefaultViewSettingsModal.svelte'
+  import SortPinningModal from '../modals/SortPinningModal.svelte'
 
   // --- Props (Global state passed in from App.svelte) ---
   let {
@@ -71,5 +72,8 @@
       availableLayouts={props.availableLayouts}
       showClickAction={props.showClickAction}
     />
+  {:else if active.type === 'sortPinning'}
+    {@const sp = active.props}
+    <SortPinningModal item={sp.item} initialSortTop={sp.initialSortTop} initialSortBottom={sp.initialSortBottom} onClose={() => modalStore.close()} onSaved={sp.onSaved} />
   {/if}
 {/each}

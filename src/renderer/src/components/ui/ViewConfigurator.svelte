@@ -99,6 +99,9 @@
     inheritedLabel?: string
   } = $props()
 
+  let localSortTop = $state<string[] | null>(null)
+  let localSortBottom = $state<string[] | null>(null)
+
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
 
   // This computes the "inherited" settings for the item/type, ignoring any local overrides.
@@ -477,6 +480,25 @@
         />
         <span>{effectiveDescriptionRows}</span>
       </div>
+    </div>
+  {/if}
+
+  {#if !configMode && item}
+    {@const pinnedCount = (localSortTop ?? item.viewSettings?.sortTop ?? []).length + (localSortBottom ?? item.viewSettings?.sortBottom ?? []).length}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h4>Sort Order</h4>
+    </div>
+    <p class="help-text">Pin specific children to always appear first or last.</p>
+    <div class="view-config-row" onclick={() => modalStore.open('sortPinning', { item, initialSortTop: localSortTop ?? undefined, initialSortBottom: localSortBottom ?? undefined, onSaved: (top, bottom) => { localSortTop = top; localSortBottom = bottom } })}>
+      <span>
+        {#if pinnedCount > 0}
+          {pinnedCount} item(s) pinned
+        {:else}
+          No items pinned
+        {/if}
+      </span>
+      <button class="secondary" tabindex="-1">Configure...</button>
     </div>
   {/if}
 
