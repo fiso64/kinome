@@ -4,15 +4,17 @@
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
     ALL_VIEW_OVERRIDE_KEYS,
     DEFAULT_LAYOUTS_CONFIG,
+    ALL_VIEW_LAYOUTS,
     type MediaFolder,
     type StoredViewSettings,
-    type Settings
+    type Settings,
+    type ViewLayout
   } from '@shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '@shared/types'
   import { modalStore } from '@lib/modal-store.svelte'
 
   const layouts: {
-    value: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    value: ViewLayout
     label: string
     description: string
   }[] = [
@@ -51,7 +53,7 @@
     typeKey,
     settings,
     // Config props
-    availableLayouts = ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'],
+    availableLayouts = [...ALL_VIEW_LAYOUTS],
     showClickAction = true,
     groupByKeys,
     configMode = false,
@@ -72,13 +74,13 @@
     typeKey?: DefaultLayoutKey
     settings: Settings | null
     // Config props
-    availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+    availableLayouts?: ViewLayout[]
     showClickAction?: boolean
     groupByKeys?: string[]
     configMode?: boolean
-    initialConfigLayout?: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    initialConfigLayout?: ViewLayout
     // Bindings
-    selectedLayout?: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    selectedLayout?: ViewLayout | null
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
     gridPosterSize?: number | null
@@ -234,7 +236,7 @@
         childViewSettings = merged
       },
       groupByKeys,
-      availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'],
+      availableLayouts: [...ALL_VIEW_LAYOUTS],
       showClickAction: false
     })
   }

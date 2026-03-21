@@ -16,7 +16,8 @@
     Settings,
     AutocompleteSuggestions,
     ResolutionInfo,
-    ResolutionSource
+    ResolutionSource,
+    ViewLayout
   } from '@shared/types'
 
   let {
@@ -34,7 +35,7 @@
     onNeedRefresh?: () => Promise<void>
     initialTab?: 'metadata' | 'view' | 'folder' | 'virtualFolder'
     groupByKeys: string[]
-    defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    defaultLayout: ViewLayout
     settings: Settings | null
     overrideParent?: LibraryItem
   } = $props()

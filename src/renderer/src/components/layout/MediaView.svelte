@@ -15,10 +15,10 @@
     AutocompleteSuggestions,
     SearchIndexEntry,
     ViewHierarchyNode,
-    StoredViewSettings
+    StoredViewSettings,
+    ViewLayout
   } from '@shared/types'
 
-  type Layout = 'grid' | 'horizontal-grid' | 'tree' | 'tabs' | 'sections' | 'list'
   type DisplayableItem = LibraryItem | SearchIndexEntry
 
   let {
@@ -38,7 +38,7 @@
     parentItem?: MediaFolder
     items: DisplayableItem[]
     onItemClick: (item: DisplayableItem) => void
-    layout?: Layout
+    layout?: ViewLayout
     onShowContextMenu: (
       item: DisplayableItem,
       event: MouseEvent,

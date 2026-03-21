@@ -42,6 +42,9 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
 
 // --- Generated Helper Constants ---
 
+export const ALL_VIEW_LAYOUTS = ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as const
+export type ViewLayout = typeof ALL_VIEW_LAYOUTS[number]
+
 // This function computes all unique keys from the layout-specific settings config.
 function getAllLayoutSpecificKeys(): string[] {
   const allKeys = (
@@ -66,7 +69,7 @@ export const ALL_VIEW_OVERRIDE_KEYS: readonly string[] = [
  * Defines the core properties common to all views.
  */
 export interface BaseViewSettings {
-  layout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+  layout: ViewLayout
   clickAction: 'detail' | 'navigate'
 }
 
@@ -118,46 +121,25 @@ export const DEFAULT_LAYOUTS_CONFIG = {
   _default: {
     label: 'Default Folder View',
     help: 'The default view used for folders that do not have a specific layout set.',
-    availableLayouts: ['grid', 'list', 'tree'] as ('grid' | 'list' | 'tree')[],
+    availableLayouts: ['grid', 'list', 'tree'] as ViewLayout[],
     showClickAction: false
   },
   movie: {
     label: 'Default Movie Contents View',
     help: 'The default view for the contents of a movie folder on its detail page.',
-    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
-      | 'grid'
-      | 'horizontal-grid'
-      | 'list'
-      | 'tree'
-      | 'tabs'
-      | 'sections'
-    )[],
+    availableLayouts: [...ALL_VIEW_LAYOUTS] as ViewLayout[],
     showClickAction: true
   },
   tv: {
     label: 'Default TV Show Contents View',
     help: 'The default view for the contents of a TV show folder on its detail page.',
-    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
-      | 'grid'
-      | 'horizontal-grid'
-      | 'list'
-      | 'tree'
-      | 'tabs'
-      | 'sections'
-    )[],
+    availableLayouts: [...ALL_VIEW_LAYOUTS] as ViewLayout[],
     showClickAction: true
   },
   season: {
     label: 'Default Season Contents View',
     help: 'The default view for the contents of a season folder on its detail page.',
-    availableLayouts: ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as (
-      | 'grid'
-      | 'horizontal-grid'
-      | 'list'
-      | 'tree'
-      | 'tabs'
-      | 'sections'
-    )[],
+    availableLayouts: [...ALL_VIEW_LAYOUTS] as ViewLayout[],
     showClickAction: true
   }
 } as const

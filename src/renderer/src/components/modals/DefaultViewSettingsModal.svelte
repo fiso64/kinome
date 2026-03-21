@@ -1,7 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
-  import type { StoredViewSettings, Settings } from '@shared/types'
+  import type { StoredViewSettings, Settings, ViewLayout } from '@shared/types'
   let {
     typeKey,
     title,
@@ -19,7 +19,7 @@
     onClose: () => void
     onSave: (newSettings: StoredViewSettings) => void
     groupByKeys: string[]
-    availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+    availableLayouts?: ViewLayout[]
     showClickAction?: boolean
     settings: Settings | null
   } = $props()

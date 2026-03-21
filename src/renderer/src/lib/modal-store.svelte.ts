@@ -1,4 +1,4 @@
-import type { LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter } from '@shared/types'
+import type { LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter, ViewLayout } from '@shared/types'
 
 // --- Types ---
 
@@ -9,7 +9,7 @@ export type ModalConfig =
       props: {
         item: LibraryItem
         initialTab: 'metadata' | 'view' | 'folder' | 'virtualFolder' | 'settings'
-        defaultLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+        defaultLayout: ViewLayout
         overrideParent?: LibraryItem
       }
     }
@@ -38,7 +38,7 @@ export type ModalConfig =
         initialSettings: StoredViewSettings
         typeKey: '_default' | 'movie' | 'tv' | 'season'
         onSave: (settings: StoredViewSettings) => void
-        availableLayouts?: ('grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections')[]
+        availableLayouts?: ViewLayout[]
         showClickAction?: boolean
         settings: any
         groupByKeys: string[]

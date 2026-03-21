@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MediaFolder, StoredViewSettings, Settings } from '@shared/types'
+  import type { MediaFolder, StoredViewSettings, Settings, ViewLayout } from '@shared/types'
   import ViewConfigurator from '@ui/ViewConfigurator.svelte'
 
   let {
@@ -18,7 +18,7 @@
   }: {
     item: MediaFolder
     groupByKeys: string[]
-    selectedLayout: 'grid' | 'horizontal-grid' | 'list' | 'tree' | 'tabs' | 'sections'
+    selectedLayout: ViewLayout
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
     gridPosterSize?: number | null
