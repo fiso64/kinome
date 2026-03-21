@@ -107,6 +107,7 @@
 
   let localSortTop = $state<string[] | null>(null)
   let localSortBottom = $state<string[] | null>(null)
+  let showLayoutOptions = $state(false)
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
 
@@ -130,15 +131,10 @@
     const dummyItemForResolution = {
       ...baseItemForResolving,
       name: '__DUMMY_FOR_RESOLUTION__',
-      type: 'folder', // Assume folder for view settings
-      mediaType: item?.mediaType ?? typeKey // Use the current selected layout to resolve its specific settings correctly
-      // Note: We do NOT inject viewSettings here anymore, because item settings (Layer 3)
-      // are lower priority than inherited settings (Layer 2). To force our draft selection
-      // to win, we must inject it as an Override (Layer 1).
+      type: 'folder',
+      mediaType: item?.mediaType ?? typeKey
     }
 
-    // Construct a simulated inherited settings object that includes our draft selection
-    // as a high-priority override.
     const effectiveInheritedSettings: StoredViewSettings = {
       ...(inheritedSettings ?? {}),
       overrides: {
@@ -149,7 +145,6 @@
       }
     }
 
-    // We use a dummy ID ensures we match the override key we just created
     dummyItemForResolution.id = baseItemForResolving.id ?? 'config-dummy-id'
 
     return resolveViewSettings(
@@ -157,49 +152,55 @@
       settings,
       layersToIgnore,
       effectiveInheritedSettings,
-      null // We do NOT ignore any ID because we explicitly want our injected override to apply
+      null
     )
   })
 
-  const effectiveLayout = $derived(selectedLayout ?? inheritedInfo.settings.layout) // This is now the currently selected layout, whether in config mode or item mode.
-
-  const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : effectiveLayout) // --- Grid Poster Size ---
+  const effectiveLayout = $derived(selectedLayout ?? inheritedInfo.settings.layout)
+  const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : effectiveLayout)
 
   const defaultGridSize = $derived(
     inheritedInfo.settings.gridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
   const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
-  const isGridSizeOverridden = $derived(gridPosterSize != null) // --- List Description Rows ---
+  const isGridSizeOverridden = $derived(gridPosterSize != null)
 
   const defaultDescriptionRows = $derived(
     inheritedInfo.settings.listDescriptionRows ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
   const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
-  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null) // --- Horizontal Scrollbar ---
+  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
 
   const defaultShowScrollbar = $derived(
     (inheritedInfo.settings as any).showHorizontalScrollbar ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG['horizontal-grid'].showHorizontalScrollbar
   )
   const effectiveShowScrollbar = $derived(showHorizontalScrollbar ?? defaultShowScrollbar)
-  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null) // --- Scroll Horizontally ---
+  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null)
 
   const defaultScrollHorizontally = $derived(
     (inheritedInfo.settings as any).scrollHorizontally ?? false
   )
   const effectiveScrollHorizontally = $derived(scrollHorizontally ?? defaultScrollHorizontally)
-  const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null) // --- Group By ---
+  const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null)
 
-  const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder') // --- Sort By (folder-level only, does not cascade) ---
+  const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder')
 
   const effectiveSortBy = $derived<SortBy>(selectedSortBy ?? 'hybrid')
   const effectiveSortDescending = $derived(selectedSortDescending ?? false)
-  const isSortOverridden = $derived(selectedSortBy != null || selectedSortDescending != null) // --- Click Action ---
+  const isSortOverridden = $derived(selectedSortBy != null || selectedSortDescending != null)
 
   const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
   const effectiveClickAction = $derived(selectedClickAction ?? defaultClickAction)
   const isClickActionOverridden = $derived(selectedClickAction != null)
+
+  const hasLayoutOptions = $derived(
+    layoutToShowOptionsFor === 'grid' ||
+    layoutToShowOptionsFor === 'horizontal-grid' ||
+    layoutToShowOptionsFor === 'button-grid' ||
+    layoutToShowOptionsFor === 'list'
+  )
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -216,7 +217,7 @@
     if (!sourceInfo) return ''
     switch (sourceInfo.source) {
       case 'item':
-        return 'Item' // Should not happen for defaults, but for safety
+        return 'Item'
       case 'global':
         return 'Global Default'
       case 'type':
@@ -230,10 +231,8 @@
       case 'override':
         return 'Override'
       default:
-        // Use default fallback instead of returning empty string immediately
         break
     }
-    // Debug: If we get here, log the unknown source
     if (sourceInfo.source) {
       const src = sourceInfo.source as string
       console.warn(`[ViewConfigurator] Unknown resolution source: ${src}`, sourceInfo)
@@ -265,13 +264,20 @@
 </script>
 
 <div class="content">
+  <!-- View As / Configure Defaults For -->
   {#if !configMode}
     <div class="heading-with-action">
       <h3>View As</h3>
-      {#if selectedLayout !== null}
-        <button class="link-button" onclick={() => (selectedLayout = null)}>Reset to default</button
-        >
-      {/if}
+      <div class="heading-actions">
+        {#if selectedLayout !== null}
+          <button class="link-button" onclick={() => (selectedLayout = null)}>Reset to default</button>
+        {/if}
+        {#if hasLayoutOptions}
+          <button class="link-button" onclick={() => (showLayoutOptions = !showLayoutOptions)}>
+            Options{showLayoutOptions ? ' ▴' : ' ▾'}
+          </button>
+        {/if}
+      </div>
     </div>
     <div class="layout-options horizontal">
       {#each filteredLayouts as layout}
@@ -287,7 +293,6 @@
         </label>
       {/each}
     </div>
-    <p class="help-text">{layouts.find((l) => l.value === effectiveLayout)?.description}</p>
   {:else}
     <h3>Configure Defaults For</h3>
     <div class="layout-options horizontal">
@@ -306,101 +311,108 @@
         {/if}
       {/each}
     </div>
-    <p class="help-text">Set default values for when this layout is used.</p>
   {/if}
 
-  <!-- Grid-specific settings -->
-  {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid' || layoutToShowOptionsFor === 'button-grid'}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Grid Poster Size</h4>
-      {#if !configMode}
-        {#if isGridSizeOverridden}
-          <button class="link-button" onclick={() => (gridPosterSize = null)}
-            >Reset to default</button
-          >
-        {:else}
-          <span class="inherited-value-text-inline">
-            Using default from <strong>{formatSource(inheritedInfo.sources.gridPosterSize)}</strong>
-          </span>
-        {/if}
+  <!-- Layout-specific options: always shown in configMode, toggled in item mode -->
+  {#if (configMode || showLayoutOptions) && hasLayoutOptions}
+    <div class="options-panel">
+      {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid' || layoutToShowOptionsFor === 'button-grid'}
+        <div class="heading-with-action">
+          <h4>Poster Size</h4>
+          {#if !configMode}
+            {#if isGridSizeOverridden}
+              <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
+            {:else}
+              <span class="inherited-value-text-inline">
+                Using default from <strong>{formatSource(inheritedInfo.sources.gridPosterSize)}</strong>
+              </span>
+            {/if}
+          {/if}
+        </div>
+        <div class="slider-container">
+          <input
+            type="range"
+            value={effectiveGridSize}
+            oninput={(e) => (gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
+            min="50"
+            max="500"
+            step="10"
+          />
+          <span>{effectiveGridSize}px</span>
+        </div>
       {/if}
-    </div>
-    <p class="help-text">
-      Controls the {configMode ? 'default ' : ''}base width of posters in the grid view.
-    </p>
-    <div class="form-group">
-      <div class="slider-container">
-        <input
-          type="range"
-          value={effectiveGridSize}
-          oninput={(e) => (gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
-          min="50"
-          max="500"
-          step="10"
-        />
-        <span>{effectiveGridSize}px</span>
-      </div>
-    </div>
-  {/if}
 
-  <!-- Button-Grid-specific settings -->
-  {#if layoutToShowOptionsFor === 'button-grid'}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Horizontal Scrolling</h4>
-      {#if !configMode}
-        {#if isScrollHorizontallyOverridden}
-          <button class="link-button" onclick={() => (scrollHorizontally = null)}>Reset to default</button>
-        {:else}
-          <span class="inherited-value-text-inline">
-            Using default from <strong>{formatSource((inheritedInfo.sources as any).scrollHorizontally)}</strong>
-          </span>
-        {/if}
+      {#if layoutToShowOptionsFor === 'button-grid'}
+        <div class="heading-with-action">
+          <h4>Horizontal Scrolling</h4>
+          {#if !configMode}
+            {#if isScrollHorizontallyOverridden}
+              <button class="link-button" onclick={() => (scrollHorizontally = null)}>Reset to default</button>
+            {:else}
+              <span class="inherited-value-text-inline">
+                Using default from <strong>{formatSource((inheritedInfo.sources as any).scrollHorizontally)}</strong>
+              </span>
+            {/if}
+          {/if}
+        </div>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            checked={effectiveScrollHorizontally}
+            onchange={() => (scrollHorizontally = !effectiveScrollHorizontally)}
+          />
+          <span>Scroll horizontally</span>
+        </label>
       {/if}
-    </div>
-    <p class="help-text">Display items in a horizontally scrolling list instead of a wrapped grid.</p>
-    <div class="form-group">
-      <label class="checkbox-label">
-        <input
-          type="checkbox"
-          checked={effectiveScrollHorizontally}
-          onchange={() => (scrollHorizontally = !effectiveScrollHorizontally)}
-        />
-        <span>Scroll horizontally</span>
-      </label>
-    </div>
-  {/if}
 
-  <!-- Horizontal-Grid/Button-Grid specific settings -->
-  {#if layoutToShowOptionsFor === 'horizontal-grid' || (layoutToShowOptionsFor === 'button-grid' && effectiveScrollHorizontally)}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Horizontal Scrollbar</h4>
-      {#if !configMode}
-        {#if isShowScrollbarOverridden}
-          <button class="link-button" onclick={() => (showHorizontalScrollbar = null)}
-            >Reset to default</button
-          >
-        {:else}
-          <span class="inherited-value-text-inline">
-            Using default from <strong
-              >{formatSource(inheritedInfo.sources.showHorizontalScrollbar)}</strong
-            >
-          </span>
-        {/if}
+      {#if layoutToShowOptionsFor === 'horizontal-grid' || (layoutToShowOptionsFor === 'button-grid' && effectiveScrollHorizontally)}
+        <div class="heading-with-action">
+          <h4>Horizontal Scrollbar</h4>
+          {#if !configMode}
+            {#if isShowScrollbarOverridden}
+              <button class="link-button" onclick={() => (showHorizontalScrollbar = null)}>Reset to default</button>
+            {:else}
+              <span class="inherited-value-text-inline">
+                Using default from <strong>{formatSource(inheritedInfo.sources.showHorizontalScrollbar)}</strong>
+              </span>
+            {/if}
+          {/if}
+        </div>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            checked={effectiveShowScrollbar}
+            onchange={() => (showHorizontalScrollbar = !effectiveShowScrollbar)}
+          />
+          <span>Show horizontal scrollbar</span>
+        </label>
       {/if}
-    </div>
-    <p class="help-text">Show a scrollbar when the content overflows horizontally.</p>
-    <div class="form-group">
-      <label class="checkbox-label">
-        <input
-          type="checkbox"
-          checked={effectiveShowScrollbar}
-          onchange={() => (showHorizontalScrollbar = !effectiveShowScrollbar)}
-        />
-        <span>Show horizontal scrollbar</span>
-      </label>
+
+      {#if layoutToShowOptionsFor === 'list'}
+        <div class="heading-with-action">
+          <h4>Description Rows</h4>
+          {#if !configMode}
+            {#if isDescriptionRowsOverridden}
+              <button class="link-button" onclick={() => (listDescriptionRows = null)}>Reset to default</button>
+            {:else}
+              <span class="inherited-value-text-inline">
+                Using default from <strong>{formatSource(inheritedInfo.sources.listDescriptionRows)}</strong>
+              </span>
+            {/if}
+          {/if}
+        </div>
+        <div class="slider-container">
+          <input
+            type="range"
+            value={effectiveDescriptionRows}
+            oninput={(e) => (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
+            min="0"
+            max="10"
+            step="1"
+          />
+          <span>{effectiveDescriptionRows}</span>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -408,20 +420,55 @@
   {#if !configMode}
     <div class="divider"></div>
     <h4>Group By</h4>
-    <p class="help-text">
-      Choose a metadata field to group contents by. Items will be organized into virtual subfolders.
-    </p>
-    <div class="form-group">
-      <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
-        {#if groupByKeys}
-          {#each groupByKeys as key (key)}
-            <option value={key}>{formatKey(key)}</option>
-          {/each}
-        {/if}
+    <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
+      {#if groupByKeys}
+        {#each groupByKeys as key (key)}
+          <option value={key}>{formatKey(key)}</option>
+        {/each}
+      {/if}
+    </select>
+  {/if}
+
+  <!-- Ordering: Sort By + Sort Order combined -->
+  {#if !configMode}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h4>Ordering</h4>
+      {#if isSortOverridden}
+        <button class="link-button" onclick={() => { selectedSortBy = null; selectedSortDescending = null }}>Reset to default</button>
+      {/if}
+    </div>
+    <div class="sort-controls">
+      <select
+        value={effectiveSortBy}
+        onchange={(e) => (selectedSortBy = e.currentTarget.value as SortBy)}
+      >
+        <option value="hybrid">Hybrid</option>
+        <option value="alpha">Alphabetic</option>
+        <option value="date-added">Date Added</option>
+        <option value="year">Release Year</option>
       </select>
+      <label class="checkbox-label">
+        <input
+          type="checkbox"
+          checked={effectiveSortDescending}
+          onchange={() => (selectedSortDescending = !effectiveSortDescending)}
+        />
+        <span>Descending</span>
+      </label>
+      {#if item}
+        {@const pinnedCount = (localSortTop ?? item.viewSettings?.sortTop ?? []).length + (localSortBottom ?? item.viewSettings?.sortBottom ?? []).length}
+        <button
+          class="secondary pin-btn"
+          onclick={() => modalStore.open('sortPinning', { item, initialSortTop: localSortTop ?? undefined, initialSortBottom: localSortBottom ?? undefined, onSaved: (top: string[], bottom: string[]) => { localSortTop = top; localSortBottom = bottom } })}
+        >
+          {#if pinnedCount > 0}Pinned ({pinnedCount})...{:else}Pin items...{/if}
+        </button>
+      {/if}
     </div>
   {/if}
 
+  <!-- Child Item Layout -->
   {#if !configMode}
     <div class="divider"></div>
     <div class="heading-with-action">
@@ -430,139 +477,11 @@
         <button class="link-button" onclick={() => (childViewSettings = null)}>Reset</button>
       {/if}
     </div>
-    <p class="help-text">
-      Optionally override the layout used for items inside each group. If not set, each
-      item will use its own default view.
-    </p>
     <div class="view-config-row" onclick={openChildSettings}>
       <span>{formatLayoutString(childViewSettings)}</span>
       <button class="secondary" tabindex="-1">Configure...</button>
     </div>
   {/if}
-  <!-- List-specific settings -->
-  {#if layoutToShowOptionsFor === 'list'}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Description Rows</h4>
-      {#if !configMode}
-        {#if isDescriptionRowsOverridden}
-          <button class="link-button" onclick={() => (listDescriptionRows = null)}
-            >Reset to default</button
-          >
-        {:else}
-          <span class="inherited-value-text-inline">
-            Using default from <strong
-              >{formatSource(inheritedInfo.sources.listDescriptionRows)}</strong
-            >
-          </span>
-        {/if}
-      {/if}
-    </div>
-    <p class="help-text">
-      Controls the {configMode ? 'default ' : ''}number of lines shown for the description in List
-      view (0 to hide).
-    </p>
-    <div class="form-group">
-      <div class="slider-container">
-        <input
-          type="range"
-          value={effectiveDescriptionRows}
-          oninput={(e) =>
-            (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
-          min="0"
-          max="10"
-          step="1"
-        />
-        <span>{effectiveDescriptionRows}</span>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Sort By -->
-  {#if !configMode}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Sort By</h4>
-      {#if isSortOverridden}
-        <button class="link-button" onclick={() => { selectedSortBy = null; selectedSortDescending = null }}>Reset to default</button>
-      {/if}
-    </div>
-    <p class="help-text">Choose how children of this folder are sorted.</p>
-    <div class="form-group">
-      <div class="sort-controls">
-        <select
-          value={effectiveSortBy}
-          onchange={(e) => (selectedSortBy = e.currentTarget.value as SortBy)}
-        >
-          <option value="hybrid">Hybrid (season-aware)</option>
-          <option value="alpha">Alphabetic</option>
-          <option value="date-added">Date Added</option>
-          <option value="year">Release Year</option>
-        </select>
-        <label class="checkbox-label">
-          <input
-            type="checkbox"
-            checked={effectiveSortDescending}
-            onchange={() => (selectedSortDescending = !effectiveSortDescending)}
-          />
-          <span>Descending</span>
-        </label>
-      </div>
-    </div>
-  {/if}
-
-  {#if !configMode && item}
-    {@const pinnedCount = (localSortTop ?? item.viewSettings?.sortTop ?? []).length + (localSortBottom ?? item.viewSettings?.sortBottom ?? []).length}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h4>Sort Order</h4>
-    </div>
-    <p class="help-text">Pin specific children to always appear first or last.</p>
-    <div class="view-config-row" onclick={() => modalStore.open('sortPinning', { item, initialSortTop: localSortTop ?? undefined, initialSortBottom: localSortBottom ?? undefined, onSaved: (top, bottom) => { localSortTop = top; localSortBottom = bottom } })}>
-      <span>
-        {#if pinnedCount > 0}
-          {pinnedCount} item(s) pinned
-        {:else}
-          No items pinned
-        {/if}
-      </span>
-      <button class="secondary" tabindex="-1">Configure...</button>
-    </div>
-  {/if}
-
-  <!-- On Click settings hidden for now — feature exists but adds UI clutter
-  {#if !configMode && showClickAction}
-    <div class="divider"></div>
-    <div class="heading-with-action">
-      <h3>On Click...</h3>
-      {#if isClickActionOverridden}
-        <button class="link-button" onclick={() => (selectedClickAction = null)}
-          >Reset to default</button
-        >
-      {/if}
-    </div>
-    <p class="help-text">
-      Choose what happens when clicking a child item. This does not apply to Tree view.
-    </p>
-    <div class="layout-options vertical">
-      {#each clickActions as action}
-        <label class="layout-option vertical-item">
-          <input
-            type="radio"
-            name="click-action"
-            value={action.value}
-            checked={effectiveClickAction === action.value}
-            onchange={() => (selectedClickAction = action.value as any)}
-          />
-          <div class="option-details">
-            <div class="option-label">{action.label}</div>
-            <div class="option-description">{action.description}</div>
-          </div>
-        </label>
-      {/each}
-    </div>
-  {/if}
-  -->
 </div>
 
 <style>
@@ -572,19 +491,9 @@
     flex-direction: column;
     gap: 1.5rem;
   }
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .help-text {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-    margin-top: -0.75rem; /* Reduce space after a heading */
-  }
 
   .inherited-value-text-inline {
-    font-size: 0.8rem; /* Match link-button */
+    font-size: 0.8rem;
     color: var(--ev-c-text-2);
     white-space: nowrap;
   }
@@ -610,9 +519,8 @@
     border-radius: 6px;
     padding: 0.5rem;
     border: 1px solid var(--color-background-mute);
-    padding-bottom: 0.5rem;
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
   .layout-options.horizontal::-webkit-scrollbar {
     display: none;
@@ -624,8 +532,6 @@
       border-color 0.2s,
       background-color 0.2s;
   }
-
-  /* Horizontal Layout Items (for View As) */
   .horizontal-item {
     padding: 0.5rem 1rem;
     border-radius: 6px;
@@ -648,6 +554,18 @@
     color: var(--ev-c-text-1);
   }
 
+  /* Options panel for layout-specific settings */
+  .options-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: var(--color-background);
+    border-radius: 6px;
+    border: 1px solid var(--color-background-mute);
+    margin-top: -0.5rem;
+  }
+
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
     margin-top: -0.5rem;
@@ -656,6 +574,10 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+  }
+  .heading-actions {
+    display: flex;
+    gap: 0.75rem;
   }
   .heading-with-action h4 {
     margin: 0;
@@ -668,7 +590,6 @@
     margin-bottom: -0.75rem;
   }
 
-  /* Slider specific styles */
   .slider-container {
     display: flex;
     align-items: center;
@@ -677,6 +598,7 @@
   .slider-container input[type='range'] {
     flex-grow: 1;
   }
+
   .sort-controls {
     display: flex;
     align-items: center;
@@ -685,6 +607,10 @@
   .sort-controls select {
     flex: 1;
   }
+  .pin-btn {
+    margin-left: auto;
+  }
+
   .checkbox-label {
     display: flex;
     align-items: center;
@@ -705,5 +631,21 @@
   }
   .link-button:hover {
     color: var(--ev-c-text-1);
+  }
+
+  .view-config-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: var(--color-background);
+    border: 1px solid var(--color-background-mute);
+    font-size: 0.9rem;
+    color: var(--ev-c-text-2);
+  }
+  .view-config-row:hover {
+    background: var(--color-background-soft);
   }
 </style>
