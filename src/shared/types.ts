@@ -41,8 +41,8 @@ export interface GroupingSettings {
  * This drives the data-driven settings resolution logic.
  */
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
-  grid: { gridPosterSize: 250 },
-  'horizontal-grid': { gridPosterSize: 250, showHorizontalScrollbar: false },
+  grid: { gridPosterSize: 210 },
+  'horizontal-grid': { gridPosterSize: 210, showHorizontalScrollbar: false },
   'button-grid': { gridPosterSize: 180, scrollHorizontally: false, showHorizontalScrollbar: false },
   list: { listDescriptionRows: 5 },
   tabs: { groupBy: 'folder' },
