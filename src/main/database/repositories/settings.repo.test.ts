@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../schema'
+import { _setDbForTesting } from '../client'
+import { mergeSettings } from './settings.repo'
 
 let db: Database
 
@@ -25,9 +27,42 @@ function insertItem(id: string, type: 'file' | 'folder' = 'folder') {
   `).run(id, id, id, type)
 }
 
+describe('mergeSettings — sort pin clearing', () => {
+  beforeEach(() => {
+    db = createTestDb()
+    _setDbForTesting(db)
+    insertItem('folder1')
+    // Seed with sortTop pinned
+    db.prepare(`
+      INSERT INTO folder_settings (item_id, view_settings_json)
+      VALUES (?, ?)
+    `).run('folder1', JSON.stringify({ sortTop: ['child_A', 'child_B'] }))
+  })
+
+  it('clears sortTop when null is passed (fix: using null)', () => {
+    mergeSettings('folder1', { viewSettings: { sortTop: null } })
+
+    const row = db.prepare('SELECT view_settings_json FROM folder_settings WHERE item_id = ?').get('folder1') as any
+    const saved = JSON.parse(row.view_settings_json)
+    expect(saved.sortTop).toBeNull()
+  })
+
+  it('bug: sortTop persists when undefined is passed (key absent from update)', () => {
+    // Simulate the old frontend bug: sortTop: undefined gets dropped by JSON.stringify,
+    // so the backend receives {} and the old value survives the Object.assign merge.
+    mergeSettings('folder1', { viewSettings: {} })
+
+    const row = db.prepare('SELECT view_settings_json FROM folder_settings WHERE item_id = ?').get('folder1') as any
+    const saved = JSON.parse(row.view_settings_json)
+    // Old value persists — this is the bug
+    expect(saved.sortTop).toEqual(['child_A', 'child_B'])
+  })
+})
+
 describe('mergeSettings (folder_settings merge contract)', () => {
   beforeEach(() => {
     db = createTestDb()
+    _setDbForTesting(db)
     insertItem('folder1')
   })
 

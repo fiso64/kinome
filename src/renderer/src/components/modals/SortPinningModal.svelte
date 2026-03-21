@@ -137,12 +137,11 @@
   // --- Save ---
 
   async function handleSave() {
-    const top = sortTopIds.length ? sortTopIds : undefined
-    const bottom = sortBottomIds.length ? sortBottomIds : undefined
+    const top = sortTopIds.length ? sortTopIds : null
+    const bottom = sortBottomIds.length ? sortBottomIds : null
     await window.api.userUpdateItem({
       id: item.id,
       viewSettings: {
-        ...item.viewSettings,
         sortTop: top,
         sortBottom: bottom
       }

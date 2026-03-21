@@ -5,7 +5,7 @@ If during implementation you come across any unresolved questions or architectur
 Prefer architecturally clean solutions over quick hacks. This also applies to existing code: If you find cruft or unclean design that can be abstracted or simplified while implementing something, mention it. Do so even if it looks like an established "design pattern" in the codebase -- propose to fix tech debt when relevant.
 
 ## Testing
-Important: For **backend** (or shared logic) bugs, always write a red failing test first to confirm the issue in one of the *.test.ts files (or a new file). If the logic is hard to test (e.g. can't be mocked), refactor it first.
+Important: For **backend** (or shared logic) bugs, always write a red failing test first to confirm the issue in one of the *.test.ts files (or a new file). Do this _before_ trying to fix it! If the logic is hard to test (e.g. can't be mocked), refactor it first.
 
 Commands:
 - `bun test`
