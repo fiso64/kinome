@@ -1224,7 +1224,8 @@ describe('Grouping Write Operations', () => {
       })
 
       const names = groupingFolders.map((f) => f.name).sort()
-      expect(names).toEqual(['Action', 'Drama', 'Sci-Fi'])
+      // "Uncategorized" appears because the root folder (seed item) matches the empty filter and has no genres.
+      expect(names).toEqual(['Action', 'Drama', 'Sci-Fi', 'Uncategorized'])
 
       const actionRaw = groupingFolders.find((f) => f.name === 'Action')!
       const action = getItemById(actionRaw.id) as MediaFolder

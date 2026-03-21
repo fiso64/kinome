@@ -136,8 +136,9 @@ function collectUniqueValues(items: any[], groupByKey: string) {
 }
 
 function buildGroupingFilter(parent: LibraryFilter, extra: LibraryCondition): LibraryFilter {
-  const groups = parent.conditionGroups
+  let groups = parent.conditionGroups
     ?? (parent.conditions ? [parent.conditions] : [[]])
+  if (groups.length === 0) groups = [[]]
   return {
     scope: parent.scope,
     conditionGroups: groups.map(group => [...group, extra]),
