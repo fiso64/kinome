@@ -33,7 +33,9 @@
   const canGoBack = $derived(navStore.canGoBack)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
-  const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStore.contextItemId)
+  const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStore.contextItemId, {
+    include: () => ['viewHierarchy']
+  })
 
   const contextItem = $derived(contextItemQuery.data as MediaFolder | LibraryItem | undefined)
 
