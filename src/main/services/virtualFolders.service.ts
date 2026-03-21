@@ -41,23 +41,38 @@ export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
   // Recursively resolve parent's effective filter
   const effectiveParent = resolveEffectiveFilter(parent.filter)
 
-  // Merge: Each group in the parent is combined with every group in the child (cross product)
   let childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
   if (childGroups.length === 0) childGroups = [[]]
 
   let parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
   if (parentGroups.length === 0) parentGroups = [[]]
 
+  const parentRequired = effectiveParent.requiredConditions ?? []
+
+  // Optimization: when child has a single group, avoid cross-product expansion.
+  // Keep parent's OR-groups intact and AND the child's conditions on top as requiredConditions.
+  // (A OR B OR C) AND D  instead of  (A AND D) OR (B AND D) OR (C AND D)
+  if (childGroups.length <= 1) {
+    const childConditions = childGroups[0] ?? []
+    return {
+      scope: effectiveParent.scope,
+      conditionGroups: parentGroups,
+      requiredConditions: [...parentRequired, ...childConditions],
+    }
+  }
+
+  // Multiple child groups: fall back to cross-product.
+  // Bake parent's requiredConditions into each group so they're not lost.
   const mergedGroups: LibraryCondition[][] = []
   for (const pg of parentGroups) {
     for (const cg of childGroups) {
-      mergedGroups.push([...pg, ...cg])
+      mergedGroups.push([...parentRequired, ...pg, ...cg])
     }
   }
 
   return {
-    scope: effectiveParent.scope, // Inherit terminal filesystem scope (e.g. 'movies' root)
-    conditionGroups: mergedGroups
+    scope: effectiveParent.scope,
+    conditionGroups: mergedGroups,
   }
 }
 

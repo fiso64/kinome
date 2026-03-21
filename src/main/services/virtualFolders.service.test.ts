@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { createUserVirtualFolder, deleteVirtualFolder } from './virtualFolders.service'
+import { createUserVirtualFolder, deleteVirtualFolder, resolveEffectiveFilter } from './virtualFolders.service'
 import { applyGrouping } from './grouping.service'
 import { find, _updateItem } from './repository.service'
 import { compileFilter } from '../database/query-builder'
@@ -170,5 +170,149 @@ describe('ensureHomeVirtualFolder', () => {
     // Re-read and verify the filter was persisted
     const updated = getItemById(vfId) as MediaFolder
     expect(updated.filter).toEqual(newFilter)
+  })
+})
+
+// =================================================================
+// resolveEffectiveFilter — filter merging
+// =================================================================
+
+describe('resolveEffectiveFilter', () => {
+  beforeEach(() => {
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+    ])
+  })
+
+  it('single-group child uses optimized path: parent groups preserved, child conditions become requiredConditions', () => {
+    const parentId = createUserVirtualFolder('root', 'Parent', {
+      conditionGroups: [
+        [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+        [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+      ],
+    })
+
+    const childFilter: LibraryFilter = {
+      scope: { parentId },
+      conditionGroups: [[{ field: 'year', op: 'eq', value: 2024 }]],
+    }
+
+    const result = resolveEffectiveFilter(childFilter)
+
+    // Parent's 2 OR-groups must be preserved as-is — no cross-product
+    expect(result.conditionGroups).toHaveLength(2)
+    expect(result.conditionGroups![0]).toEqual([{ field: 'mediaType', op: 'eq', value: 'movie' }])
+    expect(result.conditionGroups![1]).toEqual([{ field: 'mediaType', op: 'eq', value: 'tv' }])
+    // Child's condition goes into requiredConditions
+    expect(result.requiredConditions).toEqual([{ field: 'year', op: 'eq', value: 2024 }])
+  })
+
+  it('child with no conditions returns parent filter with empty requiredConditions', () => {
+    const parentId = createUserVirtualFolder('root', 'Parent', {
+      conditionGroups: [
+        [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+        [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+      ],
+    })
+
+    const childFilter: LibraryFilter = {
+      scope: { parentId },
+      conditionGroups: [],
+    }
+
+    const result = resolveEffectiveFilter(childFilter)
+
+    expect(result.conditionGroups).toHaveLength(2)
+    expect(result.requiredConditions).toEqual([])
+  })
+
+  it('multi-group child falls back to cross-product, no requiredConditions', () => {
+    const parentId = createUserVirtualFolder('root', 'Parent', {
+      conditionGroups: [
+        [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+        [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+      ],
+    })
+
+    const childFilter: LibraryFilter = {
+      scope: { parentId },
+      conditionGroups: [
+        [{ field: 'year', op: 'eq', value: 2023 }],
+        [{ field: 'year', op: 'eq', value: 2024 }],
+      ],
+    }
+
+    const result = resolveEffectiveFilter(childFilter)
+
+    // 2 parent groups × 2 child groups = 4 cross-product groups
+    expect(result.conditionGroups).toHaveLength(4)
+    expect(result.requiredConditions).toBeUndefined()
+  })
+
+  it('recursive merge: grandchild accumulates requiredConditions from each level', () => {
+    // A: 3-group filter (like home)
+    const folderAId = createUserVirtualFolder('root', 'A', {
+      conditionGroups: [
+        [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+        [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+        [{ field: 'year', op: 'gt', value: 2000 }],
+      ],
+    })
+
+    // B: single condition, inheriting A
+    const folderBId = createUserVirtualFolder(folderAId, 'B', {
+      scope: { parentId: folderAId },
+      conditionGroups: [[{ field: 'year', op: 'eq', value: 2023 }]],
+    })
+
+    // C: single condition, inheriting B
+    const folderCFilter: LibraryFilter = {
+      scope: { parentId: folderBId },
+      conditionGroups: [[{ field: 'title', op: 'contains', value: 'Test' }]],
+    }
+
+    const result = resolveEffectiveFilter(folderCFilter)
+
+    // A's 3 OR-groups are preserved
+    expect(result.conditionGroups).toHaveLength(3)
+    // B's condition + C's condition are both in requiredConditions
+    expect(result.requiredConditions).toHaveLength(2)
+    expect(result.requiredConditions).toContainEqual({ field: 'year', op: 'eq', value: 2023 })
+    expect(result.requiredConditions).toContainEqual({ field: 'title', op: 'contains', value: 'Test' })
+  })
+
+  it('optimized filter resolves to correct items end-to-end', () => {
+    ctx.seedEntities([
+      { id: 'e-movie-2024', mediaType: 'movie', year: 2024 },
+      { id: 'e-movie-2023', mediaType: 'movie', year: 2023 },
+      { id: 'e-tv-2024', mediaType: 'tv', year: 2024 },
+    ])
+    ctx.seedItems([
+      { id: 'film-2024', parentId: 'root', path: 'film-2024', entityId: 'e-movie-2024' },
+      { id: 'film-2023', parentId: 'root', path: 'film-2023', entityId: 'e-movie-2023' },
+      { id: 'show-2024', parentId: 'root', path: 'show-2024', entityId: 'e-tv-2024' },
+    ])
+
+    // Parent: movies OR tv (2 OR-groups, like a simplified home pool)
+    const parentId = createUserVirtualFolder('root', 'Media Pool', {
+      conditionGroups: [
+        [{ field: 'mediaType', op: 'eq', value: 'movie' }],
+        [{ field: 'mediaType', op: 'eq', value: 'tv' }],
+      ],
+    })
+
+    // Child: single condition — filter to 2024 only
+    const childFilter: LibraryFilter = {
+      scope: { parentId },
+      conditionGroups: [[{ field: 'year', op: 'eq', value: 2024 }]],
+    }
+
+    const effective = resolveEffectiveFilter(childFilter)
+    const compiled = compileFilter(effective)
+    const results = find({ ...compiled, includeHidden: true, includeIgnored: true })
+    const ids = results.map((r) => r.id).sort()
+
+    // Both movie and show from 2024 should be returned, but NOT the 2023 movie
+    expect(ids).toEqual(['film-2024', 'show-2024'])
   })
 })

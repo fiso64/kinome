@@ -1,3 +1,15 @@
+```
+
+Our configuration system is quite flexible, supporting many global and per-folder layout config options, including advanced ones like recursive (container) layouts like tabs and sections. This can already be seen with our new default home folder:
+
+- It is a _virtual_ folder, which automatically pulls items matching a certain set of conditions from the full library. Specifically: parent.retrieve_children_metadata = 1 OR media type = movie OR media type = tv. 
+- It is grouped into sections using another virtual tag (_home_category)
+- It has some child virtual folders: Recently added (contains items added within the last 14 days, sorted by added date descending), Categories (shows _home_category as buttons), Genres (sources items from home folder and groups them into genre buttons), all of which render inline because home is displayed in section view.
+
+Let's analyze how it performs with the default setup of the home layout on the _second_ load (i.e. after initial groupings have been created). Do it comprehensively, starting with the API requests, going through the explicit DB queries for children fetching and evaluating the specific conditions/vtags we use (home folder definition, _home_category vtag), and returning the data to the consumer. Any performance bottlenecks or things we should be concerned about? Any low (or not low) hanging fruit for optimization? At what scales will our system start to struggle? Discuss.
+
+```
+
 # Home Folder Performance Analysis
 
 ## Overview
@@ -33,6 +45,9 @@ OR [mediaType = 'tv']
 
 ## Bottlenecks
 
+### 0. No pagination
+No pagination.
+
 ### 1. Filter cross-product explosion
 
 The home filter's 3 OR-groups propagate into every child filter via `resolveEffectiveFilter`. A child that only needs `vt._home_category = 'Movies'` ends up running 3 OR branches, two of which are redundant given that `_home_category` already implies the item is in the home pool. This is an artifact of how the filter composition works, not a logic bug — but it's expensive.
@@ -58,19 +73,7 @@ Each of the 4 `_home_category` grouping sections fires an independent query agai
 
 The core problem is that home's complex filter (with the `parent.retrieveChildrenMetadata` correlated subquery) re-executes on every read. The fix: move it to the write path.
 
-Introduce `_is_in_home` as a predefined virtual tag, evaluated at scan/import time using the same logic as `_home_category`. The home folder's filter then becomes simply:
-
-```json
-{ "conditions": [{ "field": "vt._is_in_home", "op": "isNotNull" }] }
-```
-
-**Result:** Every child filter's inherited cross-product collapses from 3 OR-groups with correlated subqueries to a single `EXISTS (SELECT 1 FROM entity_virtual_tags WHERE key = '_is_in_home')`. The expensive `parent.retrieveChildrenMetadata` join only runs once at evaluation time, not on every page load.
-
-**Design note:** Make `_is_in_home` the authoritative definition of home pool membership (editable via the vtag settings UI, like `_home_category`), and have the home folder's filter reference it. This preserves full user configurability — the user can change what "home" means by editing the vtag, not by editing an opaque folder filter.
-
-**Re-evaluation triggers needed:**
-- After any library scan (same as all vtags today)
-- When `retrieve_children_metadata` is toggled on a folder → scoped re-evaluation for that folder's children (`evaluateAndInsertVirtualTags` already accepts `itemIds` for this)
+Introduce `_is_in_home` as a predefined virtual tag.
 
 ### Single-query partition for sections
 

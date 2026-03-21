@@ -265,6 +265,13 @@ export interface LibraryFilter {
   scope?: { parentId?: string; manual?: boolean }
   conditions?: LibraryCondition[]
   conditionGroups?: LibraryCondition[][]
+  /**
+   * Conditions AND'd on top of conditionGroups after compilation.
+   * Produced by resolveEffectiveFilter when merging a single-group child with a
+   * multi-group parent, avoiding O(n×m) cross-product expansion.
+   * Never persisted to filter_json — runtime only.
+   */
+  requiredConditions?: LibraryCondition[]
 }
 
 export interface VirtualTagCase {

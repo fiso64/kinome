@@ -287,6 +287,22 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
         compiledConditions = compileConditionGroups(groups)
     }
 
+    // requiredConditions are AND'd on top of the OR groups.
+    // Wrap the groups in parens to preserve precedence: (A OR B OR C) AND (D AND E)
+    if (filter.requiredConditions?.length) {
+        const required = compileConditionGroups([filter.requiredConditions])
+        if (compiledConditions) {
+            const tables = new Set([...compiledConditions.tables, ...required.tables])
+            compiledConditions = {
+                sql: `(${compiledConditions.sql}) AND (${required.sql})`,
+                params: [...compiledConditions.params, ...required.params],
+                tables,
+            }
+        } else {
+            compiledConditions = required
+        }
+    }
+
     return {
         where: Object.keys(where).length ? where : undefined,
         rawConditions,
