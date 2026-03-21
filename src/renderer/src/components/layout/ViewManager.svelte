@@ -61,11 +61,6 @@
     selectedItemId ? wasSearchActiveWhenDetailOpened : isGlobalSearchActive
   )
 
-  const detailItemQuery = libraryDataService.getItemDetailsQuery(() => selectedItemId, {
-    enabled: () => !!selectedItemId && libraryStatus?.status === 'ready'
-  })
-  const selectedItemForDetailView = $derived(detailItemQuery.data as LibraryItem | null | undefined)
-
   // Backdrop Logic
   let scrollTop = $state(0)
   const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
@@ -155,8 +150,7 @@
       {#key selectedItemId}
         <div class="detail-switch-container" transition:fade={{ duration: 250, easing: cubicOut }}>
           <ItemDetail
-            item={selectedItemForDetailView ||
-              ({ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem)}
+            item={{ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem}
             onItemClick={(item) => dispatch('itemClick', { item })}
             onPlay={(item) => dispatch('play', { item: item as MediaFile })}
             onSearchByTag={(key, value) => dispatch('searchByTag', { key, value })}

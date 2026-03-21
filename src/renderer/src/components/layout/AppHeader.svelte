@@ -7,6 +7,7 @@
   import { searchStore } from '@lib/search-store.svelte'
   import { api } from '@lib/api'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
   import type {
     Settings,
     MediaFolder,
@@ -33,7 +34,11 @@
   const canGoBack = $derived(navStore.canGoBack)
 
   // Fetch Context Item for Configuration (Folder or Detail Item)
+  // Use the same fields as ItemDetail when in detail view so both queries share the same
+  // Tanstack Query cache key and only one HTTP request is sent.
+  // In folder view, use no fields to match MainView's cache key.
   const contextItemQuery = libraryDataService.getItemDetailsQuery(() => navStore.contextItemId, {
+    fields: () => (navStore.isDetailViewActive ? [...DETAIL_HEADER_FIELDS] : []),
     include: () => ['viewHierarchy']
   })
 

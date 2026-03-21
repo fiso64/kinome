@@ -67,9 +67,6 @@
   )
 
   // 1. Fetch metadata only (Fast, no large blobs) + Request View Settings Side-Channel
-  $effect(() => {
-    console.log('[DEBUG] DETAIL_HEADER_FIELDS:', DETAIL_HEADER_FIELDS)
-  })
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
     fields: () => DETAIL_HEADER_FIELDS,
     include: () => ['viewHierarchy']
@@ -127,7 +124,7 @@
   const childrenQuery = libraryDataService.getChildrenQuery(() => initialItem.id, {
     fields: () => requiredFields,
     isDetailView: () => true,
-    enabled: () => initialItem.type === 'folder'
+    enabled: () => initialItem.type === 'folder' && item.viewHierarchy != null
   })
 
   // Structural children for the content list/tabs

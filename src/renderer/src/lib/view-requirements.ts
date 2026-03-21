@@ -6,16 +6,13 @@ import { CORE_FIELDS } from '@shared/types'
  */
 export const DETAIL_HEADER_FIELDS = [
   ...CORE_FIELDS,
-  'title',
   'overview',
   'backdropPath',
   'logoPath',
   'runtime',
   'releaseDate',
   'genres',
-  'tags',
-  'tmdbId',
-  '_v'
+  'tags'
 ]
 
 /**
