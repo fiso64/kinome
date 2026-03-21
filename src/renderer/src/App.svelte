@@ -150,18 +150,18 @@
         return status
       })
 
-      // 2. Fetch all other metadata
-      const dataPromise = Promise.allSettled([
-        api.getAutocompleteSuggestions({ excludeHidden: true }).then((s) => (allAutocompleteSuggestions = s)),
-        api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
-        api.getSettings().then((s) => (settings = s))
-      ])
+      // 2. Fetch settings (needed for layout defaults before rendering content)
+      const settingsPromise = api.getSettings().then((s) => (settings = s))
 
-      // 3. Only lift the loading veil when EVERYTHING is settled
-      Promise.allSettled([rootPromise, dataPromise]).then(() => {
+      // 3. Lift the loading veil as soon as the critical path is done
+      Promise.allSettled([rootPromise, settingsPromise]).then(() => {
         isInitializing = false
         log(`Initialization complete. Status: ${libraryStatus?.status}`)
       })
+
+      // 4. Load non-critical data in the background (search autocomplete, groupBy UI)
+      api.getAutocompleteSuggestions({ excludeHidden: true }).then((s) => (allAutocompleteSuggestions = s))
+      api.getGroupByKeys().then((keys) => (groupByKeys = keys))
     } else if (!authStore.isAuthenticated && hasInitialized) {
       log('User logged out. Resetting initialization state.')
       hasInitialized = false
