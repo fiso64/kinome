@@ -116,7 +116,6 @@ describe('updateIfChangedAndBroadcast', () => {
       { id: 'root', parentId: null, type: 'folder' },
       { id: 'movie1', parentId: 'root', type: 'file', entityId: 'e1' }
     ])
-    ctx.seedGenres('e1', ['Animation', 'Fantasy'])
 
     await updateIfChangedAndBroadcast(
       { id: 'movie1', title: 'Spirited Away', genres: ['Animation', 'Fantasy'] } as LibraryItem,

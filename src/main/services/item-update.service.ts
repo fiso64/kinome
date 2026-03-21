@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as virtualTagsService from './virtualTags.service'
+import * as metadataRepo from '../database/repositories/metadata.repo'
 import { getTransport } from '../transport.registry'
 import type { LibraryItem, Settings } from '@shared/types'
 import * as autocompleteService from './autocomplete.service'
@@ -13,21 +14,23 @@ const log = (message: string): void => {
 
 /**
  * Creates a "content-only" snapshot for change detection.
- * Excludes volatile system fields and deep relations to prevent false positives.
+ * Excludes volatile system fields, deep relations, and derived data.
+ *
+ * virtualTags are excluded because they are derived from metadata fields that
+ * ARE included — if metadata changes, the item is already detected as changed.
+ * Fresh vtags are fetched from the DB after SQL evaluation and attached before
+ * broadcasting, so the broadcast payload is always accurate.
  */
 function getComparisonSnapshot(item: LibraryItem | null | undefined) {
   if (!item) return null
 
-  // We only exclude fields that are:
-  // 1. Recursive/Relational (children)
-  // 2. Internal DB implementation details (_internalId, _v)
-  // 3. Runtime broadcast noise (ancestorIds, isVirtual)
   const {
-    _v, // TODO: Really think about _v handling.
+    _v,
     _internalId,
     children,
     ancestorIds,
     isVirtual,
+    virtualTags,
     ...data
   } = item as any
 
@@ -78,20 +81,8 @@ export async function updateIfChangedAndBroadcast(
       // This fills in the missing holes in the partial update with current DB data.
       const nextState = existing ? { ...existing, ...item } : item
 
-      // 2. Recalculate Virtual Tags on the FULL state
-      // This fixes the bug where tags were lost because partial updates missed dependency fields (e.g. genres)
-      const newVirtualTags = virtualTagsService.evaluateVirtualTagsForItem(
-        nextState as LibraryItem,
-        settings
-      )
-
-      // Apply the calculated tags to both our comparison object AND the payload
-      nextState.virtualTags = newVirtualTags
-      item.virtualTags = newVirtualTags
-
-      // 3. Detect Changes using the robust snapshot comparison
-      // Now we compare Full Object (Existing) vs Full Object (Next State)
-      // We also allow forcing an update if _v was explicitly provided in the update payload.
+      // 2. Detect Changes using snapshot comparison (virtualTags excluded — derived data)
+      // Force an update if _v was explicitly provided in the update payload.
       const forceUpdate =
         (item as any)._v !== undefined && (item as any)._v !== (existing as any)?._v
 
@@ -112,14 +103,14 @@ export async function updateIfChangedAndBroadcast(
 
   if (modifiedItems.length === 0) return
 
-  // Re-evaluate virtual tags for modified items. The in-memory evaluation
-  // (evaluateVirtualTagsForItem above) only sets values on the item object
-  // for broadcasting — it doesn't persist to entity_virtual_tags.
-  // applyVirtualTags writes to the DB via SQL so downstream queries see
-  // updated vtag values (e.g. grouping by vt.is_animated after a genre change).
-  if (settings.virtualTags?.length) {
-    const itemIds = modifiedItems.map((i) => i.id)
-    virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
+  // Re-evaluate virtual tags for modified items via SQL (the single authoritative path).
+  // Then read the results back from the DB and attach them to the broadcast payloads,
+  // so receivers always see accurate vtag values.
+  const itemIds = modifiedItems.map((i) => i.id)
+  virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
+  const freshVirtualTags = metadataRepo.fetchVirtualTagsForItems(itemIds)
+  for (const item of modifiedItems) {
+    item.virtualTags = freshVirtualTags[item.id] ?? {}
   }
 
   // Re-sync grouping virtual folders if any active groupings exist.

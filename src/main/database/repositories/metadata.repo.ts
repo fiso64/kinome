@@ -274,6 +274,29 @@ export function bulkUpsertVirtualTags(entries: { entityId: string; key: string; 
 }
 
 /**
+ * Fetches the virtual tags for a set of items by item ID.
+ * Returns a map of item_id → { key: value } pulled from entity_virtual_tags via entity join.
+ */
+export function fetchVirtualTagsForItems(itemIds: string[]): Record<string, Record<string, string>> {
+    if (itemIds.length === 0) return {}
+    const db = getDb()
+    const placeholders = itemIds.map(() => '?').join(',')
+    const rows = db.prepare(`
+        SELECT i.id AS item_id, vt.key, vt.value
+        FROM items i
+        JOIN entity_virtual_tags vt ON i.entity_id = vt.entity_id
+        WHERE i.id IN (${placeholders})
+    `).all(...itemIds) as { item_id: string; key: string; value: string }[]
+
+    const result: Record<string, Record<string, string>> = {}
+    for (const { item_id, key, value } of rows) {
+        if (!result[item_id]) result[item_id] = {}
+        result[item_id][key] = value
+    }
+    return result
+}
+
+/**
  * Clears virtual tags.
  */
 export function clearVirtualTags(itemIds?: string[]): void {
