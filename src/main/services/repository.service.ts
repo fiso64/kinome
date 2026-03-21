@@ -26,7 +26,13 @@ import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem, parseJsonSafe } from '../database/mappers'
 import { buildFindQuery, type FindOptions } from '../database/query-builder'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
-import { ENTITY_COLUMNS_SQL, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
+import {
+  ENTITY_COLUMNS_SQL,
+  HOME_FOLDER_ID,
+  HOME_CATEGORIES_ID,
+  HOME_RECENTLY_ADDED_ID,
+  HOME_GENRES_ID
+} from '../database/repositories/filesystem.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
@@ -68,10 +74,55 @@ export async function createNewDb(_rootNode: MediaFolder | null): Promise<void> 
   })()
 }
 
+// Re-export stable home subfolder IDs so callers don't need a direct repo import.
+export { HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID } from '../database/repositories/filesystem.repo'
+
+/**
+ * Idempotent: ensures home subfolders and their initial view settings exist.
+ * Uses INSERT OR IGNORE throughout — safe to call on every startup.
+ * Returns true if home's view settings were inserted for the first time.
+ */
+export function ensureHomeDefaults(rootId: string): boolean {
+  itemsRepo.ensureHomeVirtualFolder(rootId)
+  itemsRepo.ensureHomeChildren()
+
+  const isFirstHomeRun = settingsRepo.initSettings(HOME_FOLDER_ID, {
+    layout: 'sections',
+    appliedGrouping: 'vt._home_category',
+    childViewSettings: {
+      layout: 'horizontal-grid',
+      overrides: {
+        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 250, scrollHorizontally: true },
+        [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false }
+      }
+    },
+    sortTop: [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID],
+    sortBottom: [HOME_GENRES_ID]
+  })
+
+  settingsRepo.initSettings(HOME_CATEGORIES_ID, {
+    layout: 'button-grid',
+    gridPosterSize: 250,
+    scrollHorizontally: false,
+    appliedGrouping: 'vt._home_category'
+  })
+
+  settingsRepo.initSettings(HOME_RECENTLY_ADDED_ID, {})
+
+  settingsRepo.initSettings(HOME_GENRES_ID, {
+    layout: 'button-grid',
+    gridPosterSize: 180,
+    scrollHorizontally: false,
+    appliedGrouping: 'genre'
+  })
+
+  return isFirstHomeRun
+}
+
 export function ensureRootExists(mediaSourcePath: string): void {
   itemsRepo.ensureRootExists(mediaSourcePath)
   const rootId = itemsRepo.generateId('.')
-  itemsRepo.ensureHomeVirtualFolder(rootId)
+  ensureHomeDefaults(rootId)
 }
 
 export function getHomeFolderId(): string {

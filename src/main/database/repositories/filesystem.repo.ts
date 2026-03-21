@@ -494,6 +494,11 @@ export function getFoldersWithActiveGrouping(): { item_id: string, group_by_key:
 /** Stable ID for the singleton home virtual folder. */
 export const HOME_FOLDER_ID = 'virtual-home'
 
+/** Stable IDs for the default home subfolders (created once, deletable by user). */
+export const HOME_CATEGORIES_ID = 'virtual-home-categories'
+export const HOME_RECENTLY_ADDED_ID = 'virtual-home-recently-added'
+export const HOME_GENRES_ID = 'virtual-home-genres'
+
 /**
  * Ensures the home virtual folder exists.
  * Uses INSERT OR IGNORE with a fixed ID so it is safe to call on every startup.
@@ -515,6 +520,49 @@ export function ensureHomeVirtualFolder(rootId: string): void {
     `).run(HOME_FOLDER_ID, rootId, filterJson)
 }
 
+
+/**
+ * Ensures the three default home subfolders exist.
+ * Uses INSERT OR IGNORE with stable IDs — safe to call on every startup.
+ * The folders are created as virtualType='user' so users can delete them.
+ */
+export function ensureHomeChildren(): void {
+    const db = getDb()
+    const insert = db.prepare(`
+        INSERT OR IGNORE INTO items (id, parent_id, path, name, type, is_virtual, virtual_type, filter_json)
+        VALUES (?, ?, ?, ?, 'folder', 1, 'user', ?)
+    `)
+
+    // "Categories": all home items, grouped by _home_category
+    insert.run(
+        HOME_CATEGORIES_ID,
+        HOME_FOLDER_ID,
+        `virtual://${HOME_CATEGORIES_ID}`,
+        'Categories',
+        JSON.stringify({ scope: { parentId: HOME_FOLDER_ID } })
+    )
+
+    // "Recently Added": home items added within the last 14 days
+    insert.run(
+        HOME_RECENTLY_ADDED_ID,
+        HOME_FOLDER_ID,
+        `virtual://${HOME_RECENTLY_ADDED_ID}`,
+        'Recently Added',
+        JSON.stringify({
+            scope: { parentId: HOME_FOLDER_ID },
+            conditions: [{ field: 'addedDaysAgo', op: 'lte', value: 14 }]
+        })
+    )
+
+    // "Genres": all home items, grouped by genre
+    insert.run(
+        HOME_GENRES_ID,
+        HOME_FOLDER_ID,
+        `virtual://${HOME_GENRES_ID}`,
+        'Genres',
+        JSON.stringify({ scope: { parentId: HOME_FOLDER_ID } })
+    )
+}
 
 /**
  * Deletes all virtual children of a given parent with the specified virtual_type.

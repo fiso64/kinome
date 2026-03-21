@@ -4,7 +4,21 @@
  */
 import { getDb } from '../client'
 import { parseJsonSafe } from '../mappers'
-import type { FolderSettings } from '@shared/types'
+import type { FolderSettings, StoredViewSettings } from '@shared/types'
+
+/**
+ * Sets initial view settings for an item using INSERT OR IGNORE.
+ * Only inserts if no row exists yet — safe to call on every startup.
+ * Returns true if a new row was inserted (first run for this item).
+ */
+export function initSettings(itemId: string, viewSettings: StoredViewSettings): boolean {
+  const db = getDb()
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO folder_settings (item_id, view_settings_json)
+    VALUES (?, ?)
+  `).run(itemId, JSON.stringify(viewSettings))
+  return result.changes > 0
+}
 
 /**
  * Fetches folder settings raw row.

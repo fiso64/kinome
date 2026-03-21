@@ -1,6 +1,8 @@
 import path, { dirname, relative, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
+import equal from 'fast-deep-equal'
+import { PREDEFINED_VTAGS } from './predefined-vtags'
 import type {
   MediaFolder,
   MediaFile,
@@ -303,6 +305,14 @@ async function readRawSettings(): Promise<Settings> {
     finalSettings.libraryLocation = getLibraryDataPath()
   }
 
+  // Merge predefined vtags: predefined entries come first, user tags with the
+  // same ID (i.e. user-modified versions) override them.
+  const userVtagIds = new Set((finalSettings.virtualTags ?? []).map((t) => t.id))
+  finalSettings.virtualTags = [
+    ...PREDEFINED_VTAGS.filter((p) => !userVtagIds.has(p.id)),
+    ...(finalSettings.virtualTags ?? [])
+  ]
+
   return finalSettings
 }
 
@@ -350,6 +360,15 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
 
       if (settingsToSave.mediaSourcePath) {
         settingsToSave.mediaSourcePath = settingsToSave.mediaSourcePath.replace(/\\/g, '/')
+      }
+
+      // Strip predefined vtags that are identical to their defaults — they don't
+      // need to be persisted unless the user has actually modified them.
+      if (settingsToSave.virtualTags) {
+        settingsToSave.virtualTags = settingsToSave.virtualTags.filter((tag) => {
+          const predefined = PREDEFINED_VTAGS.find((p) => p.id === tag.id)
+          return !predefined || !equal(tag, predefined)
+        })
       }
 
       // If the API key is the default one, remove it before saving

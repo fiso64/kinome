@@ -16,7 +16,7 @@ import * as virtualFoldersService from './virtualFolders.service'
 import * as metadataService from './metadata.service'
 import * as navigationService from './navigation.service'
 import * as groupingService from './grouping.service'
-import { getHomeFolderId, FindOptions } from './repository.service'
+import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
 import { updateIfChangedAndBroadcast } from './item-update.service'
@@ -50,6 +50,19 @@ type ErrorCallback = (options: { title: string; message: string; detail?: string
 
 export async function loadDbIntoMemory(): Promise<void> {
   await repositoryService.loadDb()
+
+  // Ensure home defaults on every startup (no-scan path).
+  // INSERT OR IGNORE makes this a no-op for existing installs; returns true
+  // only on the very first run with these defaults, triggering a grouping bootstrap.
+  const root = repositoryService.getRoot()
+  if (root) {
+    const isFirstHomeRun = repositoryService.ensureHomeDefaults(root.id)
+    if (isFirstHomeRun) {
+      groupingService.applyGrouping(getHomeFolderId(), 'vt._home_category')
+      groupingService.applyGrouping(HOME_CATEGORIES_ID, 'vt._home_category')
+      groupingService.applyGrouping(HOME_GENRES_ID, 'genre')
+    }
+  }
 
   searchService.buildFullSearchIndex()
 }
