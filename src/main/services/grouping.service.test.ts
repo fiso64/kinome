@@ -1205,6 +1205,34 @@ describe('Grouping Write Operations', () => {
       const names = groupingFolders.map((f) => f.name).sort()
       expect(names).toEqual(['movie', 'tv'])
     })
+
+    it('applyGrouping on a virtual folder with scope: full library correctly filters children', () => {
+      ctx.seedGenres('e1', ['Action', 'Sci-Fi'])
+      ctx.seedGenres('e2', ['Drama'])
+      ctx.seedGenres('e3', ['Action'])
+
+      const vfId = createUserVirtualFolder('root', 'All Genres', {
+        scope: {},
+        conditionGroups: []
+      })
+
+      applyGrouping(vfId, 'genre')
+
+      const groupingFolders = find({
+        where: { parentId: vfId },
+        rawConditions: [`i.virtual_type = 'grouping'`],
+      })
+
+      const names = groupingFolders.map((f) => f.name).sort()
+      expect(names).toEqual(['Action', 'Drama', 'Sci-Fi'])
+
+      const actionRaw = groupingFolders.find((f) => f.name === 'Action')!
+      const action = getItemById(actionRaw.id) as MediaFolder
+      const actionChildren = find(compileFilter(action.filter!))
+
+      const actionIds = actionChildren.map((c) => c.id).sort()
+      expect(actionIds).toEqual(['film1', 'film2'])
+    })
   })
 
   describe('removeGrouping', () => {
