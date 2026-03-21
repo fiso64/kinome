@@ -17,7 +17,8 @@ temp*
 .env.local
 .env.*.local
 
-.claude
+.claude/*
+!.claude/CLAUDE.md
 
 # Log files
 *.log*
