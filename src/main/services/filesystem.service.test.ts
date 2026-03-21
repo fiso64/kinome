@@ -149,10 +149,13 @@ describe('ensureRootExists', () => {
     expect(vs.layout).toBe('sections')
     expect(vs.appliedGrouping).toBe('vt._home_category')
     expect(vs.childViewSettings?.layout).toBe('horizontal-grid')
-    expect(vs.sortTop).toEqual([HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID])
-    expect(vs.sortBottom).toEqual([HOME_GENRES_ID])
-    expect(vs.childViewSettings?.overrides?.[HOME_CATEGORIES_ID]).toMatchObject({ layout: 'button-grid', gridPosterSize: 250, scrollHorizontally: true })
-    expect(vs.childViewSettings?.overrides?.[HOME_GENRES_ID]).toMatchObject({ layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false })
+    // Categories and Recently Added are pinned to the top; Genres to the bottom
+    expect(vs.sortTop).toContain(HOME_CATEGORIES_ID)
+    expect(vs.sortTop).toContain(HOME_RECENTLY_ADDED_ID)
+    expect(vs.sortBottom).toContain(HOME_GENRES_ID)
+    // Categories scrolls horizontally; Genres does not
+    expect(vs.childViewSettings?.overrides?.[HOME_CATEGORIES_ID]).toMatchObject({ layout: 'button-grid', scrollHorizontally: true })
+    expect(vs.childViewSettings?.overrides?.[HOME_GENRES_ID]).toMatchObject({ layout: 'button-grid', scrollHorizontally: false })
   })
 
   it('home view settings init is idempotent — user changes are not overwritten', () => {

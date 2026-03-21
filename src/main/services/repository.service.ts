@@ -93,7 +93,7 @@ export function ensureHomeDefaults(rootId: string): boolean {
     childViewSettings: {
       layout: 'horizontal-grid',
       overrides: {
-        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 250, scrollHorizontally: true },
+        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 220, scrollHorizontally: true },
         [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false }
       }
     },
