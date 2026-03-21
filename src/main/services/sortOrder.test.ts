@@ -388,6 +388,27 @@ describe('getChildren — sort ordering', () => {
     expect(result.map((i) => i.id)).toEqual(['s1', 's2', 's3'])
   })
 
+  it('hybrid: episodes sort before folders (typeRank)', async () => {
+    ctx.seedEntities([
+      { id: 'eSeason', mediaType: 'season', seasonNumber: 1, title: 'Season 1' },
+      { id: 'eEp1', mediaType: 'episode', episodeNumber: 1, title: 'Episode 1' },
+      { id: 'eEp2', mediaType: 'episode', episodeNumber: 2, title: 'Episode 2' },
+      { id: 'eExtras', title: 'Extras' },
+    ])
+    ctx.seedItems([
+      { id: 'season', parentId: 'root', path: 'show/s1', type: 'folder', entityId: 'eSeason' },
+      { id: 'ep1', parentId: 'season', path: 'show/s1/ep1', type: 'file', entityId: 'eEp1' },
+      { id: 'ep2', parentId: 'season', path: 'show/s1/ep2', type: 'file', entityId: 'eEp2' },
+      { id: 'extras', parentId: 'season', path: 'show/s1/extras', type: 'folder', entityId: 'eExtras' },
+    ])
+
+    const result = expectItems(await getChildren('season', {}))
+    const ids = result.map((i) => i.id)
+    // Episodes (typeRank 1) must come before the Extras folder (typeRank 2)
+    expect(ids.indexOf('ep1')).toBeLessThan(ids.indexOf('extras'))
+    expect(ids.indexOf('ep2')).toBeLessThan(ids.indexOf('extras'))
+  })
+
   it('hybrid DESC: tv folder sorts seasons in reverse (S3, S2, S1)', async () => {
     ctx.seedEntities([
       { id: 'eShow', mediaType: 'tv', title: 'My Show' },

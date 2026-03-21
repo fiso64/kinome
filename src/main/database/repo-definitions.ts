@@ -30,7 +30,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     addedAt: { sql: 'i.added_at', table: 'i' },
     addedDaysAgo: { sql: `((cast(strftime('%s','now') as int) - i.added_at / 1000) / 86400)`, table: 'i' },
     // Computed sort keys
-    typeRank: { sql: `CASE WHEN e.media_type = 'season' THEN 0 WHEN i.type = 'folder' THEN 1 ELSE 2 END`, table: 'e' },
+    typeRank: { sql: `CASE WHEN e.media_type = 'season' THEN 0 WHEN e.media_type = 'episode' THEN 1 WHEN i.type = 'folder' THEN 2 ELSE 3 END`, table: 'e' },
     displayName: { sql: `COALESCE(e.title, i.name)`, table: 'e' },
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
