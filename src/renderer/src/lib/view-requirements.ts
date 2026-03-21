@@ -26,6 +26,7 @@ export const VIEW_REQUIRED_FIELDS: Record<string, string[]> = {
   list: [...CORE_FIELDS, 'overview'],
   grid: [...CORE_FIELDS],
   'horizontal-grid': [...CORE_FIELDS],
+  'button-grid': [...CORE_FIELDS, 'backdropPath'],
   tree: [...CORE_FIELDS],
   tabs: [...CORE_FIELDS],
   sections: [...CORE_FIELDS]

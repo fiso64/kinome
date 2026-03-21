@@ -18,6 +18,7 @@
     label: string
     description: string
   }[] = [
+    // TODO: Merge horizontal-grid into grid as configuration options.
     { value: 'grid', label: 'Grid', description: 'Classic poster grid view.' },
     {
       value: 'horizontal-grid',
@@ -28,10 +29,15 @@
     { value: 'tree', label: 'Tree', description: 'Collapsible list view, good for files.' },
     { value: 'tabs', label: 'Tabs', description: 'Group children into tabs by metadata.' },
     {
-      value: 'sections',
-      label: 'Sections',
-      description: 'Group children into sections by metadata.'
-    }
+        value: 'sections',
+        label: 'Sections',
+        description: 'Group children into sections by metadata.'
+    },
+    {
+      value: 'button-grid',
+      label: 'Buttons',
+      description: 'A grid of wide buttons, ideal for categories or genres.'
+    },
   ]
 
   const clickActions = [
@@ -57,14 +63,15 @@
     showClickAction = true,
     groupByKeys,
     configMode = false,
-    initialConfigLayout = 'grid',
     // Bindings
+    activeConfigLayout = $bindable('grid'),
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
+    scrollHorizontally = $bindable(),
     childViewSettings = $bindable(),
     inheritedSettings,
     inheritedLabel
@@ -78,8 +85,8 @@
     showClickAction?: boolean
     groupByKeys?: string[]
     configMode?: boolean
-    initialConfigLayout?: ViewLayout
     // Bindings
+    activeConfigLayout?: ViewLayout
     selectedLayout?: ViewLayout | null
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
@@ -92,7 +99,6 @@
   } = $props()
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
-  let activeConfigLayout = $state(initialConfigLayout)
 
   // This computes the "inherited" settings for the item/type, ignoring any local overrides.
   const inheritedInfo = $derived.by(() => {
@@ -167,7 +173,13 @@
       LAYOUT_SPECIFIC_SETTINGS_CONFIG['horizontal-grid'].showHorizontalScrollbar
   )
   const effectiveShowScrollbar = $derived(showHorizontalScrollbar ?? defaultShowScrollbar)
-  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null) // --- Group By ---
+  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null) // --- Scroll Horizontally ---
+
+  const defaultScrollHorizontally = $derived(
+    (inheritedInfo.settings as any).scrollHorizontally ?? false
+  )
+  const effectiveScrollHorizontally = $derived(scrollHorizontally ?? defaultScrollHorizontally)
+  const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null) // --- Group By ---
 
   const defaultGroupBy = $derived(
     inheritedInfo.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
@@ -288,7 +300,7 @@
   {/if}
 
   <!-- Grid-specific settings -->
-  {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid'}
+  {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid' || layoutToShowOptionsFor === 'button-grid'}
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Grid Poster Size</h4>
@@ -322,8 +334,36 @@
     </div>
   {/if}
 
-  <!-- Horizontal-Grid-specific settings -->
-  {#if layoutToShowOptionsFor === 'horizontal-grid'}
+  <!-- Button-Grid-specific settings -->
+  {#if layoutToShowOptionsFor === 'button-grid'}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h4>Horizontal Scrolling</h4>
+      {#if !configMode}
+        {#if isScrollHorizontallyOverridden}
+          <button class="link-button" onclick={() => (scrollHorizontally = null)}>Reset to default</button>
+        {:else}
+          <span class="inherited-value-text-inline">
+            Using default from <strong>{formatSource((inheritedInfo.sources as any).scrollHorizontally)}</strong>
+          </span>
+        {/if}
+      {/if}
+    </div>
+    <p class="help-text">Display items in a horizontally scrolling list instead of a wrapped grid.</p>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input
+          type="checkbox"
+          checked={effectiveScrollHorizontally}
+          onchange={() => (scrollHorizontally = !effectiveScrollHorizontally)}
+        />
+        <span>Scroll horizontally</span>
+      </label>
+    </div>
+  {/if}
+
+  <!-- Horizontal-Grid/Button-Grid specific settings -->
+  {#if layoutToShowOptionsFor === 'horizontal-grid' || (layoutToShowOptionsFor === 'button-grid' && effectiveScrollHorizontally)}
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Horizontal Scrollbar</h4>

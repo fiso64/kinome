@@ -1,6 +1,7 @@
 <script lang="ts">
   import GridView from '../views/GridView.svelte'
   import HorizontalGridView from '../views/HorizontalGridView.svelte'
+  import ButtonGridView from '../views/ButtonGridView.svelte'
   import TreeView from '../views/TreeView.svelte'
   import TabsView from '../views/TabsView.svelte'
   import SectionsView from '../views/SectionsView.svelte'
@@ -56,7 +57,7 @@
 
   const grayOutWatched = $derived(settings?.grayOutWatched ?? true)
 
-  const { layout, gridPosterSize, listDescriptionRows, showHorizontalScrollbar } = $derived.by(
+  const { layout, gridPosterSize, listDescriptionRows, showHorizontalScrollbar, scrollHorizontally } = $derived.by(
     () => {
       // Resolve settings: Use the Side-Channel Hierarchy if available, otherwise fallback to legacy frontend resolution.
       const resolved = viewNode?.effective ?? resolveViewSettings(parentItem, settings).settings
@@ -72,7 +73,8 @@
         // Allow fallback to standard keys but prioritize resolved values if they match the active layout
         gridPosterSize: resolved.gridPosterSize,
         listDescriptionRows: resolved.listDescriptionRows,
-        showHorizontalScrollbar: (resolved as any).showHorizontalScrollbar
+        showHorizontalScrollbar: (resolved as any).showHorizontalScrollbar,
+        scrollHorizontally: (resolved as any).scrollHorizontally
       }
     }
   )
@@ -182,6 +184,17 @@
         {parentItem}
         {gridPosterSize}
         {showHorizontalScrollbar}
+      />
+    {:else if layout === 'button-grid'}
+      <ButtonGridView
+        items={itemsForViews}
+        {onItemClick}
+        {onShowContextMenu}
+        {grayOutWatched}
+        {parentItem}
+        {gridPosterSize}
+        {showHorizontalScrollbar}
+        {scrollHorizontally}
       />
     {:else if layout === 'list'}
       <ListView

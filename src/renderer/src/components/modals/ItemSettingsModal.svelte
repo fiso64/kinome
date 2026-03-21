@@ -92,6 +92,7 @@
       gridPosterSize,
       listDescriptionRows,
       showHorizontalScrollbar,
+      scrollHorizontally,
       childViewSettings: childViewSettings ? JSON.parse(JSON.stringify(childViewSettings)) : null,
       retrieveChildrenMetadata,
       childrenTypeHint,
@@ -160,6 +161,7 @@
           gridPosterSize = stored.gridPosterSize ?? null
           listDescriptionRows = stored.listDescriptionRows ?? null
           showHorizontalScrollbar = stored.showHorizontalScrollbar ?? null
+          scrollHorizontally = stored.scrollHorizontally ?? null
           childViewSettings = stored.childViewSettings ?? null
 
           // Refresh Folder Settings
@@ -245,6 +247,9 @@
   let showHorizontalScrollbar = $state(
     (_isFolder ? initialStored.showHorizontalScrollbar : null) ?? null
   )
+  let scrollHorizontally = $state(
+    (_isFolder ? initialStored.scrollHorizontally : null) ?? null
+  )
   let childViewSettings = $state(_isFolder ? (initialStored.childViewSettings ?? null) : null)
 
   // --- Folder Settings State ---
@@ -282,6 +287,7 @@
     target.gridPosterSize = gridPosterSize
     target.listDescriptionRows = listDescriptionRows
     target.showHorizontalScrollbar = showHorizontalScrollbar
+    target.scrollHorizontally = scrollHorizontally
     if (includeGroupBy) {
       target.groupBy =
         selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
@@ -353,6 +359,11 @@
           parentUpdates.viewSettings.showHorizontalScrollbar,
           initialValues.showHorizontalScrollbar,
           'showHorizontalScrollbar'
+        ) ||
+        hasChanged(
+          parentUpdates.viewSettings.scrollHorizontally,
+          initialValues.scrollHorizontally,
+          'scrollHorizontally'
         ) ||
         hasChanged(
           parentUpdates.viewSettings.childViewSettings,
@@ -451,6 +462,11 @@
             viewUpdates.showHorizontalScrollbar,
             initialValues.showHorizontalScrollbar,
             'showHorizontalScrollbar'
+          ) ||
+          hasChanged(
+            viewUpdates.scrollHorizontally,
+            initialValues.scrollHorizontally,
+            'scrollHorizontally'
           )
         ) {
           updates.viewSettings = viewUpdates
@@ -608,20 +624,21 @@
       {@const inheritedLabel = overrideParent
         ? (overrideParent.title ?? overrideParent.name)
         : undefined}
-      <ViewTab
-        item={item as MediaFolder}
-        {groupByKeys}
-        {settings}
-        {inheritedSettings}
-        {inheritedLabel}
-        bind:selectedLayout
-        bind:selectedClickAction
-        bind:selectedGroupBy
-        bind:gridPosterSize
-        bind:listDescriptionRows
-        bind:showHorizontalScrollbar
-        bind:childViewSettings
-      />
+        <ViewTab
+          item={item as MediaFolder}
+          {groupByKeys}
+          {settings}
+          {inheritedSettings}
+          {inheritedLabel}
+          bind:selectedLayout
+          bind:selectedClickAction
+          bind:selectedGroupBy
+          bind:gridPosterSize
+          bind:listDescriptionRows
+          bind:showHorizontalScrollbar
+          bind:scrollHorizontally
+          bind:childViewSettings
+        />
     {:else if activeTab === 'virtualFolder' && caps.canEditVirtualFolder}
       <VirtualFolderTab bind:filter={vfolderFilter} parentId={item.parentId ?? ''} {suggestions} />
     {:else if activeTab === 'folder' && caps.canEditFolderSettings}

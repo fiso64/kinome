@@ -11,6 +11,7 @@
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
+    scrollHorizontally = $bindable(),
     childViewSettings = $bindable(),
     inheritedSettings,
     inheritedLabel,
@@ -24,6 +25,7 @@
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
+    scrollHorizontally?: boolean | null
     childViewSettings?: StoredViewSettings | null
     inheritedSettings?: StoredViewSettings
     inheritedLabel?: string
@@ -40,6 +42,7 @@
   bind:gridPosterSize
   bind:listDescriptionRows
   bind:showHorizontalScrollbar
+  bind:scrollHorizontally
   bind:childViewSettings
   {inheritedSettings}
   {inheritedLabel}

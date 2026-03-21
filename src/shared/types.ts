@@ -15,6 +15,14 @@ export interface HorizontalGridSettings extends GridSettings {
 }
 
 /**
+ * Defines the shape of settings for a button grid layout.
+ */
+export interface ButtonGridSettings extends GridSettings {
+  scrollHorizontally: boolean
+  showHorizontalScrollbar: boolean
+}
+
+/**
  * Defines the shape of settings specific to the 'list' layout.
  */
 export interface ListSettings {
@@ -35,6 +43,7 @@ export interface GroupingSettings {
 export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   grid: { gridPosterSize: 250 },
   'horizontal-grid': { gridPosterSize: 250, showHorizontalScrollbar: false },
+  'button-grid': { gridPosterSize: 180, scrollHorizontally: false, showHorizontalScrollbar: false },
   list: { listDescriptionRows: 5 },
   tabs: { groupBy: 'folder' },
   sections: { groupBy: 'folder' }
@@ -42,8 +51,16 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
 
 // --- Generated Helper Constants ---
 
-export const ALL_VIEW_LAYOUTS = ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as const
-export type ViewLayout = typeof ALL_VIEW_LAYOUTS[number]
+export const ALL_VIEW_LAYOUTS = [
+  'grid',
+  'horizontal-grid',
+  'button-grid',
+  'list',
+  'tree',
+  'tabs',
+  'sections'
+] as const
+export type ViewLayout = (typeof ALL_VIEW_LAYOUTS)[number]
 
 export const CONTAINER_LAYOUTS: readonly ViewLayout[] = ['tabs', 'sections']
 
@@ -81,7 +98,12 @@ export interface BaseViewSettings {
  */
 export interface StoredViewSettings
   extends Partial<
-    BaseViewSettings & GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings
+    BaseViewSettings &
+      GridSettings &
+      HorizontalGridSettings &
+      ButtonGridSettings &
+      GroupingSettings &
+      ListSettings
   > {
   childViewSettings?: StoredViewSettings
   overrides?: Record<string, StoredViewSettings>
@@ -99,7 +121,9 @@ export interface StoredViewSettings
  * It's a complete object ready for the UI to consume.
  */
 export type ResolvedViewSettings = BaseViewSettings &
-  Partial<GridSettings & HorizontalGridSettings & GroupingSettings & ListSettings> & {
+  Partial<
+    GridSettings & HorizontalGridSettings & ButtonGridSettings & GroupingSettings & ListSettings
+  > & {
     childViewSettings?: StoredViewSettings
     overrides?: Record<string, StoredViewSettings>
     title?: string
@@ -166,7 +190,19 @@ export interface LibraryStatus {
   root?: MediaFolder
 }
 
-export type LibraryConditionOp = 'eq' | 'ne' | 'contains' | 'notContains' | 'gt' | 'gte' | 'lt' | 'lte' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
+export type LibraryConditionOp =
+  | 'eq'
+  | 'ne'
+  | 'contains'
+  | 'notContains'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'isNull'
+  | 'isNotNull'
+  | 'isEmpty'
+  | 'isNotEmpty'
 
 /**
  * A single filter predicate against a library item field.
@@ -242,6 +278,7 @@ export interface LibrarySettings {
   defaultLayoutSettings: {
     grid: GridSettings
     'horizontal-grid': HorizontalGridSettings
+    'button-grid': ButtonGridSettings
     list: ListSettings
     tabs: GroupingSettings
     sections: GroupingSettings
