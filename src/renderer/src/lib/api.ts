@@ -124,6 +124,7 @@ export interface ApiClient {
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
   userUpdateItem(item: Partial<LibraryItem>): Promise<void>
+  setGrouping(folderId: string, groupByKey: string | null): Promise<void>
   resolveMediaSourcePath(args: {
     path: string
     isRelative: boolean

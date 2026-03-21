@@ -232,7 +232,6 @@ class WebApiClient implements ApiClient {
       fields?: string[]
       include?: string[]
       orderBy?: string
-      groupBy?: string
       includeHidden?: boolean
     } = {}
   ): Promise<LibraryItem[]> {
@@ -249,7 +248,6 @@ class WebApiClient implements ApiClient {
     if (options.include && options.include.length > 0)
       params.set('include', options.include.join(','))
     if (options.orderBy) params.set('orderBy', options.orderBy)
-    if (options.groupBy) params.set('groupBy', options.groupBy)
     if (options.includeHidden !== undefined)
       params.set('includeHidden', String(options.includeHidden))
 

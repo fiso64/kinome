@@ -15,12 +15,11 @@ import {
   LibraryFilter,
   LibraryCondition
 } from '@shared/types'
-import { mergeSettings, fetchSettings } from '../database/repositories/settings.repo'
+import { mergeSettings } from '../database/repositories/settings.repo'
 import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { getValuesForKey, REPOSITORY_SCHEMA } from '../database/repo-definitions'
 import { find, getItemById, type FindOptions } from './repository.service'
 import { compileFilter } from '../database/query-builder'
-import { parseJsonSafe } from '../database/mappers'
 import { displayTitle } from '@shared/display-names'
 import { resolveEffectiveFilter } from './virtualFolders.service'
 
@@ -203,14 +202,6 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
     })
   }
 
-  const parentRow = fetchSettings(folderId)
-  const parentViewSettings = parseJsonSafe(parentRow?.view_settings_json, {}) as any
-  const childGroupBy = parentViewSettings?.childViewSettings?.groupBy
-  if (childGroupBy && childGroupBy !== 'folder' && childGroupBy !== groupByKey) {
-    for (const id of desiredIds) {
-      applyGrouping(id, childGroupBy)
-    }
-  }
 }
 
 export function syncAllGroupings(): void {

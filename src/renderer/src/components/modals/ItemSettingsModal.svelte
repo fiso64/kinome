@@ -139,17 +139,9 @@
             keyof StoredViewSettings,
             ResolutionSource
           ][]) {
-            if (key === 'groupBy') continue
-            
             if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
               ;(stored as any)[key] = (resolution.settings as any)[key]
             }
-          }
-
-          // GroupBy is strictly an item-level concept. Never pull it from overrides.
-          const itemResolution = resolveViewSettings(folder, settings)
-          if (itemResolution.sources.groupBy?.source === 'item') {
-            stored.groupBy = itemResolution.settings.groupBy
           }
 
           seasonNumber = folder.seasonNumber?.toString() ?? ''
@@ -157,7 +149,7 @@
           // Refresh View State
           selectedLayout = stored.layout ?? null
           selectedClickAction = stored.clickAction ?? null
-          selectedGroupBy = stored.groupBy ?? null
+          selectedGroupBy = folder.viewSettings?.appliedGrouping ?? null
           gridPosterSize = stored.gridPosterSize ?? null
           listDescriptionRows = stored.listDescriptionRows ?? null
           showHorizontalScrollbar = stored.showHorizontalScrollbar ?? null
@@ -223,17 +215,9 @@
       keyof StoredViewSettings,
       ResolutionSource
     ][]) {
-      if (key === 'groupBy') continue
-
       if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
         ;(stored as any)[key] = (resolution.settings as any)[key]
       }
-    }
-
-    // GroupBy is strictly an item-level concept. Never pull it from overrides.
-    const itemResolution = resolveViewSettings(folder, settings)
-    if (itemResolution.sources.groupBy?.source === 'item') {
-      stored.groupBy = itemResolution.settings.groupBy
     }
 
     return stored
@@ -241,7 +225,7 @@
 
   let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
   let selectedClickAction = $state(_isFolder ? (initialStored.clickAction ?? null) : null)
-  let selectedGroupBy = $state(_isFolder ? (initialStored.groupBy ?? null) : null)
+  let selectedGroupBy = $state(_isFolder ? ((item as MediaFolder).viewSettings?.appliedGrouping ?? null) : null)
   let gridPosterSize = $state((_isFolder ? initialStored.gridPosterSize : null) ?? null)
   let listDescriptionRows = $state((_isFolder ? initialStored.listDescriptionRows : null) ?? null)
   let showHorizontalScrollbar = $state(
@@ -281,17 +265,13 @@
    * This centralizes the logic for both physical and virtual folders.
    * @param target The object to apply view settings to (either a LibraryItem or a virtual folder settings object).
    */
-  function applyViewSettings(target: Partial<StoredViewSettings>, includeGroupBy: boolean = true) {
+  function applyViewSettings(target: Partial<StoredViewSettings>) {
     target.layout = selectedLayout
     target.clickAction = selectedClickAction
     target.gridPosterSize = gridPosterSize
     target.listDescriptionRows = listDescriptionRows
     target.showHorizontalScrollbar = showHorizontalScrollbar
     target.scrollHorizontally = scrollHorizontally
-    if (includeGroupBy) {
-      target.groupBy =
-        selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
-    }
   }
 
   async function buildUpdatedItems(): Promise<LibraryItem[]> {
@@ -332,7 +312,7 @@
         viewSettings: {}
       }
 
-      applyViewSettings(parentUpdates.viewSettings, false) // groupBy is ignored in overrides
+      applyViewSettings(parentUpdates.viewSettings)
       if (childViewSettings) {
         parentUpdates.viewSettings.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
       }
@@ -446,12 +426,11 @@
       // If we don't have an override parent, view settings are saved to the item itself.
       if (!overrideParent) {
         const viewUpdates: any = {}
-        applyViewSettings(viewUpdates, true)
+        applyViewSettings(viewUpdates)
 
         if (
           hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
           hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
-          hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy') ||
           hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
           hasChanged(
             viewUpdates.listDescriptionRows,
@@ -481,15 +460,6 @@
         ) {
           if (!updates.viewSettings) updates.viewSettings = {}
           updates.viewSettings.childViewSettings = finalChildViewSettings
-          changed = true
-        }
-      } else {
-        // We DO have an override parent, but we STILL need to save groupBy to the item itself!
-        const viewUpdates: any = {}
-        viewUpdates.groupBy = selectedGroupBy === 'folder' || selectedGroupBy === null ? null : selectedGroupBy
-        if (hasChanged(viewUpdates.groupBy, initialValues.selectedGroupBy, 'groupBy')) {
-          updates.viewSettings = updates.viewSettings || {}
-          updates.viewSettings.groupBy = viewUpdates.groupBy
           changed = true
         }
       }
@@ -530,7 +500,7 @@
   async function handleSave() {
     const itemsToUpdate = await buildUpdatedItems()
     let needsRefresh = false
-    
+
     for (const itemToUpdate of itemsToUpdate) {
       const wasEnabled =
         itemToUpdate.type === 'folder' ? (itemToUpdate.folderSettings?.retrieveChildrenMetadata ?? false) : false
@@ -542,6 +512,15 @@
         !wasEnabled
       ) {
         needsRefresh = true
+      }
+    }
+
+    // Apply grouping change as a separate action if it changed
+    if (isFolder) {
+      const newGroupBy = selectedGroupBy === 'folder' ? null : selectedGroupBy
+      const initialGroupBy = initialValues.selectedGroupBy === 'folder' ? null : initialValues.selectedGroupBy
+      if (newGroupBy !== initialGroupBy) {
+        await window.api.setGrouping(item.id, newGroupBy)
       }
     }
 

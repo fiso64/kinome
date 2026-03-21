@@ -26,7 +26,6 @@
 
   let selectedLayout = $state(initialSettings.layout)
   let selectedClickAction = $state(initialSettings.clickAction)
-  let selectedGroupBy = $state(initialSettings.groupBy)
   let gridPosterSize = $state(initialSettings.gridPosterSize)
   let listDescriptionRows = $state(initialSettings.listDescriptionRows)
   let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
@@ -36,7 +35,6 @@
     const newSettings: StoredViewSettings = {
       layout: selectedLayout,
       clickAction: selectedClickAction,
-      groupBy: selectedGroupBy,
       gridPosterSize: gridPosterSize,
       listDescriptionRows: listDescriptionRows,
       showHorizontalScrollbar: showHorizontalScrollbar,
@@ -56,7 +54,6 @@
     {settings}
     bind:selectedLayout
     bind:selectedClickAction
-    bind:selectedGroupBy
     bind:gridPosterSize
     bind:listDescriptionRows
     bind:showHorizontalScrollbar

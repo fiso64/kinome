@@ -589,7 +589,6 @@
   <DefaultLayoutSettingsModal
     initialSettings={defaultLayoutSettings}
     {settings}
-    {groupByKeys}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(s) => (defaultLayoutSettings = s)}
   />

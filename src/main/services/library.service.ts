@@ -756,20 +756,7 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   // --- 4. Final Normalization ---
   // (groupBy is now independent of layout — no clearing needed)
 
-  // --- 5. Sync grouping virtual folders when groupBy changes ---
-  if (updates.viewSettings && 'groupBy' in updates.viewSettings) {
-    const newGroupBy = updates.viewSettings.groupBy
-    const oldGroupBy = (existing as MediaFolder)?.viewSettings?.appliedGrouping ?? null
-    if (newGroupBy && newGroupBy !== 'folder' && newGroupBy !== oldGroupBy) {
-      groupingService.applyGrouping(updates.id, newGroupBy)
-    } else if (!newGroupBy || newGroupBy === 'folder') {
-      if (oldGroupBy) {
-        groupingService.removeGrouping(updates.id)
-      }
-    }
-  }
-
-  // --- 6. Execution ---
+  // --- 5. Execution ---
   await updateIfChangedAndBroadcast([updates], { updateSuggestions: true })
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {

@@ -37,7 +37,7 @@ describe('Layout Resolution Sensitivity Matrix', () => {
             defaultLayouts: {
                 _default: { layout: 'grid', clickAction: 'detail' },
                 movie: { layout: 'grid', clickAction: 'detail', gridPosterSize: 300 },
-                tv: { layout: 'tabs', clickAction: 'folder', groupBy: 'folder' },
+                tv: { layout: 'tabs', clickAction: 'folder' },
                 season: { layout: 'list', clickAction: 'detail' },
             },
             defaultLayoutSettings: {
@@ -160,36 +160,6 @@ describe('Layout Resolution Sensitivity Matrix', () => {
             const res = resolveViewSettings(folder, mockSettings).settings
             // movie default is grid — childViewSettings should not have season layout injected
             expect(res.childViewSettings?.layout).toBeUndefined()
-        })
-    })
-
-    describe('groupBy Resolution', () => {
-        it('defaults groupBy to "folder" for tabs layout', () => {
-            const item = { id: 'f1', viewSettings: { layout: 'tabs' } } as unknown as MediaFolder
-            const res = resolveViewSettings(item, mockSettings).settings
-            expect(res.groupBy).toBe('folder')
-        })
-
-        it('defaults groupBy to "folder" for sections layout', () => {
-            const item = { id: 'f1', viewSettings: { layout: 'sections' } } as unknown as MediaFolder
-            const res = resolveViewSettings(item, mockSettings).settings
-            expect(res.groupBy).toBe('folder')
-        })
-
-        it('defaults groupBy to "folder" for all layouts including grid', () => {
-            const item = { id: 'f1' } as MediaFolder
-            const res = resolveViewSettings(item, mockSettings).settings
-            expect(res.layout).toBe('grid')
-            expect(res.groupBy).toBe('folder')
-        })
-
-        it('explicit groupBy from a layer overrides the default', () => {
-            const item = {
-                id: 'f1',
-                viewSettings: { layout: 'tabs', groupBy: 'year' }
-            } as unknown as MediaFolder
-            const res = resolveViewSettings(item, mockSettings).settings
-            expect(res.groupBy).toBe('year')
         })
     })
 

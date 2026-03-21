@@ -480,7 +480,6 @@ const app = new Elysia()
         },
         {
           query: t.Object({
-            groupBy: t.Optional(t.String()),
             fields: t.Optional(t.String()),
             include: t.Optional(t.String()),
             limit: t.Optional(t.Numeric()),
@@ -935,7 +934,6 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     'orderBy',
     'sort',
     'order',
-    'groupBy',
     'includeHidden',
     'includeIgnored'
   ]

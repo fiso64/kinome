@@ -74,7 +74,6 @@
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
     fields: () => requiredFields,
-    groupBy: () => resolvedSettings.groupBy,
     enabled: () => libraryStatus?.status === 'ready'
   })
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])

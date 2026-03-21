@@ -1,4 +1,4 @@
-import type { BaseViewSettings, Settings, ViewHierarchyNode } from '@shared/types'
+import type { ViewHierarchyNode } from '@shared/types'
 import { CORE_FIELDS } from '@shared/types'
 
 /**
@@ -37,25 +37,9 @@ export const VIEW_REQUIRED_FIELDS: Record<string, string[]> = {
  * Defaults to an empty array if the layout is unknown.
  *
  * @param layout The layout mode (e.g. 'list', 'grid', 'tabs', 'sections')
- * @param groupBy A grouping key (e.g. 'genre', 'vt.is_anime')
  */
-export function getRequiredFieldsForLayout(layout: string, groupBy?: string): string[] {
-  const baseFields = VIEW_REQUIRED_FIELDS[layout] ?? []
-  const groupFields: string[] = []
-
-  if (groupBy) {
-    if (groupBy === 'genre' || groupBy === 'genres') {
-      groupFields.push('genres')
-    } else if (groupBy.startsWith('vt.') || groupBy === 'virtualTags') {
-      groupFields.push('virtualTags')
-    } else if (groupBy.startsWith('tags.') || groupBy === 'tags') {
-      groupFields.push('tags')
-    } else if (groupBy === 'seasonNumber') {
-      groupFields.push('seasonNumber')
-    }
-  }
-
-  return [...baseFields, ...groupFields]
+export function getRequiredFieldsForLayout(layout: string): string[] {
+  return VIEW_REQUIRED_FIELDS[layout] ?? []
 }
 
 /**
@@ -76,7 +60,7 @@ export function getAllRequiredFields(
 
     // 1. Collect fields for the current node's layout
     if (node.effective.layout) {
-      const req = getRequiredFieldsForLayout(node.effective.layout, node.effective.groupBy)
+      const req = getRequiredFieldsForLayout(node.effective.layout)
       req.forEach((f) => fields.add(f))
     }
 

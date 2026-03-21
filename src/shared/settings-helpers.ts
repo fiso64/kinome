@@ -147,17 +147,11 @@ export function resolveViewSettings(
     }
   }
 
-  // Resolve groupBy (defaults to 'folder' — no grouping)
-  const groupByLayer = cascadeLayers.find((layer) => layer.settings.groupBy)
-  let resolvedGroupBy = groupByLayer?.settings.groupBy ?? 'folder'
-
   resolvedBase.childViewSettings = resolvedChildViewSettings
-  resolvedBase.groupBy = resolvedGroupBy
 
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
   if (childSettingsSource) (resolvedSources as any).childViewSettings = childSettingsSource
-  if (groupByLayer) (resolvedSources as any).groupBy = groupByLayer.sourceInfo
 
   // 3. Resolve aesthetics (layout-specific settings)
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
@@ -193,8 +187,8 @@ export function formatLayoutString(viewSettings: StoredViewSettings | null | und
 
   const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
   if (CONTAINER_LAYOUTS.includes(viewSettings.layout)) {
-    const groupByKey = viewSettings.groupBy
-    if (!groupByKey || groupByKey === 'folder') return layout
+    const groupByKey = viewSettings.appliedGrouping
+    if (!groupByKey) return layout
 
     let displayKey = groupByKey
     if (groupByKey.startsWith('tags.')) {

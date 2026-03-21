@@ -30,13 +30,6 @@ export interface ListSettings {
 }
 
 /**
- * Defines the shape of settings specific to 'tabs' or 'sections' layouts.
- */
-export interface GroupingSettings {
-  groupBy: string | null
-}
-
-/**
  * The single source of truth for layout-specific properties and their ultimate default values.
  * This drives the data-driven settings resolution logic.
  */
@@ -45,8 +38,8 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   'horizontal-grid': { gridPosterSize: 210, showHorizontalScrollbar: false },
   'button-grid': { gridPosterSize: 180, scrollHorizontally: false, showHorizontalScrollbar: false },
   list: { listDescriptionRows: 5 },
-  tabs: { groupBy: 'folder' },
-  sections: { groupBy: 'folder' }
+  tabs: {},
+  sections: {}
 } as const
 
 // --- Generated Helper Constants ---
@@ -102,7 +95,6 @@ export interface StoredViewSettings
       GridSettings &
       HorizontalGridSettings &
       ButtonGridSettings &
-      GroupingSettings &
       ListSettings
   > {
   childViewSettings?: StoredViewSettings
@@ -126,7 +118,7 @@ export interface StoredViewSettings
  */
 export type ResolvedViewSettings = BaseViewSettings &
   Partial<
-    GridSettings & HorizontalGridSettings & ButtonGridSettings & GroupingSettings & ListSettings
+    GridSettings & HorizontalGridSettings & ButtonGridSettings & ListSettings
   > & {
     childViewSettings?: StoredViewSettings
     overrides?: Record<string, StoredViewSettings>
@@ -284,8 +276,8 @@ export interface LibrarySettings {
     'horizontal-grid': HorizontalGridSettings
     'button-grid': ButtonGridSettings
     list: ListSettings
-    tabs: GroupingSettings
-    sections: GroupingSettings
+    tabs: Record<string, never>
+    sections: Record<string, never>
   }
   defaultLayouts: {
     [K in DefaultLayoutKey]: StoredViewSettings

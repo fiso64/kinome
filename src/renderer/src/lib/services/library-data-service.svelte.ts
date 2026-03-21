@@ -37,9 +37,8 @@ class LibraryDataService {
       byParent: (
         parentId: string | null | undefined,
         fields: string[] = [],
-        groupBy?: string,
         isDetailView: boolean = false
-      ) => [...this.keys.children.all, parentId, { fields, groupBy, isDetailView }] as const
+      ) => [...this.keys.children.all, parentId, { fields, isDetailView }] as const
     },
     continueWatching: {
       all: ['continue-watching'] as const,
@@ -218,7 +217,6 @@ class LibraryDataService {
     parentIdFn: () => string | null | undefined,
     options: {
       fields?: () => string[]
-      groupBy?: () => string | undefined
       isDetailView?: () => boolean
       enabled?: () => boolean
     } = {}
@@ -228,17 +226,15 @@ class LibraryDataService {
         const parentId = parentIdFn()
         const normalizedId = this.normalizeId(parentId)
         const fields = (options.fields ? options.fields() : []).sort()
-        const groupBy = options.groupBy ? options.groupBy() : undefined
         const isDetailView = options.isDetailView ? options.isDetailView() : false
         const isEnabled = options.enabled ? options.enabled() : true
 
         return {
-          queryKey: this.keys.children.byParent(normalizedId, fields, groupBy, isDetailView),
+          queryKey: this.keys.children.byParent(normalizedId, fields, isDetailView),
           queryFn: () =>
             normalizedId
               ? api.getChildren(parentId!, {
-                  fields,
-                  groupBy
+                  fields
                 })
               : [],
           enabled: isEnabled && normalizedId !== undefined && normalizedId !== null

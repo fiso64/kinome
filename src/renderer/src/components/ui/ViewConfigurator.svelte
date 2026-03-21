@@ -185,11 +185,7 @@
   const effectiveScrollHorizontally = $derived(scrollHorizontally ?? defaultScrollHorizontally)
   const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null) // --- Group By ---
 
-  const defaultGroupBy = $derived(
-    inheritedInfo.settings.groupBy ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.tabs.groupBy
-  )
-  const effectiveGroupBy = $derived(selectedGroupBy ?? defaultGroupBy)
-  const isGroupByOverridden = $derived(selectedGroupBy != null) // --- Click Action ---
+  const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder') // --- Click Action ---
 
   const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
   const effectiveClickAction = $derived(selectedClickAction ?? defaultClickAction)
@@ -399,33 +395,22 @@
   {/if}
 
   <!-- Group By -->
-  <div class="divider"></div>
-  <div class="heading-with-action">
+  {#if !configMode}
+    <div class="divider"></div>
     <h4>Group By</h4>
-    {#if !configMode}
-      {#if isGroupByOverridden}
-        <button class="link-button" onclick={() => (selectedGroupBy = null)}
-          >Reset to default</button
-        >
-      {:else}
-        <span class="inherited-value-text-inline">
-          Using default from <strong>{formatSource(inheritedInfo.sources.groupBy)}</strong>
-        </span>
-      {/if}
-    {/if}
-  </div>
-  <p class="help-text">
-    Choose the {configMode ? 'default ' : ''}metadata field to group contents by. Items will be organized into virtual subfolders.
-  </p>
-  <div class="form-group">
-    <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
-      {#if groupByKeys}
-        {#each groupByKeys as key (key)}
-          <option value={key}>{formatKey(key)}</option>
-        {/each}
-      {/if}
-    </select>
-  </div>
+    <p class="help-text">
+      Choose a metadata field to group contents by. Items will be organized into virtual subfolders.
+    </p>
+    <div class="form-group">
+      <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
+        {#if groupByKeys}
+          {#each groupByKeys as key (key)}
+            <option value={key}>{formatKey(key)}</option>
+          {/each}
+        {/if}
+      </select>
+    </div>
+  {/if}
 
   {#if !configMode}
     <div class="divider"></div>
