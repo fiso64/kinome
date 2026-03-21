@@ -498,6 +498,7 @@ export const HOME_FOLDER_ID = 'virtual-home'
 export const HOME_CATEGORIES_ID = 'virtual-home-categories'
 export const HOME_RECENTLY_ADDED_ID = 'virtual-home-recently-added'
 export const HOME_GENRES_ID = 'virtual-home-genres'
+export const HOME_ALL_MEDIA_ID = 'virtual-home-all-media'
 
 /**
  * Ensures the home virtual folder exists.
@@ -560,6 +561,15 @@ export function ensureHomeChildren(): void {
         HOME_FOLDER_ID,
         `virtual://${HOME_GENRES_ID}`,
         'Genres',
+        JSON.stringify({ scope: { parentId: HOME_FOLDER_ID } })
+    )
+
+    // "All Media": all home items, inside Categories
+    insert.run(
+        HOME_ALL_MEDIA_ID,
+        HOME_CATEGORIES_ID,
+        `virtual://${HOME_ALL_MEDIA_ID}`,
+        'All Media',
         JSON.stringify({ scope: { parentId: HOME_FOLDER_ID } })
     )
 }

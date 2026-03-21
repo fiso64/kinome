@@ -6,7 +6,7 @@
   import DefaultLayoutSettingsModal from '@modals/DefaultLayoutSettingsModal.svelte'
   import PlayerCommandsModal from '@modals/PlayerCommandsModal.svelte'
   import CustomActionsModal from '@modals/CustomActionsModal.svelte'
-  import VirtualTagEditor from '@modals/_parts/VirtualTagEditor.svelte'
+  import VirtualTagModal from '@modals/VirtualTagModal.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
   import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
   import { DEFAULT_LAYOUTS_CONFIG } from '@shared/types'
@@ -37,6 +37,7 @@
   let activeLayoutSettingsModal = $state(false)
   let activePlayerCommandsModal = $state(false)
   let activeCustomActionsModal = $state(false)
+  let editingVtagIndex = $state<number | null>(null)
 
   // --- Form State ---
   let playerCommands = $state<PlayerCommandConfig[]>([])
@@ -134,17 +135,23 @@
     navStore.goBack()
   }
 
+  function prepareTagsForSave(tags: typeof virtualTags) {
+    return JSON.parse(JSON.stringify(tags || []))
+      .map((vt) => ({ ...vt, name: vt.name.trim() }))
+      .filter((vt) => vt.name && vt.cases?.length > 0)
+  }
+
+  async function saveTagsNow() {
+    await api.saveSettings({ virtualTags: prepareTagsForSave(virtualTags) })
+  }
+
   async function handleSave(): Promise<void> {
     const wasLibLocationChanged = libraryDataLocation !== settings?.libraryLocation
     const mediaPathChanged =
       mediaSourcePath !== settings?.mediaSourcePath ||
       mediaSourcePathIsRelative !== settings?.mediaSourcePathIsRelative
 
-    const plainVirtualTags = JSON.parse(JSON.stringify(virtualTags || []))
-
-    const tagsToSave = plainVirtualTags
-      .map((vt) => ({ ...vt, name: vt.name.trim() }))
-      .filter((vt) => vt.name && vt.cases?.length > 0)
+    const tagsToSave = prepareTagsForSave(virtualTags)
 
     await api.saveSettings({
       playerCommands: JSON.parse(JSON.stringify(playerCommands)),
@@ -449,26 +456,30 @@
               </p>
               <div class="virtual-tags-list">
                 {#each virtualTags as tag, i (tag.id)}
-                  <VirtualTagEditor
-                    bind:tag={virtualTags[i]}
-                    {suggestions}
-                    onDelete={() => (virtualTags = virtualTags.filter((t) => t.id !== tag.id))}
-                  />
+                  <div class="vtag-row">
+                    <span class="vtag-name">{tag.name || '(unnamed)'}</span>
+                    <div class="vtag-actions">
+                      <button class="secondary" onclick={() => (editingVtagIndex = i)}>Edit</button>
+                      <button class="danger" onclick={() => { virtualTags = virtualTags.filter((t) => t.id !== tag.id) }}>Delete</button>
+                    </div>
+                  </div>
                 {/each}
               </div>
               <button
-                class="secondary add-tag-button"
-                onclick={() =>
-                  (virtualTags = [
+                class="secondary"
+                onclick={() => {
+                  virtualTags = [
                     ...virtualTags,
-                    { 
-                      id: crypto.randomUUID(), 
-                      name: '', 
+                    {
+                      id: crypto.randomUUID(),
+                      name: '',
                       cases: [
                         { filter: { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }, result: '' }
-                      ] 
+                      ]
                     }
-                  ])}
+                  ]
+                  editingVtagIndex = virtualTags.length - 1
+                }}
               >
                 + Add Virtual Tag
               </button>
@@ -564,6 +575,15 @@
 {/if}
 {#if activeCustomActionsModal}
   <CustomActionsModal bind:customActions onClose={() => (activeCustomActionsModal = false)} />
+{/if}
+{#if editingVtagIndex !== null && virtualTags[editingVtagIndex]}
+  {@const idx = editingVtagIndex}
+  <VirtualTagModal
+    tag={virtualTags[idx]}
+    {suggestions}
+    onClose={() => (editingVtagIndex = null)}
+    onSave={(updated) => { virtualTags[idx] = updated; saveTagsNow() }}
+  />
 {/if}
 {#if activeLayoutSettingsModal}
   <DefaultLayoutSettingsModal
@@ -765,7 +785,26 @@
   .virtual-tags-list {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0.5rem;
+  }
+
+  .vtag-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    background-color: var(--color-background-soft);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+  }
+
+  .vtag-name {
+    font-weight: 500;
+  }
+
+  .vtag-actions {
+    display: flex;
+    gap: 0.5rem;
   }
 
   /* Note: button styles are inherited from base.css */

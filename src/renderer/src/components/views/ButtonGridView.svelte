@@ -106,7 +106,7 @@
       class:horizontal={scrollHorizontally}
       class:with-scrollbar={showHorizontalScrollbar}
       style={gridPosterSize ? (scrollHorizontally ? `grid-auto-columns: ${gridPosterSize}px;` : `--local-grid-poster-size: ${gridPosterSize}px`) : ''}
-      use:horizontalScroller={scrollHorizontally ? scrollState : undefined as any}
+      use:horizontalScroller={scrollHorizontally ? scrollState : undefined}
       onscroll={handleScroll}
     >
       {#each items as item (item.id)}

@@ -5,7 +5,8 @@ export interface HorizontalScrollState {
   canScrollRight: boolean
 }
 
-export function horizontalScroller(node: HTMLElement, state: Writable<HorizontalScrollState>) {
+export function horizontalScroller(node: HTMLElement, state: Writable<HorizontalScrollState> | undefined) {
+  if (!state) return {}
   let targetScrollLeft = node.scrollLeft
   let scrollTimeout: any
 

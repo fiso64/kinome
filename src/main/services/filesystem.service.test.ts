@@ -10,7 +10,8 @@ import {
   HOME_FOLDER_ID,
   HOME_CATEGORIES_ID,
   HOME_RECENTLY_ADDED_ID,
-  HOME_GENRES_ID
+  HOME_GENRES_ID,
+  HOME_ALL_MEDIA_ID
 } from '../database/repositories/filesystem.repo'
 import * as repositoryService from './repository.service'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
@@ -80,24 +81,28 @@ describe('ensureRootExists', () => {
     expect(homes).toHaveLength(1)
   })
 
-  it('creates Categories, Recently Added, and Genres subfolders under home', () => {
+  it('creates Categories, Recently Added, Genres, and All Media subfolders under home', () => {
     repositoryService.ensureRootExists('/media/library')
 
     const categories = repositoryService.getItemById(HOME_CATEGORIES_ID)
     const recentlyAdded = repositoryService.getItemById(HOME_RECENTLY_ADDED_ID)
     const genres = repositoryService.getItemById(HOME_GENRES_ID)
+    const allMedia = repositoryService.getItemById(HOME_ALL_MEDIA_ID)
 
     expect(categories).not.toBeNull()
     expect(recentlyAdded).not.toBeNull()
     expect(genres).not.toBeNull()
+    expect(allMedia).not.toBeNull()
 
     expect(categories!.parentId).toBe(HOME_FOLDER_ID)
     expect(recentlyAdded!.parentId).toBe(HOME_FOLDER_ID)
     expect(genres!.parentId).toBe(HOME_FOLDER_ID)
+    expect(allMedia!.parentId).toBe(HOME_CATEGORIES_ID)
 
     expect((categories as any).virtualType).toBe('user')
     expect((recentlyAdded as any).virtualType).toBe('user')
     expect((genres as any).virtualType).toBe('user')
+    expect((allMedia as any).virtualType).toBe('user')
   })
 
   it('home subfolders have correct filters', () => {
@@ -119,13 +124,17 @@ describe('ensureRootExists', () => {
     const genresFilter = JSON.parse(row(HOME_GENRES_ID).filter_json)
     expect(genresFilter.scope?.parentId).toBe(HOME_FOLDER_ID)
     expect(genresFilter.conditions).toBeUndefined()
+
+    const allMediaFilter = JSON.parse(row(HOME_ALL_MEDIA_ID).filter_json)
+    expect(allMediaFilter.scope?.parentId).toBe(HOME_FOLDER_ID)
+    expect(allMediaFilter.conditions).toBeUndefined()
   })
 
   it('home subfolders creation is idempotent', () => {
     repositoryService.ensureRootExists('/media/library')
     repositoryService.ensureRootExists('/media/library')
 
-    for (const id of [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID]) {
+    for (const id of [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID]) {
       const rows = ctx.db.prepare('SELECT * FROM items WHERE id = ?').all(id)
       expect(rows).toHaveLength(1)
     }

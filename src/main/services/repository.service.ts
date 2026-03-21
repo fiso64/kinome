@@ -31,7 +31,8 @@ import {
   HOME_FOLDER_ID,
   HOME_CATEGORIES_ID,
   HOME_RECENTLY_ADDED_ID,
-  HOME_GENRES_ID
+  HOME_GENRES_ID,
+  HOME_ALL_MEDIA_ID
 } from '../database/repositories/filesystem.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
@@ -75,7 +76,7 @@ export async function createNewDb(_rootNode: MediaFolder | null): Promise<void> 
 }
 
 // Re-export stable home subfolder IDs so callers don't need a direct repo import.
-export { HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID } from '../database/repositories/filesystem.repo'
+export { HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from '../database/repositories/filesystem.repo'
 
 /**
  * Idempotent: ensures home subfolders and their initial view settings exist.
@@ -104,6 +105,12 @@ export function ensureHomeDefaults(rootId: string): boolean {
     layout: 'button-grid',
     gridPosterSize: 250,
     scrollHorizontally: false,
+    appliedGrouping: 'vt._home_category',
+    sortTop: [HOME_ALL_MEDIA_ID]
+  })
+
+  settingsRepo.initSettings(HOME_ALL_MEDIA_ID, {
+    layout: 'sections',
     appliedGrouping: 'vt._home_category'
   })
 

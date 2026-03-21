@@ -16,7 +16,7 @@ import * as virtualFoldersService from './virtualFolders.service'
 import * as metadataService from './metadata.service'
 import * as navigationService from './navigation.service'
 import * as groupingService from './grouping.service'
-import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID } from './repository.service'
+import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
 import { updateIfChangedAndBroadcast } from './item-update.service'
@@ -61,6 +61,7 @@ export async function loadDbIntoMemory(): Promise<void> {
       groupingService.applyGrouping(getHomeFolderId(), 'vt._home_category')
       groupingService.applyGrouping(HOME_CATEGORIES_ID, 'vt._home_category')
       groupingService.applyGrouping(HOME_GENRES_ID, 'genre')
+      groupingService.applyGrouping(HOME_ALL_MEDIA_ID, 'vt._home_category')
     }
   }
 
