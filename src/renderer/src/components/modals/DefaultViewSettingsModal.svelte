@@ -1,7 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
-  import type { StoredViewSettings, Settings, ViewLayout } from '@shared/types'
+  import type { CascadableViewSettings, Settings, ViewLayout } from '@shared/types'
   let {
     typeKey,
     title,
@@ -15,9 +15,9 @@
   }: {
     typeKey: '_default' | 'movie' | 'tv' | 'season'
     title: string
-    initialSettings: StoredViewSettings
+    initialSettings: CascadableViewSettings
     onClose: () => void
-    onSave: (newSettings: StoredViewSettings) => void
+    onSave: (newSettings: CascadableViewSettings) => void
     groupByKeys: string[]
     availableLayouts?: ViewLayout[]
     showClickAction?: boolean
@@ -29,10 +29,10 @@
   let gridPosterSize = $state(initialSettings.gridPosterSize)
   let listDescriptionRows = $state(initialSettings.listDescriptionRows)
   let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
-  let childViewSettings = $state(initialSettings.childViewSettings || null)
+  let childViewSettings = $state<CascadableViewSettings | null>(initialSettings.childViewSettings || null)
 
   function handleSave() {
-    const newSettings: StoredViewSettings = {
+    const newSettings: CascadableViewSettings = {
       layout: selectedLayout,
       clickAction: selectedClickAction,
       gridPosterSize: gridPosterSize,

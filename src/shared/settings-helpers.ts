@@ -3,6 +3,7 @@ import type {
   Settings,
   ResolvedViewSettings,
   StoredViewSettings,
+  CascadableViewSettings,
   DefaultLayoutKey,
   ResolutionInfo,
   ResolutionSource,
@@ -30,7 +31,7 @@ export function resolveViewSettings(
   item: ResolvableItem,
   settings: Settings | null,
   ignoreLayers: Set<DefaultLayoutKey> = new Set(),
-  inheritedSettings?: StoredViewSettings,
+  inheritedSettings?: CascadableViewSettings,
   ignoreOverrideId?: string | null
 ): ResolutionInfo {
   // If settings aren't loaded, provide a safe, hardcoded default based on the config.
@@ -54,7 +55,7 @@ export function resolveViewSettings(
   }
 
   // 1. Determine the hierarchy of settings to check, from most to least specific.
-  const cascadeLayers: { settings: StoredViewSettings; sourceInfo: ResolutionSource }[] = []
+  const cascadeLayers: { settings: CascadableViewSettings; sourceInfo: ResolutionSource }[] = []
 
   // Add Child-Specific Overrides (The Most Specific context)
   // These are instructions from a parent that target THIS specific child ID.
@@ -111,7 +112,7 @@ export function resolveViewSettings(
   const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
 
   // Merge childViewSettings from all layers (most specific wins for each property)
-  let resolvedChildViewSettings: StoredViewSettings | undefined = undefined
+  let resolvedChildViewSettings: CascadableViewSettings | undefined = undefined
   let childSettingsSource: ResolutionSource | undefined = undefined
 
   for (const layer of [...cascadeLayers].reverse()) {
@@ -132,7 +133,7 @@ export function resolveViewSettings(
 
   const resolvedBase: any = {
     layout: layoutLayer?.settings.layout ?? 'grid',
-    clickAction: clickActionLayer?.settings.clickAction ?? 'detail'
+    clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
   }
 
   // Invariant I3: Mixed Content Fallback (TV Show -> Season Defaults)

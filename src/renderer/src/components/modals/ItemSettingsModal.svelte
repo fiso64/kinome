@@ -7,8 +7,10 @@
   import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { FOLDER_ORGANIZATION_KEYS } from '@shared/types'
   import type {
     StoredViewSettings,
+    CascadableViewSettings,
     MediaFolder,
     MediaFile,
     LibraryItem,
@@ -89,6 +91,8 @@
       selectedLayout,
       selectedClickAction,
       selectedGroupBy,
+      selectedSortBy,
+      selectedSortDescending,
       gridPosterSize,
       listDescriptionRows,
       showHorizontalScrollbar,
@@ -143,13 +147,21 @@
               ;(stored as any)[key] = (resolution.settings as any)[key]
             }
           }
+          // FolderOrganizationSettings fields are never in resolution.sources — merge directly.
+          for (const key of FOLDER_ORGANIZATION_KEYS) {
+            if (folder.viewSettings?.[key] !== undefined) {
+              ;(stored as any)[key] = folder.viewSettings[key]
+            }
+          }
 
           seasonNumber = folder.seasonNumber?.toString() ?? ''
 
           // Refresh View State
           selectedLayout = stored.layout ?? null
           selectedClickAction = stored.clickAction ?? null
-          selectedGroupBy = folder.viewSettings?.appliedGrouping ?? null
+          selectedGroupBy = stored.appliedGrouping ?? null
+          selectedSortBy = stored.sortBy ?? null
+          selectedSortDescending = stored.sortDescending ?? null
           gridPosterSize = stored.gridPosterSize ?? null
           listDescriptionRows = stored.listDescriptionRows ?? null
           showHorizontalScrollbar = stored.showHorizontalScrollbar ?? null
@@ -219,13 +231,21 @@
         ;(stored as any)[key] = (resolution.settings as any)[key]
       }
     }
+    // FolderOrganizationSettings fields are never in resolution.sources — merge directly.
+    for (const key of FOLDER_ORGANIZATION_KEYS) {
+      if (folder.viewSettings?.[key] !== undefined) {
+        ;(stored as any)[key] = folder.viewSettings[key]
+      }
+    }
 
     return stored
   })()
 
   let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
   let selectedClickAction = $state(_isFolder ? (initialStored.clickAction ?? null) : null)
-  let selectedGroupBy = $state(_isFolder ? ((item as MediaFolder).viewSettings?.appliedGrouping ?? null) : null)
+  let selectedGroupBy = $state(_isFolder ? (initialStored.appliedGrouping ?? null) : null)
+  let selectedSortBy = $state(_isFolder ? (initialStored.sortBy ?? null) : null)
+  let selectedSortDescending = $state(_isFolder ? (initialStored.sortDescending ?? null) : null)
   let gridPosterSize = $state((_isFolder ? initialStored.gridPosterSize : null) ?? null)
   let listDescriptionRows = $state((_isFolder ? initialStored.listDescriptionRows : null) ?? null)
   let showHorizontalScrollbar = $state(
@@ -234,7 +254,7 @@
   let scrollHorizontally = $state(
     (_isFolder ? initialStored.scrollHorizontally : null) ?? null
   )
-  let childViewSettings = $state(_isFolder ? (initialStored.childViewSettings ?? null) : null)
+  let childViewSettings = $state<CascadableViewSettings | null>(_isFolder ? (initialStored.childViewSettings ?? null) : null)
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
@@ -268,6 +288,8 @@
   function applyViewSettings(target: Partial<StoredViewSettings>) {
     target.layout = selectedLayout
     target.clickAction = selectedClickAction
+    target.sortBy = selectedSortBy
+    target.sortDescending = selectedSortDescending
     target.gridPosterSize = gridPosterSize
     target.listDescriptionRows = listDescriptionRows
     target.showHorizontalScrollbar = showHorizontalScrollbar
@@ -324,6 +346,12 @@
           parentUpdates.viewSettings.clickAction,
           initialValues.selectedClickAction,
           'clickAction'
+        ) ||
+        hasChanged(parentUpdates.viewSettings.sortBy, initialValues.selectedSortBy, 'sortBy') ||
+        hasChanged(
+          parentUpdates.viewSettings.sortDescending,
+          initialValues.selectedSortDescending,
+          'sortDescending'
         ) ||
         hasChanged(
           parentUpdates.viewSettings.gridPosterSize,
@@ -431,6 +459,8 @@
         if (
           hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
           hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
+          hasChanged(viewUpdates.sortBy, initialValues.selectedSortBy, 'sortBy') ||
+          hasChanged(viewUpdates.sortDescending, initialValues.selectedSortDescending, 'sortDescending') ||
           hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
           hasChanged(
             viewUpdates.listDescriptionRows,
@@ -612,6 +642,8 @@
           bind:selectedLayout
           bind:selectedClickAction
           bind:selectedGroupBy
+          bind:selectedSortBy
+          bind:selectedSortDescending
           bind:gridPosterSize
           bind:listDescriptionRows
           bind:showHorizontalScrollbar

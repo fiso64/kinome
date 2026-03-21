@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MediaFolder, StoredViewSettings, Settings, ViewLayout } from '@shared/types'
+  import type { MediaFolder, CascadableViewSettings, Settings, ViewLayout, SortBy } from '@shared/types'
   import ViewConfigurator from '@ui/ViewConfigurator.svelte'
 
   let {
@@ -8,6 +8,8 @@
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
+    selectedSortBy = $bindable(),
+    selectedSortDescending = $bindable(),
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
@@ -22,12 +24,14 @@
     selectedLayout: ViewLayout
     selectedClickAction: 'detail' | 'navigate'
     selectedGroupBy: string
+    selectedSortBy?: SortBy | null
+    selectedSortDescending?: boolean | null
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
     scrollHorizontally?: boolean | null
-    childViewSettings?: StoredViewSettings | null
-    inheritedSettings?: StoredViewSettings
+    childViewSettings?: CascadableViewSettings | null
+    inheritedSettings?: CascadableViewSettings
     inheritedLabel?: string
     settings: Settings | null
   } = $props()
@@ -39,6 +43,8 @@
   bind:selectedLayout
   bind:selectedClickAction
   bind:selectedGroupBy
+  bind:selectedSortBy
+  bind:selectedSortDescending
   bind:gridPosterSize
   bind:listDescriptionRows
   bind:showHorizontalScrollbar

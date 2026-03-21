@@ -6,9 +6,11 @@
     DEFAULT_LAYOUTS_CONFIG,
     ALL_VIEW_LAYOUTS,
     type MediaFolder,
+    type CascadableViewSettings,
     type StoredViewSettings,
     type Settings,
-    type ViewLayout
+    type ViewLayout,
+    type SortBy,
   } from '@shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '@shared/types'
   import { modalStore } from '@lib/modal-store.svelte'
@@ -68,6 +70,8 @@
     selectedLayout = $bindable(),
     selectedClickAction = $bindable(),
     selectedGroupBy = $bindable(),
+    selectedSortBy = $bindable(),
+    selectedSortDescending = $bindable(),
     gridPosterSize = $bindable(),
     listDescriptionRows = $bindable(),
     showHorizontalScrollbar = $bindable(),
@@ -90,12 +94,14 @@
     selectedLayout?: ViewLayout | null
     selectedClickAction?: 'detail' | 'navigate'
     selectedGroupBy?: string | null
+    selectedSortBy?: SortBy | null
+    selectedSortDescending?: boolean | null
     gridPosterSize?: number | null
     listDescriptionRows?: number | null
     showHorizontalScrollbar?: boolean | null
     scrollHorizontally?: boolean | null
-    childViewSettings?: StoredViewSettings | null
-    inheritedSettings?: StoredViewSettings
+    childViewSettings?: CascadableViewSettings | null
+    inheritedSettings?: CascadableViewSettings
     inheritedLabel?: string
   } = $props()
 
@@ -185,7 +191,11 @@
   const effectiveScrollHorizontally = $derived(scrollHorizontally ?? defaultScrollHorizontally)
   const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null) // --- Group By ---
 
-  const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder') // --- Click Action ---
+  const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder') // --- Sort By (folder-level only, does not cascade) ---
+
+  const effectiveSortBy = $derived<SortBy>(selectedSortBy ?? 'hybrid')
+  const effectiveSortDescending = $derived(selectedSortDescending ?? false)
+  const isSortOverridden = $derived(selectedSortBy != null || selectedSortDescending != null) // --- Click Action ---
 
   const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
   const effectiveClickAction = $derived(selectedClickAction ?? defaultClickAction)
@@ -468,6 +478,39 @@
     </div>
   {/if}
 
+  <!-- Sort By -->
+  {#if !configMode}
+    <div class="divider"></div>
+    <div class="heading-with-action">
+      <h4>Sort By</h4>
+      {#if isSortOverridden}
+        <button class="link-button" onclick={() => { selectedSortBy = null; selectedSortDescending = null }}>Reset to default</button>
+      {/if}
+    </div>
+    <p class="help-text">Choose how children of this folder are sorted.</p>
+    <div class="form-group">
+      <div class="sort-controls">
+        <select
+          value={effectiveSortBy}
+          onchange={(e) => (selectedSortBy = e.currentTarget.value as SortBy)}
+        >
+          <option value="hybrid">Hybrid (season-aware)</option>
+          <option value="alpha">Alphabetic</option>
+          <option value="date-added">Date Added</option>
+          <option value="year">Release Year</option>
+        </select>
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            checked={effectiveSortDescending}
+            onchange={() => (selectedSortDescending = !effectiveSortDescending)}
+          />
+          <span>Descending</span>
+        </label>
+      </div>
+    </div>
+  {/if}
+
   {#if !configMode && item}
     {@const pinnedCount = (localSortTop ?? item.viewSettings?.sortTop ?? []).length + (localSortBottom ?? item.viewSettings?.sortBottom ?? []).length}
     <div class="divider"></div>
@@ -634,6 +677,23 @@
   .slider-container input[type='range'] {
     flex-grow: 1;
   }
+  .sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .sort-controls select {
+    flex: 1;
+  }
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 0.9rem;
+  }
+
   .link-button {
     background: none;
     border: none;

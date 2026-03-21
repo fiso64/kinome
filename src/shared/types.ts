@@ -85,11 +85,15 @@ export interface BaseViewSettings {
   clickAction: 'detail' | 'navigate'
 }
 
+export type SortBy = 'hybrid' | 'alpha' | 'date-added' | 'year'
+
 /**
- * Represents how view settings are stored in `settings.json` or on a `MediaFolder`.
- * It's a partial object containing only the user-defined *overrides*.
+ * Settings that cascade through childViewSettings and per-child overrides.
+ * These control rendering and display, and can be contextually overridden by a parent.
+ *
+ * ⚠️  New display/rendering settings belong here.
  */
-export interface StoredViewSettings
+export interface CascadableViewSettings
   extends Partial<
     BaseViewSettings &
       GridSettings &
@@ -97,31 +101,61 @@ export interface StoredViewSettings
       ButtonGridSettings &
       ListSettings
   > {
-  childViewSettings?: StoredViewSettings
-  overrides?: Record<string, StoredViewSettings>
+  /** Narrow type: only display settings can cascade — FolderOrganizationSettings cannot. */
+  childViewSettings?: CascadableViewSettings
+  overrides?: Record<string, CascadableViewSettings>
   title?: string
+}
+
+/**
+ * Per-folder organization settings. These are intrinsic to the folder and never cascade.
+ * A parent cannot override how a child folder organizes its own contents.
+ *
+ * ⚠️  New per-folder structural settings belong here.
+ */
+export interface FolderOrganizationSettings {
   /**
    * Set atomically by applyGrouping() / removeGrouping(). Describes which grouping key
    * is currently reflected in the DB as virtual grouping folders under this folder.
-   * Never inherited. Not user-editable directly.
+   * Not user-editable directly.
    */
   appliedGrouping?: string | null
   /** Child item IDs pinned to the top, in display order. */
   sortTop?: string[]
   /** Child item IDs pinned to the bottom, in display order. */
   sortBottom?: string[]
+  /** How to sort children. Defaults to 'hybrid' (season-aware). */
+  sortBy?: SortBy
+  /** Whether to sort in descending order. Defaults to false. */
+  sortDescending?: boolean
 }
 
+/** Runtime list of all FolderOrganizationSettings keys — used for generic merging. */
+export const FOLDER_ORGANIZATION_KEYS = [
+  'appliedGrouping',
+  'sortTop',
+  'sortBottom',
+  'sortBy',
+  'sortDescending',
+] as const satisfies (keyof FolderOrganizationSettings)[]
+
 /**
- * Represents the final, computed settings object after the full cascade has been applied.
- * It's a complete object ready for the UI to consume.
+ * The complete settings stored per folder in the DB (view_settings_json).
+ * = Cascadable display settings + non-cascading folder organization settings.
+ */
+export type StoredViewSettings = CascadableViewSettings & FolderOrganizationSettings
+
+/**
+ * Represents the final, computed settings object after the cascade has been applied.
+ * Only covers CascadableViewSettings — FolderOrganizationSettings are read directly
+ * from item.viewSettings and never resolved through the cascade.
  */
 export type ResolvedViewSettings = BaseViewSettings &
   Partial<
     GridSettings & HorizontalGridSettings & ButtonGridSettings & ListSettings
   > & {
-    childViewSettings?: StoredViewSettings
-    overrides?: Record<string, StoredViewSettings>
+    childViewSettings?: CascadableViewSettings
+    overrides?: Record<string, CascadableViewSettings>
     title?: string
   }
 
@@ -280,9 +314,9 @@ export interface LibrarySettings {
     sections: Record<string, never>
   }
   defaultLayouts: {
-    [K in DefaultLayoutKey]: StoredViewSettings
+    [K in DefaultLayoutKey]: CascadableViewSettings
   }
-  searchResultView: StoredViewSettings
+  searchResultView: CascadableViewSettings
   searchPopupView: StoredViewSettings
   itemDetailBackdropSize: 'small' | 'full'
   itemDetailBackdropBlur: number

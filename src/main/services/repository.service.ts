@@ -114,7 +114,10 @@ export function ensureHomeDefaults(rootId: string): boolean {
     appliedGrouping: 'vt._home_category'
   })
 
-  settingsRepo.initSettings(HOME_RECENTLY_ADDED_ID, {})
+  settingsRepo.initSettings(HOME_RECENTLY_ADDED_ID, {
+    sortBy: 'date-added',
+    sortDescending: true,
+  })
 
   settingsRepo.initSettings(HOME_GENRES_ID, {
     layout: 'button-grid',

@@ -21,7 +21,12 @@ export interface CompiledSql {
     tables: Set<string>
 }
 
-export interface OrderByClause { field: string; direction: 'ASC' | 'DESC' }
+export interface OrderByClause {
+    field: string
+    direction: 'ASC' | 'DESC'
+    /** When true, NULL values sort after all non-NULL values regardless of direction. */
+    nullsLast?: boolean
+}
 
 export interface FindOptions {
     where?: Record<string, any>
@@ -514,7 +519,12 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
             const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
             for (const c of clauses) {
                 const def = REPOSITORY_SCHEMA[c.field]
-                if (def) orderParts.push(`${def.sql} ${c.direction}`)
+                if (!def) continue
+                if (c.nullsLast) {
+                    orderParts.push(`(CASE WHEN ${def.sql} IS NULL THEN 1 ELSE 0 END) ASC, ${def.sql} ${c.direction}`)
+                } else {
+                    orderParts.push(`${def.sql} ${c.direction}`)
+                }
             }
         }
 

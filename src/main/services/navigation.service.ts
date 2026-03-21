@@ -3,7 +3,9 @@ import {
   MediaFolder,
   ViewHierarchyNode,
   StoredViewSettings,
-  CONTAINER_LAYOUTS
+  CascadableViewSettings,
+  CONTAINER_LAYOUTS,
+  type SortBy,
 } from '@shared/types'
 import {
   find,
@@ -16,11 +18,64 @@ import {
 } from './repository.service'
 import { getGroupedChildren, childrenFilter } from './grouping.service'
 import { getVirtualChildren } from './virtualFolders.service'
-import { buildSortPinPrefix } from '../database/query-builder'
+import { buildSortPinPrefix, type OrderByClause } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings, checkLibraryExists } from './settings.service'
 import { setLibraryDataPath, getLibraryDataPath, isRemoteLibrary } from './paths.service'
 import { closeDatabase } from '../database/client'
+
+/**
+ * Builds the ORDER BY clauses for a folder's children based on the resolved sort settings.
+ *
+ * - hybrid: season-aware sort (typeRank + season/episode number or displayName)
+ * - alpha: pure alphabetic by display name
+ * - date-added: by when the item was added to the library
+ * - year: by metadata release year (nulls last), then alphabetic tiebreaker
+ *
+ * `sortDescending` reverses the primary sort key. typeRank (for hybrid) and tiebreakers
+ * always stay ascending so item-type grouping and stability are preserved.
+ */
+export function buildSortOrder(
+  mediaType: string | undefined,
+  sortBy: SortBy = 'hybrid',
+  sortDescending: boolean = false
+): OrderByClause[] {
+  const dir: 'ASC' | 'DESC' = sortDescending ? 'DESC' : 'ASC'
+
+  switch (sortBy) {
+    case 'alpha':
+      return [{ field: 'displayName', direction: dir }]
+
+    case 'date-added':
+      return [{ field: 'addedAt', direction: dir }]
+
+    case 'year':
+      return [
+        { field: 'year', direction: dir, nullsLast: true },
+        { field: 'displayName', direction: 'ASC' },
+      ]
+
+    case 'hybrid':
+    default:
+      if (mediaType === 'season') {
+        return [
+          { field: 'typeRank', direction: 'ASC' },
+          { field: 'episodeNumber', direction: dir },
+        ]
+      } else if (mediaType === 'tv') {
+        return [
+          { field: 'typeRank', direction: 'ASC' },
+          { field: 'seasonNumber', direction: dir },
+          { field: 'displayName', direction: dir },
+        ]
+      } else {
+        return [
+          { field: 'typeRank', direction: 'ASC' },
+          { field: 'displayName', direction: dir },
+        ]
+      }
+  }
+}
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Navigation Service] ${message}`)
@@ -34,7 +89,7 @@ const log = (message: string): void => {
 async function embedChildrenForContainers(
   items: LibraryItem[],
   options: FindOptions,
-  inheritedSettings?: StoredViewSettings
+  inheritedSettings?: CascadableViewSettings
 ): Promise<void> {
   for (const item of items) {
     if (item.type !== 'folder') continue
@@ -52,7 +107,7 @@ async function embedChildrenForContainers(
 export async function getChildren(
   id: string,
   options: FindOptions = {},
-  inheritedSettings?: StoredViewSettings
+  inheritedSettings?: CascadableViewSettings
 ): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
   let targetId = id
 
@@ -81,32 +136,29 @@ export async function getChildren(
   if (opts.includeHidden === undefined) opts.includeHidden = false
   if (opts.includeIgnored === undefined) opts.includeIgnored = false
 
-  // 4. Contextual default sorting
+  // 4. Resolve effective settings (used for sort order + eager embedding below)
+  const globalSettings = await readSettings()
+  const { settings: resolvedSettings } = resolveViewSettings(
+    item as MediaFolder,
+    globalSettings,
+    new Set(),
+    inheritedSettings
+  )
+
+  // 5. Build sort order from item's own view settings (FolderOrganizationSettings — never cascades)
   if (!opts.orderBy) {
-    if (item.mediaType === 'season') {
-      opts.orderBy = [
-        { field: 'typeRank', direction: 'ASC' },
-        { field: 'episodeNumber', direction: 'ASC' },
-      ]
-    } else if (item.mediaType === 'tv') {
-      opts.orderBy = [
-        { field: 'typeRank', direction: 'ASC' },
-        { field: 'seasonNumber', direction: 'ASC' },
-        { field: 'displayName', direction: 'ASC' },
-      ]
-    } else {
-      opts.orderBy = [
-        { field: 'typeRank', direction: 'ASC' },
-        { field: 'displayName', direction: 'ASC' },
-      ]
-    }
+    opts.orderBy = buildSortOrder(
+      item.mediaType ?? undefined,
+      item.viewSettings?.sortBy,
+      item.viewSettings?.sortDescending
+    )
   }
 
-  // 5. Build sort-pinning prefix from viewSettings (sortTop / sortBottom)
+  // 6. Build sort-pinning prefix from viewSettings (sortTop / sortBottom)
   const { sortTop, sortBottom } = item.viewSettings ?? {}
   opts.compiledOrderPrefix = buildSortPinPrefix(sortTop, sortBottom)
 
-  // 6. Route to specialized services
+  // 7. Route to specialized services
   let results: LibraryItem[]
   if (item.viewSettings?.appliedGrouping) {
     results = await getGroupedChildren(item, opts)
@@ -127,16 +179,9 @@ export async function getChildren(
     })
   }
 
-  // 7. Post-processing: Eager embedding
-  const globalSettings = await readSettings()
-  const { settings: ownSettings } = resolveViewSettings(
-    item as MediaFolder,
-    globalSettings,
-    new Set(),
-    inheritedSettings
-  )
-  if (CONTAINER_LAYOUTS.includes(ownSettings.layout as any)) {
-    await embedChildrenForContainers(results, opts, ownSettings.childViewSettings)
+  // 8. Post-processing: Eager embedding (reuse already-resolved settings)
+  if (CONTAINER_LAYOUTS.includes(resolvedSettings.layout as any)) {
+    await embedChildrenForContainers(results, opts, resolvedSettings.childViewSettings)
   }
 
   return results
@@ -188,7 +233,7 @@ export async function resolveViewHierarchy(
   itemId: string,
   recursive = true,
   depth = 0,
-  inheritedSettings?: StoredViewSettings
+  inheritedSettings?: CascadableViewSettings
 ): Promise<ViewHierarchyNode | null> {
   if (depth > 10) return null
 
