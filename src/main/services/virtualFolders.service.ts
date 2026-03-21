@@ -96,6 +96,7 @@ export async function getVirtualChildren(
     },
     fields: options.fields,
     orderBy: options.orderBy,
+    compiledOrderPrefix: options.compiledOrderPrefix,
     limit: options.limit,
     offset: options.offset,
     includeHidden: options.includeHidden,

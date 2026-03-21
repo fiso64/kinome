@@ -30,6 +30,8 @@ export interface FindOptions {
     compiledConditions?: CompiledSql
     fields?: string[]
     orderBy?: OrderByClause | OrderByClause[]
+    /** Raw SQL expression prepended to ORDER BY (before schema-based orderBy clauses). */
+    compiledOrderPrefix?: { sql: string; params: any[] }
     limit?: number
     offset?: number
     includeHidden?: boolean
@@ -380,6 +382,40 @@ export function buildWhereFragment(options: FindOptions): {
 // =================================================================
 
 /**
+ * Compiles sortTop/sortBottom arrays into a compiledOrderPrefix for use in FindOptions.
+ * Items in sortTop are ranked 0..N-1, items in sortBottom are ranked 1000..1000+M-1,
+ * and everything else gets the middle rank N (sits between the two pinned groups).
+ */
+export function buildSortPinPrefix(
+    sortTop?: string[],
+    sortBottom?: string[]
+): { sql: string; params: any[] } | undefined {
+    if (!sortTop?.length && !sortBottom?.length) return undefined
+
+    const caseParts: string[] = []
+    const params: any[] = []
+    let rank = 0
+
+    for (const id of sortTop ?? []) {
+        caseParts.push('WHEN i.id = ? THEN ?')
+        params.push(id, rank++)
+    }
+
+    const middleRank = rank
+    const bottomBase = middleRank + 1000
+
+    for (let i = 0; i < (sortBottom?.length ?? 0); i++) {
+        caseParts.push('WHEN i.id = ? THEN ?')
+        params.push(sortBottom![i], bottomBase + i)
+    }
+
+    return {
+        sql: `CASE ${caseParts.join(' ')} ELSE ${middleRank} END ASC`,
+        params,
+    }
+}
+
+/**
  * Builds a dynamic SQL query based on find options.
  */
 export function buildFindQuery(options: FindOptions = {}): { query: string; params: any[] } {
@@ -466,13 +502,24 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         query += ` WHERE ${conditions.join(' AND ')}`
     }
 
-    if (options.orderBy) {
-        const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
-        const parts = clauses
-            .map(c => { const def = REPOSITORY_SCHEMA[c.field]; return def ? `${def.sql} ${c.direction}` : null })
-            .filter(Boolean)
-        if (parts.length > 0) {
-            query += ` ORDER BY ${parts.join(', ')}`
+    {
+        const orderParts: string[] = []
+
+        if (options.compiledOrderPrefix) {
+            orderParts.push(options.compiledOrderPrefix.sql)
+            params.push(...options.compiledOrderPrefix.params)
+        }
+
+        if (options.orderBy) {
+            const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+            for (const c of clauses) {
+                const def = REPOSITORY_SCHEMA[c.field]
+                if (def) orderParts.push(`${def.sql} ${c.direction}`)
+            }
+        }
+
+        if (orderParts.length > 0) {
+            query += ` ORDER BY ${orderParts.join(', ')}`
         }
     }
 

@@ -79,6 +79,7 @@ export async function getGroupedChildren(
     rawConditions: [loose ? loose.condition : childrenFilter(item)],
     fields,
     orderBy: options.orderBy,
+    compiledOrderPrefix: options.compiledOrderPrefix,
     limit: options.limit,
     offset: options.offset,
     includeHidden: options.includeHidden,

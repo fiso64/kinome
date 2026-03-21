@@ -1524,3 +1524,57 @@ describe('getChildren — parent field conditions', () => {
     expect(items[0].id).toBe('child1')
   })
 })
+
+// =================================================================
+// Sort pinning (sortTop / sortBottom)
+// =================================================================
+
+describe('getChildren — sortTop / sortBottom', () => {
+  beforeEach(() => {
+    ctx.seedEntities([
+      { id: 'ea', mediaType: 'movie', title: 'Alpha' },
+      { id: 'eb', mediaType: 'movie', title: 'Bravo' },
+      { id: 'ec', mediaType: 'movie', title: 'Charlie' },
+      { id: 'ed', mediaType: 'movie', title: 'Delta' },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'alpha', parentId: 'root', path: 'alpha', type: 'folder', entityId: 'ea' },
+      { id: 'bravo', parentId: 'root', path: 'bravo', type: 'folder', entityId: 'eb' },
+      { id: 'charlie', parentId: 'root', path: 'charlie', type: 'folder', entityId: 'ec' },
+      { id: 'delta', parentId: 'root', path: 'delta', type: 'folder', entityId: 'ed' },
+    ])
+  })
+
+  it('sortTop pins items to the beginning in order', async () => {
+    mergeSettings('root', { viewSettings: { sortTop: ['charlie', 'delta'] } })
+
+    const items = expectItems(await getChildren('root', {}))
+    const ids = items.map(i => i.id)
+
+    expect(ids[0]).toBe('charlie')
+    expect(ids[1]).toBe('delta')
+  })
+
+  it('sortBottom pins items to the end in order', async () => {
+    mergeSettings('root', { viewSettings: { sortBottom: ['alpha', 'bravo'] } })
+
+    const items = expectItems(await getChildren('root', {}))
+    const ids = items.map(i => i.id)
+
+    expect(ids[ids.length - 2]).toBe('alpha')
+    expect(ids[ids.length - 1]).toBe('bravo')
+  })
+
+  it('sortTop and sortBottom work together', async () => {
+    mergeSettings('root', { viewSettings: { sortTop: ['delta'], sortBottom: ['alpha'] } })
+
+    const items = expectItems(await getChildren('root', {}))
+    const ids = items.map(i => i.id)
+
+    expect(ids[0]).toBe('delta')
+    expect(ids[ids.length - 1]).toBe('alpha')
+    // Unpinned items (bravo, charlie) in default order between them
+    expect(ids.slice(1, -1).sort()).toEqual(['bravo', 'charlie'])
+  })
+})

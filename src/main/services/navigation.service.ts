@@ -16,6 +16,7 @@ import {
 } from './repository.service'
 import { getGroupedChildren, childrenFilter } from './grouping.service'
 import { getVirtualChildren } from './virtualFolders.service'
+import { buildSortPinPrefix } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings, checkLibraryExists } from './settings.service'
 import { setLibraryDataPath, getLibraryDataPath, isRemoteLibrary } from './paths.service'
@@ -101,7 +102,11 @@ export async function getChildren(
     }
   }
 
-  // 5. Route to specialized services
+  // 5. Build sort-pinning prefix from viewSettings (sortTop / sortBottom)
+  const { sortTop, sortBottom } = item.viewSettings ?? {}
+  opts.compiledOrderPrefix = buildSortPinPrefix(sortTop, sortBottom)
+
+  // 6. Route to specialized services
   let results: LibraryItem[]
   if (item.viewSettings?.appliedGrouping) {
     results = await getGroupedChildren(item, opts)
@@ -114,6 +119,7 @@ export async function getChildren(
       rawConditions: [childrenFilter(item)],
       fields: opts.fields,
       orderBy: opts.orderBy,
+      compiledOrderPrefix: opts.compiledOrderPrefix,
       limit: opts.limit,
       offset: opts.offset,
       includeHidden: opts.includeHidden,
@@ -121,7 +127,7 @@ export async function getChildren(
     })
   }
 
-  // 6. Post-processing: Eager embedding
+  // 7. Post-processing: Eager embedding
   const globalSettings = await readSettings()
   const { settings: ownSettings } = resolveViewSettings(
     item as MediaFolder,

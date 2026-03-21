@@ -114,6 +114,10 @@ export interface StoredViewSettings
    * Never inherited. Not user-editable directly.
    */
   appliedGrouping?: string | null
+  /** Child item IDs pinned to the top, in display order. */
+  sortTop?: string[]
+  /** Child item IDs pinned to the bottom, in display order. */
+  sortBottom?: string[]
 }
 
 /**
