@@ -8,7 +8,7 @@ import type {
   ResolutionSource,
   ViewHierarchyNode
 } from './types'
-import { LAYOUT_SPECIFIC_SETTINGS_CONFIG } from './types'
+import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, CONTAINER_LAYOUTS } from './types'
 
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.
@@ -192,7 +192,7 @@ export function formatLayoutString(viewSettings: StoredViewSettings | null | und
   if (!viewSettings?.layout) return 'Not set'
 
   const layout = viewSettings.layout.charAt(0).toUpperCase() + viewSettings.layout.slice(1)
-  if (viewSettings.layout === 'tabs' || viewSettings.layout === 'sections') {
+  if (CONTAINER_LAYOUTS.includes(viewSettings.layout)) {
     const groupByKey = viewSettings.groupBy
     if (!groupByKey || groupByKey === 'folder') return layout
 

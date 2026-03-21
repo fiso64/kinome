@@ -29,6 +29,7 @@
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import { getViewKey } from '@lib/view-state-store.svelte'
   import ViewContextProvider from './ViewContextProvider.svelte'
+  import { CONTAINER_LAYOUTS } from '@shared/types'
   import type { LibraryItem, MediaFile, MediaFolder, Settings } from '@shared/types'
 
   // -- 1. Local Component State (Moved up for query dependencies) --
@@ -516,7 +517,7 @@
 
         {#if showRegularContents && item.type === 'folder'}
           <div class="children-section">
-            {#if contentsLayout !== 'tabs' && contentsLayout !== 'sections'}
+            {#if !CONTAINER_LAYOUTS.includes(contentsLayout as any)}
               <h2 class="section-title">Contents</h2>
             {/if}
             <MediaView

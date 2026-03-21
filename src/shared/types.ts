@@ -45,6 +45,8 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
 export const ALL_VIEW_LAYOUTS = ['grid', 'horizontal-grid', 'list', 'tree', 'tabs', 'sections'] as const
 export type ViewLayout = typeof ALL_VIEW_LAYOUTS[number]
 
+export const CONTAINER_LAYOUTS: readonly ViewLayout[] = ['tabs', 'sections']
+
 // This function computes all unique keys from the layout-specific settings config.
 function getAllLayoutSpecificKeys(): string[] {
   const allKeys = (

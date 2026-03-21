@@ -2,7 +2,8 @@ import {
   LibraryItem,
   MediaFolder,
   ViewHierarchyNode,
-  StoredViewSettings
+  StoredViewSettings,
+  CONTAINER_LAYOUTS
 } from '@shared/types'
 import {
   find,
@@ -128,7 +129,7 @@ export async function getChildren(
     new Set(),
     inheritedSettings
   )
-  if (['tabs', 'sections'].includes(ownSettings.layout)) {
+  if (CONTAINER_LAYOUTS.includes(ownSettings.layout as any)) {
     await embedChildrenForContainers(results, opts, ownSettings.childViewSettings)
   }
 
@@ -215,7 +216,7 @@ export async function resolveViewHierarchy(
   }
 
   // 4. Recurse into container layouts
-  if (recursive && ['tabs', 'sections'].includes(resolution.settings.layout)) {
+  if (recursive && CONTAINER_LAYOUTS.includes(resolution.settings.layout as any)) {
     node.children = {}
 
     // When grouping is active, include real folders (e.g. Extras) alongside

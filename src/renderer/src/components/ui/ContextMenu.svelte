@@ -3,6 +3,7 @@
   import { getDownloadUrl } from '@lib/api'
   import { playerLauncherService } from '@lib/services/player-launcher.service'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { CONTAINER_LAYOUTS } from '@shared/types'
   import type {
     LibraryItem,
     MediaFolder,
@@ -351,7 +352,7 @@
     </div>
     <div class="separator"></div>
   {/if}
-  {#if (layout === 'tree' || layout === 'tabs' || layout === 'sections') && item.type === 'folder'}
+  {#if (layout === 'tree' || (layout && CONTAINER_LAYOUTS.includes(layout as any))) && item.type === 'folder'}
     <button
       class="context-menu-item"
       onclick={handleOpen}

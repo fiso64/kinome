@@ -8,6 +8,7 @@
   import { filterItems } from '@shared/filter'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { isTypingTag as isTypingTagHelper } from '@lib/view-helpers'
+  import { CONTAINER_LAYOUTS } from '@shared/types'
   import type {
     LibraryItem,
     MediaFolder,
@@ -95,7 +96,7 @@
     const filteredItems = filterItems(items, stableSearchQuery ?? { text: '', tags: [] })
 
     // 2. Separate Folders (which may be Virtual Groups from backend) vs Loose Items
-    if (layout === 'tabs' || layout === 'sections') {
+    if (layout && CONTAINER_LAYOUTS.includes(layout)) {
       const folders = filteredItems.filter((i) => i.type === 'folder') as MediaFolder[]
       const looseItems = filteredItems.filter((i) => i.type !== 'folder')
 
