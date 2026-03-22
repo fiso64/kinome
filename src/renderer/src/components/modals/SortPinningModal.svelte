@@ -4,6 +4,7 @@
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { LibraryItem, MediaFolder } from '@shared/types'
   import { flip } from 'svelte/animate'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
     item,
@@ -46,15 +47,20 @@
   )
 
   onMount(async () => {
-    const result = await window.api.getChildren(item.id, {})
-    if (Array.isArray(result)) {
-      allChildren = result
-      // Drop stale IDs from pin lists (deleted/moved children)
-      const validIds = new Set(result.map((c) => c.id))
-      sortTopIds = sortTopIds.filter((id) => validIds.has(id))
-      sortBottomIds = sortBottomIds.filter((id) => validIds.has(id))
+    try {
+      const result = await window.api.getChildren(item.id, {})
+      if (Array.isArray(result)) {
+        allChildren = result
+        // Drop stale IDs from pin lists (deleted/moved children)
+        const validIds = new Set(result.map((c) => c.id))
+        sortTopIds = sortTopIds.filter((id) => validIds.has(id))
+        sortBottomIds = sortBottomIds.filter((id) => validIds.has(id))
+      }
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to load children.', 'error')
+    } finally {
+      loading = false
     }
-    loading = false
   })
 
   // --- Drag state ---
@@ -93,13 +99,18 @@
   async function handleSave() {
     const top = sortTopIds.length ? sortTopIds : null
     const bottom = sortBottomIds.length ? sortBottomIds : null
-    await window.api.userUpdateItem({
-      id: item.id,
-      viewSettings: {
-        sortTop: top,
-        sortBottom: bottom
-      }
-    })
+    try {
+      await window.api.userUpdateItem({
+        id: item.id,
+        viewSettings: {
+          sortTop: top,
+          sortBottom: bottom
+        }
+      })
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to save sort order.', 'error')
+      return
+    }
     onSaved?.(top ?? [], bottom ?? [])
     onClose()
   }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { LibraryItem } from '@shared/types'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
     item,
@@ -17,10 +18,16 @@
 
   async function handleSave() {
     if (newName && newName.trim() !== '' && newName !== item.name) {
-      const success = await window.api.renameItem(item.id, newName)
-      if (success) {
-        onClose()
-        await onNeedRefresh()
+      try {
+        const success = await window.api.renameItem(item.id, newName)
+        if (success) {
+          onClose()
+          await onNeedRefresh()
+        } else {
+          notificationStore.add('Rename failed. The file may be in use or the name is invalid.', 'error')
+        }
+      } catch (err: any) {
+        notificationStore.add(err.message || 'Failed to rename item.', 'error')
       }
     } else {
       onClose() // Close even if name hasn't changed

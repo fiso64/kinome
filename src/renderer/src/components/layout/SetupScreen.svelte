@@ -4,6 +4,7 @@
   import { useDragSort } from '@lib/drag-sort.svelte'
   import { flip } from 'svelte/animate'
   import { modalStore } from '@lib/modal-store.svelte'
+  import { dialogStore } from '@lib/dialog-store'
   import { useQueryClient } from '@tanstack/svelte-query'
   import FilesystemTreeBrowser from '../setup/FilesystemTreeBrowser.svelte'
 
@@ -113,7 +114,7 @@
         }
       }
     } catch (err: any) {
-      error = err.message || 'Failed to check library location.'
+      dialogStore.showError({ title: 'Error', message: err.message || 'Failed to check library location.' })
     } finally {
       isSaving = false
     }
@@ -159,7 +160,7 @@
 
       window.location.reload()
     } catch (err: any) {
-      error = err.message || 'Failed to save settings.'
+      dialogStore.showError({ title: 'Error', message: err.message || 'Failed to save settings.' })
       sessionStorage.removeItem('showInitialFolderSettingsAfterScan')
     } finally {
       isSaving = false

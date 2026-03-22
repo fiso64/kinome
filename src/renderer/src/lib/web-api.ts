@@ -156,7 +156,15 @@ class WebApiClient implements ApiClient {
       if (response.status === 401) {
         authStore.logout()
       }
-      throw new Error(`API Error: ${response.statusText}`)
+      const text = await response.text()
+      let message = response.statusText
+      try {
+        const json = JSON.parse(text)
+        if (json.error) message = json.error
+      } catch {
+        if (text) message = text
+      }
+      throw new Error(message)
     }
 
     if (response.status === 204) return null as any

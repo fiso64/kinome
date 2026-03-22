@@ -3,6 +3,7 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { MediaFolder } from '@shared/types'
   import { onMount } from 'svelte'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
     item: initialItem,
@@ -34,14 +35,19 @@
   })
   async function handleSave() {
     isSaving = true
-    await window.api.assignSeasonsAndEpisodes(
-      item.id,
-      seasonStrategy,
-      episodeStrategy,
-      fetchMetadata
-    )
-    isSaving = false
-    onClose()
+    try {
+      await window.api.assignSeasonsAndEpisodes(
+        item.id,
+        seasonStrategy,
+        episodeStrategy,
+        fetchMetadata
+      )
+      onClose()
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to assign seasons and episodes.', 'error')
+    } finally {
+      isSaving = false
+    }
   }
 </script>
 

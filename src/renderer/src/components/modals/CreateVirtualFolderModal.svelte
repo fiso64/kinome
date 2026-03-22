@@ -2,6 +2,7 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
   import type { LibraryItem, LibraryFilter, AutocompleteSuggestions } from '@shared/types'
+  import { dialogStore } from '@lib/dialog-store'
 
   let {
     parentItem,
@@ -28,14 +29,18 @@
     }
   })
 
-  window.api.getAutocompleteSuggestions().then((s) => (suggestions = s))
+  window.api.getAutocompleteSuggestions().then((s) => (suggestions = s)).catch(() => {})
 
   async function handleCreate() {
     if (!name.trim()) return
 
-    const result = await window.api.createVirtualFolder(parentItem.id, name.trim(), filter)
-    if (result?.id) {
-      onCreated(result.id)
+    try {
+      const result = await window.api.createVirtualFolder(parentItem.id, name.trim(), filter)
+      if (result?.id) {
+        onCreated(result.id)
+      }
+    } catch (err: any) {
+      dialogStore.showError({ title: 'Error Creating Folder', message: err.message || 'Failed to create virtual folder.' })
     }
   }
 </script>

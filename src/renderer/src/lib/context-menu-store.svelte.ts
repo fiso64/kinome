@@ -1,5 +1,6 @@
 import type { LibraryItem, SearchIndexEntry } from '@shared/types'
 import { api } from './api'
+import { notificationStore } from './notification-store.svelte'
 
 // --- Types ---
 
@@ -46,7 +47,13 @@ async function open(
 
   if ('staticScore' in target) {
     // It's a search result, needs full item loading
-    const fullItem = await api.getItem(target.id)
+    let fullItem: LibraryItem | null
+    try {
+      fullItem = await api.getItem(target.id)
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to load item.', 'error')
+      return
+    }
     if (fullItem) {
       item = fullItem
     } else {

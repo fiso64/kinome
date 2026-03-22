@@ -204,6 +204,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
       console.log(`Global settings successfully saved to ${settingsPath}`)
     } catch (error) {
       console.error(`Failed to write global settings to ${settingsPath}:`, error)
+      throw error
     }
   })
 }
@@ -378,6 +379,7 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
       console.log(`Library settings successfully saved to ${settingsPath}`)
     } catch (error) {
       console.error(`Failed to write library settings to ${settingsPath}:`, error)
+      throw error
     }
   })
 }

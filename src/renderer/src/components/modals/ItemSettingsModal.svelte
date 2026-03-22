@@ -7,6 +7,7 @@
   import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { dialogStore } from '@lib/dialog-store'
   import { FOLDER_ORGANIZATION_KEYS } from '@shared/types'
   import type {
     StoredViewSettings,
@@ -531,35 +532,40 @@
     const itemsToUpdate = await buildUpdatedItems()
     let needsRefresh = false
 
-    for (const itemToUpdate of itemsToUpdate) {
-      const wasEnabled =
-        itemToUpdate.type === 'folder' ? (itemToUpdate.folderSettings?.retrieveChildrenMetadata ?? false) : false
-      console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
-      await window.api.userUpdateItem(itemToUpdate)
-      if (
-        itemToUpdate.type === 'folder' &&
-        itemToUpdate.folderSettings?.retrieveChildrenMetadata &&
-        !wasEnabled
-      ) {
+    try {
+      for (const itemToUpdate of itemsToUpdate) {
+        const wasEnabled =
+          itemToUpdate.type === 'folder' ? (itemToUpdate.folderSettings?.retrieveChildrenMetadata ?? false) : false
+        console.log(`[ItemSettingsModal] [DEBUG] Sending userUpdateItem:`, itemToUpdate)
+        await window.api.userUpdateItem(itemToUpdate)
+        if (
+          itemToUpdate.type === 'folder' &&
+          itemToUpdate.folderSettings?.retrieveChildrenMetadata &&
+          !wasEnabled
+        ) {
+          needsRefresh = true
+        }
+      }
+
+      // Apply grouping change as a separate action if it changed
+      if (isFolder) {
+        const newGroupBy = selectedGroupBy === 'folder' ? null : selectedGroupBy
+        const initialGroupBy = initialValues.selectedGroupBy === 'folder' ? null : initialValues.selectedGroupBy
+        if (newGroupBy !== initialGroupBy) {
+          await window.api.setGrouping(item.id, newGroupBy)
+        }
+      }
+
+      if (itemsToUnhide.length > 0) {
+        for (const id of itemsToUnhide) {
+          // We use userUpdateItem with just the ID and isHidden: false
+          await window.api.userUpdateItem({ id, isHidden: false } as any)
+        }
         needsRefresh = true
       }
-    }
-
-    // Apply grouping change as a separate action if it changed
-    if (isFolder) {
-      const newGroupBy = selectedGroupBy === 'folder' ? null : selectedGroupBy
-      const initialGroupBy = initialValues.selectedGroupBy === 'folder' ? null : initialValues.selectedGroupBy
-      if (newGroupBy !== initialGroupBy) {
-        await window.api.setGrouping(item.id, newGroupBy)
-      }
-    }
-
-    if (itemsToUnhide.length > 0) {
-      for (const id of itemsToUnhide) {
-        // We use userUpdateItem with just the ID and isHidden: false
-        await window.api.userUpdateItem({ id, isHidden: false } as any)
-      }
-      needsRefresh = true
+    } catch (err: any) {
+      dialogStore.showError({ title: 'Error Saving', message: err.message || 'Failed to save settings.' })
+      return
     }
 
     // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
@@ -577,7 +583,7 @@
   }
 
   $effect(() => {
-    window.api.getAutocompleteSuggestions().then((data) => (suggestions = data))
+    window.api.getAutocompleteSuggestions().then((data) => (suggestions = data)).catch(() => {})
   })
 </script>
 

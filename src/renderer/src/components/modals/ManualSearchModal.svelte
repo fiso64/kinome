@@ -4,6 +4,7 @@
   import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
   import IconX from '@components/ui/IconX.svelte'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
     item,
@@ -100,21 +101,31 @@
   async function performSearch() {
     if ((!searchQuery.trim() && !searchTmdbId.trim()) || isSearching) return
     isSearching = true
-    searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear, searchTmdbId)
-    isSearching = false
+    try {
+      searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear, searchTmdbId)
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Search failed.', 'error')
+    } finally {
+      isSearching = false
+    }
   }
 
   async function applyResult(result: TmdbSearchResult) {
     applyingResultId = result.id
-    // De-proxy the reactive Svelte object before sending it over IPC
-    const plainResult = JSON.parse(JSON.stringify(result))
-    // If we searched for a season, the result is a season object. The type to apply is 'season'.
-    // Otherwise, it's the type we searched for.
-    const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
-    await window.api.applyManualMatch(localItem.id, plainResult, mediaTypeToApply)
-    // The modal will be closed automatically when the parent receives the item update.
-    applyingResultId = null
-    onClose()
+    try {
+      // De-proxy the reactive Svelte object before sending it over IPC
+      const plainResult = JSON.parse(JSON.stringify(result))
+      // If we searched for a season, the result is a season object. The type to apply is 'season'.
+      // Otherwise, it's the type we searched for.
+      const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
+      await window.api.applyManualMatch(localItem.id, plainResult, mediaTypeToApply)
+      // The modal will be closed automatically when the parent receives the item update.
+      onClose()
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to apply match.', 'error')
+    } finally {
+      applyingResultId = null
+    }
   }
 
   function getYear(result: TmdbSearchResult): string {

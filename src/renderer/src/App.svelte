@@ -392,7 +392,9 @@
       const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id || navStore.contextItemId
       if (!id || id === 'root' || id === 'home') return
 
-      api.markAsUnwatched(id)
+      api.markAsUnwatched(id).catch((err: any) => {
+        notificationStore.add(err.message || 'Failed to mark as unwatched.', 'error')
+      })
       // Optimistic local update for visual feedback
       libraryDataService.handleLibraryUpdates([{ id, watched: false } as any], false)
     },

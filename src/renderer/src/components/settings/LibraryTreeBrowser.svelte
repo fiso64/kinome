@@ -1,6 +1,7 @@
 <script lang="ts">
   import FolderTree from '@components/ui/FolderTree.svelte'
   import type { LibraryItem } from '@shared/types'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   interface FolderNode {
     id: string
@@ -40,8 +41,9 @@
       if (rootItem) {
         rootNodes = [itemToNode(rootItem)]
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load library tree:', err)
+      notificationStore.add(err.message || 'Failed to load library tree.', 'error')
     } finally {
       isInitializing = false
     }
@@ -60,8 +62,9 @@
           fields: ['id', 'name', 'title', 'type', 'mediaType', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren'],
         })
         node.children = children.filter(c => c.type === 'folder' && !c.isVirtual).map(itemToNode)
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Failed to load children for ${node.id}:`, err)
+        notificationStore.add(err.message || 'Failed to load subfolders.', 'error')
       } finally {
         node.isLoading = false
       }
@@ -69,13 +72,17 @@
   }
 
   async function saveSettings(node: FolderNode) {
-    await window.api.userUpdateItem({
-      id: node.id,
-      folderSettings: {
-        retrieveChildrenMetadata: node.retrieveChildrenMetadata,
-        childrenTypeHint: node.childrenTypeHint === 'auto' ? null : node.childrenTypeHint,
-      },
-    } as any)
+    try {
+      await window.api.userUpdateItem({
+        id: node.id,
+        folderSettings: {
+          retrieveChildrenMetadata: node.retrieveChildrenMetadata,
+          childrenTypeHint: node.childrenTypeHint === 'auto' ? null : node.childrenTypeHint,
+        },
+      } as any)
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to save folder settings.', 'error')
+    }
   }
 
   $effect(() => {

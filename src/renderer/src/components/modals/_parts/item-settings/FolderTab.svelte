@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MediaFolder, LibraryItem } from '@shared/types'
+  import { notificationStore } from '@lib/notification-store.svelte'
   let {
     item,
     retrieveChildrenMetadata = $bindable(),
@@ -19,7 +20,11 @@
   let hiddenChildren = $state<LibraryItem[]>([])
 
   async function fetchHiddenChildren() {
-    hiddenChildren = await window.api.getHiddenChildren(item.id)
+    try {
+      hiddenChildren = await window.api.getHiddenChildren(item.id)
+    } catch (err: any) {
+      notificationStore.add(err.message || 'Failed to load hidden items.', 'error')
+    }
   }
 
   function toggleUnhide(child: LibraryItem) {

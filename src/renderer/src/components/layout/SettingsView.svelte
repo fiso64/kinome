@@ -113,6 +113,8 @@
 
       defaultLayoutSettings = JSON.parse(JSON.stringify(s.defaultLayoutSettings))
       defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
+    }).catch((err: any) => {
+      dialogStore.showError({ title: 'Failed to Load Settings', message: err.message || 'Could not load settings.' })
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
@@ -147,7 +149,11 @@
   }
 
   async function saveTagsNow() {
-    await api.saveSettings({ virtualTags: prepareTagsForSave(virtualTags) })
+    try {
+      await api.saveSettings({ virtualTags: prepareTagsForSave(virtualTags) })
+    } catch (err: any) {
+      dialogStore.showError({ title: 'Error Saving Tags', message: err.message || 'Failed to save tags.' })
+    }
   }
 
   async function handleSave(): Promise<void> {
@@ -161,30 +167,35 @@
 
     const tagsToSave = prepareTagsForSave(virtualTags)
 
-    await api.saveSettings({
-      playerCommands: JSON.parse(JSON.stringify(playerCommands)),
-      customActions: JSON.parse(JSON.stringify(customActions)),
-      tmdbApiKey,
-      useLogos,
-      creditsDisplay,
-      grayOutWatched,
-      showContinueWatching,
-      showNextUp,
-      itemDetailBackdropSize,
-      itemDetailBackdropBlur,
-      virtualTags: tagsToSave,
-      libraryLocation: libraryDataLocation,
-      mediaSources,
-      shadowSources,
-      shadowMinDepth,
-      allowUnauthenticated,
-      serverPort,
-      serverHost,
-      defaultLayoutSettings: defaultLayoutSettings
-        ? JSON.parse(JSON.stringify(defaultLayoutSettings))
-        : undefined,
-      defaultLayouts: defaultLayouts ? JSON.parse(JSON.stringify(defaultLayouts)) : undefined
-    })
+    try {
+      await api.saveSettings({
+        playerCommands: JSON.parse(JSON.stringify(playerCommands)),
+        customActions: JSON.parse(JSON.stringify(customActions)),
+        tmdbApiKey,
+        useLogos,
+        creditsDisplay,
+        grayOutWatched,
+        showContinueWatching,
+        showNextUp,
+        itemDetailBackdropSize,
+        itemDetailBackdropBlur,
+        virtualTags: tagsToSave,
+        libraryLocation: libraryDataLocation,
+        mediaSources,
+        shadowSources,
+        shadowMinDepth,
+        allowUnauthenticated,
+        serverPort,
+        serverHost,
+        defaultLayoutSettings: defaultLayoutSettings
+          ? JSON.parse(JSON.stringify(defaultLayoutSettings))
+          : undefined,
+        defaultLayouts: defaultLayouts ? JSON.parse(JSON.stringify(defaultLayouts)) : undefined
+      })
+    } catch (err: any) {
+      dialogStore.showError({ title: 'Error Saving Settings', message: err.message || 'Failed to save settings.' })
+      return
+    }
 
     if (wasLibLocationChanged) {
       return
@@ -202,17 +213,22 @@
           { label: 'Refresh (Sync)', value: 'rescan', class: 'primary' }
         ]
       })
-      if (choice === 'full_rescan') {
-        for (const source of mediaSources) {
-          await api.saveSource(source)
+      try {
+        if (choice === 'full_rescan') {
+          for (const source of mediaSources) {
+            await api.saveSource(source)
+          }
+          await api.performScan()
+          const status = await api.getLibraryRoot()
+          if (status.root) {
+            modalStore.open('initialFolderSettings', { root: status.root })
+          }
+        } else if (choice === 'rescan') {
+          await api.performScan()
         }
-        await api.performScan()
-        const status = await api.getLibraryRoot()
-        if (status.root) {
-          modalStore.open('initialFolderSettings', { root: status.root })
-        }
-      } else if (choice === 'rescan') {
-        await api.performScan()
+      } catch (err: any) {
+        dialogStore.showError({ title: 'Error', message: err.message || 'Failed to perform scan.' })
+        return
       }
     }
 

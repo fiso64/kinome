@@ -6,6 +6,7 @@
   import { slide, fade, fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
   import { getAssetUrl } from '@lib/api'
+  import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
     item: initialItem,
@@ -197,11 +198,15 @@
 
     if (settings?.creditsDisplay === 'tab') {
       if (activeInfoTab === 'credits' && !item.tmdbCredits) {
-        window.api.fetchCredits(item.id)
+        window.api.fetchCredits(item.id).catch((err: any) => {
+          notificationStore.add(err.message || 'Failed to fetch credits.', 'error')
+        })
       }
     } else {
       if (isCreditsExpanded && !item.tmdbCredits) {
-        window.api.fetchCredits(item.id)
+        window.api.fetchCredits(item.id).catch((err: any) => {
+          notificationStore.add(err.message || 'Failed to fetch credits.', 'error')
+        })
       }
     }
   })
