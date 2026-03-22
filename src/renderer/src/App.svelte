@@ -14,7 +14,8 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
-  import { playerLauncherService } from '@lib/services/player-launcher.service'
+  import { playerLauncherService, resolveClientPlayers } from '@lib/services/player-launcher.service'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { getPlaylistUrl, api } from '@lib/api'
@@ -569,7 +570,10 @@
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
-    await playerLauncherService.playItem(item, settings?.playerCommands || [])
+    await playerLauncherService.playItem(
+      item,
+      resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
+    )
   }
 
   function handleDismissContinueWatching(showId: string) {

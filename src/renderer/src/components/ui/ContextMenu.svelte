@@ -1,7 +1,8 @@
 <script lang="ts">
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { getDownloadUrl } from '@lib/api'
-  import { playerLauncherService } from '@lib/services/player-launcher.service'
+  import { playerLauncherService, resolveClientPlayers } from '@lib/services/player-launcher.service'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
   import type {
@@ -56,6 +57,12 @@
   } = $props()
 
   const caps = $derived(itemCapabilities(item))
+  const availablePlayers = $derived(
+    resolveClientPlayers(
+      globalSettings?.playerCommands ?? [],
+      clientSettingsStore.settings.enabledPlayerIds
+    )
+  )
 
   let menuElement = $state<HTMLDivElement>()
   let submenuElement = $state<HTMLDivElement>()
@@ -217,12 +224,7 @@
 
 
   function handlePlayWith(player: PlayerCommandConfig) {
-    // The item is guaranteed to be a file because of the #if block.
-    playerLauncherService.playItem(
-      item as MediaFile,
-      globalSettings?.playerCommands || null,
-      player
-    )
+    playerLauncherService.playItem(item as MediaFile, availablePlayers, player)
     onClose()
   }
 
@@ -322,7 +324,7 @@
   onmousedown={(e) => e.stopPropagation()}
   oncontextmenu={(e) => e.stopPropagation()}
 >
-  {#if caps.canPlay && globalSettings?.playerCommands && globalSettings.playerCommands.length > 0}
+  {#if caps.canPlay && availablePlayers.length > 0}
     <div
       class="submenu-container"
       onmouseenter={() => (activeSubmenu = 'play')}
@@ -342,7 +344,7 @@
           style="top: {submenuTop}px;"
           onclick={(e) => e.stopPropagation()}
         >
-          {#each globalSettings.playerCommands as player}
+          {#each availablePlayers as player}
             <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
               <span>{player.name}</span>
             </button>

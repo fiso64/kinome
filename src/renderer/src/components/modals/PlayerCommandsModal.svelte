@@ -2,6 +2,8 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import { BUILTIN_COPY_LINK } from '@lib/services/player-launcher.service'
 
   let {
     playerCommands = $bindable(),
@@ -11,7 +13,7 @@
     onClose: () => void
   } = $props()
 
-  // Client secret and handler test state
+  // --- Handler state ---
   let clientSecret = $state<string | null>(null)
   let handlerTested = $state(false)
   let isTestingHandler = $state(false)
@@ -27,89 +29,56 @@
     })
   })
 
-  // Command management state
-  let localPlayerCommands = $state<PlayerCommandConfig[]>([])
+  // --- Definitions state (server-side: custom players only, no built-ins) ---
+  let localServerDefinitions = $state<PlayerCommandConfig[]>([])
   let editCommandId = $state<string | null>(null)
-  let formCommandNameForNew = $state('')
-  let formCommandStringForNew = $state('')
+  let formNameForNew = $state('')
+  let formCommandForNew = $state('')
   let modalContentRef = $state<HTMLDivElement | null>(null)
 
-  // Stop editing when clicking outside inputs
-  function handleWindowClick(event: MouseEvent) {
-    if (!editCommandId) return
+  // --- Device state (client-side: ordered enabled player IDs) ---
+  let localEnabledPlayerIds = $state<string[]>([])
+  let devDraggedIndex = $state<number | null>(null)
+  let devDragOverIndex = $state<number | null>(null)
 
-    const target = event.target as HTMLElement
-    // If we clicked outside the modal content or specifically outside an input that isn't the current edit target
-    if (modalContentRef && !modalContentRef.contains(target)) {
-      editCommandId = null
-      return
-    }
-
-    // If within modal, check if we clicked an input. If not, stop editing.
-    if (target.tagName !== 'INPUT') {
-      editCommandId = null
-    }
-  }
-
-  // Drag and drop state
-  let draggedItemIndex = $state<number | null>(null)
-  let dragOverItemIndex = $state<number | null>(null)
-
-  // Required built-in commands configuration
-  const REQUIRED_BUILT_INS: PlayerCommandConfig[] = [
-    {
-      id: 'builtin:copy-link',
-      name: 'Copy Playlist Link',
-      command: 'builtin:copy-link',
-      isBuiltIn: true
-    }
-  ]
-
-  // Initialize commands only if handler is tested
   $effect(() => {
     const stored = localStorage.getItem('kinome_client_secret')
-    if (stored) {
-      clientSecret = stored
-    } else {
-      clientSecret = crypto.randomUUID()
-      localStorage.setItem('kinome_client_secret', clientSecret)
-    }
+    clientSecret = stored ?? crypto.randomUUID()
+    if (!stored) localStorage.setItem('kinome_client_secret', clientSecret!)
 
-    // Check if handler was ever successfully tested
-    const tested = localStorage.getItem('kinome_handler_tested')
-    handlerTested = tested === 'true'
+    handlerTested = localStorage.getItem('kinome_handler_tested') === 'true'
 
-    // Initialize commands only if handler is tested
-    if (handlerTested) {
-      const commands = JSON.parse(JSON.stringify(playerCommands))
+    // Strip built-ins from server definitions — they are implicit, not stored server-side
+    localServerDefinitions = playerCommands.filter((c) => !c.isBuiltIn)
 
-      // Ensure all required built-in commands exist and have correct flags
-      for (const builtIn of REQUIRED_BUILT_INS) {
-        const idx = commands.findIndex((c) => c.id === builtIn.id)
-        if (idx === -1) {
-          // Add missing built-in command at the start
-          commands.unshift(builtIn)
-        } else {
-          // Ensure existing command has the flag set (migration)
-          commands[idx].isBuiltIn = true
-        }
-      }
-
-      localPlayerCommands = commands
-    }
+    // Init client-side selection; ensure built-in is always present for ordering
+    let ids = [...clientSettingsStore.settings.enabledPlayerIds]
+    if (!ids.includes(BUILTIN_COPY_LINK.id)) ids.push(BUILTIN_COPY_LINK.id)
+    localEnabledPlayerIds = ids
   })
 
-  // Handler test logic
+  // --- Derived device lists ---
+  const enabledDeviceItems = $derived(
+    localEnabledPlayerIds
+      .map((id) => {
+        if (id === BUILTIN_COPY_LINK.id) return BUILTIN_COPY_LINK
+        return localServerDefinitions.find((d) => d.id === id) ?? null
+      })
+      .filter(Boolean) as PlayerCommandConfig[]
+  )
+
+  const disabledDeviceItems = $derived(
+    localServerDefinitions.filter((d) => !localEnabledPlayerIds.includes(d.id))
+  )
+
+  // --- Handler test ---
   async function testHandlerConnection() {
     if (!clientSecret) return
-
     isTestingHandler = true
     testResult = 'idle'
     testErrorMessage = ''
-
     const sessionId = crypto.randomUUID()
 
-    // Set up WebSocket listener
     const cleanup = api.onHandlerTestSuccess((data) => {
       if (data.sessionId === sessionId) {
         cleanup()
@@ -118,41 +87,21 @@
         testResult = 'success'
         handlerTested = true
         localStorage.setItem('kinome_handler_tested', 'true')
-
-        // Initialize commands for first-time success
-        if (localPlayerCommands.length === 0) {
-          localPlayerCommands = JSON.parse(JSON.stringify(playerCommands))
-        }
       }
     })
 
     let timeoutId: any = null
-
     try {
-      // Start test session
       await api.startHandlerTest(sessionId)
-
-      // Construct handshake URL
       const handshakeUrl = `${window.location.origin}/api/handler-test/${sessionId}`
-      const encodedUrl = btoa(handshakeUrl)
-
-      // Trigger handler via hidden iframe (standard for protocol triggers)
-      const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret)}&url=${encodeURIComponent(encodedUrl)}`
-
+      const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret!)}&url=${encodeURIComponent(btoa(handshakeUrl))}`
       const iframe = document.createElement('iframe')
       iframe.style.display = 'none'
       iframe.src = testUrl
       document.body.appendChild(iframe)
-
-      // Clean up iframe after a moment
-      setTimeout(() => {
-        if (iframe.parentNode) document.body.removeChild(iframe)
-      }, 1000)
-
-      // Timeout after 5 seconds (gives user time to click browser prompt)
+      setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe) }, 1000)
       timeoutId = setTimeout(() => {
         cleanup()
-
         if (isTestingHandler) {
           isTestingHandler = false
           testResult = 'error'
@@ -178,7 +127,6 @@
 
   function getInstallerCommands() {
     if (!clientSecret) return { windows: '', linux: '' }
-
     const baseUrl = window.location.origin
     return {
       windows: `irm ${baseUrl}/install-kinome-handler.ps1?secret=${clientSecret} | iex`,
@@ -186,95 +134,93 @@
     }
   }
 
-  // Command management functions
+  // --- Clipboard ---
   async function copyToClipboard(text: string, id: string) {
     try {
       await navigator.clipboard.writeText(text)
       copiedId = id
-      setTimeout(() => {
-        if (copiedId === id) copiedId = null
-      }, 2000)
+      setTimeout(() => { if (copiedId === id) copiedId = null }, 2000)
     } catch (err) {
       console.error('Failed to copy', err)
     }
   }
 
-  function removeCommand(id: string) {
-    localPlayerCommands = localPlayerCommands.filter((cmd) => cmd.id !== id)
-    if (editCommandId === id) {
-      editCommandId = null
+  // --- Definition management ---
+  function handleWindowClick(event: MouseEvent) {
+    if (!editCommandId) return
+    const target = event.target as HTMLElement
+    if (modalContentRef && !modalContentRef.contains(target)) { editCommandId = null; return }
+    if (target.tagName !== 'INPUT') editCommandId = null
+  }
+
+  function removeDefinition(id: string) {
+    localServerDefinitions = localServerDefinitions.filter((c) => c.id !== id)
+    localEnabledPlayerIds = localEnabledPlayerIds.filter((eid) => eid !== id)
+    if (editCommandId === id) editCommandId = null
+  }
+
+  function handleAddDefinition() {
+    if (formNameForNew.trim() && formCommandForNew.trim()) {
+      localServerDefinitions = [
+        ...localServerDefinitions,
+        { id: crypto.randomUUID(), name: formNameForNew.trim(), command: formCommandForNew.trim() }
+      ]
+      formNameForNew = ''
+      formCommandForNew = ''
     }
   }
 
-  function handleAddCommand() {
-    if (formCommandNameForNew.trim() && formCommandStringForNew.trim()) {
-      localPlayerCommands.push({
-        id: crypto.randomUUID(),
-        name: formCommandNameForNew.trim(),
-        command: formCommandStringForNew.trim()
-      })
-      localPlayerCommands = [...localPlayerCommands]
-      formCommandNameForNew = ''
-      formCommandStringForNew = ''
+  // --- Device management ---
+  function enableOnDevice(id: string) {
+    if (!localEnabledPlayerIds.includes(id)) {
+      localEnabledPlayerIds = [...localEnabledPlayerIds, id]
     }
   }
 
+  function disableOnDevice(id: string) {
+    localEnabledPlayerIds = localEnabledPlayerIds.filter((eid) => eid !== id)
+  }
+
+  function handleDevDragStart(e: DragEvent, index: number) {
+    devDraggedIndex = index
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  }
+
+  function handleDevDragOver(e: DragEvent, index: number) {
+    e.preventDefault()
+    if (devDraggedIndex !== null && index !== devDraggedIndex) devDragOverIndex = index
+  }
+
+  function handleDevDrop(e: DragEvent, dropIndex: number) {
+    e.preventDefault()
+    if (devDraggedIndex === null || devDraggedIndex === dropIndex) { devDragOverIndex = null; return }
+    const ids = [...localEnabledPlayerIds]
+    const [moved] = ids.splice(devDraggedIndex, 1)
+    ids.splice(dropIndex, 0, moved)
+    localEnabledPlayerIds = ids
+    devDraggedIndex = null
+    devDragOverIndex = null
+  }
+
+  function handleDevDragEnd() {
+    devDraggedIndex = null
+    devDragOverIndex = null
+  }
+
+  // --- Save ---
   function handleSave() {
-    if (handlerTested) {
-      playerCommands = JSON.parse(JSON.stringify(localPlayerCommands))
-    }
+    playerCommands = [...localServerDefinitions]
+    clientSettingsStore.update({ enabledPlayerIds: localEnabledPlayerIds })
     onClose()
-  }
-
-  // Drag and drop handlers
-  function handleDragStart(event: DragEvent, index: number) {
-    draggedItemIndex = index
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
-      event.dataTransfer.setData('text/plain', index.toString())
-    }
-  }
-
-  function handleDragOver(event: DragEvent, index: number) {
-    event.preventDefault()
-    if (draggedItemIndex !== null && index !== draggedItemIndex) {
-      dragOverItemIndex = index
-    }
-  }
-
-  function handleDrop(event: DragEvent, dropIndex: number) {
-    event.preventDefault()
-    if (draggedItemIndex === null || draggedItemIndex === dropIndex) {
-      dragOverItemIndex = null
-      return
-    }
-
-    const itemToMove = localPlayerCommands[draggedItemIndex]
-    localPlayerCommands.splice(draggedItemIndex, 1)
-    localPlayerCommands.splice(dropIndex, 0, itemToMove)
-
-    localPlayerCommands = localPlayerCommands
-    draggedItemIndex = null
-    dragOverItemIndex = null
-  }
-
-  function handleDragEnd() {
-    draggedItemIndex = null
-    dragOverItemIndex = null
   }
 </script>
 
 <svelte:window onmousedown={handleWindowClick} />
 
-<ModalWindow
-  title="Manage Player Commands"
-  {onClose}
-  onSave={handleSave}
-  maxWidth="800px"
-  zIndex={101}
->
+<ModalWindow title="Manage Players" {onClose} onSave={handleSave} maxWidth="900px" zIndex={101}>
   <div class="content" bind:this={modalContentRef}>
-    <!-- Test Status Bar -->
+
+    <!-- Handler Status -->
     <div class="test-section">
       <div
         class="connection-status-card"
@@ -289,13 +235,9 @@
             <span class="message">{getStatusMessage()}</span>
           </div>
         </div>
-
         <div class="test-actions">
           {#if handlerTested}
-            <button
-              class="test-action-btn secondary"
-              onclick={() => (forceShowSetup = !forceShowSetup)}
-            >
+            <button class="test-action-btn secondary" onclick={() => (forceShowSetup = !forceShowSetup)}>
               {forceShowSetup ? 'Back to Players' : 'Setup Instructions'}
             </button>
           {/if}
@@ -304,13 +246,7 @@
             onclick={testHandlerConnection}
             disabled={isTestingHandler || !isWebSocketConnected}
           >
-            {#if !isWebSocketConnected}
-              Offline
-            {:else if isTestingHandler}
-              Testing...
-            {:else}
-              Test Connection
-            {/if}
+            {#if !isWebSocketConnected}Offline{:else if isTestingHandler}Testing...{:else}Test Connection{/if}
           </button>
         </div>
       </div>
@@ -321,17 +257,12 @@
       <div class="setup-mode">
         <h3>Setup Local Player Handler</h3>
         <p>Run this command in your terminal to install the handler:</p>
-
         <div class="installer-commands">
           <div class="command-block">
             <label>Windows (PowerShell)</label>
             <div class="code-wrapper">
               <input readonly value={getInstallerCommands().windows} class="code-box" />
-              <button
-                class="copy-btn"
-                class:copied={copiedId === 'win'}
-                onclick={() => copyToClipboard(getInstallerCommands().windows, 'win')}
-              >
+              <button class="copy-btn" class:copied={copiedId === 'win'} onclick={() => copyToClipboard(getInstallerCommands().windows, 'win')}>
                 {copiedId === 'win' ? 'Copied!' : 'Copy'}
               </button>
             </div>
@@ -340,142 +271,139 @@
             <label>Linux / macOS</label>
             <div class="code-wrapper">
               <input readonly value={getInstallerCommands().linux} class="code-box" />
-              <button
-                class="copy-btn"
-                class:copied={copiedId === 'linux'}
-                onclick={() => copyToClipboard(getInstallerCommands().linux, 'linux')}
-              >
+              <button class="copy-btn" class:copied={copiedId === 'linux'} onclick={() => copyToClipboard(getInstallerCommands().linux, 'linux')}>
                 {copiedId === 'linux' ? 'Copied!' : 'Copy'}
               </button>
             </div>
           </div>
         </div>
-
         <div class="secret-display">
           <label>Your Client Secret:</label>
           <div class="code-wrapper">
             <input readonly value={clientSecret} class="code-box" />
-            <button
-              class="copy-btn"
-              class:copied={copiedId === 'secret'}
-              onclick={() => copyToClipboard(clientSecret || '', 'secret')}
-            >
+            <button class="copy-btn" class:copied={copiedId === 'secret'} onclick={() => copyToClipboard(clientSecret || '', 'secret')}>
               {copiedId === 'secret' ? 'Copied!' : 'Copy'}
             </button>
           </div>
         </div>
-
         <div class="hint-box">
           <p><strong>Next Steps:</strong></p>
           <ol>
             <li>Copy and run one of the installer commands above</li>
             <li>Click "Test Connection" to verify the installation</li>
-            <li>On success, you'll be able to manage player commands</li>
+            <li>On success, enable players for this device in the panel on the right</li>
           </ol>
         </div>
       </div>
-    {:else if handlerTested && !forceShowSetup}
-      <!-- Management Mode (Unlocked after successful test) -->
-      <div class="management-mode">
-        <div class="command-list">
-          {#each localPlayerCommands as cmd, i (cmd.id)}
-            <div
-              class="command-item"
-              class:builtin={cmd.isBuiltIn}
-              class:draggable={!editCommandId || editCommandId !== cmd.id}
-              class:dragging-over={dragOverItemIndex === i}
-              class:editing={editCommandId === cmd.id}
-              draggable={!editCommandId || editCommandId !== cmd.id}
-              ondragstart={(e) => handleDragStart(e, i)}
-              ondragover={(e) => handleDragOver(e, i)}
-              ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => handleDrop(e, i)}
-              ondragend={handleDragEnd}
-              onclick={() => {
-                if (cmd.isBuiltIn) return // Can't edit built-in
-                if (editCommandId === cmd.id) {
-                  editCommandId = null
-                } else {
-                  editCommandId = cmd.id
-                }
-              }}
-            >
-              <div class="drag-handle">⠿</div>
+    {:else}
+      <!-- Management Mode: two panels -->
+      <div class="management-panels">
 
-              {#if editCommandId === cmd.id}
-                <div class="command-edit-inputs">
-                  <input
-                    type="text"
-                    bind:value={cmd.name}
-                    placeholder="Player Name"
-                    onclick={(e) => e.stopPropagation()}
-                    oninput={(e) => {
-                      e.stopPropagation()
-                      localPlayerCommands = localPlayerCommands
-                    }}
-                  />
-                  <input
-                    type="text"
-                    bind:value={cmd.command}
-                    placeholder="Player Command"
-                    onclick={(e) => e.stopPropagation()}
-                    oninput={(e) => {
-                      e.stopPropagation()
-                      localPlayerCommands = localPlayerCommands
-                    }}
-                  />
-                </div>
-              {:else}
-                <div class="command-details">
-                  <div class="command-name">
-                    {cmd.name}
-                    {#if cmd.isBuiltIn}
-                      <span class="badge">Built-in</span>
-                    {:else if i === 0}
-                      <span class="badge">Default</span>
-                    {/if}
+        <!-- Left: Server-side definitions -->
+        <div class="panel">
+          <h3>Player Definitions</h3>
+          <p class="panel-subtitle">Shared across all devices</p>
+
+          <div class="definition-list">
+            {#each localServerDefinitions as cmd (cmd.id)}
+              <div
+                class="definition-item"
+                class:editing={editCommandId === cmd.id}
+                onclick={() => { editCommandId = editCommandId === cmd.id ? null : cmd.id }}
+              >
+                {#if editCommandId === cmd.id}
+                  <div class="edit-inputs">
+                    <input
+                      type="text"
+                      bind:value={cmd.name}
+                      placeholder="Player Name"
+                      onclick={(e) => e.stopPropagation()}
+                      oninput={(e) => { e.stopPropagation(); localServerDefinitions = localServerDefinitions }}
+                    />
+                    <input
+                      type="text"
+                      bind:value={cmd.command}
+                      placeholder="Command"
+                      onclick={(e) => e.stopPropagation()}
+                      oninput={(e) => { e.stopPropagation(); localServerDefinitions = localServerDefinitions }}
+                    />
                   </div>
-                  <div class="command-string">{cmd.command}</div>
-                </div>
-              {/if}
+                {:else}
+                  <div class="definition-details">
+                    <div class="definition-name">{cmd.name}</div>
+                    <div class="definition-command">{cmd.command}</div>
+                  </div>
+                {/if}
+                <button class="remove-btn" onclick={(e) => { e.stopPropagation(); removeDefinition(cmd.id) }}>×</button>
+              </div>
+            {/each}
 
-              {#if !cmd.isBuiltIn}
-                <button
-                  class="remove-btn"
-                  onclick={(e) => {
-                    e.stopPropagation()
-                    removeCommand(cmd.id)
-                  }}
-                >
-                  ×
-                </button>
-              {/if}
-            </div>
-          {/each}
-        </div>
+            {#if localServerDefinitions.length === 0}
+              <p class="empty-hint">No custom players defined yet.</p>
+            {/if}
+          </div>
 
-        <div class="add-command-form">
-          <h4>Add New Player</h4>
-          <input
-            type="text"
-            bind:value={formCommandNameForNew}
-            placeholder="Player Name (e.g., MPV)"
-          />
-          <input
-            type="text"
-            bind:value={formCommandStringForNew}
-            placeholder="Command (e.g., mpv --fullscreen <url>)"
-          />
-          <div class="form-actions">
+          <div class="add-form">
+            <h4>Add Player</h4>
+            <input type="text" bind:value={formNameForNew} placeholder="Name (e.g. MPV)" />
+            <input type="text" bind:value={formCommandForNew} placeholder="Command (e.g. mpv --fullscreen <url>)" />
             <button
-              class="primary add-btn"
-              onclick={handleAddCommand}
-              disabled={!formCommandNameForNew.trim() || !formCommandStringForNew.trim()}
-            >
-              Add Player
-            </button>
+              class="primary"
+              onclick={handleAddDefinition}
+              disabled={!formNameForNew.trim() || !formCommandForNew.trim()}
+            >Add</button>
           </div>
         </div>
+
+        <!-- Right: This Device -->
+        <div class="panel">
+          <h3>This Device</h3>
+          <p class="panel-subtitle">Enabled players in priority order — drag to reorder</p>
+
+          <div class="device-list">
+            <!-- Enabled items (draggable) -->
+            {#each enabledDeviceItems as player, i (player.id)}
+              <div
+                class="device-item enabled"
+                draggable={true}
+                ondragstart={(e) => handleDevDragStart(e, i)}
+                ondragover={(e) => handleDevDragOver(e, i)}
+                ondragenter={(e) => e.preventDefault()}
+                ondrop={(e) => handleDevDrop(e, i)}
+                ondragend={handleDevDragEnd}
+                class:dragging-over={devDragOverIndex === i}
+              >
+                <div class="drag-handle">⠿</div>
+                <div class="device-item-name">
+                  {player.name}
+                  {#if i === 0}<span class="badge">Default</span>{/if}
+                  {#if player.isBuiltIn}<span class="badge builtin">Always available</span>{/if}
+                </div>
+                {#if !player.isBuiltIn}
+                  <button class="toggle-btn on" onclick={() => disableOnDevice(player.id)}>
+                    Enabled
+                  </button>
+                {/if}
+              </div>
+            {/each}
+
+            <!-- Disabled custom items -->
+            {#each disabledDeviceItems as player (player.id)}
+              <div class="device-item disabled">
+                <div class="drag-handle inactive">⠿</div>
+                <div class="device-item-name">{player.name}</div>
+                <button class="toggle-btn off" onclick={() => enableOnDevice(player.id)}>
+                  Enable
+                </button>
+              </div>
+            {/each}
+
+            {#if enabledDeviceItems.length <= 1 && disabledDeviceItems.length === 0}
+              <p class="empty-hint">Add custom players in the Definitions panel, then enable them here.</p>
+            {/if}
+          </div>
+        </div>
+
       </div>
     {/if}
   </div>
@@ -489,9 +417,8 @@
     gap: 1.5rem;
   }
 
-  .test-section {
-    margin-bottom: 2rem;
-  }
+  /* Handler status (unchanged) */
+  .test-section { margin-bottom: 0.5rem; }
 
   .connection-status-card {
     display: flex;
@@ -505,370 +432,165 @@
     transition: all 0.3s ease;
   }
 
-  .status-info {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
+  .status-info { display: flex; align-items: center; gap: 1rem; }
   .indicator-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+    width: 8px; height: 8px; border-radius: 50%;
     background: var(--ev-c-text-3);
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.05);
     transition: all 0.3s ease;
   }
+  .status-details { display: flex; flex-direction: column; gap: 2px; }
+  .status-details .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ev-c-text-3); font-weight: 600; }
+  .status-details .message { font-size: 0.9rem; color: var(--ev-c-text-1); font-weight: 500; }
+  .test-actions { display: flex; gap: 0.5rem; }
+  .test-action-btn { padding: 0.4rem 1rem; font-size: 0.8rem; background: var(--color-background-mute); border: 1px solid transparent; border-radius: 4px; color: var(--ev-c-text-2); cursor: pointer; transition: all 0.2s; }
+  .test-action-btn:hover:not(:disabled) { background: var(--ev-c-gray-3); color: var(--ev-c-text-1); }
+  .test-action-btn.secondary { background: transparent; border-color: var(--color-background-mute); }
+  .test-action-btn.secondary:hover { background: var(--color-background-mute); }
+  .connection-status-card.success { border-color: rgba(40,167,69,0.3); background: rgba(40,167,69,0.05); }
+  .connection-status-card.success .indicator-dot { background: #28a745; box-shadow: 0 0 8px rgba(40,167,69,0.4); }
+  .connection-status-card.error { border-color: rgba(220,53,69,0.3); background: rgba(220,53,69,0.05); }
+  .connection-status-card.error .indicator-dot { background: #dc3545; box-shadow: 0 0 8px rgba(220,53,69,0.4); }
+  .connection-status-card.testing .indicator-dot { background: var(--ev-c-blue-1); box-shadow: 0 0 8px rgba(0,123,255,0.4); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
 
-  .status-details {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
+  /* Setup mode (unchanged) */
+  .setup-mode { display: flex; flex-direction: column; gap: 1.5rem; }
+  .setup-mode h3 { margin-bottom: 0.5rem; color: var(--ev-c-text-1); }
+  .installer-commands { display: flex; flex-direction: column; gap: 1rem; }
+  .command-block { display: flex; flex-direction: column; gap: 0.5rem; }
+  .command-block label { font-weight: bold; font-size: 0.9rem; color: var(--ev-c-text-1); }
+  .code-wrapper { display: flex; gap: 0.5rem; align-items: center; }
+  .code-wrapper .code-box { flex: 1; background: #0d1117; padding: 1rem; border-radius: 8px; font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; font-size: 0.85rem; color: #e6edf3; border: 1px solid rgba(255,255,255,0.1); outline: none; cursor: text; width: 100%; user-select: text; }
+  .code-wrapper .code-box::selection { background: rgba(33,110,241,0.4); }
+  .copy-btn { width: 80px; height: 38px; display: flex; align-items: center; justify-content: center; padding: 0; background: var(--ev-c-gray-3); color: var(--ev-c-text-2); border: 1px solid var(--color-background-mute); border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+  .copy-btn:hover { background: var(--ev-c-gray-2); color: var(--ev-c-text-1); border-color: var(--ev-c-gray-1); }
+  .copy-btn.copied { background: rgba(40,167,69,0.15); color: #2ea043; border-color: rgba(40,167,69,0.5); }
+  .secret-display { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem; background: var(--color-background-soft); border-radius: 6px; }
+  .secret-display label { font-weight: bold; font-size: 0.9rem; }
+  .hint-box { padding: 1rem; background: var(--ev-c-gray-3); border-left: 3px solid var(--ev-c-green-1); border-radius: 4px; }
+  .hint-box p { margin-bottom: 0.5rem; }
+  .hint-box ol { margin-left: 1.5rem; line-height: 1.6; }
 
-  .status-details .label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ev-c-text-3);
-    font-weight: 600;
-  }
-
-  .status-details .message {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-1);
-    font-weight: 500;
-  }
-
-  .test-actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .test-action-btn {
-    padding: 0.4rem 1rem;
-    font-size: 0.8rem;
-    background: var(--color-background-mute);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .test-action-btn:hover:not(:disabled) {
-    background: var(--ev-c-gray-3);
-    color: var(--ev-c-text-1);
-  }
-
-  .test-action-btn.secondary {
-    background: transparent;
-    border-color: var(--color-background-mute);
-  }
-
-  .test-action-btn.secondary:hover {
-    background: var(--color-background-mute);
-  }
-
-  /* Success State */
-  .connection-status-card.success {
-    border-color: rgba(40, 167, 69, 0.3);
-    background: rgba(40, 167, 69, 0.05);
-  }
-  .connection-status-card.success .indicator-dot {
-    background: #28a745;
-    box-shadow: 0 0 8px rgba(40, 167, 69, 0.4);
-  }
-
-  /* Error State */
-  .connection-status-card.error {
-    border-color: rgba(220, 53, 69, 0.3);
-    background: rgba(220, 53, 69, 0.05);
-  }
-  .connection-status-card.error .indicator-dot {
-    background: #dc3545;
-    box-shadow: 0 0 8px rgba(220, 53, 69, 0.4);
-  }
-
-  /* Testing State */
-  .connection-status-card.testing .indicator-dot {
-    background: var(--ev-c-blue-1);
-    box-shadow: 0 0 8px rgba(0, 123, 255, 0.4);
-    animation: pulse 1.5s infinite;
-  }
-
-  @keyframes pulse {
-    0% {
-      opacity: 0.4;
-    }
-    50% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0.4;
-    }
-  }
-
-  /* Setup Mode Styles */
-  .setup-mode {
-    display: flex;
-    flex-direction: column;
+  /* Two-panel management layout */
+  .management-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 1.5rem;
+    align-items: start;
   }
 
-  .setup-mode h3 {
-    margin-bottom: 0.5rem;
-    color: var(--ev-c-text-1);
-  }
-
-  .installer-commands {
+  .panel {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-  }
-
-  .command-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .command-block label {
-    font-weight: bold;
-    font-size: 0.9rem;
-    color: var(--ev-c-text-1);
-  }
-
-  .code-wrapper {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .code-wrapper .code-box {
-    flex: 1;
-    background: #0d1117;
-    padding: 1rem;
-    border-radius: 8px;
-    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-    font-size: 0.85rem;
-    line-height: normal;
-    color: #e6edf3;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    outline: none;
-    cursor: text;
-    width: 100%;
-    /* Ensure text selection works perfectly */
-    user-select: text;
-  }
-
-  .code-wrapper .code-box::selection {
-    background: rgba(33, 110, 241, 0.4);
-  }
-
-  .copy-btn {
-    width: 80px;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    background: var(--ev-c-gray-3);
-    color: var(--ev-c-text-2);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .copy-btn:hover {
-    background: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .copy-btn.copied {
-    background: rgba(40, 167, 69, 0.15);
-    color: #2ea043;
-    border-color: rgba(40, 167, 69, 0.5);
-  }
-
-  .secret-display {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    background: var(--color-background-soft);
-    border-radius: 6px;
-  }
-
-  .secret-display label {
-    font-weight: bold;
-    font-size: 0.9rem;
-  }
-
-  .hint-box {
-    padding: 1rem;
-    background: var(--ev-c-gray-3);
-    border-left: 3px solid var(--ev-c-green-1);
-    border-radius: 4px;
-  }
-
-  .hint-box p {
-    margin-bottom: 0.5rem;
-  }
-
-  .hint-box ol {
-    margin-left: 1.5rem;
-    line-height: 1.6;
-  }
-
-  /* Management Mode Styles */
-  .management-mode {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .command-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-height: 40vh;
-    overflow-y: auto;
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-    padding: 0.5rem;
-    background-color: var(--color-background);
-  }
-
-  .command-item {
-    display: flex;
-    align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem;
-    background-color: var(--color-background-soft);
-    border-radius: 4px;
-    border: 1px solid transparent;
-    transition: all 0.2s;
+    background: var(--color-background-soft);
+    border: 1px solid var(--color-background-mute);
+    border-radius: 8px;
+    padding: 1rem;
   }
 
-  .command-item.draggable {
-    cursor: grab;
+  .panel h3 { font-size: 1rem; font-weight: 600; margin: 0; }
+  .panel-subtitle { font-size: 0.8rem; color: var(--ev-c-text-3); margin: 0; }
+
+  /* Definitions panel */
+  .definition-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 280px;
+    overflow-y: auto;
   }
 
-  .command-item.dragging-over {
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .command-item.editing {
-    background-color: var(--ev-c-gray-3);
-    border-color: var(--ev-c-gray-1);
-    cursor: default;
-  }
-
-  .drag-handle {
-    color: var(--ev-c-text-2);
-    font-size: 1.2rem;
-    padding: 0 0.25rem;
-  }
-
-  .command-details {
-    flex-grow: 1;
-  }
-
-  .command-name {
-    font-weight: bold;
+  .definition-item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--color-background);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .definition-item:hover { border-color: var(--color-background-mute); }
+  .definition-item.editing { border-color: var(--ev-c-gray-1); background: var(--ev-c-gray-3); cursor: default; }
+
+  .definition-details { flex: 1; min-width: 0; }
+  .definition-name { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .definition-command { font-size: 0.75rem; color: var(--ev-c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .edit-inputs { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
+  .edit-inputs input { padding: 0.4rem 0.5rem; font-size: 0.85rem; background: var(--color-background); border: 1px solid var(--color-background-mute); border-radius: 4px; color: var(--ev-c-text-1); }
+
+  .remove-btn { background: none; color: var(--ev-c-text-2); font-size: 1.3rem; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+  .remove-btn:hover { color: #e81123; background: var(--ev-c-gray-3); }
+
+  .add-form { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-background-mute); }
+  .add-form h4 { font-size: 0.85rem; font-weight: 600; margin: 0; }
+  .add-form input { padding: 0.5rem; background: var(--color-background); border: 1px solid var(--color-background-mute); border-radius: 4px; color: var(--ev-c-text-1); font-size: 0.85rem; }
+  .add-form .primary { align-self: flex-start; padding: 0.4rem 1rem; font-size: 0.85rem; }
+  .add-form .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .empty-hint { font-size: 0.8rem; color: var(--ev-c-text-3); font-style: italic; padding: 0.5rem 0; }
+
+  /* Device panel */
+  .device-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .device-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--color-background);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    transition: border-color 0.15s;
+  }
+  .device-item.enabled { cursor: grab; }
+  .device-item.disabled { opacity: 0.5; cursor: default; }
+  .device-item.dragging-over { border-color: var(--ev-c-gray-1); }
+
+  .drag-handle { color: var(--ev-c-text-2); font-size: 1.1rem; padding: 0 0.2rem; flex-shrink: 0; }
+  .drag-handle.inactive { opacity: 0.3; }
+
+  .device-item-name {
+    flex: 1;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
   }
 
   .badge {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: normal;
-    padding: 0.15rem 0.5rem;
+    padding: 0.1rem 0.4rem;
     background: var(--ev-c-gray-2);
     border-radius: 3px;
     color: var(--ev-c-text-2);
+    flex-shrink: 0;
   }
+  .badge.builtin { background: rgba(40,167,69,0.15); color: #2ea043; }
 
-  .command-string {
-    font-size: 0.85rem;
-    color: var(--ev-c-text-2);
-    word-break: break-all;
-  }
-
-  .command-edit-inputs {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .command-edit-inputs input {
-    padding: 0.5rem;
-    font-size: 0.9rem;
-    background: var(--color-background);
-    border: 1px solid var(--color-background-mute);
+  .toggle-btn {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
     border-radius: 4px;
-    color: var(--ev-c-text-1);
-  }
-
-  .remove-btn {
-    background: none;
-    color: var(--ev-c-text-2);
-    font-size: 1.5rem;
-    padding: 0 0.5rem;
     cursor: pointer;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
   }
-
-  .remove-btn:hover {
-    color: #e81123;
-    background-color: var(--ev-c-gray-3);
-  }
-
-  .add-command-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-background-mute);
-  }
-
-  .add-command-form h4 {
-    font-weight: bold;
-    margin-bottom: 0.25rem;
-  }
-
-  .add-command-form input {
-    padding: 0.75rem;
-    background: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    color: var(--ev-c-text-1);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .add-btn {
-    align-self: flex-start;
-  }
-
-  .add-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  .toggle-btn.on { background: rgba(40,167,69,0.15); color: #2ea043; border: 1px solid rgba(40,167,69,0.3); }
+  .toggle-btn.on:hover { background: rgba(220,53,69,0.12); color: #dc3545; border-color: rgba(220,53,69,0.3); }
+  .toggle-btn.off { background: var(--color-background-mute); color: var(--ev-c-text-2); border: 1px solid transparent; }
+  .toggle-btn.off:hover { background: rgba(40,167,69,0.12); color: #2ea043; border-color: rgba(40,167,69,0.3); }
 </style>
