@@ -19,6 +19,10 @@
   let isSaving = $state(false)
   let error = $state('')
   let setupCompleted = $state(false)
+  let deduplicateSources = $state(false)
+  let deduplicateMinDepth = $state(1)
+  let draggedIndex = $state<number | null>(null)
+  let dragOverIndex = $state<number | null>(null)
 
   $effect(() => {
     const snapshot = sources.map((s) => ({ id: s.id, path: s.path, isRelative: s.isRelative }))
@@ -62,6 +66,34 @@
 
   function removeSource(id: string) {
     sources = sources.filter((s) => s.id !== id)
+  }
+
+  function handleDragStart(e: DragEvent, index: number) {
+    draggedIndex = index
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  }
+
+  function handleDragOver(e: DragEvent, index: number) {
+    e.preventDefault()
+    if (draggedIndex !== null && index !== draggedIndex) dragOverIndex = index
+  }
+
+  function handleDrop(e: DragEvent, dropIndex: number) {
+    e.preventDefault()
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      dragOverIndex = null
+      return
+    }
+    const items = [...sources]
+    items.splice(dropIndex, 0, items.splice(draggedIndex, 1)[0])
+    sources = items
+    draggedIndex = null
+    dragOverIndex = null
+  }
+
+  function handleDragEnd() {
+    draggedIndex = null
+    dragOverIndex = null
   }
 
   onMount(async () => {
@@ -136,7 +168,7 @@
     error = ''
     isSaving = true
     try {
-      await api.saveSettings({ libraryLocation })
+      await api.saveSettings({ libraryLocation, deduplicateSources, deduplicateMinDepth })
 
       for (const source of sources) {
         await api.performScan({ source, initialFolderSettings: folderSettings[source.id] ?? {} })
@@ -211,8 +243,20 @@
               resolved?.exists &&
               !resolvedAbsPath.includes('Error')}
 
-            <div class="source-entry">
+            <div
+              class="source-entry"
+              class:drag-over={dragOverIndex === i}
+              draggable={sources.length > 1 ? 'true' : 'false'}
+              ondragstart={(e) => handleDragStart(e, i)}
+              ondragover={(e) => handleDragOver(e, i)}
+              ondragenter={(e) => e.preventDefault()}
+              ondrop={(e) => handleDrop(e, i)}
+              ondragend={handleDragEnd}
+            >
               <div class="source-header">
+                {#if sources.length > 1}
+                  <span class="drag-handle" title="Drag to reorder">⠿</span>
+                {/if}
                 <span class="source-label">
                   {sources.length > 1 ? `Source ${i + 1}` : 'Media Source'}
                 </span>
@@ -268,6 +312,43 @@
         </div>
 
         <button class="add-source-btn" onclick={addSource}>+ Add Source</button>
+
+        {#if sources.length > 1}
+          <div class="dedup-section">
+            <label class="checkbox-label">
+              <input type="checkbox" bind:checked={deduplicateSources} />
+              <span>Deduplicate sources</span>
+            </label>
+            {#if deduplicateSources}
+              {@const parts = ['Movies', 'ActionFilm', 'Scene', 'Extra', 'Bonus', 'Clip', 'Featurette', 'Interview', 'Trailer', 'Short']}
+              {@const examplePath = parts.slice(0, deduplicateMinDepth).join('/') + '/'}
+              <div class="dedup-depth">
+                <label for="dedup-min-depth">Skip folders from</label>
+                <input
+                  type="number"
+                  id="dedup-min-depth"
+                  bind:value={deduplicateMinDepth}
+                  min="1"
+                  max="10"
+                  oninput={(e) => {
+                    const v = parseInt((e.target as HTMLInputElement).value)
+                    if (!isNaN(v)) deduplicateMinDepth = Math.max(1, Math.min(10, v))
+                  }}
+                />
+                <span class="dedup-depth-unit">{deduplicateMinDepth === 1 ? 'level' : 'levels'} deep</span>
+              </div>
+              <p class="help-text">
+                e.g. <code>{examplePath}</code> — Folders at this depth or deeper that already exist
+                in a higher-priority source will be skipped. Useful for SSD + HDD mirror setups.
+              </p>
+            {:else}
+              <p class="help-text">
+                When enabled, lower-priority sources skip folders already present in a
+                higher-priority source, avoiding duplicate entries.
+              </p>
+            {/if}
+          </div>
+        {/if}
 
         {#if error}
           <p class="error-message">{error}</p>
@@ -443,15 +524,37 @@
     border-radius: 8px;
   }
 
+  .source-entry[draggable='true'] {
+    cursor: grab;
+  }
+
+  .source-entry[draggable='true']:active {
+    cursor: grabbing;
+  }
+
+  .source-entry.drag-over {
+    border-color: var(--color-primary);
+    background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-background-mute));
+  }
+
   .source-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .drag-handle {
+    color: var(--color-text-dim);
+    font-size: 1.1rem;
+    cursor: grab;
+    flex-shrink: 0;
+    user-select: none;
   }
 
   .source-label {
     font-weight: 600;
     font-size: 0.9rem;
+    flex: 1;
   }
 
   .remove-btn {
@@ -484,5 +587,37 @@
   .add-source-btn:hover {
     border-color: var(--color-primary);
     color: var(--color-primary);
+  }
+
+  .dedup-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--color-background-mute);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  .dedup-depth {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .dedup-depth label {
+    color: var(--color-text-soft);
+  }
+
+  .dedup-depth input[type='number'] {
+    width: 3.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .dedup-depth-unit {
+    color: var(--color-text-soft);
+    font-size: 0.9rem;
   }
 </style>

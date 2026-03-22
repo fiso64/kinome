@@ -53,6 +53,8 @@
   let itemDetailBackdropBlur = $state(4)
   let libraryDataLocation = $state('')
   let mediaSources = $state<MediaSource[]>([])
+  let deduplicateSources = $state(false)
+  let deduplicateMinDepth = $state(1)
   let allowUnauthenticated = $state(false)
   let serverPort = $state(3000)
   let serverHost = $state('::')
@@ -103,6 +105,8 @@
       mediaSources = s.mediaSources?.length
         ? JSON.parse(JSON.stringify(s.mediaSources))
         : [{ id: crypto.randomUUID(), path: '', isRelative: false }]
+      deduplicateSources = s.deduplicateSources ?? false
+      deduplicateMinDepth = s.deduplicateMinDepth ?? 1
       allowUnauthenticated = s.allowUnauthenticated ?? false
       serverPort = s.serverPort ?? 3000
       serverHost = s.serverHost ?? '::'
@@ -171,6 +175,8 @@
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
       mediaSources,
+      deduplicateSources,
+      deduplicateMinDepth,
       allowUnauthenticated,
       serverPort,
       serverHost,
@@ -354,6 +360,8 @@
               <LibrarySettingsForm
                 bind:mediaSources
                 bind:libraryLocation={libraryDataLocation}
+                bind:deduplicateSources
+                bind:deduplicateMinDepth
               />
             </div>
             <div class="form-section">

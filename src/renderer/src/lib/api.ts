@@ -115,11 +115,11 @@ export interface ApiClient {
   uploadImage(itemId: string, imageType: 'poster' | 'backdrop' | 'logo', file: File): Promise<void>
   executeCustomAction(itemId: string, commandId: string): Promise<void>
   revealInExplorer(path: string): void
-  trashItem(path: string): Promise<boolean>
+  trashItem(itemId: string): Promise<boolean>
   createVirtualFolder(parentId: string, name: string, filter?: any): Promise<{ id: string }>
   deleteItemFromDb(itemId: string): Promise<boolean>
-  renameItem(oldPath: string, newName: string): Promise<boolean>
-  getItemProperties(path: string): Promise<MediaProperties | null>
+  renameItem(itemId: string, newName: string): Promise<boolean>
+  getItemProperties(itemId: string): Promise<MediaProperties | null>
   // Native directory picking (selectLibraryDirectory, selectMediaSourceDirectory) removed.
   getSettings(): Promise<Settings>
   saveSettings(settings: Partial<Settings>): Promise<void>

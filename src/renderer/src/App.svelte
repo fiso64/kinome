@@ -445,7 +445,7 @@
       })
 
       if (confirmed) {
-        const success = await api.trashItem(targetItem.path)
+        const success = await api.trashItem(targetItem.id)
         if (success) {
           await handleRefresh()
         }

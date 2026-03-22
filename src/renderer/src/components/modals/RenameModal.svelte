@@ -17,7 +17,7 @@
 
   async function handleSave() {
     if (newName && newName.trim() !== '' && newName !== item.name) {
-      const success = await window.api.renameItem(item.path, newName)
+      const success = await window.api.renameItem(item.id, newName)
       if (success) {
         onClose()
         await onNeedRefresh()

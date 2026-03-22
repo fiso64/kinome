@@ -75,7 +75,9 @@ class ProgressBroadcaster {
 
 async function syncDiskToDatabase(
   rootAbsPath: string,
-  source: { id: string; absolutePath: string }
+  source: { id: string; absolutePath: string },
+  higherPriorityPaths?: Set<string>,
+  deduplicateMinDepth: number = 1
 ): Promise<Set<string>> {
   const foundPaths = new Set<string>()
   const newItemsMap = new Map<string, any>()
@@ -152,6 +154,15 @@ async function syncDiskToDatabase(
 
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
           if (!isDir && !isVideoFile) return
+
+          // Dedup: skip folders that exist in a higher-priority source at or beyond min depth
+          if (isDir && higherPriorityPaths) {
+            const depth = relPath.split('/').length
+            if (depth >= deduplicateMinDepth && higherPriorityPaths.has(relPath)) {
+              log(`[Phase 1] Dedup skip (depth ${depth}): ${relPath}`)
+              return
+            }
+          }
 
           try {
             const s = await fs.stat(fullPath)
@@ -283,6 +294,8 @@ export async function scanDirectory(
   options: {
     skipMetadata?: boolean
     initialFolderSettings?: Record<string, any>
+    higherPriorityPaths?: Set<string>
+    deduplicateMinDepth?: number
   } = {}
 ): Promise<MediaFolder | null> {
   log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${resolvedAbsPath}`)
@@ -300,7 +313,12 @@ export async function scanDirectory(
     }
   }
 
-  await syncDiskToDatabase(resolvedAbsPath, { id: source.id, absolutePath: resolvedAbsPath })
+  await syncDiskToDatabase(
+    resolvedAbsPath,
+    { id: source.id, absolutePath: resolvedAbsPath },
+    options.higherPriorityPaths,
+    options.deduplicateMinDepth
+  )
 
   return repositoryService.getRoot()
 }
@@ -315,6 +333,10 @@ export async function syncWithDisk(node: MediaFolder, source: { id: string; abso
   log(`Syncing subtree: ${node.path}`)
 
   await syncDiskToDatabase(rootAbsPath, source)
+}
+
+export function getFolderPathsForSource(sourceId: string): Set<string> {
+  return itemsRepo.getAllFolderPathsInSource(sourceId)
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {

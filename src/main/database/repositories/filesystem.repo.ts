@@ -213,6 +213,17 @@ export function getAllIdsInScope(sourceId: string, pathPrefix: string): string[]
 }
 
 /**
+ * Returns all relative paths for items in a given source (folders only).
+ */
+export function getAllFolderPathsInSource(sourceId: string): Set<string> {
+    const db = getDb()
+    const rows = db.prepare(
+        `SELECT path FROM items WHERE source_id = ? AND type = 'folder' AND is_virtual = 0`
+    ).all(sourceId) as { path: string }[]
+    return new Set(rows.map((r) => r.path))
+}
+
+/**
  * Returns a raw list of all descendant IDs for a given folder.
  */
 export function getAllDescendantIdsFast(parentId: string): string[] {

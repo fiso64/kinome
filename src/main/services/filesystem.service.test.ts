@@ -5,17 +5,23 @@
  * Uses an in-memory SQLite DB via createServiceTestContext().
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import path from 'path'
+import fs from 'fs/promises'
+import os from 'os'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import {
   HOME_FOLDER_ID,
   HOME_CATEGORIES_ID,
   HOME_RECENTLY_ADDED_ID,
   HOME_GENRES_ID,
-  HOME_ALL_MEDIA_ID
+  HOME_ALL_MEDIA_ID,
+  generateId,
+  getAllFolderPathsInSource
 } from '../database/repositories/filesystem.repo'
 import * as repositoryService from './repository.service'
 import { LIBRARY_ROOT_ID } from '../database/repositories/filesystem.repo'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
+import { scanDirectory } from './filesystem.service'
 
 const TEST_SOURCE = { id: 'test-source-uuid', path: '/media/library', isRelative: false }
 
@@ -276,6 +282,138 @@ describe('multi-source', () => {
     const idsB = cleanupB.map((r: any) => r.id)
     expect(idsB).toContain(itemBId)
     expect(idsB).not.toContain(itemAId)
+  })
+})
+
+describe('deduplication', () => {
+  const SOURCE_A = { id: 'dedup-source-a', path: '/tmp/a', isRelative: false }
+  const SOURCE_B = { id: 'dedup-source-b', path: '/tmp/b', isRelative: false }
+
+  let tmpA: string
+  let tmpB: string
+
+  beforeEach(async () => {
+    tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-dedup-a-'))
+    tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-dedup-b-'))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpA, { recursive: true, force: true })
+    await fs.rm(tmpB, { recursive: true, force: true })
+  })
+
+  it('getAllFolderPathsInSource returns folder paths for that source only', () => {
+    const { upsertLibraryItems } = require('../database/repositories/filesystem.repo')
+    repositoryService.ensureSourceRoot(SOURCE_A, tmpA)
+    repositoryService.ensureSourceRoot(SOURCE_B, tmpB)
+
+    const rootAId = generateId(SOURCE_A.id, '.')
+    const rootBId = generateId(SOURCE_B.id, '.')
+    const moviesAId = generateId(SOURCE_A.id, 'Movies')
+    const moviesBId = generateId(SOURCE_B.id, 'Movies')
+
+    upsertLibraryItems([
+      { '@id': moviesAId, '@parentId': rootAId, '@path': 'Movies', '@name': 'Movies', '@type': 'folder', '@sourceId': SOURCE_A.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 1, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+      { '@id': moviesBId, '@parentId': rootBId, '@path': 'Movies', '@name': 'Movies', '@type': 'folder', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+    ])
+
+    const pathsA = getAllFolderPathsInSource(SOURCE_A.id)
+    expect(pathsA.has('.')).toBe(true)
+    expect(pathsA.has('Movies')).toBe(true)
+    expect(pathsA.size).toBe(2) // only source A items
+
+    const pathsB = getAllFolderPathsInSource(SOURCE_B.id)
+    expect(pathsB.has('.')).toBe(true)
+    expect(pathsB.has('Movies')).toBe(true)
+    expect(pathsB.size).toBe(2) // only source B items
+  })
+
+  it('skips overlapping folders (and their children) from lower-priority source', async () => {
+    // Source A: Movies/ActionFilm/
+    await fs.mkdir(path.join(tmpA, 'Movies'))
+    await fs.mkdir(path.join(tmpA, 'Movies', 'ActionFilm'))
+    await fs.writeFile(path.join(tmpA, 'Movies', 'ActionFilm', 'action.mkv'), '')
+
+    // Source B mirrors Movies/ but also has SciFiFilm/
+    await fs.mkdir(path.join(tmpB, 'Movies'))
+    await fs.mkdir(path.join(tmpB, 'Movies', 'SciFiFilm'))
+    await fs.writeFile(path.join(tmpB, 'Movies', 'SciFiFilm', 'scifi.mkv'), '')
+
+    await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
+
+    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
+    // higherPriorityPaths = { '.', 'Movies', 'Movies/ActionFilm' }
+
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 1 })
+
+    // 'Movies' is in higherPriorityPaths at depth 1 >= minDepth 1 → skipped
+    // 'Movies/SciFiFilm' is never reached because 'Movies' was not recursed into
+    const moviesBId = generateId(SOURCE_B.id, 'Movies')
+    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(repositoryService.getItemById(moviesBId)).toBeNull()
+    expect(repositoryService.getItemById(scifiBId)).toBeNull()
+
+    // Source A is unaffected
+    const moviesAId = generateId(SOURCE_A.id, 'Movies')
+    expect(repositoryService.getItemById(moviesAId)).not.toBeNull()
+  })
+
+  it('respects deduplicateMinDepth — structural top-level folders are not skipped', async () => {
+    // Both sources have Movies/ActionFilm/ (perfect mirror)
+    await fs.mkdir(path.join(tmpA, 'Movies'))
+    await fs.mkdir(path.join(tmpA, 'Movies', 'ActionFilm'))
+    await fs.writeFile(path.join(tmpA, 'Movies', 'ActionFilm', 'action.mkv'), '')
+
+    await fs.mkdir(path.join(tmpB, 'Movies'))
+    await fs.mkdir(path.join(tmpB, 'Movies', 'ActionFilm'))
+    await fs.writeFile(path.join(tmpB, 'Movies', 'ActionFilm', 'action.mkv'), '')
+
+    await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
+
+    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
+    // higherPriorityPaths = { '.', 'Movies', 'Movies/ActionFilm' }
+
+    // minDepth=2: 'Movies' (depth 1) is below threshold → not skipped
+    //             'Movies/ActionFilm' (depth 2) IS at threshold and in the set → skipped
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 2 })
+
+    const moviesBId = generateId(SOURCE_B.id, 'Movies')
+    const actionFilmBId = generateId(SOURCE_B.id, 'Movies/ActionFilm')
+
+    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()   // depth 1 < 2 → present
+    expect(repositoryService.getItemById(actionFilmBId)).toBeNull()   // depth 2 >= 2, in set → skipped
+  })
+
+  it('non-overlapping folders in lower-priority source are never skipped', async () => {
+    // Source A: Movies/; Source B: Shows/ (no overlap)
+    await fs.mkdir(path.join(tmpA, 'Movies'))
+    await fs.mkdir(path.join(tmpB, 'Shows'))
+    await fs.mkdir(path.join(tmpB, 'Shows', 'BreakingBad'))
+
+    await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
+
+    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
+    // higherPriorityPaths = { '.', 'Movies' }
+
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 1 })
+
+    // 'Shows' and 'Shows/BreakingBad' are not in source A's paths → both present in B
+    const showsBId = generateId(SOURCE_B.id, 'Shows')
+    const breakingBadBId = generateId(SOURCE_B.id, 'Shows/BreakingBad')
+    expect(repositoryService.getItemById(showsBId)).not.toBeNull()
+    expect(repositoryService.getItemById(breakingBadBId)).not.toBeNull()
+  })
+
+  it('without higherPriorityPaths all folders are included', async () => {
+    await fs.mkdir(path.join(tmpB, 'Movies'))
+    await fs.mkdir(path.join(tmpB, 'Movies', 'SciFiFilm'))
+
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB)
+
+    const moviesBId = generateId(SOURCE_B.id, 'Movies')
+    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()
+    expect(repositoryService.getItemById(scifiBId)).not.toBeNull()
   })
 })
 

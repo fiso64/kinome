@@ -45,7 +45,7 @@
       }
       try {
         isLoading = true
-        const props = await window.api.getItemProperties(item.path)
+        const props = await window.api.getItemProperties(item.id)
         if (props) {
           properties = props
         } else {

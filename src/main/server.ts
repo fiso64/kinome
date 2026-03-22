@@ -683,16 +683,15 @@ const app = new Elysia()
         await libraryService.revealInExplorer(body.path)
         return { success: true }
       })
-      .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.path))
+      .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.itemId))
       .post('/delete-item-from-db', ({ body }: { body: any }) =>
         libraryService.deleteItemFromDb(body.itemId)
       )
       .post('/rename-item', ({ body }: { body: any }) =>
-        libraryService.renameItem(body.oldPath, body.newName)
+        libraryService.renameItem(body.itemId, body.newName)
       )
-      .get('/item-properties/*', async ({ params }) => {
-        const itemPath = decodeURIComponent(params['*'])
-        return libraryService.getItemProperties(itemPath)
+      .get('/item-properties/:itemId', async ({ params }) => {
+        return libraryService.getItemProperties(params.itemId)
       })
       // Streaming
       .get('/stream/:id', async ({ params, query, set, request }) => {

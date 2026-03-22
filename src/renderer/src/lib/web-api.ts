@@ -527,10 +527,10 @@ class WebApiClient implements ApiClient {
     this.request('/api/reveal-in-explorer', { method: 'POST', body: JSON.stringify({ path }) })
   }
 
-  trashItem(path: string): Promise<boolean> {
+  trashItem(itemId: string): Promise<boolean> {
     return this.request<{ success: boolean }>('/api/trash-item', {
       method: 'POST',
-      body: JSON.stringify({ path })
+      body: JSON.stringify({ itemId })
     }).then((r) => r.success)
   }
 
@@ -541,15 +541,15 @@ class WebApiClient implements ApiClient {
     }).then((r) => r.success)
   }
 
-  renameItem(oldPath: string, newName: string): Promise<boolean> {
+  renameItem(itemId: string, newName: string): Promise<boolean> {
     return this.request<{ success: boolean }>('/api/rename-item', {
       method: 'POST',
-      body: JSON.stringify({ oldPath, newName })
+      body: JSON.stringify({ itemId, newName })
     }).then((r) => r.success)
   }
 
-  getItemProperties(path: string): Promise<MediaProperties | null> {
-    return this.request(`/api/item-properties/${encodeURIComponent(path)}`)
+  getItemProperties(itemId: string): Promise<MediaProperties | null> {
+    return this.request(`/api/item-properties/${encodeURIComponent(itemId)}`)
   }
 
   getSettings(): Promise<Settings> {
