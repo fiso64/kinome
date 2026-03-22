@@ -77,7 +77,7 @@ async function syncDiskToDatabase(
   rootAbsPath: string,
   source: { id: string; absolutePath: string },
   higherPriorityPaths?: Set<string>,
-  deduplicateMinDepth: number = 1
+  shadowMinDepth: number = 1
 ): Promise<Set<string>> {
   const foundPaths = new Set<string>()
   const newItemsMap = new Map<string, any>()
@@ -155,11 +155,11 @@ async function syncDiskToDatabase(
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
           if (!isDir && !isVideoFile) return
 
-          // Dedup: skip folders that exist in a higher-priority source at or beyond min depth
+          // Shadow: skip folders that exist in a higher-priority source at or beyond min depth
           if (isDir && higherPriorityPaths) {
             const depth = relPath.split('/').length
-            if (depth >= deduplicateMinDepth && higherPriorityPaths.has(relPath)) {
-              log(`[Phase 1] Dedup skip (depth ${depth}): ${relPath}`)
+            if (depth >= shadowMinDepth && higherPriorityPaths.has(relPath)) {
+              log(`[Phase 1] Shadow skip (depth ${depth}): ${relPath}`)
               return
             }
           }
@@ -295,7 +295,7 @@ export async function scanDirectory(
     skipMetadata?: boolean
     initialFolderSettings?: Record<string, any>
     higherPriorityPaths?: Set<string>
-    deduplicateMinDepth?: number
+    shadowMinDepth?: number
   } = {}
 ): Promise<MediaFolder | null> {
   log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${resolvedAbsPath}`)
@@ -317,7 +317,7 @@ export async function scanDirectory(
     resolvedAbsPath,
     { id: source.id, absolutePath: resolvedAbsPath },
     options.higherPriorityPaths,
-    options.deduplicateMinDepth
+    options.shadowMinDepth
   )
 
   return repositoryService.getRoot()

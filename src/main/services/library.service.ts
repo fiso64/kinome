@@ -111,7 +111,7 @@ async function _runBackgroundScan(
   resolvedAbsPath: string,
   normalizedSettings: Record<string, any>,
   higherPriorityPaths?: Set<string>,
-  deduplicateMinDepth?: number
+  shadowMinDepth?: number
 ): Promise<void> {
   if (pathsService.isRemoteLibrary())
     throw new Error(`Scanning not available for remote libraries.`)
@@ -123,7 +123,7 @@ async function _runBackgroundScan(
       skipMetadata: false,
       initialFolderSettings: normalizedSettings,
       higherPriorityPaths,
-      deduplicateMinDepth
+      shadowMinDepth
     })
 
     searchService.buildFullSearchIndex()
@@ -156,7 +156,7 @@ export const saveSource = async (source: import('@shared/types').MediaSource): P
 
 /**
  * Scans all configured media sources sequentially.
- * Sources are scanned in priority order; deduplication is applied when enabled.
+ * Sources are scanned in priority order; shadowing is applied when enabled.
  */
 export const performScan = async (
   sourceFolderSettings?: Record<string, Record<string, any>>
@@ -166,8 +166,8 @@ export const performScan = async (
   if (sourcePaths.size === 0) throw new Error('Cannot scan, no library sources configured.')
 
   const sources = settings.mediaSources ?? []
-  const deduplicateSources = settings.deduplicateSources ?? false
-  const deduplicateMinDepth = settings.deduplicateMinDepth ?? 1
+  const shadowSources = settings.shadowSources ?? false
+  const shadowMinDepth = settings.shadowMinDepth ?? 1
 
   // Initialize roots before any scanning begins
   for (const source of sources) {
@@ -180,7 +180,7 @@ export const performScan = async (
     filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
   }
 
-  // Run scans sequentially so higher-priority source results are in DB before building dedup sets
+  // Run scans sequentially so higher-priority source results are in DB before building shadow sets
   ;(async () => {
     for (let j = 0; j < sources.length; j++) {
       const source = sources[j]
@@ -189,20 +189,20 @@ export const performScan = async (
 
       log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
 
-      // Build dedup set from higher-priority sources that have already been scanned this cycle
+      // Build shadow set from higher-priority sources that have already been scanned this cycle
       let higherPriorityPaths: Set<string> | undefined
-      if (deduplicateSources && j > 0) {
+      if (shadowSources && j > 0) {
         higherPriorityPaths = new Set<string>()
         for (let k = 0; k < j; k++) {
           for (const p of filesystemService.getFolderPathsForSource(sources[k].id)) {
             higherPriorityPaths.add(p)
           }
         }
-        log(`Dedup: skipping ${higherPriorityPaths.size} paths from ${j} higher-priority source(s) at depth >= ${deduplicateMinDepth}`)
+        log(`Shadow: skipping ${higherPriorityPaths.size} paths from ${j} higher-priority source(s) at depth >= ${shadowMinDepth}`)
       }
 
       const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
-      await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, higherPriorityPaths, deduplicateMinDepth)
+      await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, higherPriorityPaths, shadowMinDepth)
     }
   })().catch((err) => {
     console.error('[Library Service] Background scan sequence failed:', err)

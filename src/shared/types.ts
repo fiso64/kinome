@@ -322,8 +322,8 @@ export interface LibrarySettings {
   playerCommands: PlayerCommandConfig[]
   customActions: CustomActionConfig[]
   mediaSources?: MediaSource[]
-  deduplicateSources?: boolean
-  deduplicateMinDepth?: number
+  shadowSources?: boolean
+  shadowMinDepth?: number
   defaultLayoutSettings: {
     grid: GridSettings
     'horizontal-grid': HorizontalGridSettings

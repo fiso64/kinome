@@ -6,13 +6,13 @@
   let {
     mediaSources = $bindable(),
     libraryLocation = $bindable(),
-    deduplicateSources = $bindable(),
-    deduplicateMinDepth = $bindable()
+    shadowSources = $bindable(),
+    shadowMinDepth = $bindable()
   }: {
     mediaSources: MediaSource[]
     libraryLocation: string
-    deduplicateSources: boolean
-    deduplicateMinDepth: number
+    shadowSources: boolean
+    shadowMinDepth: number
   } = $props()
 
   let resolvedPaths = $state<Record<string, { path: string; exists: boolean }>>({})
@@ -126,28 +126,28 @@
   <button class="add-source-btn" onclick={addSource}>+ Add Source</button>
 
   {#if mediaSources.length > 1}
-    <div class="dedup-section">
+    <div class="shadow-section">
       <label class="checkbox-label">
-        <input type="checkbox" bind:checked={deduplicateSources} />
-        <span>Deduplicate sources</span>
+        <input type="checkbox" bind:checked={shadowSources} />
+        <span>Shadow sources</span>
       </label>
-      {#if deduplicateSources}
+      {#if shadowSources}
         {@const parts = ['Movies', 'ActionFilm', 'Scene', 'Extra', 'Bonus', 'Clip', 'Featurette', 'Interview', 'Trailer', 'Short']}
-        {@const examplePath = parts.slice(0, deduplicateMinDepth).join('/') + '/'}
-        <div class="dedup-depth">
-          <label for="dedup-min-depth">Skip folders from</label>
+        {@const examplePath = parts.slice(0, shadowMinDepth).join('/') + '/'}
+        <div class="shadow-depth">
+          <label for="shadow-min-depth">Skip folders from</label>
           <input
             type="number"
-            id="dedup-min-depth"
-            bind:value={deduplicateMinDepth}
+            id="shadow-min-depth"
+            bind:value={shadowMinDepth}
             min="1"
             max="10"
             oninput={(e) => {
               const v = parseInt((e.target as HTMLInputElement).value)
-              if (!isNaN(v)) deduplicateMinDepth = Math.max(1, Math.min(10, v))
+              if (!isNaN(v)) shadowMinDepth = Math.max(1, Math.min(10, v))
             }}
           />
-          <span class="dedup-depth-unit">{deduplicateMinDepth === 1 ? 'level' : 'levels'} deep</span>
+          <span class="shadow-depth-unit">{shadowMinDepth === 1 ? 'level' : 'levels'} deep</span>
         </div>
         <p class="help-text">
           e.g. <code>{examplePath}</code> — Folders at this depth or deeper that already exist in a
@@ -302,7 +302,7 @@
     font-size: 0.9em;
   }
 
-  .dedup-section {
+  .shadow-section {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -312,24 +312,24 @@
     border-radius: 6px;
   }
 
-  .dedup-depth {
+  .shadow-depth {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     font-size: 0.9rem;
   }
 
-  .dedup-depth label {
+  .shadow-depth label {
     color: var(--color-text-soft);
   }
 
-  .dedup-depth input[type='number'] {
+  .shadow-depth input[type='number'] {
     width: 3.5rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
   }
 
-  .dedup-depth-unit {
+  .shadow-depth-unit {
     color: var(--color-text-soft);
     font-size: 0.9rem;
   }

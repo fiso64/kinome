@@ -285,16 +285,16 @@ describe('multi-source', () => {
   })
 })
 
-describe('deduplication', () => {
-  const SOURCE_A = { id: 'dedup-source-a', path: '/tmp/a', isRelative: false }
-  const SOURCE_B = { id: 'dedup-source-b', path: '/tmp/b', isRelative: false }
+describe('shadowing', () => {
+  const SOURCE_A = { id: 'shadow-source-a', path: '/tmp/a', isRelative: false }
+  const SOURCE_B = { id: 'shadow-source-b', path: '/tmp/b', isRelative: false }
 
   let tmpA: string
   let tmpB: string
 
   beforeEach(async () => {
-    tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-dedup-a-'))
-    tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-dedup-b-'))
+    tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-shadow-a-'))
+    tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-shadow-b-'))
   })
 
   afterEach(async () => {
@@ -344,7 +344,7 @@ describe('deduplication', () => {
     const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
     // higherPriorityPaths = { '.', 'Movies', 'Movies/ActionFilm' }
 
-    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 1 })
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 
     // 'Movies' is in higherPriorityPaths at depth 1 >= minDepth 1 → skipped
     // 'Movies/SciFiFilm' is never reached because 'Movies' was not recursed into
@@ -358,7 +358,7 @@ describe('deduplication', () => {
     expect(repositoryService.getItemById(moviesAId)).not.toBeNull()
   })
 
-  it('respects deduplicateMinDepth — structural top-level folders are not skipped', async () => {
+  it('respects shadowMinDepth — structural top-level folders are not skipped', async () => {
     // Both sources have Movies/ActionFilm/ (perfect mirror)
     await fs.mkdir(path.join(tmpA, 'Movies'))
     await fs.mkdir(path.join(tmpA, 'Movies', 'ActionFilm'))
@@ -375,7 +375,7 @@ describe('deduplication', () => {
 
     // minDepth=2: 'Movies' (depth 1) is below threshold → not skipped
     //             'Movies/ActionFilm' (depth 2) IS at threshold and in the set → skipped
-    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 2 })
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 2 })
 
     const moviesBId = generateId(SOURCE_B.id, 'Movies')
     const actionFilmBId = generateId(SOURCE_B.id, 'Movies/ActionFilm')
@@ -395,7 +395,7 @@ describe('deduplication', () => {
     const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
     // higherPriorityPaths = { '.', 'Movies' }
 
-    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, deduplicateMinDepth: 1 })
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 
     // 'Shows' and 'Shows/BreakingBad' are not in source A's paths → both present in B
     const showsBId = generateId(SOURCE_B.id, 'Shows')
