@@ -2,6 +2,11 @@
 
 Media server and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, streams media.
 
+<img width="2539" height="1440" alt="image" src="https://github.com/user-attachments/assets/12e17cc5-c3c8-45e4-9641-ecadef5445ba" />
+<img width="2526" height="1440" alt="image" src="https://github.com/user-attachments/assets/9feb2a6f-7c3a-494c-a1ca-35603a035772" />
+
+
+
 ## Goals
 - More customizable
     - Virtual (automatic) tags which can be used for searching or grouping.
