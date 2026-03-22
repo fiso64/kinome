@@ -318,6 +318,14 @@ async function readRawSettings(): Promise<Settings> {
  * The main public function to get the fully resolved settings.
  * Also handles applying the default API key if none is provided.
  */
+/**
+ * Returns a copy of the settings safe to send to the client — sensitive fields removed.
+ */
+export function sanitizeForClient(settings: Settings): Omit<Settings, 'adminPasswordHash'> {
+  const { adminPasswordHash: _, ...sanitized } = settings as any
+  return sanitized
+}
+
 export async function readSettings(): Promise<Settings> {
   if (cachedSettings) return cachedSettings
 

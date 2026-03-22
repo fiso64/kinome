@@ -163,6 +163,7 @@ const app = new Elysia()
 
     console.error(`[API] [ERROR] ${request.method} ${url} - Code: ${code}`)
     console.error(error)
+    set.status = 500
     return { error: (error as any).message || 'Internal Server Error' }
   })
   // Auth Plugin (Deny-by-Default)
@@ -390,11 +391,10 @@ const app = new Elysia()
       })
       /**
        * --- TODO: Unified Items API Architectural Cleanup ---
-       * This entire section is currently a "God Router" that handles excessive business logic.
-       * 1. Routes should be thin entry points that delegate to services (e.g., LibraryService).
-       * 2. Manual ID normalization (root alias logic) should live in the service layer.
-       * 3. Schema validation (TypeBox) is missing on several endpoints, leading to `any` usage.
-       * 4. Error handling is inconsistent (manual try-catch + set.status vs global error mapping).
+       * 1. Routes should be thin entry points — several still contain inline business logic.
+       * 2. Root/home alias resolution is duplicated across /items/:id and /items/:id/ancestors;
+       *    it should live in the service/navigation layer.
+       * 3. Schema validation (TypeBox) is missing on most endpoints, leading to `any` usage.
        */
       // --- Unified Items API ---
       .get('/items', ({ query }) => {
@@ -583,20 +583,10 @@ const app = new Elysia()
         await libraryService.recordPlayback(body.itemId)
         return { success: true }
       })
-      .post('/assign-seasons-and-episodes', async ({ body, set }: { body: any; set: any }) => {
+      .post('/assign-seasons-and-episodes', async ({ body }: { body: any }) => {
         const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = body
-        try {
-          await libraryService.assignSeasonsAndEpisodes(
-            showId,
-            seasonStrategy,
-            episodeStrategy,
-            fetchMetadata
-          )
-          return { success: true }
-        } catch (error: any) {
-          set.status = 500
-          return { error: error.message }
-        }
+        await libraryService.assignSeasonsAndEpisodes(showId, seasonStrategy, episodeStrategy, fetchMetadata)
+        return { success: true }
       })
       .post('/clear-item-metadata', ({ body }: { body: any }) =>
         libraryService.clearItemMetadata(body.itemId, body.childrenOnly)
@@ -608,25 +598,12 @@ const app = new Elysia()
         await libraryService.fetchCredits(body.itemId)
         return { success: true }
       })
-      .post('/manual-search', async ({ body }: { body: any }) => {
-        const settings = await settingsService.readSettings()
-        return libraryService.manualSearch(
-          body.query,
-          body.type,
-          settings.tmdbApiKey,
-          body.year,
-          body.tmdbId
-        )
-      })
-      .post('/get-tmdb-images', async ({ body }: { body: any }) => {
-        const settings = await settingsService.readSettings()
-        return libraryService.getTmdbImages(
-          body.tmdbId,
-          body.mediaType,
-          settings.tmdbApiKey,
-          body.language
-        )
-      })
+      .post('/manual-search', ({ body }: { body: any }) =>
+        libraryService.manualSearch(body.query, body.type, body.year, body.tmdbId)
+      )
+      .post('/get-tmdb-images', ({ body }: { body: any }) =>
+        libraryService.getTmdbImages(body.tmdbId, body.mediaType, body.language)
+      )
       .post('/user-apply-tmdb-result', async ({ body }: { body: any }) => {
         await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
         return { success: true }
@@ -639,22 +616,11 @@ const app = new Elysia()
         await libraryService.removeImage(body.itemId, body.imageType)
         return { success: true }
       })
-      .post('/upload-image', async ({ body, set }: { body: any; set: any }) => {
-        try {
-          const { itemId, imageType, file } = body as {
-            itemId: string
-            imageType: string
-            file: File
-          }
-          if (!file) throw new Error('No file uploaded')
-
-          // Use libraryService to handle the logic of where to save and how to update the DB
-          await libraryService.uploadImage(itemId, imageType as any, file)
-          return { success: true }
-        } catch (error: any) {
-          set.status = 500
-          return { error: error.message }
-        }
+      .post('/upload-image', async ({ body }: { body: any }) => {
+        const { itemId, imageType, file } = body as { itemId: string; imageType: string; file: File }
+        if (!file) throw new Error('No file uploaded')
+        await libraryService.uploadImage(itemId, imageType as any, file)
+        return { success: true }
       })
       .post('/mark-watched', async ({ body }: { body: any }) => {
         await libraryService.markAsWatched(body.itemId)
@@ -748,26 +714,19 @@ const app = new Elysia()
         return response
       })
       .get('/playlist/:id', async ({ params, query, request, set }) => {
-        try {
-          const url = new URL(request.url)
-          const m3uContent = await playbackService.generateM3UPlaylist(
-            params.id,
-            url.host,
-            url.protocol,
-            query.token as string | undefined
-          )
-
-          if (!m3uContent) {
-            set.status = 404
-            return 'Item not found'
-          }
-
-          set.headers['Content-Type'] = 'audio/x-mpegurl'
-          return m3uContent
-        } catch (e: any) {
-          set.status = 500
-          return { error: e.message || 'Error' }
+        const url = new URL(request.url)
+        const m3uContent = await playbackService.generateM3UPlaylist(
+          params.id,
+          url.host,
+          url.protocol,
+          query.token as string | undefined
+        )
+        if (!m3uContent) {
+          set.status = 404
+          return 'Item not found'
         }
+        set.headers['Content-Type'] = 'audio/x-mpegurl'
+        return m3uContent
       })
       .post('/resolve-media-source-path', async ({ body }: { body: any }) => {
         return await settingsService.resolveMediaSourcePath(
@@ -782,12 +741,7 @@ const app = new Elysia()
         )
         return { success: true }
       })
-      .get('/settings', async () => {
-        const settings = await settingsService.readSettings()
-        const sanitized = { ...settings }
-        delete (sanitized as any).adminPasswordHash
-        return sanitized
-      })
+      .get('/settings', async () => settingsService.sanitizeForClient(await settingsService.readSettings()))
       .post('/save-settings', async ({ body }: { body: any }) => {
         const oldSettings = await settingsService.readSettings()
         await settingsService.saveSettingsChanges(body)
@@ -806,9 +760,7 @@ const app = new Elysia()
           webTransport.forceRendererReload()
         }
 
-        const newSettings = await settingsService.readSettings()
-        const sanitized = { ...newSettings }
-        delete (sanitized as any).adminPasswordHash
+        const sanitized = settingsService.sanitizeForClient(await settingsService.readSettings())
         webTransport.notifySettingsUpdated(sanitized as any)
         return sanitized
       })

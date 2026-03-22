@@ -519,15 +519,14 @@ export const getAutocompleteValues = async (key: string, query?: string, limit?:
 
 export const performSearch = searchService.performSearch
 export const debugPerformSearch = searchService.debugPerformSearch
-export const manualSearch = (
-  query: string,
-  type: any,
-  apiKey: string,
-  year?: string,
-  tmdbId?: string
-) => retrieverService.manualSearch(query, type, apiKey, { year, tmdbId })
-export const getTmdbImages = (id: number, type: any, apiKey: string, language?: string) =>
-  retrieverService.getImages(id, type, apiKey, language)
+export const manualSearch = async (query: string, type: any, year?: string, tmdbId?: string) => {
+  const { tmdbApiKey } = await settingsService.readSettings()
+  return retrieverService.manualSearch(query, type, tmdbApiKey, { year, tmdbId })
+}
+export const getTmdbImages = async (id: number, type: any, language?: string) => {
+  const { tmdbApiKey } = await settingsService.readSettings()
+  return retrieverService.getImages(id, type, tmdbApiKey, language)
+}
 export const executeCustomAction = actionsService.executeCustomAction
 export const getAbsolutePathForItem = actionsService.getAbsolutePathForItem
 export const getItemProperties = actionsService.getItemProperties
