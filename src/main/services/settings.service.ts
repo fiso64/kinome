@@ -1,14 +1,10 @@
-import path, { dirname, relative, resolve as resolvePath } from 'path'
+import path, { dirname, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
 import equal from 'fast-deep-equal'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
 import type {
-  MediaFolder,
-  MediaFile,
-  LibraryItem,
   Settings,
-  LibraryStatus,
   ServerSettings,
   LibrarySettings,
   GlobalConfig
@@ -29,14 +25,14 @@ const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // ma
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
 
 let cachedSettings: Settings | null = null
-let cachedAbsoluteMediaSourcePath: string | null = null
+let cachedAbsoluteSourcePaths: Map<string, string> | null = null
 
 /**
  * Invalidates all in-memory settings caches.
  */
 export function invalidateSettingsCaches(): void {
   cachedSettings = null
-  cachedAbsoluteMediaSourcePath = null
+  cachedAbsoluteSourcePaths = null
 }
 
 const globalSettingsQueue = new SerializedQueue()
@@ -119,7 +115,7 @@ export async function checkLibraryExists(libraryPath: string): Promise<{
       // Check if it's a valid DB with a root
       const db = new Database(dbFileUrl, { readonly: true })
       try {
-        const row = db.query('SELECT 1 FROM items WHERE parent_id IS NULL LIMIT 1').get()
+        const row = db.query(`SELECT 1 FROM items WHERE id = 'virtual-library-root' LIMIT 1`).get()
         dbExists = !!row
       } finally {
         db.close()
@@ -246,8 +242,7 @@ async function readRawSettings(): Promise<Settings> {
     showNextUp: true,
     virtualTags: [],
     libraryLocation: '',
-    mediaSourcePath: '',
-    mediaSourcePathIsRelative: false,
+    mediaSources: [],
     defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
     defaultLayouts: {
       _default: { layout: 'grid' },
@@ -358,10 +353,6 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
       const currentSettings = await readSettingsFile(settingsPath)
       const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }
 
-      if (settingsToSave.mediaSourcePath) {
-        settingsToSave.mediaSourcePath = settingsToSave.mediaSourcePath.replace(/\\/g, '/')
-      }
-
       // Strip predefined vtags that are identical to their defaults — they don't
       // need to be persisted unless the user has actually modified them.
       if (settingsToSave.virtualTags) {
@@ -397,7 +388,6 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
  */
 export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Promise<void> {
   console.log('[Settings Service] Saving settings. Identifying server vs library changes.')
-  const oldSettings = await readSettings()
 
   const serverChanges: Partial<Settings> = {}
   const libraryChanges: Partial<Settings> = {}
@@ -420,42 +410,6 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   const settingsForCurrentLibrary = libraryChanges
 
-  // Handle media path relativity conversion
-  const newRelativity = settingsForCurrentLibrary.mediaSourcePathIsRelative
-  const oldRelativity = oldSettings.mediaSourcePathIsRelative
-
-  if (
-    newRelativity !== undefined &&
-    newRelativity !== oldRelativity &&
-    oldSettings.mediaSourcePath
-  ) {
-    console.log(`[Settings Service] Converting mediaSourcePath relativity. New: ${newRelativity}`)
-    if (newRelativity === true) {
-      // from absolute to relative
-      if (oldSettings.libraryLocation) {
-        let relativePath = relative(
-          dirname(oldSettings.libraryLocation),
-          oldSettings.mediaSourcePath
-        )
-        relativePath = relativePath.replace(/\\/g, '/')
-        settingsForCurrentLibrary.mediaSourcePath =
-          relativePath === ''
-            ? '.'
-            : relativePath.startsWith('../')
-              ? relativePath
-              : './' + relativePath
-      }
-    } else {
-      // from relative to absolute
-      if (oldSettings.libraryLocation) {
-        settingsForCurrentLibrary.mediaSourcePath = resolvePath(
-          dirname(oldSettings.libraryLocation),
-          oldSettings.mediaSourcePath
-        )
-      }
-    }
-  }
-
   if (Object.keys(settingsForCurrentLibrary).length > 0) {
     await writeLibrarySettings(settingsForCurrentLibrary)
   }
@@ -469,38 +423,45 @@ export async function renameFS(oldPath: string, newPath: string): Promise<void> 
   return fs.rename(oldPath, newPath)
 }
 
-export async function getAbsoluteMediaSourcePath(): Promise<string | null> {
-  if (cachedAbsoluteMediaSourcePath) return cachedAbsoluteMediaSourcePath
+/**
+ * Resolves the absolute path for a single MediaSource entry.
+ */
+async function resolveSourcePath(sourcePath: string, isRelative: boolean): Promise<string> {
+  const isPhysicallyRelative = !path.isAbsolute(sourcePath) && !isRemoteLibrary()
+  if (isRelative || isPhysicallyRelative) {
+    const libraryPath = getLibraryDataPath()
+    if (!libraryPath) return sourcePath
+    if (isRemoteLibrary()) {
+      const parentUrl = new URL('..', libraryPath)
+      return new URL(sourcePath, parentUrl).toString()
+    }
+    return resolvePath(dirname(libraryPath), sourcePath)
+  }
+  return sourcePath
+}
+
+/**
+ * Returns the resolved absolute path for a single media source by its UUID.
+ * Returns null if no source with that ID is configured.
+ */
+export async function getAbsoluteSourcePath(sourceId: string): Promise<string | null> {
+  const paths = await getAbsoluteSourcePaths()
+  return paths.get(sourceId) ?? null
+}
+
+/**
+ * Returns a Map of sourceId -> resolved absolute path for all configured media sources.
+ */
+export async function getAbsoluteSourcePaths(): Promise<Map<string, string>> {
+  if (cachedAbsoluteSourcePaths) return cachedAbsoluteSourcePaths
 
   const settings = await readSettings()
-  if (!settings.mediaSourcePath) {
-    return null
+  const result = new Map<string, string>()
+  for (const source of settings.mediaSources ?? []) {
+    result.set(source.id, await resolveSourcePath(source.path, source.isRelative))
   }
-
-  // Treat as relative if the flag is true OR if the path is physically not absolute
-  // (and it's not a remote library, although remote libs usually force relative flag)
-  const isPhysicallyRelative = !path.isAbsolute(settings.mediaSourcePath) && !isRemoteLibrary()
-
-  if (settings.mediaSourcePathIsRelative || isPhysicallyRelative) {
-    const libraryPath = getLibraryDataPath()
-    if (!libraryPath) {
-      cachedAbsoluteMediaSourcePath = settings.mediaSourcePath
-      return settings.mediaSourcePath
-    }
-
-    if (isRemoteLibrary()) {
-      // For remote paths, resolve relative to the parent URL, mimicking path.dirname().
-      // libraryPath for remote is guaranteed to have a trailing slash by paths.service.
-      const parentUrl = new URL('..', libraryPath)
-      cachedAbsoluteMediaSourcePath = new URL(settings.mediaSourcePath, parentUrl).toString()
-    } else {
-      cachedAbsoluteMediaSourcePath = resolvePath(dirname(libraryPath), settings.mediaSourcePath)
-    }
-    return cachedAbsoluteMediaSourcePath
-  }
-
-  cachedAbsoluteMediaSourcePath = settings.mediaSourcePath
-  return settings.mediaSourcePath
+  cachedAbsoluteSourcePaths = result
+  return result
 }
 
 export async function resolveMediaSourcePath(

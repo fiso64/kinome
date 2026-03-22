@@ -10,7 +10,8 @@ import type {
   MediaProperties,
   AppCapabilities,
   LibraryStatus,
-  ScanStatus
+  ScanStatus,
+  MediaSource
 } from '@shared/types'
 
 export interface ApiClient {
@@ -55,7 +56,7 @@ export interface ApiClient {
   getLibraryRoot(path?: string): Promise<LibraryStatus>
   listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]>
   performScan(options?: {
-    path?: string
+    source?: MediaSource
     initialFolderSettings?: Record<string, any>
   }): Promise<{ success: boolean }>
   playFile(file: MediaFile): Promise<boolean>

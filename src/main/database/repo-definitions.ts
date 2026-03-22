@@ -35,6 +35,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
     entityId: { sql: 'i.entity_id', table: 'i' },
+    sourceId: { sql: 'i.source_id', table: 'i' },
 
     // Media Entities Table
     tmdbId: { sql: 'e.tmdb_id', table: 'e' },

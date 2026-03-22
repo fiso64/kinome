@@ -86,16 +86,16 @@ export async function switchToLibrary(newPath: string): Promise<void> {
 
 export const getLibraryRoot = navigationService.getLibraryRoot
 
-// Helper to normalize settings
+// Helper to normalize settings: converts absolute key-paths to paths relative to a given source root
 function normalizeFolderSettings(
-  mediaSourcePath: string,
+  sourceAbsPath: string,
   initialFolderSettings?: Record<string, any>
 ) {
   const normalizedSettings: Record<string, any> = {}
   if (initialFolderSettings) {
     log(`[Scan] Received initial settings. Keys: ${Object.keys(initialFolderSettings).join(', ')}`)
     for (const [keyPath, val] of Object.entries(initialFolderSettings)) {
-      let rel = path.relative(mediaSourcePath, keyPath).replace(/\\/g, '/')
+      let rel = path.relative(sourceAbsPath, keyPath).replace(/\\/g, '/')
       if (rel === '') rel = '.'
       normalizedSettings[rel] = val
       log(`[Scan] Normalized setting: "${keyPath}" -> "${rel}"`)
@@ -107,7 +107,8 @@ function normalizeFolderSettings(
 }
 
 async function _runBackgroundScan(
-  mediaSourcePath: string,
+  source: import('@shared/types').MediaSource,
+  resolvedAbsPath: string,
   normalizedSettings: Record<string, any>
 ): Promise<void> {
   if (pathsService.isRemoteLibrary())
@@ -116,7 +117,7 @@ async function _runBackgroundScan(
   getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
 
   try {
-    await filesystemService.scanDirectory(mediaSourcePath, {
+    await filesystemService.scanDirectory(source, resolvedAbsPath, {
       skipMetadata: false,
       initialFolderSettings: normalizedSettings
     })
@@ -137,52 +138,63 @@ async function _runBackgroundScan(
 
 /**
  * Unified entry point for scanning.
- * - If path is provided (Setup): Updates settings, initializes root, and runs full scan.
- * - If path is missing (Refresh): Reads current settings, runs full scan + image verification.
+ * - In setup mode (options.source provided): saves source to settings, inits root, and scans.
+ * - In refresh mode: reads all configured sources from settings and scans each.
  */
 export const performScan = async (
-  options: { path?: string; initialFolderSettings?: Record<string, any> } = {}
+  options: {
+    source?: import('@shared/types').MediaSource
+    initialFolderSettings?: Record<string, any>
+  } = {}
 ) => {
-  // 1. Resolve Path & Settings
-  let mediaSourcePath: string
   const settings = await settingsService.readSettings()
 
-  if (options.path) {
-    mediaSourcePath = options.path
-    // Setup Mode: Update Settings
-    let pathToSave = mediaSourcePath
-    if (settings.mediaSourcePathIsRelative) {
-      const libraryPath = pathsService.getLibraryDataPath()
-      let relative = path.relative(path.dirname(libraryPath), mediaSourcePath)
-      relative = relative.replace(/\\/g, '/')
-      pathToSave = relative === '' ? '.' : relative.startsWith('../') ? relative : './' + relative
+  if (options.source) {
+    // Setup Mode: add/replace this source in settings
+    const source = options.source
+    const resolvedAbsPath = (await settingsService.resolveMediaSourcePath(source.path, source.isRelative)).path
+
+    log(`Setup scan for source ${source.id}: ${resolvedAbsPath}`)
+
+    const existingSources = settings.mediaSources ?? []
+    const updatedSources = existingSources.some((s) => s.id === source.id)
+      ? existingSources.map((s) => (s.id === source.id ? source : s))
+      : [...existingSources, source]
+    await settingsService.writeLibrarySettings({ mediaSources: updatedSources })
+
+    if (!pathsService.isRemotePath(resolvedAbsPath)) {
+      await settingsService.createDirectory(resolvedAbsPath)
     }
-    await settingsService.writeLibrarySettings({ mediaSourcePath: pathToSave })
+
+    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, options.initialFolderSettings)
+    filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
+
+    _runBackgroundScan(source, resolvedAbsPath, normalizedSettings).catch((err) => {
+      console.error('[Library Service] Background scan failed:', err)
+    })
   } else {
-    // Refresh Mode: Use Existing
-    const existingPath = await settingsService.getAbsoluteMediaSourcePath()
-    if (!existingPath) throw new Error('Cannot scan, no library configured.')
-    mediaSourcePath = existingPath
+    // Refresh Mode: scan all configured sources
+    const sourcePaths = await settingsService.getAbsoluteSourcePaths()
+    if (sourcePaths.size === 0) throw new Error('Cannot scan, no library sources configured.')
+
+    for (const source of settings.mediaSources ?? []) {
+      const resolvedAbsPath = sourcePaths.get(source.id)
+      if (!resolvedAbsPath) continue
+
+      log(`Refresh scan for source ${source.id}: ${resolvedAbsPath}`)
+
+      if (!pathsService.isRemotePath(resolvedAbsPath)) {
+        await settingsService.createDirectory(resolvedAbsPath)
+      }
+
+      const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, undefined)
+      filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
+
+      _runBackgroundScan(source, resolvedAbsPath, normalizedSettings).catch((err) => {
+        console.error(`[Library Service] Background scan failed for source ${source.id}:`, err)
+      })
+    }
   }
-
-  log(`Starting background scan of: ${mediaSourcePath}`)
-
-  // 1.5 Ensure directory exists (Auto-create)
-  if (!pathsService.isRemotePath(mediaSourcePath)) {
-    await settingsService.createDirectory(mediaSourcePath)
-  }
-
-  // 2. Normalize Settings (if any provided)
-  const normalizedSettings = normalizeFolderSettings(mediaSourcePath, options.initialFolderSettings)
-
-  // 3. Initialize Root Synchronously
-  // Safe to call even if root exists (idempotent)
-  filesystemService.initializeRoot(mediaSourcePath, normalizedSettings)
-
-  // 4. Kick off Background Process (Fire and Forget)
-  _runBackgroundScan(mediaSourcePath, normalizedSettings).catch((err) => {
-    console.error('[Library Service] Background scan failed:', err)
-  })
 
   return { success: true }
 }
@@ -505,22 +517,23 @@ export const manualSearch = (
 export const getTmdbImages = (id: number, type: any, apiKey: string, language?: string) =>
   retrieverService.getImages(id, type, apiKey, language)
 export const executeCustomAction = actionsService.executeCustomAction
-export const getAbsolutePath = actionsService.getAbsolutePath
+export const getAbsolutePathForItem = actionsService.getAbsolutePathForItem
 export const getItemProperties = actionsService.getItemProperties
 export const revealInExplorer = actionsService.revealInExplorer
-export const trashItem = async (path: string): Promise<{ success: boolean }> => {
-  const success = await actionsService.trashItem(path)
+export const trashItem = async (itemId: string): Promise<{ success: boolean }> => {
+  const success = await actionsService.trashItem(itemId)
   if (success) {
-    await handleItemRemovedByPath(path)
+    repositoryService.deleteItem(itemId)
+    getTransport().notifyLibraryItemDeleted(itemId)
   }
   return { success }
 }
 export const renameItem = async (
-  oldPath: string,
+  itemId: string,
   newName: string
 ): Promise<{ success: boolean }> => {
-  const newPath = await actionsService.renameItem(oldPath, newName)
-  await handleItemRenamed(oldPath, newPath)
+  const newRelPath = await actionsService.renameItem(itemId, newName)
+  await handleItemRenamed(itemId, newRelPath)
   return { success: true }
 }
 export const getItemById = async (id: string) => {
@@ -649,20 +662,21 @@ export const setNextUpDismissed = async (showId: string) => {
 }
 export const fetchCredits = (itemId: string) => metadataService.fetchCredits(itemId)
 export const getItemCredits = (id: string) => repositoryService.getItemCredits(id)
-export const handleItemRenamed = async (oldPath: string, newPath: string) => {
-  const oldItem = repositoryService.findItemByPath(oldPath)
+export const handleItemRenamed = async (oldItemId: string, newRelPath: string) => {
+  const oldItem = repositoryService.getItemById(oldItemId)
   if (!oldItem) return
 
-  const newItem = repositoryService.updateItemPathAndId(oldItem.id, newPath)
+  const newItem = repositoryService.updateItemPathAndId(oldItemId, newRelPath)
   if (newItem) {
     getTransport().notifyLibraryItemDeleted(oldItem.id)
     getTransport().notifyLibraryItemsUpdated([newItem])
 
     const parent = repositoryService.findParent(newItem.id)
     if (parent) {
-      const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-      if (mediaSourcePath) {
-        await filesystemService.syncWithDisk(parent, mediaSourcePath)
+      const sourceId = newItem.sourceId
+      const absSourcePath = sourceId ? await settingsService.getAbsoluteSourcePath(sourceId) : null
+      if (absSourcePath) {
+        await filesystemService.syncWithDisk(parent, { id: sourceId!, absolutePath: absSourcePath })
       }
 
       // If we renamed something inside a TV show, recalculate the pointer
@@ -884,7 +898,6 @@ export const getFolderWatchedState = async (
 
 export async function getItemPath(itemId: string): Promise<string | null> {
   const item = repositoryService.getItemById(itemId)
-  if (!item) return null
-  if (!item.path) return null
-  return actionsService.getAbsolutePath(item.path)
+  if (!item || !item.path || !item.sourceId) return null
+  return actionsService.getAbsolutePathForItem(itemId)
 }

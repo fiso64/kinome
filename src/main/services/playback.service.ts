@@ -1,8 +1,8 @@
-import fs from 'fs'
 import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
+import * as itemsRepo from '../database/repositories/filesystem.repo'
 import type { LibraryItem } from '@shared/types'
 
 // --- Playback Tracking ---
@@ -23,10 +23,12 @@ export function recordPlaybackDebounced(
   }
 }
 
-async function resolveStreamPath(relativePath: string): Promise<string | null> {
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) return null
-  return pathsService.securePathJoin(mediaSourcePath, relativePath)
+async function resolveStreamPath(itemId: string, relativePath: string): Promise<string | null> {
+  const sourceId = itemsRepo.getItemSourceId(itemId)
+  if (!sourceId) return null
+  const absSourcePath = await settingsService.getAbsoluteSourcePath(sourceId)
+  if (!absSourcePath) return null
+  return pathsService.securePathJoin(absSourcePath, relativePath)
 }
 
 // --- Stream Path Cache ---
@@ -179,7 +181,7 @@ export async function handleCachedStream(
     const itemPath = repositoryService.getItemPath(itemId)
     if (!itemPath) return null
 
-    const absolutePath = await resolveStreamPath(itemPath)
+    const absolutePath = await resolveStreamPath(itemId, itemPath)
     if (!absolutePath) return null
 
     const contentType = getMimeType(absolutePath)

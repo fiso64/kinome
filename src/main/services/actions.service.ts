@@ -4,6 +4,7 @@ import { URL } from 'url'
 import fs, { readdir, stat } from 'fs/promises'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
+import * as itemsRepo from '../database/repositories/filesystem.repo'
 import * as repositoryService from './repository.service'
 import type { MediaFile } from '@shared/types'
 
@@ -13,10 +14,24 @@ const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Actions Service] ${message}`)
 }
 
-export async function getAbsolutePath(relativePath: string): Promise<string | null> {
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) return null
-  return pathsService.securePathJoin(mediaSourcePath, relativePath)
+/**
+ * Resolves the absolute path for an item given its source UUID and relative path.
+ */
+export async function getAbsolutePath(sourceId: string, relativePath: string): Promise<string | null> {
+  const absSourcePath = await settingsService.getAbsoluteSourcePath(sourceId)
+  if (!absSourcePath) return null
+  return pathsService.securePathJoin(absSourcePath, relativePath)
+}
+
+/**
+ * Resolves the absolute path for an item by looking up its source_id from the database.
+ */
+export async function getAbsolutePathForItem(itemId: string): Promise<string | null> {
+  const sourceId = itemsRepo.getItemSourceId(itemId)
+  if (!sourceId) return null
+  const relPath = itemsRepo.getItemPath(itemId)
+  if (!relPath) return null
+  return getAbsolutePath(sourceId, relPath)
 }
 
 export async function playFileWith(
@@ -25,14 +40,6 @@ export async function playFileWith(
   onError: ErrorCallback
 ): Promise<boolean> {
   if (!command) return false
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) {
-    onError({
-      title: 'Configuration Error',
-      message: 'Media source path is not configured. Please check your library settings.'
-    })
-    return false
-  }
   if (!file.path) {
     onError({
       title: 'Path Error',
@@ -40,7 +47,7 @@ export async function playFileWith(
     })
     return false
   }
-  const absolutePath = pathsService.securePathJoin(mediaSourcePath, file.path)
+  const absolutePath = await getAbsolutePathForItem(file.id)
   if (!absolutePath) {
     onError({
       title: 'Security Error',
@@ -78,10 +85,8 @@ export async function executeCustomAction(
   if (!item) return
   const settings = await settingsService.readSettings()
   const action = settings.customActions.find((a) => a.id === commandId)
-  if (!action || !item.path) return
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) return
-  const absolutePath = pathsService.securePathJoin(mediaSourcePath, item.path)
+  if (!action || !item.path || !item.sourceId) return
+  const absolutePath = await getAbsolutePath(item.sourceId, item.path)
   if (!absolutePath) return
   const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
   const commandToExecute = action.command
@@ -106,8 +111,8 @@ export async function executeCustomAction(
   */
 }
 
-export async function revealInExplorer(relativePath: string): Promise<void> {
-  const absolutePath = await getAbsolutePath(relativePath)
+export async function revealInExplorer(itemId: string): Promise<void> {
+  const absolutePath = await getAbsolutePathForItem(itemId)
   if (!absolutePath) return
 
   if (pathsService.isRemotePath(absolutePath)) {
@@ -126,42 +131,41 @@ export async function revealInExplorer(relativePath: string): Promise<void> {
   Bun.spawn(commandArray)
 }
 
-export async function trashItem(relativePath: string): Promise<boolean> {
+export async function trashItem(itemId: string): Promise<boolean> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Deleting files is not available for remote libraries.')
   }
-  if (!relativePath) {
-    throw new Error('Relative path is required for deletion.')
-  }
   try {
-    const absolutePath = await getAbsolutePath(relativePath)
+    const absolutePath = await getAbsolutePathForItem(itemId)
     if (!absolutePath) {
-      throw new Error(`Access denied: Path "${relativePath}" is outside the media library.`)
+      throw new Error(`Access denied: item "${itemId}" path could not be resolved.`)
     }
 
     log(`Deleting item (Direct delete on server): ${absolutePath}`)
     await fs.rm(absolutePath, { recursive: true, force: true })
     return true
   } catch (error) {
-    console.error(`Failed to delete item: ${relativePath}`, error)
+    console.error(`Failed to delete item: ${itemId}`, error)
     throw error
   }
 }
 
-export async function renameItem(relativeOldPath: string, newName: string): Promise<string> {
+export async function renameItem(itemId: string, newName: string): Promise<string> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Renaming items is not available for remote libraries.')
   }
-  if (!relativeOldPath || !newName) {
-    throw new Error('Both old path and new name are required for renaming.')
+  if (!newName) {
+    throw new Error('New name is required for renaming.')
   }
 
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath) {
-    throw new Error('Media source path not configured.')
-  }
+  const sourceId = itemsRepo.getItemSourceId(itemId)
+  const relPath = itemsRepo.getItemPath(itemId)
+  if (!sourceId || !relPath) throw new Error(`Item ${itemId} not found.`)
 
-  const oldAbsolutePath = pathsService.securePathJoin(mediaSourcePath, relativeOldPath)
+  const absSourcePath = await settingsService.getAbsoluteSourcePath(sourceId)
+  if (!absSourcePath) throw new Error('Media source path not configured.')
+
+  const oldAbsolutePath = pathsService.securePathJoin(absSourcePath, relPath)
   if (!oldAbsolutePath) {
     throw new Error('Access denied: Old path is outside the media library.')
   }
@@ -169,17 +173,15 @@ export async function renameItem(relativeOldPath: string, newName: string): Prom
   const dirPath = path.dirname(oldAbsolutePath)
   const newAbsolutePath = path.join(dirPath, newName)
 
-  // Verify the new path is still within the media source path (security)
-  if (!pathsService.isPathInside(mediaSourcePath, newAbsolutePath)) {
+  if (!pathsService.isPathInside(absSourcePath, newAbsolutePath)) {
     throw new Error('Access denied: New path is outside the media library.')
   }
 
   try {
     await fs.rename(oldAbsolutePath, newAbsolutePath)
-    // Return the new relative path
-    return path.relative(mediaSourcePath, newAbsolutePath).replace(/\\/g, '/')
+    return path.relative(absSourcePath, newAbsolutePath).replace(/\\/g, '/')
   } catch (error) {
-    console.error(`Failed to rename item from ${relativeOldPath} to ${newName}`, error)
+    console.error(`Failed to rename item ${itemId} to ${newName}`, error)
     throw error
   }
 }
@@ -214,11 +216,9 @@ async function getDirectoryContentStats(
   return { totalSize, fileCount, folderCount }
 }
 
-export async function getItemProperties(relativePath: string): Promise<any | null> {
-  const mediaSourcePath = await settingsService.getAbsoluteMediaSourcePath()
-  if (!mediaSourcePath || pathsService.isRemotePath(mediaSourcePath)) return null
-  const absolutePath = pathsService.securePathJoin(mediaSourcePath, relativePath)
-  if (!absolutePath) return null
+export async function getItemProperties(itemId: string): Promise<any | null> {
+  const absolutePath = await getAbsolutePathForItem(itemId)
+  if (!absolutePath || pathsService.isRemotePath(absolutePath)) return null
   try {
     const stats = await fs.stat(absolutePath)
     const baseProperties = {

@@ -6,10 +6,13 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS items (
     id TEXT PRIMARY KEY,
     parent_id TEXT,
-    path TEXT NOT NULL UNIQUE,
+    path TEXT NOT NULL,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('file', 'folder')),
-    
+
+    -- Source (NULL for virtual items and the library virtual root)
+    source_id TEXT,
+
     -- File Stats
     size INTEGER,
     mtime INTEGER,
@@ -33,11 +36,14 @@ CREATE TABLE IF NOT EXISTS items (
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
 
+    UNIQUE(source_id, path),
+
     FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE,
     FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
+CREATE INDEX IF NOT EXISTS idx_items_source_id ON items(source_id);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
 CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
 CREATE INDEX IF NOT EXISTS idx_items_is_virtual ON items(is_virtual);

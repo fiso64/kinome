@@ -717,7 +717,7 @@ const app = new Elysia()
           set.status = 404
           return 'File not found'
         }
-        const filePath = await libraryService.getAbsolutePath(item.path)
+        const filePath = await libraryService.getAbsolutePathForItem(params.id)
         if (!filePath || !fs.existsSync(filePath)) {
           set.status = 404
           return 'File not found'

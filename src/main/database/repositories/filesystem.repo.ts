@@ -6,11 +6,15 @@ import path from 'path'
 import crypto from 'crypto'
 import { getDb, runTransaction } from '../client'
 
+/** Stable ID for the singleton library virtual root (parents all source roots). */
+export const LIBRARY_ROOT_ID = 'virtual-library-root'
+
 /**
- * Generates a stable ID for a filesystem path.
+ * Generates a stable ID for a filesystem item.
+ * The sourceId is the UUID of the MediaSource — it never changes even if the path moves.
  */
-export function generateId(relativePath: string): string {
-    return crypto.createHash('sha256').update(relativePath).digest('hex')
+export function generateId(sourceId: string, relativePath: string): string {
+    return crypto.createHash('sha256').update(`${sourceId}:${relativePath}`).digest('hex')
 }
 
 // --- Shared SQL fragments ---
@@ -45,13 +49,13 @@ const FULL_SELECT_SQL = `
 // --- READ OPERATIONS ---
 
 /**
- * Fetches the root item raw data.
+ * Fetches the library virtual root item raw data.
  */
 export function fetchRoot(): any {
     const db = getDb()
     return db
-        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.parent_id IS NULL LIMIT 1`)
-        .get()
+        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.id = ?`)
+        .get(LIBRARY_ROOT_ID)
 }
 
 /**
@@ -194,15 +198,15 @@ export function isItemHidden(id: string): boolean {
 }
 
 /**
- * Returns all item IDs that start with a given path prefix.
+ * Returns all item IDs for a given source, optionally scoped to a path prefix.
  */
-export function getAllIdsInScope(pathPrefix: string): string[] {
+export function getAllIdsInScope(sourceId: string, pathPrefix: string): string[] {
     const db = getDb()
     const isRoot = pathPrefix === '' || pathPrefix === '.'
     const query = isRoot
-        ? 'SELECT id FROM items WHERE is_virtual = 0'
-        : 'SELECT id FROM items WHERE (path LIKE ? OR path = ?) AND is_virtual = 0'
-    const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
+        ? 'SELECT id FROM items WHERE source_id = ? AND is_virtual = 0'
+        : 'SELECT id FROM items WHERE source_id = ? AND (path LIKE ? OR path = ?) AND is_virtual = 0'
+    const params = isRoot ? [sourceId] : [sourceId, `${pathPrefix}/%`, pathPrefix]
 
     const rows = db.prepare(query).all(...params) as { id: string }[]
     return rows.map((r) => r.id)
@@ -231,8 +235,10 @@ export function getAllDescendantIdsFast(parentId: string): string[] {
 
 /**
  * Returns items in a scope with their locked fields status.
+ * Always scoped to a single source to prevent cross-source pollution during cleanup.
  */
 export function getItemsForCleanup(
+    sourceId: string,
     pathPrefix: string
 ): { id: string; path: string; hasLocks: boolean; inode: number; deviceId: number }[] {
     const db = getDb()
@@ -242,9 +248,10 @@ export function getItemsForCleanup(
     SELECT i.id, i.path, i.inode, i.device_id, e.locked_fields_json
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    ${isRoot ? 'WHERE i.is_virtual = 0' : 'WHERE (i.path LIKE ? OR i.path = ?) AND i.is_virtual = 0'}
+    WHERE i.source_id = ? AND i.is_virtual = 0
+    ${isRoot ? '' : 'AND (i.path LIKE ? OR i.path = ?)'}
   `
-    const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
+    const params = isRoot ? [sourceId] : [sourceId, `${pathPrefix}/%`, pathPrefix]
 
     const rows = db.prepare(query).all(...params) as {
         id: string
@@ -288,11 +295,12 @@ export function deleteItem(itemId: string): void {
 export function upsertLibraryItems(items: any[]): void {
     const db = getDb()
     const stmt = db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
-    VALUES (@id, @parentId, @path, @name, @type, @size, @mtime, @birthtime, @inode, @deviceId, 0, @isIgnored, @isHidden)
+    INSERT INTO items (id, parent_id, path, name, type, source_id, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
+    VALUES (@id, @parentId, @path, @name, @type, @sourceId, @size, @mtime, @birthtime, @inode, @deviceId, 0, @isIgnored, @isHidden)
     ON CONFLICT(id) DO UPDATE SET
       is_missing = 0,
       parent_id = excluded.parent_id,
+      source_id = excluded.source_id,
       size = excluded.size,
       mtime = excluded.mtime,
       birthtime = excluded.birthtime,
@@ -310,17 +318,17 @@ export function upsertLibraryItems(items: any[]): void {
 }
 
 /**
- * Initializes/Updates the root item.
+ * Initializes/Updates a source root item (child of the library virtual root).
  */
-export function upsertRootItem(id: string, name: string): void {
+export function upsertRootItem(id: string, name: string, sourceId: string): void {
     const db = getDb()
     db.prepare(
         `
-      INSERT INTO items (id, parent_id, path, name, type, is_missing)
-      VALUES (?, NULL, '.', ?, 'folder', 0)
-      ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+      INSERT INTO items (id, parent_id, path, name, type, source_id, is_missing)
+      VALUES (?, ?, '.', ?, 'folder', ?, 0)
+      ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name, source_id = excluded.source_id
     `
-    ).run(id, name)
+    ).run(id, LIBRARY_ROOT_ID, name, sourceId)
 }
 
 /**
@@ -342,9 +350,9 @@ export function migrateRecord(oldId: string, newId: string, newPath: string): vo
 /**
  * Updates item path and ID (rename).
  */
-export function updateItemPathAndId(oldId: string, newRelativePath: string): void {
+export function updateItemPathAndId(oldId: string, newRelativePath: string, sourceId: string): void {
     const db = getDb()
-    const newId = generateId(newRelativePath)
+    const newId = generateId(sourceId, newRelativePath)
     const newName = path.basename(newRelativePath)
 
     runTransaction(() => {
@@ -358,24 +366,42 @@ export function updateItemPathAndId(oldId: string, newRelativePath: string): voi
 }
 
 /**
- * Ensures a root node exists in the database.
+ * Fast lookup of source_id for an item. Used to resolve absolute paths at runtime.
  */
-export function ensureRootExists(mediaSourcePath: string): void {
+export function getItemSourceId(itemId: string): string | null {
     const db = getDb()
-    const rootId = generateId('.')
-    const rootName =
-        mediaSourcePath === '.' || mediaSourcePath === '/'
-            ? 'Library'
-            : mediaSourcePath.split(/[/\\]/).filter(Boolean).pop() || 'Library'
+    const row = db.prepare('SELECT source_id FROM items WHERE id = ?').get(itemId) as
+        | { source_id: string | null }
+        | undefined
+    return row?.source_id ?? null
+}
 
-    if (!!db.prepare('SELECT 1 FROM items WHERE parent_id IS NULL').get()) return
-
+/**
+ * Ensures the singleton library virtual root exists.
+ * This is the DB root that parents all source root items.
+ * Safe to call on every startup (INSERT OR IGNORE).
+ */
+export function ensureLibraryVirtualRoot(): void {
+    const db = getDb()
     db.prepare(
         `
-    INSERT INTO items (id, parent_id, path, name, type, is_missing)
-    VALUES (?, NULL, '.', ?, 'folder', 0)
+    INSERT OR IGNORE INTO items (id, parent_id, path, name, type, source_id, is_virtual, virtual_type, is_missing)
+    VALUES (?, NULL, ?, 'Library', 'folder', NULL, 1, 'home', 0)
     `
-    ).run(rootId, rootName)
+    ).run(LIBRARY_ROOT_ID, `virtual://${LIBRARY_ROOT_ID}`)
+}
+
+/**
+ * Ensures a source root item exists (child of the library virtual root).
+ * Safe to call on every startup (uses upsertRootItem which does INSERT OR REPLACE on id).
+ */
+export function ensureSourceRoot(sourceId: string, resolvedAbsPath: string): void {
+    const name =
+        resolvedAbsPath === '.' || resolvedAbsPath === '/'
+            ? 'Library'
+            : resolvedAbsPath.split(/[/\\]/).filter(Boolean).pop() || 'Library'
+    const rootId = generateId(sourceId, '.')
+    upsertRootItem(rootId, name, sourceId)
 }
 /**
  * Updates item visibility flags.

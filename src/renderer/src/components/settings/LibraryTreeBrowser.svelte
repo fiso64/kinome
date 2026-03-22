@@ -59,7 +59,7 @@
         const children = await window.api.getChildren(node.id, {
           fields: ['id', 'name', 'title', 'type', 'mediaType', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren'],
         })
-        node.children = children.filter(c => c.type === 'folder').map(itemToNode)
+        node.children = children.filter(c => c.type === 'folder' && !c.isVirtual).map(itemToNode)
       } catch (err) {
         console.error(`Failed to load children for ${node.id}:`, err)
       } finally {

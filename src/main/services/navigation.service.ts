@@ -162,7 +162,7 @@ export async function getChildren(
   let results: LibraryItem[]
   if (item.viewSettings?.appliedGrouping) {
     results = await getGroupedChildren(item, opts)
-  } else if (item.isVirtual) {
+  } else if (item.isVirtual && (item as MediaFolder).filter) {
     results = await getVirtualChildren(item as MediaFolder, opts)
   } else {
     // Branch C: Simple real folder navigation

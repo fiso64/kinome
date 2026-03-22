@@ -14,7 +14,8 @@
     PlayerCommandConfig,
     CustomActionConfig,
     Settings,
-    AutocompleteSuggestions
+    AutocompleteSuggestions,
+    MediaSource
   } from '@shared/types'
   import { navStore } from '@lib/navigation-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
@@ -51,8 +52,7 @@
   let itemDetailBackdropSize = $state<'small' | 'full'>('small')
   let itemDetailBackdropBlur = $state(4)
   let libraryDataLocation = $state('')
-  let mediaSourcePath = $state('')
-  let mediaSourcePathIsRelative = $state(false)
+  let mediaSources = $state<MediaSource[]>([])
   let allowUnauthenticated = $state(false)
   let serverPort = $state(3000)
   let serverHost = $state('::')
@@ -100,8 +100,9 @@
         cases: vt.cases || []
       }))
       libraryDataLocation = s.libraryLocation
-      mediaSourcePath = s.mediaSourcePath ?? ''
-      mediaSourcePathIsRelative = s.mediaSourcePathIsRelative ?? false
+      mediaSources = s.mediaSources?.length
+        ? JSON.parse(JSON.stringify(s.mediaSources))
+        : [{ id: crypto.randomUUID(), path: '', isRelative: false }]
       allowUnauthenticated = s.allowUnauthenticated ?? false
       serverPort = s.serverPort ?? 3000
       serverHost = s.serverHost ?? '::'
@@ -147,9 +148,12 @@
 
   async function handleSave(): Promise<void> {
     const wasLibLocationChanged = libraryDataLocation !== settings?.libraryLocation
+    const prevSources = settings?.mediaSources ?? []
+    const toKey = (s: { id: string; path: string; isRelative: boolean }) =>
+      `${s.id}|${s.path}|${s.isRelative}`
     const mediaPathChanged =
-      mediaSourcePath !== settings?.mediaSourcePath ||
-      mediaSourcePathIsRelative !== settings?.mediaSourcePathIsRelative
+      mediaSources.length !== prevSources.length ||
+      mediaSources.some((s) => !prevSources.some((p) => toKey(p) === toKey(s)))
 
     const tagsToSave = prepareTagsForSave(virtualTags)
 
@@ -166,8 +170,7 @@
       itemDetailBackdropBlur,
       virtualTags: tagsToSave,
       libraryLocation: libraryDataLocation,
-      mediaSourcePath,
-      mediaSourcePathIsRelative,
+      mediaSources,
       allowUnauthenticated,
       serverPort,
       serverHost,
@@ -194,12 +197,9 @@
         ]
       })
       if (choice === 'full_rescan') {
-        const result = await api.resolveMediaSourcePath({
-          path: mediaSourcePath,
-          isRelative: mediaSourcePathIsRelative
-        })
-        await api.performScan({ path: result.path })
-        // Fetch new root status to get ID
+        for (const source of mediaSources) {
+          await api.performScan({ source })
+        }
         const status = await api.getLibraryRoot()
         if (status.root) {
           modalStore.open('initialFolderSettings', { root: status.root })
@@ -352,8 +352,7 @@
           {:else if activeTab === 'library'}
             <div class="form-section">
               <LibrarySettingsForm
-                bind:mediaSourcePath
-                bind:mediaSourcePathIsRelative
+                bind:mediaSources
                 bind:libraryLocation={libraryDataLocation}
               />
             </div>

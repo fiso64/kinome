@@ -9,51 +9,60 @@
     $props()
   const queryClient = useQueryClient()
 
+  type SourceEntry = { id: ReturnType<typeof crypto.randomUUID>; path: string; isRelative: boolean }
+
   let step: 'library' | 'media' = $state('library')
   let libraryLocation = $state('')
-  let mediaSourcePath = $state('')
-  let mediaSourcePathIsRelative = $state(false)
+  let sources = $state<SourceEntry[]>([{ id: crypto.randomUUID(), path: '', isRelative: false }])
+  let resolvedPaths = $state<Record<string, { path: string; exists: boolean }>>({})
+  let folderSettings = $state<Record<string, Record<string, any>>>({})
   let isSaving = $state(false)
   let error = $state('')
-  let resolvedPath = $state('')
-  let pathExists = $state(true)
-  let folderSettings = $state<Record<string, any>>({})
   let setupCompleted = $state(false)
 
   $effect(() => {
-    // Capture reactive values synchronously to ensure Svelte tracks them as dependencies
-    const path = mediaSourcePath
-    const isRelative = mediaSourcePathIsRelative
+    const snapshot = sources.map((s) => ({ id: s.id, path: s.path, isRelative: s.isRelative }))
     const libLoc = libraryLocation
 
-    if (step === 'media' && path.trim()) {
-      const timeout = setTimeout(async () => {
+    if (step !== 'media') return
+
+    const timeout = setTimeout(async () => {
+      const updates: Record<string, { path: string; exists: boolean }> = {}
+      for (const s of snapshot) {
+        if (!s.path.trim()) {
+          updates[s.id] = { path: '', exists: true }
+          continue
+        }
         try {
           const result = await api.resolveMediaSourcePath({
-            path,
-            isRelative,
+            path: s.path,
+            isRelative: s.isRelative,
             libraryLocation: libLoc
           })
-          resolvedPath = result.path
-          pathExists = result.exists
+          updates[s.id] = { path: result.path, exists: result.exists }
         } catch {
-          resolvedPath = 'Error resolving path'
-          pathExists = false
+          updates[s.id] = { path: 'Error resolving path', exists: false }
         }
-      }, 100)
-      return () => clearTimeout(timeout)
-    } else {
-      resolvedPath = ''
-      pathExists = true
-    }
+      }
+      resolvedPaths = updates
+    }, 100)
+
+    return () => clearTimeout(timeout)
   })
 
-  const isAbsolute = $derived(
-    resolvedPath.startsWith('/') ||
-      resolvedPath.startsWith('\\') ||
-      /^[a-zA-Z]:/.test(resolvedPath) ||
-      resolvedPath.startsWith('http')
-  )
+  function isAbsolutePath(p: string): boolean {
+    return (
+      p.startsWith('/') || p.startsWith('\\') || /^[a-zA-Z]:/.test(p) || p.startsWith('http')
+    )
+  }
+
+  function addSource() {
+    sources = [...sources, { id: crypto.randomUUID(), path: '', isRelative: false }]
+  }
+
+  function removeSource(id: string) {
+    sources = sources.filter((s) => s.id !== id)
+  }
 
   onMount(async () => {
     // Check current settings to see if we have a location but no DB
@@ -74,9 +83,8 @@
       const result = await api.getLibraryRoot(path)
 
       // If settings exist, always pre-fill them
-      if (result.settings) {
-        mediaSourcePath = result.settings.mediaSourcePath || ''
-        mediaSourcePathIsRelative = result.settings.mediaSourcePathIsRelative || false
+      if (result.settings?.mediaSources?.length) {
+        sources = result.settings.mediaSources.map((s) => ({ ...s })) as SourceEntry[]
       }
 
       if (result.status === 'ready') {
@@ -113,48 +121,33 @@
   }
 
   async function handleMediaSave() {
-    if (!mediaSourcePath.trim()) {
-      error = 'Media Source Path is required.'
+    if (sources.some((s) => !s.path.trim())) {
+      error = 'All media source paths are required.'
       return
     }
+    for (const source of sources) {
+      const resolved = resolvedPaths[source.id]
+      if (resolved && !source.isRelative && !isAbsolutePath(resolved.path)) {
+        error = 'All media source paths must be absolute.'
+        return
+      }
+    }
+
     error = ''
     isSaving = true
     try {
-      // 1. Resolve path for initial scan (use provided libraryLocation if step is currently being set up)
-      const result = await api.resolveMediaSourcePath({
-        path: mediaSourcePath,
-        isRelative: mediaSourcePathIsRelative,
-        libraryLocation: libraryLocation
-      })
-      const resolved = result.path
+      await api.saveSettings({ libraryLocation })
 
-      if (!mediaSourcePathIsRelative && !isAbsolute) {
-        error = 'An absolute path is required.'
-        isSaving = false
-        return
+      for (const source of sources) {
+        await api.performScan({ source, initialFolderSettings: folderSettings[source.id] ?? {} })
       }
 
-      // 3. Save all settings
-      await api.saveSettings({
-        libraryLocation,
-        mediaSourcePath,
-        mediaSourcePathIsRelative
-      })
-
-      // 4. Initiate Scan (awaited until root creation is confirmed)
-      await api.performScan({ path: resolved, initialFolderSettings: folderSettings })
-
-      // 5. Invalidate queries and finalize
       queryClient.invalidateQueries()
-
-      // Notify parent to refresh libraryStatus state (which now definitely has a root ID)
       if (onStatusUpdate) onStatusUpdate()
 
       setupCompleted = true
       onComplete?.()
 
-      // Force a full reload to ensure the WebSocket connects with the new auth/settings state
-      // and we avoid any "half-initialized" UI states.
       window.location.reload()
     } catch (err: any) {
       error = err.message || 'Failed to save settings.'
@@ -208,51 +201,73 @@
           </button>
         </div>
       {:else}
-        <div class="form-group">
-          <label for="media-source-path">Media Source Path</label>
-          <input
-            type="text"
-            id="media-source-path"
-            bind:value={mediaSourcePath}
-            placeholder="Enter local path (e.g., C:/Movies)"
-            autofocus
-          />
-          <p class="help-text">
-            The root directory where your media files are stored.
-            {#if resolvedPath}
-              <br />
-              Current resolved path: <code>{resolvedPath}</code>
-              {#if !pathExists && !resolvedPath.includes('Error')}
-                {#if !mediaSourcePathIsRelative && !isAbsolute}
-                  <span class="path-error">Absolute path required</span>
-                {:else}
-                  <span class="path-warning">(Will be created)</span>
+        <div class="sources-list">
+          {#each sources as source, i (source.id)}
+            {@const resolved = resolvedPaths[source.id]}
+            {@const resolvedAbsPath = resolved?.path ?? ''}
+            {@const showFolderSettings =
+              resolvedAbsPath &&
+              isAbsolutePath(resolvedAbsPath) &&
+              resolved?.exists &&
+              !resolvedAbsPath.includes('Error')}
+
+            <div class="source-entry">
+              <div class="source-header">
+                <span class="source-label">
+                  {sources.length > 1 ? `Source ${i + 1}` : 'Media Source'}
+                </span>
+                {#if sources.length > 1}
+                  <button class="remove-btn" onclick={() => removeSource(source.id)}>Remove</button>
                 {/if}
+              </div>
+
+              <div class="form-group">
+                <input
+                  type="text"
+                  bind:value={source.path}
+                  placeholder="Enter local path (e.g., C:/Movies)"
+                  autofocus={i === 0}
+                />
+                {#if resolvedAbsPath}
+                  <p class="help-text">
+                    Resolved: <code>{resolvedAbsPath}</code>
+                    {#if !resolved?.exists && !resolvedAbsPath.includes('Error')}
+                      {#if !source.isRelative && !isAbsolutePath(resolvedAbsPath)}
+                        <span class="path-error">Absolute path required</span>
+                      {:else}
+                        <span class="path-warning">(Will be created)</span>
+                      {/if}
+                    {/if}
+                  </p>
+                {/if}
+              </div>
+
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" bind:checked={source.isRelative} />
+                  <span>Path is relative to library data parent</span>
+                </label>
+              </div>
+
+              {#if showFolderSettings}
+                <div class="form-group folder-setup">
+                  <label>Configure Folders</label>
+                  <p class="help-text">
+                    Select which folders should have metadata automatically fetched for their
+                    children.
+                  </p>
+                  <FilesystemTreeBrowser
+                    rootPath={resolvedAbsPath}
+                    onSettingsChange={(settings) =>
+                      (folderSettings = { ...folderSettings, [source.id]: settings })}
+                  />
+                </div>
               {/if}
-            {/if}
-          </p>
+            </div>
+          {/each}
         </div>
 
-        <div class="form-group checkbox-group">
-          <label class="checkbox-label" for="path-is-relative">
-            <input type="checkbox" id="path-is-relative" bind:checked={mediaSourcePathIsRelative} />
-            <span>Path is relative to library data parent</span>
-          </label>
-        </div>
-
-        {#if isAbsolute && pathExists && !resolvedPath.includes('Error')}
-          <div class="form-group folder-setup">
-            <label>Configure Folders</label>
-            <p class="help-text">
-              Select which folders should have metadata (posters, overviews, etc.) automatically
-              fetched for their children.
-            </p>
-            <FilesystemTreeBrowser
-              rootPath={resolvedPath}
-              onSettingsChange={(settings) => (folderSettings = settings)}
-            />
-          </div>
-        {/if}
+        <button class="add-source-btn" onclick={addSource}>+ Add Source</button>
 
         {#if error}
           <p class="error-message">{error}</p>
@@ -265,9 +280,7 @@
           <button
             class="primary"
             onclick={handleMediaSave}
-            disabled={isSaving ||
-              !mediaSourcePath.trim() ||
-              (!mediaSourcePathIsRelative && !isAbsolute)}
+            disabled={isSaving || sources.some((s) => !s.path.trim())}
           >
             {#if isSaving}Saving...{:else}Save & Scan{/if}
           </button>
@@ -412,5 +425,64 @@
     font-size: 0.8rem;
     font-weight: 500;
     margin-left: 0.5rem;
+  }
+
+  .sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .source-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    background-color: var(--color-background-mute);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  .source-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .source-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .remove-btn {
+    padding: 0.25rem 0.6rem;
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  .remove-btn:hover {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+
+  .add-source-btn {
+    align-self: flex-start;
+    padding: 0.5rem 1rem;
+    background: none;
+    border: 1px dashed var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text-soft);
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+  }
+
+  .add-source-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
 </style>

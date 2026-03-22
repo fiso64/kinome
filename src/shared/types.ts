@@ -298,6 +298,17 @@ export interface ServerSettings {
 }
 
 /**
+ * A single media source root. The id is a stable UUID that never changes, so item IDs
+ * (which are SHA256(sourceId + ':' + relativePath)) remain valid even if path changes.
+ */
+export interface MediaSource {
+  id: string       // stable UUID, generated once when source is added
+  path: string     // stored path (absolute or relative to library location)
+  isRelative: boolean
+  name?: string    // optional display name; defaults to basename of resolved path
+}
+
+/**
  * Settings that define defaults for a library, but can be overridden by individual library-settings.json.
  */
 export interface LibrarySettings {
@@ -310,8 +321,7 @@ export interface LibrarySettings {
   virtualTags?: VirtualTagConfig[]
   playerCommands: PlayerCommandConfig[]
   customActions: CustomActionConfig[]
-  mediaSourcePath?: string
-  mediaSourcePathIsRelative?: boolean
+  mediaSources?: MediaSource[]
   defaultLayoutSettings: {
     grid: GridSettings
     'horizontal-grid': HorizontalGridSettings
@@ -459,6 +469,7 @@ export interface MediaFolder {
 export interface BaseLibraryItem {
   id: string
   parentId?: string
+  sourceId?: string | null
   name: string
   path?: string
   type: 'file' | 'folder'

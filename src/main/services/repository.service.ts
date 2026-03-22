@@ -21,9 +21,8 @@
  *   performance-critical "bulk surgery" or isolated table operations that do not 
  *   require the overhead of logical LibraryItem mapping.
  */
-import path from 'path'
 import { getDb, initializeDatabase, runTransaction } from '../database/client'
-import { mapRowToLibraryItem, parseJsonSafe } from '../database/mappers'
+import { mapRowToLibraryItem } from '../database/mappers'
 import { buildFindQuery, type FindOptions } from '../database/query-builder'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import {
@@ -37,7 +36,7 @@ import {
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
-import type { LibraryItem, MediaFolder } from '@shared/types'
+import type { LibraryItem, MediaFolder, MediaSource } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -129,10 +128,10 @@ export function ensureHomeDefaults(rootId: string): boolean {
   return isFirstHomeRun
 }
 
-export function ensureRootExists(mediaSourcePath: string): void {
-  itemsRepo.ensureRootExists(mediaSourcePath)
-  const rootId = itemsRepo.generateId('.')
-  ensureHomeDefaults(rootId)
+export function ensureSourceRoot(source: MediaSource, resolvedAbsPath: string): void {
+  itemsRepo.ensureLibraryVirtualRoot()
+  itemsRepo.ensureSourceRoot(source.id, resolvedAbsPath)
+  ensureHomeDefaults(itemsRepo.LIBRARY_ROOT_ID)
 }
 
 export function getHomeFolderId(): string {
@@ -286,8 +285,10 @@ export function migrateRecord(oldId: string, newId: string, newPath: string): vo
 }
 
 export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {
-  itemsRepo.updateItemPathAndId(oldId, newRelativePath)
-  const newId = itemsRepo.generateId(newRelativePath)
+  const sourceId = itemsRepo.getItemSourceId(oldId)
+  if (!sourceId) return null
+  itemsRepo.updateItemPathAndId(oldId, newRelativePath, sourceId)
+  const newId = itemsRepo.generateId(sourceId, newRelativePath)
   return getItemById(newId)
 }
 

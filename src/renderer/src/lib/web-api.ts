@@ -10,7 +10,8 @@ import type {
   MediaProperties,
   AppCapabilities,
   LibraryStatus,
-  ScanStatus
+  ScanStatus,
+  MediaSource
 } from '@shared/types'
 import type { ApiClient } from './api'
 import { authStore } from './auth-store.svelte'
@@ -282,7 +283,7 @@ class WebApiClient implements ApiClient {
   }
 
   performScan(
-    options: { path?: string; initialFolderSettings?: Record<string, any> } = {}
+    options: { source?: MediaSource; initialFolderSettings?: Record<string, any> } = {}
   ): Promise<{ success: boolean }> {
     return this.request('/api/perform-scan', {
       method: 'POST',

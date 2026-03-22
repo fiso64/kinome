@@ -14,7 +14,10 @@ import {
   HOME_ALL_MEDIA_ID
 } from '../database/repositories/filesystem.repo'
 import * as repositoryService from './repository.service'
+import { LIBRARY_ROOT_ID } from '../database/repositories/filesystem.repo'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
+
+const TEST_SOURCE = { id: 'test-source-uuid', path: '/media/library', isRelative: false }
 
 let ctx: ServiceTestContext
 
@@ -26,35 +29,36 @@ afterEach(() => {
   ctx.cleanup()
 })
 
-describe('ensureRootExists', () => {
-  it('creates the root item', () => {
-    repositoryService.ensureRootExists('/media/library')
+describe('ensureSourceRoot', () => {
+  it('creates the library virtual root and a source root item', () => {
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    const root = repositoryService.getRoot()
-    expect(root).not.toBeNull()
-    expect(root!.path).toBe('.')
-    expect(root!.type).toBe('folder')
+    const libRoot = repositoryService.getRoot()
+    expect(libRoot).not.toBeNull()
+    expect(libRoot!.id).toBe(LIBRARY_ROOT_ID)
+    expect(libRoot!.isVirtual).toBe(true)
+
+    const sourceRoot = repositoryService.getItemById(
+      require('../database/repositories/filesystem.repo').generateId(TEST_SOURCE.id, '.')
+    )
+    expect(sourceRoot).not.toBeNull()
+    expect(sourceRoot!.path).toBe('.')
+    expect(sourceRoot!.type).toBe('folder')
+    expect(sourceRoot!.parentId).toBe(LIBRARY_ROOT_ID)
   })
 
-  it('creates the home virtual folder alongside root', () => {
-    repositoryService.ensureRootExists('/media/library')
+  it('creates the home virtual folder parented to the library root', () => {
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const home = repositoryService.getItemById(HOME_FOLDER_ID)
     expect(home).not.toBeNull()
     expect(home!.isVirtual).toBe(true)
     expect(home!.type).toBe('folder')
-  })
-
-  it('home virtual folder is parented to root', () => {
-    repositoryService.ensureRootExists('/media/library')
-
-    const root = repositoryService.getRoot()
-    const home = repositoryService.getItemById(HOME_FOLDER_ID)
-    expect(home!.parentId).toBe(root!.id)
+    expect(home!.parentId).toBe(LIBRARY_ROOT_ID)
   })
 
   it('home virtual folder has a filter with parent.retrieveChildrenMetadata and mediaType conditions', () => {
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const row = ctx.db.prepare('SELECT filter_json FROM items WHERE id = ?').get(HOME_FOLDER_ID) as any
     const filter = JSON.parse(row?.filter_json ?? 'null')
@@ -71,18 +75,18 @@ describe('ensureRootExists', () => {
   })
 
   it('is idempotent — calling twice does not duplicate', () => {
-    repositoryService.ensureRootExists('/media/library')
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    const roots = ctx.db.prepare("SELECT * FROM items WHERE parent_id IS NULL AND is_virtual = 0").all()
-    expect(roots).toHaveLength(1)
+    const sourceRoots = ctx.db.prepare("SELECT * FROM items WHERE source_id = ? AND path = '.'").all(TEST_SOURCE.id)
+    expect(sourceRoots).toHaveLength(1)
 
     const homes = ctx.db.prepare("SELECT * FROM items WHERE id = ?").all(HOME_FOLDER_ID)
     expect(homes).toHaveLength(1)
   })
 
   it('creates Categories, Recently Added, Genres, and All Media subfolders under home', () => {
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const categories = repositoryService.getItemById(HOME_CATEGORIES_ID)
     const recentlyAdded = repositoryService.getItemById(HOME_RECENTLY_ADDED_ID)
@@ -106,7 +110,7 @@ describe('ensureRootExists', () => {
   })
 
   it('home subfolders have correct filters', () => {
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const row = (id: string) =>
       ctx.db.prepare('SELECT filter_json FROM items WHERE id = ?').get(id) as any
@@ -131,8 +135,8 @@ describe('ensureRootExists', () => {
   })
 
   it('home subfolders creation is idempotent', () => {
-    repositoryService.ensureRootExists('/media/library')
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     for (const id of [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID]) {
       const rows = ctx.db.prepare('SELECT * FROM items WHERE id = ?').all(id)
@@ -141,7 +145,7 @@ describe('ensureRootExists', () => {
   })
 
   it('sets home view settings with sections layout and _home_category grouping', () => {
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const row = ctx.db.prepare('SELECT view_settings_json FROM folder_settings WHERE item_id = ?').get(HOME_FOLDER_ID) as any
     const vs = JSON.parse(row.view_settings_json)
@@ -149,27 +153,129 @@ describe('ensureRootExists', () => {
     expect(vs.layout).toBe('sections')
     expect(vs.appliedGrouping).toBe('vt._home_category')
     expect(vs.childViewSettings?.layout).toBe('horizontal-grid')
-    // Categories and Recently Added are pinned to the top; Genres to the bottom
     expect(vs.sortTop).toContain(HOME_CATEGORIES_ID)
     expect(vs.sortTop).toContain(HOME_RECENTLY_ADDED_ID)
     expect(vs.sortBottom).toContain(HOME_GENRES_ID)
-    // Categories scrolls horizontally; Genres does not
     expect(vs.childViewSettings?.overrides?.[HOME_CATEGORIES_ID]).toMatchObject({ layout: 'button-grid', scrollHorizontally: true })
     expect(vs.childViewSettings?.overrides?.[HOME_GENRES_ID]).toMatchObject({ layout: 'button-grid', scrollHorizontally: false })
   })
 
   it('home view settings init is idempotent — user changes are not overwritten', () => {
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    // Simulate user changing home layout to 'grid'
     ctx.db.prepare("UPDATE folder_settings SET view_settings_json = ? WHERE item_id = ?")
       .run(JSON.stringify({ layout: 'grid' }), HOME_FOLDER_ID)
 
-    repositoryService.ensureRootExists('/media/library')
+    repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const row = ctx.db.prepare('SELECT view_settings_json FROM folder_settings WHERE item_id = ?').get(HOME_FOLDER_ID) as any
     const vs = JSON.parse(row.view_settings_json)
-    expect(vs.layout).toBe('grid') // user change preserved
+    expect(vs.layout).toBe('grid')
+  })
+})
+
+describe('multi-source', () => {
+  const SOURCE_A = { id: 'source-a-uuid', path: '/media/movies', isRelative: false }
+  const SOURCE_B = { id: 'source-b-uuid', path: '/media/shows', isRelative: false }
+
+  it('two sources each get their own source root under LIBRARY_ROOT_ID', () => {
+    repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
+    repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
+
+    const { generateId } = require('../database/repositories/filesystem.repo')
+    const rootA = repositoryService.getItemById(generateId(SOURCE_A.id, '.'))
+    const rootB = repositoryService.getItemById(generateId(SOURCE_B.id, '.'))
+
+    expect(rootA).not.toBeNull()
+    expect(rootB).not.toBeNull()
+    expect(rootA!.id).not.toBe(rootB!.id)
+    expect(rootA!.parentId).toBe(LIBRARY_ROOT_ID)
+    expect(rootB!.parentId).toBe(LIBRARY_ROOT_ID)
+  })
+
+  it('home folder is created only once regardless of how many sources are added', () => {
+    repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
+    repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
+
+    const homes = ctx.db.prepare('SELECT * FROM items WHERE id = ?').all(HOME_FOLDER_ID)
+    expect(homes).toHaveLength(1)
+  })
+
+  it('same relative path in two sources produces different item IDs', () => {
+    const { generateId } = require('../database/repositories/filesystem.repo')
+    const idA = generateId(SOURCE_A.id, 'film.mkv')
+    const idB = generateId(SOURCE_B.id, 'film.mkv')
+    expect(idA).not.toBe(idB)
+  })
+
+  it('upsertLibraryItems allows same relative path across different sources', () => {
+    const { generateId, upsertLibraryItems } = require('../database/repositories/filesystem.repo')
+    repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
+    repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
+
+    const rootAId = generateId(SOURCE_A.id, '.')
+    const rootBId = generateId(SOURCE_B.id, '.')
+    const itemAId = generateId(SOURCE_A.id, 'film.mkv')
+    const itemBId = generateId(SOURCE_B.id, 'film.mkv')
+
+    // Note: upsertLibraryItems expects @-prefixed keys to match SQL named params
+    upsertLibraryItems([
+      { '@id': itemAId, '@parentId': rootAId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_A.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 1, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+      { '@id': itemBId, '@parentId': rootBId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+    ])
+
+    const rows = ctx.db.prepare("SELECT * FROM items WHERE path = 'film.mkv' AND is_virtual = 0").all()
+    expect(rows).toHaveLength(2)
+  })
+
+  it('getAllIdsInScope only returns items belonging to the queried source', () => {
+    const { generateId, upsertLibraryItems, getAllIdsInScope } = require('../database/repositories/filesystem.repo')
+    repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
+    repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
+
+    const rootAId = generateId(SOURCE_A.id, '.')
+    const rootBId = generateId(SOURCE_B.id, '.')
+    const itemAId = generateId(SOURCE_A.id, 'film.mkv')
+    const itemBId = generateId(SOURCE_B.id, 'film.mkv')
+
+    upsertLibraryItems([
+      { '@id': itemAId, '@parentId': rootAId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_A.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 1, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+      { '@id': itemBId, '@parentId': rootBId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+    ])
+
+    const idsA = getAllIdsInScope(SOURCE_A.id, '.')
+    expect(idsA).toContain(itemAId)
+    expect(idsA).not.toContain(itemBId)
+
+    const idsB = getAllIdsInScope(SOURCE_B.id, '.')
+    expect(idsB).toContain(itemBId)
+    expect(idsB).not.toContain(itemAId)
+  })
+
+  it('getItemsForCleanup only returns items belonging to the queried source', () => {
+    const { generateId, upsertLibraryItems, getItemsForCleanup } = require('../database/repositories/filesystem.repo')
+    repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
+    repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
+
+    const rootAId = generateId(SOURCE_A.id, '.')
+    const rootBId = generateId(SOURCE_B.id, '.')
+    const itemAId = generateId(SOURCE_A.id, 'film.mkv')
+    const itemBId = generateId(SOURCE_B.id, 'film.mkv')
+
+    upsertLibraryItems([
+      { '@id': itemAId, '@parentId': rootAId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_A.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 1, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+      { '@id': itemBId, '@parentId': rootBId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
+    ])
+
+    const cleanupA = getItemsForCleanup(SOURCE_A.id, '.')
+    const idsA = cleanupA.map((r: any) => r.id)
+    expect(idsA).toContain(itemAId)
+    expect(idsA).not.toContain(itemBId)
+
+    const cleanupB = getItemsForCleanup(SOURCE_B.id, '.')
+    const idsB = cleanupB.map((r: any) => r.id)
+    expect(idsB).toContain(itemBId)
+    expect(idsB).not.toContain(itemAId)
   })
 })
 

@@ -8,7 +8,7 @@ import * as searchRepo from '../database/repositories/search.repo'
 import { runTransaction } from '../database/client'
 import * as pathsService from './paths.service'
 import { GlobalTaskQueue } from '../utils/concurrency'
-import type { MediaFolder } from '@shared/types'
+import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
 
@@ -75,19 +75,20 @@ class ProgressBroadcaster {
 
 async function syncDiskToDatabase(
   rootAbsPath: string,
-  mediaSourcePath: string
+  source: { id: string; absolutePath: string }
 ): Promise<Set<string>> {
   const foundPaths = new Set<string>()
   const newItemsMap = new Map<string, any>()
   const fingerprintBuffer = new FingerprintBuffer()
   const progress = new ProgressBroadcaster()
 
-  const rootRelPath = path.relative(mediaSourcePath, rootAbsPath).replace(/\\/g, '/') || '.'
-  const rootId = itemsRepo.generateId(rootRelPath)
+  const rootRelPath = path.relative(source.absolutePath, rootAbsPath).replace(/\\/g, '/') || '.'
+  const rootId = itemsRepo.generateId(source.id, rootRelPath)
+  const sourceRootId = itemsRepo.generateId(source.id, '.')
 
   const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
-    const currentRelPath = path.relative(mediaSourcePath, currentPath).replace(/\\/g, '/') || '.'
-    const currentId = itemsRepo.generateId(currentRelPath)
+    const currentRelPath = path.relative(source.absolutePath, currentPath).replace(/\\/g, '/') || '.'
+    const currentId = itemsRepo.generateId(source.id, currentRelPath)
 
     // 1. Get all entries (Files and Folders)
     let entries: Dirent[]
@@ -105,7 +106,7 @@ async function syncDiskToDatabase(
     try {
       const s = await fs.stat(currentPath)
       const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
-      const parentId = currentRelPath === '.' ? null : itemsRepo.generateId(parentRelPath)
+      const parentId = currentRelPath === '.' ? itemsRepo.LIBRARY_ROOT_ID : itemsRepo.generateId(source.id, parentRelPath)
 
       fingerprintBuffer.add({
         '@id': currentId,
@@ -113,6 +114,7 @@ async function syncDiskToDatabase(
         '@path': currentRelPath,
         '@name': path.basename(currentPath) || 'Library',
         '@type': 'folder',
+        '@sourceId': source.id,
         '@size': s.size,
         '@mtime': Math.floor(s.mtimeMs),
         '@birthtime': Math.floor(s.birthtimeMs),
@@ -144,8 +146,8 @@ async function syncDiskToDatabase(
       await Promise.all(
         batch.map(async (entry) => {
           const fullPath = path.join(currentPath, entry.name)
-          const relPath = path.relative(mediaSourcePath, fullPath).replace(/\\/g, '/')
-          const id = itemsRepo.generateId(relPath)
+          const relPath = path.relative(source.absolutePath, fullPath).replace(/\\/g, '/')
+          const id = itemsRepo.generateId(source.id, relPath)
           const isDir = entry.isDirectory()
 
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
@@ -159,6 +161,7 @@ async function syncDiskToDatabase(
               '@path': relPath,
               '@name': entry.name,
               '@type': isDir ? 'folder' : 'file',
+              '@sourceId': source.id,
               '@size': s.size,
               '@mtime': Math.floor(s.mtimeMs),
               '@birthtime': Math.floor(s.birthtimeMs),
@@ -194,16 +197,17 @@ async function syncDiskToDatabase(
   // Start the crawl
   queue.push(rootAbsPath)
 
-  // Ensure the root itself is tracked (especially if it's the start of the scan)
+  // Ensure the source root itself is tracked
   try {
     const s = await fs.stat(rootAbsPath)
     const isUserHidden = itemsRepo.isItemHidden(rootId)
     fingerprintBuffer.add({
       '@id': rootId,
-      '@parentId': null,
+      '@parentId': rootId === sourceRootId ? itemsRepo.LIBRARY_ROOT_ID : itemsRepo.generateId(source.id, path.dirname(rootRelPath).replace(/\\/g, '/') || '.'),
       '@path': rootRelPath,
       '@name': path.basename(rootAbsPath) || 'Library',
       '@type': 'folder',
+      '@sourceId': source.id,
       '@size': s.size,
       '@mtime': Math.floor(s.mtimeMs),
       '@birthtime': Math.floor(s.birthtimeMs),
@@ -222,7 +226,7 @@ async function syncDiskToDatabase(
   // --- RECONCILIATION PHASE ---
 
   const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const missingItems = itemsRepo.getItemsForCleanup(scopePath).filter((item) => !foundPaths.has(item.id))
+  const missingItems = itemsRepo.getItemsForCleanup(source.id, scopePath).filter((item) => !foundPaths.has(item.id))
 
   log(
     `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`
@@ -274,19 +278,20 @@ async function syncDiskToDatabase(
 }
 
 export async function scanDirectory(
-  mediaSourcePath: string,
+  source: MediaSource,
+  resolvedAbsPath: string,
   options: {
     skipMetadata?: boolean
     initialFolderSettings?: Record<string, any>
   } = {}
 ): Promise<MediaFolder | null> {
-  log(`Starting Phase 1 (Filesystem Sync) for: ${mediaSourcePath}`)
+  log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${resolvedAbsPath}`)
 
-  repositoryService.ensureRootExists(mediaSourcePath)
+  repositoryService.ensureSourceRoot(source, resolvedAbsPath)
 
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
-      const id = itemsRepo.generateId(relPath)
+      const id = itemsRepo.generateId(source.id, relPath)
       settingsRepo.mergeSettings(id, { folderSettings: {
         retrieveChildrenMetadata: !!settings.retrieve_children_metadata,
         childrenTypeHint: settings.children_type_hint ?? null,
@@ -295,21 +300,21 @@ export async function scanDirectory(
     }
   }
 
-  await syncDiskToDatabase(mediaSourcePath, mediaSourcePath)
+  await syncDiskToDatabase(resolvedAbsPath, { id: source.id, absolutePath: resolvedAbsPath })
 
   return repositoryService.getRoot()
 }
 
-export async function syncWithDisk(node: MediaFolder, mediaSourcePath: string): Promise<void> {
+export async function syncWithDisk(node: MediaFolder, source: { id: string; absolutePath: string }): Promise<void> {
   if (!node.path) {
     log(`Cannot sync subtree with undefined path: ${node.name}`)
     return
   }
-  const rootAbsPath = path.join(mediaSourcePath, node.path)
+  const rootAbsPath = path.join(source.absolutePath, node.path)
 
   log(`Syncing subtree: ${node.path}`)
 
-  await syncDiskToDatabase(rootAbsPath, mediaSourcePath)
+  await syncDiskToDatabase(rootAbsPath, source)
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
@@ -361,15 +366,17 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
 }
 
 export function initializeRoot(
-  mediaSourcePath: string,
+  source: MediaSource,
+  resolvedAbsPath: string,
   initialFolderSettings?: Record<string, any>
 ): void {
-  const rootId = itemsRepo.generateId('.')
-  const rootName = path.basename(mediaSourcePath)
+  const rootId = itemsRepo.generateId(source.id, '.')
+  const rootName = path.basename(resolvedAbsPath) || 'Library'
   const rootSettings = initialFolderSettings ? initialFolderSettings['.'] : undefined
 
   runTransaction(() => {
-    itemsRepo.upsertRootItem(rootId, rootName)
+    itemsRepo.ensureLibraryVirtualRoot()
+    itemsRepo.upsertRootItem(rootId, rootName, source.id)
     if (rootSettings) {
       settingsRepo.mergeSettings(rootId, { folderSettings: {
         retrieveChildrenMetadata: !!rootSettings.retrieve_children_metadata,
