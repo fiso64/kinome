@@ -117,13 +117,17 @@ export function createServiceTestContext(): ServiceTestContext {
 
   const seedFolderSettings = (settings: SeedFolderSettings[]) => {
     const stmt = db.prepare(`
-      INSERT INTO folder_settings (item_id, view_settings_json, retrieve_children_metadata, children_type_hint, process_tv_children)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO folder_settings (item_id, view_settings_json, applied_grouping, retrieve_children_metadata, children_type_hint, process_tv_children)
+      VALUES (?, ?, ?, ?, ?, ?)
     `)
     for (const s of settings) {
+      const vs = s.viewSettings ? { ...s.viewSettings } : null
+      const appliedGrouping = vs?.appliedGrouping ?? null
+      if (vs) delete vs.appliedGrouping
       stmt.run(
         s.itemId,
-        s.viewSettings ? JSON.stringify(s.viewSettings) : null,
+        vs ? JSON.stringify(vs) : null,
+        appliedGrouping,
         s.folderSettings?.retrieveChildrenMetadata ? 1 : 0,
         s.folderSettings?.childrenTypeHint ?? null,
         s.folderSettings?.processTvChildren === false ? 0 : 1,

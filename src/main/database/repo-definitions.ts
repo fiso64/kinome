@@ -132,7 +132,14 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     retrieveChildrenMetadata: { sql: 'f.retrieve_children_metadata', table: 'f', parser: Boolean },
     childrenTypeHint: { sql: 'f.children_type_hint', table: 'f' },
     processTvChildren: { sql: 'f.process_tv_children', table: 'f', parser: Boolean },
-    viewSettings: { sql: 'f.view_settings_json', table: 'f', isJson: true }
+    viewSettings: {
+        // appliedGrouping lives in its own column; inject it back into the JSON for the parser.
+        sql: `CASE WHEN f.applied_grouping IS NOT NULL
+            THEN json_set(COALESCE(f.view_settings_json, '{}'), '$.appliedGrouping', f.applied_grouping)
+            ELSE f.view_settings_json END`,
+        table: 'f',
+        isJson: true
+    }
 }
 
 /**

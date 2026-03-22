@@ -49,6 +49,24 @@ export function updateUserState(
 }
 
 /**
+ * Bulk-sets watched state for many items in a single SQL statement.
+ * Use for folder mark-watched where every file gets the same value.
+ */
+export function bulkSetWatched(itemIds: string[], watched: boolean, lastWatchedAt: number): void {
+    if (itemIds.length === 0) return
+    const db = getDb()
+    const placeholders = itemIds.map(() => '?').join(', ')
+    const watchedInt = watched ? 1 : 0
+    db.prepare(`
+        INSERT INTO user_state (item_id, watched, last_watched_at)
+        SELECT id, ?, ? FROM items WHERE id IN (${placeholders})
+        ON CONFLICT(item_id, user_id) DO UPDATE SET
+          watched = excluded.watched,
+          last_watched_at = excluded.last_watched_at
+    `).run(watchedInt, lastWatchedAt, ...itemIds)
+}
+
+/**
  * Fetches user state for a single item.
  */
 export function fetchUserState(itemId: string): any {

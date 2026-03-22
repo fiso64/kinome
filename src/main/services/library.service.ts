@@ -19,7 +19,8 @@ import * as groupingService from './grouping.service'
 import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
-import { updateIfChangedAndBroadcast } from './item-update.service'
+import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
+import * as userRepo from '../database/repositories/user.repo'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
 import * as playbackService from './playback.service'
@@ -242,41 +243,68 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
 
-  const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
+  const descendants = item.type === 'file' ? [] : repositoryService.getAllDescendantsAsList(item as MediaFolder)
   const itemsToUpdate = [item, ...descendants]
 
+  const now = Date.now()
+  const fileItems: MediaFile[] = []
+  const folderItemsWithStateChange: LibraryItem[] = []
+
   for (const i of itemsToUpdate) {
-    i.watched = false
-    i.lastWatched = undefined
-    if (i.type === 'folder') {
-      i.continueWatchingDismissed = false
-      i.nextUpDismissed = false
+    if (i.type === 'file') {
+      i.watched = false
+      i.lastWatched = undefined
+      fileItems.push(i as MediaFile)
+    } else if (i.type === 'folder') {
+      if (i.continueWatchingDismissed || i.nextUpDismissed) {
+        i.continueWatchingDismissed = false
+        i.nextUpDismissed = false
+        folderItemsWithStateChange.push(i)
+      }
     }
   }
 
+  // Bulk-write unwatched state for all file items in one SQL statement.
+  userRepo.bulkSetWatched(fileItems.map((f) => f.id), false, now)
+
   // --- Recalculate Next Up for affected shows ---
-  // Find the parent Show if the item we're unmarking is an episode
   let parent =
     item.type === 'folder' && item.mediaType === 'tv'
       ? (item as MediaFolder)
       : repositoryService.findParent(item.id)
 
-  // Traverse up if we selected a Season
   while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
     parent = repositoryService.findParent(parent.id)
   }
 
+  // Show-level items: folders with changed dismissal state + nextUp recalculation result.
+  const showLevelItems: LibraryItem[] = [...folderItemsWithStateChange]
+
   if (parent) {
-    // Recalculate next_up_episode_id when unwatching episodes in a show
     const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate)
     if (showWithNextUp) {
       if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
         itemsToUpdate.push(showWithNextUp)
       }
+      if (!showLevelItems.find((i) => i.id === showWithNextUp.id)) {
+        showLevelItems.push(showWithNextUp)
+      }
     }
   }
 
-  await updateIfChangedAndBroadcast(itemsToUpdate)
+  repositoryService.runTransaction(() => {
+    for (const i of showLevelItems) {
+      repositoryService._updateItem(i.id, {
+        nextUpEpisodeId: (i as any).nextUpEpisodeId,
+        lastWatched: (i as any).lastWatched,
+        continueWatchingDismissed: i.continueWatchingDismissed,
+        nextUpDismissed: i.nextUpDismissed
+      } as any, { skipFetch: true })
+    }
+  })
+
+  for (const i of itemsToUpdate) i._v = now
+  await broadcastModifiedItems(itemsToUpdate)
 }
 
 /**
@@ -286,10 +314,12 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
 
 /**
  * Recalculates the next_up_episode_id for a show and returns the updated show object.
+ * Pass `preloadedEpisodes` (already overlaid with in-memory changes) to skip the DB fetch.
  */
 async function recalculateNextUpForShow(
   showId: string,
-  modifiedItems: LibraryItem[] = []
+  modifiedItems: LibraryItem[] = [],
+  preloadedEpisodes?: MediaFile[]
 ): Promise<MediaFolder | null> {
   let show = modifiedItems.find((i) => i.id === showId) as MediaFolder
   if (!show) {
@@ -297,15 +327,19 @@ async function recalculateNextUpForShow(
   }
   if (!show || show.mediaType !== 'tv') return null
 
-  const descendants = repositoryService.getAllDescendantsAsList(show)
-  const allEpisodes = descendants.filter(
-    (d) => d.type === 'file' && d.mediaType === 'episode'
-  ) as MediaFile[]
-
-  // Overlay in-memory changes so we don't calculate based on stale database state
-  for (const ep of allEpisodes) {
-    const mod = modifiedItems.find((i) => i.id === ep.id)
-    if (mod) Object.assign(ep, mod)
+  let allEpisodes: MediaFile[]
+  if (preloadedEpisodes) {
+    allEpisodes = preloadedEpisodes
+  } else {
+    const descendants = repositoryService.getAllDescendantsAsList(show)
+    allEpisodes = descendants.filter(
+      (d) => d.type === 'file' && d.mediaType === 'episode'
+    ) as MediaFile[]
+    // Overlay in-memory changes so we don't calculate based on stale database state
+    for (const ep of allEpisodes) {
+      const mod = modifiedItems.find((i) => i.id === ep.id)
+      if (mod) Object.assign(ep, mod)
+    }
   }
 
   const nextEpisode = findNextUpEpisode(allEpisodes)
@@ -335,7 +369,8 @@ async function recalculateNextUpForShow(
 async function checkAndUndismissShow(
   showId: string,
   newlyWatchedEpisodes: MediaFile[],
-  allModifiedItems: LibraryItem[] = []
+  allModifiedItems: LibraryItem[] = [],
+  preloadedEpisodes?: MediaFile[]
 ): Promise<MediaFolder | null> {
   let show = allModifiedItems.find((i) => i.id === showId) as MediaFolder
   if (!show) {
@@ -343,16 +378,20 @@ async function checkAndUndismissShow(
   }
   if (!show || show.mediaType !== 'tv') return null
 
-  // Get all episodes for this show (flattened list)
-  const descendants = repositoryService.getAllDescendantsAsList(show)
-  const allEpisodes = descendants.filter(
-    (d) => d.type === 'file' && d.mediaType === 'episode'
-  ) as MediaFile[]
-
-  // Overlay in-memory changes
-  for (const ep of allEpisodes) {
-    const mod = allModifiedItems.find((i) => i.id === ep.id)
-    if (mod) Object.assign(ep, mod)
+  let allEpisodes: MediaFile[]
+  if (preloadedEpisodes) {
+    allEpisodes = preloadedEpisodes
+  } else {
+    // Get all episodes for this show (flattened list)
+    const descendants = repositoryService.getAllDescendantsAsList(show)
+    allEpisodes = descendants.filter(
+      (d) => d.type === 'file' && d.mediaType === 'episode'
+    ) as MediaFile[]
+    // Overlay in-memory changes
+    for (const ep of allEpisodes) {
+      const mod = allModifiedItems.find((i) => i.id === ep.id)
+      if (mod) Object.assign(ep, mod)
+    }
   }
 
   const newState = checkAutoUndismissal(
@@ -374,11 +413,13 @@ export async function markAsWatched(itemId: string): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
 
-  const descendants = repositoryService.getAllDescendantsAsList(item as MediaFolder)
+  // Files (episodes, movies) have no children — skip the recursive query entirely.
+  const descendants = item.type === 'file' ? [] : repositoryService.getAllDescendantsAsList(item as MediaFolder)
   const itemsToUpdate = [item, ...descendants]
 
-  // Track which episodes are being flipped from Unwatched -> Watched
+  const now = Date.now()
   const newlyWatchedEpisodes: MediaFile[] = []
+  const fileItems: MediaFile[] = []
 
   for (const i of itemsToUpdate) {
     if (i.type === 'file') {
@@ -386,7 +427,8 @@ export async function markAsWatched(itemId: string): Promise<void> {
         newlyWatchedEpisodes.push(i as MediaFile)
       }
       i.watched = true
-      i.lastWatched = Date.now()
+      i.lastWatched = now
+      fileItems.push(i as MediaFile)
     }
   }
 
@@ -394,17 +436,22 @@ export async function markAsWatched(itemId: string): Promise<void> {
     `[Continue Watching] markAsWatched: itemsToUpdate=${itemsToUpdate.length}, newlyWatched=${newlyWatchedEpisodes.length}`
   )
 
-  // --- Logic for Un-Dismissing ---
-  // Find the parent Show to run checks against
+  // Bulk-write watched state for all file items in one SQL statement.
+  userRepo.bulkSetWatched(fileItems.map((f) => f.id), true, now)
+
+  // --- Logic for Un-Dismissing + Next Up (show-level state, at most 1-2 items) ---
   let parent =
     item.type === 'folder' && item.mediaType === 'tv'
       ? (item as MediaFolder)
       : repositoryService.findParent(item.id)
 
-  // Traverse up if we selected a Season or Episode
   while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
     parent = repositoryService.findParent(parent.id)
   }
+
+  // Show-level items with per-item state (nextUpEpisodeId, dismissals, lastWatched).
+  // These are few (≤2) and go through _updateItem individually.
+  const showLevelItems: LibraryItem[] = []
 
   if (parent) {
     if (parent.mediaType !== 'tv') {
@@ -412,28 +459,58 @@ export async function markAsWatched(itemId: string): Promise<void> {
         `INTERNAL ERROR: markAsWatched reached a non-tv parent for undismiss: ${parent.name} (${parent.mediaType})`
       )
     }
+
+    let allShowEpisodes: import('../utils/continue-watching').EpisodeInfo[]
+    if (parent.id === item.id) {
+      allShowEpisodes = descendants.filter(
+        (d) => d.type === 'file' && d.mediaType === 'episode'
+      ) as MediaFile[]
+    } else {
+      allShowEpisodes = repositoryService.getEpisodeProgressForShow(parent.id)
+    }
+    for (const ep of allShowEpisodes) {
+      const mod = itemsToUpdate.find((i) => i.id === ep.id)
+      if (mod) ep.watched = (mod as MediaFile).watched
+    }
+
     const undismissedShow = await checkAndUndismissShow(
       parent.id,
       newlyWatchedEpisodes,
-      itemsToUpdate
+      itemsToUpdate,
+      allShowEpisodes as MediaFile[]
     )
-    if (undismissedShow) {
-      // Ensure we don't duplicate the show in the update list if it was the target
-      if (!itemsToUpdate.find((i) => i.id === undismissedShow.id)) {
-        itemsToUpdate.push(undismissedShow)
-      }
+    if (undismissedShow && !itemsToUpdate.find((i) => i.id === undismissedShow.id)) {
+      itemsToUpdate.push(undismissedShow)
     }
+    if (undismissedShow) showLevelItems.push(undismissedShow)
 
-    // ALWAYS recalculate next_up_episode_id when watching something in a show
-    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate)
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate, allShowEpisodes as MediaFile[])
     if (showWithNextUp) {
       if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
         itemsToUpdate.push(showWithNextUp)
       }
+      if (!showLevelItems.find((i) => i.id === showWithNextUp.id)) {
+        showLevelItems.push(showWithNextUp)
+      }
     }
   }
 
-  await updateIfChangedAndBroadcast(itemsToUpdate)
+  // Write show-level user-state fields only — passing the full item would trigger
+  // upsertMetadata (credits, genres) for the show on every watched toggle.
+  repositoryService.runTransaction(() => {
+    for (const i of showLevelItems) {
+      repositoryService._updateItem(i.id, {
+        nextUpEpisodeId: (i as any).nextUpEpisodeId,
+        lastWatched: (i as any).lastWatched,
+        continueWatchingDismissed: i.continueWatchingDismissed,
+        nextUpDismissed: i.nextUpDismissed
+      } as any, { skipFetch: true })
+    }
+  })
+
+  // Stamp _v in memory and broadcast everything together.
+  for (const i of itemsToUpdate) i._v = now
+  await broadcastModifiedItems(itemsToUpdate)
 }
 
 // --- Continue Watching ---

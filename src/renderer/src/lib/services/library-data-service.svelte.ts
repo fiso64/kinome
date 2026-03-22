@@ -1,4 +1,4 @@
-import { QueryClient, createQuery } from '@tanstack/svelte-query'
+import { QueryClient, createQuery, keepPreviousData } from '@tanstack/svelte-query'
 import { QueryThrottler } from '@lib/query-throttler'
 import { api } from '@lib/api'
 import type { LibraryItem } from '@shared/types'
@@ -237,7 +237,8 @@ class LibraryDataService {
                   fields
                 })
               : [],
-          enabled: isEnabled && normalizedId !== undefined && normalizedId !== null
+          enabled: isEnabled && normalizedId !== undefined && normalizedId !== null,
+          placeholderData: keepPreviousData
         }
       },
       () => this.queryClient!
@@ -340,14 +341,27 @@ class LibraryDataService {
 
           // If view settings or scraper settings were updated, the server-side viewHierarchy is stale.
           // We clear it so components fall back to live resolution until the refetch completes.
-          if ('viewSettings' in item || 'folderSettings' in item) {
+          // Only clear if these fields actually changed — they are always present in broadcast payloads
+          // (full item is serialized), so checking presence alone would falsely clear viewHierarchy
+          // on unrelated updates like nextUpEpisodeId changes, causing the children list to blank out.
+          const viewSettingsChanged =
+            'viewSettings' in item &&
+            'viewSettings' in old &&
+            JSON.stringify(old.viewSettings) !== JSON.stringify(item.viewSettings)
+          const folderSettingsChanged =
+            'folderSettings' in item &&
+            'folderSettings' in old &&
+            JSON.stringify(old.folderSettings) !== JSON.stringify((item as any).folderSettings)
+          if (viewSettingsChanged || folderSettingsChanged) {
             delete (patched as any).viewHierarchy
           }
           return patched
         }
       )
 
-      // 2. Patch any active children lists where this item might be a member (OR its virtual children).
+      // 2. Patch any active children lists where this item might be a member.
+      // Also patches one level of embedded .children (e.g. episodes nested inside season objects
+      // in the show's children query, used by TabsView).
       this.queryClient.setQueriesData({ queryKey: this.keys.children.all }, (oldData: any) => {
         if (!Array.isArray(oldData)) return oldData
         let changed = false
@@ -358,6 +372,15 @@ class LibraryDataService {
           if (entry.id === item.id) {
             newData[i] = { ...entry, ...item }
             changed = true
+          } else if (entry.children && Array.isArray(entry.children)) {
+            // Patch embedded children (e.g. season.children = episodes in TabsView)
+            const embeddedIdx = entry.children.findIndex((c: any) => c.id === item.id)
+            if (embeddedIdx !== -1) {
+              const newChildren = [...entry.children]
+              newChildren[embeddedIdx] = { ...entry.children[embeddedIdx], ...item }
+              newData[i] = { ...entry, children: newChildren }
+              changed = true
+            }
           }
         }
         return changed ? newData : oldData
@@ -377,12 +400,13 @@ class LibraryDataService {
 
       if (isCWRelated) {
         refreshGlobalContinueWatching = true
-        // If it's a TV related item, we might need to refresh show-specific CW
-        showIdsForCWRefetch.add(item.id)
+        // Only add the item if it's a TV show — episode/season IDs are not valid show IDs for CW queries.
+        if ((item as any).mediaType === 'tv') {
+          showIdsForCWRefetch.add(item.id)
+        }
+        // Check ancestors: only add the ones that look like TV shows
         if (item.ancestorIds) {
           for (const ancestorId of item.ancestorIds) {
-            // We don't know for sure which ancestor is the show, so we refetch for all ancestors
-            // that have an active CW query. throttling handles the overhead.
             showIdsForCWRefetch.add(ancestorId)
           }
         }
@@ -391,9 +415,6 @@ class LibraryDataService {
 
     // Step C: Execute Throttled Sync (Structural Truth)
 
-    // IMPORTANT NOTE: Invalidating ALL active children queries is potentially expensive,
-    // but it ensures 100% structural robustness (sorting, grouping, virtual moves).
-    // We haven't experienced performance problems with this YET...
     this.throttler.throttleRefetch(this.keys.children.all, isScanning)
 
     itemIdsToRefetch.forEach((id) => {

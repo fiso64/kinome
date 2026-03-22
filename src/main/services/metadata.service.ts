@@ -10,7 +10,8 @@ import * as tvShowService from './tv-show.service'
 import * as metadataMapping from './metadata-processing.service'
 import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
-import { updateIfChangedAndBroadcast } from './item-update.service'
+import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
+import * as metadataRepo from '../database/repositories/metadata.repo'
 import { getTransport } from '../transport.registry'
 import * as filesystemService from './filesystem.service'
 import * as autocompleteService from './autocomplete.service'
@@ -395,7 +396,14 @@ export async function clearItemMetadata(
     _resetItemMetadataFields(target, { respectLocks: false })
   }
 
-  await updateIfChangedAndBroadcast(uniqueItems, { updateSuggestions: true })
+  // Bulk-clear entity metadata in DB, then broadcast
+  const entityIds = metadataRepo.fetchEntityIdsForItemIds(itemsToFullClear.map((i) => i.id))
+  metadataRepo.bulkClearEntityMetadata(entityIds)
+
+  const now = Date.now()
+  for (const i of uniqueItems) i._v = now
+
+  await broadcastModifiedItems(uniqueItems, { updateSuggestions: true })
   return item
 }
 

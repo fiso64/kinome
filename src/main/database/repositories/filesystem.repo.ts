@@ -33,6 +33,14 @@ export const ENTITY_COLUMNS_SQL = `
     (SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id) AS virtualTags,
     (SELECT json_group_array(json_object('id', p.id, 'name', p.name, 'profile_path', p.profile_path, 'credit_type', c.credit_type, 'character', c.character, 'job', c.job, 'order', c.display_order)) FROM credits c JOIN people p ON c.person_id = p.id WHERE c.entity_id = e.id) AS tmdbCredits`
 
+// appliedGrouping lives in its own column; inject it back into the JSON blob for the mapper.
+// Aliased as 'viewSettings' to match the REPOSITORY_SCHEMA field name so mapRowToLibraryItem
+// finds it on the first row[alias] check in getRowValue.
+const VIEW_SETTINGS_SQL = `
+    CASE WHEN f.applied_grouping IS NOT NULL
+        THEN json_set(COALESCE(f.view_settings_json, '{}'), '$.appliedGrouping', f.applied_grouping)
+        ELSE f.view_settings_json END AS viewSettings`
+
 const FULL_JOIN_SQL = `
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
@@ -43,7 +51,8 @@ const FULL_JOIN_SQL = `
 const FULL_SELECT_SQL = `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           ${VIEW_SETTINGS_SQL},
+           f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
 `
 
 // --- READ OPERATIONS ---
@@ -88,7 +97,8 @@ export function fetchParent(id: string): any {
             `
     SELECT p.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           ${VIEW_SETTINGS_SQL},
+           f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN items p ON i.parent_id = p.id
     LEFT JOIN media_entities e ON p.entity_id = e.id
@@ -116,7 +126,8 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           ${VIEW_SETTINGS_SQL},
+           f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN tree t ON i.id = t.id
     LEFT JOIN media_entities e ON i.entity_id = e.id
@@ -125,6 +136,28 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
   `
         )
         .all(nodeId) as any[]
+}
+
+/**
+ * Fetches only the fields needed to compute next-up and auto-undismissal for a show's episodes.
+ * Much lighter than fetchAllDescendantsRaw: 2 JOINs instead of 4, only 4 columns selected,
+ * and filtered to episode files in SQL.
+ */
+export function fetchEpisodeProgressForShow(showId: string): { id: string; seasonNumber: number | null; episodeNumber: number | null; watched: boolean | null }[] {
+    const db = getDb()
+    return db.prepare(`
+        WITH RECURSIVE tree(id) AS (
+          SELECT id FROM items WHERE parent_id = ?
+          UNION ALL
+          SELECT i.id FROM items i JOIN tree t ON i.parent_id = t.id
+        )
+        SELECT i.id, e.season_number AS seasonNumber, e.episode_number AS episodeNumber, u.watched
+        FROM items i
+        JOIN tree t ON i.id = t.id
+        LEFT JOIN media_entities e ON i.entity_id = e.id
+        LEFT JOIN user_state u ON i.id = u.item_id
+        WHERE i.type = 'file' AND e.media_type = 'episode'
+    `).all(showId) as any[]
 }
 
 /**
@@ -144,7 +177,8 @@ export function fetchAncestorsRaw(itemId: string): any[] {
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           ${VIEW_SETTINGS_SQL},
+           f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN ancestors a ON i.id = a.id
     LEFT JOIN media_entities e ON i.entity_id = e.id
@@ -155,6 +189,34 @@ export function fetchAncestorsRaw(itemId: string): any[] {
   `
         )
         .all(itemId, itemId) as any[]
+}
+
+/**
+ * Fetches ancestor IDs for multiple items in one recursive CTE.
+ * Returns a map of item_id → ancestor_id[].
+ * Much cheaper than calling fetchAncestorsRaw per item when broadcasting bulk updates.
+ */
+export function fetchAncestorIdsForItems(itemIds: string[]): Record<string, string[]> {
+    if (itemIds.length === 0) return {}
+    const db = getDb()
+    const placeholders = itemIds.map(() => '?').join(', ')
+    const rows = db.prepare(`
+        WITH RECURSIVE anc(source_id, id, parent_id) AS (
+          SELECT id, id, parent_id FROM items WHERE id IN (${placeholders})
+          UNION ALL
+          SELECT a.source_id, i.id, i.parent_id
+          FROM items i JOIN anc a ON i.id = a.parent_id
+          WHERE a.parent_id IS NOT NULL
+        )
+        SELECT source_id, id AS ancestor_id FROM anc WHERE id != source_id
+    `).all(...itemIds) as { source_id: string; ancestor_id: string }[]
+
+    const result: Record<string, string[]> = {}
+    for (const { source_id, ancestor_id } of rows) {
+        if (!result[source_id]) result[source_id] = []
+        result[source_id].push(ancestor_id)
+    }
+    return result
 }
 
 /**
@@ -521,10 +583,10 @@ export function getVirtualGroupingFolderIds(parentId: string): string[] {
 export function getFoldersWithActiveGrouping(): { item_id: string, group_by_key: string }[] {
     const db = getDb()
     return db.prepare(`
-        SELECT item_id, json_extract(view_settings_json, '$.appliedGrouping') AS group_by_key
+        SELECT item_id, applied_grouping AS group_by_key
         FROM folder_settings
-        WHERE json_extract(view_settings_json, '$.appliedGrouping') IS NOT NULL
-          AND json_extract(view_settings_json, '$.appliedGrouping') != 'seasonNumber'
+        WHERE applied_grouping IS NOT NULL
+          AND applied_grouping != 'seasonNumber'
     `).all() as { item_id: string, group_by_key: string }[]
 }
 

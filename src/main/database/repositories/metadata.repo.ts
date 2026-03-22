@@ -191,6 +191,45 @@ function upsertTags(entityId: string, tags: Record<string, any> | null): void {
     }
 }
 
+/**
+ * Looks up entity IDs for a set of item IDs in one query.
+ */
+export function fetchEntityIdsForItemIds(itemIds: string[]): string[] {
+    if (itemIds.length === 0) return []
+    const db = getDb()
+    const placeholders = itemIds.map(() => '?').join(', ')
+    const rows = db.prepare(
+        `SELECT entity_id FROM items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL`
+    ).all(...itemIds) as { entity_id: string }[]
+    return rows.map(r => r.entity_id)
+}
+
+/**
+ * Bulk-clears all metadata for a set of items in a few SQL statements.
+ * Use for recursive clear-metadata operations instead of N individual upsertMetadata calls.
+ * Operates on entity IDs (not item IDs).
+ */
+export function bulkClearEntityMetadata(entityIds: string[]): void {
+    if (entityIds.length === 0) return
+    const db = getDb()
+    const placeholders = entityIds.map(() => '?').join(', ')
+
+    runTransaction(() => {
+        db.prepare(`
+            UPDATE media_entities SET
+              tmdb_id = NULL, media_type = NULL, title = NULL, overview = NULL,
+              year = NULL, season_number = NULL, episode_number = NULL,
+              poster_path = NULL, backdrop_path = NULL, logo_path = NULL,
+              locked_fields_json = NULL, last_refreshed_at = NULL, version = NULL
+            WHERE id IN (${placeholders})
+        `).run(...entityIds)
+
+        db.prepare(`DELETE FROM entity_genres WHERE entity_id IN (${placeholders})`).run(...entityIds)
+        db.prepare(`DELETE FROM credits WHERE entity_id IN (${placeholders})`).run(...entityIds)
+        db.prepare(`DELETE FROM entity_tags WHERE entity_id IN (${placeholders})`).run(...entityIds)
+    })
+}
+
 // ─── Read Helpers ───────────────────────────────────────────────────────────
 
 /**

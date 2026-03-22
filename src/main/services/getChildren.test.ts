@@ -53,10 +53,10 @@ mock.module(NAVIGATION_SERVICE_PATH, () => {
 // Import AFTER mocks are set up
 import { getChildren, resolveViewHierarchy } from './navigation.service'
 import { createUserVirtualFolder } from './virtualFolders.service'
-import { applyGrouping, syncVirtualSeasonFolders } from './grouping.service'
+import { applyGrouping, syncVirtualSeasonFolders, syncAllGroupings } from './grouping.service'
 import { mergeSettings } from '../database/repositories/settings.repo'
-import { ensureHomeVirtualFolder, HOME_FOLDER_ID } from '../database/repositories/filesystem.repo'
-import { getItemById, find } from './repository.service'
+import { ensureHomeVirtualFolder, HOME_FOLDER_ID, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from '../database/repositories/filesystem.repo'
+import { getItemById, find, ensureHomeDefaults } from './repository.service'
 import type { MediaFolder, LibraryItem } from '@shared/types'
 
 let ctx: ServiceTestContext
@@ -1465,5 +1465,51 @@ describe('getChildren — sortTop / sortBottom', () => {
     expect(ids[ids.length - 1]).toBe('alpha')
     // Unpinned items (bravo, charlie) in default order between them
     expect(ids.slice(1, -1).sort()).toEqual(['bravo', 'charlie'])
+  })
+})
+
+// =================================================================
+// Home folder defaults (ensureHomeDefaults + initSettings)
+// =================================================================
+
+describe('getChildren — home folder defaults', () => {
+  beforeEach(() => {
+    ctx.seedEntities([{ id: 'e1', mediaType: 'movie' }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: 'root', path: 'film1', type: 'folder', entityId: 'e1' },
+    ])
+    ctx.seedFolderSettings([{ itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } }])
+    ensureHomeDefaults('root')
+    syncAllGroupings()
+  })
+
+  it('home folder shows its section virtual folders (Categories, Recently Added, Genres)', async () => {
+    const items = expectItems(await getChildren('home', {}))
+    const ids = items.map(i => i.id)
+    expect(ids).toContain(HOME_CATEGORIES_ID)
+    expect(ids).toContain(HOME_GENRES_ID)
+  })
+
+  it('Categories section shows its grouping subfolders (e.g. All Media)', async () => {
+    const items = expectItems(await getChildren(HOME_CATEGORIES_ID, {}))
+    const ids = items.map(i => i.id)
+    expect(ids).toContain(HOME_ALL_MEDIA_ID)
+  })
+
+  it('All Media contains real library items', async () => {
+    const items = expectItems(await getChildren(HOME_ALL_MEDIA_ID, {}))
+    expect(items.length).toBeGreaterThan(0)
+  })
+
+  it('Genres section shows genre grouping virtual folders', async () => {
+    ctx.seedEntities([{ id: 'e2', mediaType: 'movie' }])
+    ctx.seedItems([{ id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e2' }])
+    ctx.seedGenres('e2', ['Action'])
+    syncAllGroupings()
+
+    const items = expectItems(await getChildren(HOME_GENRES_ID, {}))
+    const names = items.map(i => i.name)
+    expect(names).toContain('Action')
   })
 })

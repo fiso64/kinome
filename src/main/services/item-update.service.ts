@@ -62,6 +62,57 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
   return same
 }
 
+/**
+ * The shared post-write broadcast pipeline: virtual tags → groupings → ancestor IDs → WS broadcast.
+ *
+ * Called by updateIfChangedAndBroadcast after its detect+write phase, and directly by bulk
+ * operations (bulkMarkWatched, bulkClearMetadata) that handle their own efficient SQL writes.
+ *
+ * Items passed here must already reflect their final state — the values will be broadcast as-is.
+ * Caller is responsible for stamping _v before calling (e.g. item._v = Date.now()).
+ */
+export async function broadcastModifiedItems(
+  items: LibraryItem[],
+  options: { updateSuggestions?: boolean; settings?: Settings } = {}
+): Promise<void> {
+  if (items.length === 0) return
+
+  const settings = options.settings ?? (await settingsService.readSettings())
+
+  const itemIds = items.map((i) => i.id)
+
+  const t1 = Date.now()
+  virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
+  const freshVirtualTags = metadataRepo.fetchVirtualTagsForItems(itemIds)
+  log(`[Timing] applyVirtualTags took ${Date.now() - t1}ms`)
+  for (const item of items) {
+    item.virtualTags = freshVirtualTags[item.id] ?? {}
+  }
+
+  const t2 = Date.now()
+  syncAllGroupings()
+  log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
+
+  const plainItems = JSON.parse(JSON.stringify(items))
+  const t3 = Date.now()
+  const ancestorMap = repositoryService.getAncestorIdsForItems(plainItems.map((i: any) => i.id))
+  for (const item of plainItems) {
+    item.ancestorIds = ancestorMap[item.id] ?? []
+  }
+  log(`[Timing] getAncestors took ${Date.now() - t3}ms`)
+
+  log(`Broadcasting updates for ${items.length} items.`)
+  getTransport().notifyLibraryItemsUpdated(plainItems)
+
+  if (options.updateSuggestions) {
+    const [suggestions, groupByKeys] = await Promise.all([
+      autocompleteService.getAutocompleteSuggestions(),
+      autocompleteService.getGroupByKeys()
+    ])
+    getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys })
+  }
+}
+
 export async function updateIfChangedAndBroadcast(
   items: LibraryItem | LibraryItem[],
   options: { updateSuggestions?: boolean; settings?: Settings } = {}
@@ -72,6 +123,7 @@ export async function updateIfChangedAndBroadcast(
   const settings = options.settings ?? (await settingsService.readSettings())
   const modifiedItems: LibraryItem[] = []
 
+  const t0 = Date.now()
   repositoryService.runTransaction(() => {
     for (const item of itemsArray) {
       const existing = repositoryService.getItemById(item.id)
@@ -96,40 +148,30 @@ export async function updateIfChangedAndBroadcast(
         autocompleteService.invalidateCache()
       }
 
-      // Always persist to DB — virtual items are first-class rows
-      repositoryService._updateItem(item.id, item)
+      // Strip fields that haven't changed to avoid unnecessary DB writes.
+      // `existing` already has genres/tmdbCredits from ENTITY_COLUMNS_SQL subqueries — no extra reads.
+      // Skipping unchanged relational data avoids upsertGenres/upsertCredits (expensive DELETE+INSERT).
+      // Skipping unchanged scalar metadata avoids the upsertMetadata INSERT OR REPLACE entirely.
+      const updatePayload: any = { ...item }
+      if (existing) {
+        const relationalKeys = ['genres', 'tmdbCredits', 'tags'] as const
+        const scalarMetaKeys = [
+          'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
+          'posterPath', 'backdropPath', 'logoPath', 'lockedFields', 'lastRefreshedAt'
+        ] as const
+        for (const key of [...relationalKeys, ...scalarMetaKeys]) {
+          if (key in updatePayload && equal(updatePayload[key], (existing as any)[key])) {
+            delete updatePayload[key]
+          }
+        }
+      }
+
+      // Always persist to DB — virtual items are first-class rows.
+      // skipFetch: true — the return value is unused here; saves one heavy getItemById per item.
+      repositoryService._updateItem(item.id, updatePayload, { skipFetch: true })
     }
   })
+  log(`[Timing] runTransaction total: ${Date.now() - t0}ms`)
 
-  if (modifiedItems.length === 0) return
-
-  // Re-evaluate virtual tags for modified items via SQL (the single authoritative path).
-  // Then read the results back from the DB and attach them to the broadcast payloads,
-  // so receivers always see accurate vtag values.
-  const itemIds = modifiedItems.map((i) => i.id)
-  virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
-  const freshVirtualTags = metadataRepo.fetchVirtualTagsForItems(itemIds)
-  for (const item of modifiedItems) {
-    item.virtualTags = freshVirtualTags[item.id] ?? {}
-  }
-
-  // Re-sync grouping virtual folders if any active groupings exist.
-  syncAllGroupings()
-
-  const plainItems = JSON.parse(JSON.stringify(modifiedItems))
-  for (const item of plainItems) {
-    const ancestors = repositoryService.getAncestors(item.id)
-    item.ancestorIds = ancestors.map((a) => a.id)
-  }
-
-  log(`Broadcasting updates for ${modifiedItems.length} items.`)
-  getTransport().notifyLibraryItemsUpdated(plainItems)
-
-  if (options.updateSuggestions) {
-    const [suggestions, groupByKeys] = await Promise.all([
-      autocompleteService.getAutocompleteSuggestions(),
-      autocompleteService.getGroupByKeys()
-    ])
-    getTransport().notifyMetadataIndexUpdated({ suggestions, groupByKeys })
-  }
+  await broadcastModifiedItems(modifiedItems, { ...options, settings })
 }

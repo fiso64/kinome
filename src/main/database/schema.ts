@@ -180,6 +180,10 @@ CREATE TABLE IF NOT EXISTS folder_settings (
     -- JSON blob matching StoredViewSettings interface
     view_settings_json TEXT,
 
+    -- Active grouping key (e.g. 'genre', 'year', 'seasonNumber'). Stored as a real column
+    -- rather than inside view_settings_json so getFoldersWithActiveGrouping can use an index.
+    applied_grouping TEXT,
+
     -- Scraper behavior flags
     retrieve_children_metadata INTEGER NOT NULL DEFAULT 0,
     children_type_hint TEXT,

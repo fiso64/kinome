@@ -153,11 +153,12 @@ describe('ensureSourceRoot', () => {
   it('sets home view settings with sections layout and _home_category grouping', () => {
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    const row = ctx.db.prepare('SELECT view_settings_json FROM folder_settings WHERE item_id = ?').get(HOME_FOLDER_ID) as any
+    const row = ctx.db.prepare('SELECT view_settings_json, applied_grouping FROM folder_settings WHERE item_id = ?').get(HOME_FOLDER_ID) as any
     const vs = JSON.parse(row.view_settings_json)
 
     expect(vs.layout).toBe('sections')
-    expect(vs.appliedGrouping).toBe('vt._home_category')
+    expect(row.applied_grouping).toBe('vt._home_category')
+    expect(vs.appliedGrouping).toBeUndefined() // must not be in the JSON blob
     expect(vs.childViewSettings?.layout).toBe('horizontal-grid')
     expect(vs.sortTop).toContain(HOME_CATEGORIES_ID)
     expect(vs.sortTop).toContain(HOME_RECENTLY_ADDED_ID)

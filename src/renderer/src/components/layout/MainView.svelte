@@ -78,6 +78,14 @@
   })
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 
+  // DEBUG: trace blank list cause
+  $effect(() => {
+    const count = childrenQuery.data ? (childrenQuery.data as LibraryItem[]).length : -1
+    const vh = currentFolder?.viewHierarchy ? 'present' : 'ABSENT'
+    const enabled = libraryStatus?.status === 'ready' && currentFolder?.viewHierarchy != null
+    console.log(`[MainView] children=${count} status=${childrenQuery.status} fetching=${childrenQuery.isFetching} vh=${vh} enabled=${enabled}`)
+  })
+
   const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
     enabled: () =>
       !!settings?.showContinueWatching &&

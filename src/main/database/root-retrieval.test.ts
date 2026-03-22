@@ -63,7 +63,10 @@ function fetchRoot(): any {
            (SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id) AS virtualTags,
            u.watched, u.last_watched_at, u.continue_watching_dismissed,
            u.next_up_dismissed, u.next_up_episode_id,
-           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           CASE WHEN f.applied_grouping IS NOT NULL
+               THEN json_set(COALESCE(f.view_settings_json, '{}'), '$.appliedGrouping', f.applied_grouping)
+               ELSE f.view_settings_json END AS viewSettings,
+           f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id

@@ -13,10 +13,13 @@ import type { FolderSettings, StoredViewSettings } from '@shared/types'
  */
 export function initSettings(itemId: string, viewSettings: StoredViewSettings): boolean {
   const db = getDb()
+  const vs = { ...viewSettings } as Record<string, any>
+  const appliedGrouping = vs.appliedGrouping ?? null
+  delete vs.appliedGrouping
   const result = db.prepare(`
-    INSERT OR IGNORE INTO folder_settings (item_id, view_settings_json)
-    VALUES (?, ?)
-  `).run(itemId, JSON.stringify(viewSettings))
+    INSERT OR IGNORE INTO folder_settings (item_id, view_settings_json, applied_grouping)
+    VALUES (?, ?, ?)
+  `).run(itemId, JSON.stringify(vs), appliedGrouping)
   return result.changes > 0
 }
 
@@ -42,10 +45,16 @@ export function mergeSettings(itemId: string, updates: {
 
   // IMPORTANT: We MERGE partial updates into the existing JSON blob, not replace.
   // This preserves nested keys like childViewSettings.
-  const viewSettings = parseJsonSafe(existing.view_settings_json, {})
+  const viewSettings = parseJsonSafe(existing.view_settings_json, {}) as Record<string, any>
   if (updates.viewSettings !== undefined && updates.viewSettings !== null) {
     Object.assign(viewSettings, updates.viewSettings)
   }
+
+  // appliedGrouping is stored in its own column — keep it out of the JSON blob.
+  const appliedGrouping = 'appliedGrouping' in viewSettings
+    ? (viewSettings.appliedGrouping ?? null)
+    : existing.applied_grouping ?? null
+  delete viewSettings.appliedGrouping
 
   // Folder behavior settings: merge individual columns
   const retrieveChildrenMetadata = updates.folderSettings?.retrieveChildrenMetadata
@@ -58,10 +67,11 @@ export function mergeSettings(itemId: string, updates: {
 
   db.prepare(
     `
-    INSERT INTO folder_settings(item_id, view_settings_json, retrieve_children_metadata, children_type_hint, process_tv_children)
-    VALUES(@id, @view, @retrieve, @hint, @processTv)
+    INSERT INTO folder_settings(item_id, view_settings_json, applied_grouping, retrieve_children_metadata, children_type_hint, process_tv_children)
+    VALUES(@id, @view, @appliedGrouping, @retrieve, @hint, @processTv)
     ON CONFLICT(item_id) DO UPDATE SET
       view_settings_json = excluded.view_settings_json,
+      applied_grouping = excluded.applied_grouping,
       retrieve_children_metadata = excluded.retrieve_children_metadata,
       children_type_hint = excluded.children_type_hint,
       process_tv_children = excluded.process_tv_children
@@ -69,6 +79,7 @@ export function mergeSettings(itemId: string, updates: {
   ).run({
     '@id': itemId,
     '@view': JSON.stringify(viewSettings),
+    '@appliedGrouping': appliedGrouping,
     '@retrieve': retrieveChildrenMetadata ? 1 : 0,
     '@hint': childrenTypeHint,
     '@processTv': processTvChildren === false ? 0 : 1,

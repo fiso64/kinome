@@ -232,6 +232,14 @@ export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
+export function getEpisodeProgressForShow(showId: string): import('../utils/continue-watching').EpisodeInfo[] {
+  return itemsRepo.fetchEpisodeProgressForShow(showId) as import('../utils/continue-watching').EpisodeInfo[]
+}
+
+export function getAncestorIdsForItems(itemIds: string[]): Record<string, string[]> {
+  return itemsRepo.fetchAncestorIdsForItems(itemIds)
+}
+
 export function getAncestors(itemId: string): LibraryItem[] {
   const rows = itemsRepo.fetchAncestorsRaw(itemId)
   return rows.map(mapRowToLibraryItem)
@@ -296,7 +304,7 @@ export function updateItemPathAndId(oldId: string, newRelativePath: string): Lib
  * Orchestrates a multi-table update for a library item.
  * This is the "Service" level update logic.
  */
-export function _updateItem(itemId: string, updates: Partial<LibraryItem>): LibraryItem | null {
+export function _updateItem(itemId: string, updates: Partial<LibraryItem>, options?: { skipFetch?: boolean }): LibraryItem | null {
   return runTransaction(() => {
     // 1. Invariant Enforcement
     const existingMeta = metadataRepo.fetchMetadataRow(itemId)
@@ -353,7 +361,7 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>): Libr
       })
     }
 
-    return getItemById(itemId)
+    return options?.skipFetch ? null : getItemById(itemId)
   })
 }
 

@@ -14,7 +14,7 @@ Commands:
 If an issue is proving hard to fix, add some logging and ask me to repro. I will send the logs.
 
 ## Breaking Changes
-This project is in an early stage of development and currently not public. Breaking changes are therefore completely fine. We allow them to reduce cruft and make large refactors easier.
+This project is in an early stage of development and currently not public. Breaking changes are therefore completely fine. We allow them to reduce cruft and make large refactors easier. Do _not_ write any migration code.
 
 ## Other Files
 Sometimes I reference my test library, whose structure is detailed in `docs/test-library-structure.md`. Overall project idea and description is in `README.md`, and the long term plans can be found in `docs/PLAN.md`.
