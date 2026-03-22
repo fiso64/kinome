@@ -2,6 +2,8 @@
   import { api } from '@lib/api'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { MediaSource } from '@shared/types'
+  import { flip } from 'svelte/animate'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     mediaSources = $bindable(),
@@ -82,19 +84,13 @@
       {@const resolved = resolvedPaths[source.id]}
       <div
         class="source-entry"
-        class:drag-over={drag.dragOverIndex === i}
-        ondragover={(e) => drag.onDragOver(e, i)}
-        ondragenter={(e) => e.preventDefault()}
-        ondrop={(e) => drag.onDrop(e, i)}
-        ondragend={drag.onDragEnd}
+        class:drag-placeholder={drag.draggedIndex === i}
+        use:drag.item={i}
+        use:drag.handle={i}
+        animate:flip={{ duration: 200 }}
       >
         <div class="source-row">
-          <span
-            class="drag-handle"
-            title="Drag to reorder"
-            draggable="true"
-            ondragstart={(e) => drag.onDragStart(e, i)}
-          >⠿</span>
+          <span class="drag-handle" title="Drag to reorder">⠿</span>
           <input
             type="text"
             bind:value={source.path}
@@ -105,7 +101,7 @@
               class="remove-btn"
               onclick={() => removeSource(source.id)}
               title="Remove source"
-            >✕</button>
+            ><IconX size={12} /></button>
           {/if}
         </div>
         <label class="checkbox-label">
@@ -203,9 +199,9 @@
     border-radius: 6px;
   }
 
-  .source-entry.drag-over {
-    border-color: var(--color-primary);
-    background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-background-mute));
+  .source-entry.drag-placeholder {
+    opacity: 0.25;
+    pointer-events: none;
   }
 
   .source-row {
@@ -217,7 +213,6 @@
   .drag-handle {
     color: var(--color-text-dim);
     font-size: 1.1rem;
-    cursor: grab;
     flex-shrink: 0;
     user-select: none;
   }

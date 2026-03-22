@@ -2,6 +2,8 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { CustomActionConfig } from '@shared/types'
+  import { flip } from 'svelte/animate'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     customActions = $bindable(),
@@ -63,12 +65,11 @@
         {#each localCustomActions as cmd, i (cmd.id)}
           <div
             class="command-item"
-            ondragover={(e) => drag.onDragOver(e, i)}
-            ondragenter={(e) => e.preventDefault()}
-            ondrop={(e) => drag.onDrop(e, i)}
-            ondragend={drag.onDragEnd}
-            class:dragging-over={drag.dragOverIndex === i}
+            use:drag.item={i}
+            use:drag.handle={i}
+            class:drag-placeholder={drag.draggedIndex === i}
             class:editing={editCommandId === cmd.id}
+            animate:flip={{ duration: 200 }}
             onclick={() => {
               if (editCommandId === cmd.id) {
                 editCommandId = null
@@ -77,11 +78,7 @@
               }
             }}
           >
-            <div
-              class="drag-handle"
-              draggable="true"
-              ondragstart={(e) => drag.onDragStart(e, i)}
-            >⠿</div>
+            <div class="drag-handle">⠿</div>
             {#if editCommandId === cmd.id}
               <div class="command-edit-inputs">
                 <input
@@ -116,7 +113,7 @@
               onclick={(e) => {
                 e.stopPropagation()
                 removeCommand(cmd.id)
-              }}>&times;</button
+              }}><IconX size={14} /></button
             >
           </div>
         {/each}
@@ -190,10 +187,10 @@
     background-color: var(--color-background-soft);
     border-radius: 4px;
     border: 1px solid transparent;
-    cursor: grab;
   }
-  .command-item.dragging-over {
-    border-color: var(--ev-c-gray-1);
+  .command-item.drag-placeholder {
+    opacity: 0.25;
+    pointer-events: none;
   }
   .command-item.editing {
     background-color: var(--ev-c-gray-3);
@@ -229,8 +226,7 @@
   .remove-btn {
     background: none;
     color: var(--ev-c-text-2);
-    font-size: 1.5rem;
-    padding: 0 0.5rem;
+    padding: 0;
     cursor: pointer;
     border-radius: 50%;
     width: 30px;

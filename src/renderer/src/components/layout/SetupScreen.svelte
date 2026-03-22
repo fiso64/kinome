@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '@lib/api'
   import { useDragSort } from '@lib/drag-sort.svelte'
+  import { flip } from 'svelte/animate'
   import { modalStore } from '@lib/modal-store.svelte'
   import { useQueryClient } from '@tanstack/svelte-query'
   import FilesystemTreeBrowser from '../setup/FilesystemTreeBrowser.svelte'
@@ -221,20 +222,14 @@
 
             <div
               class="source-entry"
-              class:drag-over={drag.dragOverIndex === i}
-              ondragover={(e) => drag.onDragOver(e, i)}
-              ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => drag.onDrop(e, i)}
-              ondragend={drag.onDragEnd}
+              class:drag-placeholder={drag.draggedIndex === i}
+              use:drag.item={i}
+              use:drag.handle={i}
+              animate:flip={{ duration: 200 }}
             >
               <div class="source-header">
                 {#if sources.length > 1}
-                  <span
-                    class="drag-handle"
-                    title="Drag to reorder"
-                    draggable="true"
-                    ondragstart={(e) => drag.onDragStart(e, i)}
-                  >⠿</span>
+                  <span class="drag-handle" title="Drag to reorder">⠿</span>
                 {/if}
                 <span class="source-label">
                   {sources.length > 1 ? `Source ${i + 1}` : 'Media Source'}
@@ -503,9 +498,9 @@
     border-radius: 8px;
   }
 
-  .source-entry.drag-over {
-    border-color: var(--color-primary);
-    background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-background-mute));
+  .source-entry.drag-placeholder {
+    opacity: 0.25;
+    pointer-events: none;
   }
 
   .source-header {
@@ -517,7 +512,6 @@
   .drag-handle {
     color: var(--color-text-dim);
     font-size: 1.1rem;
-    cursor: grab;
     flex-shrink: 0;
     user-select: none;
   }

@@ -3,6 +3,7 @@
   import { itemCapabilities } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     item,
@@ -377,7 +378,7 @@
                     <button
                       class="remove-image-btn"
                       title="Remove Poster"
-                      onclick={() => handleRemoveImage('poster')}>&times;</button
+                      onclick={() => handleRemoveImage('poster')}><IconX size={14} /></button
                     >
                   {:else}
                     <div class="image-placeholder">No Poster</div>
@@ -422,7 +423,7 @@
                     <button
                       class="remove-image-btn"
                       title="Remove Logo"
-                      onclick={() => handleRemoveImage('logo')}>&times;</button
+                      onclick={() => handleRemoveImage('logo')}><IconX size={14} /></button
                     >
                   {:else}
                     <div class="image-placeholder">No Logo</div>
@@ -467,7 +468,7 @@
                     <button
                       class="remove-image-btn"
                       title="Remove Backdrop"
-                      onclick={() => handleRemoveImage('backdrop')}>&times;</button
+                      onclick={() => handleRemoveImage('backdrop')}><IconX size={14} /></button
                     >
                   {:else}
                     <div class="image-placeholder">No Backdrop</div>
@@ -737,8 +738,6 @@
     background-color: rgba(0, 0, 0, 0.6);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    font-size: 1.2rem;
-    line-height: 1;
     padding: 0;
     display: flex;
     justify-content: center;

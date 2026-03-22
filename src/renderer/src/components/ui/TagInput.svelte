@@ -8,6 +8,7 @@
   } from '@lib/autocomplete-manager'
 
   import { api } from '@lib/api'
+  import IconX from './IconX.svelte'
 
   type Tag = { id: string; key: string; value: string }
 
@@ -103,7 +104,7 @@
         onclick={(e) => {
           e.stopPropagation()
           removeTag(tag.id)
-        }}>&times;</button
+        }}><IconX /></button
       >
     </div>
   {/each}
@@ -163,9 +164,7 @@
     border: none;
     color: var(--ev-c-text-2);
     cursor: pointer;
-    font-size: 1.1rem;
     padding: 0;
-    line-height: 1;
     border-radius: 50%;
     width: 1.1rem;
     height: 1.1rem;

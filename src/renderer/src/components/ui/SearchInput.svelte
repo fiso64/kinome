@@ -8,6 +8,7 @@
     type AutocompleteItem
   } from '@lib/autocomplete-manager'
   import { api } from '@lib/api'
+  import IconX from './IconX.svelte'
 
   // This constant centralizes the "special" keys that have their own suggestion lists.
   const SUGGESTION_KEYS = {
@@ -139,7 +140,7 @@
           onclick={(e) => {
             e.stopPropagation()
             removePill(i)
-          }}>&times;</button
+          }}><IconX /></button
         >
       </div>
     {/each}
@@ -227,9 +228,7 @@
     border: none;
     color: var(--ev-c-text-2);
     cursor: pointer;
-    font-size: 1.2rem;
     padding: 0 0 0 0.3rem;
-    line-height: 1;
     border-radius: 50%;
     width: 1.2rem;
     height: 1.2rem;

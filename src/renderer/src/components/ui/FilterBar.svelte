@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AutocompleteSuggestions } from '@shared/types'
   import SearchInput from './SearchInput.svelte'
+  import IconX from './IconX.svelte'
 
   let {
     query = $bindable(),
@@ -40,7 +41,7 @@
 
 <div class="filter-bar-container">
   <SearchInput bind:query {suggestions} bind:element={searchInput} />
-  <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
+  <button class="close-btn" onclick={onClose} title="Close (Esc)"><IconX size={14} /></button>
 </div>
 
 <style>
@@ -93,9 +94,7 @@
     border: none;
     color: var(--ev-c-text-2);
     cursor: pointer;
-    font-size: 1.5rem;
-    line-height: 1;
-    padding: 0 0.5rem;
+    padding: 0;
     border-radius: 50%;
     width: 30px;
     height: 30px;

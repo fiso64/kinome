@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { registerModalKeyHandler } from '@lib/modal-keyboard-manager'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     title,
@@ -123,7 +124,7 @@
             {@render header()}
           {/if}
         </div>
-        <button class="close-btn" onclick={onClose} title="Close (Esc)">&times;</button>
+        <button class="close-btn" onclick={onClose} title="Close (Esc)"><IconX size={16} /></button>
       </header>
 
       <div class="modal-body">
@@ -219,8 +220,6 @@
   .close-btn {
     background: none;
     color: var(--color-text-soft);
-    font-size: 2rem;
-    line-height: 1;
     width: 36px;
     height: 36px;
     display: flex;

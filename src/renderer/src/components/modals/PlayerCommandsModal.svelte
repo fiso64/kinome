@@ -5,6 +5,7 @@
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { BUILTIN_COPY_LINK } from '@lib/services/player-launcher.service'
+  import { flip } from 'svelte/animate'
 
   let {
     playerCommands = $bindable(),
@@ -39,10 +40,6 @@
 
   // --- Device state (client-side: ordered enabled player IDs) ---
   let localEnabledPlayerIds = $state<string[]>([])
-  const devDrag = useDragSort(
-    () => localEnabledPlayerIds,
-    (items) => (localEnabledPlayerIds = items)
-  )
 
   $effect(() => {
     const stored = localStorage.getItem('kinome_client_secret')
@@ -72,6 +69,13 @@
 
   const disabledDeviceItems = $derived(
     localServerDefinitions.filter((d) => !localEnabledPlayerIds.includes(d.id))
+  )
+
+  // devDrag sorts enabledDeviceItems directly (not localEnabledPlayerIds) to avoid
+  // any indirection that could cause mismatch between what's displayed and what's sorted.
+  const devDrag = useDragSort(
+    () => enabledDeviceItems,
+    (items) => (localEnabledPlayerIds = items.map((p) => p.id))
   )
 
   // --- Handler test ---
@@ -313,7 +317,11 @@
                     <div class="definition-command">{cmd.command}</div>
                   </div>
                 {/if}
-                <button class="remove-btn" onclick={(e) => { e.stopPropagation(); removeDefinition(cmd.id) }}>×</button>
+                <button class="remove-btn" onclick={(e) => { e.stopPropagation(); removeDefinition(cmd.id) }}>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                </button>
               </div>
             {/each}
 
@@ -344,17 +352,12 @@
             {#each enabledDeviceItems as player, i (player.id)}
               <div
                 class="device-item enabled"
-                ondragover={(e) => devDrag.onDragOver(e, i)}
-                ondragenter={(e) => e.preventDefault()}
-                ondrop={(e) => devDrag.onDrop(e, i)}
-                ondragend={devDrag.onDragEnd}
-                class:dragging-over={devDrag.dragOverIndex === i}
+                use:devDrag.item={i}
+                use:devDrag.handle={i}
+                class:drag-placeholder={devDrag.draggedIndex === i}
+                animate:flip={{ duration: 200 }}
               >
-                <div
-                  class="drag-handle"
-                  draggable="true"
-                  ondragstart={(e) => devDrag.onDragStart(e, i)}
-                >⠿</div>
+                <div class="drag-handle">⠿</div>
                 <div class="device-item-name">
                   {player.name}
                   {#if i === 0}<span class="badge">Default</span>{/if}
@@ -504,8 +507,8 @@
   .edit-inputs { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
   .edit-inputs input { padding: 0.4rem 0.5rem; font-size: 0.85rem; background: var(--color-background); border: 1px solid var(--color-background-mute); border-radius: 4px; color: var(--ev-c-text-1); }
 
-  .remove-btn { background: none; color: var(--ev-c-text-2); font-size: 1.3rem; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
-  .remove-btn:hover { color: #e81123; background: var(--ev-c-gray-3); }
+  .remove-btn { background: none; border: none; padding: 0; color: var(--ev-c-text-2); width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+  .remove-btn:hover { background: var(--ev-c-gray-3); color: #e81123; }
 
   .add-form { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-background-mute); }
   .add-form h4 { font-size: 0.85rem; font-weight: 600; margin: 0; }
@@ -534,9 +537,9 @@
     border-radius: 4px;
     transition: border-color 0.15s;
   }
-  .device-item.enabled { cursor: grab; }
+  .device-item.enabled { cursor: default; }
   .device-item.disabled { opacity: 0.5; cursor: default; }
-  .device-item.dragging-over { border-color: var(--ev-c-gray-1); }
+  .device-item.drag-placeholder { opacity: 0.25; pointer-events: none; }
 
   .drag-handle { color: var(--ev-c-text-2); font-size: 1.1rem; padding: 0 0.2rem; flex-shrink: 0; }
   .drag-handle.inactive { opacity: 0.3; }

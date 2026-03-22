@@ -3,6 +3,7 @@
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { LibraryItem, MediaFolder } from '@shared/types'
+  import { flip } from 'svelte/animate'
 
   let {
     item,
@@ -127,18 +128,12 @@
           {#each sortTopItems as child, i (child.id)}
             <div
               class="item draggable"
-              ondragover={(e) => topDrag.onDragOver(e, i)}
-              ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => topDrag.onDrop(e, i)}
-              ondragend={topDrag.onDragEnd}
-              class:drag-over={topDrag.dragOverIndex === i}
+              use:topDrag.item={i}
+              use:topDrag.handle={i}
+              class:drag-placeholder={topDrag.draggedIndex === i}
+              animate:flip={{ duration: 200 }}
             >
-              <span
-                class="drag-handle"
-                title="Drag to reorder"
-                draggable="true"
-                ondragstart={(e) => topDrag.onDragStart(e, i)}
-              >⠿</span>
+              <span class="drag-handle" title="Drag to reorder">⠿</span>
               <span class="item-name">{displayName(child)}</span>
               <button
                 class="action-btn"
@@ -199,18 +194,12 @@
           {#each sortBottomItems as child, i (child.id)}
             <div
               class="item draggable"
-              ondragover={(e) => bottomDrag.onDragOver(e, i)}
-              ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => bottomDrag.onDrop(e, i)}
-              ondragend={bottomDrag.onDragEnd}
-              class:drag-over={bottomDrag.dragOverIndex === i}
+              use:bottomDrag.item={i}
+              use:bottomDrag.handle={i}
+              class:drag-placeholder={bottomDrag.draggedIndex === i}
+              animate:flip={{ duration: 200 }}
             >
-              <span
-                class="drag-handle"
-                title="Drag to reorder"
-                draggable="true"
-                ondragstart={(e) => bottomDrag.onDragStart(e, i)}
-              >⠿</span>
+              <span class="drag-handle" title="Drag to reorder">⠿</span>
               <span class="item-name">{displayName(child)}</span>
               <button
                 class="action-btn"
@@ -299,21 +288,16 @@
     cursor: default;
   }
 
-  .item.drag-over {
-    border-color: var(--ev-c-gray-1);
-    background: var(--color-background-mute);
+  .item.drag-placeholder {
+    opacity: 0.25;
+    pointer-events: none;
   }
 
   .drag-handle {
     color: var(--ev-c-text-3);
-    cursor: grab;
     font-size: 1rem;
     user-select: none;
     flex-shrink: 0;
-  }
-
-  .drag-handle:active {
-    cursor: grabbing;
   }
 
   .item-name {

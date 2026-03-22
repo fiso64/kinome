@@ -5,6 +5,7 @@
     type AutocompleteConfig
   } from '@lib/autocomplete-manager'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     groups = $bindable(),
@@ -167,7 +168,7 @@
           <button
             class="remove-btn"
             onclick={() => removeCondition(gi, ci)}
-            title="Remove condition">&times;</button
+            title="Remove condition"><IconX size={12} /></button
           >
         </div>
       {/each}
@@ -243,10 +244,11 @@
     border: none;
     color: var(--ev-c-text-3);
     cursor: pointer;
-    font-size: 1.1rem;
-    line-height: 1;
     padding: 0 0.2rem;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .remove-btn:hover {
     color: #e81123;

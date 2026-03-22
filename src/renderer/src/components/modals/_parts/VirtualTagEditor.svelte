@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { VirtualTagConfig, LibraryCondition, AutocompleteSuggestions } from '@shared/types'
   import FilterEditor from './FilterEditor.svelte'
+  import IconX from '@components/ui/IconX.svelte'
 
   let {
     tag = $bindable(),
@@ -60,7 +61,7 @@
       placeholder="Tag name (e.g. is_animated)"
       class="tag-name-input"
     />
-    <button class="delete-btn" onclick={onDelete} title="Remove Virtual Tag">&times;</button>
+    <button class="delete-btn" onclick={onDelete} title="Remove Virtual Tag"><IconX size={14} /></button>
   </div>
 
   <div class="cases-list">
@@ -68,7 +69,7 @@
       <div class="case-block">
         <div class="case-header">
           <span class="case-label">{i === 0 ? 'If' : 'Else if'}</span>
-          <button class="remove-case-btn" onclick={() => removeCase(i)} title="Remove case">&times;</button>
+          <button class="remove-case-btn" onclick={() => removeCase(i)} title="Remove case"><IconX size={12} /></button>
         </div>
         {#if vtCase.filter.conditionGroups}
           <FilterEditor bind:groups={vtCase.filter.conditionGroups} {suggestions} />
@@ -118,9 +119,11 @@
     background: none;
     border: none;
     color: var(--ev-c-text-3);
-    font-size: 1.4rem;
     cursor: pointer;
-    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.15rem;
   }
   .delete-btn:hover {
     color: #e81123;
@@ -154,8 +157,10 @@
     border: none;
     color: var(--ev-c-text-3);
     cursor: pointer;
-    font-size: 1.1rem;
-    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
   }
   .remove-case-btn:hover {
     color: #e81123;
