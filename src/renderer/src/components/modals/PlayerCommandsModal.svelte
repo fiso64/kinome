@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
+  import { useDragSort } from '@lib/drag-sort.svelte'
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
@@ -38,8 +39,10 @@
 
   // --- Device state (client-side: ordered enabled player IDs) ---
   let localEnabledPlayerIds = $state<string[]>([])
-  let devDraggedIndex = $state<number | null>(null)
-  let devDragOverIndex = $state<number | null>(null)
+  const devDrag = useDragSort(
+    () => localEnabledPlayerIds,
+    (items) => (localEnabledPlayerIds = items)
+  )
 
   $effect(() => {
     const stored = localStorage.getItem('kinome_client_secret')
@@ -181,31 +184,7 @@
     localEnabledPlayerIds = localEnabledPlayerIds.filter((eid) => eid !== id)
   }
 
-  function handleDevDragStart(e: DragEvent, index: number) {
-    devDraggedIndex = index
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-  }
 
-  function handleDevDragOver(e: DragEvent, index: number) {
-    e.preventDefault()
-    if (devDraggedIndex !== null && index !== devDraggedIndex) devDragOverIndex = index
-  }
-
-  function handleDevDrop(e: DragEvent, dropIndex: number) {
-    e.preventDefault()
-    if (devDraggedIndex === null || devDraggedIndex === dropIndex) { devDragOverIndex = null; return }
-    const ids = [...localEnabledPlayerIds]
-    const [moved] = ids.splice(devDraggedIndex, 1)
-    ids.splice(dropIndex, 0, moved)
-    localEnabledPlayerIds = ids
-    devDraggedIndex = null
-    devDragOverIndex = null
-  }
-
-  function handleDevDragEnd() {
-    devDraggedIndex = null
-    devDragOverIndex = null
-  }
 
   // --- Save ---
   function handleSave() {
@@ -365,15 +344,17 @@
             {#each enabledDeviceItems as player, i (player.id)}
               <div
                 class="device-item enabled"
-                draggable={true}
-                ondragstart={(e) => handleDevDragStart(e, i)}
-                ondragover={(e) => handleDevDragOver(e, i)}
+                ondragover={(e) => devDrag.onDragOver(e, i)}
                 ondragenter={(e) => e.preventDefault()}
-                ondrop={(e) => handleDevDrop(e, i)}
-                ondragend={handleDevDragEnd}
-                class:dragging-over={devDragOverIndex === i}
+                ondrop={(e) => devDrag.onDrop(e, i)}
+                ondragend={devDrag.onDragEnd}
+                class:dragging-over={devDrag.dragOverIndex === i}
               >
-                <div class="drag-handle">⠿</div>
+                <div
+                  class="drag-handle"
+                  draggable="true"
+                  ondragstart={(e) => devDrag.onDragStart(e, i)}
+                >⠿</div>
                 <div class="device-item-name">
                   {player.name}
                   {#if i === 0}<span class="badge">Default</span>{/if}

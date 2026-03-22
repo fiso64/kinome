@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '@lib/api'
+  import { useDragSort } from '@lib/drag-sort.svelte'
   import type { MediaSource } from '@shared/types'
 
   let {
@@ -15,9 +16,10 @@
   } = $props()
 
   let resolvedPaths = $state<Record<string, { path: string; exists: boolean }>>({})
-  let draggedIndex = $state<number | null>(null)
-  let dragOverIndex = $state<number | null>(null)
-
+  const drag = useDragSort(
+    () => mediaSources,
+    (items) => (mediaSources = items)
+  )
   $effect(() => {
     const snapshot = mediaSources.map((s) => ({ id: s.id, path: s.path, isRelative: s.isRelative }))
     const libLoc = libraryLocation
@@ -54,33 +56,6 @@
     mediaSources = mediaSources.filter((s) => s.id !== id)
   }
 
-  function handleDragStart(e: DragEvent, index: number) {
-    draggedIndex = index
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-  }
-
-  function handleDragOver(e: DragEvent, index: number) {
-    e.preventDefault()
-    if (draggedIndex !== null && index !== draggedIndex) dragOverIndex = index
-  }
-
-  function handleDrop(e: DragEvent, dropIndex: number) {
-    e.preventDefault()
-    if (draggedIndex === null || draggedIndex === dropIndex) {
-      dragOverIndex = null
-      return
-    }
-    const items = [...mediaSources]
-    items.splice(dropIndex, 0, items.splice(draggedIndex, 1)[0])
-    mediaSources = items
-    draggedIndex = null
-    dragOverIndex = null
-  }
-
-  function handleDragEnd() {
-    draggedIndex = null
-    dragOverIndex = null
-  }
 </script>
 
 <div class="form-section">
@@ -107,16 +82,19 @@
       {@const resolved = resolvedPaths[source.id]}
       <div
         class="source-entry"
-        class:drag-over={dragOverIndex === i}
-        draggable="true"
-        ondragstart={(e) => handleDragStart(e, i)}
-        ondragover={(e) => handleDragOver(e, i)}
+        class:drag-over={drag.dragOverIndex === i}
+        ondragover={(e) => drag.onDragOver(e, i)}
         ondragenter={(e) => e.preventDefault()}
-        ondrop={(e) => handleDrop(e, i)}
-        ondragend={handleDragEnd}
+        ondrop={(e) => drag.onDrop(e, i)}
+        ondragend={drag.onDragEnd}
       >
         <div class="source-row">
-          <span class="drag-handle" title="Drag to reorder">⠿</span>
+          <span
+            class="drag-handle"
+            title="Drag to reorder"
+            draggable="true"
+            ondragstart={(e) => drag.onDragStart(e, i)}
+          >⠿</span>
           <input
             type="text"
             bind:value={source.path}
@@ -223,11 +201,6 @@
     background-color: var(--color-background-mute);
     border: 1px solid var(--color-border);
     border-radius: 6px;
-    cursor: grab;
-  }
-
-  .source-entry:active {
-    cursor: grabbing;
   }
 
   .source-entry.drag-over {

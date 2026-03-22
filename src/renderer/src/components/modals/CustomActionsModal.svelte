@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
+  import { useDragSort } from '@lib/drag-sort.svelte'
   import type { CustomActionConfig } from '@shared/types'
 
   let {
@@ -15,8 +16,10 @@
   let formCommandNameForNew = $state('')
   let formCommandStringForNew = $state('')
 
-  let draggedItemIndex = $state<number | null>(null)
-  let dragOverItemIndex = $state<number | null>(null)
+  const drag = useDragSort(
+    () => localCustomActions,
+    (items) => (localCustomActions = items)
+  )
 
   function removeCommand(id: string) {
     localCustomActions = localCustomActions.filter((cmd) => cmd.id !== id)
@@ -43,41 +46,6 @@
     onClose()
   }
 
-  function handleDragStart(event: DragEvent, index: number) {
-    draggedItemIndex = index
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
-      event.dataTransfer.setData('text/plain', index.toString())
-    }
-  }
-
-  function handleDragOver(event: DragEvent, index: number) {
-    event.preventDefault()
-    if (draggedItemIndex !== null && index !== draggedItemIndex) {
-      dragOverItemIndex = index
-    }
-  }
-
-  function handleDrop(event: DragEvent, dropIndex: number) {
-    event.preventDefault()
-    if (draggedItemIndex === null || draggedItemIndex === dropIndex) {
-      dragOverItemIndex = null
-      return
-    }
-
-    const itemToMove = localCustomActions[draggedItemIndex]
-    localCustomActions.splice(draggedItemIndex, 1)
-    localCustomActions.splice(dropIndex, 0, itemToMove)
-
-    localCustomActions = localCustomActions
-    draggedItemIndex = null
-    dragOverItemIndex = null
-  }
-
-  function handleDragEnd() {
-    draggedItemIndex = null
-    dragOverItemIndex = null
-  }
 </script>
 
 <ModalWindow
@@ -95,13 +63,11 @@
         {#each localCustomActions as cmd, i (cmd.id)}
           <div
             class="command-item"
-            draggable="true"
-            ondragstart={(e) => handleDragStart(e, i)}
-            ondragover={(e) => handleDragOver(e, i)}
+            ondragover={(e) => drag.onDragOver(e, i)}
             ondragenter={(e) => e.preventDefault()}
-            ondrop={(e) => handleDrop(e, i)}
-            ondragend={handleDragEnd}
-            class:dragging-over={dragOverItemIndex === i}
+            ondrop={(e) => drag.onDrop(e, i)}
+            ondragend={drag.onDragEnd}
+            class:dragging-over={drag.dragOverIndex === i}
             class:editing={editCommandId === cmd.id}
             onclick={() => {
               if (editCommandId === cmd.id) {
@@ -111,7 +77,11 @@
               }
             }}
           >
-            <div class="drag-handle">⠿</div>
+            <div
+              class="drag-handle"
+              draggable="true"
+              ondragstart={(e) => drag.onDragStart(e, i)}
+            >⠿</div>
             {#if editCommandId === cmd.id}
               <div class="command-edit-inputs">
                 <input

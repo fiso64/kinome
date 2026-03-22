@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api } from '@lib/api'
+  import { useDragSort } from '@lib/drag-sort.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
   import { useQueryClient } from '@tanstack/svelte-query'
   import FilesystemTreeBrowser from '../setup/FilesystemTreeBrowser.svelte'
@@ -21,8 +22,10 @@
   let setupCompleted = $state(false)
   let deduplicateSources = $state(false)
   let deduplicateMinDepth = $state(1)
-  let draggedIndex = $state<number | null>(null)
-  let dragOverIndex = $state<number | null>(null)
+  const drag = useDragSort(
+    () => sources,
+    (items) => (sources = items)
+  )
 
   $effect(() => {
     const snapshot = sources.map((s) => ({ id: s.id, path: s.path, isRelative: s.isRelative }))
@@ -66,34 +69,6 @@
 
   function removeSource(id: string) {
     sources = sources.filter((s) => s.id !== id)
-  }
-
-  function handleDragStart(e: DragEvent, index: number) {
-    draggedIndex = index
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-  }
-
-  function handleDragOver(e: DragEvent, index: number) {
-    e.preventDefault()
-    if (draggedIndex !== null && index !== draggedIndex) dragOverIndex = index
-  }
-
-  function handleDrop(e: DragEvent, dropIndex: number) {
-    e.preventDefault()
-    if (draggedIndex === null || draggedIndex === dropIndex) {
-      dragOverIndex = null
-      return
-    }
-    const items = [...sources]
-    items.splice(dropIndex, 0, items.splice(draggedIndex, 1)[0])
-    sources = items
-    draggedIndex = null
-    dragOverIndex = null
-  }
-
-  function handleDragEnd() {
-    draggedIndex = null
-    dragOverIndex = null
   }
 
   onMount(async () => {
@@ -245,17 +220,20 @@
 
             <div
               class="source-entry"
-              class:drag-over={dragOverIndex === i}
-              draggable={sources.length > 1 ? 'true' : 'false'}
-              ondragstart={(e) => handleDragStart(e, i)}
-              ondragover={(e) => handleDragOver(e, i)}
+              class:drag-over={drag.dragOverIndex === i}
+              ondragover={(e) => drag.onDragOver(e, i)}
               ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => handleDrop(e, i)}
-              ondragend={handleDragEnd}
+              ondrop={(e) => drag.onDrop(e, i)}
+              ondragend={drag.onDragEnd}
             >
               <div class="source-header">
                 {#if sources.length > 1}
-                  <span class="drag-handle" title="Drag to reorder">⠿</span>
+                  <span
+                    class="drag-handle"
+                    title="Drag to reorder"
+                    draggable="true"
+                    ondragstart={(e) => drag.onDragStart(e, i)}
+                  >⠿</span>
                 {/if}
                 <span class="source-label">
                   {sources.length > 1 ? `Source ${i + 1}` : 'Media Source'}
@@ -522,14 +500,6 @@
     background-color: var(--color-background-mute);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-  }
-
-  .source-entry[draggable='true'] {
-    cursor: grab;
-  }
-
-  .source-entry[draggable='true']:active {
-    cursor: grabbing;
   }
 
   .source-entry.drag-over {

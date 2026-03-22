@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api } from '@lib/api'
   import FolderTree from '@components/ui/FolderTree.svelte'
 
@@ -108,7 +109,7 @@
 
   $effect(() => {
     JSON.stringify(rootEntries)
-    handleSettingsChange()
+    untrack(handleSettingsChange)
   })
 </script>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import { useDragSort } from '@lib/drag-sort.svelte'
   import type { LibraryItem, MediaFolder } from '@shared/types'
 
   let {
@@ -57,62 +58,14 @@
 
   // --- Drag state ---
 
-  let draggedTopIdx = $state<number | null>(null)
-  let dragOverTopIdx = $state<number | null>(null)
-  let draggedBottomIdx = $state<number | null>(null)
-  let dragOverBottomIdx = $state<number | null>(null)
-
-  function handleTopDragStart(e: DragEvent, i: number) {
-    draggedTopIdx = i
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-  }
-  function handleTopDragOver(e: DragEvent, i: number) {
-    e.preventDefault()
-    if (draggedTopIdx !== null && i !== draggedTopIdx) dragOverTopIdx = i
-  }
-  function handleTopDrop(e: DragEvent, dropIdx: number) {
-    e.preventDefault()
-    if (draggedTopIdx === null || draggedTopIdx === dropIdx) {
-      dragOverTopIdx = null
-      return
-    }
-    const ids = [...sortTopIds]
-    const [moved] = ids.splice(draggedTopIdx, 1)
-    ids.splice(dropIdx, 0, moved)
-    sortTopIds = ids
-    draggedTopIdx = null
-    dragOverTopIdx = null
-  }
-  function handleTopDragEnd() {
-    draggedTopIdx = null
-    dragOverTopIdx = null
-  }
-
-  function handleBottomDragStart(e: DragEvent, i: number) {
-    draggedBottomIdx = i
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-  }
-  function handleBottomDragOver(e: DragEvent, i: number) {
-    e.preventDefault()
-    if (draggedBottomIdx !== null && i !== draggedBottomIdx) dragOverBottomIdx = i
-  }
-  function handleBottomDrop(e: DragEvent, dropIdx: number) {
-    e.preventDefault()
-    if (draggedBottomIdx === null || draggedBottomIdx === dropIdx) {
-      dragOverBottomIdx = null
-      return
-    }
-    const ids = [...sortBottomIds]
-    const [moved] = ids.splice(draggedBottomIdx, 1)
-    ids.splice(dropIdx, 0, moved)
-    sortBottomIds = ids
-    draggedBottomIdx = null
-    dragOverBottomIdx = null
-  }
-  function handleBottomDragEnd() {
-    draggedBottomIdx = null
-    dragOverBottomIdx = null
-  }
+  const topDrag = useDragSort(
+    () => sortTopIds,
+    (items) => (sortTopIds = items)
+  )
+  const bottomDrag = useDragSort(
+    () => sortBottomIds,
+    (items) => (sortBottomIds = items)
+  )
 
   // --- Cross-section movement ---
 
@@ -174,15 +127,18 @@
           {#each sortTopItems as child, i (child.id)}
             <div
               class="item draggable"
-              draggable="true"
-              ondragstart={(e) => handleTopDragStart(e, i)}
-              ondragover={(e) => handleTopDragOver(e, i)}
+              ondragover={(e) => topDrag.onDragOver(e, i)}
               ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => handleTopDrop(e, i)}
-              ondragend={handleTopDragEnd}
-              class:drag-over={dragOverTopIdx === i}
+              ondrop={(e) => topDrag.onDrop(e, i)}
+              ondragend={topDrag.onDragEnd}
+              class:drag-over={topDrag.dragOverIndex === i}
             >
-              <span class="drag-handle" title="Drag to reorder">⠿</span>
+              <span
+                class="drag-handle"
+                title="Drag to reorder"
+                draggable="true"
+                ondragstart={(e) => topDrag.onDragStart(e, i)}
+              >⠿</span>
               <span class="item-name">{displayName(child)}</span>
               <button
                 class="action-btn"
@@ -243,15 +199,18 @@
           {#each sortBottomItems as child, i (child.id)}
             <div
               class="item draggable"
-              draggable="true"
-              ondragstart={(e) => handleBottomDragStart(e, i)}
-              ondragover={(e) => handleBottomDragOver(e, i)}
+              ondragover={(e) => bottomDrag.onDragOver(e, i)}
               ondragenter={(e) => e.preventDefault()}
-              ondrop={(e) => handleBottomDrop(e, i)}
-              ondragend={handleBottomDragEnd}
-              class:drag-over={dragOverBottomIdx === i}
+              ondrop={(e) => bottomDrag.onDrop(e, i)}
+              ondragend={bottomDrag.onDragEnd}
+              class:drag-over={bottomDrag.dragOverIndex === i}
             >
-              <span class="drag-handle" title="Drag to reorder">⠿</span>
+              <span
+                class="drag-handle"
+                title="Drag to reorder"
+                draggable="true"
+                ondragstart={(e) => bottomDrag.onDragStart(e, i)}
+              >⠿</span>
               <span class="item-name">{displayName(child)}</span>
               <button
                 class="action-btn"
