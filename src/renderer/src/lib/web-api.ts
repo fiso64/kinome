@@ -282,12 +282,17 @@ class WebApiClient implements ApiClient {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
 
-  performScan(
-    options: { source?: MediaSource; initialFolderSettings?: Record<string, any> } = {}
-  ): Promise<{ success: boolean }> {
+  saveSource(source: MediaSource): Promise<{ success: boolean }> {
+    return this.request('/api/save-source', {
+      method: 'POST',
+      body: JSON.stringify({ source })
+    })
+  }
+
+  performScan(sourceFolderSettings?: Record<string, Record<string, any>>): Promise<{ success: boolean }> {
     return this.request('/api/perform-scan', {
       method: 'POST',
-      body: JSON.stringify(options)
+      body: JSON.stringify({ sourceFolderSettings })
     })
   }
 

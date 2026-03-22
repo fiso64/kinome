@@ -571,7 +571,8 @@ const app = new Elysia()
 
         return listDirectoryService.listDirectory(path)
       })
-      .post('/perform-scan', ({ body }: { body: any }) => libraryService.performScan(body))
+      .post('/save-source', ({ body }: { body: any }) => libraryService.saveSource(body.source))
+      .post('/perform-scan', ({ body }: { body: any }) => libraryService.performScan(body.sourceFolderSettings))
       .post('/play-file', ({ body }: { body: any }) =>
         libraryService.playFile(body.file, (opt) => console.log(opt))
       )

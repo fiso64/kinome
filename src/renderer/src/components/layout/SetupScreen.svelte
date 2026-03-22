@@ -146,8 +146,9 @@
       await api.saveSettings({ libraryLocation, deduplicateSources, deduplicateMinDepth })
 
       for (const source of sources) {
-        await api.performScan({ source, initialFolderSettings: folderSettings[source.id] ?? {} })
+        await api.saveSource(source)
       }
+      await api.performScan(folderSettings)
 
       queryClient.invalidateQueries()
       if (onStatusUpdate) onStatusUpdate()

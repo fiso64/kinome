@@ -141,89 +141,72 @@ async function _runBackgroundScan(
 }
 
 /**
- * Unified entry point for scanning.
- * - In setup mode (options.source provided): saves source to settings, inits root, and scans.
- * - In refresh mode: reads all configured sources from settings and scans each.
+ * Saves (adds or replaces) a single media source in settings.
+ * Does not trigger a scan. Call performScan() after saving all sources.
+ */
+export const saveSource = async (source: import('@shared/types').MediaSource): Promise<{ success: boolean }> => {
+  const settings = await settingsService.readSettings()
+  const existingSources = settings.mediaSources ?? []
+  const updatedSources = existingSources.some((s) => s.id === source.id)
+    ? existingSources.map((s) => (s.id === source.id ? source : s))
+    : [...existingSources, source]
+  await settingsService.writeLibrarySettings({ mediaSources: updatedSources })
+  return { success: true }
+}
+
+/**
+ * Scans all configured media sources sequentially.
+ * Sources are scanned in priority order; deduplication is applied when enabled.
  */
 export const performScan = async (
-  options: {
-    source?: import('@shared/types').MediaSource
-    initialFolderSettings?: Record<string, any>
-  } = {}
-) => {
+  sourceFolderSettings?: Record<string, Record<string, any>>
+): Promise<{ success: boolean }> => {
   const settings = await settingsService.readSettings()
+  const sourcePaths = await settingsService.getAbsoluteSourcePaths()
+  if (sourcePaths.size === 0) throw new Error('Cannot scan, no library sources configured.')
 
-  if (options.source) {
-    // Setup Mode: add/replace this source in settings
-    const source = options.source
-    const resolvedAbsPath = (await settingsService.resolveMediaSourcePath(source.path, source.isRelative)).path
+  const sources = settings.mediaSources ?? []
+  const deduplicateSources = settings.deduplicateSources ?? false
+  const deduplicateMinDepth = settings.deduplicateMinDepth ?? 1
 
-    log(`Setup scan for source ${source.id}: ${resolvedAbsPath}`)
-
-    const existingSources = settings.mediaSources ?? []
-    const updatedSources = existingSources.some((s) => s.id === source.id)
-      ? existingSources.map((s) => (s.id === source.id ? source : s))
-      : [...existingSources, source]
-    await settingsService.writeLibrarySettings({ mediaSources: updatedSources })
-
+  // Initialize roots before any scanning begins
+  for (const source of sources) {
+    const resolvedAbsPath = sourcePaths.get(source.id)
+    if (!resolvedAbsPath) continue
     if (!pathsService.isRemotePath(resolvedAbsPath)) {
       await settingsService.createDirectory(resolvedAbsPath)
     }
-
-    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, options.initialFolderSettings)
+    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
     filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
+  }
 
-    _runBackgroundScan(source, resolvedAbsPath, normalizedSettings).catch((err) => {
-      console.error('[Library Service] Background scan failed:', err)
-    })
-  } else {
-    // Refresh Mode: scan all configured sources sequentially (order matters for dedup)
-    const sourcePaths = await settingsService.getAbsoluteSourcePaths()
-    if (sourcePaths.size === 0) throw new Error('Cannot scan, no library sources configured.')
-
-    const sources = settings.mediaSources ?? []
-    const deduplicateSources = settings.deduplicateSources ?? false
-    const deduplicateMinDepth = settings.deduplicateMinDepth ?? 1
-
-    // Initialize roots before any scanning begins
-    for (const source of sources) {
+  // Run scans sequentially so higher-priority source results are in DB before building dedup sets
+  ;(async () => {
+    for (let j = 0; j < sources.length; j++) {
+      const source = sources[j]
       const resolvedAbsPath = sourcePaths.get(source.id)
       if (!resolvedAbsPath) continue
-      if (!pathsService.isRemotePath(resolvedAbsPath)) {
-        await settingsService.createDirectory(resolvedAbsPath)
-      }
-      const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, undefined)
-      filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
-    }
 
-    // Run scans sequentially so higher-priority source results are in DB before building dedup sets
-    ;(async () => {
-      for (let j = 0; j < sources.length; j++) {
-        const source = sources[j]
-        const resolvedAbsPath = sourcePaths.get(source.id)
-        if (!resolvedAbsPath) continue
+      log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
 
-        log(`Refresh scan for source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
-
-        // Build dedup set from higher-priority sources that have already been scanned this cycle
-        let higherPriorityPaths: Set<string> | undefined
-        if (deduplicateSources && j > 0) {
-          higherPriorityPaths = new Set<string>()
-          for (let k = 0; k < j; k++) {
-            for (const p of filesystemService.getFolderPathsForSource(sources[k].id)) {
-              higherPriorityPaths.add(p)
-            }
+      // Build dedup set from higher-priority sources that have already been scanned this cycle
+      let higherPriorityPaths: Set<string> | undefined
+      if (deduplicateSources && j > 0) {
+        higherPriorityPaths = new Set<string>()
+        for (let k = 0; k < j; k++) {
+          for (const p of filesystemService.getFolderPathsForSource(sources[k].id)) {
+            higherPriorityPaths.add(p)
           }
-          log(`Dedup: skipping ${higherPriorityPaths.size} paths from ${j} higher-priority source(s) at depth >= ${deduplicateMinDepth}`)
         }
-
-        const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, undefined)
-        await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, higherPriorityPaths, deduplicateMinDepth)
+        log(`Dedup: skipping ${higherPriorityPaths.size} paths from ${j} higher-priority source(s) at depth >= ${deduplicateMinDepth}`)
       }
-    })().catch((err) => {
-      console.error('[Library Service] Background scan sequence failed:', err)
-    })
-  }
+
+      const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
+      await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, higherPriorityPaths, deduplicateMinDepth)
+    }
+  })().catch((err) => {
+    console.error('[Library Service] Background scan sequence failed:', err)
+  })
 
   return { success: true }
 }

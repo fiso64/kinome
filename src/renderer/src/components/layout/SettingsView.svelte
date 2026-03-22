@@ -204,8 +204,9 @@
       })
       if (choice === 'full_rescan') {
         for (const source of mediaSources) {
-          await api.performScan({ source })
+          await api.saveSource(source)
         }
+        await api.performScan()
         const status = await api.getLibraryRoot()
         if (status.root) {
           modalStore.open('initialFolderSettings', { root: status.root })
