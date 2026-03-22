@@ -30,13 +30,17 @@
   - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
 - [X] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
-- [ ] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
-  - [ ] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
-    - [ ] Starting by implementing real virtual folders alongside current transient virtual folders.
-    - [ ] Then refactor to unify the two types of virtual folders.
-  - [ ] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
-  - [ ] A "Recently Added" section implemented as a virtual folder.
-- [ ] More UI and virtual tag configuration: Sorting and filtering any view by anything (metadata, tags, virtual tags).
+- [X] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
+  - [X] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
+    - [X] Start by implementing real virtual folders alongside current transient virtual folders.
+    - [X] Then refactor to unify the two types of virtual folders.
+  - [X] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
+  - [X] A "Recently Added" section implemented as a virtual folder.
+  - [X] Improve default home view. Add a recently added default virtual folder. 
+  - [ ] Show multiple default setup options during onboarding.
+- [ ] More UI and virtual tag configuration.
+  - [X] Sorting and filtering any view by anything (metadata, tags, virtual tags).
+  - [ ] Dynamic virtual tag values (see `docs/draft-field-references-in-vtag-results.md`).
   - [ ] See how Jellyfin's home view looks and add customization options to allow users to recreate this look (if it's good).
 - [ ] Improve navigation and user action performance as much as possible. Remove all lag and jitter.
 - [ ] Revive the custom actions feature. Support both client-side and server-side action definitions.
@@ -67,7 +71,7 @@
 - [ ] Revive electron app (built-in server + thin client)?
 
 ### ⌨️ Diagnostics & Development
-- [ ] Frontend should display error messages from the backend when needed.
+- [ ] Frontend should display error messages from the backend when needed (?)
 - [ ] Add proper comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
 - [ ] Use a good logging framework with pretty output and multiple log levels.
 
