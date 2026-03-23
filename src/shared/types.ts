@@ -291,8 +291,6 @@ export interface VirtualTagConfig {
  */
 export interface ServerSettings {
   libraryLocation: string
-  adminPasswordHash?: string
-  allowUnauthenticated?: boolean
   serverPort?: number
   serverHost?: string
 }
@@ -359,8 +357,6 @@ export interface GlobalConfig {
  * Library-specific library-settings.json files are prohibited from overriding these.
  */
 export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
-  'adminPasswordHash',
-  'allowUnauthenticated',
   'serverPort',
   'serverHost',
   'libraryLocation'
@@ -787,17 +783,41 @@ export const SEARCH_INDEX_PROPERTIES = [
   '_v'
 ] as const
 
+// --- Accounts & Permissions ---
+
+export type AccountRole = 'admin' | 'normal'
+
+export type Capability =
+  | 'editMetadata'
+  | 'editSettings'
+  | 'manageAccounts'
+  | 'triggerLibraryScan'
+
+export const ROLE_CAPABILITIES: Record<AccountRole, Capability[]> = {
+  admin: ['editMetadata', 'editSettings', 'manageAccounts', 'triggerLibraryScan'],
+  normal: [],
+}
+
+export interface Account {
+  id: string
+  username: string
+  role: AccountRole
+}
+
 export interface LoginRequest {
-  password?: string
-  setup?: boolean // If true, we are setting up the admin password
-  setupToken?: string
+  username: string
+  password: string
+}
+
+export interface SetupRequest {
+  setupToken: string
+  username: string
+  password: string
 }
 
 export interface AuthResponse {
-  success: boolean
-  token?: string
-  isAdmin: boolean
-  needsSetup: boolean
-  allowUnauthenticated: boolean
   authenticated: boolean
+  needsSetup: boolean
+  account?: Account & { capabilities: Capability[] }
+  token?: string
 }

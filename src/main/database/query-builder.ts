@@ -41,6 +41,8 @@ export interface FindOptions {
     offset?: number
     includeHidden?: boolean
     includeIgnored?: boolean
+    /** When set, user_state is joined for this user (watched, lastWatched, etc.). */
+    userId?: string
 }
 
 // =================================================================
@@ -438,8 +440,11 @@ export function buildSortPinPrefix(
 
 /**
  * Builds a dynamic SQL query based on find options.
+ * When options.userId is set, user_state is joined for that user (watched, lastWatched, etc.).
+ * When absent, user_state fields resolve to NULL (join with impossible condition).
  */
 export function buildFindQuery(options: FindOptions = {}): { query: string; params: any[] } {
+    const userId = options.userId
     const requestedFields = options.fields || []
     const fieldsToSelect: string[] = requestedFields.length > 0 ? [...requestedFields] : [...(CORE_FIELDS as unknown as string[])]
 
@@ -508,12 +513,19 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
 
     const selectClause = selectParts.join(', ')
     let query = `SELECT ${selectClause} FROM items i`
+    const joinParams: any[] = []
 
     if (usedTables.has('e')) {
         query += ` LEFT JOIN media_entities e ON i.entity_id = e.id`
     }
     if (usedTables.has('u')) {
-        query += ` LEFT JOIN user_state u ON i.id = u.item_id`
+        if (userId) {
+            query += ` LEFT JOIN user_state u ON i.id = u.item_id AND u.user_id = ?`
+            joinParams.push(userId)
+        } else {
+            // No user context — user state fields return NULL
+            query += ` LEFT JOIN user_state u ON i.id = u.item_id AND 1=0`
+        }
     }
     if (usedTables.has('f')) {
         query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
@@ -556,5 +568,5 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         }
     }
 
-    return { query, params }
+    return { query, params: [...joinParams, ...params] }
 }

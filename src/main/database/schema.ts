@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS items (
     is_virtual      INTEGER DEFAULT 0,
     virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
     filter_json TEXT,
+    owner_id TEXT,  -- NULL = admin-owned/shared; account id = owned by that user
 
     -- Timestamp
     added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
@@ -155,6 +156,16 @@ BEGIN
     DELETE FROM people WHERE id = OLD.person_id
     AND NOT EXISTS (SELECT 1 FROM credits WHERE person_id = OLD.person_id);
 END;
+
+
+-- Accounts
+CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'normal' CHECK(role IN ('admin', 'normal')),
+    created_at INTEGER NOT NULL
+);
 
 
 -- User State (Watched status, etc.)

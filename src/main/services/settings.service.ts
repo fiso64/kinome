@@ -257,7 +257,6 @@ async function readRawSettings(): Promise<Settings> {
     searchPopupView: { layout: 'list', listDescriptionRows: 2 },
     itemDetailBackdropSize: 'small',
     itemDetailBackdropBlur: 4,
-    allowUnauthenticated: false,
     serverPort: 3000,
     serverHost: '::'
   }
@@ -321,9 +320,8 @@ async function readRawSettings(): Promise<Settings> {
 /**
  * Returns a copy of the settings safe to send to the client — sensitive fields removed.
  */
-export function sanitizeForClient(settings: Settings): Omit<Settings, 'adminPasswordHash'> {
-  const { adminPasswordHash: _, ...sanitized } = settings as any
-  return sanitized
+export function sanitizeForClient(settings: Settings): Settings {
+  return settings
 }
 
 export async function readSettings(): Promise<Settings> {

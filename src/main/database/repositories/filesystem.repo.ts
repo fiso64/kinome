@@ -44,13 +44,11 @@ const VIEW_SETTINGS_SQL = `
 const FULL_JOIN_SQL = `
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
 `
 
 const FULL_SELECT_SQL = `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
-           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
            ${VIEW_SETTINGS_SQL},
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
 `
@@ -96,13 +94,11 @@ export function fetchParent(id: string): any {
         .prepare(
             `
     SELECT p.*, ${ENTITY_COLUMNS_SQL},
-           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
            ${VIEW_SETTINGS_SQL},
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN items p ON i.parent_id = p.id
     LEFT JOIN media_entities e ON p.entity_id = e.id
-    LEFT JOIN user_state u ON p.id = u.item_id
     LEFT JOIN folder_settings f ON p.id = f.item_id
     WHERE i.id = ?
   `
@@ -125,13 +121,11 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
       JOIN tree t ON i.parent_id = t.id
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
-           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
            ${VIEW_SETTINGS_SQL},
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN tree t ON i.id = t.id
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
         )
@@ -143,7 +137,7 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
  * Much lighter than fetchAllDescendantsRaw: 2 JOINs instead of 4, only 4 columns selected,
  * and filtered to episode files in SQL.
  */
-export function fetchEpisodeProgressForShow(showId: string): { id: string; seasonNumber: number | null; episodeNumber: number | null; watched: boolean | null }[] {
+export function fetchEpisodeProgressForShow(showId: string, userId: string): { id: string; seasonNumber: number | null; episodeNumber: number | null; watched: boolean | null }[] {
     const db = getDb()
     return db.prepare(`
         WITH RECURSIVE tree(id) AS (
@@ -155,9 +149,9 @@ export function fetchEpisodeProgressForShow(showId: string): { id: string; seaso
         FROM items i
         JOIN tree t ON i.id = t.id
         LEFT JOIN media_entities e ON i.entity_id = e.id
-        LEFT JOIN user_state u ON i.id = u.item_id
+        LEFT JOIN user_state u ON i.id = u.item_id AND u.user_id = ?
         WHERE i.type = 'file' AND e.media_type = 'episode'
-    `).all(showId) as any[]
+    `).all(showId, userId) as any[]
 }
 
 /**
@@ -176,13 +170,11 @@ export function fetchAncestorsRaw(itemId: string): any[] {
       JOIN ancestors a ON i.id = a.parent_id
     )
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
-           u.watched, u.last_watched_at, u.continue_watching_dismissed, u.next_up_dismissed, u.next_up_episode_id,
            ${VIEW_SETTINGS_SQL},
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     JOIN ancestors a ON i.id = a.id
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.id != ?
     ORDER BY a.level ASC

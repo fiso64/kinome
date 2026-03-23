@@ -53,4 +53,15 @@ export interface ITransport {
    * @param payload The data payload.
    */
   broadcast(event: string, payload: any): void
+
+  /**
+   * Notifies clients that a handler test succeeded.
+   * @param sessionId The session ID of the test.
+   */
+  notifyHandlerTestSuccess(sessionId: string): void
+
+  /**
+   * Returns the current scan status (for initial WebSocket push on connect).
+   */
+  getCurrentStatus(): import('@shared/types').ScanStatus
 }

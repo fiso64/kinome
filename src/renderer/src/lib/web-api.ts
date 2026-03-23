@@ -51,8 +51,8 @@ class WebApiClient implements ApiClient {
       this.ws = null
     }
 
-    // GATING: Don't connect if we are not authenticated and server hasn't been confirmed as public
-    if (!authStore.isAuthenticated && !authStore.allowUnauthenticated) {
+    // GATING: Don't connect if we are not authenticated
+    if (!authStore.isAuthenticated) {
       console.log('[WebApiClient] Waiting for authentication before connecting WebSocket.')
       return
     }
@@ -96,7 +96,7 @@ class WebApiClient implements ApiClient {
     this.ws.onclose = () => {
       this.dispatchWSStatus(false)
       // Only retry if we are still supposed to be connected
-      if (authStore.isAuthenticated || authStore.allowUnauthenticated) {
+      if (authStore.isAuthenticated) {
         console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
         this.retryTimeout = setTimeout(() => this.connectWS(authStore.token), 3000)
       }
@@ -153,6 +153,8 @@ class WebApiClient implements ApiClient {
     })
 
     if (!response.ok) {
+      // 401 = not authenticated (token missing/expired) → force logout
+      // 403 = authenticated but lacks capability → surface error, do NOT logout
       if (response.status === 401) {
         authStore.logout()
       }
@@ -578,6 +580,35 @@ class WebApiClient implements ApiClient {
       method: 'POST',
       body: JSON.stringify({ password })
     })
+  }
+
+  getAccounts(): Promise<import('@shared/types').Account[]> {
+    return this.request('/api/accounts')
+  }
+
+  createAccount(username: string, password: string, role: import('@shared/types').AccountRole): Promise<import('@shared/types').Account> {
+    return this.request('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role })
+    })
+  }
+
+  updateAccountRole(accountId: string, role: import('@shared/types').AccountRole): Promise<void> {
+    return this.request(`/api/accounts/${accountId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
+    })
+  }
+
+  updateAccountPassword(accountId: string, password: string): Promise<void> {
+    return this.request(`/api/accounts/${accountId}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    })
+  }
+
+  deleteAccount(accountId: string): Promise<void> {
+    return this.request(`/api/accounts/${accountId}`, { method: 'DELETE' })
   }
 
   getLibraryStatus(path?: string): Promise<LibraryStatus> {

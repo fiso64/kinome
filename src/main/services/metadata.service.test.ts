@@ -10,9 +10,12 @@ import path from 'path'
 import os from 'os'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { setImage, removeImage } from './metadata.service'
+import { syncTvShowStructure } from './tv-show.service'
+import { updateIfChangedAndBroadcast } from './item-update.service'
 import { getItemById } from './repository.service'
 import { setLibraryDataPath } from './paths.service'
 import { applyGrouping } from './grouping.service'
+import type { MediaFolder } from '@shared/types'
 
 let ctx: ServiceTestContext
 let tmpDir: string
@@ -181,6 +184,36 @@ describe('setImage — buffer upload', () => {
 
     expect(result).not.toBeNull()
     expect(result!._v).toBeGreaterThan(vBefore)
+  })
+})
+
+describe('TV show structural sync — background processing (no user context)', () => {
+  it('does not throw when synced season items (which have watched=null from CORE_FIELDS) are passed to updateIfChangedAndBroadcast', async () => {
+    // Regression: watched is in CORE_FIELDS, so items fetched via find() without a userId
+    // have watched=null (1=0 JOIN returns NULL). _updateItem sees null !== undefined and
+    // throws "userId required when updating user state fields". This broke Phase 2 enrichment
+    // for all TV shows after the multi-account refactor.
+    ctx.seedEntities([{ id: 'e-show', mediaType: 'tv', title: 'Smiling Friends' }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      // The show has mediaType: tv so syncTvShowStructure will process it
+      { id: 'show-1', parentId: 'root', type: 'folder', entityId: 'e-show', name: 'Smiling Friends' },
+      // Season folder has no mediaType yet — sync will assign mediaType='season', making it "modified"
+      { id: 'season-1', parentId: 'show-1', type: 'folder', name: 'Season 01' }
+    ])
+
+    const show = getItemById('show-1') as MediaFolder
+    // syncTvShowStructure internally calls getChildren() without userId, returning items with watched=null
+    const modified = await syncTvShowStructure(show)
+
+    // The season was recognized and assigned mediaType='season', so it is in modified
+    expect(modified.length).toBeGreaterThan(0)
+
+    // Phase 2 enrichment calls updateIfChangedAndBroadcast(allModifiedItems) — no userId.
+    // This must NOT throw even though modified[0].watched === null.
+    await expect(
+      updateIfChangedAndBroadcast(modified)
+    ).resolves.toBeUndefined()
   })
 })
 

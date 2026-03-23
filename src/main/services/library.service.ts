@@ -239,12 +239,13 @@ export async function getItemChildren(
 
 // --- Watched State ---
 
-export async function markAsUnwatched(itemId: string): Promise<void> {
+export async function markAsUnwatched(itemId: string, userId: string): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
 
   const descendants = item.type === 'file' ? [] : repositoryService.getAllDescendantsAsList(item as MediaFolder)
   const itemsToUpdate = [item, ...descendants]
+  userRepo.overlayUserState(itemsToUpdate, userId)
 
   const now = Date.now()
   const fileItems: MediaFile[] = []
@@ -265,7 +266,7 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   }
 
   // Bulk-write unwatched state for all file items in one SQL statement.
-  userRepo.bulkSetWatched(fileItems.map((f) => f.id), false, now)
+  userRepo.bulkSetWatched(fileItems.map((f) => f.id), userId, false, now)
 
   // --- Recalculate Next Up for affected shows ---
   let parent =
@@ -281,7 +282,7 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
   const showLevelItems: LibraryItem[] = [...folderItemsWithStateChange]
 
   if (parent) {
-    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate)
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, userId, itemsToUpdate)
     if (showWithNextUp) {
       if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
         itemsToUpdate.push(showWithNextUp)
@@ -299,7 +300,7 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
         lastWatched: (i as any).lastWatched,
         continueWatchingDismissed: i.continueWatchingDismissed,
         nextUpDismissed: i.nextUpDismissed
-      } as any, { skipFetch: true })
+      } as any, { skipFetch: true }, userId)
     }
   })
 
@@ -318,12 +319,14 @@ export async function markAsUnwatched(itemId: string): Promise<void> {
  */
 async function recalculateNextUpForShow(
   showId: string,
+  userId: string | null,
   modifiedItems: LibraryItem[] = [],
   preloadedEpisodes?: MediaFile[]
 ): Promise<MediaFolder | null> {
   let show = modifiedItems.find((i) => i.id === showId) as MediaFolder
   if (!show) {
     show = repositoryService.getItemById(showId) as MediaFolder
+    if (show && userId) userRepo.overlayUserState([show], userId)
   }
   if (!show || show.mediaType !== 'tv') return null
 
@@ -335,6 +338,7 @@ async function recalculateNextUpForShow(
     allEpisodes = descendants.filter(
       (d) => d.type === 'file' && d.mediaType === 'episode'
     ) as MediaFile[]
+    if (userId) userRepo.overlayUserState(allEpisodes, userId)
     // Overlay in-memory changes so we don't calculate based on stale database state
     for (const ep of allEpisodes) {
       const mod = modifiedItems.find((i) => i.id === ep.id)
@@ -368,6 +372,7 @@ async function recalculateNextUpForShow(
 
 async function checkAndUndismissShow(
   showId: string,
+  userId: string,
   newlyWatchedEpisodes: MediaFile[],
   allModifiedItems: LibraryItem[] = [],
   preloadedEpisodes?: MediaFile[]
@@ -375,6 +380,7 @@ async function checkAndUndismissShow(
   let show = allModifiedItems.find((i) => i.id === showId) as MediaFolder
   if (!show) {
     show = repositoryService.getItemById(showId) as MediaFolder
+    if (show) userRepo.overlayUserState([show], userId)
   }
   if (!show || show.mediaType !== 'tv') return null
 
@@ -387,6 +393,7 @@ async function checkAndUndismissShow(
     allEpisodes = descendants.filter(
       (d) => d.type === 'file' && d.mediaType === 'episode'
     ) as MediaFile[]
+    userRepo.overlayUserState(allEpisodes, userId)
     // Overlay in-memory changes
     for (const ep of allEpisodes) {
       const mod = allModifiedItems.find((i) => i.id === ep.id)
@@ -409,13 +416,14 @@ async function checkAndUndismissShow(
   return null
 }
 
-export async function markAsWatched(itemId: string): Promise<void> {
+export async function markAsWatched(itemId: string, userId: string): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
 
   // Files (episodes, movies) have no children — skip the recursive query entirely.
   const descendants = item.type === 'file' ? [] : repositoryService.getAllDescendantsAsList(item as MediaFolder)
   const itemsToUpdate = [item, ...descendants]
+  userRepo.overlayUserState(itemsToUpdate, userId)
 
   const now = Date.now()
   const newlyWatchedEpisodes: MediaFile[] = []
@@ -437,7 +445,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
   )
 
   // Bulk-write watched state for all file items in one SQL statement.
-  userRepo.bulkSetWatched(fileItems.map((f) => f.id), true, now)
+  userRepo.bulkSetWatched(fileItems.map((f) => f.id), userId, true, now)
 
   // --- Logic for Un-Dismissing + Next Up (show-level state, at most 1-2 items) ---
   let parent =
@@ -466,7 +474,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
         (d) => d.type === 'file' && d.mediaType === 'episode'
       ) as MediaFile[]
     } else {
-      allShowEpisodes = repositoryService.getEpisodeProgressForShow(parent.id)
+      allShowEpisodes = repositoryService.getEpisodeProgressForShow(parent.id, userId)
     }
     for (const ep of allShowEpisodes) {
       const mod = itemsToUpdate.find((i) => i.id === ep.id)
@@ -475,6 +483,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
 
     const undismissedShow = await checkAndUndismissShow(
       parent.id,
+      userId,
       newlyWatchedEpisodes,
       itemsToUpdate,
       allShowEpisodes as MediaFile[]
@@ -484,7 +493,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
     }
     if (undismissedShow) showLevelItems.push(undismissedShow)
 
-    const showWithNextUp = await recalculateNextUpForShow(parent.id, itemsToUpdate, allShowEpisodes as MediaFile[])
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, userId, itemsToUpdate, allShowEpisodes as MediaFile[])
     if (showWithNextUp) {
       if (!itemsToUpdate.find((i) => i.id === showWithNextUp.id)) {
         itemsToUpdate.push(showWithNextUp)
@@ -504,7 +513,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
         lastWatched: (i as any).lastWatched,
         continueWatchingDismissed: i.continueWatchingDismissed,
         nextUpDismissed: i.nextUpDismissed
-      } as any, { skipFetch: true })
+      } as any, { skipFetch: true }, userId)
     }
   })
 
@@ -516,6 +525,7 @@ export async function markAsWatched(itemId: string): Promise<void> {
 // --- Continue Watching ---
 
 export async function getContinueWatchingItems(
+  userId: string,
   includeDismissed = false
 ): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> {
   // 1. Fetch all shows that have progress (denormalized pointer)
@@ -534,7 +544,8 @@ export async function getContinueWatchingItems(
       // We'll filter dismissed in-memory or improve the repository helper
       // but for now let's see if we get ANY results.
     },
-    orderBy: { field: 'lastWatched', direction: 'DESC' }
+    orderBy: { field: 'lastWatched', direction: 'DESC' },
+    userId
   }) as MediaFolder[]
 
   let filtered = showsWithProgress
@@ -554,9 +565,9 @@ export async function getContinueWatchingItems(
     if (!nextEpisode) {
       // Data inconsistency: Show points to an episode that no longer exists.
       // We should probably trigger a recalculation here.
-      const showWithFixedPointer = await recalculateNextUpForShow(show.id)
+      const showWithFixedPointer = await recalculateNextUpForShow(show.id, userId)
       if (showWithFixedPointer) {
-        await updateIfChangedAndBroadcast(showWithFixedPointer)
+        await updateIfChangedAndBroadcast(showWithFixedPointer, { userId })
       }
       continue
     }
@@ -715,8 +726,8 @@ export const uploadImage = async (
     await updateItem(item, true)
   }
 }
-export const getContinueWatchingForShow = async (showId: string) => {
-  const all = await getContinueWatchingItems(true) // Include dismissed so we can show "Next Up" even if removed from Home
+export const getContinueWatchingForShow = async (showId: string, userId: string) => {
+  const all = await getContinueWatchingItems(userId, true) // Include dismissed so we can show "Next Up" even if removed from Home
   const found = all.find((r) => r.show.id === showId)
   // For the detail view, we filter by nextUpDismissed here or let the UI handle it.
   if (found && found.show.nextUpDismissed) {
@@ -724,28 +735,30 @@ export const getContinueWatchingForShow = async (showId: string) => {
   }
   return found || null
 }
-export const setContinueWatchingDismissed = async (showId: string) => {
+export const setContinueWatchingDismissed = async (showId: string, userId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
+    userRepo.overlayUserState([item], userId)
     const newState = applyContinueWatchingDismissal({
       continueWatchingDismissed: !!item.continueWatchingDismissed,
       nextUpDismissed: !!item.nextUpDismissed,
     })
     item.continueWatchingDismissed = newState.continueWatchingDismissed
     item.nextUpDismissed = newState.nextUpDismissed
-    await updateIfChangedAndBroadcast(item)
+    await updateIfChangedAndBroadcast(item, { userId })
   }
 }
-export const setNextUpDismissed = async (showId: string) => {
+export const setNextUpDismissed = async (showId: string, userId: string) => {
   const item = repositoryService.getItemById(showId)
   if (item) {
+    userRepo.overlayUserState([item], userId)
     const newState = applyNextUpDismissal({
       continueWatchingDismissed: !!item.continueWatchingDismissed,
       nextUpDismissed: !!item.nextUpDismissed,
     })
     item.continueWatchingDismissed = newState.continueWatchingDismissed
     item.nextUpDismissed = newState.nextUpDismissed
-    await updateIfChangedAndBroadcast(item)
+    await updateIfChangedAndBroadcast(item, { userId })
   }
 }
 export const fetchCredits = (itemId: string) => metadataService.fetchCredits(itemId)
@@ -775,7 +788,7 @@ export const handleItemRenamed = async (oldItemId: string, newRelPath: string) =
       }
 
       if (showParent) {
-        const updatedShow = await recalculateNextUpForShow(showParent.id)
+        const updatedShow = await recalculateNextUpForShow(showParent.id, null)
         if (updatedShow) {
           await updateIfChangedAndBroadcast(updatedShow)
         }
@@ -870,9 +883,11 @@ export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }
   return { success: false }
 }
 
-export const recordPlayback = async (itemId: string) => {
+export const recordPlayback = async (itemId: string, userId: string) => {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
+
+  userRepo.overlayUserState([item], userId)
 
   const modifiedItems: LibraryItem[] = []
 
@@ -893,6 +908,7 @@ export const recordPlayback = async (itemId: string) => {
   if (parent && isNewWatch && item.mediaType === 'episode') {
     const undismissedShow = await checkAndUndismissShow(
       parent.id,
+      userId,
       [item as MediaFile],
       modifiedItems
     )
@@ -901,13 +917,13 @@ export const recordPlayback = async (itemId: string) => {
     }
 
     // ALWAYS recalculate next_up_episode_id when watching something in a show
-    const showWithNextUp = await recalculateNextUpForShow(parent.id, modifiedItems)
+    const showWithNextUp = await recalculateNextUpForShow(parent.id, userId, modifiedItems)
     if (showWithNextUp) {
       modifiedItems.push(showWithNextUp)
     }
   }
 
-  await updateIfChangedAndBroadcast(modifiedItems)
+  await updateIfChangedAndBroadcast(modifiedItems, { userId })
 }
 
 export const playFileWith = async (file: MediaFile, cmd: string, cb: ErrorCallback) => {
@@ -971,13 +987,15 @@ export const reapplyVirtualTagsAfterSettingsChange = async () => {
 }
 
 export const getFolderWatchedState = async (
-  folderId: string
+  folderId: string,
+  userId: string
 ): Promise<'fully' | 'partially' | 'unwatched' | 'none'> => {
   const folder = repositoryService.getItemById(folderId)
   if (!folder || folder.type !== 'folder') return 'none'
   const descendants = repositoryService.getAllDescendantsAsList(folder as MediaFolder)
   const files = descendants.filter((d) => d.type === 'file')
   if (files.length === 0) return 'none'
+  userRepo.overlayUserState(files, userId)
   const watchedCount = files.filter((f) => f.watched).length
   if (watchedCount === files.length) return 'fully'
   if (watchedCount > 0) return 'partially'

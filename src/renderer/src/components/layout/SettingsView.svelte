@@ -7,6 +7,7 @@
   import PlayerCommandsModal from '@modals/PlayerCommandsModal.svelte'
   import CustomActionsModal from '@modals/CustomActionsModal.svelte'
   import VirtualTagModal from '@modals/VirtualTagModal.svelte'
+  import AccountModal from '@modals/AccountModal.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
   import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
   import { DEFAULT_LAYOUTS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
@@ -16,7 +17,9 @@
     Settings,
     AutocompleteSuggestions,
     MediaSource,
-    MediaFolder
+    MediaFolder,
+    Account,
+    AccountRole
   } from '@shared/types'
   import { navStore } from '@lib/navigation-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
@@ -56,14 +59,21 @@
   let mediaSources = $state<MediaSource[]>([])
   let shadowSources = $state(false)
   let shadowMinDepth = $state(1)
-  let allowUnauthenticated = $state(false)
   let serverPort = $state(3000)
   let serverHost = $state('::')
 
-  let newPassword = $state('')
-  let confirmPassword = $state('')
-  let passwordMessage = $state({ text: '', type: 'info' })
   let virtualTags = $state<Settings['virtualTags']>([])
+
+  // Accounts tab
+  let allAccounts = $state<Account[]>([])
+  let editingAccount = $state<Account | null>(null)
+  let editingAccountIsSelf = $state(false)
+  let showCreateAccount = $state(false)
+  let newAccountUsername = $state('')
+  let newAccountPassword = $state('')
+  let newAccountRole = $state<AccountRole>('normal')
+  let createAccountMessage = $state({ text: '', type: '' })
+  let creatingAccount = $state(false)
 
   let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
@@ -108,7 +118,6 @@
         : [{ id: crypto.randomUUID(), path: '', isRelative: false }]
       shadowSources = s.shadowSources ?? false
       shadowMinDepth = s.shadowMinDepth ?? 1
-      allowUnauthenticated = s.allowUnauthenticated ?? false
       serverPort = s.serverPort ?? 3000
       serverHost = s.serverHost ?? '::'
 
@@ -119,6 +128,8 @@
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
+
+    loadAccounts()
 
     const TABS = ['general', 'accounts', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -185,7 +196,6 @@
         mediaSources,
         shadowSources,
         shadowMinDepth,
-        allowUnauthenticated,
         serverPort,
         serverHost,
         defaultLayoutSettings: defaultLayoutSettings
@@ -236,31 +246,43 @@
     handleBack()
   }
 
-  async function handleChangePassword() {
-    if (!newPassword) {
-      passwordMessage = { text: 'Password cannot be empty', type: 'error' }
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      passwordMessage = { text: 'Passwords do not match', type: 'error' }
-      return
-    }
-
+  async function loadAccounts() {
+    if (!authStore.can.manageAccounts) return
     try {
-      await api.changePassword(newPassword)
-      passwordMessage = { text: 'Password changed successfully. Logging out...', type: 'success' }
-      newPassword = ''
-      confirmPassword = ''
+      allAccounts = await api.getAccounts()
+    } catch { /* silently ignore */ }
+  }
 
-      // Force logout and reload after a short delay
-      setTimeout(() => {
-        authStore.logout()
-        window.location.reload()
-      }, 2000)
-    } catch (err) {
-      passwordMessage = { text: 'Failed to change password', type: 'error' }
+  function openAccountModal(account: Account, isSelf: boolean) {
+    editingAccount = account
+    editingAccountIsSelf = isSelf
+  }
+
+  async function handleCreateAccount() {
+    createAccountMessage = { text: '', type: '' }
+    if (!newAccountUsername.trim()) {
+      createAccountMessage = { text: 'Username is required.', type: 'error' }
+      return
+    }
+    if (!newAccountPassword) {
+      createAccountMessage = { text: 'Password is required.', type: 'error' }
+      return
+    }
+    creatingAccount = true
+    try {
+      await api.createAccount(newAccountUsername.trim(), newAccountPassword, newAccountRole)
+      newAccountUsername = ''
+      newAccountPassword = ''
+      newAccountRole = 'normal'
+      showCreateAccount = false
+      await loadAccounts()
+    } catch (err: any) {
+      createAccountMessage = { text: err.message || 'Failed to create account.', type: 'error' }
+    } finally {
+      creatingAccount = false
     }
   }
+
 </script>
 
 <div class="settings-view">
@@ -511,65 +533,81 @@
             </div>
           {:else if activeTab === 'accounts'}
             <div class="form-section">
-              <div class="form-group checkbox-group">
-                <label class="checkbox-label" for="allow-unauthenticated">
-                  <input
-                    type="checkbox"
-                    id="allow-unauthenticated"
-                    bind:checked={allowUnauthenticated}
-                  />
-                  <span>Allow unauthenticated access to the library</span>
-                </label>
-                <p class="help-text">
-                  If enabled, anyone can browse and play your media without logging in.
-                </p>
-              </div>
-            </div>
-
-            <div class="form-section">
-              <h2>Manage Accounts</h2>
-              <div class="account-item">
-                <div class="account-info">
-                  <div class="account-avatar">A</div>
-                  <div class="account-details">
-                    <span class="account-name">Admin</span>
-                    <span class="account-role">Administrator</span>
+              <h2>Your Account</h2>
+              {#if authStore.account}
+                {@const acct = authStore.account}
+                <button class="account-item clickable" onclick={() => openAccountModal(acct, true)}>
+                  <div class="account-info">
+                    <div class="account-avatar">{acct.username[0].toUpperCase()}</div>
+                    <div class="account-details">
+                      <span class="account-name">{acct.username}</span>
+                      <span class="account-role">{acct.role === 'admin' ? 'Administrator' : 'Normal'}</span>
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              <div class="password-change-box">
-                <h3>Change Admin Password</h3>
-                <div class="form-group">
-                  <label for="new-password">New Password</label>
-                  <input
-                    type="password"
-                    id="new-password"
-                    bind:value={newPassword}
-                    placeholder="Enter new password"
-                  />
-                </div>
-                <div class="form-group">
-                  <label for="confirm-password">Confirm Password</label>
-                  <input
-                    type="password"
-                    id="confirm-password"
-                    bind:value={confirmPassword}
-                    placeholder="Confirm new password"
-                  />
-                </div>
-                {#if passwordMessage.text}
-                  <p
-                    class="message"
-                    class:success={passwordMessage.type === 'success'}
-                    class:error={passwordMessage.type === 'error'}
-                  >
-                    {passwordMessage.text}
-                  </p>
-                {/if}
-                <button class="secondary" onclick={handleChangePassword}>Update Password</button>
-              </div>
+                  <span class="account-edit-hint">Edit...</span>
+                </button>
+              {/if}
             </div>
+
+            {#if authStore.can.manageAccounts}
+              <div class="form-section">
+                <h2>All Accounts</h2>
+                <div class="accounts-list">
+                  {#each allAccounts.filter(a => a.id !== authStore.account?.id) as acct (acct.id)}
+                    <button class="account-item clickable" onclick={() => openAccountModal(acct, false)}>
+                      <div class="account-info">
+                        <div class="account-avatar">{acct.username[0].toUpperCase()}</div>
+                        <div class="account-details">
+                          <span class="account-name">{acct.username}</span>
+                          <span class="account-role">{acct.role === 'admin' ? 'Administrator' : 'Normal'}</span>
+                        </div>
+                      </div>
+                      <span class="account-edit-hint">Edit...</span>
+                    </button>
+                  {:else}
+                    <p class="no-accounts">No other accounts yet.</p>
+                  {/each}
+                </div>
+
+                {#if showCreateAccount}
+                  <div class="create-account-box">
+                    <h3>New Account</h3>
+                    <div class="form-group">
+                      <label for="new-acct-user">Username</label>
+                      <input type="text" id="new-acct-user" bind:value={newAccountUsername}
+                        placeholder="Username" disabled={creatingAccount} />
+                    </div>
+                    <div class="form-group">
+                      <label for="new-acct-pw">Password</label>
+                      <input type="password" id="new-acct-pw" bind:value={newAccountPassword}
+                        placeholder="Password" disabled={creatingAccount} />
+                    </div>
+                    <div class="form-group">
+                      <label for="new-acct-role">Role</label>
+                      <select id="new-acct-role" bind:value={newAccountRole} disabled={creatingAccount}>
+                        <option value="normal">Normal</option>
+                        <option value="admin">Administrator</option>
+                      </select>
+                    </div>
+                    {#if createAccountMessage.text}
+                      <p class="message" class:success={createAccountMessage.type === 'success'} class:error={createAccountMessage.type === 'error'}>
+                        {createAccountMessage.text}
+                      </p>
+                    {/if}
+                    <div class="create-account-actions">
+                      <button class="secondary" onclick={() => { showCreateAccount = false; createAccountMessage = { text: '', type: '' } }}>
+                        Cancel
+                      </button>
+                      <button class="primary" onclick={handleCreateAccount} disabled={creatingAccount}>
+                        {creatingAccount ? 'Creating...' : 'Create Account'}
+                      </button>
+                    </div>
+                  </div>
+                {:else}
+                  <button class="secondary" onclick={() => (showCreateAccount = true)}>+ Add Account</button>
+                {/if}
+              </div>
+            {/if}
           {/if}
         </div>
       </div>
@@ -616,6 +654,14 @@
     {settings}
     onClose={() => (activeLayoutSettingsModal = false)}
     onSave={(s) => (defaultLayoutSettings = s)}
+  />
+{/if}
+{#if editingAccount}
+  <AccountModal
+    account={editingAccount}
+    isSelf={editingAccountIsSelf}
+    onClose={() => (editingAccount = null)}
+    onSaved={loadAccounts}
   />
 {/if}
 
@@ -876,23 +922,6 @@
     color: var(--color-text-dim);
   }
 
-  .password-change-box {
-    margin-top: 1rem;
-    padding: 1.5rem;
-    background-color: var(--color-background-mute);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  .password-change-box h3 {
-    margin: 0;
-    font-size: 1rem;
-    color: var(--color-text);
-  }
-
   .message {
     font-size: 0.9rem;
     margin: 0;
@@ -904,5 +933,59 @@
 
   .message.error {
     color: var(--color-danger);
+  }
+
+  .accounts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .account-item.clickable {
+    cursor: pointer;
+    transition: background-color 0.15s;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  .account-item.clickable:hover {
+    background-color: var(--color-background-mute);
+  }
+
+  .account-edit-hint {
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+  }
+
+  .no-accounts {
+    font-size: 0.9rem;
+    color: var(--color-text-dim);
+    margin: 0;
+    padding: 0.5rem 0;
+  }
+
+  .create-account-box {
+    margin-top: 0.5rem;
+    padding: 1.25rem;
+    background-color: var(--color-background-mute);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .create-account-box h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .create-account-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
   }
 </style>

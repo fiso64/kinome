@@ -94,7 +94,7 @@ async function embedChildrenForContainers(
 ): Promise<void> {
   for (const item of items) {
     if (item.type !== 'folder') continue
-    const result = await getChildren(item.id, { fields: options.fields }, inheritedSettings)
+    const result = await getChildren(item.id, { fields: options.fields, userId: options.userId }, inheritedSettings)
     if (Array.isArray(result)) {
       ; (item as MediaFolder).children = result
     }
@@ -166,7 +166,8 @@ export async function getChildren(
       limit: opts.limit,
       offset: opts.offset,
       includeHidden: opts.includeHidden,
-      includeIgnored: opts.includeIgnored
+      includeIgnored: opts.includeIgnored,
+      userId: opts.userId
     })
   }
 

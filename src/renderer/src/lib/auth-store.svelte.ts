@@ -1,11 +1,23 @@
-import type { AuthResponse } from '@shared/types'
+import type { Account, Capability } from '@shared/types'
+
+type AccountWithCaps = Account & { capabilities: Capability[] }
 
 class AuthStore {
   isAuthenticated = $state(false)
   token = $state(localStorage.getItem('auth_token') || '')
   needsSetup = $state(false)
-  allowUnauthenticated = $state(false)
   isChecking = $state(true)
+  account = $state<AccountWithCaps | null>(null)
+
+  get can() {
+    const caps = new Set(this.account?.capabilities ?? [])
+    return {
+      editMetadata: caps.has('editMetadata'),
+      editSettings: caps.has('editSettings'),
+      manageAccounts: caps.has('manageAccounts'),
+      triggerLibraryScan: caps.has('triggerLibraryScan'),
+    }
+  }
 
   constructor() {
     this.checkAuth()
@@ -18,16 +30,17 @@ class AuthStore {
         headers: this.token ? { Authorization: `Bearer ${this.token}` } : {}
       })
       if (response.ok) {
-        const data: AuthResponse = await response.json()
-        this.needsSetup = data.needsSetup
-        this.allowUnauthenticated = data.allowUnauthenticated
-        this.isAuthenticated = data.authenticated
+        const data = await response.json()
+        this.needsSetup = data.needsSetup ?? false
+        this.isAuthenticated = data.authenticated ?? false
+        this.account = data.account ?? null
         if (!data.authenticated) {
           this.token = ''
           localStorage.removeItem('auth_token')
         }
       } else if (response.status === 401) {
         this.isAuthenticated = false
+        this.account = null
         this.token = ''
         localStorage.removeItem('auth_token')
       }
@@ -38,69 +51,49 @@ class AuthStore {
     }
   }
 
-  async login(password: string) {
+  async login(username: string, password: string) {
     try {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ username, password })
       })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          this.token = data.token
-          localStorage.setItem('auth_token', data.token)
-          this.isAuthenticated = true
-          return { success: true }
-        } else {
-          this.isAuthenticated = false
-          this.token = ''
-          localStorage.removeItem('auth_token')
-          return { success: false, message: data.message }
-        }
+      const data = await response.json()
+      if (data.authenticated && data.token) {
+        this.token = data.token
+        localStorage.setItem('auth_token', data.token)
+        this.isAuthenticated = true
+        this.account = data.account ?? null
+        return { success: true }
       } else {
-        const text = await response.text()
-        let message = 'Login failed'
-        try {
-          const data = JSON.parse(text)
-          message = data.message || message
-        } catch (e) {}
-        return { success: false, message }
+        this.isAuthenticated = false
+        this.account = null
+        this.token = ''
+        localStorage.removeItem('auth_token')
+        return { success: false, message: data.message || 'Login failed' }
       }
     } catch (error) {
       return { success: false, message: 'Network error' }
     }
   }
 
-  async setupAdmin(password?: string, unauthenticated?: boolean, setupToken?: string) {
+  async setupAdmin(setupToken: string, username: string, password: string) {
     try {
       const response = await fetch('/api/setup-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, unauthenticated, setupToken })
+        body: JSON.stringify({ setupToken, username, password })
       })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          if (data.token) {
-            this.token = data.token
-            localStorage.setItem('auth_token', data.token)
-          }
-          this.needsSetup = false
-          this.allowUnauthenticated = !!data.allowUnauthenticated
-          this.isAuthenticated = true
-          return { success: true }
-        } else {
-          return { success: false, message: data.message }
-        }
+      const data = await response.json()
+      if (data.authenticated && data.token) {
+        this.token = data.token
+        localStorage.setItem('auth_token', data.token)
+        this.needsSetup = false
+        this.isAuthenticated = true
+        this.account = data.account ?? null
+        return { success: true }
       } else {
-        const text = await response.text()
-        let message = 'Setup failed'
-        try {
-          const data = JSON.parse(text)
-          message = data.message || message
-        } catch (e) {}
-        return { success: false, message }
+        return { success: false, message: data.message || 'Setup failed' }
       }
     } catch (error) {
       return { success: false, message: 'Network error' }
@@ -111,7 +104,7 @@ class AuthStore {
     this.token = ''
     localStorage.removeItem('auth_token')
     this.isAuthenticated = false
-    // We might want to notify the server but optional for now
+    this.account = null
   }
 }
 

@@ -1,41 +1,58 @@
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import fs from 'fs/promises'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import path from 'path'
-import * as settingsService from './settings.service'
 import { getUserDataPath } from './paths.service'
-import type { AuthResponse } from '@shared/types'
+import * as accountRepo from '../database/repositories/account.repo'
+import type { Account, AccountRole, AuthResponse, Capability } from '@shared/types'
+import { ROLE_CAPABILITIES } from '@shared/types'
 
-// Simple in-memory session management
-const sessions = new Set<string>()
+// --- Sessions ---
+
+interface SessionData {
+  accountId: string
+  role: AccountRole
+  capabilities: Set<Capability>
+}
+
+const sessions = new Map<string, SessionData>()
+
+function createSession(account: Account): string {
+  const token = crypto.randomUUID()
+  sessions.set(token, {
+    accountId: account.id,
+    role: account.role,
+    capabilities: new Set(ROLE_CAPABILITIES[account.role]),
+  })
+  return token
+}
+
+export function validateToken(token: string): SessionData | null {
+  return sessions.get(token) ?? null
+}
+
+export function logout(token: string): void {
+  sessions.delete(token)
+}
+
+export function invalidateSessionsForAccount(accountId: string): void {
+  for (const [token, session] of sessions) {
+    if (session.accountId === accountId) sessions.delete(token)
+  }
+}
+
+// --- Setup Token ---
 
 function getSetupTokenPath(): string {
   return path.join(getUserDataPath(), 'setup-token.txt')
 }
 
-/**
- * Ensures a setup token exists if no admin password is set.
- * Returns the token if it exists/was created, null otherwise.
- */
 export function ensureSetupToken(): string | null {
+  // If any accounts exist, no setup needed
+  if (accountRepo.getAccountCount() > 0) return null
+
   const tokenPath = getSetupTokenPath()
-
-  // If we already have a password, we don't need a token
-  // Use readFileSync here because this is called during the synchronous startup sequence
-  const settingsFile = path.join(getUserDataPath(), 'settings.json')
-  if (existsSync(settingsFile)) {
-    try {
-      const settings = JSON.parse(readFileSync(settingsFile, 'utf-8'))
-      if (settings.server?.adminPasswordHash || settings.adminPasswordHash) {
-        if (existsSync(tokenPath)) unlinkSync(tokenPath)
-        return null
-      }
-    } catch (e) {
-      // Ignore parse errors
-    }
-  }
-
   const token = existsSync(tokenPath)
     ? readFileSync(tokenPath, 'utf-8').trim()
     : Math.floor(10000000 + Math.random() * 90000000).toString()
@@ -49,7 +66,7 @@ export function ensureSetupToken(): string | null {
   console.log('*       KINOME INITIAL SETUP TOKEN REQUIRED         *')
   console.log(`*               TOKEN: ${token}                     *`)
   console.log('*                                                   *')
-  console.log('*  Find this token in:                              *')
+  console.log(`*  Find this token in:                              *`)
   console.log(`*  ${tokenPath}   *`)
   console.log('*                                                   *')
   console.log('*****************************************************')
@@ -57,115 +74,120 @@ export function ensureSetupToken(): string | null {
   return token
 }
 
+// --- Password Helpers ---
+
 export async function hashPassword(password: string): Promise<string> {
   return await bcrypt.hash(password, 10)
 }
 
-export async function validatePassword(password: string): Promise<boolean> {
-  const settings = await settingsService.readSettings()
-  if (!settings.adminPasswordHash) {
-    return false
-  }
-  return await bcrypt.compare(password, settings.adminPasswordHash)
+// --- Auth Actions ---
+
+export async function login(
+  username: string,
+  password: string
+): Promise<{ token: string; account: Account } | null> {
+  const account = accountRepo.getAccountByUsername(username)
+  if (!account) return null
+  const valid = await bcrypt.compare(password, account.passwordHash)
+  if (!valid) return null
+  const token = createSession(account)
+  return { token, account: { id: account.id, username: account.username, role: account.role } }
 }
 
-export async function login(password: string): Promise<string | null> {
-  if (await validatePassword(password)) {
-    const token = crypto.randomUUID()
-    sessions.add(token)
-    return token
-  }
-  return null
-}
-
-export function validateToken(token: string): boolean {
-  return sessions.has(token)
-}
-
-export function logout(token: string): void {
-  sessions.delete(token)
-}
-
-export async function getAuthState(): Promise<AuthResponse> {
-  const settings = await settingsService.readSettings()
-
-  // needsSetup is true ONLY if NO password hash is set AND unauthenticated access is NOT enabled.
-  // However, if we HAVE a library location, we should definitely have a password or have explicitly allowed unauthenticated access.
-  const hasHash = !!settings.adminPasswordHash
-  const allowUnauth = !!settings.allowUnauthenticated
-  const needsSetup = !hasHash && !allowUnauth
-
-  console.log(
-    `[AuthState] hash=${hasHash}, allowUnauth=${allowUnauth}, needsSetup=${needsSetup}, libLoc=${!!settings.libraryLocation}`
-  )
-
-  return {
-    success: true,
-    isAdmin: true, // Only one user for now
-    needsSetup,
-    allowUnauthenticated: allowUnauth,
-    authenticated: allowUnauth
-  }
-}
-
-export async function setupAdmin(
-  password?: string,
-  unauthenticated?: boolean,
-  setupToken?: string
-): Promise<AuthResponse> {
-  const settings = await settingsService.readSettings()
-  if (settings.adminPasswordHash || settings.allowUnauthenticated) {
+export async function setupFirstAdmin(
+  setupToken: string,
+  username: string,
+  password: string
+): Promise<{ token: string; account: Account }> {
+  if (accountRepo.getAccountCount() > 0) {
     throw new Error('Server already set up.')
   }
 
   const tokenPath = getSetupTokenPath()
-  if (existsSync(tokenPath)) {
-    const validToken = (await fs.readFile(tokenPath, 'utf-8')).trim()
-    if (setupToken !== validToken) {
-      throw new Error('Invalid setup token.')
-    }
-  } else {
-    // If there is no token file but we are in setup mode, it's a weird state.
-    // However, if we're on localhost we might want to allow it? No, let's stay strict.
+  if (!existsSync(tokenPath)) {
     throw new Error('Setup token file missing. Restart the server to regenerate.')
   }
-
-  if (unauthenticated) {
-    await settingsService.writeGlobalSettings({ allowUnauthenticated: true })
-    if (existsSync(tokenPath)) await fs.unlink(tokenPath)
-    return {
-      success: true,
-      isAdmin: true,
-      needsSetup: false,
-      allowUnauthenticated: true,
-      authenticated: true
-    }
+  const validToken = readFileSync(tokenPath, 'utf-8').trim()
+  if (setupToken !== validToken) {
+    throw new Error('Invalid setup token.')
   }
 
-  if (password) {
-    const hash = await hashPassword(password)
-    await settingsService.writeGlobalSettings({
-      adminPasswordHash: hash,
-      allowUnauthenticated: false
-    })
-    if (existsSync(tokenPath)) await fs.unlink(tokenPath)
-    const token = crypto.randomUUID()
-    sessions.add(token)
-    return {
-      success: true,
-      token,
-      isAdmin: true,
-      needsSetup: false,
-      allowUnauthenticated: false,
-      authenticated: true
-    }
-  }
+  const hash = await hashPassword(password)
+  const id = crypto.randomUUID()
+  accountRepo.createAccount(id, username, hash, 'admin')
 
-  throw new Error('Either password or unauthenticated option must be provided.')
+  await fs.unlink(tokenPath).catch(() => {})
+
+  const account: Account = { id, username, role: 'admin' }
+  const token = createSession(account)
+  return { token, account }
 }
 
-export async function updateAdminPassword(password: string): Promise<void> {
+export async function getAuthState(token?: string): Promise<AuthResponse> {
+  const needsSetup = accountRepo.getAccountCount() === 0
+
+  if (!token) {
+    return { authenticated: false, needsSetup }
+  }
+
+  const session = validateToken(token)
+  if (!session) {
+    return { authenticated: false, needsSetup }
+  }
+
+  const account = accountRepo.getAccountById(session.accountId)
+  if (!account) {
+    sessions.delete(token)
+    return { authenticated: false, needsSetup }
+  }
+
+  return {
+    authenticated: true,
+    needsSetup: false,
+    account: {
+      id: account.id,
+      username: account.username,
+      role: account.role,
+      capabilities: [...session.capabilities],
+    },
+  }
+}
+
+export async function updatePassword(accountId: string, newPassword: string): Promise<void> {
+  const hash = await hashPassword(newPassword)
+  accountRepo.updateAccountPassword(accountId, hash)
+  invalidateSessionsForAccount(accountId)
+}
+
+export function getAllAccounts(): Account[] {
+  return accountRepo.getAllAccounts()
+}
+
+export async function createAccount(
+  username: string,
+  password: string,
+  role: AccountRole
+): Promise<Account> {
+  const existing = accountRepo.getAccountByUsername(username)
+  if (existing) throw new Error(`Username "${username}" is already taken.`)
   const hash = await hashPassword(password)
-  await settingsService.writeGlobalSettings({ adminPasswordHash: hash })
-  sessions.clear() // Invalidate all active sessions
+  const id = crypto.randomUUID()
+  accountRepo.createAccount(id, username, hash, role)
+  return { id, username, role }
+}
+
+export function updateAccountRole(accountId: string, role: AccountRole): void {
+  accountRepo.updateAccountRole(accountId, role)
+  // Update any active sessions for this account to reflect the new role
+  for (const [, session] of sessions) {
+    if (session.accountId === accountId) {
+      session.role = role
+      session.capabilities = new Set(ROLE_CAPABILITIES[role])
+    }
+  }
+}
+
+export function deleteAccount(accountId: string): void {
+  accountRepo.deleteAccount(accountId)
+  invalidateSessionsForAccount(accountId)
 }

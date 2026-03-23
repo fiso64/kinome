@@ -115,7 +115,8 @@ export async function getVirtualChildren(
     limit: options.limit,
     offset: options.offset,
     includeHidden: options.includeHidden,
-    includeIgnored: options.includeIgnored
+    includeIgnored: options.includeIgnored,
+    userId: options.userId
   })
 }
 

@@ -122,6 +122,11 @@ export interface ApiClient {
   getSettings(): Promise<Settings>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
+  getAccounts(): Promise<import('@shared/types').Account[]>
+  createAccount(username: string, password: string, role: import('@shared/types').AccountRole): Promise<import('@shared/types').Account>
+  updateAccountRole(accountId: string, role: import('@shared/types').AccountRole): Promise<void>
+  updateAccountPassword(accountId: string, password: string): Promise<void>
+  deleteAccount(accountId: string): Promise<void>
   userUpdateItem(item: Partial<LibraryItem>): Promise<void>
   setGrouping(folderId: string, groupByKey: string | null): Promise<void>
   resolveMediaSourcePath(args: {

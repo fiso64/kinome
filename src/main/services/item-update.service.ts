@@ -31,6 +31,14 @@ function getComparisonSnapshot(item: LibraryItem | null | undefined) {
     ancestorIds,
     isVirtual,
     virtualTags,
+    // User-state fields are per-user and managed by dedicated functions,
+    // not by updateIfChangedAndBroadcast. Exclude them from change detection
+    // so null values from the 1=0 JOIN (no user context) don't trigger false changes.
+    watched,
+    lastWatched,
+    continueWatchingDismissed,
+    nextUpDismissed,
+    nextUpEpisodeId,
     ...data
   } = item as any
 
@@ -115,7 +123,7 @@ export async function broadcastModifiedItems(
 
 export async function updateIfChangedAndBroadcast(
   items: LibraryItem | LibraryItem[],
-  options: { updateSuggestions?: boolean; settings?: Settings } = {}
+  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string } = {}
 ): Promise<void> {
   if (!items || (Array.isArray(items) && items.length === 0)) return
   const itemsArray = Array.isArray(items) ? items : [items]
@@ -166,9 +174,21 @@ export async function updateIfChangedAndBroadcast(
         }
       }
 
+      // Strip user-state fields from the payload when there is no userId.
+      // Items fetched via find() without userId carry null values for user-state fields
+      // (watched, lastWatched, etc.) due to the 1=0 JOIN. These nulls must not reach
+      // _updateItem, which requires a userId whenever user-state fields are present.
+      if (!options.userId) {
+        for (const key of ['watched', 'lastWatched', 'continueWatchingDismissed', 'nextUpDismissed', 'nextUpEpisodeId']) {
+          if ((updatePayload as any)[key] === null) {
+            delete (updatePayload as any)[key]
+          }
+        }
+      }
+
       // Always persist to DB — virtual items are first-class rows.
       // skipFetch: true — the return value is unused here; saves one heavy getItemById per item.
-      repositoryService._updateItem(item.id, updatePayload, { skipFetch: true })
+      repositoryService._updateItem(item.id, updatePayload, { skipFetch: true }, options.userId)
     }
   })
   log(`[Timing] runTransaction total: ${Date.now() - t0}ms`)

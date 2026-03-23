@@ -32,7 +32,9 @@ function createNoopTransport(): ITransport {
     notifySettingsUpdated: () => {},
     forceRendererReload: () => {},
     notifyScanStatusChanged: () => {},
-    broadcast: () => {}
+    broadcast: () => {},
+    notifyHandlerTestSuccess: () => {},
+    getCurrentStatus: () => ({} as any)
   }
 }
 
@@ -50,6 +52,7 @@ export interface SeedItem {
 
 export interface SeedEntity {
   id: string
+  tmdbId?: number | null
   mediaType?: string | null
   title?: string | null
   year?: number | null
@@ -107,11 +110,11 @@ export function createServiceTestContext(): ServiceTestContext {
 
   const seedEntities = (entities: SeedEntity[]) => {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO media_entities (id, media_type, title, year, season_number, episode_number)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO media_entities (id, tmdb_id, media_type, title, year, season_number, episode_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     for (const e of entities) {
-      stmt.run(e.id, e.mediaType ?? null, e.title ?? null, e.year ?? null, e.seasonNumber ?? null, e.episodeNumber ?? null)
+      stmt.run(e.id, e.tmdbId ?? null, e.mediaType ?? null, e.title ?? null, e.year ?? null, e.seasonNumber ?? null, e.episodeNumber ?? null)
     }
   }
 

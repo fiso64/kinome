@@ -32,7 +32,6 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     searchPopupView: {} as any,
     itemDetailBackdropSize: 'small',
     itemDetailBackdropBlur: 4,
-    allowUnauthenticated: false,
     serverPort: 3000,
     serverHost: '::',
     ...overrides

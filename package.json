@@ -15,6 +15,7 @@
     "dev:backend": "PORT=3001 bun --watch src/main/server.ts",
     "dev:frontend": "vite",
     "dev": "concurrently --raw \"bun run dev:backend\" \"bun run dev:frontend\"",
+    "dev:fresh": "bun scripts/seed-dev.ts && bun run dev",
     "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\"",
     "build": "bunx --bun vite build",
     "prod": "bun run build; NODE_ENV=production bun src/main/server.ts",

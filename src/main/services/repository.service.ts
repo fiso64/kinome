@@ -208,11 +208,9 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
     .prepare(
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
-           u.watched, u.last_watched_at, u.continue_watching_dismissed,
-           u.next_up_dismissed, f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
+           f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM items i
     LEFT JOIN media_entities e ON i.entity_id = e.id
-    LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
@@ -232,8 +230,8 @@ export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-export function getEpisodeProgressForShow(showId: string): import('../utils/continue-watching').EpisodeInfo[] {
-  return itemsRepo.fetchEpisodeProgressForShow(showId) as import('../utils/continue-watching').EpisodeInfo[]
+export function getEpisodeProgressForShow(showId: string, userId: string): import('../utils/continue-watching').EpisodeInfo[] {
+  return itemsRepo.fetchEpisodeProgressForShow(showId, userId) as import('../utils/continue-watching').EpisodeInfo[]
 }
 
 export function getAncestorIdsForItems(itemIds: string[]): Record<string, string[]> {
@@ -304,7 +302,7 @@ export function updateItemPathAndId(oldId: string, newRelativePath: string): Lib
  * Orchestrates a multi-table update for a library item.
  * This is the "Service" level update logic.
  */
-export function _updateItem(itemId: string, updates: Partial<LibraryItem>, options?: { skipFetch?: boolean }): LibraryItem | null {
+export function _updateItem(itemId: string, updates: Partial<LibraryItem>, options?: { skipFetch?: boolean }, userId?: string): LibraryItem | null {
   return runTransaction(() => {
     // 1. Invariant Enforcement
     const existingMeta = metadataRepo.fetchMetadataRow(itemId)
@@ -322,14 +320,16 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>, optio
       itemsRepo.updateItemVisibility(itemId, updates.isHidden, updates.isMissing)
     }
 
-    if (
+    const hasUserStateUpdate =
       updates.watched !== undefined ||
       updates.lastWatched !== undefined ||
       updates.continueWatchingDismissed !== undefined ||
       updates.nextUpDismissed !== undefined ||
       (updates as any).nextUpEpisodeId !== undefined
-    ) {
-      userRepo.updateUserState(itemId, {
+
+    if (hasUserStateUpdate) {
+      if (!userId) throw new Error(`_updateItem: userId required when updating user state fields (itemId=${itemId})`)
+      userRepo.updateUserState(itemId, userId, {
         watched: updates.watched,
         lastWatchedAt: updates.lastWatched,
         continueWatchingDismissed: updates.continueWatchingDismissed,
