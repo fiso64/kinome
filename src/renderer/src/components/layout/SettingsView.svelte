@@ -9,13 +9,14 @@
   import VirtualTagModal from '@modals/VirtualTagModal.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
   import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
-  import { DEFAULT_LAYOUTS_CONFIG } from '@shared/types'
+  import { DEFAULT_LAYOUTS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
   import type {
     PlayerCommandConfig,
     CustomActionConfig,
     Settings,
     AutocompleteSuggestions,
-    MediaSource
+    MediaSource,
+    MediaFolder
   } from '@shared/types'
   import { navStore } from '@lib/navigation-store.svelte'
   import { modalStore } from '@lib/modal-store.svelte'
@@ -219,9 +220,9 @@
             await api.saveSource(source)
           }
           await api.performScan()
-          const status = await api.getLibraryRoot()
-          if (status.root) {
-            modalStore.open('initialFolderSettings', { root: status.root })
+          const rootItem = await api.getItem(LIBRARY_ROOT_ID, {})
+          if (rootItem) {
+            modalStore.open('initialFolderSettings', { root: rootItem as MediaFolder })
           }
         } else if (choice === 'rescan') {
           await api.performScan()

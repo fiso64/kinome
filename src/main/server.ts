@@ -403,18 +403,7 @@ const app = new Elysia()
       })
       .get('/items/:id', async ({ params: { id: rawId }, query, set }) => {
         let id = rawId
-        if (id === 'root') {
-          const status = await navigationService.getLibraryRoot()
-          if (status.status !== 'ready') {
-            set.status = 404
-            return {
-              error: 'root_missing',
-              message: `Library not ready: ${status.status}`,
-              ...status
-            }
-          }
-          id = status.root!.id
-        } else if (id === 'home') {
+        if (id === 'home') {
           id = repositoryService.getHomeFolderId()
         }
 
@@ -492,20 +481,9 @@ const app = new Elysia()
           })
         }
       )
-      .get('/items/:id/ancestors', async ({ params: { id: rawId }, set }) => {
+      .get('/items/:id/ancestors', async ({ params: { id: rawId } }) => {
         let id = rawId
-        if (id === 'root') {
-          const status = await navigationService.getLibraryRoot()
-          if (status.status !== 'ready') {
-            set.status = 404
-            return {
-              error: 'root_missing',
-              message: `Library not ready: ${status.status}`,
-              ...status
-            }
-          }
-          id = status.root!.id
-        } else if (id === 'home') {
+        if (id === 'home') {
           id = repositoryService.getHomeFolderId()
         }
 
@@ -764,7 +742,7 @@ const app = new Elysia()
         webTransport.notifySettingsUpdated(sanitized as any)
         return sanitized
       })
-      .get('/library-root', ({ query }) => navigationService.getLibraryRoot(query.path as string))
+      .get('/library-status', ({ query }) => navigationService.getLibraryStatus(query.path as string))
   )
 
 // ... (imports and middleware setup remain the same) ...
@@ -892,7 +870,7 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
 
   for (const [key, value] of Object.entries(query)) {
     if (!reserved.includes(key)) {
-      if (value === 'null' || value === 'root') {
+      if (value === 'null') {
         options.where![key] = null
       } else {
         options.where![key] = value

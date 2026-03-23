@@ -89,11 +89,14 @@
   async function checkStateAndNavigate(path: string) {
     isSaving = true
     try {
-      const result = await api.getLibraryRoot(path)
+      const [result, existingSettings] = await Promise.all([
+        api.getLibraryStatus(path),
+        api.getSettings().catch(() => null)
+      ])
 
       // If settings exist, always pre-fill them
-      if (result.settings?.mediaSources?.length) {
-        sources = result.settings.mediaSources.map((s) => ({ ...s })) as SourceEntry[]
+      if (existingSettings?.mediaSources?.length) {
+        sources = existingSettings.mediaSources.map((s) => ({ ...s })) as SourceEntry[]
       }
 
       if (result.status === 'ready') {

@@ -1,3 +1,5 @@
+export const LIBRARY_ROOT_ID = 'virtual-library-root'
+
 // --- Layout-Specific Settings Definitions ---
 
 /**
@@ -216,8 +218,6 @@ export type LibraryStatusType = 'ready' | 'no_location' | 'db_missing' | 'no_set
 
 export interface LibraryStatus {
   status: LibraryStatusType
-  settings?: Partial<Settings>
-  root?: MediaFolder
 }
 
 export type LibraryConditionOp =

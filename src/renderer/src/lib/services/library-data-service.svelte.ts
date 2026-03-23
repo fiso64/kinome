@@ -22,9 +22,6 @@ class LibraryDataService {
   private queryClient: QueryClient | null = null
   private throttler: QueryThrottler | null = null
 
-  // State using Svelte 5 runes
-  rootId = $state<string | null>(null)
-
   // Internal Query Key Templates (Private implementation detail)
   private readonly keys = {
     item: {
@@ -67,24 +64,6 @@ class LibraryDataService {
     return this.queryClient
   }
 
-  // --- 1. Normalization Logic ---
-
-  /**
-   * Maps a backend UUID to the frontend 'root' alias if it matches the current root.
-   */
-  normalizeId(id: string | null | undefined): string | null | undefined {
-    if (!id) return id
-    if (this.rootId && id === this.rootId) return 'root'
-    return id
-  }
-
-  /**
-   * Robustly compares two IDs by normalizing them first.
-   */
-  isIdMatch(id1: string | null | undefined, id2: string | null | undefined): boolean {
-    return this.normalizeId(id1) === this.normalizeId(id2)
-  }
-
   // --- 2. Query Factories (Component API) ---
 
   /**
@@ -101,15 +80,14 @@ class LibraryDataService {
     return createQuery(
       () => {
         const id = idFn()
-        const normalizedId = this.normalizeId(id)
         const fields = (options.fields ? options.fields() : []).sort()
         const include = (options.include ? options.include() : []).sort()
         const isEnabled = options.enabled ? options.enabled() : true
 
         return {
-          queryKey: [...this.keys.item.details(normalizedId), { fields, include }],
-          queryFn: () => (normalizedId ? api.getItem(id!, { fields, include }) : null),
-          enabled: isEnabled && !!normalizedId
+          queryKey: [...this.keys.item.details(id), { fields, include }],
+          queryFn: () => (id ? api.getItem(id, { fields, include }) : null),
+          enabled: isEnabled && !!id
         }
       },
       () => this.queryClient!
@@ -122,13 +100,11 @@ class LibraryDataService {
    */
   async fetchItemDetails(id: string, fields: string[] = []): Promise<LibraryItem | null> {
     if (!this.queryClient) return null
-    const normalizedId = this.normalizeId(id)
-    if (!normalizedId) return null
 
     const sortedFields = [...fields].sort()
 
     return this.queryClient.fetchQuery({
-      queryKey: [...this.keys.item.details(normalizedId), { fields: sortedFields }],
+      queryKey: [...this.keys.item.details(id), { fields: sortedFields }],
       queryFn: () => api.getItem(id, { fields: sortedFields })
     })
   }
@@ -145,10 +121,6 @@ class LibraryDataService {
     if (!itemOrId) return null
 
     if (typeof itemOrId === 'string') {
-      if (itemOrId === 'root') {
-        const status = await api.getLibraryRoot()
-        return status.root || null
-      }
       return await this.fetchItemDetails(itemOrId, fields)
     }
 
@@ -173,13 +145,12 @@ class LibraryDataService {
     return createQuery(
       () => {
         const id = idFn()
-        const normalizedId = this.normalizeId(id)
         const isEnabled = options.enabled ? options.enabled() : true
 
         return {
-          queryKey: this.keys.credits.byItem(normalizedId),
-          queryFn: () => (normalizedId ? api.getItemCredits(id!) : null),
-          enabled: isEnabled && !!normalizedId
+          queryKey: this.keys.credits.byItem(id),
+          queryFn: () => (id ? api.getItemCredits(id) : null),
+          enabled: isEnabled && !!id
         }
       },
       () => this.queryClient!
@@ -196,14 +167,13 @@ class LibraryDataService {
     return createQuery(
       () => {
         const id = idFn()
-        const normalizedId = this.normalizeId(id)
         const fields = (options.fields ? options.fields() : []).sort()
         const isEnabled = options.enabled ? options.enabled() : true
 
         return {
-          queryKey: this.keys.item.tree(normalizedId),
-          queryFn: () => (normalizedId ? api.getItem(id!, { include: ['tree'], fields }) : null),
-          enabled: isEnabled && !!normalizedId
+          queryKey: this.keys.item.tree(id),
+          queryFn: () => (id ? api.getItem(id, { include: ['tree'], fields }) : null),
+          enabled: isEnabled && !!id
         }
       },
       () => this.queryClient!
@@ -224,20 +194,19 @@ class LibraryDataService {
     return createQuery(
       () => {
         const parentId = parentIdFn()
-        const normalizedId = this.normalizeId(parentId)
         const fields = (options.fields ? options.fields() : []).sort()
         const isDetailView = options.isDetailView ? options.isDetailView() : false
         const isEnabled = options.enabled ? options.enabled() : true
 
         return {
-          queryKey: this.keys.children.byParent(normalizedId, fields, isDetailView),
+          queryKey: this.keys.children.byParent(parentId, fields, isDetailView),
           queryFn: () =>
-            normalizedId
-              ? api.getChildren(parentId!, {
+            parentId
+              ? api.getChildren(parentId, {
                   fields
                 })
               : [],
-          enabled: isEnabled && normalizedId !== undefined && normalizedId !== null,
+          enabled: isEnabled && parentId !== undefined && parentId !== null,
           placeholderData: keepPreviousData
         }
       },
@@ -329,12 +298,11 @@ class LibraryDataService {
 
     for (const item of updatedItems) {
       // Step A: Surgical Patch (Instant & Silent - 0ms feedback)
-      const normalizedId = this.normalizeId(item.id)
       itemIdsToRefetch.add(item.id)
 
       // 1. Update the item itself wherever it appears as a primary entity (Details, Tree, Settings)
       this.queryClient.setQueriesData(
-        { queryKey: [...this.keys.item.all, normalizedId] },
+        { queryKey: [...this.keys.item.all, item.id] },
         (old: any) => {
           if (!old) return old
           const patched = { ...old, ...item }
@@ -418,13 +386,11 @@ class LibraryDataService {
     this.throttler.throttleRefetch(this.keys.children.all, isScanning)
 
     itemIdsToRefetch.forEach((id) => {
-      const normalizedId = this.normalizeId(id)
-      this.throttler!.throttleRefetch(this.keys.item.details(normalizedId), isScanning)
+      this.throttler!.throttleRefetch(this.keys.item.details(id), isScanning)
     })
 
     ancestorIdsToRefetch.forEach((ancestorId) => {
-      const normalizedAncestorId = this.normalizeId(ancestorId)
-      this.throttler!.throttleRefetch(this.keys.item.tree(normalizedAncestorId), isScanning)
+      this.throttler!.throttleRefetch(this.keys.item.tree(ancestorId), isScanning)
     })
 
     if (refreshGlobalContinueWatching) {
@@ -441,10 +407,9 @@ class LibraryDataService {
    */
   handleLibraryDeletion(deletedItemId: string) {
     if (!this.queryClient) return
-    const normalizedId = this.normalizeId(deletedItemId)
 
     // 1. Invalidate item queries
-    this.queryClient.invalidateQueries({ queryKey: [...this.keys.item.all, normalizedId] })
+    this.queryClient.invalidateQueries({ queryKey: [...this.keys.item.all, deletedItemId] })
 
     // 2. Invalidate all children lists (structural sync)
     this.queryClient.invalidateQueries({ queryKey: this.keys.children.all })

@@ -1,6 +1,6 @@
 <script lang="ts">
   import FilterEditor from '../FilterEditor.svelte'
-  import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { LIBRARY_ROOT_ID } from '@shared/types'
   import type { LibraryCondition, LibraryFilter, AutocompleteSuggestions } from '@shared/types'
 
   let {
@@ -12,8 +12,6 @@
     parentId: string
     suggestions?: AutocompleteSuggestions
   } = $props()
-
-  const rootId = libraryDataService.rootId
 
   // Initialize conditionGroups from filter, migrating legacy conditions format
   if (!filter.conditionGroups) {
@@ -28,7 +26,7 @@
     if (filter.scope?.manual) return 'none'
     const scopeId = filter.scope?.parentId
     if (!scopeId) return 'library'
-    if (rootId && scopeId === rootId) return 'root'
+    if (LIBRARY_ROOT_ID && scopeId === LIBRARY_ROOT_ID) return 'root'
     if (scopeId === 'virtual-home') return 'home'
     if (scopeId === parentId) return 'parent'
     return 'parent' // fallback
@@ -47,8 +45,8 @@
       filter.conditions = undefined
     } else if (scope === 'parent' && parentId) {
       filter.scope = { parentId }
-    } else if (scope === 'root' && rootId) {
-      filter.scope = { parentId: rootId }
+    } else if (scope === 'root' && LIBRARY_ROOT_ID) {
+      filter.scope = { parentId: LIBRARY_ROOT_ID }
     } else if (scope === 'home') {
       filter.scope = { parentId: 'virtual-home' }
     } else if (scope === 'library') {

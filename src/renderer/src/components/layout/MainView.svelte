@@ -64,7 +64,7 @@
   const currentFolderId = $derived(navStore.state.currentFolderId)
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
-    enabled: () => libraryStatus?.status === 'ready',
+    enabled: () => libraryStatus?.status === 'ready' && !disabled,
     include: () => ['viewHierarchy']
   })
   const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
@@ -74,7 +74,7 @@
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
     fields: () => requiredFields,
-    enabled: () => libraryStatus?.status === 'ready' && currentFolder?.viewHierarchy != null
+    enabled: () => libraryStatus?.status === 'ready' && currentFolder?.viewHierarchy != null && !disabled
   })
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 

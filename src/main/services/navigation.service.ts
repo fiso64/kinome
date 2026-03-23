@@ -1,5 +1,6 @@
 import {
   LibraryItem,
+  LibraryStatus,
   MediaFolder,
   ViewHierarchyNode,
   StoredViewSettings,
@@ -109,26 +110,16 @@ export async function getChildren(
   options: FindOptions = {},
   inheritedSettings?: CascadableViewSettings
 ): Promise<LibraryItem[] | { error: string; message: string;[key: string]: any }> {
-  let targetId = id
+  let itemId = id
 
   // 1. Resolve aliases
   const homeId = getHomeFolderId()
   if (id === 'home' || id === homeId) {
-    targetId = homeId
-  } else if (id === 'root') {
-    const status = await getLibraryRoot()
-    if (status.status !== 'ready') {
-      return {
-        error: 'root_missing',
-        message: `Library not ready: ${status.status}`,
-        ...status
-      }
-    }
-    targetId = status.root!.id
+    itemId = homeId
   }
 
   // 2. Fetch item
-  const item = getItemById(targetId)
+  const item = getItemById(itemId)
   if (!item || item.type !== 'folder') return { error: 'not_found', message: 'Item not found' }
 
   // 3. Apply defaults (without mutating the caller's object)
@@ -167,7 +158,7 @@ export async function getChildren(
   } else {
     // Branch C: Simple real folder navigation
     results = find({
-      where: { parentId: targetId },
+      where: { parentId: itemId },
       rawConditions: [childrenFilter(item)],
       fields: opts.fields,
       orderBy: opts.orderBy,
@@ -192,37 +183,18 @@ export async function getParent(id: string) {
   return parent ? createTransferableCopy(parent) : null
 }
 
-export async function getLibraryRoot(providedPath?: string) {
+export async function getLibraryStatus(providedPath?: string): Promise<LibraryStatus> {
   const currentSettings = await readSettings()
   const pathToCheck = providedPath || currentSettings.libraryLocation
 
-  if (!pathToCheck) {
-    return { status: 'no_location' }
-  }
+  if (!pathToCheck) return { status: 'no_location' }
 
   const discovery = await checkLibraryExists(pathToCheck)
+  if (!discovery.settingsExists) return { status: 'no_settings' }
+  if (!discovery.dbExists) return { status: 'db_missing' }
+  if (!getRoot()) return { status: 'db_missing' }
 
-  if (!discovery.settingsExists) {
-    return { status: 'no_settings' }
-  }
-
-  if (!discovery.dbExists) {
-    return { status: 'db_missing', settings: discovery.settings }
-  }
-
-  const root = getRoot()
-  if (!root) {
-    return { status: 'db_missing', settings: discovery.settings }
-  }
-
-  root.children = []
-  const item = createTransferableCopy(root) as MediaFolder
-
-  return {
-    status: 'ready',
-    root: item,
-    settings: discovery.settings
-  }
+  return { status: 'ready' }
 }
 
 /**
@@ -237,16 +209,8 @@ export async function resolveViewHierarchy(
 ): Promise<ViewHierarchyNode | null> {
   if (depth > 10) return null
 
-  // 1. Resolve aliases
-  let targetId = itemId
-  if (itemId === 'root') {
-    const status = await getLibraryRoot()
-    if (status.status !== 'ready' || !status.root) return null
-    targetId = status.root.id
-  }
-
-  // 2. Fetch item
-  const item = getItemById(targetId)
+  // 1. Fetch item
+  const item = getItemById(itemId)
   if (!item) return null
 
   // 3. Resolve settings
@@ -260,7 +224,7 @@ export async function resolveViewHierarchy(
   )
 
   const node: ViewHierarchyNode = {
-    id: targetId,
+    id: itemId,
     stored: stored as StoredViewSettings,
     effective: resolution.settings,
     children: undefined
@@ -277,7 +241,7 @@ export async function resolveViewHierarchy(
       ? `(i.virtual_type IN ('grouping', 'season', 'user') OR i.is_virtual = 0)`
       : childrenFilter(item)
     const childFolders = find({
-      where: { parentId: targetId },
+      where: { parentId: itemId },
       rawConditions: [hierarchyFilter],
       fields: ['id', 'type', 'viewSettings']
     }).filter((c) => c.type === 'folder')

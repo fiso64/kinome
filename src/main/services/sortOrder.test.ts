@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
 import path from 'path'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
+import { LIBRARY_ROOT_ID } from '@shared/types'
 
 // --- Mock I/O boundaries ---
 const SETTINGS_SERVICE_PATH = path.resolve(__dirname, './settings.service.ts')
@@ -39,11 +40,7 @@ mock.module(NAVIGATION_SERVICE_PATH, () => {
   const original = require('./navigation.service')
   return {
     ...original,
-    getLibraryRoot: () =>
-      Promise.resolve({
-        status: 'ready',
-        root: { id: 'root', name: 'Root', type: 'folder', children: [] },
-      }),
+    getLibraryStatus: () => Promise.resolve({ status: 'ready' }),
   }
 })
 
@@ -250,8 +247,8 @@ describe('getChildren — sort ordering', () => {
   beforeEach(() => {
     // Seed parent folder
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'parent', parentId: 'root', path: 'parent', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'parent', parentId: LIBRARY_ROOT_ID, path: 'parent', type: 'folder' },
     ])
   })
 
@@ -377,7 +374,7 @@ describe('getChildren — sort ordering', () => {
       { id: 'eS2', mediaType: 'season', seasonNumber: 2 },
     ])
     ctx.seedItems([
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'eShow' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'eShow' },
       { id: 's3', parentId: 'show', path: 'show/s3', type: 'folder', entityId: 'eS3' },
       { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'eS1' },
       { id: 's2', parentId: 'show', path: 'show/s2', type: 'folder', entityId: 'eS2' },
@@ -396,7 +393,7 @@ describe('getChildren — sort ordering', () => {
       { id: 'eExtras', title: 'Extras' },
     ])
     ctx.seedItems([
-      { id: 'season', parentId: 'root', path: 'show/s1', type: 'folder', entityId: 'eSeason' },
+      { id: 'season', parentId: LIBRARY_ROOT_ID, path: 'show/s1', type: 'folder', entityId: 'eSeason' },
       { id: 'ep1', parentId: 'season', path: 'show/s1/ep1', type: 'file', entityId: 'eEp1' },
       { id: 'ep2', parentId: 'season', path: 'show/s1/ep2', type: 'file', entityId: 'eEp2' },
       { id: 'extras', parentId: 'season', path: 'show/s1/extras', type: 'folder', entityId: 'eExtras' },
@@ -417,7 +414,7 @@ describe('getChildren — sort ordering', () => {
       { id: 'eS2', mediaType: 'season', seasonNumber: 2 },
     ])
     ctx.seedItems([
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'eShow' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'eShow' },
       { id: 's3', parentId: 'show', path: 'show/s3', type: 'folder', entityId: 'eS3' },
       { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'eS1' },
       { id: 's2', parentId: 'show', path: 'show/s2', type: 'folder', entityId: 'eS2' },

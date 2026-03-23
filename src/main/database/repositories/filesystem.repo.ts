@@ -5,9 +5,9 @@
 import path from 'path'
 import crypto from 'crypto'
 import { getDb, runTransaction } from '../client'
+import { LIBRARY_ROOT_ID } from '@shared/types'
 
-/** Stable ID for the singleton library virtual root (parents all source roots). */
-export const LIBRARY_ROOT_ID = 'virtual-library-root'
+export { LIBRARY_ROOT_ID }
 
 /**
  * Generates a stable ID for a filesystem item.

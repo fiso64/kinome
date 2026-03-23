@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
 import path from 'path'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
+import { LIBRARY_ROOT_ID } from '@shared/types'
 
 // --- Mock I/O boundaries BEFORE importing the module under test ---
 
@@ -35,17 +36,13 @@ mock.module(SETTINGS_SERVICE_PATH, () => ({
   checkLibraryExists: () => Promise.resolve({ settingsExists: true, dbExists: true }),
 }))
 
-// Mock getLibraryRoot from navigation service to return a ready status pointing at 'root'
+// Mock getLibraryStatus from navigation service to return a ready status
 mock.module(NAVIGATION_SERVICE_PATH, () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const original = require('./navigation.service')
   return {
     ...original,
-    getLibraryRoot: () =>
-      Promise.resolve({
-        status: 'ready',
-        root: { id: 'root', name: 'Root', type: 'folder', children: [] },
-      }),
+    getLibraryStatus: () => Promise.resolve({ status: 'ready' }),
   }
 })
 
@@ -86,8 +83,8 @@ describe('getChildren — Branch C (no grouping)', () => {
       { id: 'e2', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
     ])
@@ -136,8 +133,8 @@ describe('getChildren — Branch B (grouping active)', () => {
       { id: 'e2', mediaType: 'movie', year: 2024 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
     ])
@@ -194,8 +191,8 @@ describe('getChildren — Branch A (virtual folder)', () => {
       { id: 'e3', mediaType: 'movie', year: 2024 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
       { id: 'film3', parentId: 'movies', path: 'movies/film3', entityId: 'e3' },
@@ -246,7 +243,7 @@ describe('getChildren — Branch A (virtual folder)', () => {
 
   it('virtual folder with filter also returns manually parented virtual children', async () => {
     // 1. Create parent virtual folder 'A' with a filter (e.g. all movies from 'movies' folder)
-    const folderAId = createUserVirtualFolder('root', 'Folder A', {
+    const folderAId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'Folder A', {
       scope: { parentId: 'movies' },
       conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }],
     })
@@ -281,9 +278,9 @@ describe('getChildren — Branch A (virtual folder)', () => {
 describe('getChildren — alias resolution', () => {
   beforeEach(() => {
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
-      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
+      { id: 'tv', parentId: LIBRARY_ROOT_ID, path: 'tv', type: 'folder' },
     ])
   })
 
@@ -295,9 +292,9 @@ describe('getChildren — alias resolution', () => {
     ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-movies', 'movies')
     ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-tv', 'tv')
     ctx.seedFolderSettings([
-      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
+      { itemId: LIBRARY_ROOT_ID, folderSettings: { retrieveChildrenMetadata: true } },
     ])
-    ensureHomeVirtualFolder('root')
+    ensureHomeVirtualFolder(LIBRARY_ROOT_ID)
 
     const result = await getChildren('home', {})
     const items = expectItems(result)
@@ -460,15 +457,15 @@ describe('getChildren — alias resolution', () => {
       { id: 'e-other', mediaType: 'other', title: 'test other' },
     ])
     ctx.seedItems([
-      { id: 'folder1', parentId: 'root', path: 'folder1', type: 'folder' },
+      { id: 'folder1', parentId: LIBRARY_ROOT_ID, path: 'folder1', type: 'folder' },
       { id: 'item1', parentId: 'folder1', path: 'folder1/item1', type: 'file', entityId: 'e-movie' }, // matches home via mediaType
       { id: 'item2', parentId: 'folder1', path: 'folder1/item2', type: 'file', entityId: 'e-other' }, // does NOT match home
     ])
 
     // Enable home folder logic by giving parent retrieve metadata, or just relying on mediaType
-    ensureHomeVirtualFolder('root')
+    ensureHomeVirtualFolder(LIBRARY_ROOT_ID)
 
-    const vfId = createUserVirtualFolder('root', 'custom-vf-home-inherited', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'custom-vf-home-inherited', {
       scope: { parentId: HOME_FOLDER_ID },
       conditionGroups: [[{ field: 'title', op: 'contains', value: 'test' }]]
     })
@@ -488,14 +485,14 @@ describe('getChildren — alias resolution', () => {
       { id: 'e-other', mediaType: 'other', title: 'test other' },
     ])
     ctx.seedItems([
-      { id: 'folder1', parentId: 'root', path: 'folder1', type: 'folder' },
+      { id: 'folder1', parentId: LIBRARY_ROOT_ID, path: 'folder1', type: 'folder' },
       { id: 'item1', parentId: 'folder1', path: 'folder1/item1', type: 'file', entityId: 'e-movie' }, // matches home via mediaType
       { id: 'item2', parentId: 'folder1', path: 'folder1/item2', type: 'file', entityId: 'e-other' }, // does NOT match home
     ])
 
-    ensureHomeVirtualFolder('root')
+    ensureHomeVirtualFolder(LIBRARY_ROOT_ID)
 
-    const vfId = createUserVirtualFolder('root', 'custom-vf-home-inherited-empty-conds', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'custom-vf-home-inherited-empty-conds', {
       scope: { parentId: HOME_FOLDER_ID },
       conditionGroups: [] // Empty array sent by frontend when no filters are set
     })
@@ -548,7 +545,7 @@ describe('getChildren — alias resolution', () => {
   })
 
   it('"root" alias resolves to the actual root folder', async () => {
-    const result = await getChildren('root', {})
+    const result = await getChildren(LIBRARY_ROOT_ID, {})
     const items = expectItems(result)
 
     expect(items).toHaveLength(2)
@@ -575,8 +572,8 @@ describe('getChildren — contextual sorting', () => {
       { id: 'e-ep3', mediaType: 'episode', episodeNumber: 2 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'season1', parentId: 'root', path: 'season1', type: 'folder', entityId: 'e-season' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'season1', parentId: LIBRARY_ROOT_ID, path: 'season1', type: 'folder', entityId: 'e-season' },
       { id: 'ep1', parentId: 'season1', path: 'season1/ep1', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 'season1', path: 'season1/ep2', entityId: 'e-ep2' },
       { id: 'ep3', parentId: 'season1', path: 'season1/ep3', entityId: 'e-ep3' },
@@ -597,8 +594,8 @@ describe('getChildren — contextual sorting', () => {
       { id: 'e-loose', mediaType: null },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'bb', parentId: 'root', path: 'Breaking Bad', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'bb', parentId: LIBRARY_ROOT_ID, path: 'Breaking Bad', type: 'folder', entityId: 'e-show' },
       { id: 'extras', parentId: 'bb', path: 'Breaking Bad/Extras', type: 'folder', name: 'Extras' },
       { id: 'ep1', parentId: 'bb', path: 'Breaking Bad/S01/e01.mkv', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 'bb', path: 'Breaking Bad/S02/e01.mkv', entityId: 'e-ep2' },
@@ -625,8 +622,8 @@ describe('getChildren — contextual sorting', () => {
       { id: 'e-loose', mediaType: null },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'dn', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'dn', parentId: LIBRARY_ROOT_ID, path: 'Death Note', type: 'folder', entityId: 'e-show' },
       { id: 'extras', parentId: 'dn', path: 'Death Note/Extras', type: 'folder', name: 'Extras' },
       { id: 'other', parentId: 'dn', path: 'Death Note/Other Folder', type: 'folder', name: 'Other Folder' },
       { id: 'ep1', parentId: 'dn', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
@@ -649,8 +646,8 @@ describe('getChildren — contextual sorting', () => {
 
   it('sorts by name for generic folders', async () => {
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'parent', parentId: 'root', path: 'parent', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'parent', parentId: LIBRARY_ROOT_ID, path: 'parent', type: 'folder' },
       { id: 'c-zebra', parentId: 'parent', path: 'parent/zebra', name: 'Zebra' },
       { id: 'c-apple', parentId: 'parent', path: 'parent/apple', name: 'Apple' },
     ])
@@ -667,8 +664,8 @@ describe('getChildren — contextual sorting', () => {
       { id: 'e-spirited', mediaType: 'movie', title: 'Spirited Away' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       // File name "godfather" would sort before "zebra-unmatched", but
       // metadata title "The Godfather" sorts after "Spirited Away"
       { id: 'f1', parentId: 'movies', path: 'movies/godfather', name: 'godfather', entityId: 'e-godfather' },
@@ -699,8 +696,8 @@ describe('getChildren — embedChildrenForContainers', () => {
       { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'e-show' },
       { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'e-s1' },
       { id: 'ep1', parentId: 's1', path: 'show/s1/ep1', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 's1', path: 'show/s1/ep2', entityId: 'e-ep2' },
@@ -730,8 +727,8 @@ describe('getChildren — embedChildrenForContainers', () => {
       { id: 'e2', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
     ])
@@ -744,7 +741,7 @@ describe('getChildren — embedChildrenForContainers', () => {
       },
     }
 
-    const result = await getChildren('root', {})
+    const result = await getChildren(LIBRARY_ROOT_ID, {})
     const items = expectItems(result)
 
     const moviesItem = items.find((i) => i.id === 'movies') as MediaFolder
@@ -754,8 +751,8 @@ describe('getChildren — embedChildrenForContainers', () => {
 
   it('grid parent does NOT embed children', async () => {
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'sub', parentId: 'root', path: 'sub', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'sub', parentId: LIBRARY_ROOT_ID, path: 'sub', type: 'folder' },
       { id: 'child', parentId: 'sub', path: 'sub/child' },
     ])
     mockSettings = {
@@ -765,7 +762,7 @@ describe('getChildren — embedChildrenForContainers', () => {
       },
     }
 
-    const result = await getChildren('root', {})
+    const result = await getChildren(LIBRARY_ROOT_ID, {})
     const items = expectItems(result)
 
     const subItem = items.find((i) => i.id === 'sub') as MediaFolder
@@ -776,8 +773,8 @@ describe('getChildren — embedChildrenForContainers', () => {
   it('embedding recurses for nested container layouts', async () => {
     // root (tabs) → section-folder (sections) → inner-folder (grid) → items
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'section-folder', parentId: 'root', path: 'sf', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'section-folder', parentId: LIBRARY_ROOT_ID, path: 'sf', type: 'folder' },
       { id: 'inner-folder', parentId: 'section-folder', path: 'sf/inner', type: 'folder' },
       { id: 'item1', parentId: 'inner-folder', path: 'sf/inner/item1' },
     ])
@@ -792,7 +789,7 @@ describe('getChildren — embedChildrenForContainers', () => {
       },
     }
 
-    const result = await getChildren('root', {})
+    const result = await getChildren(LIBRARY_ROOT_ID, {})
     const items = expectItems(result)
 
     // root is tabs → section-folder gets children embedded
@@ -815,9 +812,9 @@ describe('getChildren — embedChildrenForContainers', () => {
       { id: 'e2', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'film1', parentId: 'root', path: 'film1', entityId: 'e1' },
-      { id: 'film2', parentId: 'root', path: 'film2', entityId: 'e2' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: LIBRARY_ROOT_ID, path: 'film1', entityId: 'e1' },
+      { id: 'film2', parentId: LIBRARY_ROOT_ID, path: 'film2', entityId: 'e2' },
     ])
     ctx.seedGenres('e1', ['Action'])
     ctx.seedGenres('e2', ['Comedy'])
@@ -829,8 +826,8 @@ describe('getChildren — embedChildrenForContainers', () => {
       },
     }
 
-    const vfId = createUserVirtualFolder('root', 'Genres', {
-      scope: { parentId: 'root' },
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'Genres', {
+      scope: { parentId: LIBRARY_ROOT_ID },
       conditionGroups: []
     })
 
@@ -881,8 +878,8 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'e3', mediaType: 'movie', year: 2024 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', entityId: 'e2' },
       { id: 'film3', parentId: 'movies', path: 'movies/film3', entityId: 'e3' },
@@ -916,8 +913,8 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'e-ep3', mediaType: 'episode', seasonNumber: 2, episodeNumber: 1 },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'e-show' },
       { id: 'ep1', parentId: 'show', path: 'show/s01e02.mkv', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 'show', path: 'show/s01e01.mkv', entityId: 'e-ep2' },
       { id: 'ep3', parentId: 'show', path: 'show/s02e01.mkv', entityId: 'e-ep3' },
@@ -951,8 +948,8 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'e-loose', mediaType: null, title: null },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'Death Note', type: 'folder', entityId: 'e-show' },
       { id: 'ep1', parentId: 'show', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 'show', path: 'Death Note/e02.mkv', entityId: 'e-ep2' },
       { id: 'loose', parentId: 'show', path: 'Death Note/ending-not-an-episode.mkv', entityId: 'e-loose' },
@@ -979,15 +976,15 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'e3', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'film1', parentId: 'root', path: 'film1', type: 'folder', entityId: 'e1' },
-      { id: 'show1', parentId: 'root', path: 'show1', type: 'folder', entityId: 'e2' },
-      { id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e3' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: LIBRARY_ROOT_ID, path: 'film1', type: 'folder', entityId: 'e1' },
+      { id: 'show1', parentId: LIBRARY_ROOT_ID, path: 'show1', type: 'folder', entityId: 'e2' },
+      { id: 'film2', parentId: LIBRARY_ROOT_ID, path: 'film2', type: 'folder', entityId: 'e3' },
     ])
     ctx.seedFolderSettings([
-      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
+      { itemId: LIBRARY_ROOT_ID, folderSettings: { retrieveChildrenMetadata: true } },
     ])
-    ensureHomeVirtualFolder('root')
+    ensureHomeVirtualFolder(LIBRARY_ROOT_ID)
 
     // Apply grouping by mediaType on the home virtual folder
     applyGrouping(HOME_FOLDER_ID, 'mediaType')
@@ -1012,14 +1009,14 @@ describe('getChildren — end-to-end round-trip', () => {
       { id: 'e-tv', mediaType: 'tv' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder', entityId: 'e-movies' },
-      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder', entityId: 'e-tv' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder', entityId: 'e-movies' },
+      { id: 'tv', parentId: LIBRARY_ROOT_ID, path: 'tv', type: 'folder', entityId: 'e-tv' },
     ])
     ctx.seedFolderSettings([
-      { itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } },
+      { itemId: LIBRARY_ROOT_ID, folderSettings: { retrieveChildrenMetadata: true } },
     ])
-    ensureHomeVirtualFolder('root')
+    ensureHomeVirtualFolder(LIBRARY_ROOT_ID)
 
     const items = expectItems(await getChildren('home', {}))
     expect(items).toHaveLength(2)
@@ -1040,11 +1037,11 @@ describe('getChildren — nested grouping via childViewSettings', () => {
       { id: 'e4', mediaType: 'tv', title: 'Breaking Bad' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'f1', parentId: 'root', path: 'f1', entityId: 'e1' },
-      { id: 'f2', parentId: 'root', path: 'f2', entityId: 'e2' },
-      { id: 'f3', parentId: 'root', path: 'f3', entityId: 'e3' },
-      { id: 'f4', parentId: 'root', path: 'f4', entityId: 'e4' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'f1', parentId: LIBRARY_ROOT_ID, path: 'f1', entityId: 'e1' },
+      { id: 'f2', parentId: LIBRARY_ROOT_ID, path: 'f2', entityId: 'e2' },
+      { id: 'f3', parentId: LIBRARY_ROOT_ID, path: 'f3', entityId: 'e3' },
+      { id: 'f4', parentId: LIBRARY_ROOT_ID, path: 'f4', entityId: 'e4' },
     ])
     ctx.seedGenres('e1', ['Animation'])
     ctx.seedGenres('e2', ['Action'])
@@ -1068,17 +1065,17 @@ describe('getChildren — nested grouping via childViewSettings', () => {
 
   it('getChildren embeds children through nested grouping folders', async () => {
     // Configure root as sections by genre, children as sections by mediaType
-    mergeSettings('root', {
+    mergeSettings(LIBRARY_ROOT_ID, {
       viewSettings: {
         layout: 'sections',
         childViewSettings: { layout: 'sections' },
       },
     })
-    applyGrouping('root', 'genre')
+    applyGrouping(LIBRARY_ROOT_ID, 'genre')
 
     // Manually apply sub-grouping to each genre folder
     const genreFolders = find({
-      where: { parentId: 'root' },
+      where: { parentId: LIBRARY_ROOT_ID },
       rawConditions: ['i.is_virtual = 1 AND i.virtual_type = \'grouping\''],
       fields: ['id', 'name'],
     })
@@ -1089,7 +1086,7 @@ describe('getChildren — nested grouping via childViewSettings', () => {
     // Fetch root's children (the genre grouping folders).
     // Each genre folder has appliedGrouping → its children (mediaType folders)
     // should also have their children embedded.
-    const rootChildren = expectItems(await getChildren('root', {}))
+    const rootChildren = expectItems(await getChildren(LIBRARY_ROOT_ID, {}))
     const animation = rootChildren.find((c: any) => c.name === 'Animation')! as MediaFolder
     expect(animation.children).toBeDefined()
     expect(animation.children).not.toBeNull()
@@ -1115,13 +1112,13 @@ describe('Invariants I1 & I2 — resolveViewHierarchy', () => {
       { id: 'e1', mediaType: 'movie', title: 'Film A' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'child-folder', parentId: 'root', path: 'child', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'child-folder', parentId: LIBRARY_ROOT_ID, path: 'child', type: 'folder' },
       { id: 'f1', parentId: 'child-folder', path: 'child/f1', entityId: 'e1' },
     ])
 
     // Parent says: children should use list layout
-    mergeSettings('root', {
+    mergeSettings(LIBRARY_ROOT_ID, {
       viewSettings: {
         layout: 'sections',
         childViewSettings: { layout: 'list' },
@@ -1158,7 +1155,7 @@ describe('Invariants I1 & I2 — resolveViewHierarchy', () => {
   it('I2: inline rendering inherits parent childViewSettings', async () => {
     // Resolving from root (sections layout) → child-folder is rendered inline.
     // It should inherit root's childViewSettings (list).
-    const hierarchy = await resolveViewHierarchy('root')
+    const hierarchy = await resolveViewHierarchy(LIBRARY_ROOT_ID)
     expect(hierarchy).not.toBeNull()
     expect(hierarchy!.effective.layout).toBe('sections')
 
@@ -1197,8 +1194,8 @@ describe('getChildren — I3: TV show child tab layout consistency', () => {
       { id: 'e-loose', mediaType: null, title: null },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'Death Note', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'Death Note', type: 'folder', entityId: 'e-show' },
       { id: 'ep1', parentId: 'show', path: 'Death Note/e01.mkv', entityId: 'e-ep1' },
       { id: 'ep2', parentId: 'show', path: 'Death Note/e02.mkv', entityId: 'e-ep2' },
       { id: 'loose', parentId: 'show', path: 'Death Note/ending.mkv', entityId: 'e-loose' },
@@ -1261,9 +1258,9 @@ describe('getChildren — parent field conditions', () => {
       { id: 'e3', mediaType: 'movie', title: 'Film C' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder' },
-      { id: 'misc', parentId: 'root', path: 'misc', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder' },
+      { id: 'misc', parentId: LIBRARY_ROOT_ID, path: 'misc', type: 'folder' },
       { id: 'film1', parentId: 'movies', path: 'movies/film1', type: 'folder', entityId: 'e1' },
       { id: 'film2', parentId: 'movies', path: 'movies/film2', type: 'folder', entityId: 'e2' },
       { id: 'film3', parentId: 'misc', path: 'misc/film3', type: 'folder', entityId: 'e3' },
@@ -1273,7 +1270,7 @@ describe('getChildren — parent field conditions', () => {
       { itemId: 'movies', folderSettings: { retrieveChildrenMetadata: true } },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'Scraper Content', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'Scraper Content', {
       conditionGroups: [[
         { field: 'parent.retrieveChildrenMetadata', op: 'eq', value: 1 },
       ]],
@@ -1294,14 +1291,14 @@ describe('getChildren — parent field conditions', () => {
       { id: 'e-file', mediaType: null },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
-      { id: 'movie', parentId: 'root', path: 'movie', type: 'folder', entityId: 'e-movie-folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: 'movie', parentId: LIBRARY_ROOT_ID, path: 'movie', type: 'folder', entityId: 'e-movie-folder' },
       { id: 'ep1', parentId: 'show', path: 'show/ep1', entityId: 'e-ep1' },
       { id: 'file1', parentId: 'movie', path: 'movie/file.mkv', entityId: 'e-file' },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'TV Children', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'TV Children', {
       conditionGroups: [[
         { field: 'parent.mediaType', op: 'eq', value: 'tv' },
       ]],
@@ -1323,17 +1320,17 @@ describe('getChildren — parent field conditions', () => {
       { id: 'e-movie', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'show', parentId: 'root', path: 'show', type: 'folder', entityId: 'e-show' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'show', type: 'folder', entityId: 'e-show' },
       { id: 's1', parentId: 'show', path: 'show/s1', type: 'folder', entityId: 'e-season' },
       { id: 'ep1', parentId: 's1', path: 'show/s1/ep1', entityId: 'e-ep1' },
       // An episode under a non-tv grandparent (shouldn't match)
-      { id: 'movie-folder', parentId: 'root', path: 'mf', type: 'folder', entityId: 'e-movie' },
+      { id: 'movie-folder', parentId: LIBRARY_ROOT_ID, path: 'mf', type: 'folder', entityId: 'e-movie' },
       { id: 'sub', parentId: 'movie-folder', path: 'mf/sub', type: 'folder' },
       { id: 'ep2', parentId: 'sub', path: 'mf/sub/ep2', entityId: 'e-ep2' },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'TV Grandchildren', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'TV Grandchildren', {
       conditionGroups: [[
         { field: 'parent.parent.mediaType', op: 'eq', value: 'tv' },
       ]],
@@ -1349,15 +1346,15 @@ describe('getChildren — parent field conditions', () => {
 
   it('parent.name filters by parent folder name', async () => {
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'movies', parentId: 'root', path: 'movies', type: 'folder', name: 'Movies' },
-      { id: 'tv', parentId: 'root', path: 'tv', type: 'folder', name: 'TV Shows' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'movies', parentId: LIBRARY_ROOT_ID, path: 'movies', type: 'folder', name: 'Movies' },
+      { id: 'tv', parentId: LIBRARY_ROOT_ID, path: 'tv', type: 'folder', name: 'TV Shows' },
       { id: 'f1', parentId: 'movies', path: 'movies/f1', name: 'file1' },
       { id: 'f2', parentId: 'movies', path: 'movies/f2', name: 'file2' },
       { id: 'f3', parentId: 'tv', path: 'tv/f3', name: 'file3' },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'Movie Files', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'Movie Files', {
       conditionGroups: [[
         { field: 'parent.name', op: 'eq', value: 'Movies' },
       ]],
@@ -1371,12 +1368,12 @@ describe('getChildren — parent field conditions', () => {
 
   it('parent field condition with no matching items returns empty', async () => {
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'folder', parentId: 'root', path: 'folder', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'folder', parentId: LIBRARY_ROOT_ID, path: 'folder', type: 'folder' },
       { id: 'child', parentId: 'folder', path: 'folder/child' },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'No Match', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'No Match', {
       conditionGroups: [[
         { field: 'parent.name', op: 'eq', value: 'NonExistent' },
       ]],
@@ -1393,14 +1390,14 @@ describe('getChildren — parent field conditions', () => {
       { id: 'e1', mediaType: 'movie' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'matched', parentId: 'root', path: 'matched', type: 'folder', entityId: 'e1' },
-      { id: 'unmatched', parentId: 'root', path: 'unmatched', type: 'folder' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'matched', parentId: LIBRARY_ROOT_ID, path: 'matched', type: 'folder', entityId: 'e1' },
+      { id: 'unmatched', parentId: LIBRARY_ROOT_ID, path: 'unmatched', type: 'folder' },
       { id: 'child1', parentId: 'matched', path: 'matched/c1' },
       { id: 'child2', parentId: 'unmatched', path: 'unmatched/c2' },
     ])
 
-    const vfId = createUserVirtualFolder('root', 'Under Matched Parents', {
+    const vfId = createUserVirtualFolder(LIBRARY_ROOT_ID, 'Under Matched Parents', {
       conditionGroups: [[
         { field: 'parent.mediaType', op: 'isNotNull' },
       ]],
@@ -1427,18 +1424,18 @@ describe('getChildren — sortTop / sortBottom', () => {
       { id: 'ed', mediaType: 'movie', title: 'Delta' },
     ])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'alpha', parentId: 'root', path: 'alpha', type: 'folder', entityId: 'ea' },
-      { id: 'bravo', parentId: 'root', path: 'bravo', type: 'folder', entityId: 'eb' },
-      { id: 'charlie', parentId: 'root', path: 'charlie', type: 'folder', entityId: 'ec' },
-      { id: 'delta', parentId: 'root', path: 'delta', type: 'folder', entityId: 'ed' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'alpha', parentId: LIBRARY_ROOT_ID, path: 'alpha', type: 'folder', entityId: 'ea' },
+      { id: 'bravo', parentId: LIBRARY_ROOT_ID, path: 'bravo', type: 'folder', entityId: 'eb' },
+      { id: 'charlie', parentId: LIBRARY_ROOT_ID, path: 'charlie', type: 'folder', entityId: 'ec' },
+      { id: 'delta', parentId: LIBRARY_ROOT_ID, path: 'delta', type: 'folder', entityId: 'ed' },
     ])
   })
 
   it('sortTop pins items to the beginning in order', async () => {
-    mergeSettings('root', { viewSettings: { sortTop: ['charlie', 'delta'] } })
+    mergeSettings(LIBRARY_ROOT_ID, { viewSettings: { sortTop: ['charlie', 'delta'] } })
 
-    const items = expectItems(await getChildren('root', {}))
+    const items = expectItems(await getChildren(LIBRARY_ROOT_ID, {}))
     const ids = items.map(i => i.id)
 
     expect(ids[0]).toBe('charlie')
@@ -1446,9 +1443,9 @@ describe('getChildren — sortTop / sortBottom', () => {
   })
 
   it('sortBottom pins items to the end in order', async () => {
-    mergeSettings('root', { viewSettings: { sortBottom: ['alpha', 'bravo'] } })
+    mergeSettings(LIBRARY_ROOT_ID, { viewSettings: { sortBottom: ['alpha', 'bravo'] } })
 
-    const items = expectItems(await getChildren('root', {}))
+    const items = expectItems(await getChildren(LIBRARY_ROOT_ID, {}))
     const ids = items.map(i => i.id)
 
     expect(ids[ids.length - 2]).toBe('alpha')
@@ -1456,9 +1453,9 @@ describe('getChildren — sortTop / sortBottom', () => {
   })
 
   it('sortTop and sortBottom work together', async () => {
-    mergeSettings('root', { viewSettings: { sortTop: ['delta'], sortBottom: ['alpha'] } })
+    mergeSettings(LIBRARY_ROOT_ID, { viewSettings: { sortTop: ['delta'], sortBottom: ['alpha'] } })
 
-    const items = expectItems(await getChildren('root', {}))
+    const items = expectItems(await getChildren(LIBRARY_ROOT_ID, {}))
     const ids = items.map(i => i.id)
 
     expect(ids[0]).toBe('delta')
@@ -1476,11 +1473,11 @@ describe('getChildren — home folder defaults', () => {
   beforeEach(() => {
     ctx.seedEntities([{ id: 'e1', mediaType: 'movie' }])
     ctx.seedItems([
-      { id: 'root', parentId: null, path: '.', type: 'folder' },
-      { id: 'film1', parentId: 'root', path: 'film1', type: 'folder', entityId: 'e1' },
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'film1', parentId: LIBRARY_ROOT_ID, path: 'film1', type: 'folder', entityId: 'e1' },
     ])
-    ctx.seedFolderSettings([{ itemId: 'root', folderSettings: { retrieveChildrenMetadata: true } }])
-    ensureHomeDefaults('root')
+    ctx.seedFolderSettings([{ itemId: LIBRARY_ROOT_ID, folderSettings: { retrieveChildrenMetadata: true } }])
+    ensureHomeDefaults(LIBRARY_ROOT_ID)
     syncAllGroupings()
   })
 
@@ -1504,7 +1501,7 @@ describe('getChildren — home folder defaults', () => {
 
   it('Genres section shows genre grouping virtual folders', async () => {
     ctx.seedEntities([{ id: 'e2', mediaType: 'movie' }])
-    ctx.seedItems([{ id: 'film2', parentId: 'root', path: 'film2', type: 'folder', entityId: 'e2' }])
+    ctx.seedItems([{ id: 'film2', parentId: LIBRARY_ROOT_ID, path: 'film2', type: 'folder', entityId: 'e2' }])
     ctx.seedGenres('e2', ['Action'])
     syncAllGroupings()
 

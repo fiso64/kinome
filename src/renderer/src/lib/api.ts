@@ -53,7 +53,7 @@ export interface ApiClient {
     tags: { key: string; value: string }[]
     limit?: number
   }): Promise<Record<string, unknown>>
-  getLibraryRoot(path?: string): Promise<LibraryStatus>
+  getLibraryStatus(path?: string): Promise<LibraryStatus>
   listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]>
   saveSource(source: MediaSource): Promise<{ success: boolean }>
   performScan(sourceFolderSettings?: Record<string, Record<string, any>>): Promise<{ success: boolean }>

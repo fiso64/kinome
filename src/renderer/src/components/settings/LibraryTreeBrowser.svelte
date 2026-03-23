@@ -1,6 +1,6 @@
 <script lang="ts">
   import FolderTree from '@components/ui/FolderTree.svelte'
-  import type { LibraryItem } from '@shared/types'
+  import { LIBRARY_ROOT_ID, type LibraryItem } from '@shared/types'
   import { notificationStore } from '@lib/notification-store.svelte'
 
   interface FolderNode {
@@ -35,7 +35,7 @@
   async function loadRoot() {
     isInitializing = true
     try {
-      const rootItem = await window.api.getItem('root', {
+      const rootItem = await window.api.getItem(LIBRARY_ROOT_ID, {
         fields: ['id', 'name', 'title', 'type', 'mediaType', 'retrieveChildrenMetadata', 'childrenTypeHint', 'processTvChildren'],
       })
       if (rootItem) {

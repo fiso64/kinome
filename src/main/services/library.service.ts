@@ -85,7 +85,7 @@ export async function switchToLibrary(newPath: string): Promise<void> {
   log(`Successfully switched library to ${newPath}`)
 }
 
-export const getLibraryRoot = navigationService.getLibraryRoot
+export const getLibraryStatus = navigationService.getLibraryStatus
 
 // Helper to normalize settings: converts absolute key-paths to paths relative to a given source root
 function normalizeFolderSettings(

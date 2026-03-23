@@ -580,8 +580,8 @@ class WebApiClient implements ApiClient {
     })
   }
 
-  getLibraryRoot(path?: string): Promise<LibraryStatus> {
-    const url = path ? `/api/library-root?path=${encodeURIComponent(path)}` : '/api/library-root'
+  getLibraryStatus(path?: string): Promise<LibraryStatus> {
+    const url = path ? `/api/library-status?path=${encodeURIComponent(path)}` : '/api/library-status'
     return this.request(url)
   }
 

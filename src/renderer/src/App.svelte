@@ -25,6 +25,7 @@
   import SetupScreen from '@components/layout/SetupScreen.svelte'
   import { onMount } from 'svelte'
   import { QueryClientProvider } from '@tanstack/svelte-query'
+  import { LIBRARY_ROOT_ID } from '@shared/types'
   import type {
     Settings,
     MediaFolder,
@@ -51,7 +52,6 @@
   let isScanning = $derived(isFastUpdating)
   let libraryStatus = $state<LibraryStatus | null>(null)
   let isWaitingForScan = $state(false)
-  let rootId = $state<string | null>(null)
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
     mediaType: [],
     genre: [],
@@ -141,21 +141,12 @@
 
       navStore.init()
 
-      // 1. Fetch library root first
-      const rootPromise = api.getLibraryRoot().then((status) => {
-        libraryStatus = status
-        if (status.root) {
-          rootId = status.root.id
-          libraryDataService.rootId = rootId
-        }
-        return status
-      })
-
-      // 2. Fetch settings (needed for layout defaults before rendering content)
+      // 1. Fetch library status and settings in parallel
+      const statusPromise = api.getLibraryStatus().then((s) => (libraryStatus = s))
       const settingsPromise = api.getSettings().then((s) => (settings = s))
 
-      // 3. Lift the loading veil as soon as the critical path is done
-      Promise.allSettled([rootPromise, settingsPromise]).then(() => {
+      // 2. Lift the loading veil as soon as both are done
+      Promise.allSettled([statusPromise, settingsPromise]).then(() => {
         isInitializing = false
         log(`Initialization complete. Status: ${libraryStatus?.status}`)
       })
@@ -183,12 +174,7 @@
 
   async function refreshLibraryStatus() {
     log('Refreshing library status...')
-    const status = await api.getLibraryRoot()
-    libraryStatus = status
-    if (status.root) {
-      rootId = status.root.id
-      libraryDataService.rootId = rootId
-    }
+    libraryStatus = await api.getLibraryStatus()
 
     // Force WebSocket reconnection attempt to ensure we receive scan events
     // This is critical after SetupScreen where the connection might be stale or not established
@@ -198,7 +184,7 @@
     }
 
     // Also refresh other state if library is now ready
-    if (status.status === 'ready') {
+    if (libraryStatus.status === 'ready') {
       Promise.allSettled([
         api.getAutocompleteSuggestions({ excludeHidden: true }).then((s) => (allAutocompleteSuggestions = s)),
         api.getGroupByKeys().then((keys) => (groupByKeys = keys)),
@@ -261,7 +247,7 @@
   // Force Home Navigation if Setup is required
   $effect(() => {
     if (authStore.isAuthenticated && !isInitializing) {
-      const needsSetup = !settings?.libraryLocation || libraryStatus?.status !== 'ready'
+      const needsSetup = libraryStatus?.status !== 'ready'
       if (needsSetup) {
         if (navStore.canGoBack) {
           log('Setup required: Forcing navigation to home.')
@@ -333,7 +319,7 @@
       initialTab: 'metadata' | 'view' | 'folder' | 'virtualFolder' = 'metadata'
     ) => {
       const id = itemOrId || navStore.contextItemId
-      if (!id || id === 'root') return
+      if (!id || id === LIBRARY_ROOT_ID) return
 
       const parentItem = contextMenuStore.parentItem
 
@@ -390,7 +376,7 @@
 
     markUnwatched: async (itemOrId?: LibraryItem | string) => {
       const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id || navStore.contextItemId
-      if (!id || id === 'root' || id === 'home') return
+      if (!id || id === LIBRARY_ROOT_ID || id === 'home') return
 
       api.markAsUnwatched(id).catch((err: any) => {
         notificationStore.add(err.message || 'Failed to mark as unwatched.', 'error')
@@ -752,7 +738,7 @@
     {/if}
 
     <main>
-      {#if !settings?.libraryLocation || libraryStatus?.status !== 'ready'}
+      {#if libraryStatus?.status !== 'ready'}
         <SetupScreen onStatusUpdate={refreshLibraryStatus} />
       {:else}
         <AppHeader

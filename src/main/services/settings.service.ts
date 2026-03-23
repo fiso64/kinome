@@ -9,7 +9,7 @@ import type {
   LibrarySettings,
   GlobalConfig
 } from '@shared/types'
-import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '@shared/types'
+import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
 import {
   getLibraryDataPath,
   isRemoteLibrary,
@@ -115,7 +115,7 @@ export async function checkLibraryExists(libraryPath: string): Promise<{
       // Check if it's a valid DB with a root
       const db = new Database(dbFileUrl, { readonly: true })
       try {
-        const row = db.query(`SELECT 1 FROM items WHERE id = 'virtual-library-root' LIMIT 1`).get()
+        const row = db.query(`SELECT 1 FROM items WHERE id = '${LIBRARY_ROOT_ID}' LIMIT 1`).get()
         dbExists = !!row
       } finally {
         db.close()
