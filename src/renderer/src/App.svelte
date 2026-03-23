@@ -158,6 +158,7 @@
       log('User logged out. Resetting initialization state.')
       hasInitialized = false
       isInitializing = true
+      queryClient.clear()
     }
   })
 
@@ -697,7 +698,7 @@
   async function handleShowContextMenu(
     item: LibraryItem | SearchIndexEntry,
     event: MouseEvent,
-    options?: { layout?: string; parentItem?: LibraryItem }
+    options?: { layout?: string; parentItem?: LibraryItem; showLogout?: boolean }
   ) {
     contextMenuStore.open(item, event, options)
   }
@@ -749,7 +750,7 @@
           on:refresh={handleRefresh}
           on:openSettings={() => navStore.navigateToSettings()}
           on:openLayoutSelector={openLayoutSelector}
-          on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event)}
+          on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
           on:globalSearchItemClick={(e) => handleItemClick(e.detail.item, 'global')}
           on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}
           {settings}

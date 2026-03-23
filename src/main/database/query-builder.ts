@@ -531,6 +531,18 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
     }
 
+    // Account visibility filter: pre-materialized visible item set.
+    // Virtual items (is_virtual=1) always bypass the filter.
+    // Accounts without a filter rule see everything (NOT EXISTS branch).
+    if (userId) {
+        query += ` LEFT JOIN account_visible_items avi ON avi.account_id = ? AND avi.item_id = i.id`
+        joinParams.push(userId)
+        conditions.push(
+            `(i.is_virtual = 1 OR avi.item_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = ?))`
+        )
+        params.push(userId)
+    }
+
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(' AND ')}`
     }

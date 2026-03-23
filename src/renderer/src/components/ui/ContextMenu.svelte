@@ -32,7 +32,8 @@
     onHideItem,
     onDeleteItemFromDb,
     onAssignSeasons,
-    onCreateVirtualFolder
+    onCreateVirtualFolder,
+    onLogout
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -54,6 +55,7 @@
     onDeleteItemFromDb: () => void
     onAssignSeasons: () => void
     onCreateVirtualFolder: () => void
+    onLogout?: () => void
   } = $props()
 
   const caps = $derived(itemCapabilities(item))
@@ -324,6 +326,16 @@
   onmousedown={(e) => e.stopPropagation()}
   oncontextmenu={(e) => e.stopPropagation()}
 >
+  {#if onLogout}
+    <button
+      class="context-menu-item"
+      onclick={() => { onLogout!(); onClose() }}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span>Log Out</span>
+    </button>
+    <div class="separator"></div>
+  {/if}
   {#if caps.canPlay && availablePlayers.length > 0}
     <div
       class="submenu-container"

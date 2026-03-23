@@ -24,6 +24,8 @@
 import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem } from '../database/mappers'
 import { buildFindQuery, type FindOptions } from '../database/query-builder'
+import { ensureUpToDate } from './account-filter.service'
+import { getCurrentAccountId } from '../request-context'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import {
   ENTITY_COLUMNS_SQL,
@@ -244,7 +246,9 @@ export function getAncestors(itemId: string): LibraryItem[] {
 }
 
 export function find(options: FindOptions = {}): LibraryItem[] {
-  const { query, params } = buildFindQuery(options)
+  const userId = options.userId ?? getCurrentAccountId()
+  if (userId) ensureUpToDate(userId)
+  const { query, params } = buildFindQuery({ ...options, userId })
   const rows = itemsRepo.rawFind(query, params)
   return rows.map(mapRowToLibraryItem)
 }

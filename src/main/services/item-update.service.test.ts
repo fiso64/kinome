@@ -10,6 +10,9 @@ import { createServiceTestContext, type ServiceTestContext } from '../database/t
 import { updateIfChangedAndBroadcast, isItemDataSame } from './item-update.service'
 import { applyGrouping } from './grouping.service'
 import { getItemById, find } from './repository.service'
+import { createAccount } from '../database/repositories/account.repo'
+import { setFilterRule } from '../database/repositories/account-filter.repo'
+import { rebuildForAccount } from './account-filter.service'
 import type { LibraryItem, Settings } from '@shared/types'
 
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
@@ -202,6 +205,47 @@ describe('updateIfChangedAndBroadcast', () => {
     // The custom title must survive — syncAllGroupings should not overwrite it
     const afterUpdate = getItemById(animationFolder!.id)
     expect(afterUpdate?.title).toBe('Animated Films')
+  })
+})
+
+describe('account filter visibility after item update', () => {
+  let ctx: ServiceTestContext
+
+  beforeEach(() => {
+    ctx = createServiceTestContext()
+  })
+
+  afterEach(() => {
+    ctx.cleanup()
+  })
+
+  it('rebuilds account filter visibility when item tags change via updateIfChangedAndBroadcast', async () => {
+    createAccount('acc-filtered', 'filtered', 'x', 'normal')
+    ctx.seedEntities([{ id: 'e1', mediaType: 'movie', title: 'Movie 1' }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'movie1', parentId: 'root', type: 'file', entityId: 'e1' }
+    ])
+
+    setFilterRule('acc-filtered', 'allow', {
+      conditionGroups: [[{ field: 'tags.user', op: 'eq', value: 'true' }]]
+    })
+    rebuildForAccount('acc-filtered') // initial build: no items tagged → nothing visible
+
+    const before = ctx.db
+      .prepare('SELECT item_id FROM account_visible_items WHERE account_id = ?')
+      .all('acc-filtered')
+    expect(before).toHaveLength(0)
+
+    // Admin adds matching tag to item — goes through the normal update pipeline
+    await updateIfChangedAndBroadcast(
+      { id: 'movie1', tags: { user: 'true' } } as unknown as LibraryItem,
+      { settings: DEFAULT_SETTINGS }
+    )
+
+    // Visibility is rebuilt lazily on the next find() call with userId (simulating a user request)
+    const items = find({ where: { parentId: 'root' }, userId: 'acc-filtered' })
+    expect(items.map((i) => i.id)).toContain('movie1')
   })
 })
 

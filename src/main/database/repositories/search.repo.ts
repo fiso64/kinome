@@ -54,6 +54,22 @@ const SEARCH_SELECT = `
     u.watched`
 
 /**
+ * Appends the account visibility filter to a search SQL query.
+ * Virtual items bypass the filter; accounts without a rule see everything.
+ */
+function appendVisibilityFilter(sql: string, params: Record<string, any>, userId?: string): string {
+    if (!userId) return sql
+    params['@visUserId'] = userId
+    params['@visRuleUserId'] = userId
+    return (
+        sql +
+        ` AND (i.is_virtual = 1
+      OR EXISTS (SELECT 1 FROM account_visible_items WHERE account_id = @visUserId AND item_id = i.id)
+      OR NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = @visRuleUserId))`
+    )
+}
+
+/**
  * Appends tag filter conditions to a search SQL query.
  * Shared by all search functions to avoid duplication.
  */
@@ -105,7 +121,8 @@ function appendTagFilters(
 export function findByShortQuery(
     normalized: string,
     tags: { key: string; value: string }[],
-    limit: number
+    limit: number,
+    userId?: string
 ): any[] {
     const db = getDb()
     const likeQuery = `%${normalized}%`
@@ -129,15 +146,16 @@ export function findByShortQuery(
         `
 
     sql = appendTagFilters(sql, params, tags)
+    sql = appendVisibilityFilter(sql, params, userId)
 
-    sql += ` ORDER BY 
+    sql += ` ORDER BY
           CASE WHEN e.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
-          CASE 
-            WHEN lower(coalesce(e.title, '')) LIKE @startQuery THEN 1 
-            WHEN lower(coalesce(e.title, '')) LIKE @likeQuery THEN 2 
-            WHEN lower(i.name) LIKE @startQuery THEN 3 
-            ELSE 4 
-          END ASC, 
+          CASE
+            WHEN lower(coalesce(e.title, '')) LIKE @startQuery THEN 1
+            WHEN lower(coalesce(e.title, '')) LIKE @likeQuery THEN 2
+            WHEN lower(i.name) LIKE @startQuery THEN 3
+            ELSE 4
+          END ASC,
           e.title ASC, i.name ASC LIMIT @limit`
 
     return db.prepare(sql).all(params) as any[]
@@ -149,7 +167,8 @@ export function findByShortQuery(
 export function findByFtsQuery(
     matchQuery: string,
     tags: { key: string; value: string }[],
-    limit: number
+    limit: number,
+    userId?: string
 ): any[] {
     const db = getDb()
     const params: any = { '@limit': limit }
@@ -169,6 +188,7 @@ export function findByFtsQuery(
     params['@matchQuery'] = matchQuery
 
     sql = appendTagFilters(sql, params, tags)
+    sql = appendVisibilityFilter(sql, params, userId)
 
     sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
@@ -180,7 +200,8 @@ export function findByFtsQuery(
  */
 export function findByTagsOnly(
     tags: { key: string; value: string }[],
-    limit: number
+    limit: number,
+    userId?: string
 ): any[] {
     const db = getDb()
     const params: any = { '@limit': limit }
@@ -197,6 +218,7 @@ export function findByTagsOnly(
     `
 
     sql = appendTagFilters(sql, params, tags)
+    sql = appendVisibilityFilter(sql, params, userId)
 
     sql += ` ORDER BY e.title ASC, i.name ASC LIMIT @limit`
 

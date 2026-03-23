@@ -1,6 +1,7 @@
 <script lang="ts">
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
+  import { authStore } from '@lib/auth-store.svelte'
   import type { LibraryItem, Settings } from '@shared/types'
 
   let { settings, actions, onItemClick } = $props<{
@@ -13,6 +14,7 @@
   const isVisible = $derived(contextMenuStore.isVisible)
   const position = $derived(contextMenuStore.position)
   const layout = $derived(contextMenuStore.layout)
+  const showLogout = $derived(contextMenuStore.showLogout)
 </script>
 
 {#if item && isVisible}
@@ -37,5 +39,6 @@
     onAssignSeasons={() => actions.assignSeasons(item)}
     onDeleteItemFromDb={() => actions.deleteFromDb(item)}
     onCreateVirtualFolder={() => actions.createVirtualFolder(item)}
+    onLogout={showLogout ? () => authStore.logout() : undefined}
   />
 {/if}

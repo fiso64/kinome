@@ -167,6 +167,28 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at INTEGER NOT NULL
 );
 
+-- Account-level library filter rules (one row per restricted account)
+CREATE TABLE IF NOT EXISTS account_filter_rules (
+    account_id  TEXT PRIMARY KEY,
+    mode        TEXT NOT NULL CHECK(mode IN ('allow', 'deny')),
+    filter_json TEXT NOT NULL,
+    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+
+-- Pre-materialized per-account visible item set.
+-- Only populated for accounts that have a filter rule.
+-- Accounts with no rule see everything.
+CREATE TABLE IF NOT EXISTS account_visible_items (
+    account_id TEXT NOT NULL,
+    item_id    TEXT NOT NULL,
+    PRIMARY KEY (account_id, item_id),
+    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY(item_id)    REFERENCES items(id)    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_visible_items_account
+    ON account_visible_items(account_id);
+
 
 -- User State (Watched status, etc.)
 CREATE TABLE IF NOT EXISTS user_state (

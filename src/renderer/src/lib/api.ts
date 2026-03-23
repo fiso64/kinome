@@ -127,6 +127,9 @@ export interface ApiClient {
   updateAccountRole(accountId: string, role: import('@shared/types').AccountRole): Promise<void>
   updateAccountPassword(accountId: string, password: string): Promise<void>
   deleteAccount(accountId: string): Promise<void>
+  getAccountFilter(accountId: string): Promise<{ rule: import('@shared/types').AccountFilterRule | null }>
+  setAccountFilter(accountId: string, mode: 'allow' | 'deny', filter: import('@shared/types').LibraryFilter): Promise<void>
+  deleteAccountFilter(accountId: string): Promise<void>
   userUpdateItem(item: Partial<LibraryItem>): Promise<void>
   setGrouping(folderId: string, groupByKey: string | null): Promise<void>
   resolveMediaSourcePath(args: {

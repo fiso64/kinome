@@ -611,6 +611,21 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/accounts/${accountId}`, { method: 'DELETE' })
   }
 
+  getAccountFilter(accountId: string): Promise<{ rule: import('@shared/types').AccountFilterRule | null }> {
+    return this.request(`/api/accounts/${accountId}/filter`)
+  }
+
+  setAccountFilter(accountId: string, mode: 'allow' | 'deny', filter: import('@shared/types').LibraryFilter): Promise<void> {
+    return this.request(`/api/accounts/${accountId}/filter`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode, filter })
+    })
+  }
+
+  deleteAccountFilter(accountId: string): Promise<void> {
+    return this.request(`/api/accounts/${accountId}/filter`, { method: 'DELETE' })
+  }
+
   getLibraryStatus(path?: string): Promise<LibraryStatus> {
     const url = path ? `/api/library-status?path=${encodeURIComponent(path)}` : '/api/library-status'
     return this.request(url)

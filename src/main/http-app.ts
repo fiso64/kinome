@@ -21,6 +21,9 @@ import * as virtualFoldersService from './services/virtualFolders.service'
 import * as playbackService from './services/playback.service'
 import * as handlerService from './services/handler.service'
 import * as accountRepo from './database/repositories/account.repo'
+import * as accountFilterRepo from './database/repositories/account-filter.repo'
+import * as accountFilterService from './services/account-filter.service'
+import { setCurrentAccountId } from './request-context'
 import { getTransport } from './transport.registry'
 
 // --- Security Middleware & Constants ---
@@ -134,9 +137,13 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
 
-/** Throws if the session lacks the given capability. Results in 403. */
-function requireCap(session: any, cap: string) {
-  if (!session?.capabilities?.has(cap)) throw new ForbiddenError()
+/** Returns a guard config that enforces a single capability on a route group. */
+function guardCap(cap: string) {
+  return {
+    beforeHandle: (ctx: any) => {
+      if (!ctx.session?.capabilities?.has(cap)) throw new ForbiddenError()
+    }
+  }
 }
 
 export function buildApp() {
@@ -212,7 +219,10 @@ export function buildApp() {
 
         if (token) {
           const session = authService.validateToken(token)
-          if (session) return { session }
+          if (session) {
+            setCurrentAccountId(session.accountId)
+            return { session }
+          }
         }
 
         // Deny-by-Default
@@ -249,6 +259,7 @@ export function buildApp() {
     // API Routes
     .group('/api', (app) =>
       app
+        // ── Public / no capability required ────────────────────────────────────
         .get('/users', () =>
           accountRepo.getAllAccounts().map((a) => ({ id: a.id, username: a.username }))
         )
@@ -315,40 +326,11 @@ export function buildApp() {
           await authService.updatePassword(session.accountId, password)
           return { success: true }
         })
-        .get('/accounts', ({ session }: { session: any }) => {
-          requireCap(session, 'manageAccounts')
-          return authService.getAllAccounts()
-        })
-        .post('/accounts', async ({ body, session, set }: { body: any; session: any; set: any }) => {
-          requireCap(session, 'manageAccounts')
-          const { username, password, role } = body
-          if (!username || !password || !role) {
-            set.status = 400
-            return { error: 'username, password, and role are required' }
-          }
-          try {
-            return await authService.createAccount(username, password, role)
-          } catch (err: any) {
-            set.status = 409
-            return { error: err.message }
-          }
-        })
-        .put('/accounts/:id/role', ({ params, body, session, set }: { params: any; body: any; session: any; set: any }) => {
-          requireCap(session, 'manageAccounts')
-          const { role } = body as any
-          if (!role) {
-            set.status = 400
-            return { error: 'role is required' }
-          }
-          authService.updateAccountRole(params.id, role)
-          return { success: true }
-        })
+        // Business-rule auth: self OR admin — not a simple capability guard
         .post('/accounts/:id/password', async ({ params, body, session, set }: { params: any; body: any; session: any; set: any }) => {
           const isSelf = session?.accountId === params.id
           const isAdmin = session?.capabilities?.has('manageAccounts')
-          if (!isSelf && !isAdmin) {
-            throw new ForbiddenError()
-          }
+          if (!isSelf && !isAdmin) throw new ForbiddenError()
           const { password } = body as any
           if (!password) {
             set.status = 400
@@ -357,32 +339,18 @@ export function buildApp() {
           await authService.updatePassword(params.id, password)
           return { success: true }
         })
-        .delete('/accounts/:id', ({ params, session, set }: { params: any; session: any; set: any }) => {
-          requireCap(session, 'manageAccounts')
-          if (params.id === session.accountId) {
-            set.status = 400
-            return { error: 'Cannot delete your own account' }
-          }
-          authService.deleteAccount(params.id)
-          return { success: true }
-        })
         .post('/start-handler-test', ({ body }: { body: any }) => {
           const { sessionId } = body
-          if (!sessionId) {
-            return { error: 'sessionId required' }
-          }
+          if (!sessionId) return { error: 'sessionId required' }
           handlerService.startHandlerTest(sessionId)
           return { success: true }
         })
         .get('/handler-test/:sessionId', ({ params, set }) => {
-          const { sessionId } = params
-
-          if (!handlerService.confirmHandlerTest(sessionId)) {
+          if (!handlerService.confirmHandlerTest(params.sessionId)) {
             set.status = 404
             return { error: 'Session not found or expired' }
           }
-
-          getTransport().notifyHandlerTestSuccess(sessionId)
+          getTransport().notifyHandlerTestSuccess(params.sessionId)
           return { success: true }
         })
         /**
@@ -392,17 +360,12 @@ export function buildApp() {
          *    it should live in the service/navigation layer.
          * 3. Schema validation (TypeBox) is missing on most endpoints, leading to `any` usage.
          */
-        // --- Unified Items API ---
-        .get('/items', ({ query, session }: { query: any; session: any }) => {
-          const options = parseFindOptions(query)
-          options.userId = session?.accountId
-          return repositoryService.find(options)
+        // --- Unified Items API (read) ---
+        .get('/items', ({ query }: { query: any }) => {
+          return repositoryService.find(parseFindOptions(query))
         })
-        .get('/items/:id', async ({ params: { id: rawId }, query, set, session }: { params: { id: string }; query: any; set: any; session: any }) => {
-          let id = rawId
-          if (id === 'home') {
-            id = repositoryService.getHomeFolderId()
-          }
+        .get('/items/:id', async ({ params: { id: rawId }, query, set }: { params: { id: string }; query: any; set: any }) => {
+          const id = rawId === 'home' ? repositoryService.getHomeFolderId() : rawId
 
           const options = parseFindOptions(query)
           options.where = { ...options.where, id }
@@ -417,7 +380,6 @@ export function buildApp() {
            * To fix this, the frontend MUST be updated to explicitly request the fields it needs
            * (via `view-requirements.ts`) before this fallback can be safely removed.
            */
-          // Default field fallback
           if (!query.fields) {
             options.fields = [
               ...repositoryService.CORE_FIELDS,
@@ -433,37 +395,25 @@ export function buildApp() {
             ]
           }
 
-          options.userId = session?.accountId
           const items = repositoryService.find(options)
           if (items.length === 0) {
             set.status = 404
             return { error: 'Item not found' }
-          } else {
-            const item = items[0]
-
-            // Handle side-channel view hierarchy request
-            const include = query.include ? (query.include as string).split(',') : []
-            if (include.includes('viewHierarchy')) {
-              const hierarchy = await navigationService.resolveViewHierarchy(item.id)
-              if (hierarchy) {
-                item.viewHierarchy = hierarchy
-              }
-            }
-
-            return item
           }
+
+          const item = items[0]
+          const include = query.include ? (query.include as string).split(',') : []
+          if (include.includes('viewHierarchy')) {
+            const hierarchy = await navigationService.resolveViewHierarchy(item.id)
+            if (hierarchy) item.viewHierarchy = hierarchy
+          }
+          return item
         })
         .get(
           '/items/:id/children',
-          async ({ params: { id }, query, set, session }: { params: { id: string }; query: any; set: any; session: any }) => {
-            const options = parseFindOptions(query)
-            options.userId = session?.accountId
-            const result = await navigationService.getChildren(id, options)
-
-            if ('error' in result) {
-              set.status = 404
-            }
-
+          async ({ params: { id }, query, set }: { params: { id: string }; query: any; set: any }) => {
+            const result = await navigationService.getChildren(id, parseFindOptions(query))
+            if ('error' in result) set.status = 404
             return result
           },
           {
@@ -480,42 +430,12 @@ export function buildApp() {
             })
           }
         )
-        .get('/items/:id/ancestors', async ({ params: { id: rawId } }) => {
-          let id = rawId
-          if (id === 'home') {
-            id = repositoryService.getHomeFolderId()
-          }
-
-          const ancestors = repositoryService.getAncestors(id)
-          return ancestors.filter((a) => a.id !== id)
+        .get('/items/:id/ancestors', ({ params: { id: rawId } }: { params: { id: string } }) => {
+          const id = rawId === 'home' ? repositoryService.getHomeFolderId() : rawId
+          return repositoryService.getAncestors(id).filter((a) => a.id !== id)
         })
         .get('/items/:id/credits', ({ params }) => libraryService.getItemCredits(params.id))
-        .post('/items/:id/grouping', ({ params: { id }, body, session }: { params: { id: string }; body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          const { groupByKey } = body as { groupByKey: string | null }
-          if (groupByKey) {
-            groupingService.applyGrouping(id, groupByKey)
-          } else {
-            groupingService.removeGrouping(id)
-          }
-          return { success: true }
-        })
-        .post('/items/:id/virtual-folders', ({ params: { id: parentId }, body, session }: { params: { id: string }; body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          const { name, filter } = body as { name: string; filter?: any }
-          const newId = virtualFoldersService.createUserVirtualFolder(parentId, name, filter)
-          return { id: newId }
-        })
-        .patch('/items', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          if (body.id === 'home') {
-            body.id = repositoryService.getHomeFolderId()
-          }
-          await libraryService.updateItem(body, true)
-          return { success: true }
-        })
-        // --- End Items API ---
-        // Library Endpoints
+        // --- End Items API (read) ---
         .post('/perform-search', ({ body }: { body: any }) => libraryService.performSearch(body))
         .get('/hidden-children/:id', ({ params }) => libraryService.getHiddenChildren(params.id))
         .get('/parent/:id', ({ params }) => libraryService.getParent(params.id))
@@ -535,28 +455,6 @@ export function buildApp() {
             )
         )
         .get('/group-by-keys', () => libraryService.getGroupByKeys())
-        .post('/apply-initial-folder-settings', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'triggerLibraryScan')
-          await libraryService.applyInitialFolderSettings(body.settings)
-          return { success: true }
-        })
-        .get('/list-directory', async ({ query, set, session }: { query: any; set: any; session: any }) => {
-          requireCap(session, 'editSettings')
-          const { path } = query
-          if (!path || typeof path !== 'string') {
-            set.status = 400
-            return { error: 'Path is required' }
-          }
-          return listDirectoryService.listDirectory(path)
-        })
-        .post('/save-source', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editSettings')
-          return libraryService.saveSource(body.source)
-        })
-        .post('/perform-scan', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'triggerLibraryScan')
-          return libraryService.performScan(body.sourceFolderSettings)
-        })
         .post('/play-file', ({ body }: { body: any }) =>
           libraryService.playFile(body.file, (opt) => console.log(opt))
         )
@@ -565,55 +463,6 @@ export function buildApp() {
         )
         .post('/record-playback', async ({ body, session }: { body: any; session: any }) => {
           await libraryService.recordPlayback(body.itemId, session.accountId)
-          return { success: true }
-        })
-        .post('/assign-seasons-and-episodes', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = body
-          await libraryService.assignSeasonsAndEpisodes(showId, seasonStrategy, episodeStrategy, fetchMetadata)
-          return { success: true }
-        })
-        .post('/clear-item-metadata', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.clearItemMetadata(body.itemId, body.childrenOnly)
-        })
-        .post('/clear-virtual-folder-metadata', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.clearVirtualFolderMetadata(body.itemIds)
-        })
-        .post('/fetch-credits', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          await libraryService.fetchCredits(body.itemId)
-          return { success: true }
-        })
-        .post('/manual-search', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.manualSearch(body.query, body.type, body.year, body.tmdbId)
-        })
-        .post('/get-tmdb-images', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.getTmdbImages(body.tmdbId, body.mediaType, body.language)
-        })
-        .post('/user-apply-tmdb-result', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
-          return { success: true }
-        })
-        .post('/user-set-image', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          await libraryService.setImage(body.itemId, body.imageType, body.source)
-          return { success: true }
-        })
-        .post('/remove-image', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          await libraryService.removeImage(body.itemId, body.imageType)
-          return { success: true }
-        })
-        .post('/upload-image', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          const { itemId, imageType, file } = body as { itemId: string; imageType: string; file: File }
-          if (!file) throw new Error('No file uploaded')
-          await libraryService.uploadImage(itemId, imageType as any, file)
           return { success: true }
         })
         .post('/mark-watched', async ({ body, session }: { body: any; session: any }) => {
@@ -642,129 +491,220 @@ export function buildApp() {
           await libraryService.setNextUpDismissed(body.itemId, session.accountId)
           return { success: true }
         })
-        .post('/reveal-in-explorer', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editSettings')
-          await libraryService.revealInExplorer(body.path)
-          return { success: true }
-        })
-        .post('/trash-item', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.trashItem(body.itemId)
-        })
-        .post('/delete-item-from-db', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.deleteItemFromDb(body.itemId)
-        })
-        .post('/rename-item', ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          return libraryService.renameItem(body.itemId, body.newName)
-        })
-        .get('/item-properties/:itemId', async ({ params }) => {
-          return libraryService.getItemProperties(params.itemId)
-        })
+        .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
         .get('/stream/:id', async ({ params, query, set, request, session }: any) => {
           if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
             const userId = session.accountId
             playbackService.recordPlaybackDebounced(params.id, (id: string) => libraryService.recordPlayback(id, userId))
           }
-
-          const rangeHeader = request.headers.get('range')
-          const response = await playbackService.handleCachedStream(params.id, rangeHeader)
-
-          if (!response) {
-            set.status = 404
-            return 'File not found'
-          }
-
+          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
+          if (!response) { set.status = 404; return 'File not found' }
           return response
-        })
-        .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
-          const item = (await libraryService.getItemById(params.id)) as any
-          if (!item || !item.path) {
-            set.status = 404
-            return 'File not found'
-          }
-          const filePath = await libraryService.getAbsolutePathForItem(params.id)
-          if (!filePath || !fs.existsSync(filePath)) {
-            set.status = 404
-            return 'File not found'
-          }
-          const fileName = path.basename(filePath)
-          return new Response(Bun.file(filePath), {
-            headers: {
-              'Content-Disposition': `attachment; filename="${fileName}"`,
-              'Content-Type': 'application/octet-stream'
-            }
-          })
         })
         .get('/stream/:id/:filename', async ({ params, query, set, request, session }: any) => {
           if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
             const userId = session.accountId
             playbackService.recordPlaybackDebounced(params.id, (id: string) => libraryService.recordPlayback(id, userId))
           }
-
-          const rangeHeader = request.headers.get('range')
-          const response = await playbackService.handleCachedStream(params.id, rangeHeader)
-
-          if (!response) {
-            set.status = 404
-            return 'File not found'
-          }
-
+          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
+          if (!response) { set.status = 404; return 'File not found' }
           return response
+        })
+        .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
+          const item = (await libraryService.getItemById(params.id)) as any
+          if (!item?.path) { set.status = 404; return 'File not found' }
+          const filePath = await libraryService.getAbsolutePathForItem(params.id)
+          if (!filePath || !fs.existsSync(filePath)) { set.status = 404; return 'File not found' }
+          return new Response(Bun.file(filePath), {
+            headers: {
+              'Content-Disposition': `attachment; filename="${path.basename(filePath)}"`,
+              'Content-Type': 'application/octet-stream'
+            }
+          })
         })
         .get('/playlist/:id', async ({ params, query, request, set }) => {
           const url = new URL(request.url)
           const m3uContent = await playbackService.generateM3UPlaylist(
-            params.id,
-            url.host,
-            url.protocol,
-            query.token as string | undefined
+            params.id, url.host, url.protocol, query.token as string | undefined
           )
-          if (!m3uContent) {
-            set.status = 404
-            return 'Item not found'
-          }
+          if (!m3uContent) { set.status = 404; return 'Item not found' }
           set.headers['Content-Type'] = 'audio/x-mpegurl'
           return m3uContent
         })
-        .post('/resolve-media-source-path', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editSettings')
-          return await settingsService.resolveMediaSourcePath(
-            body.path,
-            body.isRelative,
-            body.libraryLocation
-          )
-        })
-        .post('/execute-custom-action', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editMetadata')
-          await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) =>
-            console.log(opt)
-          )
-          return { success: true }
-        })
         .get('/settings', async () => settingsService.sanitizeForClient(await settingsService.readSettings()))
-        .post('/save-settings', async ({ body, session }: { body: any; session: any }) => {
-          requireCap(session, 'editSettings')
-          const oldSettings = await settingsService.readSettings()
-          await settingsService.saveSettingsChanges(body)
-
-          playbackService.clearStreamCache()
-
-          if (body.virtualTags) {
-            libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
-          }
-
-          if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
-            await libraryService.switchToLibrary(body.libraryLocation)
-            getTransport().forceRendererReload()
-          }
-
-          const sanitized = settingsService.sanitizeForClient(await settingsService.readSettings())
-          getTransport().notifySettingsUpdated(sanitized as any)
-          return sanitized
-        })
         .get('/library-status', ({ query }) => navigationService.getLibraryStatus(query.path as string))
+
+        // ── manageAccounts ──────────────────────────────────────────────────────
+        .guard(guardCap('manageAccounts'), (app) =>
+          app
+            .get('/accounts', () => authService.getAllAccounts())
+            .post('/accounts', async ({ body, set }: { body: any; set: any }) => {
+              const { username, password, role } = body
+              if (!username || !password || !role) {
+                set.status = 400
+                return { error: 'username, password, and role are required' }
+              }
+              try {
+                return await authService.createAccount(username, password, role)
+              } catch (err: any) {
+                set.status = 409
+                return { error: err.message }
+              }
+            })
+            .put('/accounts/:id/role', ({ params, body, set }: { params: any; body: any; set: any }) => {
+              const { role } = body as any
+              if (!role) { set.status = 400; return { error: 'role is required' } }
+              authService.updateAccountRole(params.id, role)
+              // Admins cannot be filtered — remove any existing filter rule on promotion
+              if (role === 'admin') {
+                accountFilterRepo.deleteFilterRule(params.id)
+                accountFilterRepo.replaceVisibleItems(params.id, [])
+              }
+              return { success: true }
+            })
+            .delete('/accounts/:id', ({ params, session, set }: { params: any; session: any; set: any }) => {
+              if (params.id === session.accountId) {
+                set.status = 400
+                return { error: 'Cannot delete your own account' }
+              }
+              authService.deleteAccount(params.id)
+              return { success: true }
+            })
+            .get('/accounts/:id/filter', ({ params }: { params: any }) => ({
+              rule: accountFilterRepo.getFilterRule(params.id)
+            }))
+            .put('/accounts/:id/filter', ({ params, body, set }: { params: any; body: any; set: any }) => {
+              const target = accountRepo.getAccountById(params.id)
+              if (!target) { set.status = 404; return { error: 'Account not found' } }
+              if (target.role === 'admin') { set.status = 400; return { error: 'Cannot apply a filter to an admin account' } }
+              const { mode, filter } = body as any
+              if (mode !== 'allow' && mode !== 'deny') { set.status = 400; return { error: 'mode must be "allow" or "deny"' } }
+              if (!filter) { set.status = 400; return { error: 'filter is required' } }
+              accountFilterRepo.setFilterRule(params.id, mode, filter)
+              accountFilterService.rebuildForAccount(params.id)
+              return { success: true }
+            })
+            .delete('/accounts/:id/filter', ({ params }: { params: any }) => {
+              accountFilterRepo.deleteFilterRule(params.id)
+              accountFilterRepo.replaceVisibleItems(params.id, [])
+              return { success: true }
+            })
+            .post('/accounts/:id/filter/rebuild', ({ params }: { params: any }) => {
+              accountFilterService.rebuildForAccount(params.id)
+              return { success: true }
+            })
+        )
+
+        // ── editMetadata ────────────────────────────────────────────────────────
+        .guard(guardCap('editMetadata'), (app) =>
+          app
+            .post('/items/:id/grouping', ({ params: { id }, body }: { params: { id: string }; body: any }) => {
+              const { groupByKey } = body as { groupByKey: string | null }
+              if (groupByKey) groupingService.applyGrouping(id, groupByKey)
+              else groupingService.removeGrouping(id)
+              return { success: true }
+            })
+            .post('/items/:id/virtual-folders', ({ params: { id: parentId }, body }: { params: { id: string }; body: any }) => {
+              const { name, filter } = body as { name: string; filter?: any }
+              return { id: virtualFoldersService.createUserVirtualFolder(parentId, name, filter) }
+            })
+            .patch('/items', async ({ body }: { body: any }) => {
+              if (body.id === 'home') body.id = repositoryService.getHomeFolderId()
+              await libraryService.updateItem(body, true)
+              return { success: true }
+            })
+            .post('/assign-seasons-and-episodes', async ({ body }: { body: any }) => {
+              const { showId, seasonStrategy, episodeStrategy, fetchMetadata } = body
+              await libraryService.assignSeasonsAndEpisodes(showId, seasonStrategy, episodeStrategy, fetchMetadata)
+              return { success: true }
+            })
+            .post('/clear-item-metadata', ({ body }: { body: any }) =>
+              libraryService.clearItemMetadata(body.itemId, body.childrenOnly)
+            )
+            .post('/clear-virtual-folder-metadata', ({ body }: { body: any }) =>
+              libraryService.clearVirtualFolderMetadata(body.itemIds)
+            )
+            .post('/fetch-credits', async ({ body }: { body: any }) => {
+              await libraryService.fetchCredits(body.itemId)
+              return { success: true }
+            })
+            .post('/manual-search', ({ body }: { body: any }) =>
+              libraryService.manualSearch(body.query, body.type, body.year, body.tmdbId)
+            )
+            .post('/get-tmdb-images', ({ body }: { body: any }) =>
+              libraryService.getTmdbImages(body.tmdbId, body.mediaType, body.language)
+            )
+            .post('/user-apply-tmdb-result', async ({ body }: { body: any }) => {
+              await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
+              return { success: true }
+            })
+            .post('/user-set-image', async ({ body }: { body: any }) => {
+              await libraryService.setImage(body.itemId, body.imageType, body.source)
+              return { success: true }
+            })
+            .post('/remove-image', async ({ body }: { body: any }) => {
+              await libraryService.removeImage(body.itemId, body.imageType)
+              return { success: true }
+            })
+            .post('/upload-image', async ({ body }: { body: any }) => {
+              const { itemId, imageType, file } = body as { itemId: string; imageType: string; file: File }
+              if (!file) throw new Error('No file uploaded')
+              await libraryService.uploadImage(itemId, imageType as any, file)
+              return { success: true }
+            })
+            .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.itemId))
+            .post('/delete-item-from-db', ({ body }: { body: any }) => libraryService.deleteItemFromDb(body.itemId))
+            .post('/rename-item', ({ body }: { body: any }) =>
+              libraryService.renameItem(body.itemId, body.newName)
+            )
+            .post('/execute-custom-action', async ({ body }: { body: any }) => {
+              await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt))
+              return { success: true }
+            })
+        )
+
+        // ── editSettings ────────────────────────────────────────────────────────
+        .guard(guardCap('editSettings'), (app) =>
+          app
+            .get('/list-directory', async ({ query, set }: { query: any; set: any }) => {
+              const { path } = query
+              if (!path || typeof path !== 'string') { set.status = 400; return { error: 'Path is required' } }
+              return listDirectoryService.listDirectory(path)
+            })
+            .post('/save-source', ({ body }: { body: any }) => libraryService.saveSource(body.source))
+            .post('/reveal-in-explorer', async ({ body }: { body: any }) => {
+              await libraryService.revealInExplorer(body.path)
+              return { success: true }
+            })
+            .post('/resolve-media-source-path', async ({ body }: { body: any }) =>
+              settingsService.resolveMediaSourcePath(body.path, body.isRelative, body.libraryLocation)
+            )
+            .post('/save-settings', async ({ body }: { body: any }) => {
+              const oldSettings = await settingsService.readSettings()
+              await settingsService.saveSettingsChanges(body)
+              playbackService.clearStreamCache()
+              if (body.virtualTags) libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
+              if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
+                await libraryService.switchToLibrary(body.libraryLocation)
+                getTransport().forceRendererReload()
+              }
+              const sanitized = settingsService.sanitizeForClient(await settingsService.readSettings())
+              getTransport().notifySettingsUpdated(sanitized as any)
+              return sanitized
+            })
+        )
+
+        // ── triggerLibraryScan ──────────────────────────────────────────────────
+        .guard(guardCap('triggerLibraryScan'), (app) =>
+          app
+            .post('/apply-initial-folder-settings', async ({ body }: { body: any }) => {
+              await libraryService.applyInitialFolderSettings(body.settings)
+              return { success: true }
+            })
+            .post('/perform-scan', ({ body }: { body: any }) =>
+              libraryService.performScan(body.sourceFolderSettings)
+            )
+        )
     )
 }

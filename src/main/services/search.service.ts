@@ -1,5 +1,7 @@
 import * as repositoryService from './repository.service'
 import * as searchRepo from '../database/repositories/search.repo'
+import { ensureUpToDate } from './account-filter.service'
+import { getCurrentAccountId } from '../request-context'
 import type { SearchIndexEntry } from '@shared/types'
 
 // Rebuilds the FTS index from scratch. Useful for migration or corruption recovery.
@@ -47,8 +49,11 @@ export function performSearch(query: {
   text: string
   tags: { key: string; value: string }[]
   limit?: number
+  userId?: string
 }): SearchIndexEntry[] {
   const { text, tags } = query
+  const userId = query.userId ?? getCurrentAccountId()
+  if (userId) ensureUpToDate(userId)
   const limit = query.limit || 30
 
   let rows: any[] = []
@@ -59,21 +64,21 @@ export function performSearch(query: {
 
     if (normalized.length < 3) {
       // --- Short Query Strategy (LIKE) ---
-      rows = searchRepo.findByShortQuery(normalized, tags, limit)
+      rows = searchRepo.findByShortQuery(normalized, tags, limit, userId)
     } else {
       // --- Long Query Strategy (FTS Trigram) ---
       const cols = '{title original_title name}'
 
       try {
         const matchQuery = `${cols} : "${normalized}"`
-        rows = searchRepo.findByFtsQuery(matchQuery, tags, limit)
+        rows = searchRepo.findByFtsQuery(matchQuery, tags, limit, userId)
 
         // Fuzzy Fallback
         if (rows.length === 0) {
           const trigrams = toTrigrams(normalized)
           if (trigrams.length > 0) {
             const fuzzyMatchQuery = `${cols} : (${trigrams.map((t) => `"${t}"`).join(' OR ')})`
-            rows = searchRepo.findByFtsQuery(fuzzyMatchQuery, tags, limit)
+            rows = searchRepo.findByFtsQuery(fuzzyMatchQuery, tags, limit, userId)
           }
         }
       } catch (e) {
@@ -83,7 +88,7 @@ export function performSearch(query: {
     }
   } else {
     // --- No Text Query ---
-    rows = searchRepo.findByTagsOnly(tags, limit)
+    rows = searchRepo.findByTagsOnly(tags, limit, userId)
   }
 
   return rows.map(mapRowToEntry)

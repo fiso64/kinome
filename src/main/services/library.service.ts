@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 
 import * as virtualTagsService from './virtualTags.service'
+import * as accountFilterService from './account-filter.service'
 import * as searchService from './search.service'
 import * as retrieverService from './retriever.service'
 import * as settingsService from './settings.service'
@@ -972,6 +973,7 @@ export const applyInitialFolderSettings = async (
 export function reapplyVirtualTags(virtualTags: Parameters<typeof virtualTagsService.applyVirtualTags>[0]): void {
   virtualTagsService.applyVirtualTags(virtualTags)
   groupingService.syncAllGroupings()
+  accountFilterService.rebuildAll()
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {

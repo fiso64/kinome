@@ -11,6 +11,7 @@ export interface ContextMenuPosition {
 
 export interface ContextMenuOptions {
   layout?: string
+  showLogout?: boolean
 }
 
 // --- State ---
@@ -19,6 +20,7 @@ let item = $state<LibraryItem | null>(null)
 let parentItem = $state<LibraryItem | null>(null)
 let position = $state<ContextMenuPosition>({ top: 0, left: 0 })
 let layout = $state<string | undefined>(undefined)
+let showLogout = $state(false)
 let isVisible = $state(false)
 let lastClick = { x: 0, y: 0, time: 0 }
 
@@ -64,6 +66,7 @@ async function open(
   }
 
   layout = options?.layout
+  showLogout = options?.showLogout ?? false
   parentItem = options?.parentItem || null
   position = { top: event.clientY, left: event.clientX }
   isVisible = true
@@ -95,6 +98,7 @@ function openForBackground(
 function close() {
   item = null
   parentItem = null
+  showLogout = false
   isVisible = false
 }
 
@@ -112,6 +116,9 @@ export const contextMenuStore = {
   },
   get layout() {
     return layout
+  },
+  get showLogout() {
+    return showLogout
   },
   get isVisible() {
     return isVisible

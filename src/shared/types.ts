@@ -804,6 +804,12 @@ export interface Account {
   role: AccountRole
 }
 
+export interface AccountFilterRule {
+  accountId: string
+  mode: 'allow' | 'deny'
+  filter: LibraryFilter
+}
+
 export interface LoginRequest {
   username: string
   password: string

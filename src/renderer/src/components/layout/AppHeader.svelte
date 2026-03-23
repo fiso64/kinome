@@ -74,7 +74,7 @@
     refresh: void
     openSettings: void
     openLayoutSelector: void
-    showContextMenu: { item: LibraryItem; event: MouseEvent }
+    showContextMenu: { item: LibraryItem; event: MouseEvent; options?: { showLogout?: boolean } }
     globalSearchItemClick: { item: SearchIndexEntry }
     detailSearchItemClick: { item: SearchIndexEntry }
   }>()
@@ -312,7 +312,7 @@
           </button>
           <button
             onclick={(e) =>
-              dispatch('showContextMenu', { item: contextItemToConfigure!, event: e })}
+              dispatch('showContextMenu', { item: contextItemToConfigure!, event: e, options: { showLogout: true } })}
             title="More options..."
             aria-label="More options"
             class="more-options-button"

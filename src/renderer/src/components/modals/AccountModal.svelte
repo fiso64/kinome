@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import AccountFilterModal from './AccountFilterModal.svelte'
   import { api } from '@lib/api'
   import { authStore } from '@lib/auth-store.svelte'
-  import type { Account, AccountRole } from '@shared/types'
+  import type { Account, AccountRole, AccountFilterRule } from '@shared/types'
 
   let {
     account,
@@ -23,8 +25,19 @@
   let roleMessage = $state({ text: '', type: '' })
   let saving = $state(false)
 
+  let filterRule = $state<AccountFilterRule | null>(null)
+  let filterLoaded = $state(false)
+  let showFilterModal = $state(false)
+
   const canManage = $derived(authStore.can.manageAccounts)
   const isAdmin = $derived(selectedRole === 'admin')
+
+  onMount(async () => {
+    if (!canManage || isSelf) return
+    const result = await api.getAccountFilter(account.id)
+    filterRule = result.rule
+    filterLoaded = true
+  })
 
   async function handleSaveRole() {
     if (selectedRole === account.role) return
@@ -132,6 +145,22 @@
       <button class="secondary" onclick={handleChangePassword} disabled={saving}>Update Password</button>
     </div>
 
+    {#if canManage && !isSelf && !isAdmin && filterLoaded}
+      <div class="section">
+        <h3>Library Filter</h3>
+        <div class="filter-row">
+          <span class="filter-status">
+            {#if filterRule}
+              {filterRule.mode === 'allow' ? 'Allow' : 'Deny'} filter active
+            {:else}
+              No filter — full access
+            {/if}
+          </span>
+          <button class="secondary" onclick={() => (showFilterModal = true)}>Configure Filter</button>
+        </div>
+      </div>
+    {/if}
+
     {#if canManage && !isSelf}
       <div class="section danger-section">
         <h3>Danger Zone</h3>
@@ -140,6 +169,17 @@
     {/if}
   </div>
 </ModalWindow>
+
+{#if showFilterModal}
+  <AccountFilterModal
+    {account}
+    onClose={() => (showFilterModal = false)}
+    onSaved={async () => {
+      const result = await api.getAccountFilter(account.id)
+      filterRule = result.rule
+    }}
+  />
+{/if}
 
 <style>
   .modal-body {
@@ -262,6 +302,18 @@
 
   .message.success { color: var(--color-success); }
   .message.error { color: var(--color-danger); }
+
+  .filter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .filter-status {
+    font-size: 0.9rem;
+    color: var(--color-text-soft);
+  }
 
   .danger-section {
     border-color: rgba(239, 68, 68, 0.2);

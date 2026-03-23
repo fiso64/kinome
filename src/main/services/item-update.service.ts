@@ -7,6 +7,7 @@ import { getTransport } from '../transport.registry'
 import type { LibraryItem, Settings } from '@shared/types'
 import * as autocompleteService from './autocomplete.service'
 import { syncAllGroupings } from './grouping.service'
+import * as accountFilterService from './account-filter.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Item Update Service] ${message}`)
@@ -100,6 +101,8 @@ export async function broadcastModifiedItems(
   const t2 = Date.now()
   syncAllGroupings()
   log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
+
+  accountFilterService.markDirty()
 
   const plainItems = JSON.parse(JSON.stringify(items))
   const t3 = Date.now()
