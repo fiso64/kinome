@@ -4,6 +4,15 @@ Fix sorting of folders before files even when both have a media type tv or movie
 
 ---
 
+Add sort by: Random
+
+---
+
+Make it possible to apply non-cascadable view-related settings to children automatically (sortBy and grouping).
+(This needs more thought.)
+
+---
+
 Make the UI more clear regarding child view overrides / normal view settings and refactor the code if needed.
 
 ---

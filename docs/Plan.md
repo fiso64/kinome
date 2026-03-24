@@ -60,8 +60,13 @@
   - [X] A nice login page.
   - [X] Browser caching of auth token.
   - [X] Ensure everything is secured. Also ensure that the copied stream URLs still work.
-- [ ] Support for multiple accounts.
-  - [ ] Allow locking an account to a particular (virtual) folder (e.g. only allow kids to see PG-rated movies) => requires `virtual_filesystem.md`.
+- [ ] Multi-account support (see `docs/multi-account-plan.md`)
+  - [ ] Implement basic multi-account support with normal and admin roles and per-user watched state.
+  - [ ] Allow locking normals to a particular library filter (e.g. user A can only see media that has a particular tag).
+  - [ ] Create a virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership).
+  - [ ] UI for sharing folders and accessing shared folders.
+    - [ ] Store more settings (like layout and sort by) per-user to allow normals to modify appearance even for shared folders.
+
 - [ ] Tighten security.
   - [ ] Short-lived tokens for streaming
 
@@ -72,8 +77,11 @@
 
 ### ⌨️ Diagnostics & Development
 - [ ] Frontend should display error messages from the backend when needed (?)
-- [ ] Add proper comprehensive tests for the backend and frontend. Maybe mock the db for the frontend tests.
+- [ ] Improve testing coverage
+    - [X] Add many tests for the backend
+    - [ ] Maybe mock the backend and add frontend tests.
 - [ ] Use a good logging framework with pretty output and multiple log levels.
+- [ ] (Maybe) Use YAML instead of JSON for settings and library-settings.
 
 ## Future
 
