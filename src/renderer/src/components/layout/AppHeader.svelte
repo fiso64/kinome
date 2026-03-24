@@ -2,6 +2,7 @@
   import WindowControls from './WindowControls.svelte'
   import SearchInput from '../ui/SearchInput.svelte'
   import MediaView from './MediaView.svelte'
+  import Skeleton from '@components/ui/Skeleton.svelte'
   import { createEventDispatcher } from 'svelte'
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore } from '@lib/search-store.svelte'
@@ -239,7 +240,17 @@
       {#if isSearchFocused && navStore.isDetailViewActive}
         <div class="search-dropdown">
           {#if isPerformingDetailSearch && detailSearchResults.length === 0}
-            <div class="dropdown-status">Searching...</div>
+            <div class="dropdown-skeleton">
+              {#each [0.6, 0.8, 0.5, 0.75, 0.65] as widthRatio}
+                <div class="skeleton-row">
+                  <Skeleton width="40px" height="60px" radius="4px" />
+                  <div class="skeleton-text">
+                    <Skeleton width="{widthRatio * 100}%" height="1rem" />
+                    <Skeleton width="40%" height="0.8rem" />
+                  </div>
+                </div>
+              {/each}
+            </div>
           {:else if detailSearchResults.length > 0}
             <MediaView
               items={detailSearchResults}
@@ -397,6 +408,26 @@
     padding: 2rem;
     text-align: center;
     color: var(--color-text-soft);
+  }
+
+  .dropdown-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .skeleton-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .skeleton-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
   }
 
   header {

@@ -54,9 +54,6 @@
       disabled
     }}
   >
-    {#if isPerformingSearch}
-      <div class="search-loading-bar"></div>
-    {/if}
     <div class="search-header">
       {#if isPerformingSearch && searchResults.length === 0}
         <span>Searching...</span>
@@ -145,27 +142,6 @@
     font-size: 1.1rem;
   }
 
-  .search-loading-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    z-index: 10;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--color-primary) 50%,
-      transparent 100%
-    );
-    background-size: 200% 100%;
-    animation: loading-sweep 1.2s linear infinite;
-  }
-
-  @keyframes loading-sweep {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
 
   .skeleton-list {
     display: flex;

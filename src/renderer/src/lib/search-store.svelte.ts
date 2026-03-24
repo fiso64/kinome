@@ -29,6 +29,18 @@ const isTypingGlobalTag = $derived(isTypingTagHelper(navStore.state.globalQuery.
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
+// --- Search Helpers ---
+
+async function runSearch(query: SearchQuery): Promise<SearchIndexEntry[]> {
+  const results = await api.performSearch(JSON.parse(JSON.stringify(query)))
+  const seen = new Set<string>()
+  return results.filter((r) => {
+    if (seen.has(r.id)) return false
+    seen.add(r.id)
+    return true
+  })
+}
+
 // --- Search Effects ---
 let lastSerializedQuery = ''
 
@@ -65,14 +77,8 @@ export function initializeSearchEffects() {
       lastSerializedQuery = serialized
 
       isPerformingGlobalSearch = true
-      api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
-        // Deduplicate by id — multi-account results can contain the same item from multiple accounts
-        const seen = new Set<string>()
-        searchResults = results.filter((r) => {
-          if (seen.has(r.id)) return false
-          seen.add(r.id)
-          return true
-        })
+      runSearch(query).then((results) => {
+        searchResults = results
         isPerformingGlobalSearch = false
         // Only auto-highlight if we don't already have a valid highlight
         if (highlightedGlobalIndex === null || highlightedGlobalIndex >= results.length) {
@@ -92,7 +98,7 @@ export function initializeSearchEffects() {
     const query = detailQuery
     if (navStore.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
-      api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
+      runSearch(query).then((results) => {
         detailResults = results
         isPerformingDetailSearch = false
         highlightedDetailIndex = results.length > 0 ? 0 : null
