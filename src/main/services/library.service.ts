@@ -890,21 +890,29 @@ export const recordPlayback = async (itemId: string, userId: string) => {
 
   userRepo.overlayUserState([item], userId)
 
+  const now = Date.now()
   const modifiedItems: LibraryItem[] = []
 
   // Check if it was NEW before we mark it
   const isNewWatch = !item.watched
 
-  // Update item state
+  // Update item state in memory
   item.watched = true
-  item.lastWatched = Date.now()
+  item.lastWatched = now
   modifiedItems.push(item)
+
+  // Write episode user-state directly (watched + lastWatched).
+  // Can't use updateIfChangedAndBroadcast here — it excludes user-state fields
+  // from change detection, so nothing would be broadcast.
+  userRepo.bulkSetWatched([itemId], userId, true, now)
 
   // --- Logic for Un-Dismissing ---
   let parent = repositoryService.findParent(itemId)
   while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
     parent = repositoryService.findParent(parent.id)
   }
+
+  const showLevelItems: LibraryItem[] = []
 
   if (parent && isNewWatch && item.mediaType === 'episode') {
     const undismissedShow = await checkAndUndismissShow(
@@ -915,16 +923,32 @@ export const recordPlayback = async (itemId: string, userId: string) => {
     )
     if (undismissedShow) {
       modifiedItems.push(undismissedShow)
+      showLevelItems.push(undismissedShow)
     }
 
     // ALWAYS recalculate next_up_episode_id when watching something in a show
     const showWithNextUp = await recalculateNextUpForShow(parent.id, userId, modifiedItems)
     if (showWithNextUp) {
-      modifiedItems.push(showWithNextUp)
+      if (!modifiedItems.find((i) => i.id === showWithNextUp.id)) modifiedItems.push(showWithNextUp)
+      if (!showLevelItems.find((i) => i.id === showWithNextUp.id)) showLevelItems.push(showWithNextUp)
     }
   }
 
-  await updateIfChangedAndBroadcast(modifiedItems, { userId })
+  // Write show-level user-state fields directly (same pattern as markAsWatched)
+  repositoryService.runTransaction(() => {
+    for (const i of showLevelItems) {
+      repositoryService._updateItem(i.id, {
+        nextUpEpisodeId: (i as any).nextUpEpisodeId,
+        lastWatched: (i as any).lastWatched,
+        continueWatchingDismissed: i.continueWatchingDismissed,
+        nextUpDismissed: i.nextUpDismissed
+      } as any, { skipFetch: true }, userId)
+    }
+  })
+
+  // Stamp _v and broadcast everything
+  for (const i of modifiedItems) i._v = now
+  await broadcastModifiedItems(modifiedItems)
 }
 
 export const playFileWith = async (file: MediaFile, cmd: string, cb: ErrorCallback) => {
