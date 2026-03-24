@@ -71,7 +71,7 @@ export function rebuildForAccount(accountId: string): void {
   accountFilterRepo.replaceVisibleItems(accountId, ids)
   accountLastBuiltVersion.set(accountId, globalDirtyVersion)
   console.log(
-    `[AccountFilter] Rebuilt visibility for account ${accountId}: ${ids.length} visible items (mode=${rule.mode})`
+    `[${new Date().toISOString()}] [AccountFilter] Rebuilt visibility for account ${accountId}: ${ids.length} visible items (mode=${rule.mode})`
   )
 }
 
@@ -98,7 +98,7 @@ const accountLastBuiltVersion = new Map<string, number>()
 
 /**
  * Signal that visibility sets may be stale. O(1) — just bumps a counter.
- * Call this instead of rebuildAll() on individual item updates.
+ * Call this instead of rebuildAll() whenever item metadata or tags change.
  */
 export function markDirty(): void {
   globalDirtyVersion++

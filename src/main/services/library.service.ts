@@ -973,7 +973,7 @@ export const applyInitialFolderSettings = async (
 export function reapplyVirtualTags(virtualTags: Parameters<typeof virtualTagsService.applyVirtualTags>[0]): void {
   virtualTagsService.applyVirtualTags(virtualTags)
   groupingService.syncAllGroupings()
-  accountFilterService.rebuildAll()
+  accountFilterService.markDirty()
 }
 
 export const reapplyVirtualTagsAfterSettingsChange = async () => {
