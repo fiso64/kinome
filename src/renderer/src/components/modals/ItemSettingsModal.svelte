@@ -177,6 +177,13 @@
           retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
           childrenTypeHint = folder.folderSettings?.childrenTypeHint ?? 'auto'
           processTvChildren = folder.folderSettings?.processTvChildren ?? true
+
+          // Refresh Virtual Folder Filter State
+          if (folder.isVirtual) {
+            vfolderFilter = folder.filter
+              ? JSON.parse(JSON.stringify(folder.filter))
+              : { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }
+          }
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
           episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''

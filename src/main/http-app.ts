@@ -391,7 +391,8 @@ export function buildApp() {
               'genres',
               'tags',
               'virtualTags',
-              'viewSettings'
+              'viewSettings',
+              'filter'
             ]
           }
 
