@@ -10,7 +10,7 @@ export interface ITransport {
    * Notifies clients that a batch of library items has been updated.
    * @param items An array of the updated library items.
    */
-  notifyLibraryItemsUpdated(items: LibraryItem[]): void
+  notifyLibraryItemsUpdated(items: LibraryItem[], userId?: string): void
 
   /**
    * Notifies clients that the metadata index (suggestions, grouping keys) has been updated.

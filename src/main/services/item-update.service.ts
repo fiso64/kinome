@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import * as repositoryService from './repository.service'
+import * as userRepo from '../database/repositories/user.repo'
 import * as settingsService from './settings.service'
 import * as virtualTagsService from './virtualTags.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
@@ -14,6 +15,21 @@ const log = (message: string): void => {
 }
 
 /**
+ * Per-user fields that are excluded from the global change-detection snapshot.
+ * Used in three places:
+ *   1. getComparisonSnapshot — omit from the structural diff
+ *   2. updateIfChangedAndBroadcast — checked separately when userId is known
+ *   3. broadcastModifiedItems — stripped from the global broadcast payload
+ */
+const USER_STATE_KEYS = [
+  'watched',
+  'lastWatched',
+  'continueWatchingDismissed',
+  'nextUpDismissed',
+  'nextUpEpisodeId',
+] as const
+
+/**
  * Creates a "content-only" snapshot for change detection.
  * Excludes volatile system fields, deep relations, and derived data.
  *
@@ -21,6 +37,10 @@ const log = (message: string): void => {
  * ARE included — if metadata changes, the item is already detected as changed.
  * Fresh vtags are fetched from the DB after SQL evaluation and attached before
  * broadcasting, so the broadcast payload is always accurate.
+ *
+ * User-state fields are excluded here because getItemById without a userId
+ * returns null for them (1=0 JOIN). They are compared separately in
+ * updateIfChangedAndBroadcast when a userId is available.
  */
 function getComparisonSnapshot(item: LibraryItem | null | undefined) {
   if (!item) return null
@@ -32,9 +52,6 @@ function getComparisonSnapshot(item: LibraryItem | null | undefined) {
     ancestorIds,
     isVirtual,
     virtualTags,
-    // User-state fields are per-user and managed by dedicated functions,
-    // not by updateIfChangedAndBroadcast. Exclude them from change detection
-    // so null values from the 1=0 JOIN (no user context) don't trigger false changes.
     watched,
     lastWatched,
     continueWatchingDismissed,
@@ -79,10 +96,14 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
  *
  * Items passed here must already reflect their final state — the values will be broadcast as-is.
  * Caller is responsible for stamping _v before calling (e.g. item._v = Date.now()).
+ *
+ * When userId is provided, the full payload (including user-state) is sent to the user's private
+ * channel, and a user-state-stripped payload is sent to the global channel so other clients'
+ * caches stay current for any non-user-state changes without leaking per-user data.
  */
 export async function broadcastModifiedItems(
   items: LibraryItem[],
-  options: { updateSuggestions?: boolean; settings?: Settings } = {}
+  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string } = {}
 ): Promise<void> {
   if (items.length === 0) return
 
@@ -113,7 +134,22 @@ export async function broadcastModifiedItems(
   log(`[Timing] getAncestors took ${Date.now() - t3}ms`)
 
   log(`Broadcasting updates for ${items.length} items.`)
-  getTransport().notifyLibraryItemsUpdated(plainItems)
+
+  if (options.userId) {
+    // Full payload to this user's private channel (includes user-state)
+    getTransport().notifyLibraryItemsUpdated(plainItems, options.userId)
+    // Stripped payload to global channel: other clients get non-user-state updates
+    // without any user's watched/nextUp state bleeding into their caches.
+    // The frontend merges via spread so absent keys preserve existing cached values.
+    const globalItems = plainItems.map((item: any) => {
+      const copy = { ...item }
+      for (const key of USER_STATE_KEYS) delete copy[key]
+      return copy
+    })
+    getTransport().notifyLibraryItemsUpdated(globalItems)
+  } else {
+    getTransport().notifyLibraryItemsUpdated(plainItems)
+  }
 
   if (options.updateSuggestions) {
     const [suggestions, groupByKeys] = await Promise.all([
@@ -139,6 +175,12 @@ export async function updateIfChangedAndBroadcast(
     for (const item of itemsArray) {
       const existing = repositoryService.getItemById(item.id)
 
+      // When userId is available, overlay user-state onto existing so the
+      // change detection below can compare actual values instead of nulls.
+      if (options.userId && existing) {
+        userRepo.overlayUserState([existing], options.userId)
+      }
+
       // 1. Construct the hypothetical "Next State"
       // We merge the partial update 'item' over the 'existing' full object.
       // This fills in the missing holes in the partial update with current DB data.
@@ -151,7 +193,19 @@ export async function updateIfChangedAndBroadcast(
 
       const existingSnapshot = getComparisonSnapshot(existing)
       const nextSnapshot = getComparisonSnapshot(nextState as LibraryItem)
-      const hasRealChanges = !existing || forceUpdate || !equal(existingSnapshot, nextSnapshot)
+      const globalChanged = !existing || forceUpdate || !equal(existingSnapshot, nextSnapshot)
+
+      // 3. Also detect user-state changes when userId is known.
+      // Only checks keys that are explicitly present in the update (undefined = not updating).
+      const userStateChanged =
+        options.userId && existing
+          ? USER_STATE_KEYS.some((key) => {
+              const newVal = (nextState as any)[key]
+              return newVal !== undefined && newVal !== (existing as any)[key]
+            })
+          : false
+
+      const hasRealChanges = globalChanged || userStateChanged
 
       if (hasRealChanges) {
         item._v = Date.now()
@@ -182,7 +236,7 @@ export async function updateIfChangedAndBroadcast(
       // (watched, lastWatched, etc.) due to the 1=0 JOIN. These nulls must not reach
       // _updateItem, which requires a userId whenever user-state fields are present.
       if (!options.userId) {
-        for (const key of ['watched', 'lastWatched', 'continueWatchingDismissed', 'nextUpDismissed', 'nextUpEpisodeId']) {
+        for (const key of USER_STATE_KEYS) {
           if ((updatePayload as any)[key] === null) {
             delete (updatePayload as any)[key]
           }

@@ -75,6 +75,14 @@ app.ws('/ws', {
   open(ws) {
     console.log(`[WebTransport] Client connected: ${ws.id}`)
     ws.subscribe('broadcast')
+    const token = (ws as any).data?.query?.token as string | undefined
+    if (token) {
+      const session = authService.validateToken(token)
+      if (session) {
+        ws.subscribe(`broadcast:${session.accountId}`)
+        console.log(`[WebTransport] Client ${ws.id} subscribed to broadcast:${session.accountId}`)
+      }
+    }
     ws.send(
       JSON.stringify({ type: 'scan-status-changed', data: webTransport.getCurrentStatus() })
     )

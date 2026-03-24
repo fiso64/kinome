@@ -34,9 +34,13 @@ export class WebTransport implements ITransport {
     this.server.publish('broadcast', JSON.stringify({ type: event, data: payload }))
   }
 
-  notifyLibraryItemsUpdated(items: LibraryItem[]): void {
+  notifyLibraryItemsUpdated(items: LibraryItem[], userId?: string): void {
     console.log(`[WebTransport] Notifying update for ${items.length} items.`)
-    this.broadcast('library-items-updated', items)
+    if (userId) {
+      this.server.publish(`broadcast:${userId}`, JSON.stringify({ type: 'library-items-updated', data: items }))
+    } else {
+      this.broadcast('library-items-updated', items)
+    }
   }
 
   notifyMetadataIndexUpdated(index: {

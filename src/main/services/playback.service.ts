@@ -9,16 +9,18 @@ import type { LibraryItem } from '@shared/types'
 
 // Stream playback debounce to prevent DB spam on range requests
 const playbackDebounce = new Map<string, number>()
-const PLAYBACK_DEBOUNCE_WINDOW = 1 * 60 * 1000 // 1 minute
+const PLAYBACK_DEBOUNCE_WINDOW = 1 * 10 * 1000 // 10 seconds
 
 export function recordPlaybackDebounced(
   itemId: string,
+  userId: string,
   recordPlaybackFn: (itemId: string) => Promise<void>
 ) {
   const now = Date.now()
-  const last = playbackDebounce.get(itemId) || 0
+  const key = `${userId}:${itemId}`
+  const last = playbackDebounce.get(key) || 0
   if (now - last > PLAYBACK_DEBOUNCE_WINDOW) {
-    playbackDebounce.set(itemId, now)
+    playbackDebounce.set(key, now)
     recordPlaybackFn(itemId).catch(console.error)
   }
 }

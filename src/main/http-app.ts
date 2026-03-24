@@ -496,7 +496,7 @@ export function buildApp() {
         .get('/stream/:id', async ({ params, query, set, request, session }: any) => {
           if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
             const userId = session.accountId
-            playbackService.recordPlaybackDebounced(params.id, (id: string) => libraryService.recordPlayback(id, userId))
+            playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
           }
           const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
           if (!response) { set.status = 404; return 'File not found' }
@@ -505,7 +505,7 @@ export function buildApp() {
         .get('/stream/:id/:filename', async ({ params, query, set, request, session }: any) => {
           if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
             const userId = session.accountId
-            playbackService.recordPlaybackDebounced(params.id, (id: string) => libraryService.recordPlayback(id, userId))
+            playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
           }
           const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
           if (!response) { set.status = 404; return 'File not found' }
