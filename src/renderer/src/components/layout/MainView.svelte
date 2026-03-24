@@ -123,7 +123,7 @@
       }
     }}
     use:scrollPersistence={{
-      key: getViewKey('vertical'),
+      key: `${getViewKey('vertical')}:${currentFolderId}`,
       disabled
     }}
   >
