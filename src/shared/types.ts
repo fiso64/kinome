@@ -764,6 +764,16 @@ export const RESETTABLE_METADATA_KEYS = [
 ] as const
 
 /**
+ * Fields that are user-controlled and must be preserved when reassigning media
+ * (e.g. manual TMDB match). These are not sourced from TMDB and would be lost
+ * permanently if cleared. Add to this list when introducing new user-managed fields.
+ *
+ * Current preserved fields:
+ * - `tags`: custom key/value tags set by the user
+ */
+export const PRESERVED_ON_REASSIGN_FIELDS = ['tags'] as const
+
+/**
  * A list of all properties from a LibraryItem that are needed to create
  * a `SearchIndexEntry`. This is used to build the search index.
  */

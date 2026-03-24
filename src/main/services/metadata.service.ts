@@ -17,7 +17,7 @@ import * as filesystemService from './filesystem.service'
 import * as autocompleteService from './autocomplete.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
-import { RESETTABLE_METADATA_KEYS } from '@shared/types'
+import { PRESERVED_ON_REASSIGN_FIELDS, RESETTABLE_METADATA_KEYS } from '@shared/types'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
@@ -289,12 +289,27 @@ export async function applyManualMatch(
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
 
+  // Capture user-controlled fields before clearing — these must survive reassignment
+  const preservedValues: Partial<Record<(typeof PRESERVED_ON_REASSIGN_FIELDS)[number], any>> = {}
+  for (const field of PRESERVED_ON_REASSIGN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(item, field)) {
+      preservedValues[field] = (item as any)[field]
+    }
+  }
+
   try {
-    // 1. PRIME: Clear current identity and freshness
+    // 1. PRIME: Clear current identity and freshness, then restore preserved fields
     const clearedItem = await clearItemMetadata(itemId, { targetedClear: true })
     if (!clearedItem) return []
 
     const item = clearedItem
+
+    // Restore preserved fields after clear
+    for (const field of PRESERVED_ON_REASSIGN_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(preservedValues, field)) {
+        ;(item as any)[field] = preservedValues[field]
+      }
+    }
     if (mediaType === 'season' && typeof result.season_number === 'number') {
       item.seasonNumber = result.season_number
     }
