@@ -22,6 +22,7 @@ const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${win
 class WebApiClient implements ApiClient {
   private ws: WebSocket | null = null
   private retryTimeout: any = null
+  private consecutiveFailures = 0
   private eventHandlers: Map<string, Set<(data: any) => void>> = new Map()
   public readonly capabilities: AppCapabilities
 
@@ -51,22 +52,25 @@ class WebApiClient implements ApiClient {
       this.ws = null
     }
 
-    // GATING: Don't connect if we are not authenticated
+    // GATING: Don't connect if we are not authenticated or have no token
     if (!authStore.isAuthenticated) {
-      console.log('[WebApiClient] Waiting for authentication before connecting WebSocket.')
+      console.log('[WebApiClient] WS gate: not authenticated, skipping.')
+      return
+    }
+    if (!token) {
+      console.warn('[WebApiClient] WS gate: authenticated but no token — skipping. (isChecking=%s)', authStore.isChecking)
       return
     }
 
     const wsUrl = new URL(WS_URL)
-    if (token) {
-      wsUrl.searchParams.set('token', token)
-    }
+    wsUrl.searchParams.set('token', token)
 
-    console.log(`[WebApiClient] Connecting to WebSocket${token ? ' (Authenticated)' : ''}...`)
+    console.log('[WebApiClient] Connecting to WebSocket (Authenticated)...')
     this.ws = new WebSocket(wsUrl.toString())
 
     this.ws.onopen = () => {
       console.log('[WebApiClient] WebSocket connected.')
+      this.consecutiveFailures = 0
       this.dispatchWSStatus(true)
     }
 
@@ -95,16 +99,27 @@ class WebApiClient implements ApiClient {
 
     this.ws.onclose = () => {
       this.dispatchWSStatus(false)
-      // Only retry if we are still supposed to be connected
-      if (authStore.isAuthenticated) {
+      this.consecutiveFailures++
+      const retryToken = authStore.token
+      if (authStore.isAuthenticated && retryToken) {
+        // After 3 consecutive failures, re-validate the session — the server may have
+        // restarted and the token is now stale (we can't distinguish 401 from network errors).
+        if (this.consecutiveFailures >= 3) {
+          console.warn('[WebApiClient] %d consecutive WS failures — re-checking auth...', this.consecutiveFailures)
+          this.consecutiveFailures = 0
+          authStore.checkAuth()
+          // checkAuth() sets isAuthenticated/token; the App.svelte $effect will reconnect if still valid
+          return
+        }
         console.warn('[WebApiClient] WebSocket closed. Retrying in 3s...')
         this.retryTimeout = setTimeout(() => this.connectWS(authStore.token), 3000)
+      } else {
+        console.warn('[WebApiClient] WebSocket closed. Not retrying. (isAuth=%s, hasToken=%s)', authStore.isAuthenticated, !!retryToken)
       }
     }
 
-    this.ws.onerror = (error) => {
-      // Don't log full error object to console to reduce spam, just note the failure
-      console.error('[WebApiClient] WebSocket connection failed.')
+    this.ws.onerror = () => {
+      console.error('[WebApiClient] WebSocket connection failed. (url=%s)', wsUrl.toString().replace(/token=[^&]+/, 'token=REDACTED'))
       this.dispatchWSStatus(false)
       this.ws?.close()
     }
