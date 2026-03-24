@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition'
   import { modalStore } from '@lib/modal-store.svelte'
   import ItemSettingsModal from '../modals/ItemSettingsModal.svelte'
   import ManualSearchModal from '../modals/ManualSearchModal.svelte'
@@ -21,7 +22,14 @@
   }>()
 
   const stack = $derived(modalStore.stack)
+  const isPending = $derived(modalStore.isPending)
 </script>
+
+{#if isPending && stack.length === 0}
+  <div class="modal-pending-backdrop" transition:fade={{ duration: 150 }}>
+    <div class="modal-pending-spinner"></div>
+  </div>
+{/if}
 
 {#each stack as active, i (i)}
   {#if active.type === 'itemSettings'}
@@ -77,3 +85,30 @@
     <SortPinningModal item={sp.item} initialSortTop={sp.initialSortTop} initialSortBottom={sp.initialSortBottom} onClose={() => modalStore.close()} onSaved={sp.onSaved} />
   {/if}
 {/each}
+
+<style>
+  .modal-pending-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-pending-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import Skeleton from '@components/ui/Skeleton.svelte'
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
@@ -106,6 +107,9 @@
     }
   }
 
+  // --- Loading State ---
+  let isRefreshing = $state(true)
+
   // --- Metadata State ---
   async function refreshItemDetails() {
     if (!item.id) return
@@ -183,6 +187,8 @@
       }
     } catch (e) {
       console.error('Failed to refresh details', e)
+    } finally {
+      isRefreshing = false
     }
   }
 
@@ -619,7 +625,13 @@
   {/snippet}
 
   <div class="scroll-area">
-    {#if activeTab === 'metadata' && caps.canEditMetadata}
+    {#if isRefreshing}
+      <div class="modal-skeleton">
+        {#each [['40%', '2rem'], ['100%', '2.5rem'], ['100%', '2.5rem'], ['70%', '2rem'], ['100%', '2.5rem'], ['100%', '2.5rem']] as [w, h]}
+          <Skeleton width={w} height={h} />
+        {/each}
+      </div>
+    {:else if activeTab === 'metadata' && caps.canEditMetadata}
       <MetadataTab
         {item}
         bind:title
@@ -672,6 +684,13 @@
 </ModalWindow>
 
 <style>
+  .modal-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.5rem;
+  }
+
   .tabs {
     display: flex;
   }

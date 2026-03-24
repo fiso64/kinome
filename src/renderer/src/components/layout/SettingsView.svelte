@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '@lib/api'
+  import Skeleton from '@components/ui/Skeleton.svelte'
   import { formatLayoutString } from '@shared/settings-helpers'
   import { dialogStore } from '@lib/dialog-store'
   import DefaultViewSettingsModal from '@modals/DefaultViewSettingsModal.svelte'
@@ -78,6 +79,8 @@
   let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
   let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
+  let isSettingsLoading = $state(true)
+
   let suggestions = $state<AutocompleteSuggestions>({
     mediaType: [],
     genre: [],
@@ -125,6 +128,8 @@
       defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
     }).catch((err: any) => {
       dialogStore.showError({ title: 'Failed to Load Settings', message: err.message || 'Could not load settings.' })
+    }).finally(() => {
+      isSettingsLoading = false
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
@@ -315,7 +320,13 @@
       </div>
       <div class="content scroll-area">
         <div class="content-limit">
-          {#if activeTab === 'general'}
+          {#if isSettingsLoading}
+            <div class="settings-skeleton">
+              {#each [['30%', '0.85em'], ['100%', '2.2rem'], ['30%', '0.85em'], ['100%', '2.2rem'], ['30%', '0.85em'], ['60%', '2.2rem'], ['30%', '0.85em'], ['100%', '2.2rem']] as [w, h]}
+                <Skeleton width={w} height={h} />
+              {/each}
+            </div>
+          {:else if activeTab === 'general'}
             <div class="form-section">
               <div class="form-group start-group">
                 <span id="player-commands-label" class="label">Player Commands</span>
@@ -724,6 +735,7 @@
   }
 
   .right-column {
+    position: relative;
     display: flex;
     flex-direction: column;
     flex-grow: 1;
@@ -987,5 +999,12 @@
     display: flex;
     gap: 0.75rem;
     justify-content: flex-end;
+  }
+
+  .settings-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.5rem 0;
   }
 </style>

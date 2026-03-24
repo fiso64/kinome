@@ -66,7 +66,13 @@ export function initializeSearchEffects() {
 
       isPerformingGlobalSearch = true
       api.performSearch(JSON.parse(JSON.stringify(query))).then((results) => {
-        searchResults = results
+        // Deduplicate by id — multi-account results can contain the same item from multiple accounts
+        const seen = new Set<string>()
+        searchResults = results.filter((r) => {
+          if (seen.has(r.id)) return false
+          seen.add(r.id)
+          return true
+        })
         isPerformingGlobalSearch = false
         // Only auto-highlight if we don't already have a valid highlight
         if (highlightedGlobalIndex === null || highlightedGlobalIndex >= results.length) {

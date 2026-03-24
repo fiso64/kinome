@@ -51,6 +51,7 @@ export type ModalType = ModalConfig['type']
 // --- State ---
 
 let modalStack = $state<ModalConfig[]>([])
+let pendingCount = $state(0)
 
 // --- Methods ---
 
@@ -67,6 +68,19 @@ function close() {
   modalStack.pop()
 }
 
+/**
+ * Wraps an async action with a pending indicator. Counter-based so concurrent
+ * calls are safe — the indicator stays visible until all of them resolve.
+ */
+export async function withPending<T>(fn: () => Promise<T>): Promise<T> {
+  pendingCount++
+  try {
+    return await fn()
+  } finally {
+    pendingCount--
+  }
+}
+
 // --- Exported Store Object ---
 
 export const modalStore = {
@@ -75,6 +89,9 @@ export const modalStore = {
   },
   get stack() {
     return modalStack
+  },
+  get isPending() {
+    return pendingCount > 0
   },
   open,
   close

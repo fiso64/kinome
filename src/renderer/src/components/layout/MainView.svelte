@@ -65,7 +65,8 @@
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
     enabled: () => libraryStatus?.status === 'ready' && !disabled,
-    include: () => ['viewHierarchy']
+    include: () => ['viewHierarchy'],
+    keepPreviousData: true
   })
   const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
 
@@ -107,6 +108,7 @@
 {#if currentFolder}
   <div
     class="view-wrapper"
+    class:is-loading={currentFolderQuery.isFetching}
     class:has-backdrop={hasBackdrop}
     onscroll={handleScroll}
     oncontextmenu={(e) => {
@@ -125,6 +127,10 @@
       disabled
     }}
   >
+    {#if currentFolderQuery.isFetching}
+      <div class="folder-loading-bar"></div>
+    {/if}
+
     {#key currentFolder.id}
       <div class="view-transition-inner">
         <ViewContextProvider id={currentFolder.id}>
@@ -213,5 +219,31 @@
     padding: 0 2.5rem;
     margin-bottom: 1rem;
     flex-shrink: 0;
+  }
+
+  .folder-loading-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    z-index: 10;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-primary) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: loading-sweep 1.2s linear infinite;
+  }
+
+  @keyframes loading-sweep {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 </style>

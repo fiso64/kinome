@@ -13,7 +13,7 @@
   import AutocompleteMenu from '@ui/AutocompleteMenu.svelte'
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
-  import { modalStore } from '@lib/modal-store.svelte'
+  import { modalStore, withPending } from '@lib/modal-store.svelte'
   import { playerLauncherService, resolveClientPlayers } from '@lib/services/player-launcher.service'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
@@ -272,6 +272,16 @@
   }
 
   // --- Centralized Actions ---
+
+  // Resolves an item to pass to a modal immediately — uses the flat item map so
+  // any item that has ever been displayed is available without a network round-trip.
+  // The modal is responsible for fetching any missing fields it needs internally.
+  function resolveItemForModal(itemOrId: LibraryItem | string | undefined): LibraryItem | null {
+    if (!itemOrId) return null
+    if (typeof itemOrId !== 'string') return itemOrId
+    return libraryDataService.getItemFromCache(itemOrId) ?? { id: itemOrId, type: 'folder', name: '' } as LibraryItem
+  }
+
   const actions = {
     rescan: handleRefresh,
 
@@ -287,89 +297,54 @@
 
     openSettings: () => navStore.navigateToSettings(),
 
-    openViewSettings: async (itemOrId?: LibraryItem | string) => {
+    openViewSettings: (itemOrId?: LibraryItem | string) => {
       const id = itemOrId || navStore.contextItemId
-      if (!id) return
+      const targetItem = resolveItemForModal(id)
+      if (!targetItem || targetItem.type !== 'folder') return
 
-      // Capture parentItem before any await — contextMenuStore.close() may null it
       const parentItem = contextMenuStore.parentItem
-
-      const targetItem = await libraryDataService.ensureItemWithFields(id, [
-        'type',
-        'mediaType',
-        'viewSettings'
-      ])
-      if (targetItem && targetItem.type === 'folder') {
-        const isSelf = parentItem?.id === targetItem.id
-        modalStore.open('itemSettings', {
-          item: targetItem,
-          initialTab: 'view',
-          overrideParent: isSelf ? undefined : parentItem,
-          defaultLayout: resolveViewSettings(
-            targetItem as any,
-            settings,
-            new Set(),
-            parentItem?.viewSettings?.childViewSettings
-          ).settings.layout as any
-        })
-      }
+      const isSelf = parentItem?.id === targetItem.id
+      modalStore.open('itemSettings', {
+        item: targetItem,
+        initialTab: 'view',
+        overrideParent: isSelf ? undefined : parentItem,
+        defaultLayout: resolveViewSettings(
+          targetItem as any,
+          settings,
+          new Set(),
+          parentItem?.viewSettings?.childViewSettings
+        ).settings.layout as any
+      })
     },
 
-    editMetadata: async (
+    editMetadata: (
       itemOrId?: LibraryItem | string,
       initialTab: 'metadata' | 'view' | 'folder' | 'virtualFolder' = 'metadata'
     ) => {
       const id = itemOrId || navStore.contextItemId
       if (!id || id === LIBRARY_ROOT_ID) return
 
+      const targetItem = resolveItemForModal(id)
+      if (!targetItem) return
+
       const parentItem = contextMenuStore.parentItem
-
-      const targetItem = await libraryDataService.ensureItemWithFields(id, [
-        'type',
-        'mediaType',
-        'path',
-        'name',
-        'overview',
-        'genres',
-        'tags',
-        'seasonNumber',
-        'episodeNumber',
-        'viewSettings',
-        'retrieveChildrenMetadata',
-        'childrenTypeHint',
-        'processTvChildren',
-        'isVirtual',
-        'virtualType',
-        'filter',
-        'parentId'
-      ])
-
-      if (targetItem) {
-        const isSelf = parentItem?.id === targetItem.id
-        modalStore.open('itemSettings', {
-          item: targetItem,
-          initialTab: initialTab,
-          overrideParent: isSelf ? undefined : parentItem,
-          defaultLayout: resolveViewSettings(
-            targetItem as any,
-            settings,
-            new Set(),
-            parentItem?.viewSettings?.childViewSettings
-          ).settings.layout as any
-        })
-      }
+      const isSelf = parentItem?.id === targetItem.id
+      modalStore.open('itemSettings', {
+        item: targetItem,
+        initialTab,
+        overrideParent: isSelf ? undefined : parentItem,
+        defaultLayout: resolveViewSettings(
+          targetItem as any,
+          settings,
+          new Set(),
+          parentItem?.viewSettings?.childViewSettings
+        ).settings.layout as any
+      })
     },
 
-    showProperties: async (itemOrId?: LibraryItem | string) => {
+    showProperties: (itemOrId?: LibraryItem | string) => {
       const id = itemOrId || navStore.contextItemId
-      if (!id) return
-
-      const targetItem = await libraryDataService.ensureItemWithFields(id, [
-        'type',
-        'mediaType',
-        'path',
-        'name'
-      ])
+      const targetItem = resolveItemForModal(id)
       if (targetItem) {
         modalStore.open('properties', { item: targetItem })
       }
@@ -386,24 +361,16 @@
       libraryDataService.handleLibraryUpdates([{ id, watched: false } as any], false)
     },
 
-    renameItem: async (itemOrId: LibraryItem | string) => {
-      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['path', 'name'])
-      if (targetItem) {
-        modalStore.open('rename', { item: targetItem })
-      }
-    },
+    renameItem: (itemOrId: LibraryItem | string) =>
+      withPending(async () => {
+        const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name'])
+        if (targetItem) {
+          modalStore.open('rename', { item: targetItem })
+        }
+      }),
 
-    manualSearch: async (itemOrId: LibraryItem | string, initialTab: 'match' | 'artwork') => {
-      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
-        'tmdbId',
-        'mediaType',
-        'name',
-        'path',
-        'posterPath',
-        '_v',
-        'isVirtual',
-        'virtualType'
-      ])
+    manualSearch: (itemOrId: LibraryItem | string, initialTab: 'match' | 'artwork') => {
+      const targetItem = resolveItemForModal(itemOrId)
       if (targetItem) {
         modalStore.open('manualSearch', { item: targetItem, initialTab })
       }
@@ -494,15 +461,16 @@
       }
     },
 
-    assignSeasons: async (itemOrId: LibraryItem | string) => {
-      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
-        'type',
-        'mediaType'
-      ])
-      if (targetItem?.type === 'folder') {
-        modalStore.open('assignSeasons', { item: targetItem as MediaFolder })
-      }
-    },
+    assignSeasons: (itemOrId: LibraryItem | string) =>
+      withPending(async () => {
+        const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
+          'type',
+          'mediaType'
+        ])
+        if (targetItem?.type === 'folder') {
+          modalStore.open('assignSeasons', { item: targetItem as MediaFolder })
+        }
+      }),
 
     hideItem: async (itemOrId: LibraryItem | string) => {
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name', 'title'])
@@ -542,20 +510,21 @@
       }
     },
 
-    createVirtualFolder: async (itemOrId: LibraryItem | string) => {
-      const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['type', 'name'])
-      if (!targetItem || targetItem.type !== 'folder') return
+    createVirtualFolder: (itemOrId: LibraryItem | string) =>
+      withPending(async () => {
+        const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['type', 'name'])
+        if (!targetItem || targetItem.type !== 'folder') return
 
-      modalStore.open('createVirtualFolder', {
-        parentItem: targetItem,
-        onCreated: (newId: string) => {
-          modalStore.close()
-          handleRefresh().then(() => {
-            navStore.navigateToFolder(newId)
-          })
-        }
+        modalStore.open('createVirtualFolder', {
+          parentItem: targetItem,
+          onCreated: (newId: string) => {
+            modalStore.close()
+            handleRefresh().then(() => {
+              navStore.navigateToFolder(newId)
+            })
+          }
+        })
       })
-    }
   }
 
   async function handlePlayFile(item: MediaFile): Promise<void> {
@@ -682,16 +651,14 @@
     return () => cleanupShortcuts()
   })
 
-  async function openLayoutSelector() {
-    if (navStore.contextItemId) {
-      const item = await api.getItem(navStore.contextItemId)
-      if (item) {
-        modalStore.open('itemSettings', {
-          item,
-          initialTab: 'view',
-          defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
-        })
-      }
+  function openLayoutSelector() {
+    const item = resolveItemForModal(navStore.contextItemId ?? undefined)
+    if (item) {
+      modalStore.open('itemSettings', {
+        item,
+        initialTab: 'view',
+        defaultLayout: resolveViewSettings(item as any, settings).settings.layout as any
+      })
     }
   }
 

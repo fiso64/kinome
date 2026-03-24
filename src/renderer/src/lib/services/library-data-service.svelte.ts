@@ -21,6 +21,7 @@ import type { LibraryItem } from '@shared/types'
 class LibraryDataService {
   private queryClient: QueryClient | null = null
   private throttler: QueryThrottler | null = null
+  private itemMap = new Map<string, LibraryItem>()
 
   // Internal Query Key Templates (Private implementation detail)
   private readonly keys = {
@@ -61,7 +62,38 @@ class LibraryDataService {
         }
       })
     this.throttler = new QueryThrottler(this.queryClient)
+
+    // Populate itemMap from any successful query result so getItemFromCache
+    // works for any item that has ever been displayed, regardless of which
+    // query fetched it (children list, item details, etc.).
+    this.queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated') return
+      const action = (event as any).action
+      if (action?.type !== 'success' || !action.data) return
+
+      const key = event.query.queryKey as readonly unknown[]
+      if (key[0] === 'item' && typeof key[1] === 'string' && action.data) {
+        const id = key[1]
+        this.itemMap.set(id, { ...this.itemMap.get(id), ...(action.data as object) } as LibraryItem)
+      } else if (key[0] === 'children' && Array.isArray(action.data)) {
+        for (const item of action.data as LibraryItem[]) {
+          if (item?.id) {
+            this.itemMap.set(item.id, { ...this.itemMap.get(item.id), ...(item as object) } as LibraryItem)
+          }
+        }
+      }
+    })
+
     return this.queryClient
+  }
+
+  /**
+   * Returns the best locally-known item for a given ID without triggering a fetch.
+   * Populated automatically from any query that returns item data (children lists,
+   * detail queries, etc.), so any displayed item is available here.
+   */
+  getItemFromCache(id: string): LibraryItem | undefined {
+    return this.itemMap.get(id)
   }
 
   // --- 2. Query Factories (Component API) ---
@@ -75,6 +107,7 @@ class LibraryDataService {
       fields?: () => string[]
       include?: () => string[]
       enabled?: () => boolean
+      keepPreviousData?: boolean
     } = {}
   ) {
     return createQuery(
@@ -87,7 +120,8 @@ class LibraryDataService {
         return {
           queryKey: [...this.keys.item.details(id), { fields, include }],
           queryFn: () => (id ? api.getItem(id, { fields, include }) : null),
-          enabled: isEnabled && !!id
+          enabled: isEnabled && !!id,
+          ...(options.keepPreviousData && { placeholderData: keepPreviousData })
         }
       },
       () => this.queryClient!

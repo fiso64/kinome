@@ -1,6 +1,7 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import CreditsView from './CreditsView.svelte'
+  import Skeleton from '@components/ui/Skeleton.svelte'
 
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide, fade, fly } from 'svelte/transition'
@@ -84,6 +85,8 @@
     ...(itemQuery.data || initialItem),
     tmdbCredits: creditsQuery.data ?? (itemQuery.data || initialItem).tmdbCredits
   })
+
+  const isHeaderLoading = $derived(itemQuery.status === 'pending')
 
   // 1. Reset states ONLY if the path actually changed
   $effect.pre(() => {
@@ -339,7 +342,9 @@
         <div class="info-grid">
           <div class="poster-column" bind:this={posterColumnElement}>
             <div class="poster">
-              {#if item.posterPath}
+              {#if isHeaderLoading}
+                <Skeleton width="100%" height="100%" radius="8px" />
+              {:else if item.posterPath}
                 <div class="poster-container">
                   <img
                     bind:this={posterImg}
@@ -363,40 +368,49 @@
 
           <div class="info-column" bind:this={infoColumnElement}>
             <div class="title-and-meta">
-              {#if item.mediaType === 'season' && parentShow}
-                <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
-                  <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
-                </button>
-              {/if}
-              {#if (settings.useLogos ?? true) && item.logoPath}
-                <div class="logo-container">
-                  <img
-                    bind:this={logoImg}
-                    src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
-                    alt="{item.title ?? item.name} Logo"
-                    class="logo-image"
-                    class:show={isLogoLoaded}
-                    onload={() => (isLogoLoaded = true)}
-                    onerror={() => (isLogoLoaded = true)}
-                  />
+              {#if isHeaderLoading}
+                <Skeleton width="65%" height="2.5rem" radius="6px" />
+                <div class="skeleton-meta-row">
+                  <Skeleton width="60px" height="1em" radius="4px" />
+                  <Skeleton width="80px" height="1em" radius="4px" />
+                  <Skeleton width="70px" height="1em" radius="4px" />
                 </div>
               {:else}
-                <h1>{displayTitle}</h1>
-              {/if}
-              <div class="meta">
-                {#if item.year}
-                  <span class="year">{item.year}</span>
+                {#if item.mediaType === 'season' && parentShow}
+                  <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
+                    <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
+                  </button>
                 {/if}
-                {#if item.genres && item.genres.length > 0}
-                  <div class="genres">
-                    {#each item.genres as genre}
-                      <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
-                        {genre}
-                      </button>
-                    {/each}
+                {#if (settings.useLogos ?? true) && item.logoPath}
+                  <div class="logo-container">
+                    <img
+                      bind:this={logoImg}
+                      src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
+                      alt="{item.title ?? item.name} Logo"
+                      class="logo-image"
+                      class:show={isLogoLoaded}
+                      onload={() => (isLogoLoaded = true)}
+                      onerror={() => (isLogoLoaded = true)}
+                    />
                   </div>
+                {:else}
+                  <h1>{displayTitle}</h1>
                 {/if}
-              </div>
+                <div class="meta">
+                  {#if item.year}
+                    <span class="year">{item.year}</span>
+                  {/if}
+                  {#if item.genres && item.genres.length > 0}
+                    <div class="genres">
+                      {#each item.genres as genre}
+                        <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
+                          {genre}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
             {#if settings?.creditsDisplay === 'tab'}
               <div class="overview-container" bind:this={overviewContainerElement}>
@@ -1149,5 +1163,11 @@
   }
   .expand-overview-btn .chevron.up {
     transform: rotate(-135deg); /* Up arrow */
+  }
+
+  .skeleton-meta-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
   }
 </style>
