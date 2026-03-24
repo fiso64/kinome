@@ -31,41 +31,38 @@ export function rebuildForAccount(accountId: string): void {
   const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : 'WHERE 1=1'
 
   const db = getDb()
+
+  // Fetch the matching seeds and all real items separately, then expand
+  // ancestor/descendant relationships in JS with startsWith — avoids the
+  // O(items × seeds) unindexed LIKE cross-scan that SQLite can't optimise.
+  const seedSql = `SELECT i.id, i.path FROM items i ${entityJoin} ${whereSql}`
+  const seeds = db.prepare(seedSql).all(...params) as { id: string; path: string }[]
+  const allItems = db.prepare('SELECT id, path FROM items WHERE is_virtual = 0').all() as { id: string; path: string }[]
+
   let ids: string[]
 
   if (rule.mode === 'allow') {
     // Visible = seeds + all their descendants + all their ancestors (for navigation)
-    const sql = `
-      WITH seeds AS (
-        SELECT i.id, i.path FROM items i
-        ${entityJoin}
-        ${whereSql}
+    const seedPaths = seeds.map((s) => s.path)
+    const seedPathSet = new Set(seedPaths)
+    ids = allItems
+      .filter((item) =>
+        seedPathSet.has(item.path) ||
+        seedPaths.some((sp) => item.path.startsWith(sp + '/')) ||
+        seedPaths.some((sp) => sp.startsWith(item.path + '/'))
       )
-      SELECT DISTINCT i.id FROM items i
-      WHERE i.is_virtual = 0
-        AND (
-          i.path IN (SELECT path FROM seeds)
-          OR EXISTS (SELECT 1 FROM seeds s WHERE i.path LIKE s.path || '/%')
-          OR EXISTS (SELECT 1 FROM seeds s WHERE s.path LIKE i.path || '/%')
-        )
-    `
-    ids = (db.prepare(sql).all(...params) as { id: string }[]).map((r) => r.id)
+      .map((item) => item.id)
   } else {
     // Visible = all real items EXCEPT the denied subtrees (denied seeds + their descendants)
-    const sql = `
-      WITH denied AS (
-        SELECT i.id, i.path FROM items i
-        ${entityJoin}
-        ${whereSql}
+    const deniedPaths = seeds.map((s) => s.path)
+    const deniedPathSet = new Set(deniedPaths)
+    ids = allItems
+      .filter(
+        (item) =>
+          !deniedPathSet.has(item.path) &&
+          !deniedPaths.some((dp) => item.path.startsWith(dp + '/'))
       )
-      SELECT i.id FROM items i
-      WHERE i.is_virtual = 0
-        AND NOT (
-          i.path IN (SELECT path FROM denied)
-          OR EXISTS (SELECT 1 FROM denied d WHERE i.path LIKE d.path || '/%')
-        )
-    `
-    ids = (db.prepare(sql).all(...params) as { id: string }[]).map((r) => r.id)
+      .map((item) => item.id)
   }
 
   accountFilterRepo.replaceVisibleItems(accountId, ids)
