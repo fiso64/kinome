@@ -88,7 +88,7 @@ func getConfigDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(userConfig, "Kinome", "handler"), nil
+	return filepath.Join(userConfig, "kinome", "handler"), nil
 }
 
 func validateSecret(providedSecret string) bool {
