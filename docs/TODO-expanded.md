@@ -5,8 +5,12 @@ Fix sorting of folders before files even when both have a media type tv or movie
 ---
 
 
-Make it possible to apply non-cascadable view-related settings to children automatically (sortBy and grouping).
+Make it possible to apply non-cascadable view-related settings to children automatically (grouping).
 (This needs more thought.)
+
+---
+
+Make sortBy a cascadable view setting.
 
 ---
 

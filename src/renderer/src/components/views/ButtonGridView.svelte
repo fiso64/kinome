@@ -66,17 +66,13 @@
     listElement?.dispatchEvent(new CustomEvent('smooth-scroll', { detail: { direction } }))
   }
 
-  function stringToGradient(str: string): string {
-    if (str === 'Uncategorized') {
-      return `linear-gradient(135deg, hsl(210, 5%, 25%), hsl(210, 5%, 15%))`
-    }
+  function itemHue(str: string): number {
+    if (str === 'Uncategorized') return 210
     let hash = 0
     for (let i = 0; i < str.length; i++) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash)
     }
-    const h = Math.abs(hash) % 360
-    const h2 = (h + 40) % 360
-    return `linear-gradient(135deg, hsl(${h}, 70%, 40%), hsl(${h2}, 80%, 25%))`
+    return Math.abs(hash) % 360
   }
 </script>
 
@@ -112,11 +108,16 @@
       {#each items as item (item.id)}
         {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
         {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
-        {@const bgGradient = stringToGradient(displayTitle)}
+        {@const bgImage = ('backdropPath' in item && item.backdropPath) ? item.backdropPath : item.posterPath}
+        {@const hasImage = !!bgImage}
+        {@const hue = itemHue(displayTitle)}
+        {@const accentColor = `hsl(${hue}, 50%, 62%)`}
+        {@const loadingGradient = `linear-gradient(135deg, hsl(${hue}, 70%, 40%), hsl(${(hue + 40) % 360}, 80%, 25%))`}
 
         <button
           type="button"
           class="grid-item"
+          class:has-image={hasImage}
           class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
           class:missing={item.isMissing}
           onclick={() => onItemClick(item)}
@@ -126,17 +127,18 @@
               parentItem: parentItem as LibraryItem
             })}
         >
-          <div class="button-background" style="background: {bgGradient};">
-            {#if ('backdropPath' in item && item.backdropPath) || item.posterPath}
-              {@const bgImage = ('backdropPath' in item && item.backdropPath) ? item.backdropPath : item.posterPath}
+          {#if hasImage}
+            <div class="button-background" style="background: {loadingGradient};">
               <img
                 src={getAssetUrl(bgImage + (item._v ? `?v=${item._v}` : ''))}
                 alt=""
                 loading="lazy"
               />
-            {/if}
-            <div class="overlay"></div>
-          </div>
+              <div class="overlay"></div>
+            </div>
+          {:else}
+            <div class="accent-strip" style="background: {accentColor};"></div>
+          {/if}
           
           <div class="name" title={displayTitle}>
             {displayTitle}
@@ -300,6 +302,28 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
+  }
+
+  /* No-image flat style */
+  .grid-item:not(.has-image) {
+    background: var(--color-background-soft);
+    justify-content: flex-start;
+  }
+  .grid-item:not(.has-image):hover {
+    background: var(--color-background-mute);
+  }
+  .grid-item:not(.has-image) .name {
+    text-align: left;
+    padding-left: 1.25rem;
+  }
+
+  .accent-strip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    z-index: 0;
   }
 
   .grid-item.watched {

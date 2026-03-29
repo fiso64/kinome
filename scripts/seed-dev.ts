@@ -40,3 +40,38 @@ accountRepo.createAccount('admin', 'admin', hash, 'admin')
 accountRepo.createAccount('user', 'user', hash, 'normal')
 
 console.log('Done: admin/q (admin), user/q (normal)')
+
+// Create test library structure if it doesn't exist
+const testLibRoot = path.resolve(process.cwd(), 'test-data/test-lib-small')
+if (!fs.existsSync(testLibRoot)) {
+  const files = [
+    '.library/',
+    'Breaking Bad/Extras/file.mkv',
+    'Breaking Bad/S01/e01.mkv',
+    'Breaking Bad/S01/e02.mkv',
+    'Breaking Bad/S01/e03.mkv',
+    'Breaking Bad/S02/e01.mkv',
+    'Breaking Bad/S02/e02.mkv',
+    'Breaking Bad/S02/e03.mkv',
+    'Breaking Bad/file.mkv',
+    'Death Note/Extras/file.mkv',
+    'Death Note/Other Folder/file.mkv',
+    'Death Note/e01.mkv',
+    'Death Note/e02.mkv',
+    'Death Note/e03.mkv',
+    'Death Note/ending-not-an-episode.mkv',
+    'Death Note/not-an-episode.srt',
+    'Spirited Away/movie.mkv',
+    'The Godfather/godfather.mkv',
+  ]
+  for (const entry of files) {
+    const full = path.join(testLibRoot, entry)
+    if (entry.endsWith('/')) {
+      fs.mkdirSync(full, { recursive: true })
+    } else {
+      fs.mkdirSync(path.dirname(full), { recursive: true })
+      fs.writeFileSync(full, '')
+    }
+  }
+  console.log(`Created test library structure at ${testLibRoot}`)
+}
