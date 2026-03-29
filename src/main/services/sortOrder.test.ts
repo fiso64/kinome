@@ -46,7 +46,6 @@ mock.module(NAVIGATION_SERVICE_PATH, () => {
 
 import { buildSortOrder, getChildren } from './navigation.service'
 import { buildFindQuery } from '../database/query-builder'
-import { resolveViewSettings } from '@shared/settings-helpers'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import type { LibraryItem } from '@shared/types'
 
@@ -208,39 +207,7 @@ describe('buildFindQuery — nullsLast', () => {
 })
 
 // =================================================================
-// 3. FolderOrganizationSettings — not part of the cascade
-// =================================================================
-
-describe('resolveViewSettings — sortBy is NOT in the cascade', () => {
-  const baseSettings: any = {
-    defaultLayouts: { _default: { layout: 'grid', clickAction: 'detail' } },
-    defaultLayoutSettings: { grid: {}, list: {}, tabs: {}, sections: {} },
-  }
-
-  it('sortBy is absent from ResolvedViewSettings (not a cascadable field)', () => {
-    const item: any = {
-      id: 'f1',
-      type: 'folder',
-      viewSettings: { sortBy: 'year', sortDescending: true },
-    }
-    const { settings } = resolveViewSettings(item, baseSettings)
-    // sortBy lives in FolderOrganizationSettings, not CascadableViewSettings —
-    // it is never part of the resolved output.
-    expect((settings as any).sortBy).toBeUndefined()
-    expect((settings as any).sortDescending).toBeUndefined()
-  })
-
-  it('passing sortBy in inheritedSettings does not affect resolution', () => {
-    const item: any = { id: 'f1', type: 'folder', viewSettings: {} }
-    // TypeScript prevents this at compile time; verify runtime is also unaffected.
-    const inherited: any = { sortBy: 'date-added' }
-    const { settings } = resolveViewSettings(item, baseSettings, new Set(), inherited)
-    expect((settings as any).sortBy).toBeUndefined()
-  })
-})
-
-// =================================================================
-// 4. getChildren integration — DB ordering per sort mode
+// 3. getChildren integration — DB ordering per sort mode
 // =================================================================
 
 describe('getChildren — sort ordering', () => {
@@ -425,7 +392,7 @@ describe('getChildren — sort ordering', () => {
     expect(result.map((i) => i.id)).toEqual(['s3', 's2', 's1'])
   })
 
-  it('sortBy is read from the folder own viewSettings, NOT from inheritedSettings', async () => {
+  it('inherited sortBy cascades when the folder has no own sort set', async () => {
     ctx.seedItems([
       { id: 'child', parentId: 'parent', path: 'parent/child', type: 'folder' },
     ])
@@ -437,15 +404,13 @@ describe('getChildren — sort ordering', () => {
       { id: 'gcA', parentId: 'child', path: 'parent/child/a', type: 'folder', entityId: 'eA' },
       { id: 'gcZ', parentId: 'child', path: 'parent/child/z', type: 'folder', entityId: 'eZ' },
     ])
-    // child folder itself has no sortBy — defaults to hybrid (name ASC)
-    // Even if caller passes sortBy via inheritedSettings, it must have no effect
+    // child folder has no sortBy — inherited alpha DESC cascades in
     const inheritedWithSortBy: any = { sortBy: 'alpha', sortDescending: true }
     const result = expectItems(await getChildren('child', {}, inheritedWithSortBy))
-    // hybrid default → displayName ASC → Alpha before Zeta
-    expect(result.map((i) => i.title ?? i.name)).toEqual(['Alpha', 'Zeta'])
+    expect(result.map((i) => i.title ?? i.name)).toEqual(['Zeta', 'Alpha'])
   })
 
-  it('sortBy on folder own viewSettings overrides the default regardless of inheritedSettings', async () => {
+  it('inherited sortBy wins over folder own sort (inline context)', async () => {
     ctx.seedItems([
       { id: 'child', parentId: 'parent', path: 'parent/child', type: 'folder' },
     ])
@@ -457,11 +422,10 @@ describe('getChildren — sort ordering', () => {
       { id: 'gcA', parentId: 'child', path: 'parent/child/a', type: 'folder', entityId: 'eA' },
       { id: 'gcZ', parentId: 'child', path: 'parent/child/z', type: 'folder', entityId: 'eZ' },
     ])
-    // child folder itself sets alpha DESC — inheritedSettings passes a conflicting value
-    mergeSettings('child', { viewSettings: { sortBy: 'alpha', sortDescending: true } })
-    const inheritedWithDifferentSort: any = { sortBy: 'date-added' }
-    const result = expectItems(await getChildren('child', {}, inheritedWithDifferentSort))
-    // folder's own alpha DESC wins → Zeta before Alpha
+    // child has alpha ASC; inherited overrides with alpha DESC
+    mergeSettings('child', { viewSettings: { sortBy: 'alpha', sortDescending: false } })
+    const inheritedWithDesc: any = { sortBy: 'alpha', sortDescending: true }
+    const result = expectItems(await getChildren('child', {}, inheritedWithDesc))
     expect(result.map((i) => i.title ?? i.name)).toEqual(['Zeta', 'Alpha'])
   })
 })

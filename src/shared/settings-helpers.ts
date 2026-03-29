@@ -46,6 +46,8 @@ export function resolveViewSettings(
       settings: {
         layout: defaultLayout,
         clickAction: rawStored?.clickAction ?? 'detail',
+        sortBy: rawStored?.sortBy,
+        sortDescending: rawStored?.sortDescending,
         // ...fallbackSpecifics
         ...layoutConfig // Use specific config instead
       },
@@ -107,9 +109,12 @@ export function resolveViewSettings(
 
   const resolvedSources: ResolutionInfo['sources'] = {}
 
-  // 2. Resolve the base properties (`layout`, `clickAction`, `childViewSettings`).
+  // 2. Resolve the base properties (`layout`, `clickAction`, `sortBy`, `sortDescending`, `childViewSettings`).
   const layoutLayer = cascadeLayers.find((layer) => layer.settings.layout)
   const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
+  const sortByLayer = cascadeLayers.find((layer) => layer.settings.sortBy !== undefined)
+  // Use !== undefined so that sortDescending: false is treated as an explicit override.
+  const sortDescendingLayer = cascadeLayers.find((layer) => layer.settings.sortDescending !== undefined)
 
   // Merge childViewSettings from all layers (most specific wins for each property)
   let resolvedChildViewSettings: CascadableViewSettings | undefined = undefined
@@ -136,6 +141,15 @@ export function resolveViewSettings(
     clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
   }
 
+  if (sortByLayer) {
+    resolvedBase.sortBy = sortByLayer.settings.sortBy
+    resolvedSources.sortBy = sortByLayer.sourceInfo
+  }
+  if (sortDescendingLayer) {
+    resolvedBase.sortDescending = sortDescendingLayer.settings.sortDescending
+    resolvedSources.sortDescending = sortDescendingLayer.sourceInfo
+  }
+
   // Invariant I3: Mixed Content Fallback (TV Show -> Season Defaults)
   const hasEffectiveChildLayout =
     resolvedChildViewSettings &&
@@ -152,7 +166,7 @@ export function resolveViewSettings(
 
   if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
   if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
-  if (childSettingsSource) (resolvedSources as any).childViewSettings = childSettingsSource
+  if (childSettingsSource) resolvedSources.childViewSettings = childSettingsSource
 
   // 3. Resolve aesthetics (layout-specific settings)
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}

@@ -91,9 +91,10 @@ export type SortBy = 'hybrid' | 'alpha' | 'date-added' | 'year'
 
 /**
  * Settings that cascade through childViewSettings and per-child overrides.
- * These control rendering and display, and can be contextually overridden by a parent.
+ * These control presentation (layout, ordering, display) and can be contextually
+ * overridden by a parent.
  *
- * ⚠️  New display/rendering settings belong here.
+ * ⚠️  New presentation settings belong here.
  */
 export interface CascadableViewSettings
   extends Partial<
@@ -103,15 +104,19 @@ export interface CascadableViewSettings
       ButtonGridSettings &
       ListSettings
   > {
-  /** Narrow type: only display settings can cascade — FolderOrganizationSettings cannot. */
+  /** How to sort children. Defaults to 'hybrid' (season-aware). */
+  sortBy?: SortBy
+  /** Whether to sort in descending order. Defaults to false. */
+  sortDescending?: boolean
+  /** Narrow type: only presentation settings can cascade — FolderOrganizationSettings cannot. */
   childViewSettings?: CascadableViewSettings
   overrides?: Record<string, CascadableViewSettings>
   title?: string
 }
 
 /**
- * Per-folder organization settings. These are intrinsic to the folder and never cascade.
- * A parent cannot override how a child folder organizes its own contents.
+ * Per-folder structural settings. These are intrinsic to the folder and never cascade.
+ * A parent cannot override a child folder's structural organization.
  *
  * ⚠️  New per-folder structural settings belong here.
  */
@@ -126,10 +131,6 @@ export interface FolderOrganizationSettings {
   sortTop?: string[]
   /** Child item IDs pinned to the bottom, in display order. */
   sortBottom?: string[]
-  /** How to sort children. Defaults to 'hybrid' (season-aware). */
-  sortBy?: SortBy
-  /** Whether to sort in descending order. Defaults to false. */
-  sortDescending?: boolean
 }
 
 /** Runtime list of all FolderOrganizationSettings keys — used for generic merging. */
@@ -137,25 +138,23 @@ export const FOLDER_ORGANIZATION_KEYS = [
   'appliedGrouping',
   'sortTop',
   'sortBottom',
-  'sortBy',
-  'sortDescending',
 ] as const satisfies (keyof FolderOrganizationSettings)[]
 
 /**
  * The complete settings stored per folder in the DB (view_settings_json).
- * = Cascadable display settings + non-cascading folder organization settings.
+ * = Cascadable presentation settings + non-cascading structural settings.
  */
 export type StoredViewSettings = CascadableViewSettings & FolderOrganizationSettings
 
 /**
  * Represents the final, computed settings object after the cascade has been applied.
- * Only covers CascadableViewSettings — FolderOrganizationSettings are read directly
- * from item.viewSettings and never resolved through the cascade.
  */
 export type ResolvedViewSettings = BaseViewSettings &
   Partial<
     GridSettings & HorizontalGridSettings & ButtonGridSettings & ListSettings
   > & {
+    sortBy?: SortBy
+    sortDescending?: boolean
     childViewSettings?: CascadableViewSettings
     overrides?: Record<string, CascadableViewSettings>
     title?: string

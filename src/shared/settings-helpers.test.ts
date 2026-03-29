@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { resolveViewSettings } from './settings-helpers'
-import type { MediaFolder, Settings, StoredViewSettings } from './types'
+import type { CascadableViewSettings, MediaFolder, Settings, StoredViewSettings } from './types'
 
 /** Minimal Settings factory — only the fields resolveViewSettings touches. */
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
@@ -93,6 +93,51 @@ describe('resolveViewSettings', () => {
       const result = resolveViewSettings(extrasFolder, settings, new Set(), inherited)
 
       expect(result.settings.layout).toBe('grid')
+    })
+  })
+
+  describe('sortBy cascade', () => {
+    const settings = makeSettings()
+
+    it('sortBy from item own settings is resolved', () => {
+      const folder = makeFolder({ viewSettings: { sortBy: 'year', sortDescending: true } as StoredViewSettings })
+      const { settings: s, sources } = resolveViewSettings(folder, settings)
+      expect(s.sortBy).toBe('year')
+      expect(s.sortDescending).toBe(true)
+      expect(sources.sortBy?.source).toBe('item')
+      expect(sources.sortDescending?.source).toBe('item')
+    })
+
+    it('sortDescending: false is resolved (not treated as absent)', () => {
+      const folder = makeFolder({ viewSettings: { sortDescending: false } as StoredViewSettings })
+      const { settings: s, sources } = resolveViewSettings(folder, settings)
+      expect(s.sortDescending).toBe(false)
+      expect(sources.sortDescending?.source).toBe('item')
+    })
+
+    it('sortBy from inheritedSettings cascades when item has none', () => {
+      const folder = makeFolder({ viewSettings: {} as StoredViewSettings })
+      const inherited: CascadableViewSettings = { sortBy: 'date-added', sortDescending: true }
+      const { settings: s, sources } = resolveViewSettings(folder, settings, new Set(), inherited)
+      expect(s.sortBy).toBe('date-added')
+      expect(s.sortDescending).toBe(true)
+      expect(sources.sortBy?.source).toBe('inherited')
+    })
+
+    it('inherited sortBy wins over item own (inline context, per cascade spec)', () => {
+      // inheritedSettings = parent's childViewSettings, more specific than item own.
+      const folder = makeFolder({ viewSettings: { sortBy: 'alpha' } as StoredViewSettings })
+      const inherited: CascadableViewSettings = { sortBy: 'date-added' }
+      const { settings: s, sources } = resolveViewSettings(folder, settings, new Set(), inherited)
+      expect(s.sortBy).toBe('date-added')
+      expect(sources.sortBy?.source).toBe('inherited')
+    })
+
+    it('sortBy is absent from resolved settings when not set anywhere', () => {
+      const folder = makeFolder({ viewSettings: {} as StoredViewSettings })
+      const { settings: s } = resolveViewSettings(folder, settings)
+      expect(s.sortBy).toBeUndefined()
+      expect(s.sortDescending).toBeUndefined()
     })
   })
 })

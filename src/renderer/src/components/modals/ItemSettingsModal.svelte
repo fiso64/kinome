@@ -152,7 +152,7 @@
               ;(stored as any)[key] = (resolution.settings as any)[key]
             }
           }
-          // FolderOrganizationSettings fields are never in resolution.sources — merge directly.
+          // Structural (non-cascading) fields are never in resolution.sources — merge directly.
           for (const key of FOLDER_ORGANIZATION_KEYS) {
             if (folder.viewSettings?.[key] !== undefined) {
               ;(stored as any)[key] = folder.viewSettings[key]

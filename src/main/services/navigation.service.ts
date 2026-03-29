@@ -127,7 +127,7 @@ export async function getChildren(
   if (opts.includeHidden === undefined) opts.includeHidden = false
   if (opts.includeIgnored === undefined) opts.includeIgnored = false
 
-  // 4. Resolve effective settings (used for sort order + eager embedding below)
+  // 4. Resolve effective settings — single source of truth for all cascadable presentation decisions.
   const globalSettings = await readSettings()
   const { settings: resolvedSettings } = resolveViewSettings(
     item as MediaFolder,
@@ -136,12 +136,12 @@ export async function getChildren(
     inheritedSettings
   )
 
-  // 5. Build sort order from item's own view settings (FolderOrganizationSettings — never cascades)
+  // 5. Build sort order from resolved settings (cascades through inherited/type/global layers)
   if (!opts.orderBy) {
     opts.orderBy = buildSortOrder(
       item.mediaType ?? undefined,
-      item.viewSettings?.sortBy,
-      item.viewSettings?.sortDescending
+      resolvedSettings.sortBy,
+      resolvedSettings.sortDescending
     )
   }
 

@@ -187,8 +187,10 @@
 
   const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder')
 
-  const effectiveSortBy = $derived<SortBy>(selectedSortBy ?? 'hybrid')
-  const effectiveSortDescending = $derived(selectedSortDescending ?? false)
+  const defaultSortBy = $derived<SortBy>(inheritedInfo.settings.sortBy ?? 'hybrid')
+  const effectiveSortBy = $derived<SortBy>(selectedSortBy ?? defaultSortBy)
+  const defaultSortDescending = $derived(inheritedInfo.settings.sortDescending ?? false)
+  const effectiveSortDescending = $derived(selectedSortDescending ?? defaultSortDescending)
   const isSortOverridden = $derived(selectedSortBy != null || selectedSortDescending != null)
 
   const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
