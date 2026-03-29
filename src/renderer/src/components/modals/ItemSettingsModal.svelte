@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import equal from 'fast-deep-equal'
   import ModalWindow from './_base/ModalWindow.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
@@ -13,6 +14,7 @@
   import type {
     StoredViewSettings,
     CascadableViewSettings,
+    EditableViewSettings,
     MediaFolder,
     MediaFile,
     LibraryItem,
@@ -73,6 +75,12 @@
     return isNaN(parsed) ? undefined : parsed
   }
 
+  function cleanNulls<T extends object>(obj: T): { [K in keyof T]: NonNullable<T[K]> } {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, v]) => v != null)
+    ) as any
+  }
+
   // --- Initial Data Tracking for Partial Updates ---
   let initialValues = $state<any>({})
 
@@ -90,16 +98,8 @@
       seasonNumber: parseOptionalInt(seasonNumber),
       episodeNumber: parseOptionalInt(episodeNumber),
       episodeSeasonNumber: parseOptionalInt(episodeSeasonNumber),
-      selectedLayout,
-      selectedClickAction,
+      viewSettings: cleanNulls(viewSettings),
       selectedGroupBy,
-      selectedSortBy,
-      selectedSortDescending,
-      gridPosterSize,
-      listDescriptionRows,
-      showHorizontalScrollbar,
-      scrollHorizontally,
-      childViewSettings: childViewSettings ? JSON.parse(JSON.stringify(childViewSettings)) : null,
       retrieveChildrenMetadata,
       childrenTypeHint,
       processTvChildren,
@@ -162,16 +162,18 @@
           seasonNumber = folder.seasonNumber?.toString() ?? ''
 
           // Refresh View State
-          selectedLayout = stored.layout ?? null
-          selectedClickAction = stored.clickAction ?? null
           selectedGroupBy = stored.appliedGrouping ?? null
-          selectedSortBy = stored.sortBy ?? null
-          selectedSortDescending = stored.sortDescending ?? null
-          gridPosterSize = stored.gridPosterSize ?? null
-          listDescriptionRows = stored.listDescriptionRows ?? null
-          showHorizontalScrollbar = stored.showHorizontalScrollbar ?? null
-          scrollHorizontally = stored.scrollHorizontally ?? null
-          childViewSettings = stored.childViewSettings ?? null
+          viewSettings = {
+            layout: stored.layout ?? null,
+            clickAction: stored.clickAction ?? null,
+            sortBy: stored.sortBy ?? null,
+            sortDescending: stored.sortDescending ?? null,
+            gridPosterSize: stored.gridPosterSize ?? null,
+            listDescriptionRows: stored.listDescriptionRows ?? null,
+            showHorizontalScrollbar: stored.showHorizontalScrollbar ?? null,
+            scrollHorizontally: stored.scrollHorizontally ?? null,
+            childViewSettings: stored.childViewSettings ?? null,
+          }
 
           // Refresh Folder Settings
           retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
@@ -255,20 +257,20 @@
     return stored
   })()
 
-  let selectedLayout = $state(_isFolder ? (initialStored.layout ?? null) : null)
-  let selectedClickAction = $state(_isFolder ? (initialStored.clickAction ?? null) : null)
   let selectedGroupBy = $state(_isFolder ? (initialStored.appliedGrouping ?? null) : null)
-  let selectedSortBy = $state(_isFolder ? (initialStored.sortBy ?? null) : null)
-  let selectedSortDescending = $state(_isFolder ? (initialStored.sortDescending ?? null) : null)
-  let gridPosterSize = $state((_isFolder ? initialStored.gridPosterSize : null) ?? null)
-  let listDescriptionRows = $state((_isFolder ? initialStored.listDescriptionRows : null) ?? null)
-  let showHorizontalScrollbar = $state(
-    (_isFolder ? initialStored.showHorizontalScrollbar : null) ?? null
+  let viewSettings = $state<EditableViewSettings>(
+    _isFolder ? {
+      layout: initialStored.layout ?? null,
+      clickAction: initialStored.clickAction ?? null,
+      sortBy: initialStored.sortBy ?? null,
+      sortDescending: initialStored.sortDescending ?? null,
+      gridPosterSize: initialStored.gridPosterSize ?? null,
+      listDescriptionRows: initialStored.listDescriptionRows ?? null,
+      showHorizontalScrollbar: initialStored.showHorizontalScrollbar ?? null,
+      scrollHorizontally: initialStored.scrollHorizontally ?? null,
+      childViewSettings: initialStored.childViewSettings ?? null,
+    } : {}
   )
-  let scrollHorizontally = $state(
-    (_isFolder ? initialStored.scrollHorizontally : null) ?? null
-  )
-  let childViewSettings = $state<CascadableViewSettings | null>(_isFolder ? (initialStored.childViewSettings ?? null) : null)
 
   // --- Folder Settings State ---
   let retrieveChildrenMetadata = $state(
@@ -294,22 +296,6 @@
 
   // --- Actions ---
 
-  /**
-   * Applies the current view settings from the modal's state to a target object.
-   * This centralizes the logic for both physical and virtual folders.
-   * @param target The object to apply view settings to (either a LibraryItem or a virtual folder settings object).
-   */
-  function applyViewSettings(target: Partial<StoredViewSettings>) {
-    target.layout = selectedLayout
-    target.clickAction = selectedClickAction
-    target.sortBy = selectedSortBy
-    target.sortDescending = selectedSortDescending
-    target.gridPosterSize = gridPosterSize
-    target.listDescriptionRows = listDescriptionRows
-    target.showHorizontalScrollbar = showHorizontalScrollbar
-    target.scrollHorizontally = scrollHorizontally
-  }
-
   async function buildUpdatedItems(): Promise<LibraryItem[]> {
     const itemsToReturn: LibraryItem[] = []
 
@@ -325,8 +311,8 @@
       let changedLocal = false
       if (isNumeric(n1) && isNumeric(n2)) {
         changedLocal = parseInt(n1.toString(), 10) !== parseInt(n2.toString(), 10)
-      } else if (Array.isArray(n1) || (n1 && typeof n1 === 'object')) {
-        changedLocal = JSON.stringify(n1) !== JSON.stringify(n2)
+      } else if (typeof n1 === 'object' || typeof n2 === 'object') {
+        changedLocal = !equal(n1, n2)
       } else {
         changedLocal = n1 !== n2
       }
@@ -348,50 +334,13 @@
         viewSettings: {}
       }
 
-      applyViewSettings(parentUpdates.viewSettings)
-      if (childViewSettings) {
-        parentUpdates.viewSettings.childViewSettings = JSON.parse(JSON.stringify(childViewSettings))
-      }
+      const viewUpdates = cleanNulls(viewSettings)
+      parentUpdates.viewSettings = { ...parentUpdates.viewSettings, ...viewUpdates }
 
       // Check if we actually changed anything relative to the initial override/parent settings
       if (
-        hasChanged(parentUpdates.viewSettings.layout, initialValues.selectedLayout, 'layout') ||
-        hasChanged(
-          parentUpdates.viewSettings.clickAction,
-          initialValues.selectedClickAction,
-          'clickAction'
-        ) ||
-        hasChanged(parentUpdates.viewSettings.sortBy, initialValues.selectedSortBy, 'sortBy') ||
-        hasChanged(
-          parentUpdates.viewSettings.sortDescending,
-          initialValues.selectedSortDescending,
-          'sortDescending'
-        ) ||
-        hasChanged(
-          parentUpdates.viewSettings.gridPosterSize,
-          initialValues.gridPosterSize,
-          'gridPosterSize'
-        ) ||
-        hasChanged(
-          parentUpdates.viewSettings.listDescriptionRows,
-          initialValues.listDescriptionRows,
-          'listDescriptionRows'
-        ) ||
-        hasChanged(
-          parentUpdates.viewSettings.showHorizontalScrollbar,
-          initialValues.showHorizontalScrollbar,
-          'showHorizontalScrollbar'
-        ) ||
-        hasChanged(
-          parentUpdates.viewSettings.scrollHorizontally,
-          initialValues.scrollHorizontally,
-          'scrollHorizontally'
-        ) ||
-        hasChanged(
-          parentUpdates.viewSettings.childViewSettings,
-          initialValues.childViewSettings,
-          'childViewSettings'
-        )
+        hasChanged(cleanNulls(viewSettings), initialValues.viewSettings, 'viewSettings') ||
+        hasChanged(parentUpdates.viewSettings.childViewSettings, initialValues.viewSettings?.childViewSettings, 'childViewSettings')
       ) {
         console.log(`[ItemSettingsModal] [DEBUG] Override mode changes detected.`, parentUpdates)
         itemsToReturn.push(parentUpdates as LibraryItem)
@@ -467,43 +416,9 @@
     if (isFolder) {
       // If we don't have an override parent, view settings are saved to the item itself.
       if (!overrideParent) {
-        const viewUpdates: any = {}
-        applyViewSettings(viewUpdates)
-
-        if (
-          hasChanged(viewUpdates.layout, initialValues.selectedLayout, 'layout') ||
-          hasChanged(viewUpdates.clickAction, initialValues.selectedClickAction, 'clickAction') ||
-          hasChanged(viewUpdates.sortBy, initialValues.selectedSortBy, 'sortBy') ||
-          hasChanged(viewUpdates.sortDescending, initialValues.selectedSortDescending, 'sortDescending') ||
-          hasChanged(viewUpdates.gridPosterSize, initialValues.gridPosterSize, 'gridPosterSize') ||
-          hasChanged(
-            viewUpdates.listDescriptionRows,
-            initialValues.listDescriptionRows,
-            'listDescriptionRows'
-          ) ||
-          hasChanged(
-            viewUpdates.showHorizontalScrollbar,
-            initialValues.showHorizontalScrollbar,
-            'showHorizontalScrollbar'
-          ) ||
-          hasChanged(
-            viewUpdates.scrollHorizontally,
-            initialValues.scrollHorizontally,
-            'scrollHorizontally'
-          )
-        ) {
+        const viewUpdates = cleanNulls(viewSettings)
+        if (hasChanged(viewUpdates, initialValues.viewSettings, 'viewSettings')) {
           updates.viewSettings = viewUpdates
-          changed = true
-        }
-
-        const finalChildViewSettings = childViewSettings
-          ? JSON.parse(JSON.stringify(childViewSettings))
-          : null
-        if (
-          hasChanged(finalChildViewSettings, initialValues.childViewSettings, 'childViewSettings')
-        ) {
-          if (!updates.viewSettings) updates.viewSettings = {}
-          updates.viewSettings.childViewSettings = finalChildViewSettings
           changed = true
         }
       }
@@ -664,16 +579,8 @@
           {settings}
           {inheritedSettings}
           {inheritedLabel}
-          bind:selectedLayout
-          bind:selectedClickAction
+          bind:viewSettings
           bind:selectedGroupBy
-          bind:selectedSortBy
-          bind:selectedSortDescending
-          bind:gridPosterSize
-          bind:listDescriptionRows
-          bind:showHorizontalScrollbar
-          bind:scrollHorizontally
-          bind:childViewSettings
         />
     {:else if activeTab === 'virtualFolder' && caps.canEditVirtualFolder}
       <VirtualFolderTab bind:filter={vfolderFilter} parentId={item.parentId ?? ''} {suggestions} />

@@ -7,6 +7,7 @@
     ALL_VIEW_LAYOUTS,
     type MediaFolder,
     type CascadableViewSettings,
+    type EditableViewSettings,
     type StoredViewSettings,
     type Settings,
     type ViewLayout,
@@ -67,16 +68,8 @@
     configMode = false,
     // Bindings
     activeConfigLayout = $bindable('grid'),
-    selectedLayout = $bindable(),
-    selectedClickAction = $bindable(),
+    viewSettings = $bindable<EditableViewSettings>({}),
     selectedGroupBy = $bindable(),
-    selectedSortBy = $bindable(),
-    selectedSortDescending = $bindable(),
-    gridPosterSize = $bindable(),
-    listDescriptionRows = $bindable(),
-    showHorizontalScrollbar = $bindable(),
-    scrollHorizontally = $bindable(),
-    childViewSettings = $bindable(),
     inheritedSettings,
     inheritedLabel
   }: {
@@ -91,16 +84,8 @@
     configMode?: boolean
     // Bindings
     activeConfigLayout?: ViewLayout
-    selectedLayout?: ViewLayout | null
-    selectedClickAction?: 'detail' | 'navigate'
+    viewSettings?: EditableViewSettings
     selectedGroupBy?: string | null
-    selectedSortBy?: SortBy | null
-    selectedSortDescending?: boolean | null
-    gridPosterSize?: number | null
-    listDescriptionRows?: number | null
-    showHorizontalScrollbar?: boolean | null
-    scrollHorizontally?: boolean | null
-    childViewSettings?: CascadableViewSettings | null
     inheritedSettings?: CascadableViewSettings
     inheritedLabel?: string
   } = $props()
@@ -139,8 +124,8 @@
       ...(inheritedSettings ?? {}),
       overrides: {
         ...(inheritedSettings?.overrides ?? {}),
-        [baseItemForResolving.id ?? 'config-dummy-id']: selectedLayout
-          ? { layout: selectedLayout }
+        [baseItemForResolving.id ?? 'config-dummy-id']: viewSettings.layout
+          ? { layout: viewSettings.layout }
           : {}
       }
     }
@@ -156,46 +141,46 @@
     )
   })
 
-  const effectiveLayout = $derived(selectedLayout ?? inheritedInfo.settings.layout)
+  const effectiveLayout = $derived(viewSettings.layout ?? inheritedInfo.settings.layout)
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : effectiveLayout)
 
   const defaultGridSize = $derived(
     inheritedInfo.settings.gridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
   )
-  const effectiveGridSize = $derived(gridPosterSize ?? defaultGridSize)
-  const isGridSizeOverridden = $derived(gridPosterSize != null)
+  const effectiveGridSize = $derived(viewSettings.gridPosterSize ?? defaultGridSize)
+  const isGridSizeOverridden = $derived(viewSettings.gridPosterSize != null)
 
   const defaultDescriptionRows = $derived(
     inheritedInfo.settings.listDescriptionRows ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
   )
-  const effectiveDescriptionRows = $derived(listDescriptionRows ?? defaultDescriptionRows)
-  const isDescriptionRowsOverridden = $derived(listDescriptionRows != null)
+  const effectiveDescriptionRows = $derived(viewSettings.listDescriptionRows ?? defaultDescriptionRows)
+  const isDescriptionRowsOverridden = $derived(viewSettings.listDescriptionRows != null)
 
   const defaultShowScrollbar = $derived(
     (inheritedInfo.settings as any).showHorizontalScrollbar ??
       LAYOUT_SPECIFIC_SETTINGS_CONFIG['horizontal-grid'].showHorizontalScrollbar
   )
-  const effectiveShowScrollbar = $derived(showHorizontalScrollbar ?? defaultShowScrollbar)
-  const isShowScrollbarOverridden = $derived(showHorizontalScrollbar != null)
+  const effectiveShowScrollbar = $derived(viewSettings.showHorizontalScrollbar ?? defaultShowScrollbar)
+  const isShowScrollbarOverridden = $derived(viewSettings.showHorizontalScrollbar != null)
 
   const defaultScrollHorizontally = $derived(
     (inheritedInfo.settings as any).scrollHorizontally ?? false
   )
-  const effectiveScrollHorizontally = $derived(scrollHorizontally ?? defaultScrollHorizontally)
-  const isScrollHorizontallyOverridden = $derived(scrollHorizontally != null)
+  const effectiveScrollHorizontally = $derived(viewSettings.scrollHorizontally ?? defaultScrollHorizontally)
+  const isScrollHorizontallyOverridden = $derived(viewSettings.scrollHorizontally != null)
 
   const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder')
 
   const defaultSortBy = $derived<SortBy>(inheritedInfo.settings.sortBy ?? 'hybrid')
-  const effectiveSortBy = $derived<SortBy>(selectedSortBy ?? defaultSortBy)
+  const effectiveSortBy = $derived<SortBy>(viewSettings.sortBy ?? defaultSortBy)
   const defaultSortDescending = $derived(inheritedInfo.settings.sortDescending ?? false)
-  const effectiveSortDescending = $derived(selectedSortDescending ?? defaultSortDescending)
-  const isSortOverridden = $derived(selectedSortBy != null || selectedSortDescending != null)
+  const effectiveSortDescending = $derived(viewSettings.sortDescending ?? defaultSortDescending)
+  const isSortOverridden = $derived(viewSettings.sortBy != null || viewSettings.sortDescending != null)
 
   const defaultClickAction = $derived(inheritedInfo.settings.clickAction ?? 'detail')
-  const effectiveClickAction = $derived(selectedClickAction ?? defaultClickAction)
-  const isClickActionOverridden = $derived(selectedClickAction != null)
+  const effectiveClickAction = $derived(viewSettings.clickAction ?? defaultClickAction)
+  const isClickActionOverridden = $derived(viewSettings.clickAction != null)
 
   const hasLayoutOptions = $derived(
     layoutToShowOptionsFor === 'grid' ||
@@ -244,19 +229,23 @@
   }
 
   function openChildSettings() {
+    // Strip overrides — they are per-item settings managed through the item's own settings modal,
+    // not part of the generic child layout. Passing them in would risk clobbering them on save.
+    const { overrides: _ignored, ...childWithoutOverrides } = viewSettings.childViewSettings ?? {}
     modalStore.open('viewSettings', {
       title: 'Configure Child Layout',
-      initialSettings: childViewSettings ?? {},
+      initialSettings: childWithoutOverrides,
       typeKey: '_default',
       settings,
       onSave: (newSettings) => {
-        const merged = { ...(childViewSettings ?? {}), ...newSettings }
+        const { overrides: _ignored, ...newWithoutOverrides } = newSettings
+        const merged = { ...(viewSettings.childViewSettings ?? {}), ...newWithoutOverrides }
         Object.keys(merged).forEach((key) => {
           if (merged[key as keyof StoredViewSettings] === null) {
             delete merged[key as keyof StoredViewSettings]
           }
         })
-        childViewSettings = merged
+        viewSettings.childViewSettings = merged
       },
       groupByKeys,
       availableLayouts: [...ALL_VIEW_LAYOUTS],
@@ -271,8 +260,8 @@
     <div class="heading-with-action">
       <h3>View As</h3>
       <div class="heading-actions">
-        {#if selectedLayout !== null}
-          <button class="link-button" onclick={() => (selectedLayout = null)}>Reset to default</button>
+        {#if viewSettings.layout != null}
+          <button class="link-button" onclick={() => (viewSettings.layout = null)}>Reset to default</button>
         {/if}
         {#if hasLayoutOptions}
           <button class="link-button" onclick={() => (showLayoutOptions = !showLayoutOptions)}>
@@ -289,7 +278,7 @@
             name="layout"
             value={layout.value}
             checked={effectiveLayout === layout.value}
-            onchange={() => (selectedLayout = layout.value as any)}
+            onchange={() => (viewSettings.layout = layout.value as any)}
           />
           <span>{layout.label}</span>
         </label>
@@ -323,7 +312,7 @@
           <h4>Poster Size</h4>
           {#if !configMode}
             {#if isGridSizeOverridden}
-              <button class="link-button" onclick={() => (gridPosterSize = null)}>Reset to default</button>
+              <button class="link-button" onclick={() => (viewSettings.gridPosterSize = null)}>Reset to default</button>
             {:else}
               <span class="inherited-value-text-inline">
                 Using default from <strong>{formatSource(inheritedInfo.sources.gridPosterSize)}</strong>
@@ -335,7 +324,7 @@
           <input
             type="range"
             value={effectiveGridSize}
-            oninput={(e) => (gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
+            oninput={(e) => (viewSettings.gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
             min="50"
             max="500"
             step="10"
@@ -349,7 +338,7 @@
           <h4>Horizontal Scrolling</h4>
           {#if !configMode}
             {#if isScrollHorizontallyOverridden}
-              <button class="link-button" onclick={() => (scrollHorizontally = null)}>Reset to default</button>
+              <button class="link-button" onclick={() => (viewSettings.scrollHorizontally = null)}>Reset to default</button>
             {:else}
               <span class="inherited-value-text-inline">
                 Using default from <strong>{formatSource((inheritedInfo.sources as any).scrollHorizontally)}</strong>
@@ -361,7 +350,7 @@
           <input
             type="checkbox"
             checked={effectiveScrollHorizontally}
-            onchange={() => (scrollHorizontally = !effectiveScrollHorizontally)}
+            onchange={() => (viewSettings.scrollHorizontally = !effectiveScrollHorizontally)}
           />
           <span>Scroll horizontally</span>
         </label>
@@ -372,7 +361,7 @@
           <h4>Horizontal Scrollbar</h4>
           {#if !configMode}
             {#if isShowScrollbarOverridden}
-              <button class="link-button" onclick={() => (showHorizontalScrollbar = null)}>Reset to default</button>
+              <button class="link-button" onclick={() => (viewSettings.showHorizontalScrollbar = null)}>Reset to default</button>
             {:else}
               <span class="inherited-value-text-inline">
                 Using default from <strong>{formatSource(inheritedInfo.sources.showHorizontalScrollbar)}</strong>
@@ -384,7 +373,7 @@
           <input
             type="checkbox"
             checked={effectiveShowScrollbar}
-            onchange={() => (showHorizontalScrollbar = !effectiveShowScrollbar)}
+            onchange={() => (viewSettings.showHorizontalScrollbar = !effectiveShowScrollbar)}
           />
           <span>Show horizontal scrollbar</span>
         </label>
@@ -395,7 +384,7 @@
           <h4>Description Rows</h4>
           {#if !configMode}
             {#if isDescriptionRowsOverridden}
-              <button class="link-button" onclick={() => (listDescriptionRows = null)}>Reset to default</button>
+              <button class="link-button" onclick={() => (viewSettings.listDescriptionRows = null)}>Reset to default</button>
             {:else}
               <span class="inherited-value-text-inline">
                 Using default from <strong>{formatSource(inheritedInfo.sources.listDescriptionRows)}</strong>
@@ -407,7 +396,7 @@
           <input
             type="range"
             value={effectiveDescriptionRows}
-            oninput={(e) => (listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
+            oninput={(e) => (viewSettings.listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
             min="0"
             max="10"
             step="1"
@@ -437,13 +426,13 @@
     <div class="heading-with-action">
       <h4>Ordering</h4>
       {#if isSortOverridden}
-        <button class="link-button" onclick={() => { selectedSortBy = null; selectedSortDescending = null }}>Reset to default</button>
+        <button class="link-button" onclick={() => { viewSettings.sortBy = null; viewSettings.sortDescending = null }}>Reset to default</button>
       {/if}
     </div>
     <div class="sort-controls">
       <select
         value={effectiveSortBy}
-        onchange={(e) => (selectedSortBy = e.currentTarget.value as SortBy)}
+        onchange={(e) => (viewSettings.sortBy = e.currentTarget.value as SortBy)}
       >
         <option value="hybrid">Hybrid</option>
         <option value="alpha">Alphabetic</option>
@@ -455,7 +444,7 @@
         <input
           type="checkbox"
           checked={effectiveSortDescending}
-          onchange={() => (selectedSortDescending = !effectiveSortDescending)}
+          onchange={() => (viewSettings.sortDescending = !effectiveSortDescending)}
         />
         <span>Descending</span>
       </label>
@@ -476,12 +465,12 @@
     <div class="divider"></div>
     <div class="heading-with-action">
       <h4>Child Item Layout</h4>
-      {#if childViewSettings}
-        <button class="link-button" onclick={() => (childViewSettings = null)}>Reset</button>
+      {#if viewSettings.childViewSettings != null}
+        <button class="link-button" onclick={() => (viewSettings.childViewSettings = null)}>Reset</button>
       {/if}
     </div>
     <div class="view-config-row" onclick={openChildSettings}>
-      <span>{formatLayoutString(childViewSettings)}</span>
+      <span>{formatLayoutString(viewSettings.childViewSettings)}</span>
       <button class="secondary" tabindex="-1">Configure...</button>
     </div>
   {/if}

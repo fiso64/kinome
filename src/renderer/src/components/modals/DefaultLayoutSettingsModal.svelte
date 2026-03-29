@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Settings, ViewLayout } from '@shared/types'
+  import type { Settings, ViewLayout, EditableViewSettings } from '@shared/types'
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
 
@@ -19,33 +19,37 @@
 
   let activeLayout = $state<ViewLayout>('grid')
 
-  let currentGridPosterSize = $state(localSettings?.grid?.gridPosterSize)
-  let currentListDescriptionRows = $state(localSettings?.list?.listDescriptionRows)
-  let currentShowHorizontalScrollbar = $state(localSettings?.['horizontal-grid']?.showHorizontalScrollbar)
-  let currentScrollHorizontally = $state(localSettings?.['button-grid']?.scrollHorizontally)
+  let viewSettings = $state<EditableViewSettings>({
+    gridPosterSize: localSettings?.grid?.gridPosterSize,
+    listDescriptionRows: localSettings?.list?.listDescriptionRows,
+    showHorizontalScrollbar: localSettings?.['horizontal-grid']?.showHorizontalScrollbar,
+    scrollHorizontally: localSettings?.['button-grid']?.scrollHorizontally,
+  })
 
   $effect(() => {
     if (localSettings && activeLayout) {
-      currentGridPosterSize = localSettings[activeLayout]?.gridPosterSize
-      currentListDescriptionRows = localSettings[activeLayout]?.listDescriptionRows
-      currentShowHorizontalScrollbar = localSettings[activeLayout]?.showHorizontalScrollbar
-      currentScrollHorizontally = localSettings[activeLayout]?.scrollHorizontally
+      viewSettings = {
+        gridPosterSize: localSettings[activeLayout]?.gridPosterSize,
+        listDescriptionRows: localSettings[activeLayout]?.listDescriptionRows,
+        showHorizontalScrollbar: localSettings[activeLayout]?.showHorizontalScrollbar,
+        scrollHorizontally: localSettings[activeLayout]?.scrollHorizontally,
+      }
     }
   })
 
   $effect(() => {
     if (localSettings && activeLayout) {
-      if (currentGridPosterSize !== undefined) {
-        localSettings[activeLayout].gridPosterSize = currentGridPosterSize
+      if (viewSettings.gridPosterSize !== undefined) {
+        localSettings[activeLayout].gridPosterSize = viewSettings.gridPosterSize
       }
-      if (currentListDescriptionRows !== undefined) {
-        localSettings[activeLayout].listDescriptionRows = currentListDescriptionRows
+      if (viewSettings.listDescriptionRows !== undefined) {
+        localSettings[activeLayout].listDescriptionRows = viewSettings.listDescriptionRows
       }
-      if (currentShowHorizontalScrollbar !== undefined) {
-        localSettings[activeLayout].showHorizontalScrollbar = currentShowHorizontalScrollbar
+      if (viewSettings.showHorizontalScrollbar !== undefined) {
+        localSettings[activeLayout].showHorizontalScrollbar = viewSettings.showHorizontalScrollbar
       }
-      if (currentScrollHorizontally !== undefined) {
-        localSettings[activeLayout].scrollHorizontally = currentScrollHorizontally
+      if (viewSettings.scrollHorizontally !== undefined) {
+        localSettings[activeLayout].scrollHorizontally = viewSettings.scrollHorizontally
       }
     }
   })
@@ -70,10 +74,7 @@
       configMode={true}
       {settings}
       bind:activeConfigLayout={activeLayout}
-      bind:gridPosterSize={currentGridPosterSize}
-      bind:showHorizontalScrollbar={currentShowHorizontalScrollbar}
-      bind:scrollHorizontally={currentScrollHorizontally}
-      bind:listDescriptionRows={currentListDescriptionRows}
+      bind:viewSettings
     />
   {/if}
 </ModalWindow>

@@ -1,7 +1,8 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
-  import type { CascadableViewSettings, Settings, SortBy, ViewLayout } from '@shared/types'
+  import type { CascadableViewSettings, EditableViewSettings, Settings, ViewLayout } from '@shared/types'
+
   let {
     typeKey,
     title,
@@ -24,30 +25,13 @@
     settings: Settings | null
   } = $props()
 
-  let selectedLayout = $state(initialSettings.layout)
-  let selectedClickAction = $state(initialSettings.clickAction)
-  let selectedSortBy = $state(initialSettings.sortBy ?? null)
-  let selectedSortDescending = $state(initialSettings.sortDescending ?? null)
-  let gridPosterSize = $state(initialSettings.gridPosterSize)
-  let listDescriptionRows = $state(initialSettings.listDescriptionRows)
-  let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
-  let childViewSettings = $state<CascadableViewSettings | null>(initialSettings.childViewSettings || null)
+  let viewSettings = $state<EditableViewSettings>({ ...initialSettings })
 
   function handleSave() {
-    const newSettings: CascadableViewSettings = {
-      layout: selectedLayout,
-      clickAction: selectedClickAction,
-      sortBy: selectedSortBy ?? undefined,
-      sortDescending: selectedSortDescending ?? undefined,
-      gridPosterSize: gridPosterSize,
-      listDescriptionRows: listDescriptionRows,
-      showHorizontalScrollbar: showHorizontalScrollbar,
-      childViewSettings: childViewSettings
-    }
-    // We don't clean null values here anymore. We allow them to propagate
-    // as "reset" signals so that the parent merger can properly remove
-    // existing overrides. Final cleanup happens in the parent or at save time.
-    onSave(newSettings)
+    const cleaned = Object.fromEntries(
+      Object.entries(viewSettings).filter(([, v]) => v != null)
+    ) as CascadableViewSettings
+    onSave(cleaned)
     onClose()
   }
 </script>
@@ -56,14 +40,7 @@
   <ViewConfigurator
     {typeKey}
     {settings}
-    bind:selectedLayout
-    bind:selectedClickAction
-    bind:selectedSortBy
-    bind:selectedSortDescending
-    bind:gridPosterSize
-    bind:listDescriptionRows
-    bind:showHorizontalScrollbar
-    bind:childViewSettings
+    bind:viewSettings
     {groupByKeys}
     {availableLayouts}
     {showClickAction}

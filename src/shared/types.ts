@@ -160,6 +160,15 @@ export type ResolvedViewSettings = BaseViewSettings &
     title?: string
   }
 
+/**
+ * Mutable view settings object used by the settings UI.
+ * Each field is nullable: null means "not set / use inherited value".
+ * Automatically includes all CascadableViewSettings fields.
+ */
+export type EditableViewSettings = {
+  [K in keyof CascadableViewSettings]?: CascadableViewSettings[K] | null
+}
+
 export type ResolutionSource = {
   source: 'item' | 'type' | 'global' | 'inherited' | 'override'
   sourceKey?: DefaultLayoutKey | string
