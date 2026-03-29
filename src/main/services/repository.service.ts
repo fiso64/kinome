@@ -93,9 +93,10 @@ export function ensureHomeDefaults(rootId: string): boolean {
     appliedGrouping: 'vt._home_category',
     childViewSettings: {
       layout: 'horizontal-grid',
+      sortBy: 'random',
       overrides: {
-        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 220, scrollHorizontally: true },
-        [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false }
+        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 220, scrollHorizontally: true, sortBy: 'alpha' },
+        [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false, sortBy: 'alpha' }
       }
     },
     sortTop: [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID],

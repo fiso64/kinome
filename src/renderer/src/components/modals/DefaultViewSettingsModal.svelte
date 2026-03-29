@@ -1,7 +1,7 @@
 <script lang="ts">
   import ModalWindow from './_base/ModalWindow.svelte'
   import ViewConfigurator from '../ui/ViewConfigurator.svelte'
-  import type { CascadableViewSettings, Settings, ViewLayout } from '@shared/types'
+  import type { CascadableViewSettings, Settings, SortBy, ViewLayout } from '@shared/types'
   let {
     typeKey,
     title,
@@ -26,6 +26,8 @@
 
   let selectedLayout = $state(initialSettings.layout)
   let selectedClickAction = $state(initialSettings.clickAction)
+  let selectedSortBy = $state(initialSettings.sortBy ?? null)
+  let selectedSortDescending = $state(initialSettings.sortDescending ?? null)
   let gridPosterSize = $state(initialSettings.gridPosterSize)
   let listDescriptionRows = $state(initialSettings.listDescriptionRows)
   let showHorizontalScrollbar = $state((initialSettings as any).showHorizontalScrollbar)
@@ -35,6 +37,8 @@
     const newSettings: CascadableViewSettings = {
       layout: selectedLayout,
       clickAction: selectedClickAction,
+      sortBy: selectedSortBy ?? undefined,
+      sortDescending: selectedSortDescending ?? undefined,
       gridPosterSize: gridPosterSize,
       listDescriptionRows: listDescriptionRows,
       showHorizontalScrollbar: showHorizontalScrollbar,
@@ -54,6 +58,8 @@
     {settings}
     bind:selectedLayout
     bind:selectedClickAction
+    bind:selectedSortBy
+    bind:selectedSortDescending
     bind:gridPosterSize
     bind:listDescriptionRows
     bind:showHorizontalScrollbar
