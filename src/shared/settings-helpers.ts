@@ -11,6 +11,19 @@ import type {
 } from './types'
 import { LAYOUT_SPECIFIC_SETTINGS_CONFIG, CONTAINER_LAYOUTS } from './types'
 
+/**
+ * Flat cascadable properties that resolve by first-wins across the cascade layers.
+ * Adding a new flat cascadable property only requires adding it here (and to the types).
+ */
+const BASE_CASCADABLE_KEYS = ['layout', 'clickAction', 'sortBy', 'sortDescending'] as const
+type BaseCascadableKey = (typeof BASE_CASCADABLE_KEYS)[number]
+
+/** Hardcoded safety-net defaults, used only when no cascade layer provides a value. */
+const BASE_CASCADABLE_DEFAULTS: Partial<Record<BaseCascadableKey, unknown>> = {
+  layout: 'grid',
+  clickAction: 'detail',
+}
+
 // This type alias helps clarify that the function can accept a folder-like item
 // which could be a real MediaFolder, a virtual one, or undefined.
 type ResolvableItem =
@@ -109,14 +122,20 @@ export function resolveViewSettings(
 
   const resolvedSources: ResolutionInfo['sources'] = {}
 
-  // 2. Resolve the base properties (`layout`, `clickAction`, `sortBy`, `sortDescending`, `childViewSettings`).
-  const layoutLayer = cascadeLayers.find((layer) => layer.settings.layout)
-  const clickActionLayer = cascadeLayers.find((layer) => layer.settings.clickAction)
-  const sortByLayer = cascadeLayers.find((layer) => layer.settings.sortBy !== undefined)
-  // Use !== undefined so that sortDescending: false is treated as an explicit override.
-  const sortDescendingLayer = cascadeLayers.find((layer) => layer.settings.sortDescending !== undefined)
+  // 2. Resolve flat base properties — first non-null value across layers wins.
+  const resolvedBase: any = {}
 
-  // Merge childViewSettings from all layers (most specific wins for each property)
+  for (const key of BASE_CASCADABLE_KEYS) {
+    const winningLayer = cascadeLayers.find((layer) => layer.settings[key] != null)
+    if (winningLayer) {
+      resolvedBase[key] = winningLayer.settings[key]
+      resolvedSources[key as keyof ResolvedViewSettings] = winningLayer.sourceInfo
+    } else if (key in BASE_CASCADABLE_DEFAULTS) {
+      resolvedBase[key] = BASE_CASCADABLE_DEFAULTS[key]
+    }
+  }
+
+  // 3. Resolve childViewSettings — merged from all layers (most specific wins per property).
   let resolvedChildViewSettings: CascadableViewSettings | undefined = undefined
   let childSettingsSource: ResolutionSource | undefined = undefined
 
@@ -127,27 +146,11 @@ export function resolveViewSettings(
       childSettingsSource = layer.sourceInfo
 
       const prevOverrides = resolvedChildViewSettings.overrides
-
       Object.assign(resolvedChildViewSettings, layerChild)
-
       if (layerChild.overrides) {
         resolvedChildViewSettings.overrides = { ...prevOverrides, ...layerChild.overrides }
       }
     }
-  }
-
-  const resolvedBase: any = {
-    layout: layoutLayer?.settings.layout ?? 'grid',
-    clickAction: clickActionLayer?.settings.clickAction ?? 'detail',
-  }
-
-  if (sortByLayer) {
-    resolvedBase.sortBy = sortByLayer.settings.sortBy
-    resolvedSources.sortBy = sortByLayer.sourceInfo
-  }
-  if (sortDescendingLayer) {
-    resolvedBase.sortDescending = sortDescendingLayer.settings.sortDescending
-    resolvedSources.sortDescending = sortDescendingLayer.sourceInfo
   }
 
   // Invariant I3: Mixed Content Fallback (TV Show -> Season Defaults)
@@ -163,12 +166,9 @@ export function resolveViewSettings(
   }
 
   resolvedBase.childViewSettings = resolvedChildViewSettings
-
-  if (layoutLayer) resolvedSources.layout = layoutLayer.sourceInfo
-  if (clickActionLayer) resolvedSources.clickAction = clickActionLayer.sourceInfo
   if (childSettingsSource) resolvedSources.childViewSettings = childSettingsSource
 
-  // 3. Resolve aesthetics (layout-specific settings)
+  // 4. Resolve layout-specific settings
   const layoutConfig = (LAYOUT_SPECIFIC_SETTINGS_CONFIG as any)[resolvedBase.layout] ?? {}
   const specificKeys = Object.keys(layoutConfig).filter(k => k !== 'groupBy')
   const resolvedSpecific: Record<string, any> = {}
