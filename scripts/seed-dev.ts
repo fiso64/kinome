@@ -43,9 +43,10 @@ console.log('Done: admin/q (admin), user/q (normal)')
 
 // Create test library structure if it doesn't exist
 const testLibRoot = path.resolve(process.cwd(), 'test-data/test-lib-small')
-if (!fs.existsSync(testLibRoot)) {
+if (!fs.existsSync(path.join(testLibRoot, '.ignore'))) {
   const files = [
     '.library/',
+    '.library/.ignore',
     'Breaking Bad/Extras/file.mkv',
     'Breaking Bad/S01/e01.mkv',
     'Breaking Bad/S01/e02.mkv',
@@ -75,3 +76,5 @@ if (!fs.existsSync(testLibRoot)) {
   }
   console.log(`Created test library structure at ${testLibRoot}`)
 }
+
+process.exit(0)

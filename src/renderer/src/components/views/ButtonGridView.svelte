@@ -314,7 +314,7 @@
   }
   .grid-item:not(.has-image) .name {
     text-align: left;
-    padding-left: 1.25rem;
+    padding-left: clamp(1rem, calc(2cqi + 0.75rem), calc(14px + 0.75rem));
   }
 
   .accent-strip {
@@ -322,7 +322,7 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 5px;
+    width: clamp(5px, 3.5cqi, 14px);
     z-index: 0;
   }
 
