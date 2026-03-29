@@ -22,7 +22,9 @@ export interface CompiledSql {
 }
 
 export interface OrderByClause {
-    field: string
+    field?: string
+    /** Raw SQL expression (e.g. 'RANDOM()'). When set, field/direction/nullsLast are ignored. */
+    raw?: string
     direction: 'ASC' | 'DESC'
     /** When true, NULL values sort after all non-NULL values regardless of direction. */
     nullsLast?: boolean
@@ -479,7 +481,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
 
     if (options.orderBy) {
         const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
-        for (const c of clauses) processField(c.field)
+        for (const c of clauses) if (c.field) processField(c.field)
     }
 
     // compiledConditions may require table joins — register them before building JOINs
@@ -558,7 +560,11 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         if (options.orderBy) {
             const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
             for (const c of clauses) {
-                const def = REPOSITORY_SCHEMA[c.field]
+                if (c.raw) {
+                    orderParts.push(c.raw)
+                    continue
+                }
+                const def = REPOSITORY_SCHEMA[c.field!]
                 if (!def) continue
                 if (c.nullsLast) {
                     orderParts.push(`(CASE WHEN ${def.sql} IS NULL THEN 1 ELSE 0 END) ASC, ${def.sql} ${c.direction}`)

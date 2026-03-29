@@ -32,6 +32,7 @@ import { closeDatabase } from '../database/client'
  * - alpha: pure alphabetic by display name
  * - date-added: by when the item was added to the library
  * - year: by metadata release year (nulls last), then alphabetic tiebreaker
+ * - random: SQLite RANDOM() — new order on every query; sortDescending has no effect
  *
  * `sortDescending` reverses the primary sort key. typeRank (for hybrid) and tiebreakers
  * always stay ascending so item-type grouping and stability are preserved.
@@ -44,6 +45,9 @@ export function buildSortOrder(
   const dir: 'ASC' | 'DESC' = sortDescending ? 'DESC' : 'ASC'
 
   switch (sortBy) {
+    case 'random':
+      return [{ raw: 'RANDOM()', direction: 'ASC' }]
+
     case 'alpha':
       return [{ field: 'displayName', direction: dir }]
 

@@ -168,6 +168,20 @@ describe('buildSortOrder', () => {
       ])
     })
   })
+
+  describe('random', () => {
+    it('emits RANDOM() raw clause', () => {
+      expect(buildSortOrder(undefined, 'random')).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+    })
+
+    it('sortDescending has no effect on random', () => {
+      expect(buildSortOrder(undefined, 'random', true)).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+    })
+
+    it('mediaType is irrelevant for random sort', () => {
+      expect(buildSortOrder('tv', 'random')).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+    })
+  })
 })
 
 // =================================================================
@@ -193,6 +207,14 @@ describe('buildFindQuery — nullsLast', () => {
     })
     expect(query).not.toContain('CASE WHEN')
     expect(query).toContain('e.year ASC')
+  })
+
+  it('raw clause is emitted verbatim', () => {
+    const { query } = buildFindQuery({
+      where: { parentId: 'x' },
+      orderBy: [{ raw: 'RANDOM()', direction: 'ASC' }],
+    })
+    expect(query).toContain('ORDER BY RANDOM()')
   })
 
   it('nullsLast DESC puts non-null rows first, null rows last', () => {

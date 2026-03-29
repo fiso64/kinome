@@ -87,7 +87,7 @@ export interface BaseViewSettings {
   clickAction: 'detail' | 'navigate'
 }
 
-export type SortBy = 'hybrid' | 'alpha' | 'date-added' | 'year'
+export type SortBy = 'hybrid' | 'alpha' | 'date-added' | 'year' | 'random'
 
 /**
  * Settings that cascade through childViewSettings and per-child overrides.

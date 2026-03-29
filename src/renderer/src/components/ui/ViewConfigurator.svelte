@@ -449,6 +449,7 @@
         <option value="alpha">Alphabetic</option>
         <option value="date-added">Date Added</option>
         <option value="year">Release Year</option>
+        <option value="random">Random</option>
       </select>
       <label class="checkbox-label">
         <input
