@@ -9,12 +9,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { setImage, removeImage } from './metadata.service'
+import { setImage, removeImage, clearItemMetadata } from './metadata.service'
 import { syncTvShowStructure } from './tv-show.service'
 import { updateIfChangedAndBroadcast } from './item-update.service'
-import { getItemById } from './repository.service'
+import { find, getItemById } from './repository.service'
 import { setLibraryDataPath } from './paths.service'
-import { applyGrouping } from './grouping.service'
+import { applyGrouping, syncVirtualSeasonFolders } from './grouping.service'
 import type { MediaFolder } from '@shared/types'
 
 let ctx: ServiceTestContext
@@ -214,6 +214,31 @@ describe('TV show structural sync — background processing (no user context)', 
     await expect(
       updateIfChangedAndBroadcast(modified)
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('clearItemMetadata — virtual season folder cleanup', () => {
+  it('removes virtual season folders when clearing a tv show', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Some Show' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'show', parentId: 'root', type: 'folder', entityId: 'e-show', name: 'Some Show' },
+      { id: 'ep1', parentId: 'show', type: 'file', entityId: 'e-ep1', name: 'S01E01.mkv' },
+      { id: 'ep2', parentId: 'show', type: 'file', entityId: 'e-ep2', name: 'S01E02.mkv' },
+    ])
+    syncVirtualSeasonFolders('show')
+
+    const before = find({ where: { parentId: 'show' }, rawConditions: ["virtual_type = 'season'"] })
+    expect(before.length).toBe(1)
+
+    await clearItemMetadata('show', {})
+
+    const after = find({ where: { parentId: 'show' }, rawConditions: ["virtual_type = 'season'"] })
+    expect(after.length).toBe(0)
   })
 })
 

@@ -12,6 +12,7 @@ import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
+import { syncVirtualSeasonFolders } from './grouping.service'
 import { getTransport } from '../transport.registry'
 import { runWithoutAccount } from '../request-context'
 import * as filesystemService from './filesystem.service'
@@ -403,6 +404,15 @@ export async function clearItemMetadata(
     }
   }
 
+  // Capture show ID before clearing resets mediaType
+  let showIdForVirtualSync: string | null = null
+  if (item.mediaType === 'tv') {
+    showIdForVirtualSync = item.id
+  } else if (item.mediaType === 'season') {
+    const parent = repositoryService.findParent(item.id)
+    if (parent?.mediaType === 'tv') showIdForVirtualSync = parent.id
+  }
+
   itemsToUpdate.push(item, ...itemsToFullClear)
   const uniqueItems = Array.from(new Set(itemsToUpdate))
 
@@ -417,6 +427,10 @@ export async function clearItemMetadata(
   // Bulk-clear entity metadata in DB, then broadcast
   const entityIds = metadataRepo.fetchEntityIdsForItemIds(itemsToFullClear.map((i) => i.id))
   metadataRepo.bulkClearEntityMetadata(entityIds)
+
+  if (showIdForVirtualSync) {
+    syncVirtualSeasonFolders(showIdForVirtualSync)
+  }
 
   const now = Date.now()
   for (const i of uniqueItems) i._v = now
