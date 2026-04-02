@@ -82,3 +82,40 @@ describe('syncTvShowStructure (Flat Shows)', () => {
         expect(updatedEp.episodeNumber).toBe(5)
     })
 })
+
+describe('syncTvShowStructure (Mixed Shows)', () => {
+    it('processes both physical season folders and loose episodes in the root', async () => {
+        ctx.seedEntities([
+            { id: 'e-mixed', tmdbId: 101, mediaType: 'tv', title: 'Mixed Show' }
+        ])
+
+        ctx.seedItems([
+            { id: 'root', parentId: null, type: 'folder' },
+            { id: 'show-mix', parentId: 'root', type: 'folder', entityId: 'e-mixed', name: 'Mixed Show' },
+
+            // Physical Season 1 Folder + Episode inside
+            { id: 's1', parentId: 'show-mix', type: 'folder', name: 'Season 1' },
+            { id: 'ep-1', parentId: 's1', type: 'file', name: 'Show.S01E01.mkv' },
+
+            // Loose Episode in the root (lazy user)
+            { id: 'ep-2', parentId: 'show-mix', type: 'file', name: 'Show.S02E01.mkv' }
+        ])
+
+        const show = getItemById('show-mix') as MediaFolder
+        
+        // Before the fix, ep-2 would be completely ignored because 'Season 1' exists
+        const changes = await syncTvShowStructure(show)
+
+        expect(changes.length).toBeGreaterThan(0)
+
+        // Ep 1 processed via physical folder
+        const ep1 = getItemById('ep-1') as MediaFile
+        expect(ep1.seasonNumber).toBe(1)
+        expect(ep1.episodeNumber).toBe(1)
+
+        // Ep 2 processed via loose file root scan
+        const ep2 = getItemById('ep-2') as MediaFile
+        expect(ep2.seasonNumber).toBe(2)
+        expect(ep2.episodeNumber).toBe(1)
+    })
+})

@@ -97,46 +97,46 @@ export async function syncTvShowStructure(
     }
   }
 
-  // 3. Process Episodes
-  if (isFlatShow) {
-    // Flat shows (files in root) cannot be scoped to a Season Folder ID effectively
-    // in this context, so we skip if scopedToId is set (implying a folder target).
-    if (!isTargeted) {
-      const episodeMap = determineEpisodeNumbers(
-        videoFiles.map((f) => f.name),
-        1,
-        episodeStrategy
-      )
-      allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
-    }
-  } else {
-    for (const seasonFolder of seasonsToProcess) {
-      const seasonChildren = repositoryService.getChildren(seasonFolder.id)
-      const seasonFiles = seasonChildren.filter(
-        (c) => c.type === 'file' && isSupportedVideoFile(c.name)
-      ) as MediaFile[]
-      const seasonFileNames = seasonFiles.map((f) => f.name)
+  // 3. Process Episodes in Season Folders
+  for (const seasonFolder of seasonsToProcess) {
+    const seasonChildren = repositoryService.getChildren(seasonFolder.id)
+    const seasonFiles = seasonChildren.filter(
+      (c) => c.type === 'file' && isSupportedVideoFile(c.name)
+    ) as MediaFile[]
+    const seasonFileNames = seasonFiles.map((f) => f.name)
 
-      // OPTIMIZATION: If the season folder's number is locked, use it for all children
-      // and tell the parser it's a fixed season context.
-      const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
-      const effectiveSeasonNumber = isSeasonLocked
-        ? seasonFolder.seasonNumber
-        : seasonFolder.seasonNumber
+    // OPTIMIZATION: If the season folder's number is locked, use it for all children
+    // and tell the parser it's a fixed season context.
+    const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
+    const effectiveSeasonNumber = isSeasonLocked
+      ? seasonFolder.seasonNumber
+      : seasonFolder.seasonNumber
 
-      const episodeMap = determineEpisodeNumbers(
-        seasonFileNames,
-        effectiveSeasonNumber,
-        episodeStrategy
+    const episodeMap = determineEpisodeNumbers(
+      seasonFileNames,
+      effectiveSeasonNumber,
+      episodeStrategy
+    )
+    allModified.push(
+      ..._applyEpisodeMap(
+        seasonFiles,
+        episodeMap,
+        isSeasonLocked ? effectiveSeasonNumber : undefined
       )
-      allModified.push(
-        ..._applyEpisodeMap(
-          seasonFiles,
-          episodeMap,
-          isSeasonLocked ? effectiveSeasonNumber : undefined
-        )
-      )
-    }
+    )
+  }
+
+  // 4. Process Loose Episodes (in the show root)
+  // Flat shows and mixed shows with files in the root cannot be scoped to a Season Folder ID.
+  if (!isTargeted && videoFiles.length > 0) {
+    // For purely flat shows, fallback to Season 1. For mixed shows, rely entirely on the filename pattern.
+    const fallbackSeason = isFlatShow ? 1 : undefined
+    const episodeMap = determineEpisodeNumbers(
+      videoFiles.map((f) => f.name),
+      fallbackSeason,
+      episodeStrategy
+    )
+    allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
   }
 
   // Finalize all structural changes at once to minimize IPC overhead
@@ -144,9 +144,9 @@ export async function syncTvShowStructure(
     await updateIfChangedAndBroadcast(allModified)
   }
 
-  // Sync virtual season folders for flat shows (loose episodes directly under the show).
+  // Sync virtual season folders for any loose episodes sitting directly under the show.
   // Must run after updateIfChangedAndBroadcast so season numbers are committed to DB.
-  if (isFlatShow) {
+  if (videoFiles.length > 0) {
     syncVirtualSeasonFolders(show.id)
   }
 
