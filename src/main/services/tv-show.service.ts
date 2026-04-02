@@ -37,7 +37,7 @@ export async function syncTvShowStructure(
 
   // 1. Fetch immediate children
   const children = repositoryService.getChildren(show.id)
-  const folders = children.filter((c) => c.type === 'folder') as MediaFolder[]
+  const folders = children.filter((c) => c.type === 'folder' && !c.isVirtual) as MediaFolder[]
   const files = children.filter((c) => c.type === 'file') as MediaFile[]
   const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
 
