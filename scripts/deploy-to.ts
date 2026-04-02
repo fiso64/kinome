@@ -8,6 +8,9 @@ if (!server) {
   process.exit(1)
 }
 
+console.log('[0/2] Building package...')
+await $`bun run publish:linux-arm`
+
 // Find the most recent .deb in dist/
 const distFiles = await fs.readdir('dist').catch(() => [] as string[])
 const debFiles = distFiles.filter((f) => f.endsWith('.deb'))
@@ -26,10 +29,11 @@ console.log(` Deploying: ${debFile}`)
 console.log(` Target:    ${server}`)
 console.log('==========================================')
 
-console.log('[1/2] Uploading to /tmp/kinome.deb...')
+console.log('[1/3] Uploading to /tmp/kinome.deb...')
 await $`scp ${debFile} ${server}:/tmp/kinome.deb`
 
-console.log('[2/2] Installing and restarting service...')
+console.log('[2/3] Installing and restarting service...')
 await $`ssh -t ${server} "sudo dpkg -i /tmp/kinome.deb && sudo systemctl restart kinome"`
 
+console.log('\n[3/3] Done.')
 console.log('\n[SUCCESS] Deployed successfully.')

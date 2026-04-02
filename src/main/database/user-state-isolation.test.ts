@@ -12,6 +12,7 @@ import { createServiceTestContext, type ServiceTestContext } from './test-helper
 import { find } from '../services/repository.service'
 import { updateIfChangedAndBroadcast } from '../services/item-update.service'
 import { updateUserState } from './repositories/user.repo'
+import { runWithAccount, runWithoutAccount } from '../request-context'
 import type { LibraryItem, Settings } from '@shared/types'
 
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
@@ -170,6 +171,37 @@ describe('user-state isolation', () => {
           { settings: SETTINGS } // no userId
         )
       ).rejects.toThrow()
+    })
+  })
+
+  // ─── runWithoutAccount isolation ─────────────────────────────────────────────
+
+  describe('runWithoutAccount', () => {
+    it('find() without explicit userId inherits account context from AsyncLocalStorage', () => {
+      // Demonstrates the leak: scan triggered from HTTP request sets account context,
+      // which propagates into background getChildren() calls via AsyncLocalStorage.
+      // `watched` is in CORE_FIELDS so it is always selected.
+      updateUserState('movie-1', 'user-a', { watched: true })
+
+      let items: LibraryItem[] = []
+      runWithAccount('user-a', () => {
+        items = find({ where: { parentId: 'root' } }) // no explicit userId
+      })
+      expect(items.find((i) => i.id === 'movie-1')?.watched).toBe(true)
+    })
+
+    it('find() inside runWithoutAccount does not inherit account context', () => {
+      // Background operations (enrichment, scan) must be wrapped in runWithoutAccount
+      // so they never see user-state even when triggered from an HTTP request context.
+      updateUserState('movie-1', 'user-a', { watched: true })
+
+      let items: LibraryItem[] = []
+      runWithAccount('user-a', () => {
+        runWithoutAccount(() => {
+          items = find({ where: { parentId: 'root' } })
+        })
+      })
+      expect(items.find((i) => i.id === 'movie-1')?.watched).toBeFalsy()
     })
   })
 

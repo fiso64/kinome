@@ -1,6 +1,6 @@
 {
   "name": "kinome",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A media server and manager",
   "main": "src/main/server.ts",
   "author": "fiso64",

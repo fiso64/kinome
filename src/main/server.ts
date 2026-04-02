@@ -219,6 +219,8 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 async function start() {
+  const { version } = await import('../../package.json')
+  console.log(`[Server] Starting kinome v${version}`)
   console.log('[Server] Loading database into memory...')
   await libraryService.loadDbIntoMemory()
   console.log('[Server] Database loaded.')

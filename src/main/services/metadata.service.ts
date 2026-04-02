@@ -13,6 +13,7 @@ import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import { getTransport } from '../transport.registry'
+import { runWithoutAccount } from '../request-context'
 import * as filesystemService from './filesystem.service'
 import * as autocompleteService from './autocomplete.service'
 
@@ -27,6 +28,7 @@ const log = (message: string): void => {
  * Phase 2: Metadata Enrichment (DB -> API)
  */
 export async function enrichDatabase() {
+  return runWithoutAccount(async () => {
   const settings = await settingsService.readSettings()
   if (!settings.tmdbApiKey) {
     log('Enrichment skipped: No TMDB API key.')
@@ -88,6 +90,7 @@ export async function enrichDatabase() {
 
   await repositoryService.writeDb()
   log('[Phase 2] Enrichment complete.')
+  }) // runWithoutAccount
 }
 
 export async function maintenancePass() {
