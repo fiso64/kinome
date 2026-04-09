@@ -33,8 +33,6 @@
 - [X] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
 - [X] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
   - [X] Refactor virtual folders to be first-class database citizens. Other services should be able to work with them identically to normal folders.
-    - [X] Start by implementing real virtual folders alongside current transient virtual folders.
-    - [X] Then refactor to unify the two types of virtual folders.
   - [X] A way to represent a structure with `root/tv shows` and `root/movies` directly in home view (pooling).
   - [X] A "Recently Added" section implemented as a virtual folder.
   - [X] Improve default home view. Add a recently added default virtual folder. 
