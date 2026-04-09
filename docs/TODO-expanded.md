@@ -1,5 +1,13 @@
 
 
+Random sort re-sorts too often (every children fetch)
+
+- Page refresh (this is acceptable, maybe even good)
+- When I edit metadata of an item in home view
+- During scans when home view is refreshed periodically
+
+---
+
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
 
