@@ -11,6 +11,7 @@
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
     - [ ] Pagination everywhere (but still have seamless infinite scrolling).
+- [ ] See if it's possible to expose a jellyfin-compatible API as an alternative. This might give cross platform support + TV app for free. <a id="alt-api"></a>
 
 ### 🎬 Playback & Transcoding
 - [ ] Transcoding and transmuxing support (look into jellyfin's implementation).
@@ -72,7 +73,7 @@
 
 ### 📱 Platform Support
 - [ ] Make the web UI display good on different screen sizes.
-- [ ] TV app. 
+- [ ] TV app. (See first: [Alternative API](#alt-api))
 - [ ] Revive electron app (built-in server + thin client)?
 
 ### ⌨️ Diagnostics & Development
