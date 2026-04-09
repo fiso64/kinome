@@ -6,7 +6,6 @@
   - [X] Need to ensure rescan is non-destructive, always. (Probably already the case, see `spec/backend/metadata_locking.md`)
 - [ ] Optimization
   - [X] Migrate to bun.
-    - [X] Use bun:sqlite instead of better-sqlite3, and maybe replace other dependencies by bun stuff (if available).
   - [ ] Consider migrating to another db for concurrent writes (e.g. postgres). Not sure if necessary.
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
@@ -17,6 +16,7 @@
 - [ ] Transcoding and transmuxing support (look into jellyfin's implementation).
 - [ ] Refine players.
   - [ ] Add support for mpv.conf or other types of player config files in the media directory. How to handle them?
+  - [ ] Find a way to allow players to auto load sub files in same directory (just like when playing local files)
   - [ ] Look at the percentage watched to determine if an item is watched or not, instead of setting immediately on play. Look into how jellyfin does it.
   - [X] Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
     - [X] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
@@ -59,13 +59,12 @@
   - [X] A nice login page.
   - [X] Browser caching of auth token.
   - [X] Ensure everything is secured. Also ensure that the copied stream URLs still work.
-- [ ] Multi-account support (see `docs/multi-account-plan.md`)
-  - [ ] Implement basic multi-account support with normal and admin roles and per-user watched state.
-  - [ ] Allow locking normals to a particular library filter (e.g. user A can only see media that has a particular tag).
+- [X] Multi-account support (see `docs/multi-account-plan.md`)
+  - [X] Implement basic multi-account support with normal and admin roles and per-user watched state.
+  - [X] Allow locking normals to a particular library filter (e.g. user A can only see media that has a particular tag).
   - [ ] Create a virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership).
   - [ ] UI for sharing folders and accessing shared folders.
     - [ ] Store more settings (like layout and sort by) per-user to allow normals to modify appearance even for shared folders.
-
 - [ ] Tighten security.
   - [ ] Short-lived tokens for streaming
 
