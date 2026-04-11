@@ -4,7 +4,27 @@ Bug: File properties window says "This item does not have a physical path on the
 
 ---
 
-Random sort re-sorts too often (every children fetch)
+UX issue. Starting from home:
+
+1. Type in search bar
+2. Press browser back
+Correctly navigates back to home view (good). However if you instead
+
+1. Type in search bar
+2. Navigate to any result
+3. Navigate back to the search view
+4. Try to navigate back again
+Then nothing happens. Need to press escape to close the search view and get back home.
+
+Similarly, from home view:
+1. Navigate into any item detail view (movie or show)
+2. Click on of its genre pills, which will go to the search view
+3. Try to navigate back
+It will not navigate back to the item detail view.
+
+---
+
+Random sort re-sorts too often (on every children fetch)
 
 - Page refresh (this is acceptable, maybe even good)
 - When I edit metadata of an item in home view
