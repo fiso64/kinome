@@ -146,6 +146,7 @@ func handleRun(encodedCommand string) {
 		configureWindowsCommand(cmd)
 	} else {
 		cmd = exec.Command("sh", "-c", commandString)
+		configureUnixCommand(cmd)
 	}
 
 	err = cmd.Start()
