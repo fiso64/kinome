@@ -1,6 +1,6 @@
 
 
-Bug: File properties window says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
+Bug: File properties window always says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
 
 ---
 
@@ -8,8 +8,9 @@ UX issue. Starting from home:
 
 1. Type in search bar
 2. Press browser back
-Correctly navigates back to home view (good). However if you instead
+Correctly navigates back to home view (good). 
 
+However if you instead
 1. Type in search bar
 2. Navigate to any result
 3. Navigate back to the search view
@@ -26,9 +27,10 @@ It will not navigate back to the item detail view.
 
 Random sort re-sorts too often (on every children fetch)
 
-- Page refresh (this is acceptable, maybe even good)
-- When I edit metadata of an item in home view
-- During scans when home view is refreshed periodically
+- Manual page refreshes (this is acceptable, maybe even desirable)
+- When I edit metadata of an item in home view (bad)
+- During scans when home view is refreshed periodically (bad)
+- There are probably more instances of this
 
 ---
 
@@ -86,23 +88,6 @@ vtags should not be bound to media entities, they should be bound to files and f
 We will also add a new vtag config option which makes them only apply items with non null entity id. This should be exposed as a checkbox for each vtag in the UI and enabled by default.
 
 ---
- 
-Right now, home is defined as:
-Scope: Full Library
-Conditions: Parent retrieve children metadata = 1 OR media type = movie OR media type = tv
-
-For better decoupling, let's create a predefined virtual tag "_is_in_home" with the same definition as the conditions above. This vtag should be visible in the virtual tag settings screen among the others and be fully editable, but not deletable and the name should not be editable. Also, it should not have editable values (similar to how vtag definitions appear in the vfolder settings), because it is boolean-valued.
-
-The home folder should then use this predefined virtual tag by default, i.e. the new condition should be:
-vt: _is_in_home = 1. 
-
-Then, remove the dropdown option for scope: home folder, as this is now done easily with scope: full library and condition: _is_in_home = 1.
-
-Please refactor this cleanly, keeping in mind that we will add further predefined virtual tags in the future (some might not be boolean-only or non-deletable, though).
-
-P.S: 
-
----
 
 Layout system design (small refactor)
 ```
@@ -135,22 +120,12 @@ In `types.ts`, `StoredViewSettings` is a massive intersection of all possible la
 
 **The Problem:** There is no strict type relationship enforcing that `gridPosterSize` only belongs to grid-like layouts. At the data layer, it's just a giant bucket of optional properties.
 ```
+Are these issues still accurate? Check. 
 
 ---
-
-Implement account support. For now, only differentiate between admin and non-admin users. 
-- Admin: Can do everything.
-- Non-admin: Can ONLY watch items.
-- The only per-user data for now will be the watched state of items, the password, and whether a password is required.
-- Admins should have the ability to restrict a particular account to a virtual tag.
-
 
 # Manual episode assignment
 We currently have: tv show, movie, and season-level manual assignment flows, but not episode-level assignment.
 Example: I have a special episode in the S02 folder (Black Mirror S02EXX.Special.White.Christmas.mkv). Tmdb thinks it's part of season 0 (Specials). I cannot link this episode to the metadata from the special season because the episode is in the S02 folder. Want to achieve this without having to move the file (tmdb isn't God, users may prefer to organize differently).
 Easy solution: Edit the episode metadata to set the season to 0 and the episode number to 1. Currently does not seem to work (bug?). Doesn't put the episode in the specials tab or fetch metadata for it. 
 However, even if we have that, maybe I want to still keep the episode in the S02 tab. Need to think of a clean way to handle this - some kind of override? 
-
-
-# Move sorting logic to backend
-title.
