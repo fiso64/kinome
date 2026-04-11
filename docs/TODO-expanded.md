@@ -1,5 +1,9 @@
 
 
+Bug: File properties window says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
+
+---
+
 Random sort re-sorts too often (every children fetch)
 
 - Page refresh (this is acceptable, maybe even good)
