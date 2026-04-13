@@ -1,5 +1,14 @@
 
 
+Bug: 
+1. Play next up episode from home view, alt tab from the player to the webui (the next up episode in home view will increment to the next one)
+2. navigate into that show via the next up item
+3. scroll down
+4. after a few seconds, that next up episode will also turn watched for no reason, even though it hasn't been played or touched
+Not consistently reproducible.
+
+---
+
 Bug: File properties window always says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
 
 ---
