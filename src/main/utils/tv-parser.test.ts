@@ -161,6 +161,23 @@ describe('determineEpisodeNumbers', () => {
         expect(result.get('Show.S02E01.mkv')?.season).toBe(2) // filename wins
     })
 
+    it('SxxExx duplicate check is season-aware for flat multi-season folders', () => {
+        const files = [
+            'Invincible.S03E07.1080p.WEB-DL.mkv',
+            'Invincible.S03E08.1080p.WEB-DL.mkv',
+            'Invincible.2021.S04E05.1080p.WEB.h264.mkv',
+            'Invincible.2021.S04E06.1080p.WEB.h264.mkv',
+            'Invincible.2021.S04E07.1080p.WEB.h264.mkv'
+        ]
+
+        const result = determineEpisodeNumbers(files, 1)
+
+        expect(result.get('Invincible.S03E07.1080p.WEB-DL.mkv')?.season).toBe(3)
+        expect(result.get('Invincible.S03E07.1080p.WEB-DL.mkv')?.episode).toBe(7)
+        expect(result.get('Invincible.2021.S04E07.1080p.WEB.h264.mkv')?.season).toBe(4)
+        expect(result.get('Invincible.2021.S04E07.1080p.WEB.h264.mkv')?.episode).toBe(7)
+    })
+
     it('inherits parent season for Episode XX pattern', () => {
         // SPEC: If pattern is Episode XX: inherit seasonNumber from parent folder
         const files = ['Episode 1.mkv', 'Episode 2.mkv', 'Episode 3.mkv']

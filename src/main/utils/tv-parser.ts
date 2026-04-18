@@ -56,6 +56,41 @@ export interface ParsedTvInfo {
   mediaType?: 'season' | 'episode' | null
 }
 
+export type TvParserDiagnostic =
+  | {
+      event: 'determineEpisodeNumbers:start'
+      strategy: 'smart' | 'alphabetic'
+      parentSeasonNumber?: number | null
+      inputCount: number
+      videoCount: number
+      ignoredCount: number
+    }
+  | {
+      event: 'determineEpisodeNumbers:pattern'
+      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      matches: number
+      mismatches: number
+      matchedFiles: { name: string; season?: number; episode: number }[]
+    }
+  | {
+      event: 'determineEpisodeNumbers:duplicate'
+      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      duplicateKey: string
+      fileName: string
+    }
+  | {
+      event: 'determineEpisodeNumbers:selectedPattern'
+      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      assigned: { name: string; season?: number | null; episode: number }[]
+    }
+  | {
+      event: 'determineEpisodeNumbers:fallback'
+      reason: string
+      assigned: { name: string; season?: number | null; episode: number }[]
+    }
+
+export type TvParserDiagnosticSink = (diagnostic: TvParserDiagnostic) => void
+
 /**
  * Assigns episode numbers to a list of files based on consensus strategy.
  * Returns a map of filename -> ParsedTvInfo
@@ -63,12 +98,21 @@ export interface ParsedTvInfo {
 export function determineEpisodeNumbers(
   fileNames: string[],
   parentSeasonNumber?: number | null,
-  strategy: 'smart' | 'alphabetic' = 'smart'
+  strategy: 'smart' | 'alphabetic' = 'smart',
+  diagnostic?: TvParserDiagnosticSink
 ): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
 
   // Filter for video files first to avoid diluting consensus with .srt/etc.
   const videoFiles = fileNames.filter(isSupportedVideoFile)
+  diagnostic?.({
+    event: 'determineEpisodeNumbers:start',
+    strategy,
+    parentSeasonNumber,
+    inputCount: fileNames.length,
+    videoCount: videoFiles.length,
+    ignoredCount: fileNames.length - videoFiles.length
+  })
   if (videoFiles.length === 0) return results
 
   // 1. Try "Consensus" Regex Pattern (Only if strategy is Smart)
@@ -79,19 +123,36 @@ export function determineEpisodeNumbers(
     for (const currentPattern of patterns) {
       const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
       const mismatches = allParsedInfo.length - matches.length
+      diagnostic?.({
+        event: 'determineEpisodeNumbers:pattern',
+        pattern: currentPattern,
+        matches: matches.length,
+        mismatches,
+        matchedFiles: matches.flatMap(({ name, parsed }) =>
+          parsed ? [{ name, season: parsed.season, episode: parsed.episode }] : []
+        )
+      })
 
       // Tolerance: If mismatches are low (<= 2) and matches are sufficient (>= 3), or perfect match
       if (mismatches === 0 || (mismatches <= 2 && matches.length >= 3)) {
         // --- Check for Uniqueness ---
-        const episodesSeen = new Set<number>()
+        const episodesSeen = new Set<string>()
         let hasDuplicate = false
         for (const info of matches) {
           if (info.parsed) {
-            if (episodesSeen.has(info.parsed.episode)) {
+            const seasonKey = info.parsed.season ?? parentSeasonNumber ?? 'unknown'
+            const episodeKey = `${seasonKey}:${info.parsed.episode}`
+            if (episodesSeen.has(episodeKey)) {
+              diagnostic?.({
+                event: 'determineEpisodeNumbers:duplicate',
+                pattern: currentPattern,
+                duplicateKey: episodeKey,
+                fileName: info.name
+              })
               hasDuplicate = true
               break
             }
-            episodesSeen.add(info.parsed.episode)
+            episodesSeen.add(episodeKey)
           }
         }
 
@@ -110,6 +171,15 @@ export function determineEpisodeNumbers(
             })
           }
         })
+        diagnostic?.({
+          event: 'determineEpisodeNumbers:selectedPattern',
+          pattern: currentPattern,
+          assigned: [...results.entries()].map(([name, info]) => ({
+            name,
+            season: info.season,
+            episode: info.episode as number
+          }))
+        })
         return results
       }
     }
@@ -127,6 +197,16 @@ export function determineEpisodeNumbers(
         mediaType: 'episode'
       })
     })
+
+  diagnostic?.({
+    event: 'determineEpisodeNumbers:fallback',
+    reason: strategy === 'alphabetic' ? 'explicit alphabetic strategy' : 'no regex pattern reached consensus',
+    assigned: [...results.entries()].map(([name, info]) => ({
+      name,
+      season: info.season,
+      episode: info.episode as number
+    }))
+  })
 
   return results
 }

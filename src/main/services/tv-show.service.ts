@@ -4,7 +4,8 @@ import {
   determineAlphabeticSeasonNumbers,
   determineEpisodeNumbers,
   isSupportedVideoFile,
-  ParsedTvInfo
+  ParsedTvInfo,
+  TvParserDiagnosticSink
 } from '../utils/tv-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
@@ -12,6 +13,37 @@ import { syncVirtualSeasonFolders } from './grouping.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [TV Show Service] ${message}`)
+}
+
+const VERBOSE_VALUES = new Set(['1', 'true', 'yes', 'on', 'debug', 'trace', 'verbose'])
+
+function isVerboseTvLoggingEnabled(): boolean {
+  return (
+    VERBOSE_VALUES.has((process.env.KINOME_VERBOSE || '').toLowerCase()) ||
+    VERBOSE_VALUES.has((process.env.KINOME_LOG_LEVEL || '').toLowerCase()) ||
+    process.argv.includes('--verbose')
+  )
+}
+
+function logVerbose(message: string, details?: Record<string, unknown>): void {
+  if (!isVerboseTvLoggingEnabled()) return
+
+  const prefix = `[${new Date().toISOString()}] [TV Show Service] [verbose] ${message}`
+  if (details) {
+    console.log(prefix, details)
+  } else {
+    console.log(prefix)
+  }
+}
+
+function createParserDiagnosticSink(context: Record<string, unknown>): TvParserDiagnosticSink | undefined {
+  if (!isVerboseTvLoggingEnabled()) return undefined
+  return (diagnostic) => {
+    logVerbose('TV parser diagnostic.', {
+      ...context,
+      ...diagnostic
+    })
+  }
 }
 
 /**
@@ -41,6 +73,35 @@ export async function syncTvShowStructure(
   const files = children.filter((c) => c.type === 'file') as MediaFile[]
   const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
 
+  logVerbose('Starting TV structure sync.', {
+    showId: show.id,
+    showName: show.name,
+    seasonStrategy,
+    episodeStrategy,
+    force: isForced,
+    scopedToId: options.scopedToId,
+    processingDisabled,
+    childCount: children.length,
+    physicalFolderCount: folders.length,
+    fileCount: files.length,
+    rootVideoFileCount: videoFiles.length,
+    physicalFolders: folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      mediaType: f.mediaType,
+      seasonNumber: f.seasonNumber,
+      lockedFields: f.lockedFields
+    })),
+    rootVideoFiles: videoFiles.map((f) => ({
+      id: f.id,
+      name: f.name,
+      mediaType: f.mediaType,
+      seasonNumber: f.seasonNumber,
+      episodeNumber: f.episodeNumber,
+      lockedFields: f.lockedFields
+    }))
+  })
+
   let seasonMap = new Map<string, ParsedTvInfo>()
   let isFlatShow = false
 
@@ -50,12 +111,27 @@ export async function syncTvShowStructure(
     if (seasonMap.size === 0) {
       if (videoFiles.length > 0) {
         isFlatShow = true
+        logVerbose('No explicit physical season folders found; treating show root as flat episode list.', {
+          showId: show.id,
+          showName: show.name,
+          rootVideoFileCount: videoFiles.length
+        })
       } else {
         seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
+        logVerbose('No explicit season folders or root video files; using alphabetic season folder assignment.', {
+          showId: show.id,
+          showName: show.name,
+          assignedSeasons: [...seasonMap.entries()].map(([name, info]) => ({ name, season: info.season }))
+        })
       }
     }
   } else {
     seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
+    logVerbose('Using alphabetic season folder assignment.', {
+      showId: show.id,
+      showName: show.name,
+      assignedSeasons: [...seasonMap.entries()].map(([name, info]) => ({ name, season: info.season }))
+    })
   }
 
   // 2. Process Detected Season Folders
@@ -73,6 +149,19 @@ export async function syncTvShowStructure(
       if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
         const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
         const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
+
+        logVerbose('Evaluating physical season folder.', {
+          showId: show.id,
+          showName: show.name,
+          folderId: folder.id,
+          folderName: folder.name,
+          currentMediaType: folder.mediaType,
+          currentSeasonNumber: folder.seasonNumber,
+          parsedSeasonNumber: info?.season,
+          isManuallyAssignedSeason,
+          isSeasonLocked: isLocked,
+          targetSeason
+        })
 
         let changedForFolder = false
         if (!isLocked && folder.seasonNumber !== targetSeason) {
@@ -115,13 +204,29 @@ export async function syncTvShowStructure(
     const episodeMap = determineEpisodeNumbers(
       seasonFileNames,
       effectiveSeasonNumber,
-      episodeStrategy
+      episodeStrategy,
+      createParserDiagnosticSink({
+        showId: show.id,
+        showName: show.name,
+        location: 'physical-season-folder',
+        seasonFolderId: seasonFolder.id,
+        seasonFolderName: seasonFolder.name,
+        effectiveSeasonNumber,
+        forcedSeasonNumber: isSeasonLocked ? effectiveSeasonNumber : undefined
+      })
     )
     allModified.push(
       ..._applyEpisodeMap(
         seasonFiles,
         episodeMap,
-        isSeasonLocked ? effectiveSeasonNumber : undefined
+        isSeasonLocked ? effectiveSeasonNumber : undefined,
+        {
+          showId: show.id,
+          showName: show.name,
+          location: 'physical-season-folder',
+          parentId: seasonFolder.id,
+          parentName: seasonFolder.name
+        }
       )
     )
   }
@@ -134,9 +239,24 @@ export async function syncTvShowStructure(
     const episodeMap = determineEpisodeNumbers(
       videoFiles.map((f) => f.name),
       fallbackSeason,
-      episodeStrategy
+      episodeStrategy,
+      createParserDiagnosticSink({
+        showId: show.id,
+        showName: show.name,
+        location: 'show-root',
+        isFlatShow,
+        fallbackSeason
+      })
     )
-    allModified.push(..._applyEpisodeMap(videoFiles, episodeMap))
+    allModified.push(..._applyEpisodeMap(videoFiles, episodeMap, undefined, {
+      showId: show.id,
+      showName: show.name,
+      location: 'show-root',
+      parentId: show.id,
+      parentName: show.name,
+      fallbackSeason,
+      isFlatShow
+    }))
   }
 
   // Finalize all structural changes at once to minimize IPC overhead
@@ -162,17 +282,35 @@ export async function syncTvShowStructure(
 function _applyEpisodeMap(
   files: MediaFile[],
   episodeMap: Map<string, ParsedTvInfo>,
-  forcedSeasonNumber?: number | null
+  forcedSeasonNumber?: number | null,
+  logContext: Record<string, unknown> = {}
 ): MediaFile[] {
   const modified: MediaFile[] = []
   for (const file of files) {
     const info = episodeMap.get(file.name)
+    if (!info || info.mediaType !== 'episode') {
+      logVerbose('No episode assignment produced for file.', {
+        ...logContext,
+        fileId: file.id,
+        fileName: file.name,
+        currentMediaType: file.mediaType,
+        currentSeasonNumber: file.seasonNumber,
+        currentEpisodeNumber: file.episodeNumber
+      })
+    }
     if (info && info.mediaType === 'episode') {
       const isSeasonLocked = repositoryService.isFieldLocked(file, 'seasonNumber')
       const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
 
       let changed = false
       const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
+      const before = {
+        mediaType: file.mediaType,
+        seasonNumber: file.seasonNumber,
+        episodeNumber: file.episodeNumber,
+        title: file.title,
+        lastRefreshedAt: file.lastRefreshedAt
+      }
 
       if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
         file.seasonNumber = targetSeason
@@ -193,6 +331,28 @@ function _applyEpisodeMap(
         file.lastRefreshedAt = null
         modified.push(file)
       }
+
+      logVerbose('Applied episode assignment decision.', {
+        ...logContext,
+        fileId: file.id,
+        fileName: file.name,
+        parsedSeasonNumber: info.season,
+        parsedEpisodeNumber: info.episode,
+        forcedSeasonNumber,
+        targetSeason,
+        isSeasonLocked,
+        isEpisodeLocked,
+        changed,
+        markedModified: modified.includes(file),
+        before,
+        after: {
+          mediaType: file.mediaType,
+          seasonNumber: file.seasonNumber,
+          episodeNumber: file.episodeNumber,
+          title: file.title,
+          lastRefreshedAt: file.lastRefreshedAt
+        }
+      })
     }
   }
   return modified
