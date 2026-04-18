@@ -29,6 +29,31 @@ const USER_STATE_KEYS = [
   'nextUpEpisodeId',
 ] as const
 
+const GLOBAL_UPDATE_KEYS = new Set([
+  'isHidden',
+  'isMissing',
+  'tmdbId',
+  'mediaType',
+  'title',
+  'overview',
+  'year',
+  'seasonNumber',
+  'episodeNumber',
+  'genres',
+  'tags',
+  'virtualTags',
+  'tmdbCredits',
+  'posterPath',
+  'backdropPath',
+  'logoPath',
+  'lockedFields',
+  'lastRefreshedAt',
+  '_v',
+  'filter',
+  'viewSettings',
+  'folderSettings'
+])
+
 /**
  * Creates a "content-only" snapshot for change detection.
  * Excludes volatile system fields, deep relations, and derived data.
@@ -232,14 +257,19 @@ export async function updateIfChangedAndBroadcast(
       }
 
       // Strip user-state fields from the payload when there is no userId.
-      // Items fetched via find() without userId carry null values for user-state fields
-      // (watched, lastWatched, etc.) due to the 1=0 JOIN. These nulls must not reach
-      // _updateItem, which requires a userId whenever user-state fields are present.
+      // Metadata and structure jobs often pass full in-memory items through this path,
+      // and those items can carry user-state fields from earlier overlays. Those fields
+      // must not reach _updateItem, which requires a userId for user-state updates.
       if (!options.userId) {
+        const hasUserStatePayload = USER_STATE_KEYS.some((key) => (updatePayload as any)[key] !== undefined)
+        const hasGlobalPayload = Object.keys(updatePayload).some((key) => GLOBAL_UPDATE_KEYS.has(key))
+
+        if (hasUserStatePayload && !hasGlobalPayload) {
+          throw new Error(`updateIfChangedAndBroadcast: userId required when updating user state fields (itemId=${item.id})`)
+        }
+
         for (const key of USER_STATE_KEYS) {
-          if ((updatePayload as any)[key] === null) {
-            delete (updatePayload as any)[key]
-          }
+          delete (updatePayload as any)[key]
         }
       }
 

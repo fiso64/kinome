@@ -206,6 +206,27 @@ describe('updateIfChangedAndBroadcast', () => {
     const afterUpdate = getItemById(animationFolder!.id)
     expect(afterUpdate?.title).toBe('Animated Films')
   })
+
+  it('ignores user-state fields on background metadata updates without a user context', async () => {
+    ctx.seedEntities([{ id: 'e1', mediaType: 'episode', title: 'Old Title' }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'episode1', parentId: 'root', type: 'file', entityId: 'e1' }
+    ])
+
+    await updateIfChangedAndBroadcast(
+      {
+        id: 'episode1',
+        title: 'New Title',
+        watched: true,
+        lastWatched: 1234
+      } as LibraryItem,
+      { settings: DEFAULT_SETTINGS }
+    )
+
+    const item = getItemById('episode1')
+    expect(item?.title).toBe('New Title')
+  })
 })
 
 describe('account filter visibility after item update', () => {
