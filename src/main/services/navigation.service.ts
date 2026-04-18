@@ -32,11 +32,22 @@ import { closeDatabase } from '../database/client'
  * - alpha: pure alphabetic by display name
  * - date-added: by when the item was added to the library
  * - year: by metadata release year (nulls last), then alphabetic tiebreaker
- * - random: SQLite RANDOM() — new order on every query; sortDescending has no effect
+ * - random: stable pseudo-random order, rotated hourly; sortDescending has no effect
  *
  * `sortDescending` reverses the primary sort key. typeRank (for hybrid) and tiebreakers
  * always stay ascending so item-type grouping and stability are preserved.
  */
+export function getRandomSortHourSeed(now = Date.now()): number {
+  return Math.floor(now / (60 * 60 * 1000))
+}
+
+export function buildStableRandomSortExpression(seed = getRandomSortHourSeed()): string {
+  // IDs are already high-entropy strings. Rotate the slice offset hourly to get
+  // a new deterministic order without reshuffling ordinary refetches.
+  const offset = (seed % 32) + 1
+  return `substr(i.id || i.id, ${offset}, 16)`
+}
+
 export function buildSortOrder(
   mediaType: string | undefined,
   sortBy: SortBy = 'hybrid',
@@ -46,7 +57,10 @@ export function buildSortOrder(
 
   switch (sortBy) {
     case 'random':
-      return [{ raw: 'RANDOM()', direction: 'ASC' }]
+      return [
+        { raw: buildStableRandomSortExpression(), direction: 'ASC' },
+        { field: 'id', direction: 'ASC' }
+      ]
 
     case 'alpha':
       return [{ field: 'displayName', direction: dir }]

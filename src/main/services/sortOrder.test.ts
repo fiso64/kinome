@@ -44,7 +44,12 @@ mock.module(NAVIGATION_SERVICE_PATH, () => {
   }
 })
 
-import { buildSortOrder, getChildren } from './navigation.service'
+import {
+  buildSortOrder,
+  buildStableRandomSortExpression,
+  getChildren,
+  getRandomSortHourSeed
+} from './navigation.service'
 import { buildFindQuery } from '../database/query-builder'
 import { mergeSettings } from '../database/repositories/settings.repo'
 import type { LibraryItem } from '@shared/types'
@@ -170,16 +175,28 @@ describe('buildSortOrder', () => {
   })
 
   describe('random', () => {
-    it('emits RANDOM() raw clause', () => {
-      expect(buildSortOrder(undefined, 'random')).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+    it('emits a stable hourly pseudo-random raw clause', () => {
+      const order = buildSortOrder(undefined, 'random')
+      expect(order).toHaveLength(2)
+      expect(order[0]).toMatchObject({ direction: 'ASC' })
+      expect(order[0].raw).toMatch(/^substr\(i\.id \|\| i\.id, \d+, 16\)$/)
+      expect(order[1]).toEqual({ field: 'id', direction: 'ASC' })
+    })
+
+    it('rotates the stable random expression by hour', () => {
+      const hour = 60 * 60 * 1000
+      expect(getRandomSortHourSeed(0)).toBe(0)
+      expect(getRandomSortHourSeed(hour - 1)).toBe(0)
+      expect(getRandomSortHourSeed(hour)).toBe(1)
+      expect(buildStableRandomSortExpression(0)).not.toBe(buildStableRandomSortExpression(1))
     })
 
     it('sortDescending has no effect on random', () => {
-      expect(buildSortOrder(undefined, 'random', true)).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+      expect(buildSortOrder(undefined, 'random', true)).toEqual(buildSortOrder(undefined, 'random'))
     })
 
     it('mediaType is irrelevant for random sort', () => {
-      expect(buildSortOrder('tv', 'random')).toEqual([{ raw: 'RANDOM()', direction: 'ASC' }])
+      expect(buildSortOrder('tv', 'random')).toEqual(buildSortOrder(undefined, 'random'))
     })
   })
 })
@@ -212,9 +229,9 @@ describe('buildFindQuery — nullsLast', () => {
   it('raw clause is emitted verbatim', () => {
     const { query } = buildFindQuery({
       where: { parentId: 'x' },
-      orderBy: [{ raw: 'RANDOM()', direction: 'ASC' }],
+      orderBy: [{ raw: buildStableRandomSortExpression(3), direction: 'ASC' }],
     })
-    expect(query).toContain('ORDER BY RANDOM()')
+    expect(query).toContain(`ORDER BY ${buildStableRandomSortExpression(3)}`)
   })
 
   it('nullsLast DESC puts non-null rows first, null rows last', () => {
