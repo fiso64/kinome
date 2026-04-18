@@ -286,6 +286,10 @@
         <div class="panel">
           <h3>Player Definitions</h3>
           <p class="panel-subtitle">Shared across all devices</p>
+          <div class="player-note">
+            Disable playlist or media prefetching in external players so queued items are not marked watched early.
+            For mpv, use <code>mpv --prefetch-playlist=no &lt;url&gt;</code>.
+          </div>
 
           <div class="definition-list">
             {#each localServerDefinitions as cmd (cmd.id)}
@@ -333,7 +337,7 @@
           <div class="add-form">
             <h4>Add Player</h4>
             <input type="text" bind:value={formNameForNew} placeholder="Name (e.g. MPV)" />
-            <input type="text" bind:value={formCommandForNew} placeholder="Command (e.g. mpv --fullscreen <url>)" />
+            <input type="text" bind:value={formCommandForNew} placeholder="Command (e.g. mpv --prefetch-playlist=no --fullscreen <url>)" />
             <button
               class="primary"
               onclick={handleAddDefinition}
@@ -476,6 +480,20 @@
 
   .panel h3 { font-size: 1rem; font-weight: 600; margin: 0; }
   .panel-subtitle { font-size: 0.8rem; color: var(--ev-c-text-3); margin: 0; }
+  .player-note {
+    padding: 0.6rem 0.75rem;
+    background: rgba(255, 193, 7, 0.08);
+    border: 1px solid rgba(255, 193, 7, 0.25);
+    border-radius: 6px;
+    color: var(--ev-c-text-2);
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+  .player-note code {
+    color: var(--ev-c-text-1);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 0.76rem;
+  }
 
   /* Definitions panel */
   .definition-list {

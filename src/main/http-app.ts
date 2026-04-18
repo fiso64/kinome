@@ -495,20 +495,34 @@ export function buildApp() {
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
         .get('/stream/:id', async ({ params, query, set, request, session }: any) => {
-          if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
+          const watchRequested = query.watch === '1' || query.watch === 'true'
+          if (watchRequested && session?.accountId) {
             const userId = session.accountId
             playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
           }
-          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
+          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'), {
+            method: request.method,
+            url: request.url,
+            userAgent: request.headers.get('user-agent'),
+            watchRequested,
+            userId: session?.accountId
+          })
           if (!response) { set.status = 404; return 'File not found' }
           return response
         })
         .get('/stream/:id/:filename', async ({ params, query, set, request, session }: any) => {
-          if ((query.watch === '1' || query.watch === 'true') && session?.accountId) {
+          const watchRequested = query.watch === '1' || query.watch === 'true'
+          if (watchRequested && session?.accountId) {
             const userId = session.accountId
             playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
           }
-          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'))
+          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'), {
+            method: request.method,
+            url: request.url,
+            userAgent: request.headers.get('user-agent'),
+            watchRequested,
+            userId: session?.accountId
+          })
           if (!response) { set.status = 404; return 'File not found' }
           return response
         })

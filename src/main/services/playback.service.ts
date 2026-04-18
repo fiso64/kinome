@@ -7,6 +7,60 @@ import type { LibraryItem } from '@shared/types'
 
 // --- Playback Tracking ---
 
+const VERBOSE_VALUES = new Set(['1', 'true', 'yes', 'on', 'debug', 'trace', 'verbose'])
+
+function isVerbosePlaybackLoggingEnabled(): boolean {
+  return (
+    VERBOSE_VALUES.has((process.env.KINOME_VERBOSE || '').toLowerCase()) ||
+    VERBOSE_VALUES.has((process.env.KINOME_LOG_LEVEL || '').toLowerCase()) ||
+    process.argv.includes('--verbose')
+  )
+}
+
+function logVerbose(message: string, details?: Record<string, unknown>): void {
+  if (!isVerbosePlaybackLoggingEnabled()) return
+
+  const prefix = `[${new Date().toISOString()}] [Playback] [verbose] ${message}`
+  if (details) {
+    console.log(prefix, details)
+  } else {
+    console.log(prefix)
+  }
+}
+
+function getItemLogInfo(itemId: string): Record<string, unknown> {
+  if (!isVerbosePlaybackLoggingEnabled()) return { itemId }
+
+  const item = repositoryService.getItemById(itemId) as any
+
+  return {
+    itemId,
+    itemName: item?.name,
+    itemTitle: item?.title,
+    itemPath: item?.path
+  }
+}
+
+function redactSensitiveUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    for (const key of ['token', 'auth', 'access_token']) {
+      if (parsed.searchParams.has(key)) parsed.searchParams.set(key, '[redacted]')
+    }
+    return parsed.toString()
+  } catch {
+    return url.replace(/([?&](?:token|auth|access_token)=)[^&]*/gi, '$1[redacted]')
+  }
+}
+
+function getSafeLogContext(context?: StreamRequestLogContext): StreamRequestLogContext | undefined {
+  if (!context) return undefined
+  return {
+    ...context,
+    url: context.url ? redactSensitiveUrl(context.url) : context.url
+  }
+}
+
 // Stream playback debounce to prevent DB spam on range requests
 const playbackDebounce = new Map<string, number>()
 const PLAYBACK_DEBOUNCE_WINDOW = 1 * 10 * 1000 // 10 seconds
@@ -19,9 +73,23 @@ export function recordPlaybackDebounced(
   const now = Date.now()
   const key = `${userId}:${itemId}`
   const last = playbackDebounce.get(key) || 0
+  const elapsedMs = last ? now - last : null
   if (now - last > PLAYBACK_DEBOUNCE_WINDOW) {
     playbackDebounce.set(key, now)
+    logVerbose('Recording playback after stream request.', {
+      ...getItemLogInfo(itemId),
+      userId,
+      elapsedMs,
+      debounceWindowMs: PLAYBACK_DEBOUNCE_WINDOW
+    })
     recordPlaybackFn(itemId).catch(console.error)
+  } else {
+    logVerbose('Skipped playback recording inside debounce window.', {
+      ...getItemLogInfo(itemId),
+      userId,
+      elapsedMs,
+      debounceWindowMs: PLAYBACK_DEBOUNCE_WINDOW
+    })
   }
 }
 
@@ -100,6 +168,16 @@ function getMimeType(filePath: string): string {
  */
 const MAX_CHUNK_SIZE = 30 * 1024 * 1024 // 30MB should be safe for high bitrate 4K video?
 
+interface StreamRequestLogContext {
+  itemId?: string
+  method?: string
+  url?: string
+  userAgent?: string | null
+  watchRequested?: boolean
+  userId?: string
+  cacheHit?: boolean
+}
+
 /**
  * Handles file streaming with HTTP range request support for large video files.
  * This is the core streaming function - it takes a pre-resolved file path.
@@ -114,8 +192,11 @@ export function handleFileStreamFast(
   filePath: string,
   fileSize: number,
   contentType: string,
-  rangeHeader: string | null
+  rangeHeader: string | null,
+  logContext?: StreamRequestLogContext
 ): Response {
+  const safeLogContext = getSafeLogContext(logContext)
+
   if (rangeHeader) {
     // Parse range header (e.g., "bytes=0-1023" or "bytes=0-")
     const parts = rangeHeader.replace(/bytes=/, '').split('-')
@@ -133,11 +214,28 @@ export function handleFileStreamFast(
     const chunkSize = end - start + 1
     const file = Bun.file(filePath)
     const slice = file.slice(start, end + 1)
+    const contentRange = `bytes ${start}-${end}/${fileSize}`
+
+    logVerbose('Serving ranged stream request.', {
+      ...safeLogContext,
+      filePath,
+      fileSize,
+      contentType,
+      requestRange: rangeHeader,
+      requestedStart: start,
+      requestedEnd: parts[1] && parts[1].trim() !== '' ? end : null,
+      openEndedRange: !(parts[1] && parts[1].trim() !== ''),
+      servedStart: start,
+      servedEnd: end,
+      servedBytes: chunkSize,
+      status: 206,
+      contentRange
+    })
 
     return new Response(slice, {
       status: 206,
       headers: {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Content-Range': contentRange,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize.toString(),
         'Content-Type': contentType
@@ -151,11 +249,25 @@ export function handleFileStreamFast(
 
   const file = Bun.file(filePath)
   const slice = file.slice(0, initialSize)
+  const contentRange = `bytes 0-${initialSize - 1}/${fileSize}`
+
+  logVerbose('Serving stream request without Range header.', {
+    ...safeLogContext,
+    filePath,
+    fileSize,
+    contentType,
+    requestRange: null,
+    servedStart: 0,
+    servedEnd: initialSize - 1,
+    servedBytes: initialSize,
+    status: 206,
+    contentRange
+  })
 
   return new Response(slice, {
     status: 206,
     headers: {
-      'Content-Range': `bytes 0-${initialSize - 1}/${fileSize}`,
+      'Content-Range': contentRange,
       'Accept-Ranges': 'bytes',
       'Content-Length': initialSize.toString(),
       'Content-Type': contentType
@@ -173,18 +285,38 @@ export function handleFileStreamFast(
  */
 export async function handleCachedStream(
   itemId: string,
-  rangeHeader: string | null
+  rangeHeader: string | null,
+  logContext: Omit<StreamRequestLogContext, 'itemId' | 'cacheHit'> = {}
 ): Promise<Response | null> {
+  const safeLogContext = getSafeLogContext(logContext)
+
   // Check cache first
   let cacheEntry = getStreamCacheEntry(itemId)
+  const cacheHit = !!cacheEntry
 
   if (!cacheEntry) {
     // Cache miss - do the expensive lookups
     const itemPath = repositoryService.getItemPath(itemId)
-    if (!itemPath) return null
+    if (!itemPath) {
+      logVerbose('Stream request failed because item path was not found.', {
+        ...safeLogContext,
+        ...getItemLogInfo(itemId),
+        requestRange: rangeHeader,
+        cacheHit: false
+      })
+      return null
+    }
 
     const absolutePath = await resolveStreamPath(itemId, itemPath)
-    if (!absolutePath) return null
+    if (!absolutePath) {
+      logVerbose('Stream request failed because absolute path could not be resolved.', {
+        ...safeLogContext,
+        ...getItemLogInfo(itemId),
+        requestRange: rangeHeader,
+        cacheHit: false
+      })
+      return null
+    }
 
     const contentType = getMimeType(absolutePath)
     const newEntry = { absolutePath, contentType }
@@ -198,6 +330,13 @@ export async function handleCachedStream(
   if (fileSize === 0) {
     // Handle file potentially deleted or inaccessible
     streamCache.delete(itemId)
+    logVerbose('Stream request failed because file size was zero.', {
+      ...safeLogContext,
+      ...getItemLogInfo(itemId),
+      absolutePath: cacheEntry.absolutePath,
+      requestRange: rangeHeader,
+      cacheHit
+    })
     return null
   }
 
@@ -205,7 +344,12 @@ export async function handleCachedStream(
     cacheEntry.absolutePath,
     fileSize,
     cacheEntry.contentType,
-    rangeHeader
+    rangeHeader,
+    {
+      ...safeLogContext,
+      ...getItemLogInfo(itemId),
+      cacheHit
+    }
   )
 }
 
