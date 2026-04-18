@@ -1,11 +1,5 @@
 
 
-Bug: 
-1. Play next up episode from home view, alt tab from the player to the webui (the next up episode in home view will increment to the next one)
-2. wait a few seconds
-3. the next up episode will go ONE FURTHER for no reason, even though it hasn't been played or touched
-Not consistently reproducible.
-
 ---
 
 Bug: File properties window always says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
@@ -30,15 +24,6 @@ Similarly, from home view:
 2. Click on of its genre pills, which will go to the search view
 3. Try to navigate back
 It will not navigate back to the item detail view.
-
----
-
-Random sort re-sorts too often (on every children fetch)
-
-- Manual page refreshes (this is acceptable, maybe even desirable)
-- When I edit metadata of an item in home view (bad)
-- During scans when home view is refreshed periodically (bad)
-- There are probably more instances of this
 
 ---
 
