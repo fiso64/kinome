@@ -6,6 +6,7 @@ On my windows desktop, first time mpv is launched for any video file, it exits. 
 ---
 
 Jojo's Bizarre Adventure season assignment shouldn't fail
+- Also add special case for `OVA` folder
 
 ---
 
