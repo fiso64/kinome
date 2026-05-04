@@ -1,5 +1,12 @@
 
 
+On my windows desktop, first time mpv is launched for any video file, it exits. Need to launch a second time.
+(Check mpv logs first)
+
+---
+
+Jojo's Bizarre Adventure season assignment shouldn't fail
+
 ---
 
 Bug: File properties window always says "This item does not have a physical path on the disk (e.g., virtual item)." for real files.
