@@ -291,8 +291,8 @@ export function deleteItem(itemId: string): LibraryItem | null {
   return item
 }
 
-export function migrateRecord(oldId: string, newId: string, newPath: string): void {
-  itemsRepo.migrateRecord(oldId, newId, newPath)
+export function migrateRecord(oldId: string, item: any): void {
+  itemsRepo.migrateRecord(oldId, item)
 }
 
 export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {

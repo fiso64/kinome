@@ -250,7 +250,7 @@ async function syncDiskToDatabase(
 
     if (match) {
       log(`[Phase 1] Detected rename: "${item.path}" -> "${match['@path']}"`)
-      itemsRepo.migrateRecord(item.id, match['@id'], match['@path'])
+      itemsRepo.migrateRecord(item.id, match)
       foundPaths.add(match['@id'])
       newItemsMap.delete(key)
     }

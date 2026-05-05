@@ -3,6 +3,7 @@ import {
   determineExplicitSeasonNumbers,
   determineAlphabeticSeasonNumbers,
   determineEpisodeNumbers,
+  isSpecialTvFolderName,
   isSupportedVideoFile,
   ParsedTvInfo,
   TvParserDiagnosticSink
@@ -144,10 +145,36 @@ export async function syncTvShowStructure(
       }
 
       const info = seasonMap.get(folder.name)
-      const isManuallyAssignedSeason = folder.mediaType === 'season'
+      const isSpecialFolder = isSpecialTvFolderName(folder.name)
+      const isSeasonNumberLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
+      const isManuallyAssignedSeason = folder.mediaType === 'season' && isSeasonNumberLocked
+
+      if (!info && isSpecialFolder) {
+        const hadAutomaticSeasonMetadata = folder.mediaType === 'season' || folder.seasonNumber != null
+        if (!isSeasonNumberLocked && hadAutomaticSeasonMetadata) {
+          logVerbose('Clearing stale season metadata from special TV folder.', {
+            showId: show.id,
+            showName: show.name,
+            folderId: folder.id,
+            folderName: folder.name,
+            currentMediaType: folder.mediaType,
+            currentSeasonNumber: folder.seasonNumber
+          })
+          folder.mediaType = null
+          folder.seasonNumber = null
+          folder.title = null
+          folder.overview = null
+          folder.posterPath = null
+          folder.backdropPath = null
+          folder.logoPath = null
+          folder.lastRefreshedAt = null
+          allModified.push(folder)
+        }
+        continue
+      }
 
       if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
-        const isLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
+        const isLocked = isSeasonNumberLocked
         const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
 
         logVerbose('Evaluating physical season folder.', {

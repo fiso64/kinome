@@ -365,6 +365,9 @@ export function upsertLibraryItems(items: any[]): void {
     ON CONFLICT(id) DO UPDATE SET
       is_missing = 0,
       parent_id = excluded.parent_id,
+      path = excluded.path,
+      name = excluded.name,
+      type = excluded.type,
       source_id = excluded.source_id,
       size = excluded.size,
       mtime = excluded.mtime,
@@ -399,14 +402,42 @@ export function upsertRootItem(id: string, name: string, sourceId: string): void
 /**
  * Migrates a record from an old ID/path to a new one.
  */
-export function migrateRecord(oldId: string, newId: string, newPath: string): void {
+export function migrateRecord(oldId: string, item: any): void {
     const db = getDb()
 
     runTransaction(() => {
-        db.prepare('DELETE FROM items WHERE id = ?').run(newId)
-        db.prepare('UPDATE items SET id = ?, path = ?, is_missing = 0 WHERE id = ?').run(
-            newId,
-            newPath,
+        db.prepare('DELETE FROM items WHERE id = ?').run(item['@id'])
+        db.prepare(`
+            UPDATE items
+            SET id = ?,
+                parent_id = ?,
+                path = ?,
+                name = ?,
+                type = ?,
+                source_id = ?,
+                size = ?,
+                mtime = ?,
+                birthtime = ?,
+                inode = ?,
+                device_id = ?,
+                is_missing = 0,
+                is_ignored = COALESCE(?, is_ignored),
+                is_hidden = COALESCE(?, is_hidden)
+            WHERE id = ?
+        `).run(
+            item['@id'],
+            item['@parentId'],
+            item['@path'],
+            item['@name'],
+            item['@type'],
+            item['@sourceId'],
+            item['@size'],
+            item['@mtime'],
+            item['@birthtime'],
+            item['@inode'],
+            item['@deviceId'],
+            item['@isIgnored'],
+            item['@isHidden'],
             oldId
         )
     })

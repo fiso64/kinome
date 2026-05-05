@@ -295,10 +295,11 @@ describe('determineExplicitSeasonNumbers', () => {
 
     it('ignores special folders', () => {
         // SPEC: §4 — Ignored folder names: Extras, Specials, etc.
-        const folders = ['Season 1', 'Extras', 'Deleted Scenes', 'Featurettes']
+        const folders = ['Season 1', 'Extras', 'Deleted Scenes', 'Featurettes', 'OVA']
         const result = determineExplicitSeasonNumbers(folders)
         expect(result.size).toBe(1)
         expect(result.has('Season 1')).toBe(true)
+        expect(result.has('OVA')).toBe(false)
     })
 
     it('returns empty map when no folders match the season pattern', () => {
@@ -337,11 +338,12 @@ describe('determineAlphabeticSeasonNumbers', () => {
     })
 
     it('ignores special folders', () => {
-        const folders = ['Arc 1', 'Extras', 'Arc 2']
+        const folders = ['Arc 1', 'Extras', 'OVA', 'Arc 2']
         const result = determineAlphabeticSeasonNumbers(folders)
 
         expect(result.size).toBe(2)
         expect(result.has('Extras')).toBe(false)
+        expect(result.has('OVA')).toBe(false)
     })
 })
 

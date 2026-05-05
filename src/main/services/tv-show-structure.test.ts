@@ -118,4 +118,56 @@ describe('syncTvShowStructure (Mixed Shows)', () => {
         expect(ep2.seasonNumber).toBe(2)
         expect(ep2.episodeNumber).toBe(1)
     })
+
+    it('uses explicit season folders and repairs stale OVA season metadata', async () => {
+        ctx.seedEntities([
+            { id: 'e-jojo', tmdbId: 45790, mediaType: 'tv', title: "JoJo's Bizarre Adventure" },
+            // Simulates metadata left behind by an earlier bad scan.
+            { id: 'e-ova', mediaType: 'season', seasonNumber: 1, title: 'Season 1' },
+            { id: 'e-s1', mediaType: 'season', seasonNumber: 4, title: 'Wrong Season' }
+        ])
+
+        ctx.seedItems([
+            { id: 'root', parentId: null, type: 'folder' },
+            { id: 'show-jojo', parentId: 'root', type: 'folder', entityId: 'e-jojo', name: "JoJo's Bizarre Adventure" },
+
+            { id: 'ova', parentId: 'show-jojo', type: 'folder', entityId: 'e-ova', name: 'OVA' },
+            { id: 'ova-ep', parentId: 'ova', type: 'file', name: '01. The Evil Spirit (2000).mkv' },
+
+            { id: 's1', parentId: 'show-jojo', type: 'folder', entityId: 'e-s1', name: 'Season 01 (Part 01+02) Phantom Blood & Battle Tendency' },
+            { id: 's1-ep', parentId: 's1', type: 'file', name: "JoJo's Bizarre Adventure (2012) S01E01.mkv" },
+
+            { id: 's2', parentId: 'show-jojo', type: 'folder', name: 'Season 02 (Part 03) - Stardust Crusaders' },
+            { id: 's2-ep', parentId: 's2', type: 'file', name: "JoJo's Bizarre Adventure (2012) S02E01.mkv" }
+        ])
+
+        const show = getItemById('show-jojo') as MediaFolder
+        await syncTvShowStructure(show)
+
+        const ova = getItemById('ova') as MediaFolder
+        expect(ova.mediaType).toBe(null)
+        expect(ova.seasonNumber).toBe(null)
+        expect(ova.title).toBe(null)
+
+        const ovaEp = getItemById('ova-ep') as MediaFile
+        expect(ovaEp.mediaType).toBeUndefined()
+        expect(ovaEp.seasonNumber).toBe(null)
+        expect(ovaEp.episodeNumber).toBe(null)
+
+        const season1 = getItemById('s1') as MediaFolder
+        expect(season1.mediaType).toBe('season')
+        expect(season1.seasonNumber).toBe(1)
+
+        const ep1 = getItemById('s1-ep') as MediaFile
+        expect(ep1.seasonNumber).toBe(1)
+        expect(ep1.episodeNumber).toBe(1)
+
+        const season2 = getItemById('s2') as MediaFolder
+        expect(season2.mediaType).toBe('season')
+        expect(season2.seasonNumber).toBe(2)
+
+        const ep2 = getItemById('s2-ep') as MediaFile
+        expect(ep2.seasonNumber).toBe(2)
+        expect(ep2.episodeNumber).toBe(1)
+    })
 })

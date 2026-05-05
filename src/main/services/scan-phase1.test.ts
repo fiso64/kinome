@@ -10,6 +10,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
+import { _setDbForTesting } from '../database/client'
+import { migrateRecord } from '../database/repositories/filesystem.repo'
 
 let db: Database
 
@@ -62,6 +64,9 @@ describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
     ON CONFLICT(id) DO UPDATE SET
       is_missing = 0,
       parent_id = excluded.parent_id,
+      path = excluded.path,
+      name = excluded.name,
+      type = excluded.type,
       size = excluded.size,
       mtime = excluded.mtime,
       birthtime = excluded.birthtime,
@@ -134,6 +139,32 @@ describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
         const row = db.prepare('SELECT is_missing FROM items WHERE id = ?').get('file1') as any
         expect(row.is_missing).toBe(0) // Un-ghosted
     })
+
+    it('refreshes physical identity fields for existing rows', () => {
+        insertItem({ id: 'old-parent', parentId: null, type: 'folder' })
+        insertItem({ id: 'new-parent', parentId: null, type: 'folder' })
+        insertItem({
+            id: 'folder1',
+            parentId: 'old-parent',
+            path: 'Old Name',
+            name: 'Old Name',
+            type: 'folder'
+        })
+
+        db.prepare(UPSERT_SQL).run(
+            'folder1', 'new-parent', 'New Name', 'New Name', 'folder',
+            null, null, null, null, null,
+            0, 0
+        )
+
+        const row = db.prepare('SELECT parent_id, path, name, type FROM items WHERE id = ?').get('folder1') as any
+        expect(row).toEqual({
+            parent_id: 'new-parent',
+            path: 'New Name',
+            name: 'New Name',
+            type: 'folder'
+        })
+    })
 })
 
 // =================================================================
@@ -196,6 +227,69 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         expect(db.prepare('SELECT * FROM user_state WHERE item_id = ?').get('cascade1')).toBeNull()
         // Entity should still exist (SET NULL, not CASCADE)
         expect(db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId)).not.toBeNull()
+    })
+})
+
+describe('Rename rescue (Phase 1 identity migration)', () => {
+    beforeEach(() => {
+        db = createTestDb()
+        _setDbForTesting(db)
+    })
+
+    it('updates parent, path, name, and stats when migrating a renamed record', () => {
+        insertItem({ id: 'old-parent', parentId: null, type: 'folder' })
+        insertItem({ id: 'new-parent', parentId: null, type: 'folder' })
+        insertItem({
+            id: 'old-id',
+            parentId: 'old-parent',
+            path: 'Show/Old Season',
+            name: 'Old Season',
+            type: 'folder',
+            isIgnored: 1,
+            isHidden: 1
+        })
+
+        migrateRecord('old-id', {
+            '@id': 'new-id',
+            '@parentId': 'new-parent',
+            '@path': 'Show/New Season',
+            '@name': 'New Season',
+            '@type': 'folder',
+            '@sourceId': 'source-1',
+            '@size': 10,
+            '@mtime': 20,
+            '@birthtime': 30,
+            '@inode': 40,
+            '@deviceId': 50,
+            '@isIgnored': null,
+            '@isHidden': null
+        })
+
+        const oldRow = db.prepare('SELECT * FROM items WHERE id = ?').get('old-id')
+        expect(oldRow).toBeNull()
+
+        const row = db.prepare(`
+            SELECT id, parent_id, path, name, type, source_id, size, mtime, birthtime, inode, device_id, is_ignored, is_hidden, is_missing
+            FROM items
+            WHERE id = ?
+        `).get('new-id') as any
+
+        expect(row).toEqual({
+            id: 'new-id',
+            parent_id: 'new-parent',
+            path: 'Show/New Season',
+            name: 'New Season',
+            type: 'folder',
+            source_id: 'source-1',
+            size: 10,
+            mtime: 20,
+            birthtime: 30,
+            inode: 40,
+            device_id: 50,
+            is_ignored: 1,
+            is_hidden: 1,
+            is_missing: 0
+        })
     })
 })
 

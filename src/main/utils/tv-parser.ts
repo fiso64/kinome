@@ -44,11 +44,16 @@ export function parseSeasonFolder(name: string): number | null {
 const SPECIAL_FOLDER_NAMES_FOR_TV = [
   'extras',
   'specials',
+  'ova',
   'deleted scenes',
   'featurettes',
   'nc',
   'behind the scenes'
 ]
+
+export function isSpecialTvFolderName(name: string): boolean {
+  return SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
+}
 
 export interface ParsedTvInfo {
   season?: number | null
@@ -216,9 +221,7 @@ export function determineEpisodeNumbers(
  */
 export function determineExplicitSeasonNumbers(folderNames: string[]): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
-  const foldersToProcess = folderNames.filter(
-    (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
-  )
+  const foldersToProcess = folderNames.filter((name) => !isSpecialTvFolderName(name))
 
   const seasonsSeen = new Set<number>()
   const tempResults = new Map<string, number>()
@@ -248,9 +251,7 @@ export function determineExplicitSeasonNumbers(folderNames: string[]): Map<strin
  */
 export function determineAlphabeticSeasonNumbers(folderNames: string[]): Map<string, ParsedTvInfo> {
   const results = new Map<string, ParsedTvInfo>()
-  const foldersToProcess = folderNames.filter(
-    (name) => !SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase())
-  )
+  const foldersToProcess = folderNames.filter((name) => !isSpecialTvFolderName(name))
 
   foldersToProcess
     .slice()
