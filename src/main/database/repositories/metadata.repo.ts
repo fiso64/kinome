@@ -5,6 +5,7 @@
  */
 import { getDb, runTransaction } from '../client'
 import { compileFilter, buildWhereFragment } from '../query-builder'
+import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
 import type { VirtualTagConfig } from '@shared/types'
 
 // ─── Credits (Normalized) ───────────────────────────────────────────────────
@@ -79,52 +80,23 @@ export function upsertMetadata(itemId: string, updates: any): void {
     const existing = (db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId) as any) || {}
 
     // 1. Upsert scalar fields on media_entities
-    const params = {
-        '@id': entityId,
-        '@tmdb_id': updates.tmdbId !== undefined ? updates.tmdbId : existing.tmdb_id,
-        '@media_type': updates.mediaType !== undefined ? updates.mediaType : existing.media_type,
-        '@title': updates.title !== undefined ? updates.title : existing.title,
-        '@overview': updates.overview !== undefined ? updates.overview : existing.overview,
-        '@year': updates.year !== undefined ? updates.year : existing.year,
-        '@runtime': updates.runtime !== undefined ? updates.runtime : existing.runtime,
-        '@season_number': updates.seasonNumber !== undefined ? updates.seasonNumber : existing.season_number,
-        '@episode_number': updates.episodeNumber !== undefined ? updates.episodeNumber : existing.episode_number,
-        '@last_refreshed_at':
-            updates.lastRefreshedAt !== undefined ? updates.lastRefreshedAt : existing.last_refreshed_at,
-        '@poster_path': updates.posterPath !== undefined ? updates.posterPath : existing.poster_path,
-        '@backdrop_path': updates.backdropPath !== undefined ? updates.backdropPath : existing.backdrop_path,
-        '@logo_path': updates.logoPath !== undefined ? updates.logoPath : existing.logo_path,
-        '@locked_fields_json':
-            updates.lockedFields === undefined ? existing.locked_fields_json : (updates.lockedFields === null ? null : JSON.stringify(updates.lockedFields)),
-        '@version': updates._v !== undefined ? updates._v : existing.version
+    const params: Record<string, unknown> = { '@id': entityId }
+    for (const field of ENTITY_SCALAR_METADATA_FIELDS) {
+        const hasUpdate = updates[field.key] !== undefined
+        const nextValue = hasUpdate ? updates[field.key] : existing[field.column]
+        params[`@${field.column}`] = hasUpdate && field.serialize ? field.serialize(nextValue) : nextValue
     }
 
+    const columns = ['id', ...ENTITY_SCALAR_METADATA_FIELDS.map((field) => field.column)]
+    const valueParams = ['@id', ...ENTITY_SCALAR_METADATA_FIELDS.map((field) => `@${field.column}`)]
+    const updateAssignments = ENTITY_SCALAR_METADATA_FIELDS.map((field) => `${field.column} = excluded.${field.column}`)
+
     db.prepare(`
-    INSERT INTO media_entities(
-      id, tmdb_id, media_type, title, overview, year, runtime, season_number, episode_number,
-      poster_path, backdrop_path, logo_path,
-      locked_fields_json, last_refreshed_at, version
-    ) VALUES(
-      @id, @tmdb_id, @media_type, @title, @overview, @year, @runtime, @season_number, @episode_number,
-      @poster_path, @backdrop_path, @logo_path,
-      @locked_fields_json, @last_refreshed_at, @version
-    )
+    INSERT INTO media_entities(${columns.join(', ')})
+    VALUES(${valueParams.join(', ')})
     ON CONFLICT(id) DO UPDATE SET
-      tmdb_id = excluded.tmdb_id,
-      media_type = excluded.media_type,
-      title = excluded.title,
-      overview = excluded.overview,
-      version = excluded.version,
-      year = excluded.year,
-      runtime = excluded.runtime,
-      season_number = excluded.season_number,
-      episode_number = excluded.episode_number,
-      poster_path = excluded.poster_path,
-      backdrop_path = excluded.backdrop_path,
-      logo_path = excluded.logo_path,
-      locked_fields_json = excluded.locked_fields_json,
-      last_refreshed_at = excluded.last_refreshed_at
-    `).run(params)
+      ${updateAssignments.join(',\n      ')}
+    `).run(params as any)
 
     // 2. Upsert relational data (genres, credits, tags)
     if (updates.genres !== undefined) {
@@ -219,10 +191,7 @@ export function bulkClearEntityMetadata(entityIds: string[]): void {
     runTransaction(() => {
         db.prepare(`
             UPDATE media_entities SET
-              tmdb_id = NULL, media_type = NULL, title = NULL, overview = NULL,
-              year = NULL, runtime = NULL, season_number = NULL, episode_number = NULL,
-              poster_path = NULL, backdrop_path = NULL, logo_path = NULL,
-              locked_fields_json = NULL, last_refreshed_at = NULL, version = NULL
+              ${ENTITY_SCALAR_METADATA_FIELDS.map((field) => `${field.column} = NULL`).join(',\n              ')}
             WHERE id IN (${placeholders})
         `).run(...entityIds)
 

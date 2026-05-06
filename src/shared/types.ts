@@ -400,8 +400,9 @@ export interface MediaFile {
   logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv' | 'episode' | null
+  releaseDate?: string | null
   year?: number | null
-  runtime?: number | null
+  tmdbRuntime?: number | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   seasonNumber?: number | null
@@ -450,8 +451,9 @@ export interface MediaFolder {
   logoPath?: string | null
   tmdbId?: number | null
   mediaType?: 'movie' | 'tv' | 'season' | null
+  releaseDate?: string | null
   year?: number | null
-  runtime?: number | null
+  tmdbRuntime?: number | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   seasonNumber?: number | null // For season folders
@@ -488,8 +490,9 @@ export interface BaseLibraryItem {
   backdropPath?: string | null
   logoPath?: string | null
   tmdbId?: number | null
+  releaseDate?: string | null
   year?: number | null
-  runtime?: number | null
+  tmdbRuntime?: number | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   virtualTags?: Record<string, string>
@@ -647,8 +650,9 @@ export interface SearchIndexEntry {
   // We need all filterable properties
   persons?: string[]
   mediaType?: 'movie' | 'tv' | 'season' | 'episode'
+  releaseDate?: string | null
   year?: number | null
-  runtime?: number | null
+  tmdbRuntime?: number | null
   genres?: string[]
   tags?: Record<string, string>
   virtualTags?: Record<string, string>
@@ -728,7 +732,7 @@ export const METADATA_KEYS = [
   'tmdbId',
   'mediaType',
   'year',
-  'runtime',
+  'tmdbRuntime',
   'genres',
   'tags',
   'opensAsFolder', // File-specific

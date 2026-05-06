@@ -54,7 +54,7 @@ function fetchRoot(): any {
     SELECT i.*,
            e.id AS _entity_id,
            e.tmdb_id, e.media_type, e.title, e.original_title, e.overview,
-           e.release_date, e.year, e.runtime,
+           e.release_date, e.year, e.tmdb_runtime,
            e.season_number, e.episode_number, e.parent_entity_id,
            e.poster_path, e.backdrop_path, e.logo_path,
            e.locked_fields_json, e.last_refreshed_at, e.version,

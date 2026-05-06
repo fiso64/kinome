@@ -6,6 +6,7 @@ import * as virtualTagsService from './virtualTags.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import { getTransport } from '../transport.registry'
 import type { LibraryItem, Settings } from '@shared/types'
+import { ENTITY_SCALAR_METADATA_KEYS } from '@shared/metadata-fields'
 import * as autocompleteService from './autocomplete.service'
 import { syncAllGroupings } from './grouping.service'
 import * as accountFilterService from './account-filter.service'
@@ -32,13 +33,7 @@ const USER_STATE_KEYS = [
 const GLOBAL_UPDATE_KEYS = new Set([
   'isHidden',
   'isMissing',
-  'tmdbId',
-  'mediaType',
-  'title',
-  'overview',
-  'year',
-  'seasonNumber',
-  'episodeNumber',
+  ...ENTITY_SCALAR_METADATA_KEYS,
   'genres',
   'tags',
   'virtualTags',
@@ -245,11 +240,7 @@ export async function updateIfChangedAndBroadcast(
       const updatePayload: any = { ...item }
       if (existing) {
         const relationalKeys = ['genres', 'tmdbCredits', 'tags'] as const
-        const scalarMetaKeys = [
-          'tmdbId', 'mediaType', 'title', 'overview', 'year', 'runtime', 'seasonNumber', 'episodeNumber',
-          'posterPath', 'backdropPath', 'logoPath', 'lockedFields', 'lastRefreshedAt'
-        ] as const
-        for (const key of [...relationalKeys, ...scalarMetaKeys]) {
+        for (const key of [...relationalKeys, ...ENTITY_SCALAR_METADATA_KEYS]) {
           if (key in updatePayload && equal(updatePayload[key], (existing as any)[key])) {
             delete updatePayload[key]
           }

@@ -46,13 +46,16 @@ export async function applyMetadataToItem(
   if (date && (!respectLocks || !repositoryService.isFieldLocked(item, 'year'))) {
     item.year = new Date(date).getFullYear()
   }
+  if (date && (!respectLocks || !repositoryService.isFieldLocked(item, 'releaseDate'))) {
+    item.releaseDate = date
+  }
 
   if (
     item.mediaType === 'movie' &&
     typeof data.runtime === 'number' &&
-    (!respectLocks || !repositoryService.isFieldLocked(item, 'runtime'))
+    (!respectLocks || !repositoryService.isFieldLocked(item, 'tmdbRuntime'))
   ) {
-    item.runtime = data.runtime
+    item.tmdbRuntime = data.runtime
   }
 
   if (

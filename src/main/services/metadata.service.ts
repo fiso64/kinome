@@ -20,6 +20,7 @@ import * as autocompleteService from './autocomplete.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
 import { PRESERVED_ON_REASSIGN_FIELDS, RESETTABLE_METADATA_KEYS } from '@shared/types'
+import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Metadata Service] ${message}`)
@@ -465,12 +466,19 @@ function _resetItemMetadataFields(
   item: LibraryItem,
   options: { respectLocks?: boolean } = { respectLocks: true }
 ) {
+  const scalarResetValues = new Map(ENTITY_SCALAR_METADATA_FIELDS.map((field) => [field.key, field.resetValue]))
+
   for (const key of RESETTABLE_METADATA_KEYS) {
     if (Object.prototype.hasOwnProperty.call(item, key)) {
       if (options.respectLocks && repositoryService.isFieldLocked(item, key)) {
         continue
       }
       const itemAsRecord = item as Record<string, any>
+      if (scalarResetValues.has(key)) {
+        itemAsRecord[key] = scalarResetValues.get(key)
+        continue
+      }
+
       switch (key) {
         case 'tags':
           itemAsRecord[key] = {}
@@ -493,22 +501,9 @@ function _resetItemMetadataFields(
           itemAsRecord[key] = undefined
           break
 
-        case 'overview':
-        case 'tmdbId':
-        case 'year':
-        case 'runtime':
         case 'tmdbSeasons':
         case 'tmdbEpisodes':
         case 'tmdbCredits':
-        case 'title':
-        case 'originalTitle':
-        case 'releaseDate':
-        case 'mediaType':
-        case 'seasonNumber':
-        case 'episodeNumber':
-        case 'posterPath':
-        case 'backdropPath':
-        case 'logoPath':
           itemAsRecord[key] = null
           break
       }

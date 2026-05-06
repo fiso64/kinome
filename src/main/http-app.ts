@@ -386,7 +386,7 @@ export function buildApp() {
               'overview',
               'backdropPath',
               'logoPath',
-              'runtime',
+              'tmdbRuntime',
               'releaseDate',
               'genres',
               'tags',

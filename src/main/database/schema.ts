@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS media_entities (
     -- Dates & Numbers
     release_date TEXT,
     year INTEGER,
-    runtime INTEGER,
+    tmdb_runtime INTEGER,
     
     -- TV Specifics
     season_number INTEGER,

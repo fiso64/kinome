@@ -127,6 +127,7 @@ function mapRowToEntry(row: any): SearchIndexEntry {
     overview: row.overview,
     mediaType: row.media_type,
     year: row.year,
+    tmdbRuntime: row.tmdb_runtime,
     genres: parseJsonArray(row.genres_json),
     tags: parseJsonObject(row.tags_json),
     virtualTags: parseJsonObject(row.virtual_tags_json),

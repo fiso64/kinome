@@ -152,6 +152,6 @@ describe('Movie Phase 2 enrichment (end-to-end)', () => {
     const updatedMovie = getItemById('movie-1')
     expect(updatedMovie?.title).toBe('Perfect Blue')
     expect(updatedMovie?.year).toBe(1998)
-    expect(updatedMovie?.runtime).toBe(82)
+    expect(updatedMovie?.tmdbRuntime).toBe(82)
   })
 })

@@ -39,6 +39,7 @@ import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as userRepo from '../database/repositories/user.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
 import type { LibraryItem, MediaFolder, MediaSource } from '@shared/types'
+import { ENTITY_SCALAR_METADATA_KEYS } from '@shared/metadata-fields'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Repository Service] ${message}`)
@@ -345,9 +346,8 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>, optio
 
     // Metadata Updates (writes to media_entities via metadataRepo)
     const metadataKeys = [
-      'tmdbId', 'mediaType', 'title', 'overview', 'year', 'runtime', 'seasonNumber', 'episodeNumber',
-      'genres', 'tags', 'virtualTags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath',
-      'lockedFields', 'lastRefreshedAt', '_v'
+      ...ENTITY_SCALAR_METADATA_KEYS,
+      'genres', 'tags', 'virtualTags', 'tmdbCredits'
     ]
     if (metadataKeys.some((k) => k in updates)) {
       metadataRepo.upsertMetadata(itemId, updates)

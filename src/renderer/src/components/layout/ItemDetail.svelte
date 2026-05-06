@@ -88,10 +88,17 @@
 
   const isHeaderLoading = $derived(itemQuery.status === 'pending')
 
-  function formatRuntime(minutes: number): string {
+  function formatRuntime(minutes: number | null | undefined): string {
+    if (!minutes || minutes <= 0) return ''
     const hours = Math.floor(minutes / 60)
     const remainingMinutes = minutes % 60
     return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`
+  }
+
+  function getDisplayRuntime(item: LibraryItem): number | null | undefined {
+    // Temporary: this is TMDB runtime. Once ffmpeg metadata extraction exists,
+    // prefer true local runtime for display while continuing to store TMDB runtime.
+    return item.tmdbRuntime
   }
 
   // 1. Reset states ONLY if the path actually changed
@@ -406,10 +413,8 @@
                   {#if item.year}
                     <span class="year">{item.year}</span>
                   {/if}
-                  {#if item.mediaType === 'movie' && item.runtime}
-                    <!-- Temporary: this is TMDB runtime. Once ffmpeg metadata extraction exists,
-                      prefer true local runtime for display while continuing to store TMDB runtime. -->
-                    <span class="runtime">• {formatRuntime(item.runtime)}</span>
+                  {#if item.mediaType === 'movie' && getDisplayRuntime(item)}
+                    <span class="runtime">• {formatRuntime(getDisplayRuntime(item))}</span>
                   {/if}
                   {#if item.genres && item.genres.length > 0}
                     <div class="genres">

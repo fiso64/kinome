@@ -48,7 +48,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     originalTitle: { sql: 'e.original_title', table: 'e' },
     overview: { sql: 'e.overview', table: 'e' },
     releaseDate: { sql: 'e.release_date', table: 'e' },
-    runtime: { sql: 'e.runtime', table: 'e' },
+    tmdbRuntime: { sql: 'e.tmdb_runtime', table: 'e' },
     year: {
         sql: 'e.year',
         table: 'e',

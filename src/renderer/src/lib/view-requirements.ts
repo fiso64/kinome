@@ -9,7 +9,7 @@ export const DETAIL_HEADER_FIELDS = [
   'overview',
   'backdropPath',
   'logoPath',
-  'runtime',
+  'tmdbRuntime',
   'releaseDate',
   'genres',
   'tags'

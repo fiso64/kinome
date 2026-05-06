@@ -45,7 +45,7 @@ export function getFtsIndexCount(): { count: number; itemCount: number } {
 // Shared SELECT columns for search results
 const SEARCH_SELECT = `
     i.id, i.type, i.name, i.path,
-    e.title, e.overview, e.media_type, e.year,
+    e.title, e.overview, e.media_type, e.year, e.tmdb_runtime,
     e.poster_path, e.backdrop_path, e.logo_path,
     e.episode_number,
     (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres_json,
