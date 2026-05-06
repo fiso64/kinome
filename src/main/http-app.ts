@@ -233,6 +233,11 @@ export function buildApp() {
     // Assets (High-performance streaming)
     .get('/api/assets/*', async ({ params, set }) => {
       try {
+        const cacheControl = (params['*'] ?? '').includes('?v=')
+          ? 'private, max-age=31536000, immutable'
+          : 'private, max-age=3600'
+        set.headers['Cache-Control'] = cacheControl
+
         let relativePath = decodeURIComponent(params['*'])
         if (relativePath.includes('?')) {
           relativePath = relativePath.split('?')[0]
