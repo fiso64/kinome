@@ -21,10 +21,8 @@ let filterFocusKey = $state(0)
 
 // --- Derived ---
 
-const isGlobalActive = $derived(
-  navStore.state.globalQuery.text.trim() !== '' || navStore.state.globalQuery.tags.length > 0
-)
-const isTypingGlobalTag = $derived(isTypingTagHelper(navStore.state.globalQuery.text))
+const isGlobalActive = $derived(navStore.isGlobalSearchActive)
+const isTypingGlobalTag = $derived(isTypingTagHelper(navStore.globalQuery.text))
 
 const isDetailActive = $derived(detailQuery.text.trim() !== '' || detailQuery.tags.length > 0)
 const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
@@ -48,7 +46,7 @@ export function initializeSearchEffects() {
   // --- Global Search: Sync and Perform ---
   $effect(() => {
     // Atomic access to globalQuery to track all changes
-    const query = navStore.state.globalQuery
+    const query = navStore.globalQuery
     const serialized = serializeSearchQuery(query)
 
     // Check if URL and State are out of sync.
@@ -96,7 +94,7 @@ export function initializeSearchEffects() {
   // --- Detail View Search Effect ---
   $effect(() => {
     const query = detailQuery
-    if (navStore.state.selectedItemId && isDetailActive && !isTypingDetailTag) {
+    if (navStore.selectedItemId && isDetailActive && !isTypingDetailTag) {
       isPerformingDetailSearch = true
       runSearch(query).then((results) => {
         detailResults = results
@@ -127,7 +125,7 @@ export function initializeSearchEffects() {
   let wasFilterVisible = false
   $effect(() => {
     // Hide filter bar when navigating to detail view or global search
-    if (navStore.state.selectedItemId || isGlobalActive) {
+    if (navStore.selectedItemId || isGlobalActive) {
       if (isFilterBarVisible) {
         const isFilterEmpty = filterQuery.text.trim() === '' && filterQuery.tags.length === 0
         if (!isFilterEmpty) wasFilterVisible = true
@@ -143,7 +141,7 @@ export function initializeSearchEffects() {
 
   $effect(() => {
     // Clear main view filter when navigating away from search results
-    void navStore.state.currentFolderId
+    void navStore.currentFolderId
     if (!isGlobalActive) {
       filterQuery = { text: '', tags: [] }
     }
@@ -202,7 +200,7 @@ function handleLibraryUpdates(updatedItems: any[]) {
 
 export const searchStore = {
   get globalQuery() {
-    return navStore.state.globalQuery
+    return navStore.globalQuery
   },
   set globalQuery(v) {
     // This setter is mainly for svelte bindings (bind:query)

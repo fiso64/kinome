@@ -61,7 +61,7 @@
   }>()
 
   // --- V2 State ---
-  const currentFolderId = $derived(navStore.state.currentFolderId)
+  const currentFolderId = $derived(navStore.currentFolderId)
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
     enabled: () => libraryStatus?.status === 'ready' && !disabled,

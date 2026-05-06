@@ -223,8 +223,8 @@
 
       // If we are looking at this item, go back
       if (
-        navStore.state.currentFolderId === deletedItemId ||
-        navStore.state.selectedItemId === deletedItemId
+        navStore.currentFolderId === deletedItemId ||
+        navStore.selectedItemId === deletedItemId
       ) {
         navStore.goBack()
       }

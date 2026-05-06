@@ -55,9 +55,7 @@
   const contextItemToConfigure = $derived(contextItem)
 
   const isAtHome = $derived(
-    navStore.state.currentFolderId === 'home' &&
-      !navStore.isDetailViewActive &&
-      navStore.state.path === '/'
+    navStore.isHomeLocation
   )
 
   // --- Search Bindings ---
@@ -207,7 +205,7 @@
       </button>
       <!-- In detail view, the title is handled by the component itself -->
       <!-- In settings view, we just show "Settings" -->
-      {#if navStore.state.path === '/settings'}
+      {#if navStore.isSettingsActive}
         <h1>Settings</h1>
       {:else if !navStore.isDetailViewActive}
         <h1>Kinome</h1>
@@ -215,7 +213,7 @@
     </div>
 
     <div class="search-container" onkeydown={handleSearchKeyDown}>
-      {#if navStore.state.path !== '/settings'}
+      {#if !navStore.isSettingsActive}
         {#key navStore.isDetailViewActive}
           {#if navStore.isDetailViewActive}
             <SearchInput
@@ -270,7 +268,7 @@
     </div>
 
     <div class="header-right">
-      {#if navStore.state.path !== '/settings'}
+      {#if !navStore.isSettingsActive}
         <button
           onclick={() => dispatch('refresh')}
           disabled={isWaitingForScan || isScanning}

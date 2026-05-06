@@ -46,9 +46,9 @@
   }>()
 
   // Derived State
-  const selectedItemId = $derived(navStore.state.selectedItemId)
+  const selectedItemId = $derived(navStore.selectedItemId)
   const isGlobalSearchActive = $derived(searchStore.isGlobalActive)
-  const isSettingsActive = $derived(navStore.state.path === '/settings')
+  const isSettingsActive = $derived(navStore.isSettingsActive)
 
   // Search/Detail Visibility Logic
   let wasSearchActiveWhenDetailOpened = $state(false)
@@ -68,9 +68,7 @@
   })
   const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
   const isHomeView = $derived(
-    navStore.state.path === '/' &&
-      navStore.state.currentFolderId === 'home' &&
-      !navStore.state.selectedItemId
+    navStore.isHomeLocation
   )
 
   const latestBackdrop = $derived(

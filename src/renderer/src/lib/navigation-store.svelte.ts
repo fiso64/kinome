@@ -20,9 +20,36 @@ let currentState = $state<NavigationState>({
   globalQuery: { text: '', tags: [] }
 })
 
-// --- Derived Helpers ---
+// --- Route Predicates ---
 
-// --- Derived Helpers removed, using direct getters in navStore ---
+function hasSearchQuery(query: SearchQuery): boolean {
+  return query.text.trim() !== '' || query.tags.length > 0
+}
+
+function isHomeRoute(state: NavigationState): boolean {
+  return (
+    state.currentFolderId === 'home' &&
+    state.selectedItemId === null &&
+    state.path === '/'
+  )
+}
+
+function isSettingsRoute(state: NavigationState): boolean {
+  return state.path === '/settings'
+}
+
+function isDetailRoute(state: NavigationState): boolean {
+  return state.selectedItemId !== null
+}
+
+function canNavigateBack(state: NavigationState): boolean {
+  return (
+    state.currentFolderId !== 'home' ||
+    isDetailRoute(state) ||
+    isSettingsRoute(state) ||
+    hasSearchQuery(state.globalQuery)
+  )
+}
 
 // --- URL Parsing & Synchronization ---
 
@@ -156,18 +183,35 @@ export const navStore = {
   get state() {
     return currentState
   },
+  get currentFolderId() {
+    return currentState.currentFolderId
+  },
+  get selectedItemId() {
+    return currentState.selectedItemId
+  },
+  get path() {
+    return currentState.path
+  },
+  get globalQuery() {
+    return currentState.globalQuery
+  },
+  get isHomeLocation() {
+    return isHomeRoute(currentState)
+  },
+  get isSettingsActive() {
+    return isSettingsRoute(currentState)
+  },
+  get isGlobalSearchActive() {
+    return hasSearchQuery(currentState.globalQuery)
+  },
   get isDetailViewActive() {
-    return currentState.selectedItemId !== null
+    return isDetailRoute(currentState)
   },
   get contextItemId() {
     return currentState.selectedItemId ?? currentState.currentFolderId
   },
   get canGoBack() {
-    return (
-      (currentState.currentFolderId !== 'home' && currentState.currentFolderId !== null) ||
-      currentState.selectedItemId !== null ||
-      currentState.path !== '/'
-    )
+    return canNavigateBack(currentState)
   },
   init,
   navigateToFolder: (folderId: string) => {
