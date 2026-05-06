@@ -218,6 +218,74 @@ describe('TV show structural sync — background processing (no user context)', 
 })
 
 describe('clearItemMetadata — virtual season folder cleanup', () => {
+  it('preserves folder settings when clearing metadata for the folder itself', async () => {
+    ctx.seedEntities([{ id: 'e-show', mediaType: 'tv', title: 'Configured Show' }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'show', parentId: 'root', type: 'folder', entityId: 'e-show', name: 'Configured Show' },
+    ])
+    ctx.seedFolderSettings([
+      {
+        itemId: 'show',
+        folderSettings: {
+          retrieveChildrenMetadata: true,
+          childrenTypeHint: 'tv',
+          processTvChildren: false,
+        },
+      },
+    ])
+
+    await clearItemMetadata('show', {})
+
+    const settings = ctx.db.prepare(`
+      SELECT retrieve_children_metadata, children_type_hint, process_tv_children
+      FROM folder_settings
+      WHERE item_id = ?
+    `).get('show') as any
+
+    expect(settings).toEqual({
+      retrieve_children_metadata: 1,
+      children_type_hint: 'tv',
+      process_tv_children: 0,
+    })
+  })
+
+  it('preserves descendant folder settings when clearing metadata children-only', async () => {
+    ctx.seedEntities([
+      { id: 'e-root', mediaType: 'tv', title: 'Parent Show' },
+      { id: 'e-season', mediaType: 'season', seasonNumber: 1 },
+    ])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'show', parentId: 'root', type: 'folder', entityId: 'e-root', name: 'Parent Show' },
+      { id: 'season', parentId: 'show', type: 'folder', entityId: 'e-season', name: 'Season 01' },
+    ])
+    ctx.seedFolderSettings([
+      {
+        itemId: 'season',
+        folderSettings: {
+          retrieveChildrenMetadata: true,
+          childrenTypeHint: 'tv',
+          processTvChildren: false,
+        },
+      },
+    ])
+
+    await clearItemMetadata('show', { childrenOnly: true })
+
+    const settings = ctx.db.prepare(`
+      SELECT retrieve_children_metadata, children_type_hint, process_tv_children
+      FROM folder_settings
+      WHERE item_id = ?
+    `).get('season') as any
+
+    expect(settings).toEqual({
+      retrieve_children_metadata: 1,
+      children_type_hint: 'tv',
+      process_tv_children: 0,
+    })
+  })
+
   it('removes virtual season folders when clearing a tv show', async () => {
     ctx.seedEntities([
       { id: 'e-show', mediaType: 'tv', title: 'Some Show' },

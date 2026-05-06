@@ -82,6 +82,6 @@ export function mergeSettings(itemId: string, updates: {
     '@appliedGrouping': appliedGrouping,
     '@retrieve': retrieveChildrenMetadata ? 1 : 0,
     '@hint': childrenTypeHint,
-    '@processTv': processTvChildren === false ? 0 : 1,
+    '@processTv': processTvChildren === false || processTvChildren === 0 ? 0 : 1,
   })
 }

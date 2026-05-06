@@ -81,6 +81,47 @@ describe('syncTvShowStructure (Flat Shows)', () => {
         expect(updatedEp.seasonNumber).toBe(4)
         expect(updatedEp.episodeNumber).toBe(5)
     })
+
+    it('does not assign season or episode metadata when processTvChildren is disabled', async () => {
+        ctx.seedEntities([
+            { id: 'e-disabled', tmdbId: 101, mediaType: 'tv', title: 'Disabled Show' }
+        ])
+
+        ctx.seedItems([
+            { id: 'root', parentId: null, type: 'folder' },
+            { id: 'show-disabled', parentId: 'root', type: 'folder', entityId: 'e-disabled', name: 'Disabled Show' },
+            { id: 's1', parentId: 'show-disabled', type: 'folder', name: 'Season 01' },
+            { id: 'ep-1', parentId: 's1', type: 'file', name: 'Disabled.Show.S01E01.mkv' },
+            { id: 'ep-2', parentId: 'show-disabled', type: 'file', name: 'Disabled.Show.S02E01.mkv' }
+        ])
+        ctx.seedFolderSettings([
+            {
+                itemId: 'show-disabled',
+                folderSettings: {
+                    processTvChildren: false
+                }
+            }
+        ])
+
+        const show = getItemById('show-disabled') as MediaFolder
+        const changes = await syncTvShowStructure(show)
+
+        expect(changes).toHaveLength(0)
+
+        const season = getItemById('s1') as MediaFolder
+        expect(season.mediaType).toBeUndefined()
+        expect(season.seasonNumber).toBe(null)
+
+        const ep1 = getItemById('ep-1') as MediaFile
+        expect(ep1.mediaType).toBeUndefined()
+        expect(ep1.seasonNumber).toBe(null)
+        expect(ep1.episodeNumber).toBe(null)
+
+        const ep2 = getItemById('ep-2') as MediaFile
+        expect(ep2.mediaType).toBeUndefined()
+        expect(ep2.seasonNumber).toBe(null)
+        expect(ep2.episodeNumber).toBe(null)
+    })
 })
 
 describe('syncTvShowStructure (Mixed Shows)', () => {
@@ -117,6 +158,61 @@ describe('syncTvShowStructure (Mixed Shows)', () => {
         const ep2 = getItemById('ep-2') as MediaFile
         expect(ep2.seasonNumber).toBe(2)
         expect(ep2.episodeNumber).toBe(1)
+    })
+
+    it('does not assign Season 1 to unrelated sibling folders when explicit Season XX folders exist', async () => {
+        ctx.seedEntities([
+            { id: 'e-jojo-like', tmdbId: 45790, mediaType: 'tv', title: 'Parted Adventure' }
+        ])
+
+        ctx.seedItems([
+            { id: 'root', parentId: null, type: 'folder' },
+            { id: 'show-parted', parentId: 'root', type: 'folder', entityId: 'e-jojo-like', name: 'Parted Adventure' },
+
+            // Intentionally first, like the reported OVA folder. This name is not in the
+            // special-folder ignore list, so the assertion only depends on explicit season matching.
+            { id: 'side-stories', parentId: 'show-parted', type: 'folder', name: 'Side Stories' },
+            { id: 'side-ep', parentId: 'side-stories', type: 'file', name: '01. The Side Chapter (2000).mkv' },
+
+            { id: 's3', parentId: 'show-parted', type: 'folder', name: 'Season 03 (Part 04) - Diamond is Unbreakable' },
+            { id: 's3-ep', parentId: 's3', type: 'file', name: 'Parted Adventure (2012) S03E01.mkv' },
+
+            { id: 's4', parentId: 'show-parted', type: 'folder', name: 'Season 04 (Part 05) - Golden Wind' },
+            { id: 's4-ep', parentId: 's4', type: 'file', name: 'Parted Adventure (2012) S04E01.mkv' },
+
+            { id: 's2', parentId: 'show-parted', type: 'folder', name: 'Season 02 (Part 03) - Stardust Crusaders' },
+            { id: 's2-ep', parentId: 's2', type: 'file', name: 'Parted Adventure (2012) S02E01.mkv' },
+
+            { id: 's5', parentId: 'show-parted', type: 'folder', name: 'Season 05 (Part 06) - Stone Ocean' },
+            { id: 's5-ep', parentId: 's5', type: 'file', name: 'Parted Adventure (2012) S05E01.mkv' },
+
+            { id: 's1', parentId: 'show-parted', type: 'folder', name: 'Season 01 (Part 01+02) Phantom Blood & Battle Tendency' },
+            { id: 's1-ep', parentId: 's1', type: 'file', name: 'Parted Adventure (2012) S01E01.mkv' }
+        ])
+
+        const show = getItemById('show-parted') as MediaFolder
+        await syncTvShowStructure(show)
+
+        const sideStories = getItemById('side-stories') as MediaFolder
+        expect(sideStories.mediaType).toBeUndefined()
+        expect(sideStories.seasonNumber).toBe(null)
+
+        const sideEpisode = getItemById('side-ep') as MediaFile
+        expect(sideEpisode.mediaType).toBeUndefined()
+        expect(sideEpisode.seasonNumber).toBe(null)
+        expect(sideEpisode.episodeNumber).toBe(null)
+
+        for (const [id, seasonNumber] of [
+            ['s1', 1],
+            ['s2', 2],
+            ['s3', 3],
+            ['s4', 4],
+            ['s5', 5]
+        ] as const) {
+            const season = getItemById(id) as MediaFolder
+            expect(season.mediaType).toBe('season')
+            expect(season.seasonNumber).toBe(seasonNumber)
+        }
     })
 
     it('uses explicit season folders and repairs stale OVA season metadata', async () => {

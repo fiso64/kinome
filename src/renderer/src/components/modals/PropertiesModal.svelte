@@ -38,7 +38,7 @@
 
   $effect(() => {
     const fetchProperties = async () => {
-      if (!item.path) {
+      if (item.isVirtual) {
         error = 'This item does not have a physical path on the disk (e.g., virtual item).'
         isLoading = false
         return
