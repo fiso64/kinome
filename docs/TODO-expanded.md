@@ -1,33 +1,4 @@
 
-On my windows desktop, first time mpv is launched for any video file, it exits. Need to launch a second time.
-(Check mpv logs first)
-
----
-
-Page reload became slow for no reason.
-
----
-
-UX issue. Starting from home:
-
-1. Type in search bar
-2. Press browser back
-Correctly navigates back to home view (good). 
-
-However if you instead
-1. Type in search bar
-2. Navigate to any result
-3. Navigate back to the search view
-4. Try to navigate back again
-Then nothing happens. Need to press escape to close the search view and get back home.
-
-Similarly, from home view:
-1. Navigate into any item detail view (movie or show)
-2. Click on of its genre pills, which will go to the search view
-3. Try to navigate back
-It will not navigate back to the item detail view.
-
----
 
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
