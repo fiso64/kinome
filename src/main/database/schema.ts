@@ -1,5 +1,5 @@
-// REMINDER: Absolutely no migrations.
-// Breaking Changes are OK — user deletes library.db and re-scans.
+// Keep this as the canonical schema for new databases.
+// Existing databases are upgraded by versioned migrations in migrations/.
 
 export const SCHEMA_SQL = `
 -- The physical filesystem structure

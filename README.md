@@ -25,7 +25,6 @@ See Plan.md for more details.
 - [**Specs**](./spec/)
 
 ## General Development Info 
-- No migration or backward compatibility code (for the database or settings json files). Breaking changes are allowed and expected in order to maintain momentum and avoid unnecessary bloat after feature sprints.
 - No hacks, no tech debt. Solutions must be implemented cleanly. Always prefer an architecturally clean and performant refactor over a hacky patch. 
 - Performance should be considered for homeserver scale, but not for Netflix scale (i.e. ~tens of thousands of items instead of millions).
 

@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite'
 import fs from 'fs'
 import * as pathsService from '../services/paths.service'
 import { SCHEMA_SQL } from './schema'
+import { runMigrations } from './migrations'
 
 let db: Database | null = null
 
@@ -36,6 +37,7 @@ export function initializeDatabase(): Database {
     db.run('PRAGMA foreign_keys = ON') // Enforce constraints
 
     applySchema()
+    runMigrations(db)
 
     return db
   } catch (error) {
