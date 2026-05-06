@@ -246,7 +246,7 @@ export async function updateIfChangedAndBroadcast(
       if (existing) {
         const relationalKeys = ['genres', 'tmdbCredits', 'tags'] as const
         const scalarMetaKeys = [
-          'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
+          'tmdbId', 'mediaType', 'title', 'overview', 'year', 'runtime', 'seasonNumber', 'episodeNumber',
           'posterPath', 'backdropPath', 'logoPath', 'lockedFields', 'lastRefreshedAt'
         ] as const
         for (const key of [...relationalKeys, ...scalarMetaKeys]) {

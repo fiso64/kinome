@@ -345,7 +345,7 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>, optio
 
     // Metadata Updates (writes to media_entities via metadataRepo)
     const metadataKeys = [
-      'tmdbId', 'mediaType', 'title', 'overview', 'year', 'seasonNumber', 'episodeNumber',
+      'tmdbId', 'mediaType', 'title', 'overview', 'year', 'runtime', 'seasonNumber', 'episodeNumber',
       'genres', 'tags', 'virtualTags', 'tmdbCredits', 'posterPath', 'backdropPath', 'logoPath',
       'lockedFields', 'lastRefreshedAt', '_v'
     ]

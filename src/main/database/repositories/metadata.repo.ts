@@ -86,6 +86,7 @@ export function upsertMetadata(itemId: string, updates: any): void {
         '@title': updates.title !== undefined ? updates.title : existing.title,
         '@overview': updates.overview !== undefined ? updates.overview : existing.overview,
         '@year': updates.year !== undefined ? updates.year : existing.year,
+        '@runtime': updates.runtime !== undefined ? updates.runtime : existing.runtime,
         '@season_number': updates.seasonNumber !== undefined ? updates.seasonNumber : existing.season_number,
         '@episode_number': updates.episodeNumber !== undefined ? updates.episodeNumber : existing.episode_number,
         '@last_refreshed_at':
@@ -100,11 +101,11 @@ export function upsertMetadata(itemId: string, updates: any): void {
 
     db.prepare(`
     INSERT INTO media_entities(
-      id, tmdb_id, media_type, title, overview, year, season_number, episode_number,
+      id, tmdb_id, media_type, title, overview, year, runtime, season_number, episode_number,
       poster_path, backdrop_path, logo_path,
       locked_fields_json, last_refreshed_at, version
     ) VALUES(
-      @id, @tmdb_id, @media_type, @title, @overview, @year, @season_number, @episode_number,
+      @id, @tmdb_id, @media_type, @title, @overview, @year, @runtime, @season_number, @episode_number,
       @poster_path, @backdrop_path, @logo_path,
       @locked_fields_json, @last_refreshed_at, @version
     )
@@ -115,6 +116,7 @@ export function upsertMetadata(itemId: string, updates: any): void {
       overview = excluded.overview,
       version = excluded.version,
       year = excluded.year,
+      runtime = excluded.runtime,
       season_number = excluded.season_number,
       episode_number = excluded.episode_number,
       poster_path = excluded.poster_path,
@@ -218,7 +220,7 @@ export function bulkClearEntityMetadata(entityIds: string[]): void {
         db.prepare(`
             UPDATE media_entities SET
               tmdb_id = NULL, media_type = NULL, title = NULL, overview = NULL,
-              year = NULL, season_number = NULL, episode_number = NULL,
+              year = NULL, runtime = NULL, season_number = NULL, episode_number = NULL,
               poster_path = NULL, backdrop_path = NULL, logo_path = NULL,
               locked_fields_json = NULL, last_refreshed_at = NULL, version = NULL
             WHERE id IN (${placeholders})

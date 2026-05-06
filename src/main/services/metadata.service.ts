@@ -496,6 +496,7 @@ function _resetItemMetadataFields(
         case 'overview':
         case 'tmdbId':
         case 'year':
+        case 'runtime':
         case 'tmdbSeasons':
         case 'tmdbEpisodes':
         case 'tmdbCredits':

@@ -48,6 +48,14 @@ export async function applyMetadataToItem(
   }
 
   if (
+    item.mediaType === 'movie' &&
+    typeof data.runtime === 'number' &&
+    (!respectLocks || !repositoryService.isFieldLocked(item, 'runtime'))
+  ) {
+    item.runtime = data.runtime
+  }
+
+  if (
     data.genres &&
     Array.isArray(data.genres) &&
     (!respectLocks || !repositoryService.isFieldLocked(item, 'genres'))

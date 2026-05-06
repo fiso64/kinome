@@ -88,6 +88,12 @@
 
   const isHeaderLoading = $derived(itemQuery.status === 'pending')
 
+  function formatRuntime(minutes: number): string {
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`
+  }
+
   // 1. Reset states ONLY if the path actually changed
   $effect.pre(() => {
     if (item.backdropPath !== lastBackdrop) {
@@ -399,6 +405,11 @@
                 <div class="meta">
                   {#if item.year}
                     <span class="year">{item.year}</span>
+                  {/if}
+                  {#if item.mediaType === 'movie' && item.runtime}
+                    <!-- Temporary: this is TMDB runtime. Once ffmpeg metadata extraction exists,
+                      prefer true local runtime for display while continuing to store TMDB runtime. -->
+                    <span class="runtime">• {formatRuntime(item.runtime)}</span>
                   {/if}
                   {#if item.genres && item.genres.length > 0}
                     <div class="genres">
@@ -851,7 +862,8 @@
     gap: 0.5rem;
   }
 
-  .year {
+  .year,
+  .runtime {
     font-size: 1.2rem;
     font-weight: 600;
     color: var(--ev-c-text-2);

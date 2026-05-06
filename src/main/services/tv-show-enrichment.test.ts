@@ -34,6 +34,18 @@ mock.module(RETRIEVER_PATH, () => ({
         seasons: [{ season_number: 1, name: 'Season 1', overview: 'First season.', poster_path: null }]
       }
     }
+    if (type === 'movie') {
+      return {
+        id: tmdbId,
+        title: 'Perfect Blue',
+        overview: 'A pop singer becomes an actress.',
+        release_date: '1998-02-28',
+        runtime: 82,
+        genres: [],
+        poster_path: null,
+        backdrop_path: null
+      }
+    }
     return null
   },
   getCredits: async () => ({ cast: [], crew: [] }),
@@ -121,5 +133,25 @@ describe('TV show Phase 2 enrichment (end-to-end)', () => {
     // The season must be recognised and assigned mediaType='season' in the DB
     const updatedSeason = getItemById('season-1')
     expect(updatedSeason?.mediaType).toBe('season')
+  })
+})
+
+describe('Movie Phase 2 enrichment (end-to-end)', () => {
+  it('persists TMDB runtime for movies', async () => {
+    ctx.seedEntities([{ id: 'e-movie', tmdbId: 10494, mediaType: 'movie', title: null }])
+    ctx.seedItems([
+      { id: 'root', parentId: null, type: 'folder' },
+      { id: 'movie-1', parentId: 'root', type: 'file', entityId: 'e-movie', name: 'Perfect Blue.mkv' }
+    ])
+
+    const movie = getItemById('movie-1')!
+    const result = await fetchAndApplyMetadata(movie, {})
+
+    expect(result.length).toBeGreaterThan(0)
+
+    const updatedMovie = getItemById('movie-1')
+    expect(updatedMovie?.title).toBe('Perfect Blue')
+    expect(updatedMovie?.year).toBe(1998)
+    expect(updatedMovie?.runtime).toBe(82)
   })
 })
