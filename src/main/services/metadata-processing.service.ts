@@ -380,27 +380,44 @@ export async function fetchAndApplyEpisodeData(
   if (!tmdbEpisodes || options.force) {
     const details = await retrieverService.getSeasonDetails(showTmdbId, seasonNumber, tmdbApiKey)
     if (details) {
-      tmdbEpisodes = (details.episodes ?? []).map((e: any) => ({
+      const freshEpisodes = (details.episodes ?? []).map((e: any) => ({
         episode_number: e.episode_number,
         name: e.name,
         overview: e.overview,
         still_path: e.still_path
       }))
 
+      tmdbEpisodes = freshEpisodes
+      const alreadyFetched = !!seasonFolder.lastRefreshedAt
+
       seasonFolder.tmdbEpisodes = tmdbEpisodes
-      seasonFolder.lastRefreshedAt = Date.now()
-      modifiedItems.push(seasonFolder)
+      if (!alreadyFetched) {
+        seasonFolder.lastRefreshedAt = Date.now()
+        modifiedItems.push(seasonFolder)
+      }
     }
   }
 
   if (!tmdbEpisodes) return modifiedItems
 
-  const children = seasonFolder.children || repositoryService.getChildren(seasonFolder.id)
+  // Always fetch with overview included — callers may pass children with only
+  // CORE_FIELDS, which excludes overview. We need it for change detection.
+  const children = repositoryService.getChildren(
+    seasonFolder.id, [...repositoryService.CORE_FIELDS, 'overview']
+  )
   const localEpisodes = children.filter((c) => c.type === 'file') as MediaFile[]
 
   for (const localEpisode of localEpisodes) {
     if (typeof localEpisode.episodeNumber === 'undefined') continue
     const tmdbEpisode = tmdbEpisodes.find((e) => e.episode_number === localEpisode.episodeNumber)
+
+    // Snapshot fields before mutation to detect real changes
+    const before = {
+      title: localEpisode.title,
+      overview: localEpisode.overview,
+      mediaType: localEpisode.mediaType,
+      posterPath: localEpisode.posterPath
+    }
 
     if (tmdbEpisode) {
       if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'title')) {
@@ -428,7 +445,18 @@ export async function fetchAndApplyEpisodeData(
       if (!options.respectLocks || !repositoryService.isFieldLocked(localEpisode, 'posterPath'))
         localEpisode.posterPath = undefined
     }
-    modifiedItems.push(localEpisode)
+
+    // Normalize null/undefined for comparison — DB returns null, clearing sets undefined
+    const eq = (a: any, b: any) => (a ?? null) === (b ?? null)
+    const changed =
+      !eq(localEpisode.title, before.title) ||
+      !eq(localEpisode.overview, before.overview) ||
+      !eq(localEpisode.mediaType, before.mediaType) ||
+      !eq(localEpisode.posterPath, before.posterPath)
+
+    if (changed) {
+      modifiedItems.push(localEpisode)
+    }
   }
 
   return modifiedItems

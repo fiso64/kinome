@@ -48,6 +48,20 @@ type ErrorCallback = (options: { title: string; message: string; detail?: string
 
 // --- Helpers ---
 
+/**
+ * Walks up the parent chain to find the ancestor TV show folder.
+ * Returns null if the item is not inside a TV show hierarchy.
+ * Must be called while the item still exists in the DB (before deletion).
+ */
+function findAncestorTvShow(itemId: string): MediaFolder | null {
+  let current = repositoryService.findParent(itemId)
+  while (current) {
+    if (current.type === 'folder' && current.mediaType === 'tv') return current as MediaFolder
+    current = repositoryService.findParent(current.id)
+  }
+  return null
+}
+
 // --- Core ---
 
 export async function loadDbIntoMemory(): Promise<void> {
@@ -563,28 +577,7 @@ export async function getContinueWatchingItems(
 
     // 2. Fetch the specific next episode using its ID
     const nextEpisode = repositoryService.getItemById(show.nextUpEpisodeId) as MediaFile
-    if (!nextEpisode) {
-      // Data inconsistency: Show points to an episode that no longer exists.
-      // We should probably trigger a recalculation here.
-      const showWithFixedPointer = await recalculateNextUpForShow(show.id, userId)
-      if (showWithFixedPointer) {
-        await updateIfChangedAndBroadcast(showWithFixedPointer, { userId })
-      }
-      continue
-    }
-
-    // 3. Ensure we have the minimum required fields for the episode to be useful
-    if (!nextEpisode.title) {
-      const updatedItems = await metadataService.fetchEpisodeDataForContinueWatching(
-        show,
-        nextEpisode
-      )
-      if (updatedItems.length > 0) {
-        await updateIfChangedAndBroadcast(updatedItems)
-        const fresh = repositoryService.getItemById(nextEpisode.id) as MediaFile
-        if (fresh) Object.assign(nextEpisode, fresh)
-      }
-    }
+    if (!nextEpisode) continue
 
     results.push({
       show: repositoryService.createTransferableCopy(show) as MediaFolder,
@@ -621,10 +614,20 @@ export const getAbsolutePathForItem = actionsService.getAbsolutePathForItem
 export const getItemProperties = actionsService.getItemProperties
 export const revealInExplorer = actionsService.revealInExplorer
 export const trashItem = async (itemId: string): Promise<{ success: boolean }> => {
+  const ancestorShow = findAncestorTvShow(itemId)
+  const affectedUserIds = ancestorShow
+    ? userRepo.getUserIdsWithNextUp(ancestorShow.id, itemId)
+    : []
+
   const success = await actionsService.trashItem(itemId)
   if (success) {
     repositoryService.deleteItem(itemId)
     getTransport().notifyLibraryItemDeleted(itemId)
+
+    for (const userId of affectedUserIds) {
+      const updated = await recalculateNextUpForShow(ancestorShow!.id, userId)
+      if (updated) await updateIfChangedAndBroadcast(updated, { userId })
+    }
   }
   return { success }
 }
@@ -783,11 +786,7 @@ export const handleItemRenamed = async (oldItemId: string, newRelPath: string) =
 
       // If we renamed something inside a TV show, recalculate the pointer
       // (IDs change when paths change)
-      let showParent: MediaFolder | null = parent as MediaFolder
-      while (showParent && (showParent.type !== 'folder' || showParent.mediaType !== 'tv')) {
-        showParent = repositoryService.findParent(showParent.id) as MediaFolder
-      }
-
+      const showParent = findAncestorTvShow(newItem.id)
       if (showParent) {
         const updatedShow = await recalculateNextUpForShow(showParent.id, null)
         if (updatedShow) {
@@ -876,9 +875,21 @@ export const updateItem = async (item: LibraryItem, isUser: boolean) => {
   await updateIfChangedAndBroadcast([updates], { updateSuggestions: true })
 }
 export const deleteItemFromDb = async (id: string): Promise<{ success: boolean }> => {
+  // Capture context BEFORE deletion (parent chain + user_state are CASCADE-deleted)
+  const ancestorShow = findAncestorTvShow(id)
+  const affectedUserIds = ancestorShow
+    ? userRepo.getUserIdsWithNextUp(ancestorShow.id, id)
+    : []
+
   const res = repositoryService.deleteItem(id)
   if (res) {
     getTransport().notifyLibraryItemDeleted(id)
+
+    for (const userId of affectedUserIds) {
+      const updated = await recalculateNextUpForShow(ancestorShow!.id, userId)
+      if (updated) await updateIfChangedAndBroadcast(updated, { userId })
+    }
+
     return { success: true }
   }
   return { success: false }
@@ -937,8 +948,18 @@ export const playFile = async (file: MediaFile, cb: ErrorCallback) => {
 export const handleItemRemovedByPath = async (p: string) => {
   const item = repositoryService.findItemByPath(p)
   if (item) {
+    const ancestorShow = findAncestorTvShow(item.id)
+    const affectedUserIds = ancestorShow
+      ? userRepo.getUserIdsWithNextUp(ancestorShow.id, item.id)
+      : []
+
     repositoryService.deleteItem(item.id)
     getTransport().notifyLibraryItemDeleted(item.id)
+
+    for (const userId of affectedUserIds) {
+      const updated = await recalculateNextUpForShow(ancestorShow!.id, userId)
+      if (updated) await updateIfChangedAndBroadcast(updated, { userId })
+    }
   }
 }
 

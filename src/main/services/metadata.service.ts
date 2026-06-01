@@ -239,48 +239,6 @@ export async function fetchAndApplyMetadata(
   }
 }
 
-export async function fetchEpisodeDataForContinueWatching(
-  show: MediaFolder,
-  episode: MediaFile
-): Promise<LibraryItem[]> {
-  if (episode.title && episode.posterPath) return []
-  const settings = await settingsService.readSettings()
-  if (!settings.tmdbApiKey || !show.tmdbId) return []
-
-  // Ensure we have season structure
-  if (!show.children || show.children.length === 0) {
-    show.children = repositoryService.getChildren(show.id)
-  }
-
-  const seasonFolder = show.children.find(
-    (c) => c.type === 'folder' && c.seasonNumber === episode.seasonNumber
-  ) as MediaFolder | undefined
-
-  const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
-  repositoryService.setBulkUpdateStatus(true)
-
-  try {
-    // Re-fetch seasons if needed
-    if (!show.tmdbSeasons) {
-      const details = await retrieverService.getDetails(show.tmdbId, 'tv', settings.tmdbApiKey)
-      if (details?.seasons) show.tmdbSeasons = details.seasons
-    }
-
-    const modified = await metadataMapping.fetchAndApplyEpisodeData(
-      seasonFolder || show,
-      show.tmdbId,
-      settings.tmdbApiKey,
-      pathsService.getLibraryDataPath(),
-      show.tmdbSeasons ?? undefined
-    )
-
-    await updateIfChangedAndBroadcast(modified)
-    return modified
-  } finally {
-    repositoryService.setBulkUpdateStatus(wasBulkUpdating)
-  }
-}
-
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
