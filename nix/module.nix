@@ -127,7 +127,7 @@ in
 
       serviceConfig = {
         ExecStart = lib.getExe cfg.package;
-        WorkingDirectory = "${cfg.package}/share/kinome";
+        WorkingDirectory = "${cfg.package}/libexec/kinome";
         User = cfg.user;
         Group = cfg.group;
         Restart = "on-failure";
