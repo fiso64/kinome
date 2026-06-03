@@ -49,6 +49,10 @@ bun2nix.mkDerivation {
 
   nativeBuildInputs = [ bun go git zip ];
 
+  # Bun compiled executables append the application payload to the Bun runtime.
+  # Nix's default strip phase removes that payload, leaving a plain `bun` binary.
+  dontStrip = true;
+
   preBuild = ''
     export HOME=$TMPDIR
     export GOCACHE=$TMPDIR/go-cache
@@ -72,9 +76,10 @@ bun2nix.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    install -Dm755 dist/kinome $out/bin/kinome
-    mkdir -p $out/share/kinome
-    cp -r out public $out/share/kinome/
+    mkdir -p $out/bin $out/libexec/kinome
+    install -Dm755 dist/kinome $out/libexec/kinome/kinome
+    cp -r out public $out/libexec/kinome/
+    ln -s $out/libexec/kinome/kinome $out/bin/kinome
 
     runHook postInstall
   '';
