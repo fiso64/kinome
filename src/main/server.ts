@@ -22,6 +22,20 @@ import bcrypt from 'bcryptjs'
  * 2. "./data" folder relative to CWD - Best for Portable/Dev use
  * 3. OS Default (AppData/.config) - Best for standard Desktop install
  */
+
+function resolveEnvPort(): number | undefined {
+  const rawPort = process.env.KINOME_PORT ?? process.env.PORT
+  if (!rawPort) return undefined
+
+  const parsed = Number(rawPort)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    console.warn(`[Startup] Ignoring invalid port from environment: ${rawPort}`)
+    return undefined
+  }
+
+  return parsed
+}
+
 function resolveUserDataPath(): string {
   const appName = 'kinome'
 
@@ -236,9 +250,10 @@ async function start() {
 
   const settings = await settingsService.readSettings()
 
+  const envPort = resolveEnvPort()
   const finalPort =
-    process.env.NODE_ENV === 'production' ? settings.serverPort || 3000 : process.env.PORT || 3001
-  const host = settings.serverHost || '0.0.0.0'
+    envPort ?? (process.env.NODE_ENV === 'production' ? settings.serverPort || 3000 : 3001)
+  const host = process.env.KINOME_HOST || settings.serverHost || '0.0.0.0'
 
   app.listen({ port: finalPort, hostname: host }, (server) => {
     webTransport.initialize(server)

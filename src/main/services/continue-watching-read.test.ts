@@ -9,7 +9,7 @@
  *      and broadcast, also triggering refetches.
  *
  * This test asserts that getContinueWatchingItems is a pure read: it must
- * never call updateIfChangedAndBroadcast or trigger broadcasts. 
+ * never call updateIfChangedAndBroadcast or trigger broadcasts.
  */
 import { mock, spyOn } from 'bun:test'
 import path from 'path'

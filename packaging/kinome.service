@@ -10,7 +10,8 @@ Group=kinome
 # Configuration
 Environment="KINOME_DATA=/var/lib/kinome"
 Environment="NODE_ENV=production"
-Environment="PORT=3000"
+Environment="KINOME_HOST=::"
+Environment="KINOME_PORT=3000"
 
 # Application location (We will install to /opt)
 WorkingDirectory=/opt/kinome
