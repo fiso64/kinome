@@ -11,7 +11,7 @@ let
       serverPort = cfg.port;
       serverHost = cfg.host;
     };
-    libraryDefaults = { };
+    libraryDefaults = cfg.librarySettings;
   };
 
   librarySettingsFile = json.generate "kinome-library-settings.json" cfg.librarySettings;
