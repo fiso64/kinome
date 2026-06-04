@@ -278,6 +278,30 @@ export function getAllFolderPathsInSource(sourceId: string): Set<string> {
 }
 
 /**
+ * Returns folder paths that have at least one direct child in the same source.
+ * Used for source shadowing so empty higher-priority folders do not mask
+ * populated lower-priority folders at the same relative path.
+ */
+export function getNonEmptyFolderPathsInSource(sourceId: string): Set<string> {
+    const db = getDb()
+    const rows = db.prepare(
+        `SELECT path
+         FROM items folder
+         WHERE folder.source_id = ?
+           AND folder.type = 'folder'
+           AND folder.is_virtual = 0
+           AND EXISTS (
+             SELECT 1
+             FROM items child
+             WHERE child.source_id = folder.source_id
+               AND child.parent_id = folder.id
+               AND child.is_virtual = 0
+           )`
+    ).all(sourceId) as { path: string }[]
+    return new Set(rows.map((r) => r.path))
+}
+
+/**
  * Returns a raw list of all descendant IDs for a given folder.
  */
 export function getAllDescendantIdsFast(parentId: string): string[] {

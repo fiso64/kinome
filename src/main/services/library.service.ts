@@ -210,11 +210,11 @@ export const performScan = async (
       if (shadowSources && j > 0) {
         higherPriorityPaths = new Set<string>()
         for (let k = 0; k < j; k++) {
-          for (const p of filesystemService.getFolderPathsForSource(sources[k].id)) {
+          for (const p of filesystemService.getNonEmptyFolderPathsForSource(sources[k].id)) {
             higherPriorityPaths.add(p)
           }
         }
-        log(`Shadow: skipping ${higherPriorityPaths.size} paths from ${j} higher-priority source(s) at depth >= ${shadowMinDepth}`)
+        log(`Shadow: skipping ${higherPriorityPaths.size} non-empty paths from ${j} higher-priority source(s) at depth >= ${shadowMinDepth}`)
       }
 
       const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
