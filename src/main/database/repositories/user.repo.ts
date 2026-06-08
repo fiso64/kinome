@@ -89,6 +89,17 @@ export function fetchUserStateMap(itemIds: string[], userId: string): Map<string
 }
 
 /**
+ * Returns all user IDs whose nextUpEpisodeId for a given show points to the specified episode.
+ */
+export function getUserIdsWithNextUp(showId: string, episodeId: string): string[] {
+    const db = getDb()
+    const rows = db.prepare(
+        'SELECT user_id FROM user_state WHERE item_id = ? AND next_up_episode_id = ?'
+    ).all(showId, episodeId) as { user_id: string }[]
+    return rows.map((r) => r.user_id)
+}
+
+/**
  * Overlays user state onto an array of items in-place.
  * Items with no user state entry remain unchanged (watched/dismissed fields stay undefined).
  */

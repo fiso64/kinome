@@ -155,7 +155,8 @@ async function syncDiskToDatabase(
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
           if (!isDir && !isVideoFile) return
 
-          // Shadow: skip folders that exist in a higher-priority source at or beyond min depth
+          // Shadow: skip folders that exist as non-empty folders in a higher-priority source
+          // at or beyond min depth. The caller is responsible for passing only shadowable paths.
           if (isDir && higherPriorityPaths) {
             const depth = relPath.split('/').length
             if (depth >= shadowMinDepth && higherPriorityPaths.has(relPath)) {
@@ -337,6 +338,10 @@ export async function syncWithDisk(node: MediaFolder, source: { id: string; abso
 
 export function getFolderPathsForSource(sourceId: string): Set<string> {
   return itemsRepo.getAllFolderPathsInSource(sourceId)
+}
+
+export function getNonEmptyFolderPathsForSource(sourceId: string): Set<string> {
+  return itemsRepo.getNonEmptyFolderPathsInSource(sourceId)
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {

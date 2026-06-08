@@ -16,7 +16,8 @@ import {
   HOME_GENRES_ID,
   HOME_ALL_MEDIA_ID,
   generateId,
-  getAllFolderPathsInSource
+  getAllFolderPathsInSource,
+  getNonEmptyFolderPathsInSource
 } from '../database/repositories/filesystem.repo'
 import * as repositoryService from './repository.service'
 import { LIBRARY_ROOT_ID } from '../database/repositories/filesystem.repo'
@@ -329,6 +330,19 @@ describe('shadowing', () => {
     expect(pathsB.size).toBe(2) // only source B items
   })
 
+  it('getNonEmptyFolderPathsInSource excludes empty folders', async () => {
+    await fs.mkdir(path.join(tmpA, 'Movies'))
+    await fs.mkdir(path.join(tmpA, 'Shows'))
+    await fs.writeFile(path.join(tmpA, 'Shows', 'episode.mkv'), '')
+
+    await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
+
+    const paths = getNonEmptyFolderPathsInSource(SOURCE_A.id)
+    expect(paths.has('.')).toBe(true)
+    expect(paths.has('Movies')).toBe(false)
+    expect(paths.has('Shows')).toBe(true)
+  })
+
   it('skips overlapping folders (and their children) from lower-priority source', async () => {
     // Source A: Movies/ActionFilm/
     await fs.mkdir(path.join(tmpA, 'Movies'))
@@ -342,7 +356,7 @@ describe('shadowing', () => {
 
     await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
 
-    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
+    const higherPriorityPaths = getNonEmptyFolderPathsInSource(SOURCE_A.id)
     // higherPriorityPaths = { '.', 'Movies', 'Movies/ActionFilm' }
 
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
@@ -359,6 +373,26 @@ describe('shadowing', () => {
     expect(repositoryService.getItemById(moviesAId)).not.toBeNull()
   })
 
+  it('prefers a populated lower-priority folder over an empty high-priority folder', async () => {
+    await fs.mkdir(path.join(tmpA, 'Movies'))
+
+    await fs.mkdir(path.join(tmpB, 'Movies'))
+    await fs.mkdir(path.join(tmpB, 'Movies', 'SciFiFilm'))
+    await fs.writeFile(path.join(tmpB, 'Movies', 'SciFiFilm', 'scifi.mkv'), '')
+
+    await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
+
+    const higherPriorityPaths = getNonEmptyFolderPathsInSource(SOURCE_A.id)
+    expect(higherPriorityPaths.has('Movies')).toBe(false)
+
+    await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
+
+    const moviesBId = generateId(SOURCE_B.id, 'Movies')
+    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()
+    expect(repositoryService.getItemById(scifiBId)).not.toBeNull()
+  })
+
   it('respects shadowMinDepth — structural top-level folders are not skipped', async () => {
     // Both sources have Movies/ActionFilm/ (perfect mirror)
     await fs.mkdir(path.join(tmpA, 'Movies'))
@@ -371,7 +405,7 @@ describe('shadowing', () => {
 
     await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
 
-    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
+    const higherPriorityPaths = getNonEmptyFolderPathsInSource(SOURCE_A.id)
     // higherPriorityPaths = { '.', 'Movies', 'Movies/ActionFilm' }
 
     // minDepth=2: 'Movies' (depth 1) is below threshold → not skipped
@@ -393,8 +427,8 @@ describe('shadowing', () => {
 
     await scanDirectory({ ...SOURCE_A, path: tmpA }, tmpA)
 
-    const higherPriorityPaths = getAllFolderPathsInSource(SOURCE_A.id)
-    // higherPriorityPaths = { '.', 'Movies' }
+    const higherPriorityPaths = getNonEmptyFolderPathsInSource(SOURCE_A.id)
+    // higherPriorityPaths = { '.' }
 
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 

@@ -1,4 +1,18 @@
+# Media identity/location/entity refactor
 
+Refactor the library model so logical media identity, physical filesystem locations, and metadata ownership are separated cleanly. This should fix cross-source moves/shadow promotion without data loss and make future read models possible without duplicating state.
+
+See: [Media identity/location/entity refactor plan](./media-identity-location-refactor-plan.md)
+
+---
+
+Split Kinome configuration into server-owned and user-owned layers.
+   - Read-only/deploy-time server config should live in environment variables or `/etc/kinome/config.json` and cover `dataDir`, host, port, library location, and other deployment concerns.
+   - Mutable Web UI/user settings should stay under the data directory.
+   - Runtime cache should move to an explicit cache directory such as `/var/cache/kinome` instead of being mixed into durable library state.
+   - NixOS/systemd deployments should be able to configure server settings declaratively without fighting Web UI writes.
+
+---
 
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
