@@ -55,7 +55,7 @@ We will also add a new vtag config option which makes them only apply items with
 
 ---
 
-Layout system design (small refactor)
+Layout system design (small refactor), ai generated comment:
 ```
 While adding the `button-grid` layout, I noticed a few significant architectural bottlenecks and DRY (Don't Repeat Yourself) violations. The layout system works, but it's suffering from **"Prop Drilling and State Explosion"**, which makes scaling it painful.
 
@@ -86,11 +86,10 @@ In `types.ts`, `StoredViewSettings` is a massive intersection of all possible la
 
 **The Problem:** There is no strict type relationship enforcing that `gridPosterSize` only belongs to grid-like layouts. At the data layer, it's just a giant bucket of optional properties.
 ```
-Are these issues still accurate? Check. 
+Need to check if still accurate.
 
 ---
 
-# Manual episode assignment
 We currently have: tv show, movie, and season-level manual assignment flows, but not episode-level assignment.
 Example: I have a special episode in the S02 folder (Black Mirror S02EXX.Special.White.Christmas.mkv). Tmdb thinks it's part of season 0 (Specials). I cannot link this episode to the metadata from the special season because the episode is in the S02 folder. Want to achieve this without having to move the file (tmdb isn't God, users may prefer to organize differently).
 Easy solution: Edit the episode metadata to set the season to 0 and the episode number to 1. Currently does not seem to work (bug?). Doesn't put the episode in the specials tab or fetch metadata for it. 

@@ -1,36 +1,33 @@
 # Kinome
 
-Media server and manager (like Jellyfin, Plex, Emby, etc.). Fetches metadata from TMDB and displays it nice, streams media.
+Media server and manager. Fetches metadata from TMDB and displays it nice, streams media. 
 
-<img width="2539" height="1440" alt="image" src="https://github.com/user-attachments/assets/12e17cc5-c3c8-45e4-9641-ecadef5445ba" />
+<img width="2539" height="1440" alt="image" src="https://github.com/user-attachments/assets/ec5dd3fe-4b2c-4a03-84a9-e1e37b58dc13" />
 <img width="2526" height="1440" alt="image" src="https://github.com/user-attachments/assets/9feb2a6f-7c3a-494c-a1ca-35603a035772" />
 
 
+### Some features that might be unique to Kinome
+- Allows you to keep the folder structure you want instead of forcing you to organize into `tv` and `movies` subdirs.
+    - For example, tv show folders can include movies (e.g., because the movie is usually watched after the series, or because you are too lazy to reorganize that torrent). Just navigate into the tv show, right click the movie, then search and assign the correct one.
+    - You can put your media into a single dir with mixed shows and movies, or organize into subdirs.
+- A virtual/dynamic tag system (inspired by MusicBee) that can be used for searching, home screen organization, or blacklisting/whitelisting certain media for specific users.
+- A highly customizable home screen that allows you to group, sort and display media exactly how you want. The home layout above is constructed using a default grouping rule and virtual tags, which are fully configurable. For example, "Animated Movies" is defined as the rule `media type = movie AND genre contains Animation`.
+- Easy custom player support. The webui can directly open files in MPV, VLC, or any other player you want after installing a local handler.
+- Manual assignment flows for movies/shows/seasons. E.g., when a season folder is misclassified due to non-standard naming, simply right click, search for seasons and select the correct one. 
 
-## Goals
-- More customizable
-    - Virtual (automatic) tags which can be used for searching or grouping.
-    - Highly customizable per-folder views.
-- "Filesystem first":
-    - Does not force you to use a particular media folder structure
-    - Represents your filesystem.
-- Prettier
+### Some unavailable features
+Kinome is under development and is missing some important features which one would expect to find in a media server. These are planned, but not yet available in the latest version:
 
-See Plan.md for more details.
+- web player
+- transcoding/transmuxing
+- local ffmpeg metadata extraction and display
+- watch mode/automatic library rescans
+- scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
+- any semblance of a polished webui
 
-## Development Plan / Roadmap
+See [**Plan.md**](./docs/Plan.md) for more details.
 
-- [**Plan.md**](./docs/Plan.md)
-- [**Bugs**](./docs/Bugs.md)
-- [**Specs**](./spec/)
 
-## General Development Info 
-- No hacks, no tech debt. Solutions must be implemented cleanly. Always prefer an architecturally clean and performant refactor over a hacky patch. 
-- Performance should be considered for homeserver scale, but not for Netflix scale (i.e. ~tens of thousands of items instead of millions).
-
-## Recommended IDE Setup
-
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode)
 
 ## Project Setup
 
