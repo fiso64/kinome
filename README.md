@@ -2,7 +2,7 @@
 
 Media server and manager. Fetches metadata from TMDB and displays it nice, streams media. 
 
-<img width="2539" height="1440" alt="image" src="https://github.com/user-attachments/assets/ec5dd3fe-4b2c-4a03-84a9-e1e37b58dc13" />
+<img width="2539" height="1440" alt="image" src="https://github.com/user-attachments/assets/10dcd0d6-b6de-49fc-a8a4-2260c23a2443" />
 <img width="2526" height="1440" alt="image" src="https://github.com/user-attachments/assets/9feb2a6f-7c3a-494c-a1ca-35603a035772" />
 
 
