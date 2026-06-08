@@ -21,8 +21,9 @@ Kinome is under development and is missing some important features which one wou
 - web player
 - transcoding/transmuxing
 - local ffmpeg metadata extraction and display
-- watch mode/automatic library rescans
+- automatic library rescans
 - scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
+- percentage based progress (just binary watched state)
 - any semblance of a polished webui
 
 See [**Plan.md**](./docs/Plan.md) for more details.
