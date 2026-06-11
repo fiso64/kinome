@@ -50,6 +50,16 @@ function looseItemCondition(item: LibraryItem): { condition: string; field: stri
   const resolvedKey = FIELD_ALIASES[groupBy] ?? groupBy
   const def = REPOSITORY_SCHEMA[resolvedKey]
   if (def && !def.isSubquery) {
+    if (resolvedKey === 'seasonNumber') {
+      // Virtual season folders represent only loose/direct episode files. Do
+      // not hide physical folders, movie extras, or other manually classified
+      // children just because they also have a season number.
+      return {
+        condition: `(i.virtual_type IN ('grouping', 'season', 'user') OR (i.is_virtual = 0 AND (i.type != 'file' OR e.media_type IS NULL OR e.media_type != 'episode' OR ${def.sql} IS NULL)))`,
+        field: resolvedKey
+      }
+    }
+
     return {
       condition: `(i.virtual_type IN ('grouping', 'season', 'user') OR (i.is_virtual = 0 AND ${def.sql} IS NULL))`,
       field: resolvedKey
@@ -242,7 +252,11 @@ export function syncVirtualSeasonFolders(showId: string): void {
       const id = seasonFolderId(showId, seasonNumber)
       const filter: LibraryFilter = {
         scope: { parentId: showId },
-        conditions: [{ field: 'seasonNumber', op: 'eq', value: seasonNumber }]
+        conditions: [
+          { field: 'type', op: 'eq', value: 'file' },
+          { field: 'mediaType', op: 'eq', value: 'episode' },
+          { field: 'seasonNumber', op: 'eq', value: seasonNumber }
+        ]
       }
       insertVirtualItem({
         id,

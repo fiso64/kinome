@@ -586,7 +586,7 @@ export function insertVirtualItem(params: {
 }
 
 /**
- * Returns distinct season numbers from real file children of the given parent.
+ * Returns distinct season numbers from real episode file children of the given parent.
  * Used by syncVirtualSeasonFolders to know which virtual season folders are needed.
  */
 export function getDistinctSeasonNumbers(parentId: string): number[] {
@@ -595,7 +595,11 @@ export function getDistinctSeasonNumbers(parentId: string): number[] {
         SELECT DISTINCT e.season_number
         FROM items i
         LEFT JOIN media_entities e ON i.entity_id = e.id
-        WHERE i.parent_id = ? AND i.is_virtual = 0 AND i.type = 'file' AND e.season_number IS NOT NULL
+        WHERE i.parent_id = ?
+          AND i.is_virtual = 0
+          AND i.type = 'file'
+          AND e.media_type = 'episode'
+          AND e.season_number IS NOT NULL
     `).all(parentId) as { season_number: number }[]
     return rows.map((r) => r.season_number)
 }

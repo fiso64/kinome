@@ -969,6 +969,131 @@ describe('getChildren — end-to-end round-trip', () => {
     expect(items.map((i) => i.id)).toContain('loose')
   })
 
+  it('season grouping keeps manually assigned physical season folders visible', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Neon Genesis Evangelion' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 1, episodeNumber: 2 },
+      { id: 'e-revival', mediaType: 'season', seasonNumber: 2, title: 'Revival Of Evangelion' },
+    ])
+    ctx.seedItems([
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      {
+        id: 'show',
+        parentId: LIBRARY_ROOT_ID,
+        path: 'Neon Genesis Evangelion',
+        type: 'folder',
+        entityId: 'e-show'
+      },
+      { id: 'ep1', parentId: 'show', path: 'Neon Genesis Evangelion/01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'show', path: 'Neon Genesis Evangelion/02.mkv', entityId: 'e-ep2' },
+      {
+        id: 'revival',
+        parentId: 'show',
+        path: 'Neon Genesis Evangelion/Revival Of Evangelion',
+        type: 'folder',
+        name: 'Revival Of Evangelion',
+        entityId: 'e-revival',
+      },
+    ])
+
+    syncVirtualSeasonFolders('show')
+
+    const result = await getChildren('show', {})
+    const items = expectItems(result)
+
+    expect(items.map((i) => i.id)).toContain('revival')
+
+    const revival = items.find((i) => i.id === 'revival') as MediaFolder | undefined
+    expect(revival?.mediaType).toBe('season')
+    expect(revival?.seasonNumber).toBe(2)
+  })
+
+  it('virtual season folders hide only direct episode files and keep other season-numbered children visible', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Neon Genesis Evangelion' },
+      { id: 'e-ep1', mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 },
+      { id: 'e-ep2', mediaType: 'episode', seasonNumber: 2, episodeNumber: 1 },
+      { id: 'e-revival-season', mediaType: 'season', seasonNumber: 2, title: 'Revival Of Evangelion' },
+      { id: 'e-revival-movie', mediaType: 'movie', seasonNumber: 2, title: 'Revival Of Evangelion' },
+      { id: 'e-movie-extra', mediaType: 'movie', seasonNumber: 2, title: 'The End of Evangelion' },
+      { id: 'e-untyped-extra', mediaType: null, seasonNumber: 2, title: 'Untyped Extra' },
+    ])
+    ctx.seedItems([
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'Neon Genesis Evangelion', type: 'folder', entityId: 'e-show' },
+      { id: 'ep1', parentId: 'show', path: 'Neon Genesis Evangelion/01.mkv', entityId: 'e-ep1' },
+      { id: 'ep2', parentId: 'show', path: 'Neon Genesis Evangelion/02.mkv', entityId: 'e-ep2' },
+      {
+        id: 'revival-season',
+        parentId: 'show',
+        path: 'Neon Genesis Evangelion/Revival Of Evangelion',
+        type: 'folder',
+        name: 'Revival Of Evangelion',
+        entityId: 'e-revival-season',
+      },
+      {
+        id: 'revival-movie',
+        parentId: 'show',
+        path: 'Neon Genesis Evangelion/Rebuild Of Evangelion',
+        type: 'folder',
+        name: 'Rebuild Of Evangelion',
+        entityId: 'e-revival-movie',
+      },
+      { id: 'movie-extra', parentId: 'show', path: 'Neon Genesis Evangelion/The End of Evangelion.mkv', entityId: 'e-movie-extra' },
+      { id: 'untyped-extra', parentId: 'show', path: 'Neon Genesis Evangelion/bonus.mkv', entityId: 'e-untyped-extra' },
+    ])
+
+    syncVirtualSeasonFolders('show')
+
+    const rootItems = expectItems(await getChildren('show', {}))
+    const rootIds = rootItems.map((i) => i.id)
+
+    // Loose episode files are represented by virtual Season N folders, so they
+    // should not also be listed directly at the show root.
+    expect(rootIds).not.toContain('ep1')
+    expect(rootIds).not.toContain('ep2')
+
+    // But seasonNumber alone must not make a real child disappear. Physical
+    // folders and non-episode files are not represented by virtual seasons.
+    expect(rootIds).toContain('revival-season')
+    expect(rootIds).toContain('revival-movie')
+    expect(rootIds).toContain('movie-extra')
+    expect(rootIds).toContain('untyped-extra')
+
+    const seasonFolders = rootItems.filter((i) => i.virtualType === 'season')
+    expect(seasonFolders.map((i) => i.name).sort()).toEqual(['Season 1', 'Season 2'])
+
+    const season2 = seasonFolders.find((i) => i.name === 'Season 2')!
+    const season2Items = expectItems(await getChildren(season2.id, {}))
+    const season2Ids = season2Items.map((i) => i.id).sort()
+
+    // A virtual Season N folder should contain only the loose direct episode
+    // files for that season, not every child that happens to have seasonNumber=N.
+    expect(season2Ids).toEqual(['ep2'])
+  })
+
+  it('does not create virtual season folders from non-episode files with season numbers', async () => {
+    ctx.seedEntities([
+      { id: 'e-show', mediaType: 'tv', title: 'Extras Only' },
+      { id: 'e-movie-extra', mediaType: 'movie', seasonNumber: 2, title: 'Movie Extra' },
+      { id: 'e-untyped-extra', mediaType: null, seasonNumber: 3, title: 'Untyped Extra' },
+    ])
+    ctx.seedItems([
+      { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, path: 'Extras Only', type: 'folder', entityId: 'e-show' },
+      { id: 'movie-extra', parentId: 'show', path: 'Extras Only/movie-extra.mkv', entityId: 'e-movie-extra' },
+      { id: 'untyped-extra', parentId: 'show', path: 'Extras Only/untyped-extra.mkv', entityId: 'e-untyped-extra' },
+    ])
+
+    syncVirtualSeasonFolders('show')
+
+    const items = expectItems(await getChildren('show', {}))
+
+    expect(items.some((i) => i.virtualType === 'season')).toBe(false)
+    expect(items.map((i) => i.id).sort()).toEqual(['movie-extra', 'untyped-extra'])
+  })
+
   it('full cycle: home with grouping → returns grouping virtual folders, not raw pool items', async () => {
     ctx.seedEntities([
       { id: 'e1', mediaType: 'movie' },
