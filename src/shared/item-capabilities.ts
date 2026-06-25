@@ -18,6 +18,7 @@ export function itemCapabilities(item: Pick<LibraryItem, 'type' | 'isVirtual' | 
     canEditFolderSettings: isFolder && !isVirtual,
     canEditView: isFolder,
     canPlay: !isFolder && !isVirtual && !isMissing,
+    canDownload: !isFolder && !isVirtual && !isMissing,
     canFilesystemOps: !isVirtual && !isMissing,
     canHide: !isVirtual,
     canDelete: (isMissing && !isVirtual) || (isVirtual && item.virtualType === 'user'),

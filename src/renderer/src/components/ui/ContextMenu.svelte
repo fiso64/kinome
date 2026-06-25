@@ -564,6 +564,12 @@
               <span>Show in Explorer</span>
             </button>
           {/if}
+          {#if caps.canDownload}
+            <button class="context-menu-item" onclick={handleDownload}>
+              <span class="icon">⬇️</span>
+              <span>Download</span>
+            </button>
+          {/if}
           <button class="context-menu-item" onclick={handleRename}>
             <span class="icon">✏️</span>
             <span>Rename...</span>
