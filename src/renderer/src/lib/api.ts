@@ -191,6 +191,20 @@ export function getPlaylistUrl(itemId: string): string {
 }
 
 /**
+ * Returns a full HTTP URL for streaming a file.
+ */
+export function getStreamUrl(itemId: string, filename?: string, options?: { watch?: boolean }): string {
+  if (!itemId) return ''
+  const path = filename
+    ? `/api/stream/${itemId}/${encodeURIComponent(filename)}`
+    : `/api/stream/${itemId}`
+  const url = new URL(path, window.location.origin)
+  if (authStore.token) url.searchParams.set('token', authStore.token)
+  if (options?.watch) url.searchParams.set('watch', '1')
+  return url.toString()
+}
+
+/**
  * Returns a full HTTP URL for downloading a file.
  */
 export function getDownloadUrl(itemId: string): string {

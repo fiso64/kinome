@@ -4,7 +4,7 @@
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { BUILTIN_COPY_LINK } from '@lib/services/player-launcher.service'
+  import { BUILTIN_PLAYER_COMMANDS } from '@lib/services/player-launcher.service'
   import { flip } from 'svelte/animate'
 
   let {
@@ -51,9 +51,11 @@
     // Strip built-ins from server definitions — they are implicit, not stored server-side
     localServerDefinitions = playerCommands.filter((c) => !c.isBuiltIn)
 
-    // Init client-side selection; ensure built-in is always present for ordering
+    // Init client-side selection; ensure built-ins are always present for ordering
     let ids = [...clientSettingsStore.settings.enabledPlayerIds]
-    if (!ids.includes(BUILTIN_COPY_LINK.id)) ids.push(BUILTIN_COPY_LINK.id)
+    for (const builtin of BUILTIN_PLAYER_COMMANDS) {
+      if (!ids.includes(builtin.id)) ids.push(builtin.id)
+    }
     localEnabledPlayerIds = ids
   })
 
@@ -61,7 +63,8 @@
   const enabledDeviceItems = $derived(
     localEnabledPlayerIds
       .map((id) => {
-        if (id === BUILTIN_COPY_LINK.id) return BUILTIN_COPY_LINK
+        const builtin = BUILTIN_PLAYER_COMMANDS.find((p) => p.id === id)
+        if (builtin) return builtin
         return localServerDefinitions.find((d) => d.id === id) ?? null
       })
       .filter(Boolean) as PlayerCommandConfig[]
