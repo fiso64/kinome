@@ -14,7 +14,6 @@ import path from 'path'
 // ─── Mock I/O boundaries BEFORE importing modules under test ────────────────
 
 const RETRIEVER_PATH = path.resolve(__dirname, './retriever.service.ts')
-const PATHS_PATH = path.resolve(__dirname, './paths.service.ts')
 
 mock.module(RETRIEVER_PATH, () => ({
   search: async () => [],
@@ -27,14 +26,6 @@ mock.module(RETRIEVER_PATH, () => ({
     ]
   }),
   cacheGenreLists: async () => {}
-}))
-
-mock.module(PATHS_PATH, () => ({
-  getLibraryDataPath: () => '/tmp/kinome-test',
-  isRemoteLibrary: () => false,
-  resolveAssetPath: () => null,
-  setLibraryDataPath: () => {},
-  setUserDataPath: () => {}
 }))
 
 // ─── Imports AFTER mocks ────────────────────────────────────────────────────

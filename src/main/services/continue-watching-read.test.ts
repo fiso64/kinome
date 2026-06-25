@@ -18,7 +18,6 @@ import path from 'path'
 
 const RETRIEVER_PATH = path.resolve(__dirname, './retriever.service.ts')
 const SETTINGS_PATH = path.resolve(__dirname, './settings.service.ts')
-const PATHS_PATH = path.resolve(__dirname, './paths.service.ts')
 
 mock.module(RETRIEVER_PATH, () => ({
   search: async () => [],
@@ -66,14 +65,6 @@ mock.module(SETTINGS_PATH, () => ({
     serverPort: 3000,
     serverHost: '::'
   })
-}))
-
-mock.module(PATHS_PATH, () => ({
-  getLibraryDataPath: () => '/tmp/kinome-test',
-  isRemoteLibrary: () => false,
-  resolveAssetPath: () => null,
-  setLibraryDataPath: () => {},
-  setUserDataPath: () => {}
 }))
 
 // ─── Imports AFTER mocks ────────────────────────────────────────────────────

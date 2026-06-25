@@ -10,7 +10,6 @@ import path from 'path'
 // Mock I/O boundaries
 const RETRIEVER_PATH = path.resolve(__dirname, './retriever.service.ts')
 const SETTINGS_PATH = path.resolve(__dirname, './settings.service.ts')
-const PATHS_PATH = path.resolve(__dirname, './paths.service.ts')
 
 mock.module(RETRIEVER_PATH, () => ({
     search: async () => [],
@@ -22,12 +21,6 @@ mock.module(RETRIEVER_PATH, () => ({
 
 mock.module(SETTINGS_PATH, () => ({
     readSettings: async () => ({ tmdbApiKey: 'fake-key' })
-}))
-
-mock.module(PATHS_PATH, () => ({
-    getLibraryDataPath: () => '/tmp/kinome-test',
-    isRemoteLibrary: () => false,
-    resolveAssetPath: () => null
 }))
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
