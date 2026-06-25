@@ -280,7 +280,7 @@ It should own:
 - virtual-folder fields when applicable;
 - metadata association;
 - item-level lifecycle state;
-- optional selected/display location reference for compatibility fields.
+- optional preferred/default location reference for compatibility fields.
 
 Suggested table shape:
 
@@ -299,7 +299,7 @@ CREATE TABLE media_items (
 
   is_hidden INTEGER NOT NULL DEFAULT 0,
   logical_missing INTEGER NOT NULL DEFAULT 0,
-  selected_location_id TEXT,
+  preferred_location_id TEXT,
 
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -309,7 +309,8 @@ CREATE TABLE media_items (
 Notes:
 
 - `logical_missing` can also be derived from locations and/or visible descendants instead of stored.
-- `selected_location_id` is optional compatibility/display state for this exact item. It is not a replacement for child file items and should not make a folder item playable.
+- `preferred_location_id` is optional admin/default preference for this exact item. It is not the same as account-aware selected/display location.
+- Selected/display location should usually be derived in the read model from present locations, account visibility, source priority, and shadow rules. A single stored selected location cannot represent all accounts.
 - The existing public `LibraryItem.id` should map to `media_items.id`.
 
 ### Core concept 2: MediaLocation
@@ -424,6 +425,50 @@ CREATE TABLE media_item_metadata (
 
 If the project insists on exactly three storage tables, then `MediaEntity` must remain item-specific rather than canonical. That is simpler but less conceptually clean.
 
+For this identity/location refactor, canonicalizing `MediaEntity` is not required. It is acceptable to keep `media_entities` item-specific in the first pass, as long as this invariant is explicit:
+
+```txt
+Until item-specific metadata tables exist, media_entities must not be shared
+by multiple MediaItems.
+```
+
+### Support concept: tags and virtual tags
+
+Virtual tags should be item-bound derived facts.
+
+The tag definition remains a filter over the assembled library item:
+
+```txt
+mediaType = movie AND genre contains Animation
+```
+
+That filter may read fields from item metadata, canonical provider metadata, user state, folder settings, parent fields, and selected-location fields. The computed result should belong to the logical item:
+
+```sql
+CREATE TABLE item_virtual_tags (
+  item_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (item_id, key)
+);
+```
+
+Filtering by genre still works because genre is an input to rule evaluation, not the owner of the virtual tag result. A genre can come from `media_entities` or `media_item_metadata`; the virtual tag value is still written to the item that matched the rule.
+
+Manual/user tags should probably follow the same rule and live on items. Provider facts such as TMDB genres, cast, studios, ratings, and release data can remain entity/provider metadata.
+
+This is not a precondition for splitting items and locations if `media_entities` stays item-specific. It becomes required if `MediaEntity` becomes canonical/shared, otherwise tags and virtual tags would leak between distinct logical items that happen to share the same TMDB identity.
+
+### Support concept: source roots and tree semantics
+
+The current database persists source roots as `items` rows under the library root. After an item can have multiple locations, source roots need an explicit design decision:
+
+- keep source roots as logical `MediaItem`s for the native file-tree read model;
+- make source roots read-model-only containers assembled from locations;
+- or keep compatibility source-root items while separating them from semantic library hierarchy.
+
+The important constraint is that `parent_item_id` cannot accidentally mean both "logical parent" and "physical parent in whichever source is selected" when an item has multiple locations. The native file tree can still expose source roots, but the core item relationship should be intentional.
+
 ### Support concept: item relationships
 
 The three core concepts should remain `MediaItem`, `MediaLocation`, and `MediaEntity`, but the implementation should leave room for explicit relationships between items. This can start as normal `parent_item_id` plus inferred relationships, but the schema should not make it impossible to add a relation table later.
@@ -459,6 +504,11 @@ After the refactor:
 11. Playable files must remain first-class items; folders with metadata must not absorb their child files as mere locations.
 12. Physical kind (`file`/`folder`/`virtual`) and semantic media kind (`movie`/`tv`/`season`/`episode`/etc.) must not be conflated.
 13. The native file tree is a read model over the core data, not the only semantic shape that can ever be derived from it.
+14. A stored preferred location must not override account-aware location selection.
+15. Filesystem actions must resolve an explicit present `MediaLocation`; they must not operate on stale compatibility path fields.
+16. If `MediaEntity` is canonical/shared, tags, virtual tags, locks, selected images, and user edits must move to item-specific storage.
+17. Source/path filters are location access rules, not content identity rules.
+18. Ambiguous location matches must create conflicts or new items rather than silently merging unrelated media.
 
 ## Current playback/API model to preserve
 
@@ -471,6 +521,26 @@ Current code has an important product invariant:
 - movie file items can open as details via `opensAsFolder`, but the detail page still exposes the same file as the playable child.
 
 The refactor should preserve this. `MediaLocation` is not a substitute for child file items. It represents where a given logical item currently exists. For a movie folder, that means folder locations. For a child movie file, that means file locations.
+
+## Filesystem actions
+
+Playback is not the only code path that needs physical paths. Rename, delete/trash, reveal in explorer, item properties, download, custom actions, local image operations, and subtree rescans all currently resolve `source_id + path` from the item row.
+
+After the split, all filesystem-touching operations should go through one location resolver:
+
+```txt
+resolveLocation(itemId, accountId?, operation)
+  -> present visible MediaLocation for that exact item
+```
+
+The operation matters:
+
+- playback/download need a file location;
+- reveal/properties may use a file or folder location;
+- rename/delete should decide whether they affect one selected location, all locations, or the logical item plus all locations;
+- subtree rescan needs a folder location and should not assume the logical parent has only one physical path.
+
+The first pass can keep UI semantics simple by operating on the selected/display location, but the service boundary should be explicit so multiple-location behavior can be surfaced later.
 
 ## Whole-library scan pipeline
 
@@ -498,6 +568,8 @@ type DiscoveredLocation = {
 
 No logical item should be deleted during this phase.
 
+Each whole-library scan should have a scan run ID or scan token. Locations seen during the run can record `last_seen_scan_id`, which makes it possible to distinguish "confirmed missing after a successful scan" from "not seen because the scan failed, was partial, or the source was offline."
+
 ### Phase 2: compute source priority and shadowing
 
 Compute shadowing across all discovered locations.
@@ -522,6 +594,15 @@ Matching order should be conservative:
 6. Parsed media identity match, especially for TV episode sets.
 7. New `MediaItem` creation only if no safe match exists.
 
+Matching should record the matched rule and enough confidence/debug information to diagnose decisions. Ambiguous matches must not be silently merged. Examples:
+
+- one old item matches multiple new locations;
+- two old items match one discovered location;
+- same relative path exists across sources but shadowing does not apply;
+- parsed media identity agrees but folder/file fingerprints disagree.
+
+In ambiguous cases, prefer preserving both logical items and reporting a conflict over merging unrelated media.
+
 For TV, folder name alone is weak. Stronger signals include:
 
 - parsed show title/year;
@@ -540,7 +621,7 @@ Once matching is complete:
 - link promoted locations to existing items;
 - mark vanished locations missing;
 - derive item missing state from present locations;
-- choose selected/display locations for compatibility fields;
+- derive selected/display locations for compatibility fields;
 - update logical parent relationships where appropriate;
 - rebuild or incrementally update search indexes.
 
@@ -570,7 +651,10 @@ Add failing tests before schema migration:
 - metadata service is not called for pure location promotion;
 - images are reused after promotion;
 - folder settings survive promotion;
-- account visibility survives promotion.
+- account visibility survives promotion;
+- current primary-key rename paths do not lose dependent state;
+- filesystem actions resolve the promoted selected/display location;
+- path/source changes do not rely on stale compatibility fields.
 
 ### Step 1: add new schema beside old schema
 
@@ -582,6 +666,8 @@ Add migrations for:
 - new FTS table keyed by `media_items.id`.
 
 Keep the old `items` table during migration or create a compatibility view/read adapter until the service layer is moved.
+
+Before applying the migration to a real library, create a backup or require an explicit backup path. Add migration tests that run against fixture databases, not only fresh schemas.
 
 ### Step 2: migrate existing rows
 
@@ -606,6 +692,8 @@ Then migrate dependent tables:
 - `folder_settings.item_id` continues to point to the preserved `media_items.id`.
 - `account_visible_items.item_id` continues to point to the preserved `media_items.id`.
 - Rebuild FTS.
+
+Migration should also preserve image files and verify that migrated image paths still resolve. Old source/path-derived IDs may remain as opaque item IDs for existing items; new items should use location-independent IDs.
 
 ### Step 3: replace repository assembly
 
@@ -703,6 +791,8 @@ Resolution policy for file items should consider:
 
 Server-side operations that need filesystem access should resolve the selected/display `MediaLocation` for the exact item being operated on. For playback, that item is a file `MediaItem`. For folder-level scanning or metadata operations, that item may be a folder `MediaItem`. This resolution is separate from playback and must not collapse child files into their parent folder.
 
+Replace direct `getItemSourceId`/`getItemPath` callers with the shared location resolver. This includes playback, download, reveal, properties, rename, delete/trash, custom actions, and subtree rescans.
+
 ### Step 9: update account filters
 
 Account filters should write visible `MediaItem.id`s for item-level visibility rules. Source/path allow/deny rules should be evaluated against `MediaLocation`s.
@@ -730,6 +820,8 @@ type LibraryItem = {
 
 The frontend can mostly stay ID-driven, but anything displaying source/path or acting on files should use selected/display-location semantics.
 
+Compatibility `sourceId` and `path` fields should be treated as read-model fields only. New writes should not update logical item identity by changing these fields.
+
 ## Test plan
 
 ### Scanner/reconciliation tests
@@ -740,7 +832,9 @@ The frontend can mostly stay ID-driven, but anything displaying source/path or a
 - shadowed low-priority location promotes when high-priority disappears;
 - empty high-priority folder does not shadow non-empty lower-priority folder;
 - missing source does not immediately delete logical items;
-- duplicate non-shadowed copies are represented according to the chosen duplicate policy.
+- duplicate non-shadowed copies are represented according to the chosen duplicate policy;
+- ambiguous match conflicts are not silently merged;
+- failed/partial/offline scans do not mark locations as confirmed missing.
 
 ### Metadata tests
 
@@ -748,7 +842,8 @@ The frontend can mostly stay ID-driven, but anything displaying source/path or a
 - existing `last_refreshed_at` prevents refetch after move;
 - locked fields survive move/promotion;
 - selected/custom image survives move/promotion;
-- virtual tags remain attached to the logical item/entity as designed.
+- virtual tags remain attached to the logical item/entity as designed;
+- if entities are canonicalized, item-specific tags/vtags/locks/images do not leak between items sharing one entity.
 
 ### User state/settings tests
 
@@ -769,7 +864,18 @@ The frontend can mostly stay ID-driven, but anything displaying source/path or a
 - `GET /items/:id` still works after location changes;
 - stream endpoint resolves the promoted location for the same file item;
 - navigation/breadcrumbs use logical parentage;
-- search returns one logical item unless duplicate policy says otherwise.
+- search returns one logical item unless duplicate policy says otherwise;
+- download/reveal/properties/rename/delete/custom actions resolve locations through the shared resolver;
+- source/path compatibility fields are derived from selected/display location;
+- path normalization and case sensitivity behave consistently on Windows, macOS, and Linux.
+
+### Migration tests
+
+- old fixture databases migrate without losing user state, folder settings, account visibility, metadata, images, or virtual folders;
+- migrated image paths resolve and no unnecessary image redownload is triggered;
+- old path-derived item IDs remain usable as opaque public IDs;
+- foreign keys and FTS rows point at `MediaItem.id` after migration;
+- migration can be run only after a backup path is available or explicit backup policy is satisfied.
 
 ## Resolved design decisions and implementation notes
 
@@ -889,6 +995,66 @@ An account can see an item when at least one of these is true:
 If an item has locations in source A and source B, and the account denies source A only, the source B location can still make the item visible and playable. If all present locations are denied and no visible descendants remain, the item is hidden.
 
 Location selection for compatibility fields and streaming should be account-aware: choose the highest-priority present location visible to that account. Inaccessible locations should not shadow accessible ones for that account.
+
+### 10. Are source roots logical items?
+
+Decision needed before implementation.
+
+Current source roots are persisted `items` rows under the library root. In the target model, source roots may be logical `MediaItem`s for the native tree, read-model-only containers, or temporary compatibility items. Do not let this happen accidentally through migration. The chosen model determines how root browsing, breadcrumbs, account filters, and source priority changes behave.
+
+### 11. What owns virtual tags and manual tags?
+
+Recommendation: virtual tags and manual/user tags should be item-bound. Their definitions are still filters over assembled library items, so they can depend on genre or other metadata fields. The result belongs to the item that matched.
+
+This is not a prerequisite for the item/location split while `media_entities` remains item-specific. It becomes required if `MediaEntity` becomes canonical/shared.
+
+### 12. What is metadata canonicalization?
+
+Metadata canonicalization means changing `MediaEntity` from "this item's metadata record" into "one shared provider identity and fetched payload for a real-world thing," such as `tmdb/movie/603`.
+
+Canonical provider data can be shared:
+
+- provider IDs;
+- canonical fetched title/overview/release fields;
+- provider genres/cast/crew/studios/ratings;
+- raw provider payload and fetched timestamp.
+
+Item-specific data should not be shared:
+
+- title/metadata overrides;
+- locks;
+- selected/custom images;
+- manual tags and virtual tags;
+- item refresh state if it controls this item's enrichment;
+- season/episode overrides.
+
+The first pass may keep `media_entities` item-specific. If canonicalization is done during this refactor, item-specific metadata/tag tables must be introduced at the same time.
+
+### 13. How should filesystem actions resolve paths?
+
+Decision: all filesystem-touching operations should resolve a `MediaLocation` through a shared resolver. Compatibility `path` and `sourceId` fields are read-model output, not write authority.
+
+Initial behavior can operate on the selected/display location. Longer term, actions that can affect data loss, such as delete/trash and rename, may need UI support for "this location" vs "all locations" vs "logical item."
+
+### 14. How should scan presence be proven?
+
+Decision: use a scan run ID or equivalent token. Mark a location missing only when the relevant source/scope was successfully scanned and the location was not seen. Do not treat failed, partial, skipped, offline, or unauthorized scans as proof of disappearance.
+
+### 15. How should paths be normalized?
+
+Decision needed before matching logic lands.
+
+Normalize relative paths consistently, including separators, dot segments, Unicode normalization where practical, and platform case behavior. Windows and many macOS volumes are case-insensitive; Linux usually is not. Matching should avoid creating duplicate logical items from casing-only path changes on case-insensitive sources.
+
+### 16. How should migration be operated?
+
+Decision: treat this as a high-risk migration. Use fixture DB tests, validate foreign keys/FTS/image paths, and require a backup policy before migrating a real library.
+
+The current code sometimes changes primary keys to rescue renames. The target model should retire that as normal behavior, but tests should preserve the dependent-state guarantees it currently tries to provide.
+
+### 17. How should ambiguous matches be handled?
+
+Decision: ambiguous matches should not silently merge. Keep separate items or create a conflict state that can be inspected/resolved. Strong matches such as exact location, trustworthy inode/device, prior shadow relation, or strong folder/file fingerprint can auto-link; weak matches such as title-only or TMDB-only should not.
 
 ## Recommended implementation order
 

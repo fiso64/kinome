@@ -58,14 +58,32 @@ Ensure that individual settings fields are not saved to files if they have not b
 
 ---
 
-vtags should not be bound to media entities, they should be bound to files and folders (maybe?):
+Metadata canonicalization and item-bound tags/vtags.
 
-- Rename/migrate entity_virtual_tags → item_virtual_tags (or add an item_id column)
-- Change evaluateAndInsertVirtualTags to insert by i.id, drop the entity_id IS NOT NULL guard
-- Update all JOINs from ON i.entity_id = vt.entity_id to ON i.id = vt.item_id
-- Update clearVirtualTags accordingly
+Today `media_entities` are effectively item-specific, so `entity_virtual_tags` mostly behave like item tags. If `MediaEntity` becomes canonical/shared provider data, user/library classification must move off the entity or it will leak between distinct items that share the same TMDB identity.
 
-We will also add a new vtag config option which makes them only apply items with non null entity id. This should be exposed as a checkbox for each vtag in the UI and enabled by default.
+Desired semantics:
+
+- Canonical `MediaEntity`: provider facts like TMDB id, fetched payload, genres, cast, studios, ratings.
+- Item-specific metadata: edits, locks, selected/custom images, manual tags, virtual tags, refresh state.
+- Vtag definitions stay as `LibraryFilter`s over assembled items, so rules can still use fields like `genre`, `mediaType`, watched state, parent fields, or selected-location fields.
+- Vtag results are item-bound derived facts: the item matched the rule, so the computed `{ key, value }` belongs to that item.
+- Genre filtering still reads metadata/entity genre tables; item-bound vtag output does not mean every input field must live on the item row.
+
+Concrete work:
+
+- Add `item_virtual_tags(item_id, key, value)` with primary key `(item_id, key)`.
+- Migrate `entity_virtual_tags` to `item_virtual_tags` by joining existing `items.entity_id`; preserve current values for existing item-specific entities.
+- Change `evaluateAndInsertVirtualTags` to insert `i.id` instead of `i.entity_id`.
+- Drop the unconditional `i.entity_id IS NOT NULL` guard from vtag evaluation, except behind a new config option.
+- Add a vtag config option: apply only to items with metadata/entity, exposed as a checkbox and enabled by default.
+- Update `clearVirtualTags`, `fetchVirtualTagsForItems`, distinct tag suggestions, grouping/search joins, and any maintenance pass code.
+- Update `repo-definitions.ts` and `query-builder.ts` so `virtualTags`/`vt.*` join by `item_id`.
+- Decide whether manual `entity_tags` should also become `item_tags`; likely yes for the same ownership reason.
+- If manual tags move too, update `tags.*` filters, suggestions, metadata clear/reassign behavior, and migration.
+- Add regression tests that two items sharing one canonical entity can have different vtags/manual tags/locks/images.
+
+Not a prerequisite for the item/location split if `media_entities` stays item-specific in the first pass. Required if metadata canonicalization is done.
 
 ---
 
