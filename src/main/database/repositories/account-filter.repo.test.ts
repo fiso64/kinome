@@ -33,6 +33,13 @@ afterEach(() => {
 
 const ALLOW_FILTER = { conditionGroups: [[{ field: 'tags.allow', op: 'eq' as const, value: 'true' }]] }
 
+function insertMediaItem(id: string): void {
+  db.prepare(`
+    INSERT INTO media_items (id, physical_kind, name, created_at, updated_at)
+    VALUES (?, 'file', ?, 1000, 1000)
+  `).run(id, id)
+}
+
 describe('getFilterRule', () => {
   it('returns null when no rule exists', () => {
     expect(getFilterRule('acc-1')).toBeNull()
@@ -96,15 +103,15 @@ describe('getAllFilteredAccountIds', () => {
 
 describe('replaceVisibleItems', () => {
   it('inserts visible items for an account', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
+    insertMediaItem('item-1')
     replaceVisibleItems('acc-1', ['item-1'])
     const rows = db.prepare('SELECT item_id FROM account_visible_items WHERE account_id = ?').all('acc-1') as any[]
     expect(rows.map((r) => r.item_id)).toEqual(['item-1'])
   })
 
   it('replaces old rows with new rows', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-2', '/b', 'b', 'file')`).run()
+    insertMediaItem('item-1')
+    insertMediaItem('item-2')
     replaceVisibleItems('acc-1', ['item-1'])
     replaceVisibleItems('acc-1', ['item-2'])
     const rows = db.prepare('SELECT item_id FROM account_visible_items WHERE account_id = ?').all('acc-1') as any[]
@@ -112,7 +119,7 @@ describe('replaceVisibleItems', () => {
   })
 
   it('with empty array clears all visible items for the account', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
+    insertMediaItem('item-1')
     replaceVisibleItems('acc-1', ['item-1'])
     replaceVisibleItems('acc-1', [])
     const rows = db.prepare('SELECT * FROM account_visible_items WHERE account_id = ?').all('acc-1')
@@ -120,7 +127,7 @@ describe('replaceVisibleItems', () => {
   })
 
   it('does not affect visible items for other accounts', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
+    insertMediaItem('item-1')
     replaceVisibleItems('acc-1', ['item-1'])
     replaceVisibleItems('acc-2', [])
     const rows = db.prepare('SELECT * FROM account_visible_items WHERE account_id = ?').all('acc-1') as any[]
@@ -136,7 +143,7 @@ describe('cascade deletes', () => {
   })
 
   it('deleting an account removes its visible items', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
+    insertMediaItem('item-1')
     replaceVisibleItems('acc-1', ['item-1'])
     db.prepare('DELETE FROM accounts WHERE id = ?').run('acc-1')
     const rows = db.prepare('SELECT * FROM account_visible_items WHERE account_id = ?').all('acc-1')
@@ -144,9 +151,9 @@ describe('cascade deletes', () => {
   })
 
   it('deleting an item removes it from all visible item sets', () => {
-    db.prepare(`INSERT INTO items (id, path, name, type) VALUES ('item-1', '/a', 'a', 'file')`).run()
+    insertMediaItem('item-1')
     replaceVisibleItems('acc-1', ['item-1'])
-    db.prepare('DELETE FROM items WHERE id = ?').run('item-1')
+    db.prepare('DELETE FROM media_items WHERE id = ?').run('item-1')
     const rows = db.prepare('SELECT * FROM account_visible_items').all()
     expect(rows).toHaveLength(0)
   })

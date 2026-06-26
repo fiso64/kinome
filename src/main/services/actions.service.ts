@@ -26,12 +26,10 @@ export async function getAbsolutePath(sourceId: string, relativePath: string): P
 /**
  * Resolves the absolute path for an item by looking up its source_id from the database.
  */
-export async function getAbsolutePathForItem(itemId: string): Promise<string | null> {
-  const sourceId = itemsRepo.getItemSourceId(itemId)
-  if (!sourceId) return null
-  const relPath = itemsRepo.getItemPath(itemId)
-  if (!relPath) return null
-  return getAbsolutePath(sourceId, relPath)
+export async function getAbsolutePathForItem(itemId: string, userId?: string | null): Promise<string | null> {
+  const location = itemsRepo.getPresentItemLocation(itemId, undefined, userId)
+  if (!location) return null
+  return getAbsolutePath(location.sourceId, location.relativePath)
 }
 
 export async function playFileWith(
@@ -79,14 +77,15 @@ export async function playFile(file: MediaFile, onError: ErrorCallback): Promise
 export async function executeCustomAction(
   itemId: string,
   commandId: string,
-  onError: ErrorCallback
+  onError: ErrorCallback,
+  userId?: string | null
 ): Promise<void> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return
   const settings = await settingsService.readSettings()
   const action = settings.customActions.find((a) => a.id === commandId)
-  if (!action || !item.path || !item.sourceId) return
-  const absolutePath = await getAbsolutePath(item.sourceId, item.path)
+  if (!action) return
+  const absolutePath = await getAbsolutePathForItem(itemId, userId)
   if (!absolutePath) return
   const title = item.title ?? item.name.replace(/\.[^/.]+$/, '')
   const commandToExecute = action.command
@@ -150,7 +149,7 @@ export async function trashItem(itemId: string): Promise<boolean> {
   }
 }
 
-export async function renameItem(itemId: string, newName: string): Promise<string> {
+export async function renameItem(itemId: string, newName: string, userId?: string | null): Promise<string> {
   if (pathsService.isRemoteLibrary()) {
     throw new Error('Renaming items is not available for remote libraries.')
   }
@@ -158,14 +157,13 @@ export async function renameItem(itemId: string, newName: string): Promise<strin
     throw new Error('New name is required for renaming.')
   }
 
-  const sourceId = itemsRepo.getItemSourceId(itemId)
-  const relPath = itemsRepo.getItemPath(itemId)
-  if (!sourceId || !relPath) throw new Error(`Item ${itemId} not found.`)
+  const location = itemsRepo.getPresentItemLocation(itemId, undefined, userId)
+  if (!location) throw new Error(`Item ${itemId} not found or has no present location.`)
 
-  const absSourcePath = await settingsService.getAbsoluteSourcePath(sourceId)
+  const absSourcePath = await settingsService.getAbsoluteSourcePath(location.sourceId)
   if (!absSourcePath) throw new Error('Media source path not configured.')
 
-  const oldAbsolutePath = pathsService.securePathJoin(absSourcePath, relPath)
+  const oldAbsolutePath = pathsService.securePathJoin(absSourcePath, location.relativePath)
   if (!oldAbsolutePath) {
     throw new Error('Access denied: Old path is outside the media library.')
   }
@@ -179,7 +177,7 @@ export async function renameItem(itemId: string, newName: string): Promise<strin
 
   try {
     await fs.rename(oldAbsolutePath, newAbsolutePath)
-    return path.relative(absSourcePath, newAbsolutePath).replace(/\\/g, '/')
+    return itemsRepo.relativePathFromAbsolute(absSourcePath, newAbsolutePath)
   } catch (error) {
     console.error(`Failed to rename item ${itemId} to ${newName}`, error)
     throw error

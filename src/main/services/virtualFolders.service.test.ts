@@ -105,7 +105,7 @@ describe('ensureHomeVirtualFolder', () => {
     ensureHomeVirtualFolder('root')
     ensureHomeVirtualFolder('root')
 
-    const rows = ctx.db.prepare(`SELECT * FROM items WHERE virtual_type = 'home'`).all()
+    const rows = ctx.db.prepare(`SELECT * FROM media_items WHERE virtual_type = 'home'`).all()
     expect(rows).toHaveLength(1)
   })
 

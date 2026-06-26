@@ -93,12 +93,12 @@ export function recordPlaybackDebounced(
   }
 }
 
-async function resolveStreamPath(itemId: string, relativePath: string): Promise<string | null> {
-  const sourceId = itemsRepo.getItemSourceId(itemId)
-  if (!sourceId) return null
-  const absSourcePath = await settingsService.getAbsoluteSourcePath(sourceId)
+async function resolveStreamPath(itemId: string, userId?: string | null): Promise<string | null> {
+  const location = itemsRepo.getPresentItemLocation(itemId, 'file', userId)
+  if (!location) return null
+  const absSourcePath = await settingsService.getAbsoluteSourcePath(location.sourceId)
   if (!absSourcePath) return null
-  return pathsService.securePathJoin(absSourcePath, relativePath)
+  return pathsService.securePathJoin(absSourcePath, location.relativePath)
 }
 
 // --- Stream Path Cache ---
@@ -114,27 +114,31 @@ interface StreamCacheEntry {
 
 const streamCache = new Map<string, StreamCacheEntry>()
 
-function getStreamCacheEntry(itemId: string): StreamCacheEntry | null {
-  const entry = streamCache.get(itemId)
+function getStreamCacheKey(itemId: string, userId?: string | null): string {
+  return `${userId ?? 'anonymous'}:${itemId}`
+}
+
+function getStreamCacheEntry(cacheKey: string): StreamCacheEntry | null {
+  const entry = streamCache.get(cacheKey)
   if (!entry) return null
 
   // Check TTL
   if (Date.now() - entry.cachedAt > STREAM_CACHE_TTL) {
-    streamCache.delete(itemId)
+    streamCache.delete(cacheKey)
     return null
   }
 
   return entry
 }
 
-function setStreamCacheEntry(itemId: string, entry: Omit<StreamCacheEntry, 'cachedAt'>): void {
+function setStreamCacheEntry(cacheKey: string, entry: Omit<StreamCacheEntry, 'cachedAt'>): void {
   // Simple LRU: if at max size, delete oldest entry
   if (streamCache.size >= STREAM_CACHE_MAX_SIZE) {
     const firstKey = streamCache.keys().next().value
     if (firstKey) streamCache.delete(firstKey)
   }
 
-  streamCache.set(itemId, { ...entry, cachedAt: Date.now() })
+  streamCache.set(cacheKey, { ...entry, cachedAt: Date.now() })
 }
 
 /**
@@ -289,25 +293,15 @@ export async function handleCachedStream(
   logContext: Omit<StreamRequestLogContext, 'itemId' | 'cacheHit'> = {}
 ): Promise<Response | null> {
   const safeLogContext = getSafeLogContext(logContext)
+  const cacheKey = getStreamCacheKey(itemId, logContext.userId)
 
   // Check cache first
-  let cacheEntry = getStreamCacheEntry(itemId)
+  let cacheEntry = getStreamCacheEntry(cacheKey)
   const cacheHit = !!cacheEntry
 
   if (!cacheEntry) {
     // Cache miss - do the expensive lookups
-    const itemPath = repositoryService.getItemPath(itemId)
-    if (!itemPath) {
-      logVerbose('Stream request failed because item path was not found.', {
-        ...safeLogContext,
-        ...getItemLogInfo(itemId),
-        requestRange: rangeHeader,
-        cacheHit: false
-      })
-      return null
-    }
-
-    const absolutePath = await resolveStreamPath(itemId, itemPath)
+    const absolutePath = await resolveStreamPath(itemId, logContext.userId)
     if (!absolutePath) {
       logVerbose('Stream request failed because absolute path could not be resolved.', {
         ...safeLogContext,
@@ -320,7 +314,7 @@ export async function handleCachedStream(
 
     const contentType = getMimeType(absolutePath)
     const newEntry = { absolutePath, contentType }
-    setStreamCacheEntry(itemId, newEntry)
+    setStreamCacheEntry(cacheKey, newEntry)
     cacheEntry = { ...newEntry, cachedAt: Date.now() }
   }
 
@@ -329,7 +323,7 @@ export async function handleCachedStream(
   const fileSize = file.size
   if (fileSize === 0) {
     // Handle file potentially deleted or inaccessible
-    streamCache.delete(itemId)
+    streamCache.delete(cacheKey)
     logVerbose('Stream request failed because file size was zero.', {
       ...safeLogContext,
       ...getItemLogInfo(itemId),

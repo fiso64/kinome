@@ -71,7 +71,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
         getValue: (item) => item.genres ?? []
     },
     tags: {
-        sql: `(SELECT json_group_object(t.key, t.value) FROM entity_tags t WHERE t.entity_id = e.id)`,
+        sql: `(SELECT json_group_object(t.key, t.value) FROM item_tags t WHERE t.item_id = i.id)`,
         isJson: true,
         isSubquery: true,
         jsonDefault: {},
@@ -86,7 +86,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
         },
     },
     virtualTags: {
-        sql: `(SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id)`,
+        sql: `(SELECT json_group_object(vt.key, vt.value) FROM item_virtual_tags vt WHERE vt.item_id = i.id)`,
         isJson: true,
         isSubquery: true,
         jsonDefault: {},

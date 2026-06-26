@@ -44,10 +44,15 @@ export interface SeedItem {
   path?: string
   name?: string
   type?: 'file' | 'folder'
+  sourceId?: string | null
   entityId?: string | null
+  isHidden?: number
+  isIgnored?: number
+  isMissing?: number
   isVirtual?: number
   virtualType?: string | null
   filterJson?: string | null
+  ownerId?: string | null
 }
 
 export interface SeedEntity {
@@ -89,22 +94,83 @@ export function createServiceTestContext(): ServiceTestContext {
   setTransport(createNoopTransport())
 
   const seedItems = (items: SeedItem[]) => {
-    const stmt = db.prepare(`
-      INSERT INTO items (id, parent_id, path, name, type, entity_id, is_virtual, virtual_type, filter_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    const itemStmt = db.prepare(`
+      INSERT INTO media_items (
+        id, parent_item_id, physical_kind, media_kind, name, entity_id,
+        is_virtual, virtual_type, filter_json, owner_id,
+        is_hidden, logical_missing, created_at, updated_at
+      )
+      VALUES (
+        ?, ?, ?, (SELECT media_type FROM media_entities WHERE id = ?), ?, ?,
+        ?, ?, ?, ?, ?, ?, 1000, 1000
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        parent_item_id = excluded.parent_item_id,
+        physical_kind = excluded.physical_kind,
+        media_kind = excluded.media_kind,
+        name = excluded.name,
+        entity_id = excluded.entity_id,
+        is_virtual = excluded.is_virtual,
+        virtual_type = excluded.virtual_type,
+        filter_json = excluded.filter_json,
+        owner_id = excluded.owner_id,
+        is_hidden = excluded.is_hidden,
+        logical_missing = excluded.logical_missing,
+        updated_at = excluded.updated_at
+    `)
+    const locationStmt = db.prepare(`
+      INSERT INTO media_locations (
+        id, item_id, source_id, relative_path, name, type,
+        is_present, is_ignored, is_hidden, is_shadowed,
+        first_seen_at, last_seen_at, missing_since
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1000, 1000, ?)
+      ON CONFLICT(source_id, relative_path) DO UPDATE SET
+        item_id = excluded.item_id,
+        name = excluded.name,
+        type = excluded.type,
+        is_present = excluded.is_present,
+        is_ignored = excluded.is_ignored,
+        is_hidden = excluded.is_hidden,
+        last_seen_at = excluded.last_seen_at,
+        missing_since = excluded.missing_since
     `)
     for (const item of items) {
-      stmt.run(
+      const isVirtual = item.isVirtual ?? 0
+      const type = item.type ?? 'file'
+      const entityId = item.entityId ?? null
+      const name = item.name ?? item.id
+      const path = item.path ?? item.id
+      const isMissing = item.isMissing ?? 0
+      itemStmt.run(
         item.id,
         item.parentId ?? null,
-        item.path ?? item.id,
-        item.name ?? item.id,
-        item.type ?? 'file',
-        item.entityId ?? null,
-        item.isVirtual ?? 0,
+        isVirtual ? 'virtual' : type,
+        entityId,
+        name,
+        entityId,
+        isVirtual,
         item.virtualType ?? null,
-        item.filterJson ?? null
+        item.filterJson ?? null,
+        item.ownerId ?? null,
+        item.isHidden ?? 0,
+        isMissing
       )
+      if (!isVirtual) {
+        const sourceId = item.sourceId ?? 'test-source'
+        locationStmt.run(
+          `location:${item.id}`,
+          item.id,
+          sourceId,
+          path,
+          name,
+          type,
+          isMissing ? 0 : 1,
+          item.isIgnored ?? 0,
+          item.isHidden ?? 0,
+          isMissing ? 1000 : null
+        )
+      }
     }
   }
 
@@ -147,14 +213,22 @@ export function createServiceTestContext(): ServiceTestContext {
   }
 
   const seedTags = (entityId: string, tags: Record<string, string>) => {
+    const itemRows = db.prepare('SELECT id FROM media_items WHERE entity_id = ?').all(entityId) as { id: string }[]
     for (const [key, value] of Object.entries(tags)) {
-      db.prepare(`INSERT INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
+      db.prepare(`INSERT OR REPLACE INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
+      for (const row of itemRows) {
+        db.prepare(`INSERT OR REPLACE INTO item_tags (item_id, key, value) VALUES (?, ?, ?)`).run(row.id, key, value)
+      }
     }
   }
 
   const seedVirtualTags = (entityId: string, tags: Record<string, string>) => {
+    const itemRows = db.prepare('SELECT id FROM media_items WHERE entity_id = ?').all(entityId) as { id: string }[]
     for (const [key, value] of Object.entries(tags)) {
-      db.prepare(`INSERT INTO entity_virtual_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
+      db.prepare(`INSERT OR REPLACE INTO entity_virtual_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
+      for (const row of itemRows) {
+        db.prepare(`INSERT OR REPLACE INTO item_virtual_tags (item_id, key, value) VALUES (?, ?, ?)`).run(row.id, key, value)
+      }
     }
   }
 

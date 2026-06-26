@@ -6,8 +6,8 @@ const log = (message: string): void => {
 }
 
 /**
- * Applies virtual tags by evaluating SQL CASE expressions against media_entities
- * and writing results to the entity_virtual_tags table.
+ * Applies virtual tags by evaluating SQL CASE expressions against media items
+ * and writing results to the item_virtual_tags table.
  */
 export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?: string[]): void {
   if (!tags || tags.length === 0) {
@@ -29,4 +29,3 @@ export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?:
     console.error('[VirtualTags] Failed to apply tags SQL:', e)
   }
 }
-

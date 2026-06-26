@@ -11,7 +11,15 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
 import { _setDbForTesting } from '../database/client'
-import { migrateRecord } from '../database/repositories/filesystem.repo'
+import {
+    deleteItem,
+    findPresentLocationByRelativePath,
+    findReusableItemIdForDiscoveredLocation,
+    getItemIdBySourcePath,
+    markLocationAsMissing,
+    migrateRecord,
+    upsertLibraryItems
+} from '../database/repositories/filesystem.repo'
 
 let db: Database
 
@@ -19,6 +27,7 @@ function createTestDb(): Database {
     const testDb = new Database(':memory:')
     testDb.run('PRAGMA foreign_keys = ON')
     testDb.exec(SCHEMA_SQL)
+    _setDbForTesting(testDb)
     return testDb
 }
 
@@ -28,20 +37,55 @@ function insertItem(item: {
     path?: string
     name?: string
     type?: 'file' | 'folder'
+    sourceId?: string
+    entityId?: string | null
     isIgnored?: number | null
     isHidden?: number | null
+    isMissing?: number | null
+    inode?: number | null
+    deviceId?: number | null
 }) {
+    const sourceId = item.sourceId ?? 'source-1'
+    const relativePath = item.path ?? item.id
+    const name = item.name ?? item.id
+    const type = item.type ?? 'file'
+    const isMissing = item.isMissing ?? 0
     db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, is_ignored, is_hidden)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO media_items (
+      id, parent_item_id, physical_kind, media_kind, name, entity_id,
+      is_hidden, logical_missing, created_at, updated_at
+    )
+    VALUES (?, ?, ?, (SELECT media_type FROM media_entities WHERE id = ?), ?, ?, ?, ?, 1000, 1000)
   `).run(
         item.id,
         item.parentId ?? null,
-        item.path ?? item.id,
-        item.name ?? item.id,
-        item.type ?? 'file',
+        type,
+        item.entityId ?? null,
+        name,
+        item.entityId ?? null,
+        item.isHidden ?? 0,
+        isMissing
+    )
+    db.prepare(`
+    INSERT INTO media_locations (
+      id, item_id, source_id, relative_path, name, type,
+      size, mtime, birthtime, inode, device_id,
+      is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at, missing_since
+    )
+    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, 0, 1000, 1000, ?)
+  `).run(
+        `location:${item.id}`,
+        item.id,
+        sourceId,
+        relativePath,
+        name,
+        type,
+        item.inode ?? null,
+        item.deviceId ?? null,
+        isMissing ? 0 : 1,
         item.isIgnored ?? 0,
-        item.isHidden ?? 0
+        item.isHidden ?? 0,
+        isMissing ? 1000 : null
     )
 }
 
@@ -57,25 +101,6 @@ function insertItem(item: {
 // =================================================================
 
 describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
-    // This is the exact SQL from filesystem.repo.ts upsertLibraryItems
-    const UPSERT_SQL = `
-    INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      is_missing = 0,
-      parent_id = excluded.parent_id,
-      path = excluded.path,
-      name = excluded.name,
-      type = excluded.type,
-      size = excluded.size,
-      mtime = excluded.mtime,
-      birthtime = excluded.birthtime,
-      inode = excluded.inode,
-      device_id = excluded.device_id,
-      is_ignored = COALESCE(excluded.is_ignored, is_ignored),
-      is_hidden = COALESCE(excluded.is_hidden, is_hidden)
-  `
-
     beforeEach(() => {
         db = createTestDb()
     })
@@ -85,59 +110,39 @@ describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
         insertItem({ id: 'folder1', isIgnored: 1, isHidden: 0 })
 
         // Step 2: Bulk insert with NULL (discovery-time unknown state)
-        db.prepare(UPSERT_SQL).run(
-            'folder1', null, 'folder1', 'folder1', 'folder',
-            null, null, null, null, null,
-            null, // is_ignored = NULL (discovery-time)
-            null  // is_hidden = NULL
-        )
+        upsertLibraryItems([{ '@id': 'folder1', '@parentId': null, '@path': 'folder1', '@name': 'folder1', '@type': 'folder', '@sourceId': 'source-1', '@isIgnored': null, '@isHidden': null }])
 
-        const row = db.prepare('SELECT is_ignored, is_hidden FROM items WHERE id = ?').get('folder1') as any
+        const row = db.prepare('SELECT is_ignored, is_hidden FROM media_locations WHERE item_id = ?').get('folder1') as any
         expect(row.is_ignored).toBe(1) // MUST be preserved!
     })
 
     it('preserves existing is_hidden=1 when new value is NULL', () => {
         insertItem({ id: 'folder2', isIgnored: 0, isHidden: 1 })
 
-        db.prepare(UPSERT_SQL).run(
-            'folder2', null, 'folder2', 'folder2', 'folder',
-            null, null, null, null, null,
-            null, // is_ignored = NULL
-            null  // is_hidden = NULL (discovery-time)
-        )
+        upsertLibraryItems([{ '@id': 'folder2', '@parentId': null, '@path': 'folder2', '@name': 'folder2', '@type': 'folder', '@sourceId': 'source-1', '@isIgnored': null, '@isHidden': null }])
 
-        const row = db.prepare('SELECT is_hidden FROM items WHERE id = ?').get('folder2') as any
+        const row = db.prepare('SELECT is_hidden FROM media_items WHERE id = ?').get('folder2') as any
         expect(row.is_hidden).toBe(1) // MUST be preserved!
     })
 
     it('allows explicit 0 to clear is_ignored', () => {
         insertItem({ id: 'folder3', isIgnored: 1, isHidden: 0 })
 
-        db.prepare(UPSERT_SQL).run(
-            'folder3', null, 'folder3', 'folder3', 'folder',
-            null, null, null, null, null,
-            0, // explicit 0 - should override
-            0
-        )
+        upsertLibraryItems([{ '@id': 'folder3', '@parentId': null, '@path': 'folder3', '@name': 'folder3', '@type': 'folder', '@sourceId': 'source-1', '@isIgnored': 0, '@isHidden': 0 }])
 
-        const row = db.prepare('SELECT is_ignored FROM items WHERE id = ?').get('folder3') as any
+        const row = db.prepare('SELECT is_ignored FROM media_locations WHERE item_id = ?').get('folder3') as any
         expect(row.is_ignored).toBe(0) // Explicit 0 allowed
     })
 
     it('clears is_missing on re-discovery', () => {
         // Item was marked missing in a previous scan
-        insertItem({ id: 'file1' })
-        db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?').run('file1')
+        insertItem({ id: 'file1', isMissing: 1 })
 
         // Re-discovered in a new scan
-        db.prepare(UPSERT_SQL).run(
-            'file1', null, 'file1', 'file1', 'file',
-            null, null, null, null, null,
-            0, 0
-        )
+        upsertLibraryItems([{ '@id': 'file1', '@parentId': null, '@path': 'file1', '@name': 'file1', '@type': 'file', '@sourceId': 'source-1', '@isIgnored': 0, '@isHidden': 0 }])
 
-        const row = db.prepare('SELECT is_missing FROM items WHERE id = ?').get('file1') as any
-        expect(row.is_missing).toBe(0) // Un-ghosted
+        const row = db.prepare('SELECT logical_missing FROM media_items WHERE id = ?').get('file1') as any
+        expect(row.logical_missing).toBe(0) // Un-ghosted
     })
 
     it('refreshes physical identity fields for existing rows', () => {
@@ -151,13 +156,9 @@ describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
             type: 'folder'
         })
 
-        db.prepare(UPSERT_SQL).run(
-            'folder1', 'new-parent', 'New Name', 'New Name', 'folder',
-            null, null, null, null, null,
-            0, 0
-        )
+        upsertLibraryItems([{ '@id': 'folder1', '@parentId': 'new-parent', '@path': 'New Name', '@name': 'New Name', '@type': 'folder', '@sourceId': 'source-1', '@isIgnored': 0, '@isHidden': 0 }])
 
-        const row = db.prepare('SELECT parent_id, path, name, type FROM items WHERE id = ?').get('folder1') as any
+        const row = db.prepare('SELECT parent_id, path, name, type FROM media_items_read WHERE id = ?').get('folder1') as any
         expect(row).toEqual({
             parent_id: 'new-parent',
             path: 'New Name',
@@ -183,13 +184,13 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         insertItem({ id: 'locked1', type: 'file' })
         const entityId = 'entity-locked1'
         db.prepare(`INSERT INTO media_entities (id, locked_fields_json) VALUES (?, ?)`).run(entityId, JSON.stringify(['title', 'posterPath']))
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'locked1')
+        db.prepare(`UPDATE media_items SET entity_id = ? WHERE id = ?`).run(entityId, 'locked1')
 
         // Simulate: item not found on disk → mark as missing
-        db.prepare('UPDATE items SET is_missing = 1 WHERE id = ?').run('locked1')
+        markLocationAsMissing('location:locked1')
 
-        const row = db.prepare('SELECT is_missing FROM items WHERE id = ?').get('locked1') as any
-        expect(row.is_missing).toBe(1)
+        const row = db.prepare('SELECT logical_missing FROM media_items WHERE id = ?').get('locked1') as any
+        expect(row.logical_missing).toBe(1)
 
         // Entity should still exist (not cascade-deleted from item)
         const meta = db.prepare('SELECT locked_fields_json FROM media_entities WHERE id = ?').get(entityId) as any
@@ -201,12 +202,12 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         insertItem({ id: 'unlocked1', type: 'file' })
         const entityId = 'entity-unlocked1'
         db.prepare(`INSERT INTO media_entities (id, locked_fields_json) VALUES (?, ?)`).run(entityId, '[]')
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'unlocked1')
+        db.prepare(`UPDATE media_items SET entity_id = ? WHERE id = ?`).run(entityId, 'unlocked1')
 
         // Simulate: item not found on disk → delete entirely
-        db.prepare('DELETE FROM items WHERE id = ?').run('unlocked1')
+        deleteItem('unlocked1')
 
-        const row = db.prepare('SELECT * FROM items WHERE id = ?').get('unlocked1')
+        const row = db.prepare('SELECT * FROM media_items WHERE id = ?').get('unlocked1')
         expect(row).toBeNull()
 
         // Entity should still exist (ON DELETE SET NULL, not CASCADE)
@@ -218,10 +219,10 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         insertItem({ id: 'cascade1', type: 'file' })
         const entityId = 'entity-cascade1'
         db.prepare(`INSERT INTO media_entities (id, title) VALUES (?, ?)`).run(entityId, 'Some Movie')
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run(entityId, 'cascade1')
+        db.prepare(`UPDATE media_items SET entity_id = ? WHERE id = ?`).run(entityId, 'cascade1')
         db.prepare(`INSERT INTO user_state (item_id) VALUES (?)`).run('cascade1')
 
-        db.prepare('DELETE FROM items WHERE id = ?').run('cascade1')
+        deleteItem('cascade1')
 
         // user_state should be gone (CASCADE from items)
         expect(db.prepare('SELECT * FROM user_state WHERE item_id = ?').get('cascade1')).toBeNull()
@@ -233,7 +234,6 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
 describe('Rename rescue (Phase 1 identity migration)', () => {
     beforeEach(() => {
         db = createTestDb()
-        _setDbForTesting(db)
     })
 
     it('updates parent, path, name, and stats when migrating a renamed record', () => {
@@ -265,17 +265,14 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
             '@isHidden': null
         })
 
-        const oldRow = db.prepare('SELECT * FROM items WHERE id = ?').get('old-id')
-        expect(oldRow).toBeNull()
-
         const row = db.prepare(`
             SELECT id, parent_id, path, name, type, source_id, size, mtime, birthtime, inode, device_id, is_ignored, is_hidden, is_missing
-            FROM items
+            FROM media_items_read
             WHERE id = ?
-        `).get('new-id') as any
+        `).get('old-id') as any
 
         expect(row).toEqual({
-            id: 'new-id',
+            id: 'old-id',
             parent_id: 'new-parent',
             path: 'Show/New Season',
             name: 'New Season',
@@ -290,6 +287,73 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
             is_hidden: 1,
             is_missing: 0
         })
+
+        expect(db.prepare('SELECT * FROM media_items WHERE id = ?').get('new-id')).toBeNull()
+    })
+})
+
+describe('Location identity matching guards', () => {
+    beforeEach(() => {
+        db = createTestDb()
+    })
+
+    it('normalizes source-relative paths at the repository boundary', () => {
+        upsertLibraryItems([{
+            '@id': 'normalized-item',
+            '@parentId': null,
+            '@path': 'Movies\\Action//film.mkv',
+            '@name': 'film.mkv',
+            '@type': 'file',
+            '@sourceId': 'source-1',
+            '@isIgnored': 0,
+            '@isHidden': 0
+        }])
+
+        const stored = db.prepare(`
+            SELECT relative_path
+            FROM media_locations
+            WHERE item_id = ?
+        `).get('normalized-item') as { relative_path: string }
+
+        expect(stored.relative_path).toBe('Movies/Action/film.mkv')
+        expect(getItemIdBySourcePath('source-1', 'Movies\\Action/film.mkv')).toBe('normalized-item')
+    })
+
+    it('does not reuse an inode/device candidate when multiple existing items match', () => {
+        insertItem({ id: 'candidate-a', sourceId: 'source-a', path: 'A/movie.mkv', inode: 42, deviceId: 7 })
+        insertItem({ id: 'candidate-b', sourceId: 'source-b', path: 'B/movie.mkv', inode: 42, deviceId: 7 })
+
+        const match = findReusableItemIdForDiscoveredLocation({
+            sourceId: 'source-c',
+            relativePath: 'movie.mkv',
+            inode: 42,
+            deviceId: 7
+        })
+
+        expect(match).toBeNull()
+    })
+
+    it('does not reuse a missing same-relative-path candidate when multiple items match', () => {
+        insertItem({ id: 'missing-a', sourceId: 'source-a', path: 'Shows/Foo', isMissing: 1 })
+        insertItem({ id: 'missing-b', sourceId: 'source-b', path: 'Shows/Foo', isMissing: 1 })
+
+        const match = findReusableItemIdForDiscoveredLocation({
+            sourceId: 'source-c',
+            relativePath: 'Shows\\Foo',
+            inode: 100,
+            deviceId: 200
+        })
+
+        expect(match).toBeNull()
+    })
+
+    it('does not shadow to a relative-path candidate when multiple present items match', () => {
+        insertItem({ id: 'present-a', sourceId: 'source-a', path: 'Movies/Foo', type: 'folder' })
+        insertItem({ id: 'present-b', sourceId: 'source-b', path: 'Movies/Foo', type: 'folder' })
+
+        const match = findPresentLocationByRelativePath('Movies\\Foo', 'source-c')
+
+        expect(match).toBeNull()
     })
 })
 
@@ -298,8 +362,8 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
 //   getAllIdsInScope path prefix boundary behavior.
 //
 //   The SQL is:
-//     isRoot → SELECT id FROM items
-//     else   → SELECT id FROM items WHERE path LIKE ? OR path = ?
+//     isRoot → SELECT item_id FROM media_locations
+//     else   → SELECT item_id FROM media_locations WHERE relative_path LIKE ? OR relative_path = ?
 //              params: [`${prefix}/%`, prefix]
 //
 //   Critical: 'movies' prefix must NOT match 'movies-extra/foo.mkv'.
@@ -311,8 +375,8 @@ describe('getAllIdsInScope path prefix boundary', () => {
     function getAllIdsInScope(pathPrefix: string): string[] {
         const isRoot = pathPrefix === '' || pathPrefix === '.'
         const query = isRoot
-            ? 'SELECT id FROM items'
-            : 'SELECT id FROM items WHERE path LIKE ? OR path = ?'
+            ? 'SELECT item_id AS id FROM media_locations'
+            : 'SELECT item_id AS id FROM media_locations WHERE relative_path LIKE ? OR relative_path = ?'
         const params = isRoot ? [] : [`${pathPrefix}/%`, pathPrefix]
         const rows = db.prepare(query).all(...params) as { id: string }[]
         return rows.map((r) => r.id)

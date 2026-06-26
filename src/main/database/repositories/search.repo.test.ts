@@ -58,21 +58,37 @@ describe('Search Repository (Integration)', () => {
         insertGenre.run('e5', genreIds['Animation']); insertGenre.run('e5', genreIds['Fantasy'])
         insertGenre.run('e6', genreIds['Short'])
 
-        // Tags
-        const insertTag = db.prepare('INSERT INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)')
-        insertTag.run('e1', 'quality', '4K')
-        insertTag.run('e2', 'quality', '1080p')
-        insertTag.run('e5', 'studio', 'Ghibli')
-        insertTag.run('e6', 'is_animated', 'Animation')
+        const insertItem = db.prepare(`
+          INSERT INTO media_items (
+            id, physical_kind, media_kind, name, entity_id,
+            is_hidden, logical_missing, created_at, updated_at
+          )
+          VALUES (?, 'file', 'movie', ?, ?, ?, 0, 1000, 1000)
+        `)
+        const insertLocation = db.prepare(`
+          INSERT INTO media_locations (
+            id, item_id, source_id, relative_path, name, type,
+            is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at
+          )
+          VALUES (?, ?, 'source-test', ?, ?, 'file', 1, ?, ?, 0, 1000, 1000)
+        `)
+        const seedItem = (id: string, filePath: string, name: string, entityId: string, ignored = 0, hidden = 0) => {
+          insertItem.run(id, name, entityId, hidden)
+          insertLocation.run(`location:${id}`, id, filePath, name, ignored, hidden)
+        }
+        seedItem('1', 'movie1.mkv', 'The Matrix', 'e1')
+        seedItem('2', 'movie2.mkv', 'The Matrix Reloaded', 'e2')
+        seedItem('3', 'movie3.mkv', 'Hidden Movie', 'e3', 0, 1)
+        seedItem('4', 'movie4.mkv', 'Ignored Movie', 'e4', 1, 0)
+        seedItem('5', 'anime1.mkv', 'Spirited Away', 'e5')
+        seedItem('6', 'short.mkv', 'D', 'e6')
 
-        db.prepare(`INSERT INTO items (id, path, name, type, is_ignored, is_hidden, entity_id) VALUES 
-            ('1', 'movie1.mkv', 'The Matrix', 'file', 0, 0, 'e1'),
-            ('2', 'movie2.mkv', 'The Matrix Reloaded', 'file', 0, 0, 'e2'),
-            ('3', 'movie3.mkv', 'Hidden Movie', 'file', 0, 1, 'e3'),
-            ('4', 'movie4.mkv', 'Ignored Movie', 'file', 1, 0, 'e4'),
-            ('5', 'anime1.mkv', 'Spirited Away', 'file', 0, 0, 'e5'),
-            ('6', 'short.mkv', 'D', 'file', 0, 0, 'e6')
-        `).run()
+        // Item-bound manual tags
+        const insertTag = db.prepare('INSERT INTO item_tags (item_id, key, value) VALUES (?, ?, ?)')
+        insertTag.run('1', 'quality', '4K')
+        insertTag.run('2', 'quality', '1080p')
+        insertTag.run('5', 'studio', 'Ghibli')
+        insertTag.run('6', 'is_animated', 'Animation')
 
         // Important: Rebuild FTS for the tests
         searchRepo.rebuildFtsIndex()

@@ -300,8 +300,8 @@ describe('getChildren — sort ordering', () => {
       { id: 'old', parentId: 'parent', path: 'parent/old', type: 'folder' },
     ])
     // Backdate 'old' to a very early timestamp
-    ctx.db.prepare('UPDATE items SET added_at = 1000 WHERE id = ?').run('old')
-    ctx.db.prepare('UPDATE items SET added_at = 9999999999999 WHERE id = ?').run('new')
+    ctx.db.prepare('UPDATE media_items SET created_at = 1000 WHERE id = ?').run('old')
+    ctx.db.prepare('UPDATE media_items SET created_at = 9999999999999 WHERE id = ?').run('new')
     mergeSettings('parent', { viewSettings: { sortBy: 'date-added' } })
 
     const result = expectItems(await getChildren('parent', {}))
@@ -314,8 +314,8 @@ describe('getChildren — sort ordering', () => {
       { id: 'new', parentId: 'parent', path: 'parent/new', type: 'folder' },
       { id: 'old', parentId: 'parent', path: 'parent/old', type: 'folder' },
     ])
-    ctx.db.prepare('UPDATE items SET added_at = 1000 WHERE id = ?').run('old')
-    ctx.db.prepare('UPDATE items SET added_at = 9999999999999 WHERE id = ?').run('new')
+    ctx.db.prepare('UPDATE media_items SET created_at = 1000 WHERE id = ?').run('old')
+    ctx.db.prepare('UPDATE media_items SET created_at = 9999999999999 WHERE id = ?').run('new')
     mergeSettings('parent', { viewSettings: { sortBy: 'date-added', sortDescending: true } })
 
     const result = expectItems(await getChildren('parent', {}))

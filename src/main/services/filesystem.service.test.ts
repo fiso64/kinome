@@ -22,7 +22,7 @@ import {
 import * as repositoryService from './repository.service'
 import { LIBRARY_ROOT_ID } from '../database/repositories/filesystem.repo'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
-import { scanDirectory } from './filesystem.service'
+import { cleanupMissingForSource, scanDirectory } from './filesystem.service'
 
 const TEST_SOURCE = { id: 'test-source-uuid', path: '/media/library', isRelative: false }
 
@@ -35,6 +35,15 @@ beforeEach(() => {
 afterEach(() => {
   ctx.cleanup()
 })
+
+function itemIdForLocation(sourceId: string, relativePath: string): string | null {
+  const row = ctx.db.prepare(`
+    SELECT item_id
+    FROM media_locations
+    WHERE source_id = ? AND relative_path = ?
+  `).get(sourceId, relativePath) as { item_id: string } | undefined
+  return row?.item_id ?? null
+}
 
 describe('ensureSourceRoot', () => {
   it('creates the library virtual root and a source root item', () => {
@@ -67,7 +76,7 @@ describe('ensureSourceRoot', () => {
   it('home virtual folder has a filter with parent.retrieveChildrenMetadata and mediaType conditions', () => {
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    const row = ctx.db.prepare('SELECT filter_json FROM items WHERE id = ?').get(HOME_FOLDER_ID) as any
+    const row = ctx.db.prepare('SELECT filter_json FROM media_items WHERE id = ?').get(HOME_FOLDER_ID) as any
     const filter = JSON.parse(row?.filter_json ?? 'null')
     expect(filter.conditionGroups).toHaveLength(3)
     expect(filter.conditionGroups[0]).toEqual([
@@ -85,10 +94,10 @@ describe('ensureSourceRoot', () => {
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
-    const sourceRoots = ctx.db.prepare("SELECT * FROM items WHERE source_id = ? AND path = '.'").all(TEST_SOURCE.id)
+    const sourceRoots = ctx.db.prepare("SELECT * FROM media_locations WHERE source_id = ? AND relative_path = '.'").all(TEST_SOURCE.id)
     expect(sourceRoots).toHaveLength(1)
 
-    const homes = ctx.db.prepare("SELECT * FROM items WHERE id = ?").all(HOME_FOLDER_ID)
+    const homes = ctx.db.prepare("SELECT * FROM media_items WHERE id = ?").all(HOME_FOLDER_ID)
     expect(homes).toHaveLength(1)
   })
 
@@ -120,7 +129,7 @@ describe('ensureSourceRoot', () => {
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     const row = (id: string) =>
-      ctx.db.prepare('SELECT filter_json FROM items WHERE id = ?').get(id) as any
+      ctx.db.prepare('SELECT filter_json FROM media_items WHERE id = ?').get(id) as any
 
     const categoriesFilter = JSON.parse(row(HOME_CATEGORIES_ID).filter_json)
     expect(categoriesFilter.scope?.parentId).toBe(HOME_FOLDER_ID)
@@ -146,7 +155,7 @@ describe('ensureSourceRoot', () => {
     repositoryService.ensureSourceRoot(TEST_SOURCE, '/media/library')
 
     for (const id of [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID]) {
-      const rows = ctx.db.prepare('SELECT * FROM items WHERE id = ?').all(id)
+      const rows = ctx.db.prepare('SELECT * FROM media_items WHERE id = ?').all(id)
       expect(rows).toHaveLength(1)
     }
   })
@@ -205,7 +214,7 @@ describe('multi-source', () => {
     repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
     repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
 
-    const homes = ctx.db.prepare('SELECT * FROM items WHERE id = ?').all(HOME_FOLDER_ID)
+    const homes = ctx.db.prepare('SELECT * FROM media_items WHERE id = ?').all(HOME_FOLDER_ID)
     expect(homes).toHaveLength(1)
   })
 
@@ -232,7 +241,7 @@ describe('multi-source', () => {
       { '@id': itemBId, '@parentId': rootBId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
     ])
 
-    const rows = ctx.db.prepare("SELECT * FROM items WHERE path = 'film.mkv' AND is_virtual = 0").all()
+    const rows = ctx.db.prepare("SELECT * FROM media_locations WHERE relative_path = 'film.mkv'").all()
     expect(rows).toHaveLength(2)
   })
 
@@ -284,6 +293,115 @@ describe('multi-source', () => {
     const idsB = cleanupB.map((r: any) => r.id)
     expect(idsB).toContain(itemBId)
     expect(idsB).not.toContain(itemAId)
+  })
+
+  it('reuses a stable item ID when a folder moves between sources before cleanup', async () => {
+    const tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-move-a-'))
+    const tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-move-b-'))
+
+    try {
+      const sourceA = { ...SOURCE_A, path: tmpA }
+      const sourceB = { ...SOURCE_B, path: tmpB }
+
+      await fs.mkdir(path.join(tmpA, 'Shows', 'Foo'), { recursive: true })
+      await fs.writeFile(path.join(tmpA, 'Shows', 'Foo', 'episode.mkv'), 'episode')
+
+      await scanDirectory(sourceA, tmpA)
+
+      const originalLocation = ctx.db.prepare(`
+        SELECT item_id
+        FROM media_locations
+        WHERE source_id = ? AND relative_path = 'Shows/Foo'
+      `).get(SOURCE_A.id) as { item_id: string } | undefined
+      expect(originalLocation).toBeDefined()
+
+      const originalId = originalLocation!.item_id
+      ctx.db.prepare(`
+        INSERT INTO folder_settings (item_id, view_settings_json)
+        VALUES (?, ?)
+      `).run(originalId, JSON.stringify({ layout: 'grid' }))
+
+      await fs.mkdir(path.join(tmpB, 'Shows'), { recursive: true })
+      await fs.rename(path.join(tmpA, 'Shows', 'Foo'), path.join(tmpB, 'Shows', 'Foo'))
+
+      let foundA = new Set<string>()
+      let foundB = new Set<string>()
+
+      await scanDirectory(sourceA, tmpA, {
+        cleanupMissing: false,
+        onFoundLocationPaths: (found) => {
+          foundA = found
+        }
+      })
+      await scanDirectory(sourceB, tmpB, {
+        cleanupMissing: false,
+        onFoundLocationPaths: (found) => {
+          foundB = found
+        }
+      })
+
+      cleanupMissingForSource(SOURCE_A.id, '.', foundA, true)
+      cleanupMissingForSource(SOURCE_B.id, '.', foundB, true)
+
+      const movedLocation = ctx.db.prepare(`
+        SELECT item_id, source_id, relative_path
+        FROM media_locations
+        WHERE source_id = ? AND relative_path = 'Shows/Foo'
+      `).get(SOURCE_B.id) as { item_id: string; source_id: string; relative_path: string } | undefined
+
+      expect(movedLocation).toEqual({
+        item_id: originalId,
+        source_id: SOURCE_B.id,
+        relative_path: 'Shows/Foo'
+      })
+      expect(repositoryService.getItemById(originalId)?.sourceId).toBe(SOURCE_B.id)
+
+      const oldLocationCount = ctx.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM media_locations
+        WHERE source_id = ? AND relative_path = 'Shows/Foo'
+      `).get(SOURCE_A.id) as { count: number }
+      expect(oldLocationCount.count).toBe(0)
+
+      const settings = ctx.db.prepare(`
+        SELECT view_settings_json
+        FROM folder_settings
+        WHERE item_id = ?
+      `).get(originalId) as { view_settings_json: string } | undefined
+      expect(JSON.parse(settings!.view_settings_json)).toEqual({ layout: 'grid' })
+    } finally {
+      await fs.rm(tmpA, { recursive: true, force: true })
+      await fs.rm(tmpB, { recursive: true, force: true })
+    }
+  })
+
+  it('does not cleanup a source when the scan root cannot be read', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-offline-source-'))
+    const source = { ...SOURCE_A, path: tmp }
+
+    await fs.writeFile(path.join(tmp, 'movie.mkv'), 'movie')
+    await scanDirectory(source, tmp)
+
+    const itemId = itemIdForLocation(SOURCE_A.id, 'movie.mkv')
+    expect(itemId).not.toBeNull()
+
+    await fs.rm(tmp, { recursive: true, force: true })
+
+    let scanSucceeded = true
+    await scanDirectory(source, tmp, {
+      onScanSucceeded: (success) => {
+        scanSucceeded = success
+      }
+    })
+
+    expect(scanSucceeded).toBe(false)
+    expect(repositoryService.getItemById(itemId!)).not.toBeNull()
+    const location = ctx.db.prepare(`
+      SELECT is_present
+      FROM media_locations
+      WHERE source_id = ? AND relative_path = 'movie.mkv'
+    `).get(SOURCE_A.id) as { is_present: number } | undefined
+    expect(location?.is_present).toBe(1)
   })
 })
 
@@ -362,15 +480,22 @@ describe('shadowing', () => {
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 
     // 'Movies' is in higherPriorityPaths at depth 1 >= minDepth 1 → skipped
-    // 'Movies/SciFiFilm' is never reached because 'Movies' was not recursed into
-    const moviesBId = generateId(SOURCE_B.id, 'Movies')
-    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
-    expect(repositoryService.getItemById(moviesBId)).toBeNull()
-    expect(repositoryService.getItemById(scifiBId)).toBeNull()
+    // 'Movies/SciFiFilm' is never reached because 'Movies' was not recursed into,
+    // but the shadowed Movies folder location is still recorded.
+    const scifiBId = itemIdForLocation(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(scifiBId).toBeNull()
 
     // Source A is unaffected
-    const moviesAId = generateId(SOURCE_A.id, 'Movies')
-    expect(repositoryService.getItemById(moviesAId)).not.toBeNull()
+    const moviesAId = itemIdForLocation(SOURCE_A.id, 'Movies')
+    expect(moviesAId).not.toBeNull()
+    expect(repositoryService.getItemById(moviesAId!)).not.toBeNull()
+
+    const shadowedLocation = ctx.db.prepare(`
+      SELECT item_id, is_shadowed
+      FROM media_locations
+      WHERE source_id = ? AND relative_path = 'Movies'
+    `).get(SOURCE_B.id) as { item_id: string; is_shadowed: number } | undefined
+    expect(shadowedLocation).toEqual({ item_id: moviesAId!, is_shadowed: 1 })
   })
 
   it('prefers a populated lower-priority folder over an empty high-priority folder', async () => {
@@ -387,10 +512,12 @@ describe('shadowing', () => {
 
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 
-    const moviesBId = generateId(SOURCE_B.id, 'Movies')
-    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
-    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()
-    expect(repositoryService.getItemById(scifiBId)).not.toBeNull()
+    const moviesBId = itemIdForLocation(SOURCE_B.id, 'Movies')
+    const scifiBId = itemIdForLocation(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(moviesBId).not.toBeNull()
+    expect(scifiBId).not.toBeNull()
+    expect(repositoryService.getItemById(moviesBId!)).not.toBeNull()
+    expect(repositoryService.getItemById(scifiBId!)).not.toBeNull()
   })
 
   it('respects shadowMinDepth — structural top-level folders are not skipped', async () => {
@@ -412,11 +539,20 @@ describe('shadowing', () => {
     //             'Movies/ActionFilm' (depth 2) IS at threshold and in the set → skipped
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 2 })
 
-    const moviesBId = generateId(SOURCE_B.id, 'Movies')
-    const actionFilmBId = generateId(SOURCE_B.id, 'Movies/ActionFilm')
+    const moviesBId = itemIdForLocation(SOURCE_B.id, 'Movies')
+    const actionFilmBId = itemIdForLocation(SOURCE_B.id, 'Movies/ActionFilm')
 
-    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()   // depth 1 < 2 → present
-    expect(repositoryService.getItemById(actionFilmBId)).toBeNull()   // depth 2 >= 2, in set → skipped
+    expect(moviesBId).not.toBeNull()
+    expect(repositoryService.getItemById(moviesBId!)).not.toBeNull()   // depth 1 < 2 -> present
+    const actionFilmAId = itemIdForLocation(SOURCE_A.id, 'Movies/ActionFilm')
+    expect(actionFilmAId).not.toBeNull()
+    expect(actionFilmBId).toBe(actionFilmAId)   // depth 2 >= 2, in set -> shadowed to source A's item
+    const shadowedLocation = ctx.db.prepare(`
+      SELECT is_shadowed
+      FROM media_locations
+      WHERE source_id = ? AND relative_path = 'Movies/ActionFilm'
+    `).get(SOURCE_B.id) as { is_shadowed: number } | undefined
+    expect(shadowedLocation?.is_shadowed).toBe(1)
   })
 
   it('non-overlapping folders in lower-priority source are never skipped', async () => {
@@ -433,10 +569,12 @@ describe('shadowing', () => {
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB, { higherPriorityPaths, shadowMinDepth: 1 })
 
     // 'Shows' and 'Shows/BreakingBad' are not in source A's paths → both present in B
-    const showsBId = generateId(SOURCE_B.id, 'Shows')
-    const breakingBadBId = generateId(SOURCE_B.id, 'Shows/BreakingBad')
-    expect(repositoryService.getItemById(showsBId)).not.toBeNull()
-    expect(repositoryService.getItemById(breakingBadBId)).not.toBeNull()
+    const showsBId = itemIdForLocation(SOURCE_B.id, 'Shows')
+    const breakingBadBId = itemIdForLocation(SOURCE_B.id, 'Shows/BreakingBad')
+    expect(showsBId).not.toBeNull()
+    expect(breakingBadBId).not.toBeNull()
+    expect(repositoryService.getItemById(showsBId!)).not.toBeNull()
+    expect(repositoryService.getItemById(breakingBadBId!)).not.toBeNull()
   })
 
   it('without higherPriorityPaths all folders are included', async () => {
@@ -445,10 +583,12 @@ describe('shadowing', () => {
 
     await scanDirectory({ ...SOURCE_B, path: tmpB }, tmpB)
 
-    const moviesBId = generateId(SOURCE_B.id, 'Movies')
-    const scifiBId = generateId(SOURCE_B.id, 'Movies/SciFiFilm')
-    expect(repositoryService.getItemById(moviesBId)).not.toBeNull()
-    expect(repositoryService.getItemById(scifiBId)).not.toBeNull()
+    const moviesBId = itemIdForLocation(SOURCE_B.id, 'Movies')
+    const scifiBId = itemIdForLocation(SOURCE_B.id, 'Movies/SciFiFilm')
+    expect(moviesBId).not.toBeNull()
+    expect(scifiBId).not.toBeNull()
+    expect(repositoryService.getItemById(moviesBId!)).not.toBeNull()
+    expect(repositoryService.getItemById(scifiBId!)).not.toBeNull()
   })
 })
 

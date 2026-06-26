@@ -1,55 +1,76 @@
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
+import { MEDIA_ITEMS_READ_MODEL_SQL } from './media-read-model.sql'
 
 export const SCHEMA_SQL = `
--- The physical filesystem structure
-CREATE TABLE IF NOT EXISTS items (
+-- Durable logical library items.
+CREATE TABLE IF NOT EXISTS media_items (
     id TEXT PRIMARY KEY,
-    parent_id TEXT,
-    path TEXT NOT NULL,
+    parent_item_id TEXT REFERENCES media_items(id) ON DELETE CASCADE,
+    physical_kind TEXT NOT NULL CHECK(physical_kind IN ('file', 'folder', 'virtual')),
+    media_kind TEXT,
+    name TEXT NOT NULL,
+    entity_id TEXT,
+
+    is_virtual INTEGER NOT NULL DEFAULT 0,
+    virtual_type TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
+    filter_json TEXT,
+    owner_id TEXT,
+
+    is_hidden INTEGER NOT NULL DEFAULT 0,
+    logical_missing INTEGER NOT NULL DEFAULT 0,
+    preferred_location_id TEXT,
+
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+
+    FOREIGN KEY(parent_item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_items_parent_item_id ON media_items(parent_item_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_entity_id ON media_items(entity_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_is_virtual ON media_items(is_virtual);
+CREATE INDEX IF NOT EXISTS idx_media_items_virtual_type ON media_items(virtual_type);
+CREATE INDEX IF NOT EXISTS idx_media_items_physical_kind ON media_items(physical_kind);
+CREATE INDEX IF NOT EXISTS idx_media_items_media_kind ON media_items(media_kind);
+
+-- Physical filesystem occurrences for a logical media item.
+CREATE TABLE IF NOT EXISTS media_locations (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('file', 'folder')),
 
-    -- Source (NULL for virtual items and the library virtual root)
-    source_id TEXT,
-
-    -- File Stats
     size INTEGER,
     mtime INTEGER,
     birthtime INTEGER,
     inode INTEGER,
     device_id INTEGER,
+    location_fingerprint TEXT,
 
-    -- Link to logical content entity
-    entity_id TEXT,
+    is_present INTEGER NOT NULL DEFAULT 1,
+    is_ignored INTEGER NOT NULL DEFAULT 0,
+    is_hidden INTEGER NOT NULL DEFAULT 0,
+    is_shadowed INTEGER NOT NULL DEFAULT 0,
+    shadowed_by_location_id TEXT REFERENCES media_locations(id) ON DELETE SET NULL,
 
-    -- State Flags (stored as 0 or 1)
-    is_hidden INTEGER DEFAULT 0,
-    is_ignored INTEGER DEFAULT 0,
-    is_missing INTEGER DEFAULT 0,
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    missing_since INTEGER,
 
-    -- Virtual Folder
-    is_virtual      INTEGER DEFAULT 0,
-    virtual_type    TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
-    filter_json TEXT,
-    owner_id TEXT,  -- NULL = admin-owned/shared; account id = owned by that user
-
-    -- Timestamp
-    added_at INTEGER DEFAULT (cast(strftime('%s','now') as int) * 1000),
-
-    UNIQUE(source_id, path),
-
-    FOREIGN KEY(parent_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE,
-    FOREIGN KEY(entity_id) REFERENCES media_entities(id) ON DELETE SET NULL
+    UNIQUE(source_id, relative_path),
+    FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_items_parent_id ON items(parent_id);
-CREATE INDEX IF NOT EXISTS idx_items_source_id ON items(source_id);
-CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
-CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
-CREATE INDEX IF NOT EXISTS idx_items_is_virtual ON items(is_virtual);
-CREATE INDEX IF NOT EXISTS idx_items_virtual_type ON items(virtual_type);
+CREATE INDEX IF NOT EXISTS idx_media_locations_item_id ON media_locations(item_id);
+CREATE INDEX IF NOT EXISTS idx_media_locations_source_path ON media_locations(source_id, relative_path);
+CREATE INDEX IF NOT EXISTS idx_media_locations_presence ON media_locations(is_present);
+CREATE INDEX IF NOT EXISTS idx_media_locations_shadowed ON media_locations(is_shadowed);
 
+${MEDIA_ITEMS_READ_MODEL_SQL};
 
 -- Logical Content Entity (Movie, TV Show, Season, Episode)
 CREATE TABLE IF NOT EXISTS media_entities (
@@ -88,6 +109,16 @@ CREATE TABLE IF NOT EXISTS media_entities (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_entities_tmdb_id ON media_entities(tmdb_id);
+
+CREATE TRIGGER IF NOT EXISTS media_items_entities_media_kind_ai AFTER INSERT ON media_entities
+BEGIN
+  UPDATE media_items SET media_kind = new.media_type WHERE entity_id = new.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS media_items_entities_media_kind_au AFTER UPDATE OF media_type ON media_entities
+BEGIN
+  UPDATE media_items SET media_kind = new.media_type WHERE entity_id = new.id;
+END;
 
 
 -- Normalized Relational Metadata
@@ -139,10 +170,28 @@ CREATE TABLE IF NOT EXISTS entity_virtual_tags (
     FOREIGN KEY (entity_id) REFERENCES media_entities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS item_tags (
+    item_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (item_id, key),
+    FOREIGN KEY (item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS item_virtual_tags (
+    item_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (item_id, key),
+    FOREIGN KEY (item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_entity_genres_entity_id ON entity_genres(entity_id);
 CREATE INDEX IF NOT EXISTS idx_credits_entity_id ON credits(entity_id);
 CREATE INDEX IF NOT EXISTS idx_entity_tags_entity_id ON entity_tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_entity_virtual_tags_entity_id ON entity_virtual_tags(entity_id);
+CREATE INDEX IF NOT EXISTS idx_item_tags_item_id ON item_tags(item_id);
+CREATE INDEX IF NOT EXISTS idx_item_virtual_tags_item_id ON item_virtual_tags(item_id);
 
 -- Orphan cleanup triggers
 CREATE TRIGGER IF NOT EXISTS cleanup_orphan_genres AFTER DELETE ON entity_genres
@@ -183,7 +232,7 @@ CREATE TABLE IF NOT EXISTS account_visible_items (
     item_id    TEXT NOT NULL,
     PRIMARY KEY (account_id, item_id),
     FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
-    FOREIGN KEY(item_id)    REFERENCES items(id)    ON DELETE CASCADE
+    FOREIGN KEY(item_id)    REFERENCES media_items(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_account_visible_items_account
@@ -202,7 +251,7 @@ CREATE TABLE IF NOT EXISTS user_state (
     next_up_episode_id TEXT, -- UUID of the next episode to watch (for shows)
     
     PRIMARY KEY (item_id, user_id),
-    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 
@@ -222,64 +271,71 @@ CREATE TABLE IF NOT EXISTS folder_settings (
     children_type_hint TEXT,
     process_tv_children INTEGER NOT NULL DEFAULT 1,
 
-    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- FTS5 Virtual Table for Search using Trigram Tokenizer
-CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+-- FTS5 index keyed by durable media_items.id.
+CREATE VIRTUAL TABLE IF NOT EXISTS media_items_fts USING fts5(
     id UNINDEXED,
-    title,          
-    original_title, 
-    name,           
-    overview,       
+    title,
+    original_title,
+    name,
+    overview,
     tokenize = 'trigram'
 );
 
--- Triggers: Gated and Content-Aware for Performance
--- Phase 1 Fix: Only re-index if the 'name' column actually changes.
-CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
-  INSERT INTO items_fts (id, name, title, original_title, overview) 
-  VALUES (new.id, new.name, NULL, NULL, NULL);
+CREATE TRIGGER IF NOT EXISTS media_items_fts_ai AFTER INSERT ON media_items BEGIN
+  INSERT INTO media_items_fts (id, name, title, original_title, overview)
+  VALUES (
+    new.id,
+    new.name,
+    (SELECT title FROM media_entities WHERE id = new.entity_id),
+    (SELECT original_title FROM media_entities WHERE id = new.entity_id),
+    (SELECT overview FROM media_entities WHERE id = new.entity_id)
+  );
 END;
 
-CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
-  DELETE FROM items_fts WHERE id = old.id;
+CREATE TRIGGER IF NOT EXISTS media_items_fts_ad AFTER DELETE ON media_items BEGIN
+  DELETE FROM media_items_fts WHERE id = old.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE OF name ON items 
+CREATE TRIGGER IF NOT EXISTS media_items_fts_au AFTER UPDATE OF name, entity_id ON media_items
 FOR EACH ROW
-WHEN (OLD.name IS NOT NEW.name)
+WHEN (OLD.name IS NOT NEW.name OR OLD.entity_id IS NOT NEW.entity_id)
 BEGIN
-  UPDATE items_fts SET name = new.name WHERE id = new.id;
+  UPDATE media_items_fts SET
+    name = new.name,
+    title = (SELECT title FROM media_entities WHERE id = new.entity_id),
+    original_title = (SELECT original_title FROM media_entities WHERE id = new.entity_id),
+    overview = (SELECT overview FROM media_entities WHERE id = new.entity_id)
+  WHERE id = new.id;
 END;
 
--- Phase 2 Fix: Only re-index metadata if searchable content drifts.
-CREATE TRIGGER IF NOT EXISTS media_entities_ai AFTER INSERT ON media_entities BEGIN
-  -- Update the FTS row that was already created by the items trigger
-  UPDATE items_fts SET 
+CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_ai AFTER INSERT ON media_entities BEGIN
+  UPDATE media_items_fts SET
     title = new.title,
     original_title = new.original_title,
     overview = new.overview
-  WHERE id = (SELECT id FROM items WHERE entity_id = new.id LIMIT 1);
+  WHERE id IN (SELECT id FROM media_items WHERE entity_id = new.id);
 END;
 
-CREATE TRIGGER IF NOT EXISTS media_entities_au AFTER UPDATE OF title, original_title, overview ON media_entities
+CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_au AFTER UPDATE OF title, original_title, overview ON media_entities
 FOR EACH ROW
 WHEN (
-    OLD.title IS NOT NEW.title OR 
-    OLD.original_title IS NOT NEW.original_title OR 
+    OLD.title IS NOT NEW.title OR
+    OLD.original_title IS NOT NEW.original_title OR
     OLD.overview IS NOT NEW.overview
 )
 BEGIN
-  UPDATE items_fts SET 
+  UPDATE media_items_fts SET
     title = new.title,
     original_title = new.original_title,
     overview = new.overview
-  WHERE id = (SELECT id FROM items WHERE entity_id = new.id LIMIT 1);
+  WHERE id IN (SELECT id FROM media_items WHERE entity_id = new.id);
 END;
 
-CREATE TRIGGER IF NOT EXISTS media_entities_ad AFTER DELETE ON media_entities BEGIN
-  UPDATE items_fts SET title = NULL, original_title = NULL, overview = NULL
-  WHERE id = (SELECT id FROM items WHERE entity_id = old.id LIMIT 1);
+CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_ad AFTER DELETE ON media_entities BEGIN
+  UPDATE media_items_fts SET title = NULL, original_title = NULL, overview = NULL
+  WHERE id IN (SELECT id FROM media_items WHERE entity_id = old.id);
 END;
 `

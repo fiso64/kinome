@@ -3,6 +3,9 @@
  * Handles FTS5 indexing and trigram search execution.
  */
 import { getDb, runTransaction } from '../client'
+import { ITEM_READ_MODEL } from '../query-builder'
+
+const FTS_TABLE = 'media_items_fts'
 
 /**
  * Rebuilds the Full-Text Search index.
@@ -10,14 +13,14 @@ import { getDb, runTransaction } from '../client'
 export function rebuildFtsIndex(): void {
     const db = getDb()
     runTransaction(() => {
-        db.prepare('DELETE FROM items_fts').run()
+        db.prepare(`DELETE FROM ${FTS_TABLE}`).run()
         db.prepare(
             `
-      INSERT INTO items_fts (id, name, title, original_title, overview)
+      INSERT INTO ${FTS_TABLE} (id, name, title, original_title, overview)
       SELECT 
         i.id, i.name, 
         e.title, e.original_title, e.overview
-      FROM items i
+      FROM ${ITEM_READ_MODEL} i
       LEFT JOIN media_entities e ON i.entity_id = e.id
     `
         ).run()
@@ -37,8 +40,8 @@ export function executeSearchSql(sql: string, params: any): any[] {
  */
 export function getFtsIndexCount(): { count: number; itemCount: number } {
     const db = getDb()
-    const count = db.prepare('SELECT count(*) as c FROM items_fts').get() as { c: number }
-    const itemCount = db.prepare('SELECT count(*) as c FROM items').get() as { c: number }
+    const count = db.prepare(`SELECT count(*) as c FROM ${FTS_TABLE}`).get() as { c: number }
+    const itemCount = db.prepare(`SELECT count(*) as c FROM ${ITEM_READ_MODEL}`).get() as { c: number }
     return { count: count.c, itemCount: itemCount.c }
 }
 
@@ -49,8 +52,8 @@ const SEARCH_SELECT = `
     e.poster_path, e.backdrop_path, e.logo_path,
     e.episode_number,
     (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres_json,
-    (SELECT json_group_object(t.key, t.value) FROM entity_tags t WHERE t.entity_id = e.id) AS tags_json,
-    (SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id) AS virtual_tags_json,
+    (SELECT json_group_object(t.key, t.value) FROM item_tags t WHERE t.item_id = i.id) AS tags_json,
+    (SELECT json_group_object(vt.key, vt.value) FROM item_virtual_tags vt WHERE vt.item_id = i.id) AS virtual_tags_json,
     u.watched`
 
 /**
@@ -105,9 +108,9 @@ function appendTagFilters(
             params[pValLikeKey] = `%${tagValue}%`
             params[pTagKey] = tag.key
             sql += ` AND (
-                    EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ${pTagKey} AND lower(value) = ${pValKey}) OR
-                    EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ${pTagKey} AND lower(value) LIKE ${pValLikeKey}) OR
-                    EXISTS (SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ${pTagKey} AND lower(value) = ${pValKey})
+                    EXISTS (SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ${pTagKey} AND lower(value) = ${pValKey}) OR
+                    EXISTS (SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ${pTagKey} AND lower(value) LIKE ${pValLikeKey}) OR
+                    EXISTS (SELECT 1 FROM item_virtual_tags WHERE item_id = i.id AND key = ${pTagKey} AND lower(value) = ${pValKey})
                 )`
         }
     })
@@ -137,7 +140,7 @@ export function findByShortQuery(
           SELECT ${SEARCH_SELECT},
             0 as rank,
             0 as static_score
-          FROM items i
+          FROM ${ITEM_READ_MODEL} i
           LEFT JOIN media_entities e ON i.entity_id = e.id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE (i.name LIKE @likeQuery OR e.title LIKE @likeQuery)
@@ -175,13 +178,13 @@ export function findByFtsQuery(
 
     let sql = `
           SELECT ${SEARCH_SELECT},
-            items_fts.rank,
+            ${FTS_TABLE}.rank,
             0 as static_score
-          FROM items_fts
-          JOIN items i ON items_fts.id = i.id
+          FROM ${FTS_TABLE}
+          JOIN ${ITEM_READ_MODEL} i ON ${FTS_TABLE}.id = i.id
           LEFT JOIN media_entities e ON i.entity_id = e.id
           LEFT JOIN user_state u ON i.id = u.item_id
-          WHERE items_fts MATCH @matchQuery
+          WHERE ${FTS_TABLE} MATCH @matchQuery
             AND i.is_ignored = 0
             AND i.is_hidden = 0
         `
@@ -190,7 +193,7 @@ export function findByFtsQuery(
     sql = appendTagFilters(sql, params, tags)
     sql = appendVisibilityFilter(sql, params, userId)
 
-    sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(items_fts, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
+    sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(${FTS_TABLE}, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
     return db.prepare(sql).all(params) as any[]
 }
@@ -210,7 +213,7 @@ export function findByTagsOnly(
       SELECT ${SEARCH_SELECT},
         0 as rank,
         0 as static_score
-      FROM items i
+      FROM ${ITEM_READ_MODEL} i
       LEFT JOIN media_entities e ON i.entity_id = e.id
       LEFT JOIN user_state u ON i.id = u.item_id
       WHERE i.is_ignored = 0

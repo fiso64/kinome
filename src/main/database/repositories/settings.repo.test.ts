@@ -22,9 +22,9 @@ function createTestDb(): Database {
 
 function insertItem(id: string, type: 'file' | 'folder' = 'folder') {
   db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type)
-    VALUES (?, NULL, ?, ?, ?)
-  `).run(id, id, id, type)
+    INSERT INTO media_items (id, physical_kind, name, created_at, updated_at)
+    VALUES (?, ?, ?, 1000, 1000)
+  `).run(id, type, id)
 }
 
 describe('mergeSettings — sort pin clearing', () => {

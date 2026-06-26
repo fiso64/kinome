@@ -20,6 +20,7 @@ import * as groupingService from './grouping.service'
 import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
+import { relativePathFromAbsolute } from '../database/repositories/filesystem.repo'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as userRepo from '../database/repositories/user.repo'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
@@ -45,6 +46,22 @@ const log = (message: string): void => {
 }
 
 type ErrorCallback = (options: { title: string; message: string; detail?: string }) => void
+
+interface SourceScanResult {
+  foundItemIds: Set<string>
+  foundLocationPaths: Set<string>
+  foundNonEmptyFolderPaths: Set<string>
+  scanSucceeded: boolean
+}
+
+interface FullLibraryScanOptions {
+  sources: import('@shared/types').MediaSource[]
+  sourcePaths: Map<string, string>
+  sourceFolderSettings?: Record<string, Record<string, any>>
+  shadowSources?: boolean
+  shadowMinDepth?: number
+  runEarlyMaintenance?: boolean
+}
 
 // --- Helpers ---
 
@@ -111,8 +128,7 @@ function normalizeFolderSettings(
   if (initialFolderSettings) {
     log(`[Scan] Received initial settings. Keys: ${Object.keys(initialFolderSettings).join(', ')}`)
     for (const [keyPath, val] of Object.entries(initialFolderSettings)) {
-      let rel = path.relative(sourceAbsPath, keyPath).replace(/\\/g, '/')
-      if (rel === '') rel = '.'
+      const rel = relativePathFromAbsolute(sourceAbsPath, keyPath)
       normalizedSettings[rel] = val
       log(`[Scan] Normalized setting: "${keyPath}" -> "${rel}"`)
     }
@@ -126,34 +142,79 @@ async function _runBackgroundScan(
   source: import('@shared/types').MediaSource,
   resolvedAbsPath: string,
   normalizedSettings: Record<string, any>,
-  higherPriorityPaths?: Set<string>,
-  shadowMinDepth?: number
-): Promise<void> {
+  options: {
+    higherPriorityPaths?: Set<string>
+    shadowMinDepth?: number
+    cleanupMissing?: boolean
+    onFoundItems?: (foundItemIds: Set<string>) => void
+    onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
+    onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
+    onScanSucceeded?: (scanSucceeded: boolean) => void
+    runMaintenance?: boolean
+  } = {}
+): Promise<SourceScanResult> {
   if (pathsService.isRemoteLibrary())
     throw new Error(`Scanning not available for remote libraries.`)
 
   getTransport().notifyScanStatusChanged({ isFileScanningLibrary: true })
+  const scanResult: SourceScanResult = {
+    foundItemIds: new Set(),
+    foundLocationPaths: new Set(),
+    foundNonEmptyFolderPaths: new Set(),
+    scanSucceeded: false
+  }
 
   try {
     await filesystemService.scanDirectory(source, resolvedAbsPath, {
       skipMetadata: false,
       initialFolderSettings: normalizedSettings,
-      higherPriorityPaths,
-      shadowMinDepth
+      higherPriorityPaths: options.higherPriorityPaths,
+      shadowMinDepth: options.shadowMinDepth,
+      cleanupMissing: options.cleanupMissing,
+      onFoundItems: (foundItemIds) => {
+        scanResult.foundItemIds = foundItemIds
+        options.onFoundItems?.(foundItemIds)
+      },
+      onFoundLocationPaths: (foundLocationPaths) => {
+        scanResult.foundLocationPaths = foundLocationPaths
+        options.onFoundLocationPaths?.(foundLocationPaths)
+      },
+      onFoundNonEmptyFolderPaths: (foundFolderPaths) => {
+        scanResult.foundNonEmptyFolderPaths = foundFolderPaths
+        options.onFoundNonEmptyFolderPaths?.(foundFolderPaths)
+      },
+      onScanSucceeded: (scanSucceeded) => {
+        scanResult.scanSucceeded = scanSucceeded
+        options.onScanSucceeded?.(scanSucceeded)
+      }
     })
 
-    searchService.buildFullSearchIndex()
-
-    // Phase 2: Metadata Enrichment & Maintenance
-    await metadataService.enrichDatabase().catch((err) => {
-      console.error('[Library Service] Enrichment failed during rescan:', err)
-    })
+    if (options.runMaintenance ?? true) {
+      await runScanMaintenance()
+    }
 
     // Virtual tags are now handled inside enrichDatabase -> maintenancePass
+    return scanResult
   } finally {
     playbackService.clearStreamCache()
     getTransport().notifyScanStatusChanged({ isFileScanningLibrary: false })
   }
+}
+
+async function runScanMaintenance(itemIds?: Set<string>): Promise<void> {
+  searchService.buildFullSearchIndex()
+
+  if (itemIds) {
+    if (itemIds.size === 0) return
+    await metadataService.enrichItems(itemIds, { runMaintenance: false }).catch((err) => {
+      console.error('[Library Service] Targeted enrichment failed during rescan:', err)
+    })
+    return
+  }
+
+  await metadataService.enrichDatabase().catch((err) => {
+    console.error('[Library Service] Enrichment failed during rescan:', err)
+  })
 }
 
 /**
@@ -168,6 +229,83 @@ export const saveSource = async (source: import('@shared/types').MediaSource): P
     : [...existingSources, source]
   await settingsService.writeLibrarySettings({ mediaSources: updatedSources })
   return { success: true }
+}
+
+export async function runFullLibraryScan({
+  sources,
+  sourcePaths,
+  sourceFolderSettings,
+  shadowSources = false,
+  shadowMinDepth = 1,
+  runEarlyMaintenance = true
+}: FullLibraryScanOptions): Promise<void> {
+  // Initialize roots before any scanning begins
+  for (const source of sources) {
+    const resolvedAbsPath = sourcePaths.get(source.id)
+    if (!resolvedAbsPath) continue
+    if (!pathsService.isRemotePath(resolvedAbsPath)) {
+      await settingsService.createDirectory(resolvedAbsPath)
+    }
+    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
+    filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
+  }
+
+  // Run scans sequentially so higher-priority source results are in DB before building shadow sets
+  const foundLocationPathsBySource = new Map<string, Set<string>>()
+  const foundNonEmptyFolderPathsBySource = new Map<string, Set<string>>()
+  const scanSucceededBySource = new Map<string, boolean>()
+
+  for (let j = 0; j < sources.length; j++) {
+    const source = sources[j]
+    const resolvedAbsPath = sourcePaths.get(source.id)
+    if (!resolvedAbsPath) continue
+
+    log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
+
+    // Build shadow set from higher-priority sources that have already been scanned this cycle
+    let higherPriorityPaths: Set<string> | undefined
+    if (shadowSources && j > 0) {
+      higherPriorityPaths = new Set<string>()
+      for (let k = 0; k < j; k++) {
+        const foundFolders = foundNonEmptyFolderPathsBySource.get(sources[k].id)
+        const folderPaths = foundFolders ?? filesystemService.getNonEmptyFolderPathsForSource(sources[k].id)
+        for (const p of folderPaths) {
+          higherPriorityPaths.add(p)
+        }
+      }
+      log(`Shadow: skipping ${higherPriorityPaths.size} non-empty paths from ${j} higher-priority source(s) at depth >= ${shadowMinDepth}`)
+    }
+
+    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
+    const scanResult = await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, {
+      higherPriorityPaths,
+      shadowMinDepth,
+      cleanupMissing: false,
+      runMaintenance: false
+    })
+
+    foundLocationPathsBySource.set(source.id, scanResult.foundLocationPaths)
+    foundNonEmptyFolderPathsBySource.set(source.id, scanResult.foundNonEmptyFolderPaths)
+    scanSucceededBySource.set(source.id, scanResult.scanSucceeded)
+
+    if (runEarlyMaintenance && scanResult.scanSucceeded) {
+      await runScanMaintenance(scanResult.foundItemIds)
+    }
+  }
+
+  for (const source of sources) {
+    const resolvedAbsPath = sourcePaths.get(source.id)
+    if (!resolvedAbsPath) continue
+    filesystemService.cleanupMissingForSource(
+      source.id,
+      '.',
+      foundLocationPathsBySource.get(source.id) ?? new Set(),
+      scanSucceededBySource.get(source.id) === true
+    )
+  }
+
+  await runScanMaintenance()
+  playbackService.clearStreamCache()
 }
 
 /**
@@ -185,42 +323,13 @@ export const performScan = async (
   const shadowSources = settings.shadowSources ?? false
   const shadowMinDepth = settings.shadowMinDepth ?? 1
 
-  // Initialize roots before any scanning begins
-  for (const source of sources) {
-    const resolvedAbsPath = sourcePaths.get(source.id)
-    if (!resolvedAbsPath) continue
-    if (!pathsService.isRemotePath(resolvedAbsPath)) {
-      await settingsService.createDirectory(resolvedAbsPath)
-    }
-    const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
-    filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
-  }
-
-  // Run scans sequentially so higher-priority source results are in DB before building shadow sets
-  ;(async () => {
-    for (let j = 0; j < sources.length; j++) {
-      const source = sources[j]
-      const resolvedAbsPath = sourcePaths.get(source.id)
-      if (!resolvedAbsPath) continue
-
-      log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
-
-      // Build shadow set from higher-priority sources that have already been scanned this cycle
-      let higherPriorityPaths: Set<string> | undefined
-      if (shadowSources && j > 0) {
-        higherPriorityPaths = new Set<string>()
-        for (let k = 0; k < j; k++) {
-          for (const p of filesystemService.getNonEmptyFolderPathsForSource(sources[k].id)) {
-            higherPriorityPaths.add(p)
-          }
-        }
-        log(`Shadow: skipping ${higherPriorityPaths.size} non-empty paths from ${j} higher-priority source(s) at depth >= ${shadowMinDepth}`)
-      }
-
-      const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
-      await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, higherPriorityPaths, shadowMinDepth)
-    }
-  })().catch((err) => {
+  runFullLibraryScan({
+    sources,
+    sourcePaths,
+    sourceFolderSettings,
+    shadowSources,
+    shadowMinDepth
+  }).catch((err) => {
     console.error('[Library Service] Background scan sequence failed:', err)
   })
 
@@ -633,9 +742,10 @@ export const trashItem = async (itemId: string): Promise<{ success: boolean }> =
 }
 export const renameItem = async (
   itemId: string,
-  newName: string
+  newName: string,
+  userId?: string | null
 ): Promise<{ success: boolean }> => {
-  const newRelPath = await actionsService.renameItem(itemId, newName)
+  const newRelPath = await actionsService.renameItem(itemId, newName, userId)
   await handleItemRenamed(itemId, newRelPath)
   return { success: true }
 }
@@ -773,7 +883,9 @@ export const handleItemRenamed = async (oldItemId: string, newRelPath: string) =
 
   const newItem = repositoryService.updateItemPathAndId(oldItemId, newRelPath)
   if (newItem) {
-    getTransport().notifyLibraryItemDeleted(oldItem.id)
+    if (newItem.id !== oldItem.id) {
+      getTransport().notifyLibraryItemDeleted(oldItem.id)
+    }
     getTransport().notifyLibraryItemsUpdated([newItem])
 
     const parent = repositoryService.findParent(newItem.id)
@@ -785,7 +897,7 @@ export const handleItemRenamed = async (oldItemId: string, newRelPath: string) =
       }
 
       // If we renamed something inside a TV show, recalculate the pointer
-      // (IDs change when paths change)
+      // (kept for metadata/ordering changes; item IDs now stay stable across path renames)
       const showParent = findAncestorTvShow(newItem.id)
       if (showParent) {
         const updatedShow = await recalculateNextUpForShow(showParent.id, null)
@@ -1025,8 +1137,8 @@ export const getFolderWatchedState = async (
   return 'unwatched'
 }
 
-export async function getItemPath(itemId: string): Promise<string | null> {
+export async function getItemPath(itemId: string, userId?: string | null): Promise<string | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item || !item.path || !item.sourceId) return null
-  return actionsService.getAbsolutePathForItem(itemId)
+  return actionsService.getAbsolutePathForItem(itemId, userId)
 }

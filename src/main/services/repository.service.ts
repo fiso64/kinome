@@ -23,7 +23,7 @@
  */
 import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem } from '../database/mappers'
-import { buildFindQuery, type FindOptions } from '../database/query-builder'
+import { buildFindQuery, ITEM_READ_MODEL, type FindOptions } from '../database/query-builder'
 import { ensureUpToDate } from './account-filter.service'
 import { getCurrentAccountId } from '../request-context'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
@@ -73,7 +73,12 @@ export async function writeDb(): Promise<void> {
 export async function createNewDb(_rootNode: MediaFolder | null): Promise<void> {
   const db = getDb()
   db.transaction(() => {
-    db.prepare('DELETE FROM items').run()
+    db.exec(`
+      DELETE FROM item_virtual_tags;
+      DELETE FROM item_tags;
+      DELETE FROM media_locations;
+      DELETE FROM media_items;
+    `)
   })()
 }
 
@@ -177,7 +182,20 @@ export function getChildrenForDetailView(parentId: string, fields?: string[]): L
   return getChildren(parentId, fields)
 }
 
-export function getTvShowsForStructuralSync(): LibraryItem[] {
+function buildItemIdScope(itemIds?: string[]): { sql: string; params: string[] } | null {
+  if (!itemIds) return { sql: '', params: [] }
+  const uniqueIds = [...new Set(itemIds)]
+  if (uniqueIds.length === 0) return null
+  return {
+    sql: ` AND i.id IN (${uniqueIds.map(() => '?').join(', ')})`,
+    params: uniqueIds
+  }
+}
+
+export function getTvShowsForStructuralSync(itemIds?: string[]): LibraryItem[] {
+  const scope = buildItemIdScope(itemIds)
+  if (!scope) return []
+
   const db = getDb()
   // SPEC(scan_architecture.md §Phase 2, line 163-169):
   //   process_tv_children is TRUE by default for TV shows.
@@ -186,7 +204,7 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
     .prepare(
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL}, f.process_tv_children
-    FROM items i
+    FROM ${ITEM_READ_MODEL} i
     JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
@@ -194,13 +212,17 @@ export function getTvShowsForStructuralSync(): LibraryItem[] {
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND (f.process_tv_children IS NULL OR f.process_tv_children != 0)
+      ${scope.sql}
   `
     )
-    .all() as any[]
+    .all(...scope.params) as any[]
   return rows.map(mapRowToLibraryItem)
 }
 
-export function getDiscoveryItemsForPhase2(): LibraryItem[] {
+export function getDiscoveryItemsForPhase2(itemIds?: string[]): LibraryItem[] {
+  const scope = buildItemIdScope(itemIds)
+  if (!scope) return []
+
   const db = getDb()
   // SPEC(scan_architecture.md §Phase 2, line 187-195):
   //   dirty_roots = items WHERE
@@ -213,7 +235,7 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
-    FROM items i
+    FROM ${ITEM_READ_MODEL} i
     LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
@@ -222,9 +244,10 @@ export function getDiscoveryItemsForPhase2(): LibraryItem[] {
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND pf.retrieve_children_metadata = 1
+      ${scope.sql}
   `
     )
-    .all() as any[]
+    .all(...scope.params) as any[]
 
   return rows.map(mapRowToLibraryItem)
 }
@@ -300,8 +323,7 @@ export function updateItemPathAndId(oldId: string, newRelativePath: string): Lib
   const sourceId = itemsRepo.getItemSourceId(oldId)
   if (!sourceId) return null
   itemsRepo.updateItemPathAndId(oldId, newRelativePath, sourceId)
-  const newId = itemsRepo.generateId(sourceId, newRelativePath)
-  return getItemById(newId)
+  return getItemById(oldId)
 }
 
 /**

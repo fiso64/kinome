@@ -1,18 +1,3 @@
-# Media identity/location/entity refactor
-
-Refactor the library model so logical media identity, physical filesystem locations, and metadata ownership are separated cleanly. This should fix cross-source moves/shadow promotion without data loss and make future read models possible without duplicating state.
-
-See: [Media identity/location/entity refactor plan](./media-identity-location-refactor-plan.md)
-
----
-
-Split Kinome configuration into server-owned and user-owned layers.
-   - Read-only/deploy-time server config should live in environment variables or `/etc/kinome/config.json` and cover `dataDir`, host, port, library location, and other deployment concerns.
-   - Mutable Web UI/user settings should stay under the data directory.
-   - Runtime cache should move to an explicit cache directory such as `/var/cache/kinome` instead of being mixed into durable library state.
-   - NixOS/systemd deployments should be able to configure server settings declaratively without fighting Web UI writes.
-
----
 
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
@@ -58,32 +43,11 @@ Ensure that individual settings fields are not saved to files if they have not b
 
 ---
 
-Metadata canonicalization and item-bound tags/vtags.
+Metadata canonicalization and vtag ownership.
 
-Today `media_entities` are effectively item-specific, so `entity_virtual_tags` mostly behave like item tags. If `MediaEntity` becomes canonical/shared provider data, user/library classification must move off the entity or it will leak between distinct items that share the same TMDB identity.
+Item-bound manual tags and virtual tags are now implemented (`item_tags`, `item_virtual_tags`, vtag writes by `item_id`, and filtering/search/grouping/autocomplete reads by `item_id`). The remaining work is metadata canonicalization itself: if `MediaEntity` becomes canonical/shared provider data, locks, selected images, user edits, refresh gates, and other item-specific metadata must move to an item metadata/override table first.
 
-Desired semantics:
-
-- Canonical `MediaEntity`: provider facts like TMDB id, fetched payload, genres, cast, studios, ratings.
-- Item-specific metadata: edits, locks, selected/custom images, manual tags, virtual tags, refresh state.
-- Vtag definitions stay as `LibraryFilter`s over assembled items, so rules can still use fields like `genre`, `mediaType`, watched state, parent fields, or selected-location fields.
-- Vtag results are item-bound derived facts: the item matched the rule, so the computed `{ key, value }` belongs to that item.
-- Genre filtering still reads metadata/entity genre tables; item-bound vtag output does not mean every input field must live on the item row.
-
-Concrete work:
-
-- Add `item_virtual_tags(item_id, key, value)` with primary key `(item_id, key)`.
-- Migrate `entity_virtual_tags` to `item_virtual_tags` by joining existing `items.entity_id`; preserve current values for existing item-specific entities.
-- Change `evaluateAndInsertVirtualTags` to insert `i.id` instead of `i.entity_id`.
-- Drop the unconditional `i.entity_id IS NOT NULL` guard from vtag evaluation, except behind a new config option.
-- Add a vtag config option: apply only to items with metadata/entity, exposed as a checkbox and enabled by default.
-- Update `clearVirtualTags`, `fetchVirtualTagsForItems`, distinct tag suggestions, grouping/search joins, and any maintenance pass code.
-- Update `repo-definitions.ts` and `query-builder.ts` so `virtualTags`/`vt.*` join by `item_id`.
-- Decide whether manual `entity_tags` should also become `item_tags`; likely yes for the same ownership reason.
-- If manual tags move too, update `tags.*` filters, suggestions, metadata clear/reassign behavior, and migration.
-- Add regression tests that two items sharing one canonical entity can have different vtags/manual tags/locks/images.
-
-Not a prerequisite for the item/location split if `media_entities` stays item-specific in the first pass. Required if metadata canonicalization is done.
+See [metadata-vtag-canonicalization-plan.md](metadata-vtag-canonicalization-plan.md).
 
 ---
 

@@ -2,7 +2,8 @@ import { Database } from 'bun:sqlite'
 import fs from 'fs'
 import * as pathsService from '../services/paths.service'
 import { SCHEMA_SQL } from './schema'
-import { runMigrations } from './migrations'
+import { getPendingMigrations, getUserVersion, LATEST_SCHEMA_VERSION, runMigrations } from './migrations'
+import { createPreMigrationBackup } from './backup'
 
 let db: Database | null = null
 
@@ -26,6 +27,7 @@ export function initializeDatabase(): Database {
     throw new Error('Failed to resolve library database path (Path Traversal Detected?)')
   }
   console.log(`[Database] Connecting to ${dbPath}`)
+  const databaseAlreadyExists = fs.existsSync(dbPath)
 
   try {
     // Bun's Database automatically creates the file if it doesn't exist by default.
@@ -35,6 +37,12 @@ export function initializeDatabase(): Database {
     db.run('PRAGMA journal_mode = WAL') // Better concurrency
     db.run('PRAGMA synchronous = NORMAL') // Faster writes with reasonable safety
     db.run('PRAGMA foreign_keys = ON') // Enforce constraints
+
+    const pendingMigrations = getPendingMigrations(db)
+    if (databaseAlreadyExists && pendingMigrations.length > 0) {
+      const backupPath = createPreMigrationBackup(db, dbPath, getUserVersion(db), LATEST_SCHEMA_VERSION)
+      console.log(`[Database] Created pre-migration backup at ${backupPath}`)
+    }
 
     applySchema()
     runMigrations(db)

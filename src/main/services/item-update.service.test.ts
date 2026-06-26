@@ -124,10 +124,10 @@ describe('updateIfChangedAndBroadcast', () => {
       { settings }
     )
 
-    // Check entity_virtual_tags table was populated
+    // Check item_virtual_tags table was populated
     const vtags = ctx.db.prepare(
-      `SELECT key, value FROM entity_virtual_tags WHERE entity_id = ?`
-    ).all('e1') as { key: string; value: string }[]
+      `SELECT key, value FROM item_virtual_tags WHERE item_id = ?`
+    ).all('movie1') as { key: string; value: string }[]
 
     expect(vtags).toContainEqual({ key: 'is_animated', value: 'yes' })
   })

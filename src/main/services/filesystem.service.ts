@@ -11,9 +11,17 @@ import { GlobalTaskQueue } from '../utils/concurrency'
 import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
+import { ITEM_READ_MODEL } from '../database/query-builder'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
+}
+
+interface SyncDiskResult {
+  foundItemIds: Set<string>
+  foundLocationPaths: Set<string>
+  foundNonEmptyFolderPaths: Set<string>
+  scanSucceeded: boolean
 }
 
 /**
@@ -77,20 +85,44 @@ async function syncDiskToDatabase(
   rootAbsPath: string,
   source: { id: string; absolutePath: string },
   higherPriorityPaths?: Set<string>,
-  shadowMinDepth: number = 1
-): Promise<Set<string>> {
+  shadowMinDepth: number = 1,
+  cleanupMissing: boolean = true
+): Promise<SyncDiskResult> {
   const foundPaths = new Set<string>()
-  const newItemsMap = new Map<string, any>()
+  const foundLocationPaths = new Set<string>()
+  const foundNonEmptyFolderPaths = new Set<string>()
+  const newItemsByFingerprint = new Map<string, any | null>()
+  const newItems: any[] = []
+  const rescuedNewItems = new Set<any>()
+  const discoveredItemIdsByRelPath = new Map<string, string>()
   const fingerprintBuffer = new FingerprintBuffer()
   const progress = new ProgressBroadcaster()
+  let scanSucceeded = true
 
-  const rootRelPath = path.relative(source.absolutePath, rootAbsPath).replace(/\\/g, '/') || '.'
+  const rootRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, rootAbsPath)
   const rootId = itemsRepo.generateId(source.id, rootRelPath)
   const sourceRootId = itemsRepo.generateId(source.id, '.')
+  const existingRootId = itemsRepo.getItemIdBySourcePath(source.id, rootRelPath)
+  const effectiveRootId = existingRootId ?? rootId
+  discoveredItemIdsByRelPath.set(rootRelPath, effectiveRootId)
+
+  const resolveParentId = (relPath: string): string => {
+    if (relPath === '.') return itemsRepo.LIBRARY_ROOT_ID
+    const parentRelPath = itemsRepo.normalizeRelativePath(path.dirname(relPath))
+    return (
+      itemsRepo.getItemIdBySourcePath(source.id, parentRelPath) ??
+      discoveredItemIdsByRelPath.get(parentRelPath) ??
+      itemsRepo.generateItemId()
+    )
+  }
 
   const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
-    const currentRelPath = path.relative(source.absolutePath, currentPath).replace(/\\/g, '/') || '.'
-    const currentId = itemsRepo.generateId(source.id, currentRelPath)
+    const currentRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, currentPath)
+    const currentId =
+      itemsRepo.getItemIdBySourcePath(source.id, currentRelPath) ??
+      discoveredItemIdsByRelPath.get(currentRelPath) ??
+      (currentRelPath === '.' ? sourceRootId : itemsRepo.generateItemId())
+    discoveredItemIdsByRelPath.set(currentRelPath, currentId)
 
     // 1. Get all entries (Files and Folders)
     let entries: Dirent[]
@@ -98,21 +130,21 @@ async function syncDiskToDatabase(
       entries = await fs.readdir(currentPath, { withFileTypes: true })
     } catch (e) {
       log(`Failed to readdir: ${currentPath}`)
+      scanSucceeded = false
       return
     }
 
     // 2. Authoritative State Update
     const hasIgnoreFile = entries.some((e) => e.name === '.ignore')
+    const hasScannableChild = entries.some((e) => e.isDirectory() || /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name))
     const isUserHidden = itemsRepo.isItemHidden(currentId)
 
     try {
       const s = await fs.stat(currentPath)
-      const parentRelPath = path.dirname(currentRelPath).replace(/\\/g, '/') || '.'
-      const parentId = currentRelPath === '.' ? itemsRepo.LIBRARY_ROOT_ID : itemsRepo.generateId(source.id, parentRelPath)
 
       fingerprintBuffer.add({
         '@id': currentId,
-        '@parentId': parentId,
+        '@parentId': resolveParentId(currentRelPath),
         '@path': currentRelPath,
         '@name': path.basename(currentPath) || 'Library',
         '@type': 'folder',
@@ -126,8 +158,11 @@ async function syncDiskToDatabase(
         '@isHidden': isUserHidden ? 1 : 0
       })
       foundPaths.add(currentId)
+      foundLocationPaths.add(currentRelPath)
+      if (hasScannableChild) foundNonEmptyFolderPaths.add(currentRelPath)
     } catch (e) {
       log(`[Phase 1] Failed to stat folder: ${currentPath}`)
+      scanSucceeded = false
       return
     }
 
@@ -148,25 +183,31 @@ async function syncDiskToDatabase(
       await Promise.all(
         batch.map(async (entry) => {
           const fullPath = path.join(currentPath, entry.name)
-          const relPath = path.relative(source.absolutePath, fullPath).replace(/\\/g, '/')
-          const id = itemsRepo.generateId(source.id, relPath)
+          const relPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, fullPath)
           const isDir = entry.isDirectory()
 
           const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
           if (!isDir && !isVideoFile) return
 
-          // Shadow: skip folders that exist as non-empty folders in a higher-priority source
-          // at or beyond min depth. The caller is responsible for passing only shadowable paths.
-          if (isDir && higherPriorityPaths) {
-            const depth = relPath.split('/').length
-            if (depth >= shadowMinDepth && higherPriorityPaths.has(relPath)) {
-              log(`[Phase 1] Shadow skip (depth ${depth}): ${relPath}`)
-              return
-            }
-          }
-
           try {
             const s = await fs.stat(fullPath)
+            const depth = relPath.split('/').length
+            const shadowedBy =
+              isDir && higherPriorityPaths && depth >= shadowMinDepth && higherPriorityPaths.has(relPath)
+                ? itemsRepo.findPresentLocationByRelativePath(relPath, source.id)
+                : null
+            const id =
+              shadowedBy?.itemId ??
+              itemsRepo.getItemIdBySourcePath(source.id, relPath) ??
+              itemsRepo.findReusableItemIdForDiscoveredLocation({
+                sourceId: source.id,
+                relativePath: relPath,
+                inode: s.ino,
+                deviceId: s.dev
+              }) ??
+              itemsRepo.generateItemId()
+            discoveredItemIdsByRelPath.set(relPath, id)
+
             const itemData = {
               '@id': id,
               '@parentId': currentId,
@@ -180,17 +221,32 @@ async function syncDiskToDatabase(
               '@inode': s.ino,
               '@deviceId': s.dev,
               '@isIgnored': isDir ? null : 0, // Parent doesn't know folder ignore state yet
-              '@isHidden': isDir ? null : itemsRepo.isItemHidden(id) ? 1 : 0
+              '@isHidden': isDir ? null : itemsRepo.isItemHidden(id) ? 1 : 0,
+              '@isShadowed': shadowedBy ? 1 : 0,
+              '@shadowedByLocationId': shadowedBy?.locationId ?? null
+            }
+
+            if (shadowedBy) {
+              log(`[Phase 1] Shadowed folder location recorded: ${relPath} (${id})`)
+              fingerprintBuffer.add(itemData)
+              foundPaths.add(id)
+              foundLocationPaths.add(relPath)
+              progress.update(relPath)
+              return
             }
 
             if (itemsRepo.existsById(id)) {
               if (isDir) log(`[Phase 1] Discovered EXISTING folder: ${relPath} (${id})`)
               fingerprintBuffer.add(itemData)
               foundPaths.add(id)
+              foundLocationPaths.add(relPath)
             } else {
               if (isDir) log(`[Phase 1] Discovered NEW folder: ${relPath} (${id})`)
-              const key = `${itemData['@deviceId']}_${itemData['@inode']}`
-              newItemsMap.set(key, itemData)
+              newItems.push(itemData)
+              const key = locationFingerprintKey(itemData['@deviceId'], itemData['@inode'])
+              if (key) {
+                newItemsByFingerprint.set(key, newItemsByFingerprint.has(key) ? null : itemData)
+              }
             }
 
             if (isDir) {
@@ -200,6 +256,7 @@ async function syncDiskToDatabase(
             progress.update(relPath)
           } catch (e) {
             log(`Failed to stat: ${fullPath}`)
+            scanSucceeded = false
           }
         })
       )
@@ -212,10 +269,10 @@ async function syncDiskToDatabase(
   // Ensure the source root itself is tracked
   try {
     const s = await fs.stat(rootAbsPath)
-    const isUserHidden = itemsRepo.isItemHidden(rootId)
+    const isUserHidden = itemsRepo.isItemHidden(effectiveRootId)
     fingerprintBuffer.add({
-      '@id': rootId,
-      '@parentId': rootId === sourceRootId ? itemsRepo.LIBRARY_ROOT_ID : itemsRepo.generateId(source.id, path.dirname(rootRelPath).replace(/\\/g, '/') || '.'),
+      '@id': effectiveRootId,
+      '@parentId': effectiveRootId === sourceRootId ? itemsRepo.LIBRARY_ROOT_ID : resolveParentId(rootRelPath),
       '@path': rootRelPath,
       '@name': path.basename(rootAbsPath) || 'Library',
       '@type': 'folder',
@@ -228,8 +285,11 @@ async function syncDiskToDatabase(
       '@isIgnored': 0,
       '@isHidden': isUserHidden ? 1 : 0
     })
-    foundPaths.add(rootId)
-  } catch { }
+    foundPaths.add(effectiveRootId)
+    foundLocationPaths.add(rootRelPath)
+  } catch {
+    scanSucceeded = false
+  }
 
   await queue.waitForIdle()
   fingerprintBuffer.flush()
@@ -238,55 +298,80 @@ async function syncDiskToDatabase(
   // --- RECONCILIATION PHASE ---
 
   const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const missingItems = itemsRepo.getItemsForCleanup(source.id, scopePath).filter((item) => !foundPaths.has(item.id))
+  const missingItems = itemsRepo.getItemsForCleanup(source.id, scopePath).filter((item) => !foundLocationPaths.has(item.path))
 
   log(
-    `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItemsMap.size} potentially new items.`
+    `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItems.length} potentially new items.`
   )
 
   // #2 Identity-Based Rename Rescue (O(N))
   for (const item of missingItems) {
-    const key = `${item.deviceId}_${item.inode}`
-    const match = newItemsMap.get(key)
+    const key = locationFingerprintKey(item.deviceId, item.inode)
+    const match = key ? newItemsByFingerprint.get(key) : null
 
     if (match) {
       log(`[Phase 1] Detected rename: "${item.path}" -> "${match['@path']}"`)
       itemsRepo.migrateRecord(item.id, match)
-      foundPaths.add(match['@id'])
-      newItemsMap.delete(key)
+      foundPaths.add(item.id)
+      foundLocationPaths.add(match['@path'])
+      rescuedNewItems.add(match)
     }
   }
 
   // #3 Final Sync (Insert remaining new items)
-  if (newItemsMap.size > 0) {
-    log(`[Phase 1] Inserting ${newItemsMap.size} new items.`)
-    itemsRepo.upsertLibraryItems(Array.from(newItemsMap.values()))
-    for (const item of newItemsMap.values()) {
+  const remainingNewItems = newItems.filter((item) => !rescuedNewItems.has(item))
+  if (remainingNewItems.length > 0) {
+    log(`[Phase 1] Inserting ${remainingNewItems.length} new items.`)
+    itemsRepo.upsertLibraryItems(remainingNewItems)
+    for (const item of remainingNewItems) {
       foundPaths.add(item['@id'])
+      foundLocationPaths.add(item['@path'])
     }
   }
 
   // #4 Conditional Cleanup
+  if (!cleanupMissing) {
+    log(`[Phase 1] Cleanup deferred for source ${source.id} in scope: "${scopePath}"`)
+    log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
+    return { foundItemIds: foundPaths, foundLocationPaths, foundNonEmptyFolderPaths, scanSucceeded }
+  }
+
+  cleanupMissingForSource(source.id, scopePath, foundLocationPaths, scanSucceeded)
+
+  log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
+  return { foundItemIds: foundPaths, foundLocationPaths, foundNonEmptyFolderPaths, scanSucceeded }
+}
+
+function locationFingerprintKey(deviceId: number | null | undefined, inode: number | null | undefined): string | null {
+  return deviceId == null || inode == null ? null : `${deviceId}_${inode}`
+}
+
+export function cleanupMissingForSource(sourceId: string, pathPrefix: string, foundLocationPaths: Set<string>, scanSucceeded: boolean): void {
+  const normalizedPrefix = itemsRepo.normalizeRelativePath(pathPrefix)
+  const scopePath = normalizedPrefix === '.' ? '' : normalizedPrefix
+  if (!scanSucceeded) {
+    log(`[Phase 1] Cleanup skipped for source ${sourceId} in scope "${scopePath}" because the scan did not complete successfully.`)
+    return
+  }
+  const missingItems = itemsRepo.getItemsForCleanup(sourceId, scopePath).filter((item) => !foundLocationPaths.has(item.path))
+
   log(
     `[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`
   )
-  runTransaction(() => {
-    for (const item of missingItems) {
-      // Optimization: Check if this was rescued (it should be in foundPaths now)
-      if (foundPaths.has(item.id)) continue
+  for (const item of missingItems) {
+    // Optimization: Check if this location was rescued during the scan.
+    if (foundLocationPaths.has(item.path)) continue
 
-      if (item.hasLocks) {
-        log(`[Phase 1] Marking AS MISSING (has locks): ${item.path}`)
-        itemsRepo.markAsMissing(item.id)
-      } else {
-        log(`[Phase 1] DELETING (no locks): ${item.path}`)
-        itemsRepo.deleteItem(item.id)
-      }
+    if (item.hasLocks) {
+      log(`[Phase 1] Marking AS MISSING (has locks): ${item.path}`)
+      itemsRepo.markLocationAsMissing(item.locationId)
+    } else {
+      log(`[Phase 1] DELETING (no locks): ${item.path}`)
+      itemsRepo.markLocationAsMissing(item.locationId)
+      itemsRepo.deleteLocation(item.locationId)
+      itemsRepo.deleteItemIfNoPresentLocations(item.id)
     }
-  })
-
-  log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
-  return foundPaths
+  }
 }
 
 export async function scanDirectory(
@@ -297,15 +382,36 @@ export async function scanDirectory(
     initialFolderSettings?: Record<string, any>
     higherPriorityPaths?: Set<string>
     shadowMinDepth?: number
+    cleanupMissing?: boolean
+    onFoundItems?: (foundItemIds: Set<string>) => void
+    onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
+    onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
+    onScanSucceeded?: (scanSucceeded: boolean) => void
   } = {}
 ): Promise<MediaFolder | null> {
   log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${resolvedAbsPath}`)
 
   repositoryService.ensureSourceRoot(source, resolvedAbsPath)
 
+  await syncDiskToDatabase(
+    resolvedAbsPath,
+    { id: source.id, absolutePath: resolvedAbsPath },
+    options.higherPriorityPaths,
+    options.shadowMinDepth,
+    options.cleanupMissing ?? true
+  )
+    .then((result) => {
+      options.onFoundItems?.(result.foundItemIds)
+      options.onFoundLocationPaths?.(result.foundLocationPaths)
+      options.onFoundNonEmptyFolderPaths?.(result.foundNonEmptyFolderPaths)
+      options.onScanSucceeded?.(result.scanSucceeded)
+    })
+
   if (options.initialFolderSettings) {
     for (const [relPath, settings] of Object.entries(options.initialFolderSettings)) {
-      const id = itemsRepo.generateId(source.id, relPath)
+      const normalizedRelPath = itemsRepo.normalizeRelativePath(relPath)
+      const id = itemsRepo.getItemIdBySourcePath(source.id, normalizedRelPath)
+      if (!id) continue
       settingsRepo.mergeSettings(id, { folderSettings: {
         retrieveChildrenMetadata: !!settings.retrieve_children_metadata,
         childrenTypeHint: settings.children_type_hint ?? null,
@@ -314,24 +420,23 @@ export async function scanDirectory(
     }
   }
 
-  await syncDiskToDatabase(
-    resolvedAbsPath,
-    { id: source.id, absolutePath: resolvedAbsPath },
-    options.higherPriorityPaths,
-    options.shadowMinDepth
-  )
-
   return repositoryService.getRoot()
 }
 
-export async function syncWithDisk(node: MediaFolder, source: { id: string; absolutePath: string }): Promise<void> {
-  if (!node.path) {
-    log(`Cannot sync subtree with undefined path: ${node.name}`)
+export async function syncWithDisk(node: MediaFolder, source: { id: string; absolutePath: string }, userId?: string | null): Promise<void> {
+  const location = itemsRepo.getPresentFolderLocation(node.id, userId)
+  if (!location) {
+    log(`Cannot sync subtree without a present folder location: ${node.name}`)
     return
   }
-  const rootAbsPath = path.join(source.absolutePath, node.path)
+  if (location.sourceId !== source.id) {
+    log(`Cannot sync subtree from source ${source.id}; selected folder location is in source ${location.sourceId}`)
+    return
+  }
 
-  log(`Syncing subtree: ${node.path}`)
+  const rootAbsPath = path.join(source.absolutePath, location.relativePath)
+
+  log(`Syncing subtree: ${location.relativePath}`)
 
   await syncDiskToDatabase(rootAbsPath, source)
 }
@@ -347,7 +452,7 @@ export function getNonEmptyFolderPathsForSource(sourceId: string): Set<string> {
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
   const rows = searchRepo.executeSearchSql(
     `SELECT i.id AS item_id, e.poster_path, e.backdrop_path, e.logo_path
-     FROM items i
+     FROM ${ITEM_READ_MODEL} i
      JOIN media_entities e ON i.entity_id = e.id
      WHERE e.poster_path IS NOT NULL OR e.backdrop_path IS NOT NULL OR e.logo_path IS NOT NULL`,
     []

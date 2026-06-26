@@ -115,7 +115,9 @@ export async function checkLibraryExists(libraryPath: string): Promise<{
       // Check if it's a valid DB with a root
       const db = new Database(dbFileUrl, { readonly: true })
       try {
-        const row = db.query(`SELECT 1 FROM items WHERE id = '${LIBRARY_ROOT_ID}' LIMIT 1`).get()
+        const row = db
+          .query("SELECT 1 FROM media_items WHERE id = $rootId LIMIT 1")
+          .get({ $rootId: LIBRARY_ROOT_ID })
         dbExists = !!row
       } finally {
         db.close()

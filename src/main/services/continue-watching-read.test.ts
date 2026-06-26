@@ -153,7 +153,7 @@ describe('getContinueWatchingItems', () => {
   it('does not broadcast when nextUpEpisodeId points to a missing episode', async () => {
     seedShowWithEpisodes({ ep2HasTitle: true })
     // Delete ep2 to create a dangling pointer
-    ctx.db.prepare('DELETE FROM items WHERE id = ?').run('ep2')
+    ctx.db.prepare('DELETE FROM media_items WHERE id = ?').run('ep2')
 
     const transport = getTransport()
     const spy = spyOn(transport, 'notifyLibraryItemsUpdated')

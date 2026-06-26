@@ -28,10 +28,23 @@ function insertItem(item: {
     type?: 'file' | 'folder'
     entityId?: string | null
 }) {
+    const type = item.type ?? 'folder'
+    const name = item.name ?? item.id
+    const relativePath = item.path ?? item.id
     db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, entity_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(item.id, item.parentId ?? null, item.path ?? item.id, item.name ?? item.id, item.type ?? 'folder', item.entityId ?? null)
+    INSERT INTO media_items (
+      id, parent_item_id, physical_kind, media_kind, name, entity_id,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, (SELECT media_type FROM media_entities WHERE id = ?), ?, ?, 1000, 1000)
+  `).run(item.id, item.parentId ?? null, type, item.entityId ?? null, name, item.entityId ?? null)
+    db.prepare(`
+    INSERT INTO media_locations (
+      id, item_id, source_id, relative_path, name, type,
+      is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at
+    )
+    VALUES (?, ?, 'test-source', ?, ?, ?, 1, 0, 0, 0, 1000, 1000)
+  `).run(`location:${item.id}`, item.id, relativePath, name, type)
 }
 
 function insertEntity(entity: {
@@ -69,7 +82,7 @@ function insertFolderSettings(settings: {
 describe('getTvShowsForStructuralSync', () => {
     const QUERY = `
     SELECT i.id AS item_id, i.type, e.media_type, f.process_tv_children
-    FROM items i
+    FROM media_items_read i
     JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
@@ -140,7 +153,7 @@ describe('getTvShowsForStructuralSync', () => {
 describe('getDiscoveryItemsForPhase2', () => {
     const QUERY = `
     SELECT i.id AS item_id, i.type, e.media_type, e.last_refreshed_at
-    FROM items i
+    FROM media_items_read i
     LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)

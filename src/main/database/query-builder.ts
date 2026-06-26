@@ -2,6 +2,8 @@ import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter, LibraryCondition } from '@shared/types'
 
+export const ITEM_READ_MODEL = 'media_items_read'
+
 /**
  * An operator-aware WHERE condition that maps to a REPOSITORY_SCHEMA field
  * or one of the special field namespaces (genre, tags.key, vt.key).
@@ -61,13 +63,13 @@ export interface FindOptions {
  * Supports arbitrary depth: parent.field, parent.parent.field, etc.
  *
  * parent.mediaType = 'tv' →
- *   EXISTS (SELECT 1 FROM items p1
+ *   EXISTS (SELECT 1 FROM media_items_read p1
  *     LEFT JOIN media_entities p1e ON p1.entity_id = p1e.id
  *     WHERE p1.id = i.parent_id AND p1e.media_type = ?)
  *
  * parent.parent.mediaType = 'tv' →
- *   EXISTS (SELECT 1 FROM items p1
- *     JOIN items p2 ON p2.id = p1.parent_id
+ *   EXISTS (SELECT 1 FROM media_items_read p1
+ *     JOIN media_items_read p2 ON p2.id = p1.parent_id
  *     LEFT JOIN media_entities p2e ON p2.entity_id = p2e.id
  *     WHERE p1.id = i.parent_id AND p2e.media_type = ?)
  *
@@ -89,7 +91,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     // p2..pN are chained via JOINs
     const joins: string[] = []
     for (let d = 2; d <= depth; d++) {
-        joins.push(`JOIN items p${d} ON p${d}.id = p${d - 1}.parent_id`)
+        joins.push(`JOIN ${ITEM_READ_MODEL} p${d} ON p${d}.id = p${d - 1}.parent_id`)
     }
     const target = `p${depth}` // alias of the ancestor we're querying
 
@@ -146,7 +148,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     }
 
     const joinClause = joins.length > 0 ? ' ' + joins.join(' ') : ''
-    const sql = `EXISTS (SELECT 1 FROM items p1${joinClause} WHERE p1.id = i.parent_id AND ${conditionSql})`
+    const sql = `EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} p1${joinClause} WHERE p1.id = i.parent_id AND ${conditionSql})`
 
     return { sql, params, tables }
 }
@@ -174,8 +176,7 @@ export function compileConditionToSql(field: string, op: string, value?: string 
 
     if (field.startsWith('tags.')) {
         const key = field.slice(5)
-        tables.add('e')
-        const subquery = `SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ?`
+        const subquery = `SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ?`
         if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
         if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
         if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
@@ -187,8 +188,7 @@ export function compileConditionToSql(field: string, op: string, value?: string 
 
     if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
         const key = field.split('.')[1]
-        tables.add('e')
-        const subquery = `SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ?`
+        const subquery = `SELECT 1 FROM item_virtual_tags WHERE item_id = i.id AND key = ?`
         if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
         if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
         if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
@@ -360,13 +360,11 @@ export function buildWhereFragment(options: FindOptions): {
                 }
             } else if (key.startsWith('virtualTags.') || key.startsWith('vt.')) {
                 const tagKey = key.split('.')[1]
-                tables.add('e')
-                conditions.push(`EXISTS (SELECT 1 FROM entity_virtual_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                conditions.push(`EXISTS (SELECT 1 FROM item_virtual_tags WHERE item_id = i.id AND key = ? AND value = ?)`)
                 params.push(tagKey, value)
             } else if (key.startsWith('tags.')) {
                 const tagKey = key.split('.')[1]
-                tables.add('e')
-                conditions.push(`EXISTS (SELECT 1 FROM entity_tags WHERE entity_id = e.id AND key = ? AND value = ?)`)
+                conditions.push(`EXISTS (SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ? AND value = ?)`)
                 params.push(tagKey, value)
             } else if (key === 'genre' || key === 'genres') {
                 tables.add('e')
@@ -461,10 +459,8 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
             // Subquery fields reference e.id, so they need the entity table joined
             if (def.isSubquery) usedTables.add('e')
         } else if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
-            usedTables.add('e')
             effectiveFields.add('virtualTags')
         } else if (field.startsWith('tags.')) {
-            usedTables.add('e')
             effectiveFields.add('tags')
         }
     }
@@ -514,7 +510,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     }
 
     const selectClause = selectParts.join(', ')
-    let query = `SELECT ${selectClause} FROM items i`
+    let query = `SELECT ${selectClause} FROM ${ITEM_READ_MODEL} i`
     const joinParams: any[] = []
 
     if (usedTables.has('e')) {

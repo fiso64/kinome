@@ -27,24 +27,46 @@ function createTestDb(): Database {
 
 function upsertRootItem(id: string, name: string) {
     db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, is_missing, is_ignored, is_hidden)
-    VALUES (?, NULL, '.', ?, 'folder', 0, 0, 0)
-    ON CONFLICT(id) DO UPDATE SET is_missing = 0, name = excluded.name
+    INSERT INTO media_items (id, parent_item_id, physical_kind, name, is_hidden, logical_missing, created_at, updated_at)
+    VALUES (?, NULL, 'folder', ?, 0, 0, 1000, 1000)
+    ON CONFLICT(id) DO UPDATE SET logical_missing = 0, name = excluded.name
   `).run(id, name)
+    db.prepare(`
+    INSERT INTO media_locations (
+      id, item_id, source_id, relative_path, name, type,
+      is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at
+    )
+    VALUES (?, ?, 'test-source', '.', ?, 'folder', 1, 0, 0, 0, 1000, 1000)
+    ON CONFLICT(source_id, relative_path) DO UPDATE SET item_id = excluded.item_id, name = excluded.name
+  `).run(`location:${id}`, id, name)
 }
 
 function upsertLibraryItems(items: any[]) {
-    const stmt = db.prepare(`
-    INSERT INTO items (id, parent_id, path, name, type, size, mtime, birthtime, inode, device_id, is_missing, is_ignored, is_hidden)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    const itemStmt = db.prepare(`
+    INSERT INTO media_items (id, parent_item_id, physical_kind, name, is_hidden, logical_missing, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 0, 1000, 1000)
     ON CONFLICT(id) DO UPDATE SET
-      is_missing = 0, parent_id = excluded.parent_id,
+      logical_missing = 0,
+      parent_item_id = excluded.parent_item_id,
+      name = excluded.name,
+      is_hidden = COALESCE(excluded.is_hidden, is_hidden)
+  `)
+    const locationStmt = db.prepare(`
+    INSERT INTO media_locations (
+      id, item_id, source_id, relative_path, name, type,
+      is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at
+    )
+    VALUES (?, ?, 'test-source', ?, ?, ?, 1, ?, ?, 0, 1000, 1000)
+    ON CONFLICT(source_id, relative_path) DO UPDATE SET
+      item_id = excluded.item_id,
+      name = excluded.name,
+      type = excluded.type,
       is_ignored = COALESCE(excluded.is_ignored, is_ignored),
       is_hidden = COALESCE(excluded.is_hidden, is_hidden)
   `)
     for (const item of items) {
-        stmt.run(item['@id'], item['@parentId'], item['@path'], item['@name'], item['@type'],
-            null, null, null, null, null, item['@isIgnored'] ?? 0, item['@isHidden'] ?? 0)
+        itemStmt.run(item['@id'], item['@parentId'], item['@type'], item['@name'], item['@isHidden'] ?? 0)
+        locationStmt.run(`location:${item['@id']}`, item['@id'], item['@path'], item['@name'], item['@type'], item['@isIgnored'] ?? 0, item['@isHidden'] ?? 0)
     }
 }
 
@@ -67,7 +89,7 @@ function fetchRoot(): any {
                THEN json_set(COALESCE(f.view_settings_json, '{}'), '$.appliedGrouping', f.applied_grouping)
                ELSE f.view_settings_json END AS viewSettings,
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
-    FROM items i
+    FROM media_items_read i
     LEFT JOIN media_entities e ON i.entity_id = e.id
     LEFT JOIN user_state u ON i.id = u.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
@@ -144,7 +166,7 @@ describe('Root Retrieval (End-to-End)', () => {
     })
 
     it('root.id is preserved even when entity_id is NULL (no metadata)', () => {
-        const root = db.prepare('SELECT entity_id FROM items WHERE id = ?').get(ROOT_ID) as any
+        const root = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(ROOT_ID) as any
         expect(root.entity_id).toBeNull()
 
         const { query, params } = buildFindQuery({
@@ -161,7 +183,7 @@ describe('Root Retrieval (End-to-End)', () => {
     it('upsertMetadata creates entity and links it', () => {
         const entityId = 'test-entity-uuid'
         db.prepare('INSERT INTO media_entities (id) VALUES (?)').run(entityId)
-        db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run(entityId, 'child1')
+        db.prepare('UPDATE media_items SET entity_id = ? WHERE id = ?').run(entityId, 'child1')
         db.prepare(`
       UPDATE media_entities SET title = ?, media_type = ?, tmdb_id = ?, poster_path = ?
       WHERE id = ?

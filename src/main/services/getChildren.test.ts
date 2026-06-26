@@ -289,8 +289,8 @@ describe('getChildren — alias resolution', () => {
       { id: 'e-movies', mediaType: 'movie' },
       { id: 'e-tv', mediaType: 'tv' },
     ])
-    ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-movies', 'movies')
-    ctx.db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run('e-tv', 'tv')
+    ctx.db.prepare('UPDATE media_items SET entity_id = ?, media_kind = ? WHERE id = ?').run('e-movies', 'movie', 'movies')
+    ctx.db.prepare('UPDATE media_items SET entity_id = ?, media_kind = ? WHERE id = ?').run('e-tv', 'tv', 'tv')
     ctx.seedFolderSettings([
       { itemId: LIBRARY_ROOT_ID, folderSettings: { retrieveChildrenMetadata: true } },
     ])

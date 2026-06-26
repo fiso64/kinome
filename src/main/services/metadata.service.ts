@@ -30,68 +30,97 @@ const log = (message: string): void => {
  * Phase 2: Metadata Enrichment (DB -> API)
  */
 export async function enrichDatabase() {
+  return runEnrichment({
+    includeStructuralPrepass: true,
+    runMaintenance: true
+  })
+}
+
+export async function enrichItems(
+  itemIds: Iterable<string>,
+  options: { runMaintenance?: boolean } = {}
+) {
+  const scopedItemIds = [...new Set(itemIds)]
+  if (scopedItemIds.length === 0) return
+
+  return runEnrichment({
+    itemIds: scopedItemIds,
+    includeStructuralPrepass: false,
+    runMaintenance: options.runMaintenance ?? false
+  })
+}
+
+async function runEnrichment(options: {
+  itemIds?: string[]
+  includeStructuralPrepass: boolean
+  runMaintenance: boolean
+}) {
   return runWithoutAccount(async () => {
-  const settings = await settingsService.readSettings()
-  if (!settings.tmdbApiKey) {
-    log('Enrichment skipped: No TMDB API key.')
-    return
-  }
+    const settings = await settingsService.readSettings()
+    if (!settings.tmdbApiKey) {
+      log('Enrichment skipped: No TMDB API key.')
+      return
+    }
 
-  getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: true })
+    getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: true })
 
-  try {
-    // 1. Preprocess TV Structural Changes
-    const tvShowsWithChanges: LibraryItem[] = []
-    const tvShowsToSync = repositoryService.getTvShowsForStructuralSync()
+    try {
+      // 1. Preprocess TV Structural Changes
+      const tvShowsWithChanges: LibraryItem[] = []
+      const tvShowsToSync = options.includeStructuralPrepass
+        ? repositoryService.getTvShowsForStructuralSync(options.itemIds)
+        : []
 
-    if (tvShowsToSync.length > 0) {
-      log(`[Phase 2] Preprocessing structure for ${tvShowsToSync.length} TV shows.`)
-      for (const show of tvShowsToSync) {
-        const modified = await tvShowService.syncTvShowStructure(show as MediaFolder)
-        if (modified.length > 0) {
-          log(
-            `[Phase 2] [Structure] TV Show "${show.name}" has ${modified.length} structural changes.`
-          )
-          if (show.tmdbId) {
-            tvShowsWithChanges.push(show)
+      if (tvShowsToSync.length > 0) {
+        log(`[Phase 2] Preprocessing structure for ${tvShowsToSync.length} TV shows.`)
+        for (const show of tvShowsToSync) {
+          const modified = await tvShowService.syncTvShowStructure(show as MediaFolder)
+          if (modified.length > 0) {
+            log(
+              `[Phase 2] [Structure] TV Show "${show.name}" has ${modified.length} structural changes.`
+            )
+            if (show.tmdbId) {
+              tvShowsWithChanges.push(show)
+            }
           }
         }
       }
-    }
 
-    // 2. Discovery: Find "Logical Entry Points"
-    const discoveredDirtyItems = repositoryService.getDiscoveryItemsForPhase2()
-    const itemMap = new Map<string, LibraryItem>()
-    discoveredDirtyItems.forEach((item: LibraryItem) => itemMap.set(item.id, item))
-    tvShowsWithChanges.forEach((item) => itemMap.set(item.id, item))
+      // 2. Discovery: Find "Logical Entry Points"
+      const discoveredDirtyItems = repositoryService.getDiscoveryItemsForPhase2(options.itemIds)
+      const itemMap = new Map<string, LibraryItem>()
+      discoveredDirtyItems.forEach((item: LibraryItem) => itemMap.set(item.id, item))
+      tvShowsWithChanges.forEach((item) => itemMap.set(item.id, item))
 
-    const entryPoints = Array.from(itemMap.values())
+      const entryPoints = Array.from(itemMap.values())
 
-    if (entryPoints.length === 0) {
-      log('[Phase 2] No dirty entry points found. Enrichment skipped.')
-    } else {
-      log(
-        `[Phase 2] Discovery complete. Found ${entryPoints.length} logical entry points for enrichment.`
-      )
-
-      // 3. The Orchestration Loop
-      await processInChunks(entryPoints, 5, async (item) => {
-        const force = tvShowsWithChanges.some((show) => show.id === item.id)
+      if (entryPoints.length === 0) {
+        log('[Phase 2] No dirty entry points found. Enrichment skipped.')
+      } else {
         log(
-          `[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"${force ? ' (Structural change detected)' : ''}`
+          `[Phase 2] Discovery complete. Found ${entryPoints.length} logical entry points for enrichment.`
         )
-        await fetchAndApplyMetadata(item, { force })
-      })
+
+        // 3. The Orchestration Loop
+        await processInChunks(entryPoints, 5, async (item) => {
+          const force = tvShowsWithChanges.some((show) => show.id === item.id)
+          log(
+            `[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"${force ? ' (Structural change detected)' : ''}`
+          )
+          await fetchAndApplyMetadata(item, { force })
+        })
+      }
+
+      // 4. Maintenance Pass
+      if (options.runMaintenance) {
+        await maintenancePass()
+      }
+    } finally {
+      getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
     }
 
-    // 4. Maintenance Pass
-    await maintenancePass()
-  } finally {
-    getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
-  }
-
-  await repositoryService.writeDb()
-  log('[Phase 2] Enrichment complete.')
+    await repositoryService.writeDb()
+    log('[Phase 2] Enrichment complete.')
   }) // runWithoutAccount
 }
 
@@ -386,6 +415,7 @@ export async function clearItemMetadata(
   // Bulk-clear entity metadata in DB, then broadcast
   const entityIds = metadataRepo.fetchEntityIdsForItemIds(itemsToFullClear.map((i) => i.id))
   metadataRepo.bulkClearEntityMetadata(entityIds)
+  metadataRepo.bulkClearItemTags(itemsToFullClear.map((i) => i.id))
 
   if (showIdForVirtualSync) {
     syncVirtualSeasonFolders(showIdForVirtualSync)

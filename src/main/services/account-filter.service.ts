@@ -9,7 +9,7 @@
  */
 import { getDb } from '../database/client'
 import * as accountFilterRepo from '../database/repositories/account-filter.repo'
-import { compileFilter, buildWhereFragment } from '../database/query-builder'
+import { compileFilter, buildWhereFragment, ITEM_READ_MODEL } from '../database/query-builder'
 
 export function rebuildForAccount(accountId: string): void {
   const rule = accountFilterRepo.getFilterRule(accountId)
@@ -32,37 +32,58 @@ export function rebuildForAccount(accountId: string): void {
 
   const db = getDb()
 
-  // Fetch the matching seeds and all real items separately, then expand
-  // ancestor/descendant relationships in JS with startsWith — avoids the
-  // O(items × seeds) unindexed LIKE cross-scan that SQLite can't optimise.
-  const seedSql = `SELECT i.id, i.path FROM items i ${entityJoin} ${whereSql}`
-  const seeds = db.prepare(seedSql).all(...params) as { id: string; path: string }[]
-  const allItems = db.prepare('SELECT id, path FROM items WHERE is_virtual = 0').all() as { id: string; path: string }[]
+  const seedSql = `SELECT i.id FROM ${ITEM_READ_MODEL} i ${entityJoin} ${whereSql}`
+  const seeds = db.prepare(seedSql).all(...params) as { id: string }[]
+  const allItems = db.prepare(`SELECT id, parent_id FROM ${ITEM_READ_MODEL} WHERE is_virtual = 0`).all() as {
+    id: string
+    parent_id: string | null
+  }[]
+
+  const childrenByParent = new Map<string | null, string[]>()
+  const parentById = new Map<string, string | null>()
+  for (const item of allItems) {
+    parentById.set(item.id, item.parent_id)
+    const children = childrenByParent.get(item.parent_id) ?? []
+    children.push(item.id)
+    childrenByParent.set(item.parent_id, children)
+  }
+
+  const collectDescendants = (id: string, target: Set<string>) => {
+    for (const childId of childrenByParent.get(id) ?? []) {
+      if (target.has(childId)) continue
+      target.add(childId)
+      collectDescendants(childId, target)
+    }
+  }
+
+  const collectAncestors = (id: string, target: Set<string>) => {
+    let parentId = parentById.get(id) ?? null
+    while (parentId) {
+      if (target.has(parentId)) break
+      target.add(parentId)
+      parentId = parentById.get(parentId) ?? null
+    }
+  }
 
   let ids: string[]
 
   if (rule.mode === 'allow') {
     // Visible = seeds + all their descendants + all their ancestors (for navigation)
-    const seedPaths = seeds.map((s) => s.path)
-    const seedPathSet = new Set(seedPaths)
-    ids = allItems
-      .filter((item) =>
-        seedPathSet.has(item.path) ||
-        seedPaths.some((sp) => item.path.startsWith(sp + '/')) ||
-        seedPaths.some((sp) => sp.startsWith(item.path + '/'))
-      )
-      .map((item) => item.id)
+    const visible = new Set<string>()
+    for (const seed of seeds) {
+      visible.add(seed.id)
+      collectDescendants(seed.id, visible)
+      collectAncestors(seed.id, visible)
+    }
+    ids = [...visible]
   } else {
     // Visible = all real items EXCEPT the denied subtrees (denied seeds + their descendants)
-    const deniedPaths = seeds.map((s) => s.path)
-    const deniedPathSet = new Set(deniedPaths)
-    ids = allItems
-      .filter(
-        (item) =>
-          !deniedPathSet.has(item.path) &&
-          !deniedPaths.some((dp) => item.path.startsWith(dp + '/'))
-      )
-      .map((item) => item.id)
+    const denied = new Set<string>()
+    for (const seed of seeds) {
+      denied.add(seed.id)
+      collectDescendants(seed.id, denied)
+    }
+    ids = allItems.map((item) => item.id).filter((id) => !denied.has(id))
   }
 
   accountFilterRepo.replaceVisibleItems(accountId, ids)

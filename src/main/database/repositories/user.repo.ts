@@ -60,7 +60,7 @@ export function bulkSetWatched(itemIds: string[], userId: string, watched: boole
     const watchedInt = watched ? 1 : 0
     db.prepare(`
         INSERT INTO user_state (item_id, user_id, watched, last_watched_at)
-        SELECT id, ?, ?, ? FROM items WHERE id IN (${placeholders})
+        SELECT id, ?, ?, ? FROM media_items WHERE id IN (${placeholders})
         ON CONFLICT(item_id, user_id) DO UPDATE SET
           watched = excluded.watched,
           last_watched_at = excluded.last_watched_at

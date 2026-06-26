@@ -304,8 +304,8 @@ export interface ServerSettings {
 }
 
 /**
- * A single media source root. The id is a stable UUID that never changes, so item IDs
- * (which are SHA256(sourceId + ':' + relativePath)) remain valid even if path changes.
+ * A single media source root. The id is a stable UUID that never changes, so the
+ * source root and its physical locations can survive source path changes.
  */
 export interface MediaSource {
   id: string       // stable UUID, generated once when source is added
@@ -384,7 +384,7 @@ export interface Person {
 
 export interface MediaFile {
   // --- Core & User State (Preserved) ---
-  id: string // Stable ID (e.g., hash of relative path)
+  id: string // Stable logical media item ID
   parentId?: string
   name: string
   path?: string // Full path to the file (Optional/Lazy)
@@ -429,7 +429,7 @@ export interface FolderSettings {
 
 export interface MediaFolder {
   // --- Core Properties ---
-  id: string // Stable ID (e.g., hash of relative path)
+  id: string // Stable logical media item ID
   parentId?: string
   name: string
   path?: string // Full path to the file (Optional/Lazy)

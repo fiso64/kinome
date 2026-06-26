@@ -313,7 +313,7 @@ describe('compileFilter', () => {
 
     it('compiles vt.* condition to EXISTS subquery', () => {
         const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'eq', value: 'Yes' }] })
-        expect(sql).toContain('entity_virtual_tags')
+        expect(sql).toContain('item_virtual_tags')
         expect(params).toContain('is_anime')
         expect(params).toContain('Yes')
     })
@@ -409,15 +409,15 @@ describe('compileFilter', () => {
 
     it('compiles tags.* condition to EXISTS subquery', () => {
         const { sql, params, tables } = compileToSql({ conditions: [{ field: 'tags.resolution', op: 'eq', value: '4K' }] })
-        expect(sql).toContain('entity_tags')
+        expect(sql).toContain('item_tags')
         expect(params).toContain('resolution')
         expect(params).toContain('4K')
-        expect(tables.has('e')).toBe(true)
+        expect(tables.has('e')).toBe(false)
     })
 
     it('compiles tags.* contains condition', () => {
         const { sql, params } = compileToSql({ conditions: [{ field: 'tags.source', op: 'contains', value: 'Blu' }] })
-        expect(sql).toContain('entity_tags')
+        expect(sql).toContain('item_tags')
         expect(sql).toContain('LIKE')
         expect(params).toContain('source')
         expect(params).toContain('%Blu%')
@@ -468,13 +468,13 @@ describe('compileFilter', () => {
 
     it('compiles isEmpty on tags.* to NOT EXISTS', () => {
         const { sql, params } = compileToSql({ conditions: [{ field: 'tags.resolution', op: 'isEmpty' }] })
-        expect(sql).toContain('entity_tags')
+        expect(sql).toContain('item_tags')
         expect(params).toContain('resolution')
     })
 
     it('compiles isEmpty on vt.* to NOT EXISTS', () => {
         const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'isEmpty' }] })
-        expect(sql).toContain('entity_virtual_tags')
+        expect(sql).toContain('item_virtual_tags')
         expect(params).toContain('is_anime')
     })
 
@@ -505,19 +505,37 @@ function insertItem(item: {
     type?: 'file' | 'folder'
     isVirtual?: number
     virtualType?: string | null
+    entityId?: string | null
 }) {
+    const isVirtual = item.isVirtual ?? 0
+    const type = item.type ?? 'file'
+    const name = item.name ?? item.id
+    const relativePath = item.path ?? item.id
     db.prepare(`
-        INSERT INTO items (id, parent_id, path, name, type, is_virtual, virtual_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO media_items (
+            id, parent_item_id, physical_kind, media_kind, name, entity_id,
+            is_virtual, virtual_type, created_at, updated_at
+        )
+        VALUES (?, ?, ?, (SELECT media_type FROM media_entities WHERE id = ?), ?, ?, ?, ?, 1000, 1000)
     `).run(
         item.id,
         item.parentId ?? null,
-        item.path ?? item.id,
-        item.name ?? item.id,
-        item.type ?? 'file',
-        item.isVirtual ?? 0,
+        isVirtual ? 'virtual' : type,
+        item.entityId ?? null,
+        name,
+        item.entityId ?? null,
+        isVirtual,
         item.virtualType ?? null
     )
+    if (!isVirtual) {
+        db.prepare(`
+            INSERT INTO media_locations (
+                id, item_id, source_id, relative_path, name, type,
+                is_present, is_ignored, is_hidden, is_shadowed, first_seen_at, last_seen_at
+            )
+            VALUES (?, ?, 'test-source', ?, ?, ?, 1, 0, 0, 0, 1000, 1000)
+        `).run(`location:${item.id}`, item.id, relativePath, name, type)
+    }
 }
 
 describe('Branch B: appliedGrouping SQL contract', () => {
@@ -540,7 +558,7 @@ describe('Branch B: appliedGrouping SQL contract', () => {
 
     it('returns grouping and user virtual folders, not real children', () => {
         const rows = db.prepare(`
-            SELECT id FROM items
+            SELECT id FROM media_items_read
             WHERE parent_id = ?
               AND (virtual_type = 'grouping' OR virtual_type = 'user')
         `).all('movies') as any[]
@@ -558,7 +576,7 @@ describe('Branch B: appliedGrouping SQL contract', () => {
 
         // season is NOT grouping or user — excluded by branch B filter
         const rows = db.prepare(`
-            SELECT id FROM items
+            SELECT id FROM media_items_read
             WHERE parent_id = ?
               AND (virtual_type = 'grouping' OR virtual_type = 'user')
         `).all('movies') as any[]
@@ -587,7 +605,7 @@ describe('Branch C: no grouping SQL contract', () => {
 
     it('returns real children and user virtual folders, excludes grouping virtual folders', () => {
         const rows = db.prepare(`
-            SELECT id FROM items
+            SELECT id FROM media_items_read
             WHERE parent_id = ?
               AND (is_virtual = 0 OR virtual_type = 'user')
         `).all('movies') as any[]
@@ -603,7 +621,7 @@ describe('Branch C: no grouping SQL contract', () => {
         insertItem({ id: 's-1', parentId: 'movies', path: 'virtual://s-1', type: 'folder', isVirtual: 1, virtualType: 'season' })
 
         const rows = db.prepare(`
-            SELECT id FROM items
+            SELECT id FROM media_items_read
             WHERE parent_id = ?
               AND (is_virtual = 0 OR virtual_type = 'user')
         `).all('movies') as any[]
@@ -621,10 +639,8 @@ describe('Branch A: pool query SQL contract', () => {
         db.prepare(`INSERT INTO media_entities (id, year) VALUES (?, ?)`).run('e1', 2023)
         db.prepare(`INSERT INTO media_entities (id, year) VALUES (?, ?)`).run('e2', 2024)
 
-        insertItem({ id: 'film-2023', parentId: 'movies', path: 'movies/film-2023' })
-        insertItem({ id: 'film-2024', parentId: 'movies', path: 'movies/film-2024' })
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run('e1', 'film-2023')
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run('e2', 'film-2024')
+        insertItem({ id: 'film-2023', parentId: 'movies', path: 'movies/film-2023', entityId: 'e1' })
+        insertItem({ id: 'film-2024', parentId: 'movies', path: 'movies/film-2024', entityId: 'e2' })
 
         // A virtual item also under movies — pool query must exclude it
         insertItem({ id: 'virt', parentId: 'movies', path: 'virtual://virt', type: 'folder', isVirtual: 1, virtualType: 'grouping' })
@@ -632,7 +648,7 @@ describe('Branch A: pool query SQL contract', () => {
 
     it('filters by parentId scope and year, excludes virtual items', () => {
         const rows = db.prepare(`
-            SELECT i.id FROM items i
+            SELECT i.id FROM media_items_read i
             LEFT JOIN media_entities e ON i.entity_id = e.id
             WHERE i.parent_id = ?
               AND e.year = ?
@@ -647,7 +663,7 @@ describe('Branch A: pool query SQL contract', () => {
 
     it('pool query without scope covers entire library (no parentId constraint)', () => {
         const rows = db.prepare(`
-            SELECT i.id FROM items i
+            SELECT i.id FROM media_items_read i
             LEFT JOIN media_entities e ON i.entity_id = e.id
             WHERE e.year = ?
               AND i.is_virtual = 0
@@ -662,10 +678,10 @@ describe('Branch A: pool query SQL contract', () => {
     it('is_virtual = 0 guard excludes virtual items even when they match all other filters', () => {
         // Give the virtual item a matching entity
         db.prepare(`INSERT INTO media_entities (id, year) VALUES (?, ?)`).run('ev', 2023)
-        db.prepare(`UPDATE items SET entity_id = ? WHERE id = ?`).run('ev', 'virt')
+        db.prepare(`UPDATE media_items SET entity_id = ?, media_kind = (SELECT media_type FROM media_entities WHERE id = ?) WHERE id = ?`).run('ev', 'ev', 'virt')
 
         const rows = db.prepare(`
-            SELECT i.id FROM items i
+            SELECT i.id FROM media_items_read i
             LEFT JOIN media_entities e ON i.entity_id = e.id
             WHERE i.parent_id = ?
               AND e.year = ?
@@ -756,7 +772,7 @@ describe('grouping staleness', () => {
     expect(getGroupNames('movies')).toEqual(['1080p', '4K'])
 
     // Change film3 from 1080p to 720p (a new value)
-    ctx.db.prepare(`UPDATE entity_virtual_tags SET value = '720p' WHERE entity_id = 'e3' AND key = 'quality'`).run()
+    ctx.db.prepare(`UPDATE item_virtual_tags SET value = '720p' WHERE item_id = 'film3' AND key = 'quality'`).run()
     syncAllGroupings()
 
     // 720p group should appear, 1080p should disappear (no items left)

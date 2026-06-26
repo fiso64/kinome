@@ -1,7 +1,7 @@
 /**
  * METADATA REPOSITORY (Logical Content Metadata)
  * Owns the 'media_entities' table and its normalized relational tables
- * (genres, entity_genres, people, credits, entity_tags, entity_virtual_tags).
+ * (genres, entity_genres, people, credits) plus item-bound tag tables.
  */
 import { getDb, runTransaction } from '../client'
 import { compileFilter, buildWhereFragment } from '../query-builder'
@@ -40,7 +40,7 @@ export function fetchCredits(entityId: string): { cast: any[]; crew: any[] } | n
  */
 export function fetchCreditsByItemId(itemId: string): { cast: any[]; crew: any[] } | null {
     const db = getDb()
-    const item = db.prepare('SELECT entity_id FROM items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
+    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
     if (!item?.entity_id) return null
     return fetchCredits(item.entity_id)
 }
@@ -54,14 +54,14 @@ export function fetchCreditsByItemId(itemId: string): { cast: any[]; crew: any[]
 export function ensureEntityForItem(itemId: string): string {
     const db = getDb()
 
-    const item = db.prepare('SELECT entity_id FROM items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
+    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
     if (item?.entity_id) {
         return item.entity_id
     }
 
     const entityId = crypto.randomUUID()
     db.prepare('INSERT INTO media_entities (id) VALUES (?)').run(entityId)
-    db.prepare('UPDATE items SET entity_id = ? WHERE id = ?').run(entityId, itemId)
+    db.prepare('UPDATE media_items SET entity_id = ? WHERE id = ?').run(entityId, itemId)
     return entityId
 }
 
@@ -106,7 +106,7 @@ export function upsertMetadata(itemId: string, updates: any): void {
         upsertCredits(entityId, updates.tmdbCredits)
     }
     if (updates.tags !== undefined) {
-        upsertTags(entityId, updates.tags)
+        upsertTags(itemId, updates.tags)
     }
 }
 
@@ -152,15 +152,15 @@ function upsertCredits(entityId: string, credits: { cast?: any[]; crew?: any[] }
     }
 }
 
-function upsertTags(entityId: string, tags: Record<string, any> | null): void {
+function upsertTags(itemId: string, tags: Record<string, any> | null): void {
     const db = getDb()
-    db.prepare('DELETE FROM entity_tags WHERE entity_id = ?').run(entityId)
+    db.prepare('DELETE FROM item_tags WHERE item_id = ?').run(itemId)
     if (!tags) return
 
-    const insertTag = db.prepare('INSERT OR IGNORE INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)')
+    const insertTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, key, value) VALUES (?, ?, ?)')
     for (const [key, value] of Object.entries(tags)) {
         if (value !== undefined && value !== null) {
-            insertTag.run(entityId, key, String(value))
+            insertTag.run(itemId, key, String(value))
         }
     }
 }
@@ -173,7 +173,7 @@ export function fetchEntityIdsForItemIds(itemIds: string[]): string[] {
     const db = getDb()
     const placeholders = itemIds.map(() => '?').join(', ')
     const rows = db.prepare(
-        `SELECT entity_id FROM items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL`
+        `SELECT entity_id FROM media_items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL`
     ).all(...itemIds) as { entity_id: string }[]
     return rows.map(r => r.entity_id)
 }
@@ -197,8 +197,14 @@ export function bulkClearEntityMetadata(entityIds: string[]): void {
 
         db.prepare(`DELETE FROM entity_genres WHERE entity_id IN (${placeholders})`).run(...entityIds)
         db.prepare(`DELETE FROM credits WHERE entity_id IN (${placeholders})`).run(...entityIds)
-        db.prepare(`DELETE FROM entity_tags WHERE entity_id IN (${placeholders})`).run(...entityIds)
     })
+}
+
+export function bulkClearItemTags(itemIds: string[]): void {
+    if (itemIds.length === 0) return
+    const db = getDb()
+    const placeholders = itemIds.map(() => '?').join(', ')
+    db.prepare(`DELETE FROM item_tags WHERE item_id IN (${placeholders})`).run(...itemIds)
 }
 
 // ─── Read Helpers ───────────────────────────────────────────────────────────
@@ -208,7 +214,7 @@ export function bulkClearEntityMetadata(entityIds: string[]): void {
  */
 export function fetchMetadataRow(itemId: string): any {
     const db = getDb()
-    const item = db.prepare('SELECT entity_id FROM items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
+    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
     if (!item?.entity_id) return null
     return db.prepare('SELECT * FROM media_entities WHERE id = ?').get(item.entity_id)
 }
@@ -218,7 +224,7 @@ export function fetchMetadataRow(itemId: string): any {
  */
 export function updateMetadataImages(itemId: string, images: any): void {
     const db = getDb()
-    const item = db.prepare('SELECT entity_id FROM items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
+    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
     if (!item?.entity_id) return
     db.prepare('UPDATE media_entities SET poster_path = ?, backdrop_path = ?, logo_path = ? WHERE id = ?').run(
         images.poster ?? null,
@@ -251,7 +257,7 @@ export function getDistinctGenreNames(): string[] {
 /**
  * Fetches distinct tag keys and optionally values for a given key.
  */
-export function getDistinctTagEntries(table: 'entity_tags' | 'entity_virtual_tags', key?: string): { key: string; value: string }[] {
+export function getDistinctTagEntries(table: 'item_tags' | 'item_virtual_tags', key?: string): { key: string; value: string }[] {
     const db = getDb()
     if (key) {
         const rows = db.prepare(`SELECT DISTINCT value FROM ${table} WHERE key = ?`).all(key) as { value: string }[]
@@ -272,30 +278,28 @@ export function getDistinctPersonNames(): string[] {
 // ─── Virtual Tags ───────────────────────────────────────────────────────────
 
 /**
- * Bulk-writes virtual tags from computed results.
- * The virtualTags service computes tags per entity, then calls this to persist them.
+ * Bulk-writes virtual tags from computed item results.
  */
-export function bulkUpsertVirtualTags(entries: { entityId: string; key: string; value: string }[]): void {
+export function bulkUpsertVirtualTags(entries: { itemId: string; key: string; value: string }[]): void {
     const db = getDb()
-    const insert = db.prepare('INSERT OR REPLACE INTO entity_virtual_tags (entity_id, key, value) VALUES (?, ?, ?)')
+    const insert = db.prepare('INSERT OR REPLACE INTO item_virtual_tags (item_id, key, value) VALUES (?, ?, ?)')
     for (const entry of entries) {
-        insert.run(entry.entityId, entry.key, entry.value)
+        insert.run(entry.itemId, entry.key, entry.value)
     }
 }
 
 /**
  * Fetches the virtual tags for a set of items by item ID.
- * Returns a map of item_id → { key: value } pulled from entity_virtual_tags via entity join.
+ * Returns a map of item_id → { key: value } from item_virtual_tags.
  */
 export function fetchVirtualTagsForItems(itemIds: string[]): Record<string, Record<string, string>> {
     if (itemIds.length === 0) return {}
     const db = getDb()
     const placeholders = itemIds.map(() => '?').join(',')
     const rows = db.prepare(`
-        SELECT i.id AS item_id, vt.key, vt.value
-        FROM items i
-        JOIN entity_virtual_tags vt ON i.entity_id = vt.entity_id
-        WHERE i.id IN (${placeholders})
+        SELECT vt.item_id, vt.key, vt.value
+        FROM item_virtual_tags vt
+        WHERE vt.item_id IN (${placeholders})
     `).all(...itemIds) as { item_id: string; key: string; value: string }[]
 
     const result: Record<string, Record<string, string>> = {}
@@ -313,17 +317,14 @@ export function clearVirtualTags(itemIds?: string[]): void {
     const db = getDb()
     if (itemIds && itemIds.length > 0) {
         const placeholders = itemIds.map(() => '?').join(',')
-        db.prepare(
-            `DELETE FROM entity_virtual_tags
-             WHERE entity_id IN (SELECT entity_id FROM items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL)`
-        ).run(...itemIds)
+        db.prepare(`DELETE FROM item_virtual_tags WHERE item_id IN (${placeholders})`).run(...itemIds)
     } else {
-        db.prepare('DELETE FROM entity_virtual_tags').run()
+        db.prepare('DELETE FROM item_virtual_tags').run()
     }
 }
 
 /**
- * Evaluates virtual tag configs and inserts results into entity_virtual_tags.
+ * Evaluates virtual tag configs and inserts results into item_virtual_tags.
  *
  * Each tag's cases are evaluated in order using INSERT OR IGNORE, so the first
  * matching case wins (priority ordering). The defaultResult is applied last for
@@ -352,7 +353,6 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
             })
 
             const baseConditions = [
-                'i.entity_id IS NOT NULL',
                 'i.parent_id IS NOT NULL',
                 ...conditions
             ]
@@ -365,9 +365,9 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
                 : ''
 
             const insertSql = `
-                INSERT OR IGNORE INTO entity_virtual_tags (entity_id, key, value)
-                SELECT i.entity_id, ?, ?
-                FROM items i ${joinSql}
+                INSERT OR IGNORE INTO item_virtual_tags (item_id, key, value)
+                SELECT i.id, ?, ?
+                FROM media_items_read i ${joinSql}
                 ${whereSql}
             `
             const result = db.prepare(insertSql).run(tag.name, vtCase.result, ...params, ...scopeParams)
@@ -377,15 +377,14 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
         // Apply defaultResult for items not matched by any case
         if (tag.defaultResult) {
             const defaultSql = `
-                INSERT OR IGNORE INTO entity_virtual_tags (entity_id, key, value)
-                SELECT i.entity_id, ?, ?
-                FROM items i
-                WHERE i.entity_id IS NOT NULL
-                  AND i.parent_id IS NOT NULL
+                INSERT OR IGNORE INTO item_virtual_tags (item_id, key, value)
+                SELECT i.id, ?, ?
+                FROM media_items_read i
+                WHERE i.parent_id IS NOT NULL
                   AND i.is_virtual = 0
                   ${scopeCondition}
-                  AND i.entity_id NOT IN (
-                    SELECT entity_id FROM entity_virtual_tags WHERE key = ?
+                  AND i.id NOT IN (
+                    SELECT item_id FROM item_virtual_tags WHERE key = ?
                   )
             `
             const result = db.prepare(defaultSql).run(tag.name, tag.defaultResult, ...scopeParams, tag.name)

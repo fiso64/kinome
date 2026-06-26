@@ -126,7 +126,7 @@ describe('setImage — buffer upload', () => {
 
     // Find the Animation virtual folder
     const groups = ctx.db.prepare(
-      `SELECT id FROM items WHERE parent_id = 'root' AND is_virtual = 1`
+      `SELECT id FROM media_items WHERE parent_item_id = 'root' AND is_virtual = 1`
     ).all() as { id: string }[]
     expect(groups.length).toBeGreaterThan(0)
 

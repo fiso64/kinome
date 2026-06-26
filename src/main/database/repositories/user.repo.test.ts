@@ -26,10 +26,14 @@ beforeEach(() => {
   _setDbForTesting(db)
 
   // Seed a couple of items so the FK constraints are satisfied
-  db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, NULL, '.', 'root', 'folder')`).run('root')
-  db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, ?, 'f1', 'file1', 'file')`).run('item-1', 'root')
-  db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, ?, 'f2', 'file2', 'file')`).run('item-2', 'root')
-  db.prepare(`INSERT INTO items (id, parent_id, path, name, type) VALUES (?, ?, 'f3', 'file3', 'file')`).run('item-3', 'root')
+  const insertItem = db.prepare(`
+    INSERT INTO media_items (id, parent_item_id, physical_kind, name, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 1000, 1000)
+  `)
+  insertItem.run('root', null, 'folder', 'root')
+  insertItem.run('item-1', 'root', 'file', 'file1')
+  insertItem.run('item-2', 'root', 'file', 'file2')
+  insertItem.run('item-3', 'root', 'file', 'file3')
 })
 
 afterEach(() => {

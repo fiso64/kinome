@@ -531,10 +531,10 @@ export function buildApp() {
           if (!response) { set.status = 404; return 'File not found' }
           return response
         })
-        .get('/download/:id', async ({ params, set }: { params: any; set: any }) => {
+        .get('/download/:id', async ({ params, set, session }: { params: any; set: any; session: any }) => {
           const item = (await libraryService.getItemById(params.id)) as any
           if (!item?.path) { set.status = 404; return 'File not found' }
-          const filePath = await libraryService.getAbsolutePathForItem(params.id)
+          const filePath = await libraryService.getAbsolutePathForItem(params.id, session?.accountId)
           if (!filePath || !fs.existsSync(filePath)) { set.status = 404; return 'File not found' }
           return new Response(Bun.file(filePath), {
             headers: {
@@ -675,11 +675,11 @@ export function buildApp() {
             })
             .post('/trash-item', ({ body }: { body: any }) => libraryService.trashItem(body.itemId))
             .post('/delete-item-from-db', ({ body }: { body: any }) => libraryService.deleteItemFromDb(body.itemId))
-            .post('/rename-item', ({ body }: { body: any }) =>
-              libraryService.renameItem(body.itemId, body.newName)
+            .post('/rename-item', ({ body, session }: { body: any; session: any }) =>
+              libraryService.renameItem(body.itemId, body.newName, session?.accountId)
             )
-            .post('/execute-custom-action', async ({ body }: { body: any }) => {
-              await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt))
+            .post('/execute-custom-action', async ({ body, session }: { body: any; session: any }) => {
+              await libraryService.executeCustomAction(body.itemId, body.commandId, (opt) => console.log(opt), session?.accountId)
               return { success: true }
             })
         )
