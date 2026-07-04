@@ -1,4 +1,12 @@
 
+Bug: Some folder settings reset on scan.
+1. Right click the "Recently Added" folder > Folder Settings
+2. Modify days since added value from 14 to 30.
+3. Save & close the modal. The setting will apply, showing older items.
+4. Rescan library using the button in the toolbar. The setting resets to 14 for no reason.
+
+---
+
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
 
