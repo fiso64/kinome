@@ -583,6 +583,7 @@ export function findReusableItemIdForDiscoveredLocation(params: {
     relativePath: string
     inode: number
     deviceId: number
+    knownAbsentSourceIds?: Iterable<string>
 }): string | null {
     const db = getDb()
     const inodeRows = db.prepare(`
@@ -601,15 +602,20 @@ export function findReusableItemIdForDiscoveredLocation(params: {
     if (inodeItemIds.size > 1) return null
 
     const normalizedPath = normalizeRelativePath(params.relativePath)
+    const knownAbsentSourceIds = Array.from(params.knownAbsentSourceIds ?? [])
+        .filter((sourceId) => sourceId !== params.sourceId)
+    const knownAbsentCondition = knownAbsentSourceIds.length > 0
+        ? `OR source_id IN (${knownAbsentSourceIds.map(() => '?').join(', ')})`
+        : ''
     const missingRelativePathRows = db.prepare(`
         SELECT item_id
         FROM media_locations
         WHERE source_id != ?
           AND relative_path = ?
-          AND is_present = 0
+          AND (is_present = 0 ${knownAbsentCondition})
         ORDER BY last_seen_at DESC
         LIMIT 3
-    `).all(params.sourceId, normalizedPath) as { item_id: string }[]
+    `).all(params.sourceId, normalizedPath, ...knownAbsentSourceIds) as { item_id: string }[]
     const missingRelativePathItemIds = new Set(missingRelativePathRows.map((row) => row.item_id))
     return missingRelativePathItemIds.size === 1 ? missingRelativePathRows[0].item_id : null
 }

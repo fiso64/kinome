@@ -146,6 +146,7 @@ async function _runBackgroundScan(
     higherPriorityPaths?: Set<string>
     shadowMinDepth?: number
     cleanupMissing?: boolean
+    sameRelativePathRescueSources?: Map<string, Set<string>>
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
@@ -171,6 +172,7 @@ async function _runBackgroundScan(
       higherPriorityPaths: options.higherPriorityPaths,
       shadowMinDepth: options.shadowMinDepth,
       cleanupMissing: options.cleanupMissing,
+      sameRelativePathRescueSources: options.sameRelativePathRescueSources,
       onFoundItems: (foundItemIds) => {
         scanResult.foundItemIds = foundItemIds
         options.onFoundItems?.(foundItemIds)
@@ -277,10 +279,19 @@ export async function runFullLibraryScan({
     }
 
     const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
+    const sameRelativePathRescueSources = new Map<string, Set<string>>()
+    for (let k = 0; k < j; k++) {
+      const priorSource = sources[k]
+      if (scanSucceededBySource.get(priorSource.id) !== true) continue
+      const foundLocationPaths = foundLocationPathsBySource.get(priorSource.id)
+      if (foundLocationPaths) sameRelativePathRescueSources.set(priorSource.id, foundLocationPaths)
+    }
+
     const scanResult = await _runBackgroundScan(source, resolvedAbsPath, normalizedSettings, {
       higherPriorityPaths,
       shadowMinDepth,
       cleanupMissing: false,
+      sameRelativePathRescueSources,
       runMaintenance: false
     })
 

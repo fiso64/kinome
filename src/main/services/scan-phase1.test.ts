@@ -347,6 +347,20 @@ describe('Location identity matching guards', () => {
         expect(match).toBeNull()
     })
 
+    it('reuses a same-relative-path candidate from a source proven absent this scan before cleanup', () => {
+        insertItem({ id: 'moved-show', sourceId: 'source-a', path: 'Shows/Foo', inode: 1, deviceId: 1 })
+
+        const match = findReusableItemIdForDiscoveredLocation({
+            sourceId: 'source-b',
+            relativePath: 'Shows\\Foo',
+            inode: 2,
+            deviceId: 2,
+            knownAbsentSourceIds: ['source-a']
+        })
+
+        expect(match).toBe('moved-show')
+    })
+
     it('does not shadow to a relative-path candidate when multiple present items match', () => {
         insertItem({ id: 'present-a', sourceId: 'source-a', path: 'Movies/Foo', type: 'folder' })
         insertItem({ id: 'present-b', sourceId: 'source-b', path: 'Movies/Foo', type: 'folder' })

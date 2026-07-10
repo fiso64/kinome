@@ -86,7 +86,8 @@ async function syncDiskToDatabase(
   source: { id: string; absolutePath: string },
   higherPriorityPaths?: Set<string>,
   shadowMinDepth: number = 1,
-  cleanupMissing: boolean = true
+  cleanupMissing: boolean = true,
+  sameRelativePathRescueSources: Map<string, Set<string>> = new Map()
 ): Promise<SyncDiskResult> {
   const foundPaths = new Set<string>()
   const foundLocationPaths = new Set<string>()
@@ -114,6 +115,16 @@ async function syncDiskToDatabase(
       discoveredItemIdsByRelPath.get(parentRelPath) ??
       itemsRepo.generateItemId()
     )
+  }
+
+  const knownAbsentSourceIdsForPath = (relPath: string): string[] => {
+    const sourceIds: string[] = []
+    for (const [sourceId, foundLocationPaths] of sameRelativePathRescueSources) {
+      if (sourceId !== source.id && !foundLocationPaths.has(relPath)) {
+        sourceIds.push(sourceId)
+      }
+    }
+    return sourceIds
   }
 
   const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
@@ -203,7 +214,8 @@ async function syncDiskToDatabase(
                 sourceId: source.id,
                 relativePath: relPath,
                 inode: s.ino,
-                deviceId: s.dev
+                deviceId: s.dev,
+                knownAbsentSourceIds: knownAbsentSourceIdsForPath(relPath)
               }) ??
               itemsRepo.generateItemId()
             discoveredItemIdsByRelPath.set(relPath, id)
@@ -383,6 +395,7 @@ export async function scanDirectory(
     higherPriorityPaths?: Set<string>
     shadowMinDepth?: number
     cleanupMissing?: boolean
+    sameRelativePathRescueSources?: Map<string, Set<string>>
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
@@ -398,7 +411,8 @@ export async function scanDirectory(
     { id: source.id, absolutePath: resolvedAbsPath },
     options.higherPriorityPaths,
     options.shadowMinDepth,
-    options.cleanupMissing ?? true
+    options.cleanupMissing ?? true,
+    options.sameRelativePathRescueSources
   )
     .then((result) => {
       options.onFoundItems?.(result.foundItemIds)
