@@ -1,4 +1,8 @@
 
+[media-identity-location-refactor-plan.md](media-identity-location-refactor-plan.md), part II. Finish it properly.
+
+---
+
 Bug: Not possible to reset media item back to "unknown" media type.
 Consider adding a new media type None (explicit, not just null). (needs further discussion)
 
@@ -9,6 +13,14 @@ Bug: Some folder settings reset on scan.
 2. Modify days since added value from 14 to 30.
 3. Save & close the modal. The setting will apply, showing older items.
 4. Rescan library using the button in the toolbar. The setting resets to 14 for no reason.
+
+---
+
+Metadata canonicalization and vtag ownership.
+
+Item-bound manual tags and virtual tags are now implemented (`item_tags`, `item_virtual_tags`, vtag writes by `item_id`, and filtering/search/grouping/autocomplete reads by `item_id`). The remaining work is metadata canonicalization itself: if `MediaEntity` becomes canonical/shared provider data, locks, selected images, user edits, refresh gates, and other item-specific metadata must move to an item metadata/override table first.
+
+See [metadata-vtag-canonicalization-plan.md](metadata-vtag-canonicalization-plan.md).
 
 ---
 
@@ -53,14 +65,6 @@ Make the UI more clear regarding child view overrides / normal view settings and
 
 Find any places where we use json stringify (or similar) to deep compare items and replace by fast deep equal, which is already used in some places throughout the code.
 Ensure that individual settings fields are not saved to files if they have not been modified by the user (sparse). Only modified fields are written to json.
-
----
-
-Metadata canonicalization and vtag ownership.
-
-Item-bound manual tags and virtual tags are now implemented (`item_tags`, `item_virtual_tags`, vtag writes by `item_id`, and filtering/search/grouping/autocomplete reads by `item_id`). The remaining work is metadata canonicalization itself: if `MediaEntity` becomes canonical/shared provider data, locks, selected images, user edits, refresh gates, and other item-specific metadata must move to an item metadata/override table first.
-
-See [metadata-vtag-canonicalization-plan.md](metadata-vtag-canonicalization-plan.md).
 
 ---
 

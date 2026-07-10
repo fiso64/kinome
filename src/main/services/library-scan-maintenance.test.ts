@@ -188,4 +188,151 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.rm(tmpB, { recursive: true, force: true })
     }
   })
+
+  it('preserves TV episode identity when a show is copy-deleted across sources and reorganized into season folders', async () => {
+    const tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-tv-ssd-source-'))
+    const tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-tv-hdd-source-'))
+
+    const sourceA = { id: 'tv-ssd-source', path: tmpA, isRelative: false }
+    const sourceB = { id: 'tv-hdd-source', path: tmpB, isRelative: false }
+    const sourcePaths = new Map([
+      [sourceA.id, tmpA],
+      [sourceB.id, tmpB]
+    ])
+
+    const enrichItemsSpy = spyOn(metadataService, 'enrichItems').mockImplementation(async () => {})
+    const enrichDatabaseSpy = spyOn(metadataService, 'enrichDatabase').mockImplementation(async () => {})
+
+    const showA = path.join(tmpA, 'Shows', 'Example Show')
+    const flatEp1 = path.join(showA, 'Example.Show.S01E01.mkv')
+    const flatEp2 = path.join(showA, 'Example.Show.S01E02.mkv')
+    const showB = path.join(tmpB, 'Shows', 'Example Show')
+    const seasonB = path.join(showB, 'Season 01')
+    const renamedEp1 = path.join(seasonB, 'Example Show - S01E01 - Pilot.mkv')
+    const renamedEp2 = path.join(seasonB, 'Example Show - S01E02 - Second.mkv')
+
+    try {
+      await fs.mkdir(showA, { recursive: true })
+      await fs.writeFile(flatEp1, 'episode-1')
+      await fs.writeFile(flatEp2, 'episode-2')
+
+      await runFullLibraryScan({
+        sources: [sourceA, sourceB],
+        sourcePaths,
+        runEarlyMaintenance: false
+      })
+
+      const showId = itemIdForSourcePath(sourceA.id, 'Shows/Example Show')
+      const ep1Id = itemIdForSourcePath(sourceA.id, 'Shows/Example Show/Example.Show.S01E01.mkv')
+      const ep2Id = itemIdForSourcePath(sourceA.id, 'Shows/Example Show/Example.Show.S01E02.mkv')
+      expect(showId).not.toBeNull()
+      expect(ep1Id).not.toBeNull()
+      expect(ep2Id).not.toBeNull()
+
+      ctx.db.prepare(`
+        INSERT INTO media_entities (id, tmdb_id, media_type, title, season_number, episode_number, last_refreshed_at)
+        VALUES
+          ('entity-cross-show', 123, 'tv', 'Example Show', NULL, NULL, 1000),
+          ('entity-cross-ep-1', 123, 'episode', 'Pilot', 1, 1, 2000),
+          ('entity-cross-ep-2', 123, 'episode', 'Second', 1, 2, 3000)
+      `).run()
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-cross-show',
+            media_kind = 'tv',
+            created_at = 1111
+        WHERE id = ?
+      `).run(showId)
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-cross-ep-1',
+            media_kind = 'episode',
+            created_at = 2222
+        WHERE id = ?
+      `).run(ep1Id)
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-cross-ep-2',
+            media_kind = 'episode',
+            created_at = 3333
+        WHERE id = ?
+      `).run(ep2Id)
+      ctx.db.prepare(`
+        INSERT INTO user_state (item_id, user_id, watched, last_watched_at)
+        VALUES (?, 'default', 1, 5555)
+      `).run(ep1Id)
+
+      await fs.mkdir(seasonB, { recursive: true })
+      await fs.copyFile(flatEp1, renamedEp1)
+      await fs.copyFile(flatEp2, renamedEp2)
+      await fs.rm(showA, { recursive: true, force: true })
+
+      await runFullLibraryScan({
+        sources: [sourceA, sourceB],
+        sourcePaths,
+        runEarlyMaintenance: true
+      })
+
+      expect(itemIdForSourcePath(sourceB.id, 'Shows/Example Show')).toBe(showId)
+      expect(itemIdForSourcePath(sourceB.id, 'Shows/Example Show/Season 01/Example Show - S01E01 - Pilot.mkv')).toBe(ep1Id)
+      expect(itemIdForSourcePath(sourceB.id, 'Shows/Example Show/Season 01/Example Show - S01E02 - Second.mkv')).toBe(ep2Id)
+      expect(itemIdForSourcePath(sourceA.id, 'Shows/Example Show/Example.Show.S01E01.mkv')).toBeNull()
+      expect(itemIdForSourcePath(sourceA.id, 'Shows/Example Show/Example.Show.S01E02.mkv')).toBeNull()
+
+      const seasonId = itemIdForSourcePath(sourceB.id, 'Shows/Example Show/Season 01')
+      expect(seasonId).not.toBeNull()
+
+      const ep1 = ctx.db.prepare(`
+        SELECT mi.parent_item_id, mi.entity_id, mi.media_kind, mi.created_at, ml.source_id, ml.relative_path, ml.name,
+               e.title, e.season_number, e.episode_number, e.last_refreshed_at
+        FROM media_items mi
+        JOIN media_locations ml ON ml.item_id = mi.id
+        JOIN media_entities e ON e.id = mi.entity_id
+        WHERE mi.id = ?
+      `).get(ep1Id) as any
+      expect(ep1).toEqual({
+        parent_item_id: seasonId,
+        entity_id: 'entity-cross-ep-1',
+        media_kind: 'episode',
+        created_at: 2222,
+        source_id: sourceB.id,
+        relative_path: 'Shows/Example Show/Season 01/Example Show - S01E01 - Pilot.mkv',
+        name: 'Example Show - S01E01 - Pilot.mkv',
+        title: 'Pilot',
+        season_number: 1,
+        episode_number: 1,
+        last_refreshed_at: 2000
+      })
+
+      const ep2 = ctx.db.prepare(`
+        SELECT mi.parent_item_id, mi.entity_id, mi.media_kind, mi.created_at,
+               e.title, e.season_number, e.episode_number, e.last_refreshed_at
+        FROM media_items mi
+        JOIN media_entities e ON e.id = mi.entity_id
+        WHERE mi.id = ?
+      `).get(ep2Id) as any
+      expect(ep2).toEqual({
+        parent_item_id: seasonId,
+        entity_id: 'entity-cross-ep-2',
+        media_kind: 'episode',
+        created_at: 3333,
+        title: 'Second',
+        season_number: 1,
+        episode_number: 2,
+        last_refreshed_at: 3000
+      })
+
+      const watchedState = ctx.db.prepare(`
+        SELECT watched, last_watched_at
+        FROM user_state
+        WHERE item_id = ? AND user_id = 'default'
+      `).get(ep1Id) as { watched: number; last_watched_at: number } | undefined
+      expect(watchedState).toEqual({ watched: 1, last_watched_at: 5555 })
+    } finally {
+      enrichItemsSpy.mockRestore()
+      enrichDatabaseSpy.mockRestore()
+      await fs.rm(tmpA, { recursive: true, force: true })
+      await fs.rm(tmpB, { recursive: true, force: true })
+    }
+  })
 })

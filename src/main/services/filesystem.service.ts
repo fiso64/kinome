@@ -12,6 +12,7 @@ import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
 import { ITEM_READ_MODEL } from '../database/query-builder'
+import { parseEpisodeInfo, parseSeasonFolder } from '../utils/tv-parser'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -127,6 +128,47 @@ async function syncDiskToDatabase(
     return sourceIds
   }
 
+  const findReusableEpisodeItemIdForDiscoveredFile = (relPath: string): string | null => {
+    const normalizedRelPath = itemsRepo.normalizeRelativePath(relPath)
+    const candidateSourceIds = knownAbsentSourceIdsForPath(normalizedRelPath)
+    if (candidateSourceIds.length === 0) return null
+
+    const parsed = parseEpisodeInfo(path.posix.basename(normalizedRelPath))
+    if (!parsed) return null
+
+    const parentPath = itemsRepo.normalizeRelativePath(path.posix.dirname(normalizedRelPath))
+    if (parentPath === '.') return null
+
+    const parentName = path.posix.basename(parentPath)
+    const parentSeasonNumber = parseSeasonFolder(parentName)
+    const seasonNumber = parsed.season ?? parentSeasonNumber
+    if (seasonNumber == null) return null
+
+    const showRootPath = parentSeasonNumber !== null
+      ? itemsRepo.normalizeRelativePath(path.posix.dirname(parentPath))
+      : parentPath
+    if (showRootPath === '.') return null
+
+    const candidates = itemsRepo.findEpisodeMoveCandidates({
+      sourceIds: candidateSourceIds,
+      showRootPath,
+      seasonNumber,
+      episodeNumber: parsed.episode
+    }).filter((candidate) => {
+      const foundLocationPaths = sameRelativePathRescueSources.get(candidate.sourceId)
+      return !!foundLocationPaths &&
+        !foundLocationPaths.has(candidate.path) &&
+        !foundLocationPaths.has(showRootPath)
+    })
+
+    const itemIds = new Set(candidates.map((candidate) => candidate.itemId))
+    if (itemIds.size !== 1) return null
+
+    const match = candidates[0]
+    log(`[Phase 1] Reusing episode identity after source reorg: "${match.path}" -> "${normalizedRelPath}"`)
+    return match.itemId
+  }
+
   const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
     const currentRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, currentPath)
     const currentId =
@@ -217,6 +259,7 @@ async function syncDiskToDatabase(
                 deviceId: s.dev,
                 knownAbsentSourceIds: knownAbsentSourceIdsForPath(relPath)
               }) ??
+              (!isDir ? findReusableEpisodeItemIdForDiscoveredFile(relPath) : null) ??
               itemsRepo.generateItemId()
             discoveredItemIdsByRelPath.set(relPath, id)
 

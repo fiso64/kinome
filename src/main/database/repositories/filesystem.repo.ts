@@ -620,6 +620,49 @@ export function findReusableItemIdForDiscoveredLocation(params: {
     return missingRelativePathItemIds.size === 1 ? missingRelativePathRows[0].item_id : null
 }
 
+export function findEpisodeMoveCandidates(params: {
+    sourceIds: Iterable<string>
+    showRootPath: string
+    seasonNumber: number
+    episodeNumber: number
+}): { itemId: string; sourceId: string; path: string }[] {
+    const sourceIds = Array.from(new Set(params.sourceIds)).filter(Boolean)
+    if (sourceIds.length === 0) return []
+
+    const showRootPath = normalizeRelativePath(params.showRootPath)
+    if (showRootPath === '.') return []
+
+    const db = getDb()
+    const sourcePlaceholders = sourceIds.map(() => '?').join(', ')
+    const rows = db.prepare(`
+        SELECT mi.id AS item_id, ml.source_id, ml.relative_path AS path
+        FROM media_locations ml
+        JOIN media_items mi ON mi.id = ml.item_id
+        JOIN media_entities e ON e.id = mi.entity_id
+        WHERE ml.source_id IN (${sourcePlaceholders})
+          AND ml.is_present = 1
+          AND ml.type = 'file'
+          AND mi.physical_kind = 'file'
+          AND e.media_type = 'episode'
+          AND e.season_number = ?
+          AND e.episode_number = ?
+          AND ml.relative_path LIKE ?
+        ORDER BY ml.last_seen_at DESC
+        LIMIT 25
+    `).all(
+        ...sourceIds,
+        params.seasonNumber,
+        params.episodeNumber,
+        `${showRootPath}/%`
+    ) as { item_id: string; source_id: string; path: string }[]
+
+    return rows.map((row) => ({
+        itemId: row.item_id,
+        sourceId: row.source_id,
+        path: row.path
+    }))
+}
+
 export function findPresentLocationByRelativePath(
     relativePath: string,
     excludeSourceId: string
