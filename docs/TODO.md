@@ -1,4 +1,9 @@
 
+Bug: Not possible to reset media item back to "unknown" media type.
+Consider adding a new media type None (explicit, not just null). (needs further discussion)
+
+---
+
 Bug: Some folder settings reset on scan.
 1. Right click the "Recently Added" folder > Folder Settings
 2. Modify days since added value from 14 to 30.
