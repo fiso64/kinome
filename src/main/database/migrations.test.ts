@@ -567,29 +567,42 @@ describe('database migrations', () => {
   it('creates a consistent pre-migration backup for an on-disk database', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kinome-db-backup-'))
     const dbPath = path.join(tempDir, 'library.db')
-    const db = new Database(dbPath, { create: true })
-    db.exec(`
-      CREATE TABLE marker (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-      INSERT INTO marker (id, value) VALUES ('before', 'migration');
-    `)
+    let db: Database | null = new Database(dbPath, { create: true })
+    let backup: Database | null = null
 
-    const backupPath = createPreMigrationBackup(
-      db,
-      dbPath,
-      1,
-      2,
-      new Date('2026-06-25T12:00:00.000Z')
-    )
-    db.close()
+    try {
+      db.exec(`
+        CREATE TABLE marker (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO marker (id, value) VALUES ('before', 'migration');
+      `)
 
-    expect(backupPath).toBe(path.join(tempDir, 'backups', 'library.before-v1-to-v2.2026-06-25T12-00-00-000Z.db'))
-    expect(fs.existsSync(backupPath)).toBe(true)
+      const backupPath = createPreMigrationBackup(
+        db,
+        dbPath,
+        1,
+        2,
+        new Date('2026-06-25T12:00:00.000Z')
+      )
+      db.close()
+      db = null
 
-    const backup = new Database(backupPath, { readonly: true })
-    const row = backup.prepare('SELECT value FROM marker WHERE id = ?').get('before') as any
-    expect(row.value).toBe('migration')
-    backup.close()
+      expect(backupPath).toBe(path.join(tempDir, 'backups', 'library.before-v1-to-v2.2026-06-25T12-00-00-000Z.db'))
+      expect(fs.existsSync(backupPath)).toBe(true)
 
-    fs.rmSync(tempDir, { recursive: true, force: true })
+      backup = new Database(backupPath, { readonly: true })
+      const stmt = backup.prepare('SELECT value FROM marker WHERE id = ?')
+      try {
+        const row = stmt.get('before') as any
+        expect(row.value).toBe('migration')
+      } finally {
+        stmt.finalize()
+      }
+      backup.close()
+      backup = null
+    } finally {
+      backup?.close()
+      db?.close()
+      fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    }
   })
 })

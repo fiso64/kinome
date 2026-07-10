@@ -403,6 +403,122 @@ describe('multi-source', () => {
     `).get(SOURCE_A.id) as { is_present: number } | undefined
     expect(location?.is_present).toBe(1)
   })
+
+  it('preserves episode metadata and watched state when a flat TV show is reorganized into season folders', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-tv-reorg-'))
+    const source = { id: 'tv-reorg-source', path: tmp, isRelative: false }
+    const showPath = path.join(tmp, 'Shows', 'Example Show')
+    const flatEp1 = path.join(showPath, 'Example.Show.S01E01.mkv')
+    const flatEp2 = path.join(showPath, 'Example.Show.S01E02.mkv')
+    const seasonPath = path.join(showPath, 'Season 01')
+    const seasonEp1 = path.join(seasonPath, 'Example Show - S01E01 - Pilot.mkv')
+    const seasonEp2 = path.join(seasonPath, 'Example Show - S01E02 - Second.mkv')
+
+    try {
+      await fs.mkdir(showPath, { recursive: true })
+      await fs.writeFile(flatEp1, 'episode-1')
+      await fs.writeFile(flatEp2, 'episode-2')
+
+      await scanDirectory(source, tmp)
+
+      const showId = itemIdForLocation(source.id, 'Shows/Example Show')
+      const ep1Id = itemIdForLocation(source.id, 'Shows/Example Show/Example.Show.S01E01.mkv')
+      const ep2Id = itemIdForLocation(source.id, 'Shows/Example Show/Example.Show.S01E02.mkv')
+      expect(showId).not.toBeNull()
+      expect(ep1Id).not.toBeNull()
+      expect(ep2Id).not.toBeNull()
+
+      ctx.db.prepare(`
+        INSERT INTO media_entities (id, tmdb_id, media_type, title, season_number, episode_number, last_refreshed_at)
+        VALUES
+          ('entity-show', 123, 'tv', 'Example Show', NULL, NULL, 1000),
+          ('entity-ep-1', 123, 'episode', 'Pilot', 1, 1, 2000),
+          ('entity-ep-2', 123, 'episode', 'Second', 1, 2, 3000)
+      `).run()
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-show',
+            media_kind = 'tv'
+        WHERE id = ?
+      `).run(showId)
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-ep-1',
+            media_kind = 'episode'
+        WHERE id = ?
+      `).run(ep1Id)
+      ctx.db.prepare(`
+        UPDATE media_items
+        SET entity_id = 'entity-ep-2',
+            media_kind = 'episode'
+        WHERE id = ?
+      `).run(ep2Id)
+      ctx.db.prepare(`
+        INSERT INTO user_state (item_id, user_id, watched, last_watched_at)
+        VALUES (?, 'default', 1, 5555)
+      `).run(ep1Id)
+
+      await fs.mkdir(seasonPath, { recursive: true })
+      await fs.rename(flatEp1, seasonEp1)
+      await fs.rename(flatEp2, seasonEp2)
+
+      await scanDirectory(source, tmp)
+
+      expect(itemIdForLocation(source.id, 'Shows/Example Show/Season 01/Example Show - S01E01 - Pilot.mkv')).toBe(ep1Id)
+      expect(itemIdForLocation(source.id, 'Shows/Example Show/Season 01/Example Show - S01E02 - Second.mkv')).toBe(ep2Id)
+      expect(itemIdForLocation(source.id, 'Shows/Example Show/Example.Show.S01E01.mkv')).toBeNull()
+      expect(itemIdForLocation(source.id, 'Shows/Example Show/Example.Show.S01E02.mkv')).toBeNull()
+
+      const seasonId = itemIdForLocation(source.id, 'Shows/Example Show/Season 01')
+      expect(seasonId).not.toBeNull()
+
+      const ep1 = ctx.db.prepare(`
+        SELECT mi.parent_item_id, mi.entity_id, mi.media_kind, ml.relative_path, ml.name,
+               e.title, e.season_number, e.episode_number, e.last_refreshed_at
+        FROM media_items mi
+        JOIN media_locations ml ON ml.item_id = mi.id
+        JOIN media_entities e ON e.id = mi.entity_id
+        WHERE mi.id = ?
+      `).get(ep1Id) as any
+      expect(ep1).toEqual({
+        parent_item_id: seasonId,
+        entity_id: 'entity-ep-1',
+        media_kind: 'episode',
+        relative_path: 'Shows/Example Show/Season 01/Example Show - S01E01 - Pilot.mkv',
+        name: 'Example Show - S01E01 - Pilot.mkv',
+        title: 'Pilot',
+        season_number: 1,
+        episode_number: 1,
+        last_refreshed_at: 2000
+      })
+
+      const ep2 = ctx.db.prepare(`
+        SELECT mi.parent_item_id, mi.entity_id, mi.media_kind,
+               e.title, e.season_number, e.episode_number, e.last_refreshed_at
+        FROM media_items mi
+        JOIN media_entities e ON e.id = mi.entity_id
+        WHERE mi.id = ?
+      `).get(ep2Id) as any
+      expect(ep2).toEqual({
+        parent_item_id: seasonId,
+        entity_id: 'entity-ep-2',
+        media_kind: 'episode',
+        title: 'Second',
+        season_number: 1,
+        episode_number: 2,
+        last_refreshed_at: 3000
+      })
+
+      const watchedState = ctx.db.prepare(`
+        SELECT watched, last_watched_at
+        FROM user_state
+        WHERE item_id = ? AND user_id = 'default'
+      `).get(ep1Id) as { watched: number; last_watched_at: number } | undefined
+      expect(watchedState).toEqual({ watched: 1, last_watched_at: 5555 })
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('shadowing', () => {
