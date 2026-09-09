@@ -3,6 +3,10 @@
 
 ---
 
+Add support for half episodes like 20.5 (typically recap episodes in anime). Detect them, allow .5 in the episode field, and sort correctly.
+
+---
+
 Bug: Not possible to reset media item back to "unknown" media type.
 Consider adding a new media type None (explicit, not just null). (needs further discussion)
 
