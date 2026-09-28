@@ -26,7 +26,11 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [ bun go bun2nix ];
+          packages = [
+            pkgs.bun
+            pkgs.go
+            pkgs.bun2nix
+          ];
         };
       }) // {
         nixosModules.default = import ./nix/module.nix { inherit self; };
