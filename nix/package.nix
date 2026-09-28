@@ -34,17 +34,7 @@ bun2nix.mkDerivation {
 
   packageJson = ../package.json;
   bunDeps = bun2nix.fetchBunDeps {
-    bunNix = "${
-      stdenv.mkDerivation {
-        name = "kinome-bun-nix";
-        dontUnpack = true;
-        nativeBuildInputs = [ bun2nix ];
-        installPhase = ''
-          mkdir -p $out
-          bun2nix -l ${../bun.lock} -o $out/bun.nix
-        '';
-      }
-    }/bun.nix";
+    bunNix = ../bun.nix;
   };
 
   nativeBuildInputs = [ bun go git zip ];
