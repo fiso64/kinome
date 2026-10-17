@@ -13,7 +13,7 @@
 - [ ] See if it's possible to expose a jellyfin-compatible API as an alternative. This might give cross platform support + TV app for free. <a id="alt-api"></a>
 
 ### 🎬 Playback & Transcoding
-- [ ] Transcoding and transmuxing support (look into jellyfin's implementation).
+- [ ] Transcoding and transmuxing support. Try to steal as much code from Jellyfin or Kyoo as possible.
 - [ ] Refine players.
   - [ ] Add support for mpv.conf or other types of player config files in the media directory. How to handle them?
   - [ ] Find a way to allow players to auto load sub files in same directory (just like when playing local files)
