@@ -23,7 +23,7 @@ export function rebuildFtsIndex(): void {
         i.id, i.name, 
         e.title, e.original_title, e.overview
       FROM ${ITEM_READ_MODEL} i
-      LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+      JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     `
         ).run()
     })
@@ -148,7 +148,7 @@ export function findByShortQuery(
             0 as rank,
             0 as static_score
           FROM ${ITEM_READ_MODEL} i
-          LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+          JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE (i.name LIKE @likeQuery OR e.title LIKE @likeQuery)
             AND i.is_ignored = 0
@@ -188,7 +188,7 @@ export function findByFtsQuery(
             0 as static_score
           FROM ${FTS_TABLE}
           JOIN ${ITEM_READ_MODEL} i ON ${FTS_TABLE}.id = i.id
-          LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+          JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE ${FTS_TABLE} MATCH @matchQuery
             AND i.is_ignored = 0
@@ -219,7 +219,7 @@ export function findByTagsOnly(
         0 as rank,
         0 as static_score
       FROM ${ITEM_READ_MODEL} i
-      LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+      JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
       LEFT JOIN user_state u ON i.id = u.item_id
       WHERE i.is_ignored = 0
         AND i.is_hidden = 0

@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS account_excluded_locations (
 
 function selectMediaItems(options: { source?: string; account?: string } = {}): string {
   const locationConstraint = options.source
-    ? `WHERE ml.source_id = ${options.source}`
+    ? `AND ml.source_id = ${options.source}`
     : options.account
-      ? `WHERE NOT EXISTS (
+      ? `AND NOT EXISTS (
         SELECT 1 FROM account_excluded_locations excluded
         WHERE excluded.account_id = ${options.account} AND excluded.location_id = ml.id
       )`
@@ -32,31 +32,6 @@ function selectMediaItems(options: { source?: string; account?: string } = {}): 
     ), mi.parent_item_id)`
     : 'mi.parent_item_id'
   return `
-WITH ranked_locations AS (
-  SELECT
-    ml.*,
-    row_number() OVER (
-      PARTITION BY ml.item_id
-      ORDER BY
-        ml.is_present DESC,
-        (ml.is_hidden OR ml.is_ignored),
-        CASE WHEN ml.id = mi.preferred_location_id THEN 0 ELSE 1 END,
-        sp.priority IS NULL,
-        sp.priority,
-        ml.is_shadowed,
-        ml.last_seen_at DESC,
-        ml.source_id COLLATE NOCASE,
-        ml.relative_path COLLATE NOCASE,
-        ml.id
-    ) AS location_rank
-  FROM media_locations ml
-  JOIN media_items mi ON mi.id = ml.item_id
-  LEFT JOIN media_source_priority sp ON sp.source_id = ml.source_id
-  ${locationConstraint}
-),
-selected_locations AS (
-  SELECT * FROM ranked_locations WHERE location_rank = 1
-)
 SELECT
   mi.id,
   ${parentId} AS parent_id,
@@ -103,7 +78,27 @@ SELECT
   sl.last_seen_at,
   sl.missing_since
 FROM media_items mi
-LEFT JOIN selected_locations sl ON sl.item_id = mi.id
+-- Select from this item's indexed locations. Ranking every location up front
+-- would scan the entire library even for a single item or folder.
+LEFT JOIN media_locations sl ON sl.id = (
+  SELECT ml.id
+  FROM media_locations ml
+  JOIN media_items owner ON owner.id = ml.item_id
+  LEFT JOIN media_source_priority sp ON sp.source_id = ml.source_id
+  WHERE ml.item_id = mi.id ${locationConstraint}
+  ORDER BY
+    ml.is_present DESC,
+    (ml.is_hidden OR ml.is_ignored),
+    CASE WHEN ml.id = owner.preferred_location_id THEN 0 ELSE 1 END,
+    sp.priority IS NULL,
+    sp.priority,
+    ml.is_shadowed,
+    ml.last_seen_at DESC,
+    ml.source_id COLLATE NOCASE,
+    ml.relative_path COLLATE NOCASE,
+    ml.id
+  LIMIT 1
+)
 `
 }
 

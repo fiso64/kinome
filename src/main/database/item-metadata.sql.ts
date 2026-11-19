@@ -32,9 +32,13 @@ const fields = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => {
   return `${expression} AS ${column}`
 })
 
+// Keep one row per item so readers can use an inner join. SQLite can then
+// apply their item predicates before looking up item metadata and provider facts.
 export const EFFECTIVE_METADATA_VIEW_SQL = `
 CREATE VIEW IF NOT EXISTS ${EFFECTIVE_METADATA} AS
-SELECT i.id AS item_id, e.id, e.parent_entity_id,
+SELECT i.id AS item_id,
+       CASE WHEN e.id IS NOT NULL OR m.item_id IS NOT NULL THEN i.id END AS metadata_item_id,
+       e.id, e.parent_entity_id,
        ${fields.join(',\n       ')},
        COALESCE(m.genres_json, (
            SELECT json_group_array(g.name)
@@ -43,8 +47,7 @@ SELECT i.id AS item_id, e.id, e.parent_entity_id,
        )) AS genres_json
 FROM media_items i
 LEFT JOIN media_entities e ON e.id = i.entity_id
-LEFT JOIN media_item_metadata m ON m.item_id = i.id
-WHERE e.id IS NOT NULL OR m.item_id IS NOT NULL;
+LEFT JOIN media_item_metadata m ON m.item_id = i.id;
 `
 
 export const ITEM_METADATA_TRIGGER_SQL = `

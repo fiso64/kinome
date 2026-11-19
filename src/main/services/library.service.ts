@@ -671,9 +671,10 @@ export async function markAsWatched(itemId: string, userId: string): Promise<voi
 
 export async function getContinueWatchingItems(
   userId: string,
-  includeDismissed = false
+  includeDismissed = false,
+  showId?: string
 ): Promise<{ show: MediaFolder; nextEpisode: MediaFile }[]> {
-  // 1. Fetch all shows that have progress (denormalized pointer)
+  // Start with the account's progress rows so the library reads can use item IDs.
   const showsWithProgress = repositoryService.find({
     fields: [
       ...repositoryService.CORE_FIELDS,
@@ -685,37 +686,37 @@ export async function getContinueWatchingItems(
     where: {
       type: 'folder',
       mediaType: 'tv',
-      nextUpEpisodeId: { $ne: null }
-      // We'll filter dismissed in-memory or improve the repository helper
-      // but for now let's see if we get ANY results.
+      ...(showId && { id: showId }),
+    },
+    compiledConditions: {
+      sql: `i.id IN (
+        SELECT item_id FROM user_state WHERE user_id = ? AND next_up_episode_id IS NOT NULL
+      )`,
+      params: [userId],
+      tables: new Set(),
     },
     orderBy: { field: 'lastWatched', direction: 'DESC' },
     userId
   }) as MediaFolder[]
 
-  let filtered = showsWithProgress
-  if (!includeDismissed) {
-    filtered = showsWithProgress.filter((s) => !s.continueWatchingDismissed)
-  }
+  const shows = includeDismissed
+    ? showsWithProgress
+    : showsWithProgress.filter((show) => !show.continueWatchingDismissed)
+  const episodeIds = [...new Set(shows.flatMap((show) => show.nextUpEpisodeId ? [show.nextUpEpisodeId] : []))]
+  if (episodeIds.length === 0) return []
 
-  if (filtered.length === 0) return []
-
-  const results: { show: MediaFolder; nextEpisode: MediaFile }[] = []
-
-  for (const show of filtered) {
-    if (!show.nextUpEpisodeId) continue
-
-    // 2. Fetch the specific next episode using its ID
-    const nextEpisode = repositoryService.getItemById(show.nextUpEpisodeId) as MediaFile
-    if (!nextEpisode) continue
-
-    results.push({
-      show: repositoryService.createTransferableCopy(show) as MediaFolder,
-      nextEpisode: repositoryService.createTransferableCopy(nextEpisode) as MediaFile
-    })
-  }
-
-  return results
+  const episodes = repositoryService.find({
+    fields: [...repositoryService.CORE_FIELDS, 'overview'],
+    where: { id: episodeIds, type: 'file' },
+    includeHidden: true,
+    includeIgnored: true,
+    userId,
+  }) as MediaFile[]
+  const episodesById = new Map(episodes.map((episode) => [episode.id, episode]))
+  return shows.flatMap((show) => {
+    const nextEpisode = show.nextUpEpisodeId ? episodesById.get(show.nextUpEpisodeId) : undefined
+    return nextEpisode ? [{ show, nextEpisode }] : []
+  })
 }
 
 // --- Passthroughs ---
@@ -862,13 +863,8 @@ export const uploadImage = async (
   }
 }
 export const getContinueWatchingForShow = async (showId: string, userId: string) => {
-  const all = await getContinueWatchingItems(userId, true) // Include dismissed so we can show "Next Up" even if removed from Home
-  const found = all.find((r) => r.show.id === showId)
-  // For the detail view, we filter by nextUpDismissed here or let the UI handle it.
-  if (found && found.show.nextUpDismissed) {
-    return null
-  }
-  return found || null
+  const [result] = await getContinueWatchingItems(userId, true, showId)
+  return result && !result.show.nextUpDismissed ? result : null
 }
 export const setContinueWatchingDismissed = async (showId: string, userId: string) => {
   const item = repositoryService.getItemById(showId)

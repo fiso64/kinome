@@ -244,7 +244,7 @@ export function getDiscoveryItemsForPhase2(itemIds?: string[]): LibraryItem[] {
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
-    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+    JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)

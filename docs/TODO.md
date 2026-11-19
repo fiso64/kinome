@@ -1,39 +1,4 @@
 
-[media-identity-location-refactor-plan.md](media-identity-location-refactor-plan.md), part II. Finish it properly.
-
----
-
-Add support for half episodes like 20.5 (typically recap episodes in anime). Detect them, allow decimals in the episode field, and sort correctly.
-
----
-
-Bug: Not possible to reset media item back to "unknown" media type.  
-Consider adding a new media type None (explicit, not just null). (needs further discussion)
-
----
-
-Bug: Some folder settings do not apply correctly, reset on scan.
-1. Right click the "Recently Added" folder > Folder Settings
-2. Modify days since added value from 14 to 30.
-3. Save & close the modal. The setting will result in all library items being shown, not just those added in the last 30 days (this is another bug, that should also be fixed).
-4. Rescan library using the button in the toolbar. The setting resets to 14.  
-  
-Similarly, for the __home__ folder settings, changing its conditions gets reset on scan.
-
----
-
-Metadata canonicalization and vtag ownership.
-
-Item-bound manual tags and virtual tags are now implemented (`item_tags`, `item_virtual_tags`, vtag writes by `item_id`, and filtering/search/grouping/autocomplete reads by `item_id`). The remaining work is metadata canonicalization itself: if `MediaEntity` becomes canonical/shared provider data, locks, selected images, user edits, refresh gates, and other item-specific metadata must move to an item metadata/override table first.
-
-See [metadata-vtag-canonicalization-plan.md](metadata-vtag-canonicalization-plan.md).
-
----
-
-Tag season 1 as "accepted:yes" > Tag episode 3 as "accepted:no". For a whitelist use with "accepted:yes", season 1 should appear while episode 3 should be excluded. This is an example; the actual rule should be general and clear and well-defined.
-
----
-
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
 Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
 

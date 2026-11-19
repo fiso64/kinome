@@ -235,6 +235,8 @@ CREATE TABLE IF NOT EXISTS user_state (
     FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS idx_user_state_next_up_by_user
+ON user_state(user_id, item_id) WHERE next_up_episode_id IS NOT NULL;
 
 -- Folder View Settings & Configuration
 CREATE TABLE IF NOT EXISTS folder_settings (

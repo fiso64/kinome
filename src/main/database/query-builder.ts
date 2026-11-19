@@ -110,7 +110,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
 
     // Join the related table on the target parent if needed
     if (def.table === 'e') {
-        joins.push(`LEFT JOIN ${EFFECTIVE_METADATA} ${remap['e']} ON ${target}.id = ${remap['e']}.item_id`)
+        joins.push(`JOIN ${EFFECTIVE_METADATA} ${remap['e']} ON ${target}.id = ${remap['e']}.item_id`)
     } else if (def.table === 'f') {
         joins.push(`LEFT JOIN folder_settings ${remap['f']} ON ${target}.id = ${remap['f']}.item_id`)
     } else if (def.table === 'u') {
@@ -501,7 +501,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
 
     const selectParts: string[] = []
     if (usedTables.has('e')) {
-        selectParts.push('e.item_id AS _entity_id')
+        selectParts.push('e.metadata_item_id AS _entity_id')
     }
 
     for (const alias of finalFields) {
@@ -516,7 +516,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     const joinParams: any[] = []
 
     if (usedTables.has('e')) {
-        query += ` LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
+        query += ` JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
     }
     if (usedTables.has('u')) {
         if (userId) {

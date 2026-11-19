@@ -51,6 +51,28 @@ function seedRootAndMovies(): void {
     seedItem('movies', 'root', 'Movies', 'Movies', 'folder')
 }
 
+describe('scoped item query plans', () => {
+    it.each([{ id: 'movies' }, { parentId: 'root' }])(
+        'looks up only relevant locations and metadata for %j',
+        (where) => {
+            const db = createTestDb()
+            try {
+                const { query, params } = buildFindQuery({
+                    where,
+                    fields: ['id', 'title', 'path'],
+                    userId: 'viewer',
+                })
+                const rows = db.prepare(`EXPLAIN QUERY PLAN ${query}`).all(...params) as { detail: string }[]
+                const plan = rows.map(({ detail }) => detail).join('\n')
+                expect(plan).toContain('idx_media_locations_item_id')
+                expect(plan).not.toMatch(/MATERIALIZE (media_item_metadata_read|ranked_locations|selected_locations)/)
+            } finally {
+                db.close()
+            }
+        }
+    )
+})
+
 describe('query-builder field dependencies', () => {
     beforeEach(() => {
         db = createTestDb()

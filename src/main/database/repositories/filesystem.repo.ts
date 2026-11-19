@@ -151,7 +151,7 @@ function upsertMediaLocationFromLibraryRow(db: ReturnType<typeof getDb>, item: a
 // row-to-object conversion (last column with same name wins). Instead, we explicitly
 // list all media_entities columns except `id`, which is only selected as `_entity_id`.
 export const ENTITY_COLUMNS_SQL = `
-    e.item_id AS _entity_id,
+    e.metadata_item_id AS _entity_id,
     e.tmdb_id, e.media_type, e.title, e.original_title, e.overview,
     e.release_date, e.year, e.tmdb_runtime,
     e.season_number, e.episode_number, e.parent_entity_id,
@@ -172,7 +172,7 @@ const VIEW_SETTINGS_SQL = `
 
 const FULL_JOIN_SQL = `
     FROM ${ITEM_READ_MODEL} i
-    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+    JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
 `
 
@@ -228,7 +228,7 @@ export function fetchParent(id: string): any {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ${ITEM_READ_MODEL} p ON i.parent_id = p.id
-    LEFT JOIN ${EFFECTIVE_METADATA} e ON p.id = e.item_id
+    JOIN ${EFFECTIVE_METADATA} e ON p.id = e.item_id
     LEFT JOIN folder_settings f ON p.id = f.item_id
     WHERE i.id = ?
   `
@@ -255,7 +255,7 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN tree t ON i.id = t.id
-    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+    JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
         )
@@ -278,7 +278,7 @@ export function fetchEpisodeProgressForShow(showId: string, userId: string): { i
         SELECT i.id, e.season_number AS seasonNumber, e.episode_number AS episodeNumber, u.watched
         FROM ${ITEM_READ_MODEL} i
         JOIN tree t ON i.id = t.id
-        LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+        JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
         LEFT JOIN user_state u ON i.id = u.item_id AND u.user_id = ?
         WHERE i.type = 'file' AND e.media_type = 'episode'
     `).all(showId, userId) as any[]
@@ -304,7 +304,7 @@ export function fetchAncestorsRaw(itemId: string): any[] {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ancestors a ON i.id = a.id
-    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+    JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.id != ?
     ORDER BY a.level ASC
@@ -916,7 +916,7 @@ export function getDistinctSeasonNumbers(parentId: string): number[] {
     const rows = db.prepare(`
         SELECT DISTINCT e.season_number
         FROM ${ITEM_READ_MODEL} i
-        LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+        JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
         WHERE i.parent_id = ?
           AND i.is_virtual = 0
           AND i.type = 'file'

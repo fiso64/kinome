@@ -11,6 +11,7 @@ import { migration as canonicalProviderEntities } from './migrations/0009_canoni
 import { migration as selectedLocationPriority } from './migrations/0010_selected_location_priority'
 import { migration as accountLocationVisibility } from './migrations/0011_account_location_visibility'
 import { migration as dropEntityClassification } from './migrations/0012_drop_entity_classification'
+import { migration as indexedLocationSelection } from './migrations/0013_indexed_location_selection'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -34,7 +35,8 @@ const MIGRATIONS: Migration[] = [
   canonicalProviderEntities,
   selectedLocationPriority,
   accountLocationVisibility,
-  dropEntityClassification
+  dropEntityClassification,
+  indexedLocationSelection
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

@@ -53,7 +53,7 @@ function ensureItemMetadata(itemId: string): void {
     const columns = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => column).join(', ')
     db.prepare(`
         INSERT OR IGNORE INTO media_item_metadata (item_id, ${columns}, genres_json)
-        SELECT item_id, ${columns}, genres_json FROM ${EFFECTIVE_METADATA} WHERE item_id = ?
+        SELECT item_id, ${columns}, genres_json FROM ${EFFECTIVE_METADATA} WHERE item_id = ? AND metadata_item_id IS NOT NULL
     `).run(itemId)
     db.prepare('INSERT OR IGNORE INTO media_item_metadata (item_id) VALUES (?)').run(itemId)
 }
@@ -207,7 +207,7 @@ export function bulkClearItemMetadata(itemIds: string[]): void {
 // ─── Read Helpers ───────────────────────────────────────────────────────────
 
 export function fetchMetadataRow(itemId: string): any {
-    return getDb().prepare(`SELECT * FROM ${EFFECTIVE_METADATA} WHERE item_id = ?`).get(itemId)
+    return getDb().prepare(`SELECT * FROM ${EFFECTIVE_METADATA} WHERE item_id = ? AND metadata_item_id IS NOT NULL`).get(itemId)
 }
 
 export function updateMetadataImages(
@@ -343,7 +343,7 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
                 : `WHERE 1=1 ${scopeCondition}`
 
             const joinSql = tables.has('e')
-                ? `LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
+                ? `JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
                 : ''
 
             const insertSql = `

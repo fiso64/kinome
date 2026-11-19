@@ -73,6 +73,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { getContinueWatchingItems, deleteItemFromDb } from './library.service'
 import { updateUserState } from '../database/repositories/user.repo'
+import { createAccount } from '../database/repositories/account.repo'
+import { setFilterRule } from '../database/repositories/account-filter.repo'
+import { markDirty } from './account-filter.service'
 import { getItemById } from './repository.service'
 import { getTransport } from '../transport.registry'
 
@@ -122,6 +125,17 @@ function seedShowWithEpisodes(opts: { ep2HasTitle: boolean } = { ep2HasTitle: tr
 }
 
 describe('getContinueWatchingItems', () => {
+  it('omits a next episode excluded by the account whitelist', async () => {
+    seedShowWithEpisodes({ ep2HasTitle: true })
+    createAccount(USER_ID, 'viewer', 'hash', 'normal')
+    ctx.seedTags('e-show', { allow: 'yes' })
+    ctx.seedTags('e-ep2', { allow: 'no' })
+    setFilterRule(USER_ID, 'allow', { conditions: [{ field: 'tags.allow', op: 'eq', value: 'yes' }] })
+    markDirty()
+
+    expect(await getContinueWatchingItems(USER_ID)).toEqual([])
+  })
+
   it('returns the show and next episode', async () => {
     seedShowWithEpisodes({ ep2HasTitle: true })
 
