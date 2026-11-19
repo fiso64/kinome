@@ -1,5 +1,16 @@
-import { getDb } from '../client'
+import { getDb, runTransaction } from '../client'
 import { ITEM_READ_MODEL } from '../query-builder'
+import { withAccountLocations } from '../media-read-model.sql'
+
+export function replaceSourcePriorities(sourceIds: string[]): void {
+  runTransaction(() => {
+    const db = getDb()
+    db.prepare('DELETE FROM media_source_priority').run()
+    const insert = db.prepare('INSERT INTO media_source_priority (source_id, priority) VALUES (?, ?)')
+    const orderedSources = [...new Set(sourceIds)]
+    orderedSources.forEach((id, priority) => insert.run(id, priority))
+  })
+}
 
 export interface MediaLocationRow {
   id: string
@@ -107,9 +118,7 @@ export function resolveSelectedLocationForItem(
     params.push(options.userId, options.userId)
   }
 
-  const row = db
-    .prepare(
-      `
+  const query = `
       SELECT
         i.selected_location_id AS id,
         i.id AS itemId,
@@ -124,8 +133,9 @@ export function resolveSelectedLocationForItem(
       FROM ${ITEM_READ_MODEL} i
       WHERE ${conditions.join(' AND ')}
     `
-    )
-    .get(...params) as
+  const row = (options.userId
+    ? db.prepare(withAccountLocations(query, '?')).get(options.userId, ...params)
+    : db.prepare(query).get(...params)) as
     | {
         id: string
         itemId: string

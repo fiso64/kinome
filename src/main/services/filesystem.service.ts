@@ -1,6 +1,7 @@
+import { EFFECTIVE_METADATA } from '../database/item-metadata.sql'
 import path from 'path'
 import fs from 'fs/promises'
-import { type Dirent } from 'fs'
+import type { Dirent } from 'node:fs'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
@@ -12,7 +13,12 @@ import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
 import { ITEM_READ_MODEL } from '../database/query-builder'
-import { parseEpisodeInfo, parseSeasonFolder } from '../utils/tv-parser'
+import { isSupportedVideoFile } from '../utils/tv-parser'
+import {
+  applyReconciliationPlan, buildReconciliationPlan, type DiscoveredLocation, type SourceHistory,
+} from './scan-reconciliation.service'
+import { fileFingerprint, fingerprintFolders } from './scan-fingerprint'
+import { markDirty } from './account-filter.service'
 
 const log = (message: string): void => {
   console.log(`[${new Date().toISOString()}] [Filesystem Service] ${message}`)
@@ -23,36 +29,6 @@ interface SyncDiskResult {
   foundLocationPaths: Set<string>
   foundNonEmptyFolderPaths: Set<string>
   scanSucceeded: boolean
-}
-
-/**
- * Buffered writer for fingerprints to maximize SQLite throughput.
- */
-class FingerprintBuffer {
-  private buffer: any[] = []
-  private timeout: any = null
-
-  add(item: any) {
-    this.buffer.push(item)
-    if (this.buffer.length >= 500) {
-      this.flush()
-    } else if (!this.timeout) {
-      this.timeout = setTimeout(() => this.flush(), 1000)
-    }
-  }
-
-  flush() {
-    if (this.buffer.length === 0) return
-    if (this.timeout) {
-      clearTimeout(this.timeout)
-      this.timeout = null
-    }
-
-    runTransaction(() => {
-      itemsRepo.upsertLibraryItems(this.buffer)
-    })
-    this.buffer = []
-  }
 }
 
 /**
@@ -82,323 +58,186 @@ class ProgressBroadcaster {
   }
 }
 
+async function probeMissingLocations(
+  sourceId: string,
+  discovered: DiscoveredLocation[],
+  knownPaths: ReadonlySet<string>,
+  priorSources: SourceHistory,
+  sourcePaths?: ReadonlyMap<string, string>,
+): Promise<SourceHistory> {
+  const missing: SourceHistory = new Map()
+  if (!sourcePaths || sourcePaths.size < 2) return missing
+
+  const candidates: SourceHistory = new Map()
+  for (const entry of discovered) {
+    if (entry.shadow || knownPaths.has(entry.relativePath)) continue
+    for (const match of itemsRepo.findPresentMoveCandidates(sourceId, entry.relativePath, entry.contentFingerprint)) {
+      if (priorSources.has(match.sourceId) || !sourcePaths.has(match.sourceId)) continue
+      const paths = candidates.get(match.sourceId) ?? new Set<string>()
+      paths.add(match.path)
+      candidates.set(match.sourceId, paths)
+    }
+  }
+
+  for (const [id, paths] of candidates) {
+    const root = sourcePaths.get(id)!
+    if (pathsService.isRemotePath(root)) continue
+    try {
+      await fs.access(root)
+    } catch {
+      continue
+    }
+    for (const relativePath of paths) {
+      const absolutePath = pathsService.securePathJoin(root, relativePath)
+      if (!absolutePath) continue
+      try {
+        await fs.stat(absolutePath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') continue
+        const absent = missing.get(id) ?? new Set<string>()
+        absent.add(relativePath)
+        missing.set(id, absent)
+      }
+    }
+  }
+  return missing
+}
+
 async function syncDiskToDatabase(
   rootAbsPath: string,
   source: { id: string; absolutePath: string },
   higherPriorityPaths?: Set<string>,
   shadowMinDepth: number = 1,
   cleanupMissing: boolean = true,
-  sameRelativePathRescueSources: Map<string, Set<string>> = new Map()
+  priorSources: SourceHistory = new Map(),
+  sourcePaths?: ReadonlyMap<string, string>,
 ): Promise<SyncDiskResult> {
-  const foundPaths = new Set<string>()
+  const discovered: DiscoveredLocation[] = []
   const foundLocationPaths = new Set<string>()
   const foundNonEmptyFolderPaths = new Set<string>()
-  const newItemsByFingerprint = new Map<string, any | null>()
-  const newItems: any[] = []
-  const rescuedNewItems = new Set<any>()
-  const discoveredItemIdsByRelPath = new Map<string, string>()
-  const fingerprintBuffer = new FingerprintBuffer()
+  const skippedBranches = new Set<string>()
   const progress = new ProgressBroadcaster()
+  const rootRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, rootAbsPath)
+  const previous = itemsRepo.getScanLocations(source.id, rootRelPath)
+  const previousByPath = new Map(previous.map((location) => [location.path, location]))
+  const hiddenPaths = new Set(previous.filter(({ hidden }) => hidden).map(({ path }) => path))
   let scanSucceeded = true
 
-  const rootRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, rootAbsPath)
-  const rootId = itemsRepo.generateId(source.id, rootRelPath)
-  const sourceRootId = itemsRepo.generateId(source.id, '.')
-  const existingRootId = itemsRepo.getItemIdBySourcePath(source.id, rootRelPath)
-  const effectiveRootId = existingRootId ?? rootId
-  discoveredItemIdsByRelPath.set(rootRelPath, effectiveRootId)
-
-  const resolveParentId = (relPath: string): string => {
-    if (relPath === '.') return itemsRepo.LIBRARY_ROOT_ID
-    const parentRelPath = itemsRepo.normalizeRelativePath(path.dirname(relPath))
-    return (
-      itemsRepo.getItemIdBySourcePath(source.id, parentRelPath) ??
-      discoveredItemIdsByRelPath.get(parentRelPath) ??
-      itemsRepo.generateItemId()
-    )
+  const remember = (entry: DiscoveredLocation) => {
+    discovered.push(entry)
+    foundLocationPaths.add(entry.relativePath)
+    progress.update(entry.relativePath)
   }
 
-  const knownAbsentSourceIdsForPath = (relPath: string): string[] => {
-    const sourceIds: string[] = []
-    for (const [sourceId, foundLocationPaths] of sameRelativePathRescueSources) {
-      if (sourceId !== source.id && !foundLocationPaths.has(relPath)) {
-        sourceIds.push(sourceId)
+  const queue = new GlobalTaskQueue<string>(1, async (absolutePath) => {
+    const relativePath = itemsRepo.relativePathFromAbsolute(source.absolutePath, absolutePath)
+    try {
+      const stats = await fs.stat(absolutePath)
+      const shadowCandidate =
+        relativePath !== rootRelPath &&
+        relativePath.split('/').length >= shadowMinDepth &&
+        higherPriorityPaths?.has(relativePath)
+          ? itemsRepo.findPresentLocationByRelativePath(relativePath, source.id) ?? undefined
+          : undefined
+      const exact = previousByPath.get(relativePath)
+      const shadow = shadowCandidate && (!exact || exact.id === shadowCandidate.itemId)
+        ? shadowCandidate
+        : undefined
+      const entry: DiscoveredLocation = {
+        relativePath,
+        name: path.basename(absolutePath) || 'Library',
+        type: 'folder',
+        stats,
+        ignored: false,
+        shadow,
       }
-    }
-    return sourceIds
-  }
+      remember(entry)
+      if (shadow || hiddenPaths.has(relativePath)) {
+        skippedBranches.add(relativePath)
+        return
+      }
 
-  const findReusableEpisodeItemIdForDiscoveredFile = (relPath: string): string | null => {
-    const normalizedRelPath = itemsRepo.normalizeRelativePath(relPath)
-    const candidateSourceIds = knownAbsentSourceIdsForPath(normalizedRelPath)
-    if (candidateSourceIds.length === 0) return null
+      const children: Dirent[] = await fs.readdir(absolutePath, { withFileTypes: true })
+      entry.ignored = children.some(({ name }) => name === '.ignore')
+      if (entry.ignored) {
+        skippedBranches.add(relativePath)
+        return
+      }
+      if (children.some((child) => child.isDirectory() || isSupportedVideoFile(child.name))) {
+        foundNonEmptyFolderPaths.add(relativePath)
+      }
 
-    const parsed = parseEpisodeInfo(path.posix.basename(normalizedRelPath))
-    if (!parsed) return null
-
-    const parentPath = itemsRepo.normalizeRelativePath(path.posix.dirname(normalizedRelPath))
-    if (parentPath === '.') return null
-
-    const parentName = path.posix.basename(parentPath)
-    const parentSeasonNumber = parseSeasonFolder(parentName)
-    const seasonNumber = parsed.season ?? parentSeasonNumber
-    if (seasonNumber == null) return null
-
-    const showRootPath = parentSeasonNumber !== null
-      ? itemsRepo.normalizeRelativePath(path.posix.dirname(parentPath))
-      : parentPath
-    if (showRootPath === '.') return null
-
-    const candidates = itemsRepo.findEpisodeMoveCandidates({
-      sourceIds: candidateSourceIds,
-      showRootPath,
-      seasonNumber,
-      episodeNumber: parsed.episode
-    }).filter((candidate) => {
-      const foundLocationPaths = sameRelativePathRescueSources.get(candidate.sourceId)
-      return !!foundLocationPaths &&
-        !foundLocationPaths.has(candidate.path) &&
-        !foundLocationPaths.has(showRootPath)
-    })
-
-    const itemIds = new Set(candidates.map((candidate) => candidate.itemId))
-    if (itemIds.size !== 1) return null
-
-    const match = candidates[0]
-    log(`[Phase 1] Reusing episode identity after source reorg: "${match.path}" -> "${normalizedRelPath}"`)
-    return match.itemId
-  }
-
-  const queue = new GlobalTaskQueue<string>(1, async (currentPath) => {
-    const currentRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, currentPath)
-    const currentId =
-      itemsRepo.getItemIdBySourcePath(source.id, currentRelPath) ??
-      discoveredItemIdsByRelPath.get(currentRelPath) ??
-      (currentRelPath === '.' ? sourceRootId : itemsRepo.generateItemId())
-    discoveredItemIdsByRelPath.set(currentRelPath, currentId)
-
-    // 1. Get all entries (Files and Folders)
-    let entries: Dirent[]
-    try {
-      entries = await fs.readdir(currentPath, { withFileTypes: true })
-    } catch (e) {
-      log(`Failed to readdir: ${currentPath}`)
-      scanSucceeded = false
-      return
-    }
-
-    // 2. Authoritative State Update
-    const hasIgnoreFile = entries.some((e) => e.name === '.ignore')
-    const hasScannableChild = entries.some((e) => e.isDirectory() || /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(e.name))
-    const isUserHidden = itemsRepo.isItemHidden(currentId)
-
-    try {
-      const s = await fs.stat(currentPath)
-
-      fingerprintBuffer.add({
-        '@id': currentId,
-        '@parentId': resolveParentId(currentRelPath),
-        '@path': currentRelPath,
-        '@name': path.basename(currentPath) || 'Library',
-        '@type': 'folder',
-        '@sourceId': source.id,
-        '@size': s.size,
-        '@mtime': Math.floor(s.mtimeMs),
-        '@birthtime': Math.floor(s.birthtimeMs),
-        '@inode': s.ino,
-        '@deviceId': s.dev,
-        '@isIgnored': hasIgnoreFile ? 1 : 0,
-        '@isHidden': isUserHidden ? 1 : 0
-      })
-      foundPaths.add(currentId)
-      foundLocationPaths.add(currentRelPath)
-      if (hasScannableChild) foundNonEmptyFolderPaths.add(currentRelPath)
-    } catch (e) {
-      log(`[Phase 1] Failed to stat folder: ${currentPath}`)
-      scanSucceeded = false
-      return
-    }
-
-    if (hasIgnoreFile || isUserHidden) {
-      log(
-        `[Phase 1] Branch suppressed: ${currentRelPath} (${hasIgnoreFile ? '.ignore' : ''}${hasIgnoreFile && isUserHidden ? '+' : ''}${isUserHidden ? 'user-hidden' : ''})`
-      )
-      return
-    }
-
-    log(`[Phase 1] Processing branch: ${currentRelPath} (${entries.length} entries)`)
-
-    // 3. PROCESS CHILDREN (Files and Subfolders)
-    const CHILDREN_BATCH_SIZE = 50
-    for (let i = 0; i < entries.length; i += CHILDREN_BATCH_SIZE) {
-      const batch = entries.slice(i, i + CHILDREN_BATCH_SIZE)
-
-      await Promise.all(
-        batch.map(async (entry) => {
-          const fullPath = path.join(currentPath, entry.name)
-          const relPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, fullPath)
-          const isDir = entry.isDirectory()
-
-          const isVideoFile = !isDir && /\.(mp4|mkv|avi|mov|wmv|flv|webm)$/i.test(entry.name)
-          if (!isDir && !isVideoFile) return
-
+      const files: Dirent[] = []
+      for (const child of children) {
+        if (child.isDirectory()) queue.push(path.join(absolutePath, child.name))
+        else if (isSupportedVideoFile(child.name)) files.push(child)
+      }
+      const batchSize = 50
+      for (let start = 0; start < files.length; start += batchSize) {
+        const entries = await Promise.all(files.slice(start, start + batchSize).map(async ({ name }) => {
+          const filePath = path.join(absolutePath, name)
           try {
-            const s = await fs.stat(fullPath)
-            const depth = relPath.split('/').length
-            const shadowedBy =
-              isDir && higherPriorityPaths && depth >= shadowMinDepth && higherPriorityPaths.has(relPath)
-                ? itemsRepo.findPresentLocationByRelativePath(relPath, source.id)
-                : null
-            const id =
-              shadowedBy?.itemId ??
-              itemsRepo.getItemIdBySourcePath(source.id, relPath) ??
-              itemsRepo.findReusableItemIdForDiscoveredLocation({
-                sourceId: source.id,
-                relativePath: relPath,
-                inode: s.ino,
-                deviceId: s.dev,
-                knownAbsentSourceIds: knownAbsentSourceIdsForPath(relPath)
-              }) ??
-              (!isDir ? findReusableEpisodeItemIdForDiscoveredFile(relPath) : null) ??
-              itemsRepo.generateItemId()
-            discoveredItemIdsByRelPath.set(relPath, id)
-
-            const itemData = {
-              '@id': id,
-              '@parentId': currentId,
-              '@path': relPath,
-              '@name': entry.name,
-              '@type': isDir ? 'folder' : 'file',
-              '@sourceId': source.id,
-              '@size': s.size,
-              '@mtime': Math.floor(s.mtimeMs),
-              '@birthtime': Math.floor(s.birthtimeMs),
-              '@inode': s.ino,
-              '@deviceId': s.dev,
-              '@isIgnored': isDir ? null : 0, // Parent doesn't know folder ignore state yet
-              '@isHidden': isDir ? null : itemsRepo.isItemHidden(id) ? 1 : 0,
-              '@isShadowed': shadowedBy ? 1 : 0,
-              '@shadowedByLocationId': shadowedBy?.locationId ?? null
+            const stats = await fs.stat(filePath)
+            if (!stats.isFile()) return
+            const relativePath = itemsRepo.relativePathFromAbsolute(source.absolutePath, filePath)
+            const prior = previousByPath.get(relativePath)
+            const cached = prior?.contentFingerprint?.startsWith('file:v1:') &&
+              prior.size === stats.size && prior.mtime === Math.floor(stats.mtimeMs) &&
+              prior.birthtime === Math.floor(stats.birthtimeMs) && prior.inode === stats.ino &&
+              prior.deviceId === stats.dev
+            return {
+              relativePath,
+              name,
+              type: 'file' as const,
+              stats,
+              ignored: false,
+              contentFingerprint: cached
+                ? prior?.contentFingerprint ?? undefined
+                : await fileFingerprint(filePath, stats),
             }
-
-            if (shadowedBy) {
-              log(`[Phase 1] Shadowed folder location recorded: ${relPath} (${id})`)
-              fingerprintBuffer.add(itemData)
-              foundPaths.add(id)
-              foundLocationPaths.add(relPath)
-              progress.update(relPath)
-              return
-            }
-
-            if (itemsRepo.existsById(id)) {
-              if (isDir) log(`[Phase 1] Discovered EXISTING folder: ${relPath} (${id})`)
-              fingerprintBuffer.add(itemData)
-              foundPaths.add(id)
-              foundLocationPaths.add(relPath)
-            } else {
-              if (isDir) log(`[Phase 1] Discovered NEW folder: ${relPath} (${id})`)
-              newItems.push(itemData)
-              const key = locationFingerprintKey(itemData['@deviceId'], itemData['@inode'])
-              if (key) {
-                newItemsByFingerprint.set(key, newItemsByFingerprint.has(key) ? null : itemData)
-              }
-            }
-
-            if (isDir) {
-              queue.push(fullPath)
-            }
-
-            progress.update(relPath)
-          } catch (e) {
-            log(`Failed to stat: ${fullPath}`)
+          } catch {
+            log(`Failed to stat: ${filePath}`)
             scanSucceeded = false
           }
-        })
-      )
+        }))
+        for (const file of entries) if (file) remember(file)
+      }
+    } catch {
+      log(`Failed to read directory: ${absolutePath}`)
+      scanSucceeded = false
     }
   })
 
-  // Start the crawl
   queue.push(rootAbsPath)
-
-  // Ensure the source root itself is tracked
-  try {
-    const s = await fs.stat(rootAbsPath)
-    const isUserHidden = itemsRepo.isItemHidden(effectiveRootId)
-    fingerprintBuffer.add({
-      '@id': effectiveRootId,
-      '@parentId': effectiveRootId === sourceRootId ? itemsRepo.LIBRARY_ROOT_ID : resolveParentId(rootRelPath),
-      '@path': rootRelPath,
-      '@name': path.basename(rootAbsPath) || 'Library',
-      '@type': 'folder',
-      '@sourceId': source.id,
-      '@size': s.size,
-      '@mtime': Math.floor(s.mtimeMs),
-      '@birthtime': Math.floor(s.birthtimeMs),
-      '@inode': s.ino,
-      '@deviceId': s.dev,
-      '@isIgnored': 0,
-      '@isHidden': isUserHidden ? 1 : 0
-    })
-    foundPaths.add(effectiveRootId)
-    foundLocationPaths.add(rootRelPath)
-  } catch {
-    scanSucceeded = false
-  }
-
   await queue.waitForIdle()
-  fingerprintBuffer.flush()
+  if (scanSucceeded) fingerprintFolders(discovered)
   progress.broadcast()
-
-  // --- RECONCILIATION PHASE ---
-
-  const scopePath = rootRelPath === '.' ? '' : rootRelPath
-  const missingItems = itemsRepo.getItemsForCleanup(source.id, scopePath).filter((item) => !foundLocationPaths.has(item.path))
-
-  log(
-    `[Phase 1] Crawl complete. Found ${foundPaths.size} existing items, ${newItems.length} potentially new items.`
+  const probedMissingPaths = await probeMissingLocations(
+    source.id, discovered, new Set(previousByPath.keys()), priorSources, sourcePaths
   )
 
-  // #2 Identity-Based Rename Rescue (O(N))
-  for (const item of missingItems) {
-    const key = locationFingerprintKey(item.deviceId, item.inode)
-    const match = key ? newItemsByFingerprint.get(key) : null
-
-    if (match) {
-      log(`[Phase 1] Detected rename: "${item.path}" -> "${match['@path']}"`)
-      itemsRepo.migrateRecord(item.id, match)
-      foundPaths.add(item.id)
-      foundLocationPaths.add(match['@path'])
-      rescuedNewItems.add(match)
+  const foundItemIds = runTransaction(() => {
+    const currentLocations = itemsRepo.getScanLocations(source.id, rootRelPath)
+    for (const location of currentLocations) {
+      let relativePath = location.path
+      while (relativePath !== '.') {
+        relativePath = path.posix.dirname(relativePath)
+        if (skippedBranches.has(relativePath)) {
+          foundLocationPaths.add(location.path)
+          break
+        }
+      }
     }
-  }
-
-  // #3 Final Sync (Insert remaining new items)
-  const remainingNewItems = newItems.filter((item) => !rescuedNewItems.has(item))
-  if (remainingNewItems.length > 0) {
-    log(`[Phase 1] Inserting ${remainingNewItems.length} new items.`)
-    itemsRepo.upsertLibraryItems(remainingNewItems)
-    for (const item of remainingNewItems) {
-      foundPaths.add(item['@id'])
-      foundLocationPaths.add(item['@path'])
-    }
-  }
-
-  // #4 Conditional Cleanup
-  if (!cleanupMissing) {
-    log(`[Phase 1] Cleanup deferred for source ${source.id} in scope: "${scopePath}"`)
-    log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
-    return { foundItemIds: foundPaths, foundLocationPaths, foundNonEmptyFolderPaths, scanSucceeded }
-  }
-
-  cleanupMissingForSource(source.id, scopePath, foundLocationPaths, scanSucceeded)
-
-  log(`[Phase 1] Filesystem sync complete. Result: ${foundPaths.size} active items.`)
-  return { foundItemIds: foundPaths, foundLocationPaths, foundNonEmptyFolderPaths, scanSucceeded }
-}
-
-function locationFingerprintKey(deviceId: number | null | undefined, inode: number | null | undefined): string | null {
-  return deviceId == null || inode == null ? null : `${deviceId}_${inode}`
+    const plan = buildReconciliationPlan(
+      source.id, discovered, currentLocations, foundLocationPaths, scanSucceeded,
+      { scannedPaths: priorSources, probedMissingPaths }, log
+    )
+    const ids = applyReconciliationPlan(source.id, plan, log)
+    if (cleanupMissing) cleanupMissingForSource(source.id, rootRelPath, foundLocationPaths, scanSucceeded)
+    return ids
+  })
+  markDirty()
+  return { foundItemIds, foundLocationPaths, foundNonEmptyFolderPaths, scanSucceeded }
 }
 
 export function cleanupMissingForSource(sourceId: string, pathPrefix: string, foundLocationPaths: Set<string>, scanSucceeded: boolean): void {
@@ -408,25 +247,18 @@ export function cleanupMissingForSource(sourceId: string, pathPrefix: string, fo
     log(`[Phase 1] Cleanup skipped for source ${sourceId} in scope "${scopePath}" because the scan did not complete successfully.`)
     return
   }
-  const missingItems = itemsRepo.getItemsForCleanup(sourceId, scopePath).filter((item) => !foundLocationPaths.has(item.path))
+  const missingItems = itemsRepo.getScanLocations(sourceId, scopePath).filter((item) => item.present && !foundLocationPaths.has(item.path))
 
   log(
     `[Phase 1] Reconciliation: Checking ${missingItems.length} missing items for cleanup in scope: "${scopePath}"`
   )
-  for (const item of missingItems) {
-    // Optimization: Check if this location was rescued during the scan.
-    if (foundLocationPaths.has(item.path)) continue
-
-    if (item.hasLocks) {
-      log(`[Phase 1] Marking AS MISSING (has locks): ${item.path}`)
+  runTransaction(() => {
+    for (const item of missingItems) {
+      log(`[Phase 1] Marking location missing: ${item.path}`)
       itemsRepo.markLocationAsMissing(item.locationId)
-    } else {
-      log(`[Phase 1] DELETING (no locks): ${item.path}`)
-      itemsRepo.markLocationAsMissing(item.locationId)
-      itemsRepo.deleteLocation(item.locationId)
-      itemsRepo.deleteItemIfNoPresentLocations(item.id)
     }
-  }
+  })
+  if (missingItems.length > 0) markDirty()
 }
 
 export async function scanDirectory(
@@ -439,6 +271,7 @@ export async function scanDirectory(
     shadowMinDepth?: number
     cleanupMissing?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
+    sourcePaths?: ReadonlyMap<string, string>
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
@@ -455,7 +288,8 @@ export async function scanDirectory(
     options.higherPriorityPaths,
     options.shadowMinDepth,
     options.cleanupMissing ?? true,
-    options.sameRelativePathRescueSources
+    options.sameRelativePathRescueSources,
+    options.sourcePaths
   )
     .then((result) => {
       options.onFoundItems?.(result.foundItemIds)
@@ -510,7 +344,7 @@ export async function verifyImagePaths(imagesDir: string): Promise<void> {
   const rows = searchRepo.executeSearchSql(
     `SELECT i.id AS item_id, e.poster_path, e.backdrop_path, e.logo_path
      FROM ${ITEM_READ_MODEL} i
-     JOIN media_entities e ON i.entity_id = e.id
+     JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
      WHERE e.poster_path IS NOT NULL OR e.backdrop_path IS NOT NULL OR e.logo_path IS NOT NULL`,
     []
   ) as { item_id: string; poster_path: string | null; backdrop_path: string | null; logo_path: string | null }[]

@@ -19,12 +19,12 @@
     item: LibraryItem
     title: string
     year: string
-    mediaType: 'movie' | 'tv' | 'season' | 'episode' | undefined
+    mediaType: 'movie' | 'tv' | 'season' | 'episode' | null
     overview: string
     genres: string[]
     tags: { id: string; key: string; value: string }[]
     seasonNumber: string
-    episodeNumber: string
+    episodeNumber: number | undefined
     episodeSeasonNumber: string
     suggestions: AutocompleteSuggestions
   } = $props()
@@ -46,7 +46,7 @@
         <div class="number-input-group">
           <label for="media-type">Type</label>
           <select id="media-type" bind:value={mediaType}>
-            <option value={undefined}>Unknown</option>
+            <option value={null}>Unknown</option>
             <option value="movie">Movie</option>
             <option value="tv">TV Show</option>
             {#if item.type === 'folder'}
@@ -88,6 +88,7 @@
               bind:value={episodeNumber}
               class="number-input"
               min="1"
+              step="any"
             />
           </div>
         {/if}

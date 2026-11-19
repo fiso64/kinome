@@ -30,12 +30,48 @@ function itemIdForSourcePath(sourceId: string, relativePath: string): string | n
   const row = ctx.db.prepare(`
     SELECT item_id
     FROM media_locations
-    WHERE source_id = ? AND relative_path = ?
+    WHERE source_id = ? AND relative_path = ? AND is_present = 1
   `).get(sourceId, relativePath) as { item_id: string } | undefined
   return row?.item_id ?? null
 }
 
 describe('full-library scan maintenance orchestration', () => {
+  it.each([false, true])('preserves identity after copy, delete, and rename (reverse priority: %s)', async (reverse) => {
+    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-content-move-'))
+    const sources = ['first', 'second'].map((id) => ({
+      id, path: path.join(fixture, id), isRelative: false,
+    }))
+    const [first, second] = reverse ? [sources[1], sources[0]] : sources
+    const sourcePaths = new Map(sources.map(({ id, path }) => [id, path]))
+    const scan = () => runFullLibraryScan({ sources, sourcePaths, runEarlyMaintenance: false })
+    const enrichment = spyOn(metadataService, 'enrichDatabase').mockResolvedValue(undefined)
+
+    try {
+      const original = path.join(first.path, 'Old Movie')
+      const destination = path.join(second.path, 'New Movie')
+      await fs.mkdir(original, { recursive: true })
+      await fs.mkdir(second.path)
+      await fs.writeFile(path.join(original, 'Old.mkv'), 'fixture movie data')
+      await scan()
+      const originalFolderId = itemIdForSourcePath(first.id, 'Old Movie')
+      const originalFileId = itemIdForSourcePath(first.id, 'Old Movie/Old.mkv')
+      expect(originalFolderId).not.toBeNull()
+      expect(originalFileId).not.toBeNull()
+
+      await fs.mkdir(destination)
+      await fs.copyFile(path.join(original, 'Old.mkv'), path.join(destination, 'New.mkv'))
+      await fs.rm(original, { recursive: true })
+      await scan()
+
+      expect(itemIdForSourcePath(second.id, 'New Movie')).toBe(originalFolderId)
+      expect(itemIdForSourcePath(second.id, 'New Movie/New.mkv')).toBe(originalFileId)
+      expect(itemIdForSourcePath(first.id, 'Old Movie/Old.mkv')).toBeNull()
+    } finally {
+      enrichment.mockRestore()
+      await fs.rm(fixture, { recursive: true, force: true })
+    }
+  })
+
   it('runs targeted enrichment for a completed source before scanning the next source', async () => {
     const tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-fast-source-'))
     const tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-slow-source-'))
@@ -286,7 +322,7 @@ describe('full-library scan maintenance orchestration', () => {
         SELECT mi.parent_item_id, mi.entity_id, mi.media_kind, mi.created_at, ml.source_id, ml.relative_path, ml.name,
                e.title, e.season_number, e.episode_number, e.last_refreshed_at
         FROM media_items mi
-        JOIN media_locations ml ON ml.item_id = mi.id
+        JOIN media_locations ml ON ml.item_id = mi.id AND ml.is_present = 1
         JOIN media_entities e ON e.id = mi.entity_id
         WHERE mi.id = ?
       `).get(ep1Id) as any

@@ -19,8 +19,8 @@ To ensure good performance on unchanged structures, the scan process is strictly
 ## 2. Core Variables & State
 
 ### A. Structural Fingerprint
-For every file and folder, the scanner persists a **Fingerprint** in the `items` table:
-- **`path`**: The relative path from the library root (Persistent Identifier).
+For every file and folder, the scanner stores physical observations in `media_locations`:
+- **`relative_path`** is the path under the source root.
 - **`mtime`**: Filesystem modification time (File-level change signal).
 - **`size`**: Byte size (Fast raw stat; non-recursive).
 - **`birthtime`**: Creation time.
@@ -49,108 +49,21 @@ For every file and folder, the scanner persists a **Fingerprint** in the `items`
 
 ### Phase 1: Filesystem Sync (`syncDiskToDatabase`)
 
-```js
-// We define explicit limits for the scan process.
-// These are tuned for performance on HDDs.
-FOLDER_LIMIT = 1
-CHILDREN_BATCH_SIZE = 50
+Discovery walks one folder at a time and reads supported files in bounded batches.
+It records physical paths and stats, skips hidden or ignored branches, and computes
+content fingerprints when the cached stats change.
 
-// Phase 1: Global Queue manages FOLDERS (Best for HDD & Memory)
-async function syncDiskToDatabase(root):
-  foundPaths = new Set()
-  
-  // OPTIMIZATION: Use a Map for fast lookup in Phase 2
-  // Key: `${device_id}_${inode}`, Value: ItemData
-  newItemsMap = new Map() 
-  
-  queue = createConcurrencyQueue(limit: FOLDER_LIMIT)
-  
-  queue.push(root)
+Reconciliation matches known source paths first, then checks inode and device,
+shadowing, proven-absent paths on other sources, content fingerprints, and TV
+episode identity. It applies the plan in one transaction. Ambiguous candidates
+stay separate. A confirmed rename moves its location row and preserves its ID.
+Copy-and-delete recovery can attach a new location and retain the old location
+for recovery.
 
-  await queue.process(async (currentDir) => {
-    // 1. Get all entries (Files and Folders)
-    entries = await fs.readdir(currentDir, { withFileTypes: true })
-    
-    // 2. CHECK FOR SUPPRESSION (System .ignore OR User is_hidden)
-    hasIgnoreFile = entries.some(e => e.name === '.ignore')
-    isUserHidden = db.getIsHidden(currentDir)
-
-    if (hasIgnoreFile || isUserHidden):
-       // Mark this folder state and STOP walking subfolders.
-       // IMPLEMENTATION DETAIL: This is the AUTHORITATIVE write for this folder.
-       db.updateFingerprint(currentDir, { is_ignored: hasIgnoreFile, is_hidden: isUserHidden, is_missing: 0 })
-       foundPaths.add(generateId(currentDir))
-       return 
-
-    // 3. PROCESS CHILDREN (Files and Subfolders)
-    for (let i = 0; i < entries.length; i += CHILDREN_BATCH_SIZE) {
-      const batch = entries.slice(i, i + CHILDREN_BATCH_SIZE)
-      
-      await Promise.all(batch.map(async (entry) => {
-        // Every entry (File or Folder) must be stat-ed to reconcile its identity
-        const stats = await fs.stat(entry)
-        const itemData = { 
-          path: entry.relative_path, 
-          inode: stats.ino, 
-          device_id: stats.dev,
-          // IMPLEMENTATION DETAIL (Suppression Race): 
-          // During discovery, we do not know the authoritative suppression status yet.
-          // We must use 'null' so that the subsequent deferred bulk sync (#3) 
-          // does not clobber the authoritative status set by Step #2.
-          is_ignored: entry.isDirectory ? null : 0, 
-          is_hidden: entry.isDirectory ? null : 0,
-          ...stats 
-        }
-        
-        // RECONCILIATION
-        if db.existsByPath(itemData.path):
-            // EFFICIENCY: Batch UPSERTs to bypass IPC/Transaction overhead.
-            // Flushes every 500 items OR every 1000ms.
-            fingerprintBuffer.add(itemData)
-            foundPaths.add(generateId(itemData.path))
-        else:
-            // Store in Map for fast lookup during Rename Rescue
-            key = `${itemData.device_id}_${itemData.inode}`
-            newItemsMap.set(key, itemData)
-
-        // If it's a folder, push to queue for recursive traversal
-        if (entry.isDirectory):
-           queue.push(entry.fullPath)
-      }))
-    }
-  })
-  // --- RECONCILIATION PHASE ---
-  
-  // 1. Flush remaining fingerprints (the buffer ensures O(N) throughput)
-  fingerprintBuffer.flush()
-
-  // #1 Missing Item Detection
-  missingItems = db.getPresentItemsInScope(root.path).where(id => !foundPaths.has(id))
-  
-  // #2 Identity-Based Rename Rescue (O(N))
-  for item in missingItems:
-    key = `${item.device_id}_${item.inode}`
-    match = newItemsMap.get(key) // Instant Lookup
-    
-    if match:
-      db.migrateRecord(oldId: item.id, newId: match.id, newPath: match.path)
-      foundPaths.add(match.id) 
-      newItemsMap.delete(key) // Remove to prevent duplicate insertion
-      continue
-
-  // #3 Final Sync (Insert whatever is left in the map)
-  if (newItemsMap.size > 0):
-      // IMPLEMENTATION DETAIL: This must use COALESCE(excluded.is_ignored, is_ignored) 
-      // to ensure discovery-time 'null' values do not overwrite authoritative worker states.
-      db.bulkInsert(newItemsMap.values())
-
-  // #4 Conditional Cleanup
-  for item in missingItems (where not rescued):
-    if item.has_locked_fields:
-      db.markAsMissing(item.id) 
-    else:
-      db.delete(item.id)
-```
+A successful scan marks vanished locations missing. Full-library scans defer
+this step until every source has been processed. Missing items keep their
+metadata, user state, and folder settings until explicitly deleted. An incomplete
+scan leaves unobserved locations alone.
 
 ### Phase 2: Metadata Enrichment (`enrichDatabase`) 
 
@@ -297,11 +210,11 @@ function process_show(show):
 
 ## 4. Performance & Reactivity Strategy
 
-### A. SQLite Batching (The 500/1 Rule)
-To prevent SQLite from becoming the bottleneck (and to avoid losing all progress on a crash):
-- **Buffer Size**: 500 operations.
-- **Flush Interval**: 1,000ms (via `setTimeout`).
-- **Phase 1 Bypass**: Fingerprint updates in Phase 1 MUST use raw SQL (`db.prepare().run()`) and bypass the `ItemUpdateService` to avoid comparison/broadcasting overhead.
+### A. SQLite Batching
+
+Reconciliation applies item and location updates in a transaction per source.
+Discovery and file sampling run before the transaction to keep filesystem I/O
+out of the database write lock.
 
 ### B. UI Synchronization (The 10Hz Rule)
 The scanner provides real-time breadcrumbs to the UI:

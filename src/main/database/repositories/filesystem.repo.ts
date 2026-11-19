@@ -2,6 +2,8 @@
  * Filesystem/media item repository.
  * Owns durable media_items and physical media_locations rows for scanned files and folders.
  */
+import { EFFECTIVE_METADATA } from '../item-metadata.sql'
+import { withAccountLocations } from '../media-read-model.sql'
 import path from 'path'
 import crypto from 'crypto'
 import { getDb, runTransaction } from '../client'
@@ -42,7 +44,7 @@ function nowMsSql(): string {
     return "cast(strftime('%s','now') as int) * 1000"
 }
 
-function upsertMediaItemFromLibraryRow(db: ReturnType<typeof getDb>, item: any): void {
+function upsertMediaItemFromLibraryRow(db: ReturnType<typeof getDb>, item: any, insertOnly = false): void {
     db.prepare(`
         INSERT INTO media_items (
             id, parent_item_id, physical_kind, media_kind, name, entity_id,
@@ -57,7 +59,7 @@ function upsertMediaItemFromLibraryRow(db: ReturnType<typeof getDb>, item: any):
             COALESCE(@isHidden, 0), COALESCE(@logicalMissing, 0), NULL,
             COALESCE(@createdAt, ${nowMsSql()}), ${nowMsSql()}
         )
-        ON CONFLICT(id) DO UPDATE SET
+        ON CONFLICT(id) ${insertOnly ? 'DO NOTHING' : `DO UPDATE SET
             parent_item_id = excluded.parent_item_id,
             physical_kind = excluded.physical_kind,
             media_kind = COALESCE(excluded.media_kind, media_kind),
@@ -69,7 +71,7 @@ function upsertMediaItemFromLibraryRow(db: ReturnType<typeof getDb>, item: any):
             owner_id = COALESCE(excluded.owner_id, owner_id),
             is_hidden = CASE WHEN @isHidden IS NULL THEN is_hidden ELSE excluded.is_hidden END,
             logical_missing = excluded.logical_missing,
-            updated_at = excluded.updated_at
+            updated_at = excluded.updated_at`}
     `).run({
         '@id': item['@id'],
         '@parentId': item['@parentId'] ?? null,
@@ -149,13 +151,13 @@ function upsertMediaLocationFromLibraryRow(db: ReturnType<typeof getDb>, item: a
 // row-to-object conversion (last column with same name wins). Instead, we explicitly
 // list all media_entities columns except `id`, which is only selected as `_entity_id`.
 export const ENTITY_COLUMNS_SQL = `
-    e.id AS _entity_id,
+    e.item_id AS _entity_id,
     e.tmdb_id, e.media_type, e.title, e.original_title, e.overview,
     e.release_date, e.year, e.tmdb_runtime,
     e.season_number, e.episode_number, e.parent_entity_id,
     e.poster_path, e.backdrop_path, e.logo_path,
     e.locked_fields_json, e.last_refreshed_at, e.version,
-    (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres,
+    e.genres_json AS genres,
     (SELECT json_group_object(t.key, t.value) FROM item_tags t WHERE t.item_id = i.id) AS tags,
     (SELECT json_group_object(vt.key, vt.value) FROM item_virtual_tags vt WHERE vt.item_id = i.id) AS virtualTags,
     (SELECT json_group_array(json_object('id', p.id, 'name', p.name, 'profile_path', p.profile_path, 'credit_type', c.credit_type, 'character', c.character, 'job', c.job, 'order', c.display_order)) FROM credits c JOIN people p ON c.person_id = p.id WHERE c.entity_id = e.id) AS tmdbCredits`
@@ -170,7 +172,7 @@ const VIEW_SETTINGS_SQL = `
 
 const FULL_JOIN_SQL = `
     FROM ${ITEM_READ_MODEL} i
-    LEFT JOIN media_entities e ON i.entity_id = e.id
+    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
 `
 
@@ -195,11 +197,12 @@ export function fetchRoot(): any {
 /**
  * Fetches a single item by ID with all joins.
  */
-export function fetchItemById(id: string): any {
+export function fetchItemById(id: string, accountId?: string): any {
     const db = getDb()
-    return db
-        .prepare(`${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.id = ?`)
-        .get(id)
+    const query = `${FULL_SELECT_SQL} ${FULL_JOIN_SQL} WHERE i.id = ?`
+    return accountId
+        ? db.prepare(withAccountLocations(query, '?')).get(accountId, id)
+        : db.prepare(query).get(id)
 }
 
 /**
@@ -225,7 +228,7 @@ export function fetchParent(id: string): any {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ${ITEM_READ_MODEL} p ON i.parent_id = p.id
-    LEFT JOIN media_entities e ON p.entity_id = e.id
+    LEFT JOIN ${EFFECTIVE_METADATA} e ON p.id = e.item_id
     LEFT JOIN folder_settings f ON p.id = f.item_id
     WHERE i.id = ?
   `
@@ -252,7 +255,7 @@ export function fetchAllDescendantsRaw(nodeId: string): any[] {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN tree t ON i.id = t.id
-    LEFT JOIN media_entities e ON i.entity_id = e.id
+    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
   `
         )
@@ -275,7 +278,7 @@ export function fetchEpisodeProgressForShow(showId: string, userId: string): { i
         SELECT i.id, e.season_number AS seasonNumber, e.episode_number AS episodeNumber, u.watched
         FROM ${ITEM_READ_MODEL} i
         JOIN tree t ON i.id = t.id
-        LEFT JOIN media_entities e ON i.entity_id = e.id
+        LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
         LEFT JOIN user_state u ON i.id = u.item_id AND u.user_id = ?
         WHERE i.type = 'file' AND e.media_type = 'episode'
     `).all(showId, userId) as any[]
@@ -301,7 +304,7 @@ export function fetchAncestorsRaw(itemId: string): any[] {
            f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ancestors a ON i.id = a.id
-    LEFT JOIN media_entities e ON i.entity_id = e.id
+    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.id != ?
     ORDER BY a.level ASC
@@ -454,54 +457,35 @@ export function getAllDescendantIdsFast(parentId: string): string[] {
 }
 
 /**
- * Returns items in a scope with their locked fields status.
+ * Returns present locations in a scan scope.
  * Always scoped to a single source to prevent cross-source pollution during cleanup.
  */
-export function getItemsForCleanup(
-    sourceId: string,
-    pathPrefix: string
-): { id: string; locationId: string; path: string; hasLocks: boolean; inode: number; deviceId: number }[] {
-    const db = getDb()
-    const normalizedPrefix = normalizeRelativePath(pathPrefix)
-    const isRoot = normalizedPrefix === '' || normalizedPrefix === '.'
-
-    const query = `
-    SELECT
-      mi.id,
-      ml.id AS location_id,
-      ml.relative_path AS path,
-      ml.inode,
-      ml.device_id,
-      e.locked_fields_json
-    FROM media_locations ml
-    JOIN media_items mi ON mi.id = ml.item_id
-    LEFT JOIN media_entities e ON mi.entity_id = e.id
-    WHERE ml.source_id = ?
-      AND ml.is_present = 1
-    ${isRoot ? '' : 'AND (ml.relative_path LIKE ? OR ml.relative_path = ?)'}
-  `
-    const params = isRoot ? [sourceId] : [sourceId, `${normalizedPrefix}/%`, normalizedPrefix]
-
-    const rows = db.prepare(query).all(...params) as {
+export function getScanLocations(sourceId: string, pathPrefix: string) {
+    const prefix = normalizeRelativePath(pathPrefix)
+    const scoped = prefix !== '.'
+    return getDb().prepare(`
+        SELECT ml.item_id AS id, ml.id AS locationId, ml.relative_path AS path,
+               ml.type, ml.inode, ml.device_id AS deviceId, ml.is_present AS present,
+               ml.size, ml.mtime, ml.birthtime, ml.location_fingerprint AS contentFingerprint,
+               (ml.is_hidden OR mi.is_hidden) AS hidden
+        FROM media_locations ml
+        JOIN media_items mi ON mi.id = ml.item_id
+        WHERE ml.source_id = ?
+        ${scoped ? 'AND (ml.relative_path = ? OR instr(ml.relative_path, ?) = 1)' : ''}
+    `).all(sourceId, ...(scoped ? [prefix, `${prefix}/`] : [])) as {
         id: string
-        location_id: string
+        locationId: string
         path: string
-        inode: number
-        device_id: number
-        locked_fields_json: string | null
+        type: 'file' | 'folder'
+        inode: number | null
+        deviceId: number | null
+        present: number
+        hidden: number
+        size: number | null
+        mtime: number | null
+        birthtime: number | null
+        contentFingerprint: string | null
     }[]
-
-    return rows.map((row) => ({
-        id: row.id,
-        locationId: row.location_id,
-        path: row.path,
-        hasLocks:
-            !!row.locked_fields_json &&
-            row.locked_fields_json !== '[]' &&
-            row.locked_fields_json !== 'null',
-        inode: row.inode,
-        deviceId: row.device_id
-    }))
 }
 
 /**
@@ -551,21 +535,6 @@ export function deleteItem(itemId: string): void {
     db.prepare('DELETE FROM media_items WHERE id = ?').run(itemId)
 }
 
-export function deleteLocation(locationId: string): void {
-    const db = getDb()
-    db.prepare('DELETE FROM media_locations WHERE id = ?').run(locationId)
-}
-
-export function deleteItemIfNoPresentLocations(itemId: string): void {
-    const db = getDb()
-    const present = db.prepare(`
-        SELECT 1 FROM media_locations
-        WHERE item_id = ? AND is_present = 1
-        LIMIT 1
-    `).get(itemId)
-    if (!present) deleteItem(itemId)
-}
-
 export function getItemIdBySourcePath(sourceId: string, relativePath: string): string | null {
     const db = getDb()
     const normalizedPath = normalizeRelativePath(relativePath)
@@ -578,46 +547,67 @@ export function getItemIdBySourcePath(sourceId: string, relativePath: string): s
     return row?.item_id ?? null
 }
 
-export function findReusableItemIdForDiscoveredLocation(params: {
+export function matchAlternateLocation(params: {
     sourceId: string
     relativePath: string
+    type: 'file' | 'folder'
     inode: number
     deviceId: number
-    knownAbsentSourceIds?: Iterable<string>
-}): string | null {
+    knownAbsentSourceIds?: string[]
+    contentFingerprint?: string
+}): { itemId: string; rule: 'inode-device' | 'same-relative-path' } | 'ambiguous' | null {
     const db = getDb()
-    const inodeRows = db.prepare(`
-        SELECT item_id
+    const inodeRows = params.inode ? db.prepare(`
+        SELECT DISTINCT item_id
         FROM media_locations
-        WHERE source_id != ?
-          AND inode = ?
-          AND device_id = ?
-          AND inode IS NOT NULL
-          AND device_id IS NOT NULL
-        ORDER BY is_present DESC, last_seen_at DESC
-        LIMIT 3
-    `).all(params.sourceId, params.inode, params.deviceId) as { item_id: string }[]
-    const inodeItemIds = new Set(inodeRows.map((row) => row.item_id))
-    if (inodeItemIds.size === 1) return inodeRows[0].item_id
-    if (inodeItemIds.size > 1) return null
+        WHERE source_id != ? AND type = ?
+          AND inode = ? AND device_id = ?
+        LIMIT 2
+    `).all(params.sourceId, params.type, params.inode, params.deviceId) as { item_id: string }[] : []
 
-    const normalizedPath = normalizeRelativePath(params.relativePath)
-    const knownAbsentSourceIds = Array.from(params.knownAbsentSourceIds ?? [])
-        .filter((sourceId) => sourceId !== params.sourceId)
-    const knownAbsentCondition = knownAbsentSourceIds.length > 0
-        ? `OR source_id IN (${knownAbsentSourceIds.map(() => '?').join(', ')})`
+    if (inodeRows.length > 1) return 'ambiguous'
+    if (inodeRows.length === 1) return { itemId: inodeRows[0].item_id, rule: 'inode-device' }
+
+    const sourceIds = params.knownAbsentSourceIds ?? []
+    const knownAbsentCondition = sourceIds.length > 0
+        ? `OR source_id IN (${sourceIds.map(() => '?').join(', ')})`
         : ''
-    const missingRelativePathRows = db.prepare(`
-        SELECT item_id
+    const pathRows = db.prepare(`
+        SELECT DISTINCT item_id, location_fingerprint
         FROM media_locations
-        WHERE source_id != ?
+        WHERE source_id != ? AND type = ?
           AND relative_path = ?
           AND (is_present = 0 ${knownAbsentCondition})
-        ORDER BY last_seen_at DESC
-        LIMIT 3
-    `).all(params.sourceId, normalizedPath, ...knownAbsentSourceIds) as { item_id: string }[]
-    const missingRelativePathItemIds = new Set(missingRelativePathRows.map((row) => row.item_id))
-    return missingRelativePathItemIds.size === 1 ? missingRelativePathRows[0].item_id : null
+    `).all(params.sourceId, params.type, normalizeRelativePath(params.relativePath), ...sourceIds) as {
+        item_id: string
+        location_fingerprint: string | null
+    }[]
+
+    const ids = new Set(pathRows.map(({ item_id }) => item_id))
+    if (ids.size > 1 || (params.type === 'file' && pathRows.some(({ location_fingerprint }) =>
+        params.contentFingerprint && location_fingerprint && params.contentFingerprint !== location_fingerprint
+    ))) return 'ambiguous'
+    return ids.size === 1 ? { itemId: pathRows[0].item_id, rule: 'same-relative-path' } : null
+}
+
+export function findContentFingerprintCandidates(contentFingerprint: string) {
+    return getDb().prepare(`
+        SELECT item_id AS itemId, id AS locationId, source_id AS sourceId, relative_path AS path,
+               is_present AS present
+        FROM media_locations
+        WHERE location_fingerprint = ?
+    `).all(contentFingerprint) as {
+        itemId: string; locationId: string; sourceId: string; path: string; present: number
+    }[]
+}
+
+export function findPresentMoveCandidates(sourceId: string, relativePath: string, contentFingerprint?: string) {
+    return getDb().prepare(`
+        SELECT source_id AS sourceId, relative_path AS path
+        FROM media_locations
+        WHERE is_present = 1 AND source_id != ?
+          AND (relative_path = ? OR location_fingerprint = ?)
+    `).all(sourceId, relativePath, contentFingerprint ?? null) as { sourceId: string; path: string }[]
 }
 
 export function findEpisodeMoveCandidates(params: {
@@ -625,7 +615,7 @@ export function findEpisodeMoveCandidates(params: {
     showRootPath: string
     seasonNumber: number
     episodeNumber: number
-}): { itemId: string; sourceId: string; path: string }[] {
+}): { itemId: string; sourceId: string; path: string; contentFingerprint: string | null }[] {
     const sourceIds = Array.from(new Set(params.sourceIds)).filter(Boolean)
     if (sourceIds.length === 0) return []
 
@@ -635,10 +625,10 @@ export function findEpisodeMoveCandidates(params: {
     const db = getDb()
     const sourcePlaceholders = sourceIds.map(() => '?').join(', ')
     const rows = db.prepare(`
-        SELECT mi.id AS item_id, ml.source_id, ml.relative_path AS path
+        SELECT mi.id AS item_id, ml.source_id, ml.relative_path AS path, ml.location_fingerprint
         FROM media_locations ml
         JOIN media_items mi ON mi.id = ml.item_id
-        JOIN media_entities e ON e.id = mi.entity_id
+        JOIN ${EFFECTIVE_METADATA} e ON e.item_id = mi.id
         WHERE ml.source_id IN (${sourcePlaceholders})
           AND ml.is_present = 1
           AND ml.type = 'file'
@@ -646,20 +636,20 @@ export function findEpisodeMoveCandidates(params: {
           AND e.media_type = 'episode'
           AND e.season_number = ?
           AND e.episode_number = ?
-          AND ml.relative_path LIKE ?
+          AND instr(ml.relative_path, ?) = 1
         ORDER BY ml.last_seen_at DESC
-        LIMIT 25
     `).all(
         ...sourceIds,
         params.seasonNumber,
         params.episodeNumber,
-        `${showRootPath}/%`
-    ) as { item_id: string; source_id: string; path: string }[]
+        `${showRootPath}/`
+    ) as { item_id: string; source_id: string; path: string; location_fingerprint: string | null }[]
 
     return rows.map((row) => ({
         itemId: row.item_id,
         sourceId: row.source_id,
-        path: row.path
+        path: row.path,
+        contentFingerprint: row.location_fingerprint
     }))
 }
 
@@ -677,7 +667,6 @@ export function findPresentLocationByRelativePath(
           AND is_present = 1
           AND is_shadowed = 0
         ORDER BY last_seen_at DESC
-        LIMIT 3
     `).all(excludeSourceId, normalizedPath) as { item_id: string; id: string }[]
     const itemIds = new Set(rows.map((row) => row.item_id))
     if (itemIds.size !== 1) return null
@@ -731,92 +720,10 @@ export function upsertRootItem(id: string, name: string, sourceId: string): void
     })
 }
 
-/**
- * Migrates a record from an old ID/path to a new one.
- */
-export function migrateRecord(oldId: string, item: any): void {
-    const db = getDb()
-    const locationId = `location:${oldId}`
-
-    runTransaction(() => {
-        db.prepare(`
-            UPDATE media_items
-            SET parent_item_id = ?,
-                physical_kind = ?,
-                name = ?,
-                logical_missing = 0,
-                updated_at = cast(strftime('%s','now') as int) * 1000
-            WHERE id = ?
-        `).run(item['@parentId'], item['@type'], item['@name'], oldId)
-
-        db.prepare(`
-            DELETE FROM media_locations
-            WHERE source_id = ?
-              AND relative_path = ?
-              AND item_id != ?
-        `).run(item['@sourceId'], item['@path'], oldId)
-
-        db.prepare(`
-            UPDATE media_locations
-            SET id = ?,
-                source_id = ?,
-                relative_path = ?,
-                name = ?,
-                type = ?,
-                size = ?,
-                mtime = ?,
-                birthtime = ?,
-                inode = ?,
-                device_id = ?,
-                is_present = 1,
-                is_ignored = COALESCE(?, is_ignored),
-                is_hidden = COALESCE(?, is_hidden),
-                last_seen_at = cast(strftime('%s','now') as int) * 1000,
-                missing_since = NULL
-            WHERE item_id = ?
-        `).run(
-            locationId,
-            item['@sourceId'],
-            item['@path'],
-            item['@name'],
-            item['@type'],
-            item['@size'],
-            item['@mtime'],
-            item['@birthtime'],
-            item['@inode'],
-            item['@deviceId'],
-            item['@isIgnored'],
-            item['@isHidden'],
-            oldId
-        )
-
-        db.prepare(`
-            INSERT OR IGNORE INTO media_locations (
-                id, item_id, source_id, relative_path, name, type,
-                size, mtime, birthtime, inode, device_id, location_fingerprint,
-                is_present, is_ignored, is_hidden, is_shadowed, shadowed_by_location_id,
-                first_seen_at, last_seen_at, missing_since
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, COALESCE(?, 0), COALESCE(?, 0), 0, NULL,
-                cast(strftime('%s','now') as int) * 1000,
-                cast(strftime('%s','now') as int) * 1000,
-                NULL)
-        `).run(
-            locationId,
-            oldId,
-            item['@sourceId'],
-            item['@path'],
-            item['@name'],
-            item['@type'],
-            item['@size'],
-            item['@mtime'],
-            item['@birthtime'],
-            item['@inode'],
-            item['@deviceId'],
-            item['@isIgnored'],
-            item['@isHidden']
-        )
-    })
+/** Moves one location while preserving its stable ID and references. */
+export function moveLocationPath(locationId: string, relativePath: string): void {
+    getDb().prepare('UPDATE media_locations SET relative_path = ? WHERE id = ?')
+        .run(normalizeRelativePath(relativePath), locationId)
 }
 
 /**
@@ -965,8 +872,8 @@ export function updateFilterJson(itemId: string, filterJson: string | null): voi
             UPDATE media_items
             SET filter_json = ?,
                 updated_at = ${nowMsSql()}
-            WHERE id = ?
-        `).run(filterJson, itemId)
+            WHERE id = ? AND filter_json IS NOT ?
+        `).run(filterJson, itemId, filterJson)
     })
 }
 
@@ -996,7 +903,7 @@ export function insertVirtualItem(params: {
             '@ownerId': null,
             '@isHidden': 0,
             '@logicalMissing': 0
-        })
+        }, params.insertOrIgnore)
     })
 }
 
@@ -1009,7 +916,7 @@ export function getDistinctSeasonNumbers(parentId: string): number[] {
     const rows = db.prepare(`
         SELECT DISTINCT e.season_number
         FROM ${ITEM_READ_MODEL} i
-        LEFT JOIN media_entities e ON i.entity_id = e.id
+        LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
         WHERE i.parent_id = ?
           AND i.is_virtual = 0
           AND i.type = 'file'
@@ -1071,7 +978,6 @@ export const HOME_ALL_MEDIA_ID = 'virtual-home-all-media'
  * The home folder has virtual_type='home' and a filter scoped to the library root.
  */
 export function ensureHomeVirtualFolder(rootId: string): void {
-    const db = getDb()
     const filter: import('@shared/types').LibraryFilter = {
         conditionGroups: [
             [{ field: 'parent.retrieveChildrenMetadata', op: 'eq', value: 1 }],
@@ -1079,21 +985,13 @@ export function ensureHomeVirtualFolder(rootId: string): void {
             [{ field: 'mediaType', op: 'eq', value: 'tv' }],
         ],
     }
-    const filterJson = JSON.stringify(filter)
-    runTransaction(() => {
-        upsertMediaItemFromLibraryRow(db, {
-            '@id': HOME_FOLDER_ID,
-            '@parentId': rootId,
-            '@name': '__home__',
-            '@type': 'folder',
-            '@physicalKind': 'virtual',
-            '@isVirtual': 1,
-            '@virtualType': 'home',
-            '@filterJson': filterJson,
-            '@ownerId': null,
-            '@isHidden': 0,
-            '@logicalMissing': 0
-        })
+    insertVirtualItem({
+        id: HOME_FOLDER_ID,
+        parentId: rootId,
+        name: '__home__',
+        virtualType: 'home',
+        filterJson: JSON.stringify(filter),
+        insertOrIgnore: true
     })
 }
 
@@ -1104,7 +1002,6 @@ export function ensureHomeVirtualFolder(rootId: string): void {
  * The folders are created as virtualType='user' so users can delete them.
  */
 export function ensureHomeChildren(): void {
-    const db = getDb()
     const homeChildren = [
         {
             id: HOME_CATEGORIES_ID,
@@ -1137,19 +1034,7 @@ export function ensureHomeChildren(): void {
 
     runTransaction(() => {
         for (const child of homeChildren) {
-            upsertMediaItemFromLibraryRow(db, {
-                '@id': child.id,
-                '@parentId': child.parentId,
-                '@name': child.name,
-                '@type': 'folder',
-                '@physicalKind': 'virtual',
-                '@isVirtual': 1,
-                '@virtualType': 'user',
-                '@filterJson': child.filterJson,
-                '@ownerId': null,
-                '@isHidden': 0,
-                '@logicalMissing': 0
-            })
+            insertVirtualItem({ ...child, virtualType: 'user', insertOrIgnore: true })
         }
     })
 }

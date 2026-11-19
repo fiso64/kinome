@@ -480,7 +480,7 @@ describe('compileFilter', () => {
 
     it('compiles isEmpty on genre to NOT EXISTS', () => {
         const { sql } = compileToSql({ conditions: [{ field: 'genre', op: 'isEmpty' }] })
-        expect(sql).toContain('entity_genres')
+        expect(sql).toContain('json_each(e.genres_json)')
     })
 })
 

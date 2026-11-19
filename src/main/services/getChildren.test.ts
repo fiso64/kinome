@@ -52,9 +52,9 @@ import { getChildren, resolveViewHierarchy } from './navigation.service'
 import { createUserVirtualFolder } from './virtualFolders.service'
 import { applyGrouping, syncVirtualSeasonFolders, syncAllGroupings } from './grouping.service'
 import { mergeSettings } from '../database/repositories/settings.repo'
-import { ensureHomeVirtualFolder, HOME_FOLDER_ID, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from '../database/repositories/filesystem.repo'
-import { getItemById, find, ensureHomeDefaults } from './repository.service'
-import type { MediaFolder, LibraryItem } from '@shared/types'
+import { ensureHomeVirtualFolder, HOME_FOLDER_ID, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID, HOME_RECENTLY_ADDED_ID } from '../database/repositories/filesystem.repo'
+import { getItemById, find, ensureHomeDefaults, _updateItem } from './repository.service'
+import type { LibraryFilter, MediaFolder, LibraryItem } from '@shared/types'
 
 let ctx: ServiceTestContext
 
@@ -567,9 +567,9 @@ describe('getChildren — contextual sorting', () => {
   it('sorts episodes by episodeNumber for season folders', async () => {
     ctx.seedEntities([
       { id: 'e-season', mediaType: 'season' },
-      { id: 'e-ep1', mediaType: 'episode', episodeNumber: 3 },
-      { id: 'e-ep2', mediaType: 'episode', episodeNumber: 1 },
-      { id: 'e-ep3', mediaType: 'episode', episodeNumber: 2 },
+      { id: 'e-ep1', mediaType: 'episode', episodeNumber: 21 },
+      { id: 'e-ep2', mediaType: 'episode', episodeNumber: 20 },
+      { id: 'e-ep3', mediaType: 'episode', episodeNumber: 20.5 },
     ])
     ctx.seedItems([
       { id: LIBRARY_ROOT_ID, parentId: null, path: '.', type: 'folder' },
@@ -582,7 +582,7 @@ describe('getChildren — contextual sorting', () => {
     const result = await getChildren('season1', {})
     const items = expectItems(result)
 
-    // Should be sorted by episodeNumber ASC: 1, 2, 3
+    // Recaps sort between the surrounding episodes.
     expect(items.map((i) => i.id)).toEqual(['ep2', 'ep3', 'ep1'])
   })
 
@@ -1622,6 +1622,41 @@ describe('getChildren — home folder defaults', () => {
   it('All Media contains real library items', async () => {
     const items = expectItems(await getChildren(HOME_ALL_MEDIA_ID, {}))
     expect(items.length).toBeGreaterThan(0)
+  })
+
+  it('applies and preserves edited home and Recently Added filters', async () => {
+    ctx.seedEntities([
+      { id: 'e2', mediaType: 'movie' },
+      { id: 'e3', mediaType: 'movie' },
+      { id: 'e4', mediaType: 'tv' },
+    ])
+    ctx.seedItems([
+      { id: 'film2', parentId: LIBRARY_ROOT_ID, type: 'folder', entityId: 'e2' },
+      { id: 'film3', parentId: LIBRARY_ROOT_ID, type: 'folder', entityId: 'e3' },
+      { id: 'show', parentId: LIBRARY_ROOT_ID, type: 'folder', entityId: 'e4' },
+    ])
+    const setAge = ctx.db.prepare('UPDATE media_items SET created_at = ? WHERE id = ?')
+    setAge.run(Date.now(), 'film1')
+    setAge.run(Date.now() - 20 * 86400000, 'film2')
+    setAge.run(Date.now() - 40 * 86400000, 'film3')
+
+    const homeFilter: LibraryFilter = { conditions: [{ field: 'mediaType', op: 'eq', value: 'movie' }] }
+    const recentFilter: LibraryFilter = {
+      scope: { parentId: HOME_FOLDER_ID },
+      conditionGroups: [[{ field: 'addedDaysAgo', op: 'lte', value: '30' }]],
+    }
+    _updateItem(HOME_FOLDER_ID, { filter: homeFilter })
+    _updateItem(HOME_RECENTLY_ADDED_ID, { filter: recentFilter })
+
+    const recentIds = async () => expectItems(await getChildren(HOME_RECENTLY_ADDED_ID, {}))
+      .map(({ id }) => id).sort()
+    expect(await recentIds()).toEqual(['film1', 'film2'])
+
+    ensureHomeDefaults(LIBRARY_ROOT_ID)
+    syncAllGroupings()
+    expect((getItemById(HOME_FOLDER_ID) as MediaFolder).filter).toEqual(homeFilter)
+    expect((getItemById(HOME_RECENTLY_ADDED_ID) as MediaFolder).filter).toEqual(recentFilter)
+    expect(await recentIds()).toEqual(['film1', 'film2'])
   })
 
   it('Genres section shows genre grouping virtual folders', async () => {

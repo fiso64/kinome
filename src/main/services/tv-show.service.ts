@@ -69,7 +69,7 @@ export async function syncTvShowStructure(
   const allModified: LibraryItem[] = []
 
   // 1. Fetch immediate children
-  const children = repositoryService.getChildren(show.id)
+  const children = repositoryService.getChildren(show.id).filter((child) => !child.isMissing)
   const folders = children.filter((c) => c.type === 'folder' && !c.isVirtual) as MediaFolder[]
   const files = children.filter((c) => c.type === 'file') as MediaFile[]
   const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
@@ -145,6 +145,9 @@ export async function syncTvShowStructure(
       }
 
       const info = seasonMap.get(folder.name)
+      if (folder.mediaType !== 'season' && repositoryService.isFieldLocked(folder, 'mediaType')) {
+        continue
+      }
       const isSpecialFolder = isSpecialTvFolderName(folder.name)
       const isSeasonNumberLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
       const isManuallyAssignedSeason = folder.mediaType === 'season' && isSeasonNumberLocked
@@ -217,7 +220,7 @@ export async function syncTvShowStructure(
   for (const seasonFolder of seasonsToProcess) {
     const seasonChildren = repositoryService.getChildren(seasonFolder.id)
     const seasonFiles = seasonChildren.filter(
-      (c) => c.type === 'file' && isSupportedVideoFile(c.name)
+      (c) => c.type === 'file' && !c.isMissing && isSupportedVideoFile(c.name)
     ) as MediaFile[]
     const seasonFileNames = seasonFiles.map((f) => f.name)
 
@@ -314,6 +317,9 @@ function _applyEpisodeMap(
 ): MediaFile[] {
   const modified: MediaFile[] = []
   for (const file of files) {
+    if (file.mediaType !== 'episode' && repositoryService.isFieldLocked(file, 'mediaType')) {
+      continue
+    }
     const info = episodeMap.get(file.name)
     if (!info || info.mediaType !== 'episode') {
       logVerbose('No episode assignment produced for file.', {

@@ -91,3 +91,19 @@ Currently, the Kinome server is open to anyone on the network who knows the IP a
 
 - **Alternative A: Basic Auth:** Rejected – poor UX for web apps, harder to style.
 - **Alternative B: JWT:** Considered, but simple random tokens are sufficient and easier to manage for now.
+
+### Account Library Filters
+
+A whitelist matches each OR group independently. Matching items grant access to
+their descendants and make their ancestors visible for navigation. A child that
+defines a tag used by an inherited group must satisfy that group's tag condition
+for access to continue through that group. A direct match in another group can
+grant access at the same child. When every inherited group is rejected and the
+child matches no group directly, the child and its descendants are excluded.
+
+For example, with `allow:yes OR allow:maybe`, a season tagged `allow:yes` stays
+visible, a child tagged `allow:maybe` stays visible, and a child tagged
+`allow:no` is excluded. Untagged siblings inherit the season's access.
+
+A deny filter hides matching subtrees. For conditions on physical paths or
+sources, the account's eligible occurrences determine which location is selected.

@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { _clearDbForTesting, _setDbForTesting } from '../client'
 import { SCHEMA_SQL } from '../schema'
-import { resolveSelectedLocationForItem } from './media-location.repo'
+import { replaceSourcePriorities, resolveSelectedLocationForItem } from './media-location.repo'
 
 let db: Database
 
@@ -41,6 +41,18 @@ describe('media location repository', () => {
     expect(location?.sourceId).toBe('source-b')
     expect(location?.relativePath).toBe('Films/Movie.mkv')
     expect(location?.isPresent).toBe(true)
+
+    replaceSourcePriorities(['source-b', 'source-a'])
+    db.exec("UPDATE media_items SET preferred_location_id = NULL WHERE id = 'item-1'")
+    expect(resolveSelectedLocationForItem('item-1', { requirePresent: true })?.id).toBe('loc-b')
+    replaceSourcePriorities(['source-a', 'source-b'])
+    expect(resolveSelectedLocationForItem('item-1', { requirePresent: true })?.id).toBe('loc-a')
+
+    db.exec(`
+      UPDATE media_items SET preferred_location_id = 'loc-a' WHERE id = 'item-1';
+      UPDATE media_locations SET is_present = 0 WHERE id = 'loc-a';
+    `)
+    expect(resolveSelectedLocationForItem('item-1', { requirePresent: true })?.id).toBe('loc-b')
   })
 
   it('does not resolve a missing location when a present location is required', () => {

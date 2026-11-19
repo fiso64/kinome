@@ -1,30 +1,65 @@
-export const MEDIA_ITEMS_READ_MODEL_SQL = `
-CREATE VIEW IF NOT EXISTS media_items_read AS
+export const SOURCE_PRIORITIES_SQL = `
+CREATE TABLE IF NOT EXISTS media_source_priority (
+  source_id TEXT PRIMARY KEY,
+  priority INTEGER NOT NULL
+);
+`
+
+export const ACCOUNT_EXCLUDED_LOCATIONS_SQL = `
+CREATE TABLE IF NOT EXISTS account_excluded_locations (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  location_id TEXT NOT NULL REFERENCES media_locations(id) ON DELETE CASCADE,
+  PRIMARY KEY (account_id, location_id)
+);
+`
+
+function selectMediaItems(options: { source?: string; account?: string } = {}): string {
+  const locationConstraint = options.source
+    ? `WHERE ml.source_id = ${options.source}`
+    : options.account
+      ? `WHERE NOT EXISTS (
+        SELECT 1 FROM account_excluded_locations excluded
+        WHERE excluded.account_id = ${options.account} AND excluded.location_id = ml.id
+      )`
+      : ''
+  const parentId = options.source
+    ? `COALESCE((
+      SELECT parent.item_id FROM media_locations parent
+      WHERE parent.source_id = sl.source_id AND parent.relative_path = CASE
+        WHEN instr(sl.relative_path, '/') = 0 THEN '.'
+        ELSE substr(sl.relative_path, 1, length(sl.relative_path) - length(sl.name) - 1)
+      END AND parent.id != sl.id
+    ), mi.parent_item_id)`
+    : 'mi.parent_item_id'
+  return `
 WITH ranked_locations AS (
   SELECT
     ml.*,
     row_number() OVER (
       PARTITION BY ml.item_id
       ORDER BY
-        CASE WHEN mi.preferred_location_id IS NOT NULL AND ml.id = mi.preferred_location_id THEN 0 ELSE 1 END,
-        CASE
-          WHEN ml.is_present = 1 AND ml.is_shadowed = 0 THEN 0
-          WHEN ml.is_present = 1 THEN 1
-          ELSE 2
-        END,
+        ml.is_present DESC,
+        (ml.is_hidden OR ml.is_ignored),
+        CASE WHEN ml.id = mi.preferred_location_id THEN 0 ELSE 1 END,
+        sp.priority IS NULL,
+        sp.priority,
+        ml.is_shadowed,
         ml.last_seen_at DESC,
         ml.source_id COLLATE NOCASE,
-        ml.relative_path COLLATE NOCASE
+        ml.relative_path COLLATE NOCASE,
+        ml.id
     ) AS location_rank
   FROM media_locations ml
   JOIN media_items mi ON mi.id = ml.item_id
+  LEFT JOIN media_source_priority sp ON sp.source_id = ml.source_id
+  ${locationConstraint}
 ),
 selected_locations AS (
   SELECT * FROM ranked_locations WHERE location_rank = 1
 )
 SELECT
   mi.id,
-  mi.parent_item_id AS parent_id,
+  ${parentId} AS parent_id,
   CASE
     WHEN mi.is_virtual = 1 THEN 'virtual://' || mi.id
     ELSE sl.relative_path
@@ -70,3 +105,15 @@ SELECT
 FROM media_items mi
 LEFT JOIN selected_locations sl ON sl.item_id = mi.id
 `
+}
+
+export const MEDIA_ITEMS_READ_MODEL_SQL =
+  `CREATE VIEW IF NOT EXISTS media_items_read AS ${selectMediaItems()}`
+
+export function withSourceLocations(query: string): string {
+  return `WITH media_items_read AS (${selectMediaItems({ source: '?' })}) ${query}`
+}
+
+export function withAccountLocations(query: string, accountParameter: string): string {
+  return `WITH media_items_read AS (${selectMediaItems({ account: accountParameter })}) ${query}`
+}

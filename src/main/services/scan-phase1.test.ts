@@ -11,13 +11,14 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from '../database/schema'
 import { _setDbForTesting } from '../database/client'
+import { cleanupMissingForSource } from './filesystem.service'
 import {
     deleteItem,
     findPresentLocationByRelativePath,
-    findReusableItemIdForDiscoveredLocation,
+    matchAlternateLocation,
     getItemIdBySourcePath,
     markLocationAsMissing,
-    migrateRecord,
+    moveLocationPath,
     upsertLibraryItems
 } from '../database/repositories/filesystem.repo'
 
@@ -169,10 +170,7 @@ describe('COALESCE suppression guard (Phase 1 bulk insert)', () => {
 })
 
 // =================================================================
-// SPEC(scan_architecture.md §Phase 1, line 147-152):
-//   Conditional Cleanup:
-//     - Items with locked fields → mark as missing (ghost)
-//     - Items without locked fields → delete entirely
+// Missing locations are retained until explicit deletion.
 // =================================================================
 
 describe('Conditional Cleanup (Phase 1 missing items)', () => {
@@ -198,13 +196,21 @@ describe('Conditional Cleanup (Phase 1 missing items)', () => {
         expect(JSON.parse(meta.locked_fields_json)).toContain('title')
     })
 
-    it('fully deletes item when it has no locked fields', () => {
+    it('retains an unlocked missing item and its watched state until explicit deletion', () => {
         insertItem({ id: 'unlocked1', type: 'file' })
         const entityId = 'entity-unlocked1'
         db.prepare(`INSERT INTO media_entities (id, locked_fields_json) VALUES (?, ?)`).run(entityId, '[]')
         db.prepare(`UPDATE media_items SET entity_id = ? WHERE id = ?`).run(entityId, 'unlocked1')
 
-        // Simulate: item not found on disk → delete entirely
+        db.prepare("INSERT INTO user_state (item_id, watched) VALUES ('unlocked1', 1)").run()
+        cleanupMissingForSource('source-1', '.', new Set(), false)
+        expect(db.query('SELECT is_present FROM media_locations WHERE item_id = ?').get('unlocked1'))
+            .toEqual({ is_present: 1 })
+        cleanupMissingForSource('source-1', '.', new Set(), true)
+        expect(db.query('SELECT logical_missing FROM media_items WHERE id = ?').get('unlocked1'))
+            .toEqual({ logical_missing: 1 })
+        expect(db.query('SELECT watched FROM user_state WHERE item_id = ?').get('unlocked1'))
+            .toEqual({ watched: 1 })
         deleteItem('unlocked1')
 
         const row = db.prepare('SELECT * FROM media_items WHERE id = ?').get('unlocked1')
@@ -249,8 +255,10 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
             isHidden: 1
         })
 
-        migrateRecord('old-id', {
-            '@id': 'new-id',
+        moveLocationPath('location:old-id', 'Show/New Season')
+        upsertLibraryItems([{
+            '@id': 'old-id',
+            '@locationId': 'new-location-id',
             '@parentId': 'new-parent',
             '@path': 'Show/New Season',
             '@name': 'New Season',
@@ -263,7 +271,7 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
             '@deviceId': 50,
             '@isIgnored': null,
             '@isHidden': null
-        })
+        }])
 
         const row = db.prepare(`
             SELECT id, parent_id, path, name, type, source_id, size, mtime, birthtime, inode, device_id, is_ignored, is_hidden, is_missing
@@ -288,7 +296,7 @@ describe('Rename rescue (Phase 1 identity migration)', () => {
             is_missing: 0
         })
 
-        expect(db.prepare('SELECT * FROM media_items WHERE id = ?').get('new-id')).toBeNull()
+        expect(db.prepare('SELECT id FROM media_locations WHERE item_id = ?').get('old-id')).toEqual({ id: 'location:old-id' })
     })
 })
 
@@ -323,42 +331,45 @@ describe('Location identity matching guards', () => {
         insertItem({ id: 'candidate-a', sourceId: 'source-a', path: 'A/movie.mkv', inode: 42, deviceId: 7 })
         insertItem({ id: 'candidate-b', sourceId: 'source-b', path: 'B/movie.mkv', inode: 42, deviceId: 7 })
 
-        const match = findReusableItemIdForDiscoveredLocation({
+        const match = matchAlternateLocation({
             sourceId: 'source-c',
+            type: 'file',
             relativePath: 'movie.mkv',
             inode: 42,
             deviceId: 7
         })
 
-        expect(match).toBeNull()
+        expect(match).toBe('ambiguous')
     })
 
     it('does not reuse a missing same-relative-path candidate when multiple items match', () => {
         insertItem({ id: 'missing-a', sourceId: 'source-a', path: 'Shows/Foo', isMissing: 1 })
         insertItem({ id: 'missing-b', sourceId: 'source-b', path: 'Shows/Foo', isMissing: 1 })
 
-        const match = findReusableItemIdForDiscoveredLocation({
+        const match = matchAlternateLocation({
             sourceId: 'source-c',
+            type: 'file',
             relativePath: 'Shows\\Foo',
             inode: 100,
             deviceId: 200
         })
 
-        expect(match).toBeNull()
+        expect(match).toBe('ambiguous')
     })
 
     it('reuses a same-relative-path candidate from a source proven absent this scan before cleanup', () => {
         insertItem({ id: 'moved-show', sourceId: 'source-a', path: 'Shows/Foo', inode: 1, deviceId: 1 })
 
-        const match = findReusableItemIdForDiscoveredLocation({
+        const match = matchAlternateLocation({
             sourceId: 'source-b',
+            type: 'file',
             relativePath: 'Shows\\Foo',
             inode: 2,
             deviceId: 2,
             knownAbsentSourceIds: ['source-a']
         })
 
-        expect(match).toBe('moved-show')
+        expect(match).toEqual({ itemId: 'moved-show', rule: 'same-relative-path' })
     })
 
     it('does not shadow to a relative-path candidate when multiple present items match', () => {

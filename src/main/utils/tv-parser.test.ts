@@ -54,6 +54,11 @@ describe('isSupportedVideoFile', () => {
 // =================================================================
 
 describe('parseEpisodeInfo', () => {
+    it.each(['Show.S01E20.5.mkv', 'Episode 20.5 - Recap.mkv', 'Show.E20.5.mkv', '[Group] Show - 20.5 [720p].mkv'])(
+        'preserves decimal episodes in %s',
+        (name) => expect(parseEpisodeInfo(name)?.episode).toBe(20.5)
+    )
+
     it('extracts SxxExx pattern (priority 1)', () => {
         const result = parseEpisodeInfo('Breaking.Bad.S01E05.mkv')
         expect(result).toEqual({ season: 1, episode: 5, pattern: 'sxxexx' })
@@ -86,7 +91,7 @@ describe('parseEpisodeInfo', () => {
     })
 
     it('returns null for unparseable filenames', () => {
-        expect(parseEpisodeInfo('[SubGroup] Show - 01 [720p].mkv')).toBeNull()
+        expect(parseEpisodeInfo('[SubGroup] Show [720p].mkv')).toBeNull()
     })
 
     // SxxExx takes priority over Episode XX

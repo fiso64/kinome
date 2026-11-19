@@ -26,7 +26,7 @@ import { compileFilter, buildWhereFragment } from '../database/query-builder'
  * inheriting conditions from its parent if scope.parentId points to another
  * virtual folder.
  */
-export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
+export function resolveEffectiveFilter(filter: LibraryFilter, visited = new Set<string>()): LibraryFilter {
   const parentId = filter.scope?.parentId
   if (!parentId || parentId === 'root' || filter.scope?.manual) {
     return filter
@@ -38,8 +38,9 @@ export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
     return filter
   }
 
-  // Recursively resolve parent's effective filter
-  const effectiveParent = resolveEffectiveFilter(parent.filter)
+  if (visited.has(parentId)) return { scope: { manual: true } }
+  visited.add(parentId)
+  const effectiveParent = resolveEffectiveFilter(parent.filter, visited)
 
   let childGroups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [[]])
   if (childGroups.length === 0) childGroups = [[]]
@@ -47,7 +48,10 @@ export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
   let parentGroups = effectiveParent.conditionGroups ?? (effectiveParent.conditions ? [effectiveParent.conditions] : [[]])
   if (parentGroups.length === 0) parentGroups = [[]]
 
-  const parentRequired = effectiveParent.requiredConditions ?? []
+  const requiredConditions = [
+    ...(effectiveParent.requiredConditions ?? []),
+    ...(filter.requiredConditions ?? []),
+  ]
 
   // Optimization: when child has a single group, avoid cross-product expansion.
   // Keep parent's OR-groups intact and AND the child's conditions on top as requiredConditions.
@@ -57,22 +61,22 @@ export function resolveEffectiveFilter(filter: LibraryFilter): LibraryFilter {
     return {
       scope: effectiveParent.scope,
       conditionGroups: parentGroups,
-      requiredConditions: [...parentRequired, ...childConditions],
+      requiredConditions: [...requiredConditions, ...childConditions],
     }
   }
 
   // Multiple child groups: fall back to cross-product.
-  // Bake parent's requiredConditions into each group so they're not lost.
   const mergedGroups: LibraryCondition[][] = []
   for (const pg of parentGroups) {
     for (const cg of childGroups) {
-      mergedGroups.push([...parentRequired, ...pg, ...cg])
+      mergedGroups.push([...pg, ...cg])
     }
   }
 
   return {
     scope: effectiveParent.scope,
     conditionGroups: mergedGroups,
+    ...(requiredConditions.length > 0 && { requiredConditions }),
   }
 }
 

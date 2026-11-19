@@ -18,6 +18,7 @@ import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule, replaceVisibleItems } from '../database/repositories/account-filter.repo'
 import { rebuildForAccount, rebuildAll } from './account-filter.service'
 import { find } from './repository.service'
+import { replaceSourcePriorities, resolveSelectedLocationForItem } from '../database/repositories/media-location.repo'
 
 let ctx: ServiceTestContext
 
@@ -92,6 +93,45 @@ describe('allow mode — seed by tag', () => {
     expect(visible).toContain('dir-b')
     expect(visible).toContain('file2')
     expect(visible).toContain('root')
+  })
+
+  it('prunes a branch with an explicit conflicting tag and preserves siblings', () => {
+    seedStandardTree()
+    ctx.seedTags('e-a', { accepted: 'yes' })
+    ctx.seedTags('e-f1', { accepted: 'no' })
+    ctx.seedEntities([{ id: 'e-nested' }])
+    ctx.seedItems([
+      { id: 'nested', parentId: 'file1', path: '/lib/dir-a/file1/nested', type: 'file', entityId: 'e-nested' },
+      { id: 'sibling', parentId: 'dir-a', path: '/lib/dir-a/sibling', type: 'file' },
+    ])
+    ctx.seedTags('e-nested', { accepted: 'yes' })
+    setFilterRule('acc-filtered', 'allow', {
+      conditions: [{ field: 'tags.accepted', op: 'eq', value: 'yes' }]
+    })
+    rebuildForAccount('acc-filtered')
+    expect(getVisibleIds('acc-filtered')).toEqual(['dir-a', 'root', 'sibling'])
+    expect(find({ where: { parentId: 'dir-a' }, userId: 'acc-filtered' }).map(({ id }) => id))
+      .toEqual(['sibling'])
+  })
+
+  it('allows a child matching another value of the same tag in an OR group', () => {
+    seedStandardTree()
+    ctx.seedTags('e-a', { allow: 'yes' })
+    ctx.seedTags('e-f1', { allow: 'maybe' })
+    ctx.seedItems([
+      { id: 'rejected', parentId: 'dir-a', path: '/lib/dir-a/rejected', type: 'file', entityId: 'e-f2' },
+    ])
+    ctx.seedTags('e-f2', { allow: 'no' })
+    setFilterRule('acc-filtered', 'allow', {
+      conditionGroups: [
+        [{ field: 'tags.allow', op: 'eq', value: 'yes' }],
+        [{ field: 'tags.allow', op: 'eq', value: 'maybe' }],
+      ]
+    })
+    rebuildForAccount('acc-filtered')
+    expect(getVisibleIds('acc-filtered')).toEqual(['dir-a', 'file1', 'root'])
+    expect(find({ where: { parentId: 'dir-a' }, userId: 'acc-filtered' }).map(({ id }) => id))
+      .toEqual(['file1'])
   })
 
   it('stores empty visible set when no items match the filter', () => {
@@ -174,6 +214,29 @@ describe('rebuildAll', () => {
 // ── find() integration ─────────────────────────────────────────────────────────
 
 describe('find() with userId', () => {
+  it('selects the allowed occurrence for a location-scoped filter', () => {
+    seedStandardTree()
+    ctx.db.prepare(`
+      INSERT INTO media_locations (
+        id, item_id, source_id, relative_path, name, type, is_shadowed, shadowed_by_location_id, first_seen_at, last_seen_at
+      )
+      VALUES ('alternate-file1', 'file1', 'second-source', 'Allowed/file1', 'file1', 'file',
+        1, 'location:file1', 1000, 1000)
+    `).run()
+    ctx.db.prepare("UPDATE media_items SET preferred_location_id = 'location:file1' WHERE id = 'file1'").run()
+    replaceSourcePriorities(['test-source', 'second-source'])
+    setFilterRule('acc-filtered', 'allow', {
+      conditions: [{ field: 'path', op: 'contains', value: 'Allowed/' }],
+    })
+    rebuildForAccount('acc-filtered')
+
+    expect(resolveSelectedLocationForItem('file1', { requirePresent: true })?.id).toBe('location:file1')
+    expect(resolveSelectedLocationForItem('file1', { requirePresent: true, userId: 'acc-filtered' })?.id)
+      .toBe('alternate-file1')
+    expect(find({ where: { id: 'file1' }, fields: ['sourceId', 'path'], userId: 'acc-filtered' })[0])
+      .toMatchObject({ sourceId: 'second-source', path: 'Allowed/file1' })
+  })
+
   it('returns only visible items for a filtered account', () => {
     seedStandardTree()
     ctx.seedTags('e-a', { allow: 'true' })

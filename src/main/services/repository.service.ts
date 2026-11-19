@@ -21,6 +21,7 @@
  *   performance-critical "bulk surgery" or isolated table operations that do not 
  *   require the overhead of logical LibraryItem mapping.
  */
+import { EFFECTIVE_METADATA } from '../database/item-metadata.sql'
 import { getDb, initializeDatabase, runTransaction } from '../database/client'
 import { mapRowToLibraryItem } from '../database/mappers'
 import { buildFindQuery, ITEM_READ_MODEL, type FindOptions } from '../database/query-builder'
@@ -91,50 +92,54 @@ export { HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID, HOME_GENRES_ID, HOME_ALL_ME
  * Returns true if home's view settings were inserted for the first time.
  */
 export function ensureHomeDefaults(rootId: string): boolean {
-  itemsRepo.ensureHomeVirtualFolder(rootId)
-  itemsRepo.ensureHomeChildren()
+  return runTransaction(() => {
+    itemsRepo.ensureHomeVirtualFolder(rootId)
 
-  const isFirstHomeRun = settingsRepo.initSettings(HOME_FOLDER_ID, {
-    layout: 'sections',
-    appliedGrouping: 'vt._home_category',
-    childViewSettings: {
-      layout: 'horizontal-grid',
-      sortBy: 'random',
-      overrides: {
-        [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 220, scrollHorizontally: true, sortBy: 'alpha' },
-        [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false, sortBy: 'alpha' }
-      }
-    },
-    sortTop: [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID],
-    sortBottom: [HOME_GENRES_ID]
+    const isFirstHomeRun = settingsRepo.initSettings(HOME_FOLDER_ID, {
+      layout: 'sections',
+      appliedGrouping: 'vt._home_category',
+      childViewSettings: {
+        layout: 'horizontal-grid',
+        sortBy: 'random',
+        overrides: {
+          [HOME_CATEGORIES_ID]: { layout: 'button-grid', gridPosterSize: 220, scrollHorizontally: true, sortBy: 'alpha' },
+          [HOME_GENRES_ID]: { layout: 'button-grid', gridPosterSize: 180, scrollHorizontally: false, sortBy: 'alpha' }
+        }
+      },
+      sortTop: [HOME_CATEGORIES_ID, HOME_RECENTLY_ADDED_ID],
+      sortBottom: [HOME_GENRES_ID]
+    })
+
+    if (!isFirstHomeRun) return false
+    itemsRepo.ensureHomeChildren()
+
+    settingsRepo.initSettings(HOME_CATEGORIES_ID, {
+      layout: 'button-grid',
+      gridPosterSize: 250,
+      scrollHorizontally: false,
+      appliedGrouping: 'vt._home_category',
+      sortTop: [HOME_ALL_MEDIA_ID]
+    })
+
+    settingsRepo.initSettings(HOME_ALL_MEDIA_ID, {
+      layout: 'sections',
+      appliedGrouping: 'vt._home_category'
+    })
+
+    settingsRepo.initSettings(HOME_RECENTLY_ADDED_ID, {
+      sortBy: 'date-added',
+      sortDescending: true,
+    })
+
+    settingsRepo.initSettings(HOME_GENRES_ID, {
+      layout: 'button-grid',
+      gridPosterSize: 180,
+      scrollHorizontally: false,
+      appliedGrouping: 'genre'
+    })
+
+    return true
   })
-
-  settingsRepo.initSettings(HOME_CATEGORIES_ID, {
-    layout: 'button-grid',
-    gridPosterSize: 250,
-    scrollHorizontally: false,
-    appliedGrouping: 'vt._home_category',
-    sortTop: [HOME_ALL_MEDIA_ID]
-  })
-
-  settingsRepo.initSettings(HOME_ALL_MEDIA_ID, {
-    layout: 'sections',
-    appliedGrouping: 'vt._home_category'
-  })
-
-  settingsRepo.initSettings(HOME_RECENTLY_ADDED_ID, {
-    sortBy: 'date-added',
-    sortDescending: true,
-  })
-
-  settingsRepo.initSettings(HOME_GENRES_ID, {
-    layout: 'button-grid',
-    gridPosterSize: 180,
-    scrollHorizontally: false,
-    appliedGrouping: 'genre'
-  })
-
-  return isFirstHomeRun
 }
 
 export function ensureSourceRoot(source: MediaSource, resolvedAbsPath: string): void {
@@ -155,7 +160,9 @@ export function getRoot(): MediaFolder | null {
 }
 
 export function getItemById(id: string): LibraryItem | null {
-  const row = itemsRepo.fetchItemById(id)
+  const accountId = getCurrentAccountId()
+  if (accountId) ensureUpToDate(accountId)
+  const row = itemsRepo.fetchItemById(id, accountId)
   return row ? mapRowToLibraryItem(row) : null
 }
 
@@ -205,10 +212,11 @@ export function getTvShowsForStructuralSync(itemIds?: string[]): LibraryItem[] {
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL}, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
-    JOIN media_entities e ON i.entity_id = e.id
+    JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     WHERE i.type = 'folder'
       AND e.media_type = 'tv'
+      AND i.is_missing = 0
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND (f.process_tv_children IS NULL OR f.process_tv_children != 0)
@@ -236,11 +244,12 @@ export function getDiscoveryItemsForPhase2(itemIds?: string[]): LibraryItem[] {
     SELECT i.*, ${ENTITY_COLUMNS_SQL},
            f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
-    LEFT JOIN media_entities e ON i.entity_id = e.id
+    LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
       AND e.last_refreshed_at IS NULL
+      AND i.is_missing = 0
       AND i.is_ignored = 0
       AND i.is_hidden = 0
       AND pf.retrieve_children_metadata = 1
@@ -315,10 +324,6 @@ export function deleteItem(itemId: string): LibraryItem | null {
   return item
 }
 
-export function migrateRecord(oldId: string, item: any): void {
-  itemsRepo.migrateRecord(oldId, item)
-}
-
 export function updateItemPathAndId(oldId: string, newRelativePath: string): LibraryItem | null {
   const sourceId = itemsRepo.getItemSourceId(oldId)
   if (!sourceId) return null
@@ -334,7 +339,7 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>, optio
   return runTransaction(() => {
     // 1. Invariant Enforcement
     const existingMeta = metadataRepo.fetchMetadataRow(itemId)
-    const mediaType = updates.mediaType || existingMeta?.media_type
+    const mediaType = updates.mediaType === undefined ? existingMeta?.media_type : updates.mediaType
 
     if (mediaType === 'tv') {
       ; (updates as any).seasonNumber = null
@@ -366,10 +371,10 @@ export function _updateItem(itemId: string, updates: Partial<LibraryItem>, optio
       })
     }
 
-    // Metadata Updates (writes to media_entities via metadataRepo)
+    // Effective metadata updates
     const metadataKeys = [
       ...ENTITY_SCALAR_METADATA_KEYS,
-      'genres', 'tags', 'virtualTags', 'tmdbCredits'
+      'genres', 'tags'
     ]
     if (metadataKeys.some((k) => k in updates)) {
       metadataRepo.upsertMetadata(itemId, updates)

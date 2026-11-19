@@ -269,8 +269,8 @@ describe('multi-source', () => {
     expect(idsB).not.toContain(itemAId)
   })
 
-  it('getItemsForCleanup only returns items belonging to the queried source', () => {
-    const { generateId, upsertLibraryItems, getItemsForCleanup } = require('../database/repositories/filesystem.repo')
+  it('getScanLocations only returns items belonging to the queried source', () => {
+    const { generateId, upsertLibraryItems, getScanLocations } = require('../database/repositories/filesystem.repo')
     repositoryService.ensureSourceRoot(SOURCE_A, '/media/movies')
     repositoryService.ensureSourceRoot(SOURCE_B, '/media/shows')
 
@@ -284,12 +284,12 @@ describe('multi-source', () => {
       { '@id': itemBId, '@parentId': rootBId, '@path': 'film.mkv', '@name': 'film.mkv', '@type': 'file', '@sourceId': SOURCE_B.id, '@size': 0, '@mtime': 0, '@birthtime': 0, '@inode': 2, '@deviceId': 1, '@isIgnored': 0, '@isHidden': 0 },
     ])
 
-    const cleanupA = getItemsForCleanup(SOURCE_A.id, '.')
+    const cleanupA = getScanLocations(SOURCE_A.id, '.')
     const idsA = cleanupA.map((r: any) => r.id)
     expect(idsA).toContain(itemAId)
     expect(idsA).not.toContain(itemBId)
 
-    const cleanupB = getItemsForCleanup(SOURCE_B.id, '.')
+    const cleanupB = getScanLocations(SOURCE_B.id, '.')
     const idsB = cleanupB.map((r: any) => r.id)
     expect(idsB).toContain(itemBId)
     expect(idsB).not.toContain(itemAId)
@@ -359,7 +359,7 @@ describe('multi-source', () => {
       const oldLocationCount = ctx.db.prepare(`
         SELECT COUNT(*) AS count
         FROM media_locations
-        WHERE source_id = ? AND relative_path = 'Shows/Foo'
+        WHERE source_id = ? AND relative_path = 'Shows/Foo' AND is_present = 1
       `).get(SOURCE_A.id) as { count: number }
       expect(oldLocationCount.count).toBe(0)
 

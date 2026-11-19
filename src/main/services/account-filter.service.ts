@@ -2,43 +2,67 @@
  * ACCOUNT FILTER SERVICE
  * Pre-computes per-account visible item sets based on admin-defined filter rules.
  *
- * Allow mode: shows only items matching the filter + their descendants + their ancestors.
+ * Allow mode: includes each matching subtree and its navigation ancestors.
+ * A conflicting local tag stops inheritance for that OR group. A direct match
+ * in another group can keep the branch visible.
  * Deny mode: hides items matching the filter + their descendants; everything else is visible.
  *
  * The result is materialized into account_visible_items for fast O(1) query-time lookup.
  */
 import { getDb } from '../database/client'
 import * as accountFilterRepo from '../database/repositories/account-filter.repo'
-import { compileFilter, buildWhereFragment, ITEM_READ_MODEL } from '../database/query-builder'
+import {
+  buildFindQuery,
+  compileConditionToSql,
+  compileFilter,
+  ITEM_READ_MODEL,
+  type FindOptions,
+} from '../database/query-builder'
+import { withSourceLocations } from '../database/media-read-model.sql'
+import type { AccountFilterRule, LibraryCondition } from '@shared/types'
 
-export function rebuildForAccount(accountId: string): void {
-  const rule = accountFilterRepo.getFilterRule(accountId)
+type ItemRow = { id: string; parent_id: string | null; selected_location_id: string | null }
+type FindIds = (options: FindOptions) => string[]
 
-  if (!rule) {
-    accountFilterRepo.replaceVisibleItems(accountId, [])
-    return
-  }
-
-  const compiled = compileFilter(rule.filter)
-  const { conditions, params, tables } = buildWhereFragment({
-    ...compiled,
+function findIds(options: FindOptions, source?: string): string[] {
+  const { query, params } = buildFindQuery({
+    ...options,
+    fields: ['id'],
+    rawConditions: source
+      ? [...(options.rawConditions ?? []), 'i.selected_location_id IS NOT NULL']
+      : options.rawConditions,
     includeHidden: true,
     includeIgnored: true,
   })
+  const rows = source
+    ? getDb().prepare(withSourceLocations(query)).all(source, ...params)
+    : getDb().prepare(query).all(...params)
+  return (rows as { id: string }[]).map(({ id }) => id)
+}
 
-  const entityJoin = tables.has('e') ? 'LEFT JOIN media_entities e ON i.entity_id = e.id' : ''
+function findTagConflicts(group: LibraryCondition[], findMatching: FindIds): string[] {
+  const tests = group
+    .filter(({ field }) => /^(tags|vt|virtualTags)\./.test(field))
+    .map(({ field, op, value }) => {
+      const present = compileConditionToSql(field, 'isNotNull')
+      const matches = compileConditionToSql(field, op, value)
+      return {
+        sql: `(${present.sql} AND NOT (${matches.sql}))`,
+        params: [...present.params, ...matches.params],
+      }
+    })
+  if (tests.length === 0) return []
+  return findMatching({
+    rawConditions: ['i.is_virtual = 0'],
+    compiledConditions: {
+      sql: `(${tests.map(({ sql }) => sql).join(' OR ')})`,
+      params: tests.flatMap(({ params }) => params),
+      tables: new Set(),
+    },
+  })
+}
 
-  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : 'WHERE 1=1'
-
-  const db = getDb()
-
-  const seedSql = `SELECT i.id FROM ${ITEM_READ_MODEL} i ${entityJoin} ${whereSql}`
-  const seeds = db.prepare(seedSql).all(...params) as { id: string }[]
-  const allItems = db.prepare(`SELECT id, parent_id FROM ${ITEM_READ_MODEL} WHERE is_virtual = 0`).all() as {
-    id: string
-    parent_id: string | null
-  }[]
-
+function computeVisibility(rule: AccountFilterRule, allItems: ItemRow[], findMatching: FindIds): Set<string> {
   const childrenByParent = new Map<string | null, string[]>()
   const parentById = new Map<string, string | null>()
   for (const item of allItems) {
@@ -48,45 +72,111 @@ export function rebuildForAccount(accountId: string): void {
     childrenByParent.set(item.parent_id, children)
   }
 
-  const collectDescendants = (id: string, target: Set<string>) => {
-    for (const childId of childrenByParent.get(id) ?? []) {
-      if (target.has(childId)) continue
-      target.add(childId)
-      collectDescendants(childId, target)
+  const collectSubtree = (id: string, target: Set<string>) => {
+    const pending = [id]
+    while (pending.length > 0) {
+      const current = pending.pop()!
+      if (target.has(current)) continue
+      target.add(current)
+      for (const child of childrenByParent.get(current) ?? []) pending.push(child)
     }
   }
-
-  const collectAncestors = (id: string, target: Set<string>) => {
-    let parentId = parentById.get(id) ?? null
-    while (parentId) {
-      if (target.has(parentId)) break
-      target.add(parentId)
-      parentId = parentById.get(parentId) ?? null
-    }
-  }
-
-  let ids: string[]
 
   if (rule.mode === 'allow') {
-    // Visible = seeds + all their descendants + all their ancestors (for navigation)
+    const groups = rule.filter.conditionGroups ?? [rule.filter.conditions ?? []]
+    const filterGroups = groups.length > 0 ? groups : [[]]
+    const rules = filterGroups.map((group) => ({
+      seeds: new Set(findMatching(compileFilter({ ...rule.filter, conditionGroups: [group] }))),
+      conflicts: new Set(findTagConflicts([...group, ...(rule.filter.requiredConditions ?? [])], findMatching)),
+    }))
+    const pending = allItems
+      .filter(({ parent_id }) => parent_id === null || !parentById.has(parent_id))
+      .map(({ id }) => ({ id, inherited: [] as number[] }))
     const visible = new Set<string>()
-    for (const seed of seeds) {
-      visible.add(seed.id)
-      collectDescendants(seed.id, visible)
-      collectAncestors(seed.id, visible)
+    while (pending.length > 0) {
+      const { id, inherited } = pending.pop()!
+      const allowed = []
+      for (const [index, { seeds, conflicts }] of rules.entries()) {
+        if (seeds.has(id) || (inherited.includes(index) && !conflicts.has(id))) allowed.push(index)
+      }
+
+      if (allowed.length > 0) {
+        visible.add(id)
+        let parent = parentById.get(id)
+        while (parent && !visible.has(parent)) {
+          visible.add(parent)
+          parent = parentById.get(parent)
+        }
+      } else if (inherited.length > 0) {
+        continue
+      }
+
+      for (const child of childrenByParent.get(id) ?? []) {
+        pending.push({ id: child, inherited: allowed })
+      }
     }
-    ids = [...visible]
-  } else {
-    // Visible = all real items EXCEPT the denied subtrees (denied seeds + their descendants)
-    const denied = new Set<string>()
-    for (const seed of seeds) {
-      denied.add(seed.id)
-      collectDescendants(seed.id, denied)
-    }
-    ids = allItems.map((item) => item.id).filter((id) => !denied.has(id))
+    return visible
   }
 
-  accountFilterRepo.replaceVisibleItems(accountId, ids)
+  const denied = new Set<string>()
+  for (const seed of findMatching(compileFilter(rule.filter))) collectSubtree(seed, denied)
+  return new Set(allItems.map(({ id }) => id).filter((id) => !denied.has(id)))
+}
+
+function usesLocationFields(rule: AccountFilterRule): boolean {
+  const { conditionGroups, conditions, requiredConditions } = rule.filter
+  return [...(conditionGroups?.flat() ?? conditions ?? []), ...(requiredConditions ?? [])]
+    .some(({ field }) => /^(parent\.)*(path|sourceId|size|mtime|birthtime|inode|deviceId|isIgnored)$/.test(field))
+}
+
+export function rebuildForAccount(accountId: string): void {
+  const rule = accountFilterRepo.getFilterRule(accountId)
+  if (!rule) {
+    accountFilterRepo.replaceVisibleItems(accountId, [])
+    return
+  }
+
+  const db = getDb()
+  const rowsSql = `SELECT id, parent_id, selected_location_id FROM ${ITEM_READ_MODEL} WHERE is_virtual = 0`
+  const allItems = db.prepare(rowsSql).all() as ItemRow[]
+  let visible: Set<string>
+  const excluded: string[] = []
+  if (!usesLocationFields(rule)) {
+    visible = computeVisibility(rule, allItems, findIds)
+  } else {
+    visible = new Set()
+    const allowedLocations = new Set<string>()
+    const sources = db.prepare('SELECT DISTINCT source_id FROM media_locations').all() as { source_id: string }[]
+    const bySource = db.prepare(withSourceLocations(`${rowsSql} AND selected_location_id IS NOT NULL`))
+    for (const { source_id } of sources) {
+      const rows = bySource.all(source_id) as ItemRow[]
+      const locationItems = computeVisibility(rule, rows, (options) => findIds(options, source_id))
+      for (const row of rows) {
+        if (!locationItems.has(row.id)) continue
+        visible.add(row.id)
+        if (row.selected_location_id) allowedLocations.add(row.selected_location_id)
+      }
+    }
+
+    // Logical parents can differ from physical parents after a move.
+    const parents = new Map(allItems.map(({ id, parent_id }) => [id, parent_id]))
+    if (rule.mode === 'allow') {
+      for (const id of visible) {
+        let parent = parents.get(id)
+        while (parent && !visible.has(parent)) {
+          visible.add(parent)
+          parent = parents.get(parent)
+        }
+      }
+    }
+    const locationIds = db.prepare('SELECT id, item_id FROM media_locations').all() as { id: string; item_id: string }[]
+    for (const { id, item_id } of locationIds) {
+      if (visible.has(item_id) && !allowedLocations.has(id)) excluded.push(id)
+    }
+  }
+
+  const ids = [...visible]
+  accountFilterRepo.replaceVisibleItems(accountId, ids, excluded)
   accountLastBuiltVersion.set(accountId, globalDirtyVersion)
   console.log(
     `[${new Date().toISOString()}] [AccountFilter] Rebuilt visibility for account ${accountId}: ${ids.length} visible items (mode=${rule.mode})`

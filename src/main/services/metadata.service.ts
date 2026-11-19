@@ -5,7 +5,7 @@ import * as repositoryService from './repository.service'
 import * as virtualTagsService from './virtualTags.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
-import * as retrieverService from './retriever.service'
+import { createTmdbProvider, type MetadataProvider } from './metadata-provider'
 import * as tvShowService from './tv-show.service'
 import * as metadataMapping from './metadata-processing.service'
 import { processInChunks } from '../utils/concurrency'
@@ -19,7 +19,7 @@ import * as filesystemService from './filesystem.service'
 import * as autocompleteService from './autocomplete.service'
 
 import type { LibraryItem, MediaFile, MediaFolder } from '@shared/types'
-import { PRESERVED_ON_REASSIGN_FIELDS, RESETTABLE_METADATA_KEYS } from '@shared/types'
+import { RESETTABLE_METADATA_KEYS } from '@shared/types'
 import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
 
 const log = (message: string): void => {
@@ -155,11 +155,14 @@ export async function maintenancePass() {
 
 export async function fetchAndApplyMetadata(
   item: LibraryItem,
-  options: { force?: boolean; year?: number } = {}
+  options: { force?: boolean; year?: number; provider?: MetadataProvider } = {}
 ): Promise<LibraryItem[]> {
+  const typeLocked = repositoryService.isFieldLocked(item, 'mediaType')
+  if (typeLocked && item.mediaType == null) return []
+
   const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
-  const apiKey = settings.tmdbApiKey!
+  const provider = options.provider ?? createTmdbProvider(settings.tmdbApiKey!)
   const allModifiedItems: LibraryItem[] = [item]
 
   if (pathsService.isRemoteLibrary()) return []
@@ -176,17 +179,20 @@ export async function fetchAndApplyMetadata(
       const parent = item.parentId
         ? (repositoryService.getItemById(item.parentId) as MediaFolder)
         : null
-      const typeHint =
-        parent?.folderSettings?.childrenTypeHint || (item.type === 'file' ? 'movie' : 'multi')
+      const storedHint = parent?.folderSettings?.childrenTypeHint
+      const typeHint = typeLocked && (item.mediaType === 'movie' || item.mediaType === 'tv')
+        ? item.mediaType
+        : storedHint === 'movie' || storedHint === 'tv'
+          ? storedHint
+          : item.type === 'file' ? 'movie' : 'multi'
 
-      const results = await retrieverService.search(query, typeHint as any, apiKey, {
-        year: options.year?.toString()
-      })
-      const result = results[0]
+      const result = await provider.match(query, typeHint, options.year)
 
       if (result) {
         item.tmdbId = result.id
-        item.mediaType = result.media_type || (typeHint === 'multi' ? 'movie' : typeHint)
+        if (!typeLocked) {
+          item.mediaType = result.type
+        }
         if (
           item.mediaType === 'tv' &&
           (item as MediaFolder).folderSettings?.processTvChildren !== false
@@ -201,22 +207,23 @@ export async function fetchAndApplyMetadata(
       }
     }
 
-    // 2. Enrichment (Details)
-    if (item.tmdbId && item.mediaType !== 'season') {
-      const details = await retrieverService.getDetails(item.tmdbId, item.mediaType as any, apiKey)
+    // 2. Save provider facts independently of item locks and materialize the item.
+    if (item.tmdbId && (item.mediaType === 'movie' || item.mediaType === 'tv')) {
+      const match = { id: item.tmdbId, type: item.mediaType }
+      const details = await provider.details(match)
+      const entityId = metadataRepo.saveProviderMatch(item.id, provider.name, match, details)
       if (details) {
-        await metadataMapping.applyMetadataToItem(item, details, {
-          respectLocks: true,
-          libraryDataPath
-        })
-
-        if (item.mediaType === 'movie' || item.mediaType === 'tv') {
-          const credits = await retrieverService.getCredits(
-            item.tmdbId,
-            item.mediaType as any,
-            apiKey
-          )
-          if (credits) metadataMapping.applyCreditsToItem(item, credits)
+        await metadataMapping.applyMetadataToItem(item, details)
+        const credits = await provider.credits(match)
+        if (credits) {
+          metadataRepo.saveProviderCredits(entityId, credits)
+          item.tmdbCredits = credits
+        }
+        for (const id of metadataRepo.findOtherItemsForEntity(entityId, item.id)) {
+          const copy = repositoryService.getItemById(id)
+          if (!copy || copy.mediaType !== match.type || copy.tmdbId !== match.id) continue
+          metadataMapping.applyProviderFields(copy, details)
+          allModifiedItems.push(copy)
         }
       }
     }
@@ -244,12 +251,13 @@ export async function fetchAndApplyMetadata(
       if (target && target.tmdbId) {
         // Ensure targeted details are cached on the item for the mapping
         if (!target.tmdbSeasons) {
-          const details = await retrieverService.getDetails(target.tmdbId, 'tv', apiKey)
+          const details = await provider.details({ id: target.tmdbId, type: 'tv' })
           if (details?.seasons) target.tmdbSeasons = details.seasons
         }
         const modified = await metadataMapping.applyTvShowData(target, settings, libraryDataPath, {
           respectLocks: true,
-          force: options.force
+          force: options.force,
+          provider,
         })
         allModifiedItems.push(...modified)
       }
@@ -281,27 +289,10 @@ export async function applyManualMatch(
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
 
-  // Capture user-controlled fields before clearing — these must survive reassignment
-  const preservedValues: Partial<Record<(typeof PRESERVED_ON_REASSIGN_FIELDS)[number], any>> = {}
-  for (const field of PRESERVED_ON_REASSIGN_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(item, field)) {
-      preservedValues[field] = (item as any)[field]
-    }
-  }
-
   try {
-    // 1. PRIME: Clear current identity and freshness, then restore preserved fields
-    const clearedItem = await clearItemMetadata(itemId, { targetedClear: true })
-    if (!clearedItem) return []
+    const item = await clearItemMetadata(itemId, { targetedClear: true, preserveEdits: true })
+    if (!item) return []
 
-    const item = clearedItem
-
-    // Restore preserved fields after clear
-    for (const field of PRESERVED_ON_REASSIGN_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(preservedValues, field)) {
-        ;(item as any)[field] = preservedValues[field]
-      }
-    }
     if (mediaType === 'season' && typeof result.season_number === 'number') {
       item.seasonNumber = result.season_number
     }
@@ -315,6 +306,9 @@ export async function applyManualMatch(
     if (mediaType === 'season' && !item.lockedFields.includes('seasonNumber'))
       item.lockedFields.push('seasonNumber')
 
+    if (mediaType !== 'season') {
+      metadataRepo.saveProviderMatch(item.id, 'tmdb', { id: result.id, type: mediaType })
+    }
     await updateIfChangedAndBroadcast(item)
 
     // 2. TRIGGER BACKGROUND ENRICHMENT
@@ -348,7 +342,7 @@ export async function applyManualMatch(
 
 export async function clearItemMetadata(
   itemId: string,
-  options: { childrenOnly?: boolean; targetedClear?: boolean } = {}
+  options: { childrenOnly?: boolean; targetedClear?: boolean; preserveEdits?: boolean } = {}
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (!item) return null
@@ -404,18 +398,20 @@ export async function clearItemMetadata(
   itemsToUpdate.push(item, ...itemsToFullClear)
   const uniqueItems = Array.from(new Set(itemsToUpdate))
 
+  const respectLocks = options.preserveEdits === true
   for (const target of itemsToFullClear) {
-    await _unlinkItemImages(target, { respectLocks: false })
+    await _unlinkItemImages(target, { respectLocks })
+    _resetItemMetadataFields(target, { respectLocks })
   }
 
-  for (const target of itemsToFullClear) {
-    _resetItemMetadataFields(target, { respectLocks: false })
-  }
-
-  // Bulk-clear entity metadata in DB, then broadcast
-  const entityIds = metadataRepo.fetchEntityIdsForItemIds(itemsToFullClear.map((i) => i.id))
-  metadataRepo.bulkClearEntityMetadata(entityIds)
-  metadataRepo.bulkClearItemTags(itemsToFullClear.map((i) => i.id))
+  repositoryService.runTransaction(() => {
+    metadataRepo.bulkClearItemMetadata(itemsToFullClear.map(({ id }) => id))
+    if (respectLocks) {
+      for (const target of itemsToFullClear) {
+        if (target.lockedFields?.length) metadataRepo.upsertMetadata(target.id, target)
+      }
+    }
+  })
 
   if (showIdForVirtualSync) {
     syncVirtualSeasonFolders(showIdForVirtualSync)
@@ -457,6 +453,7 @@ function _resetItemMetadataFields(
   const scalarResetValues = new Map(ENTITY_SCALAR_METADATA_FIELDS.map((field) => [field.key, field.resetValue]))
 
   for (const key of RESETTABLE_METADATA_KEYS) {
+    if (key === 'tags' || (options.respectLocks && key === 'lockedFields')) continue
     if (Object.prototype.hasOwnProperty.call(item, key)) {
       if (options.respectLocks && repositoryService.isFieldLocked(item, key)) {
         continue
@@ -468,9 +465,6 @@ function _resetItemMetadataFields(
       }
 
       switch (key) {
-        case 'tags':
-          itemAsRecord[key] = {}
-          break
         case 'genres':
           itemAsRecord[key] = []
           break
@@ -543,7 +537,8 @@ export async function setImage(
     }
 
     const field = `${imageType}Path` as 'posterPath' | 'backdropPath' | 'logoPath'
-      ; (item as any)[field] = fileName
+    item[field] = fileName
+    item.lockedFields = [...new Set([...(item.lockedFields ?? []), field])]
     item._v = Date.now()
     await updateIfChangedAndBroadcast(item)
     return item
@@ -559,7 +554,9 @@ export async function removeImage(
 ): Promise<LibraryItem | null> {
   const item = repositoryService.getItemById(itemId)
   if (item) {
-    ; (item as any)[`${imageType}Path`] = null
+    const field = `${imageType}Path` as const
+    item[field] = null
+    item.lockedFields = [...new Set([...(item.lockedFields ?? []), field])]
     item._v = Date.now()
     await updateIfChangedAndBroadcast(item)
   }
@@ -568,17 +565,15 @@ export async function removeImage(
 
 export const fetchCredits = async (itemId: string) => {
   const item = repositoryService.getItemById(itemId)
-  if (item && item.tmdbId && item.mediaType) {
-    const settings = await settingsService.readSettings()
-    const credits = await retrieverService.getCredits(
-      item.tmdbId,
-      item.mediaType as any,
-      settings.tmdbApiKey!
-    )
-    if (credits) {
-      metadataMapping.applyCreditsToItem(item, credits)
-      await updateIfChangedAndBroadcast(item)
-    }
+  if (!item?.tmdbId || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) return
+  const settings = await settingsService.readSettings()
+  const provider = createTmdbProvider(settings.tmdbApiKey!)
+  const match = { id: item.tmdbId, type: item.mediaType }
+  const credits = await provider.credits(match)
+  if (credits) {
+    const entityId = metadataRepo.saveProviderMatch(item.id, provider.name, match)
+    metadataRepo.saveProviderCredits(entityId, credits)
+    await updateIfChangedAndBroadcast({ id: item.id, tmdbCredits: credits, _v: Date.now() } as LibraryItem)
   }
 }
 

@@ -1,12 +1,13 @@
 /**
  * METADATA REPOSITORY (Logical Content Metadata)
- * Owns the 'media_entities' table and its normalized relational tables
- * (genres, entity_genres, people, credits) plus item-bound tag tables.
+ * Owns effective item metadata, provider credits, tags and virtual tags.
  */
+import { EFFECTIVE_METADATA } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
 import { compileFilter, buildWhereFragment } from '../query-builder'
 import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
-import type { VirtualTagConfig } from '@shared/types'
+import type { LibraryItem, VirtualTagConfig } from '@shared/types'
+import type { ProviderDetails, ProviderMatch } from '../../services/metadata-provider'
 
 // ─── Credits (Normalized) ───────────────────────────────────────────────────
 
@@ -45,94 +46,112 @@ export function fetchCreditsByItemId(itemId: string): { cast: any[]; crew: any[]
     return fetchCredits(item.entity_id)
 }
 
-// ─── Entity Lifecycle ───────────────────────────────────────────────────────
-
-/**
- * Ensures a media_entity row exists for the given item, creating one if needed.
- * Returns the entity_id (existing or newly created).
- */
-export function ensureEntityForItem(itemId: string): string {
-    const db = getDb()
-
-    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
-    if (item?.entity_id) {
-        return item.entity_id
-    }
-
-    const entityId = crypto.randomUUID()
-    db.prepare('INSERT INTO media_entities (id) VALUES (?)').run(entityId)
-    db.prepare('UPDATE media_items SET entity_id = ? WHERE id = ?').run(entityId, itemId)
-    return entityId
-}
-
 // ─── Upsert Metadata ────────────────────────────────────────────────────────
 
-/**
- * Robust upsert of metadata for an item's entity.
- * Creates the entity and link if they don't exist yet.
- * Handles both scalar fields (on media_entities) and relational data (junction tables).
- */
-export function upsertMetadata(itemId: string, updates: any): void {
+function ensureItemMetadata(itemId: string): void {
     const db = getDb()
-
-    const entityId = ensureEntityForItem(itemId)
-
-    const existing = (db.prepare('SELECT * FROM media_entities WHERE id = ?').get(entityId) as any) || {}
-
-    // 1. Upsert scalar fields on media_entities
-    const params: Record<string, unknown> = { '@id': entityId }
-    for (const field of ENTITY_SCALAR_METADATA_FIELDS) {
-        const hasUpdate = updates[field.key] !== undefined
-        const nextValue = hasUpdate ? updates[field.key] : existing[field.column]
-        params[`@${field.column}`] = hasUpdate && field.serialize ? field.serialize(nextValue) : nextValue
-    }
-
-    const columns = ['id', ...ENTITY_SCALAR_METADATA_FIELDS.map((field) => field.column)]
-    const valueParams = ['@id', ...ENTITY_SCALAR_METADATA_FIELDS.map((field) => `@${field.column}`)]
-    const updateAssignments = ENTITY_SCALAR_METADATA_FIELDS.map((field) => `${field.column} = excluded.${field.column}`)
-
+    const columns = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => column).join(', ')
     db.prepare(`
-    INSERT INTO media_entities(${columns.join(', ')})
-    VALUES(${valueParams.join(', ')})
-    ON CONFLICT(id) DO UPDATE SET
-      ${updateAssignments.join(',\n      ')}
-    `).run(params as any)
-
-    // 2. Upsert relational data (genres, credits, tags)
-    if (updates.genres !== undefined) {
-        upsertGenres(entityId, updates.genres)
-    }
-    if (updates.tmdbCredits !== undefined) {
-        upsertCredits(entityId, updates.tmdbCredits)
-    }
-    if (updates.tags !== undefined) {
-        upsertTags(itemId, updates.tags)
-    }
+        INSERT OR IGNORE INTO media_item_metadata (item_id, ${columns}, genres_json)
+        SELECT item_id, ${columns}, genres_json FROM ${EFFECTIVE_METADATA} WHERE item_id = ?
+    `).run(itemId)
+    db.prepare('INSERT OR IGNORE INTO media_item_metadata (item_id) VALUES (?)').run(itemId)
 }
 
-// ─── Relational Upsert Helpers ──────────────────────────────────────────────
+/** Links a materialized item to the shared provider identity and optionally refreshes its facts. */
+export function saveProviderMatch(
+    itemId: string,
+    provider: string,
+    match: ProviderMatch,
+    details?: ProviderDetails | null,
+): string {
+    return runTransaction(() => {
+        const db = getDb()
+        ensureItemMetadata(itemId)
+        const identity = [provider, String(match.id), match.type] as const
+        const existing = db.prepare(`
+            SELECT id FROM media_entities WHERE provider = ? AND provider_id = ? AND media_type = ?
+        `).get(...identity) as { id: string } | null
+        const entityId = existing?.id ?? crypto.randomUUID()
+        if (!existing) {
+            db.prepare(`
+                INSERT INTO media_entities (id, provider, provider_id, media_type, tmdb_id)
+                VALUES (?, ?, ?, ?, ?)
+            `).run(entityId, ...identity, provider === 'tmdb' ? match.id : null)
+        }
+        if (details) {
+            db.prepare(`
+                UPDATE media_entities SET title = ?, original_title = ?, overview = ?,
+                    release_date = ?, year = ?, tmdb_runtime = ?, fetched_at = ?,
+                    poster_path = ?, backdrop_path = ?, logo_path = ?
+                WHERE id = ?
+            `).run(
+                details.title, details.originalTitle, details.overview, details.releaseDate,
+                details.year, details.runtime, Date.now(), details.artwork.poster ?? null,
+                details.artwork.backdrop ?? null, details.artwork.logo ?? null, entityId
+            )
+            upsertProviderGenres(entityId, details.genres)
+        }
+        db.prepare('UPDATE media_items SET entity_id = ? WHERE id = ? AND entity_id IS NOT ?')
+            .run(entityId, itemId, entityId)
+        return entityId
+    })
+}
 
-function upsertGenres(entityId: string, genres: string[] | null): void {
+export function findOtherItemsForEntity(entityId: string, itemId: string): string[] {
+    const rows = getDb().prepare('SELECT id FROM media_items WHERE entity_id = ? AND id != ?')
+        .all(entityId, itemId) as { id: string }[]
+    return rows.map(({ id }) => id)
+}
+
+function upsertProviderGenres(entityId: string, genres: string[]): void {
     const db = getDb()
     db.prepare('DELETE FROM entity_genres WHERE entity_id = ?').run(entityId)
-    if (!genres || genres.length === 0) return
-
     const insertGenre = db.prepare('INSERT OR IGNORE INTO genres (name) VALUES (?)')
-    const getGenreId = db.prepare('SELECT id FROM genres WHERE name = ?')
-    const insertLink = db.prepare('INSERT OR IGNORE INTO entity_genres (entity_id, genre_id) VALUES (?, ?)')
-
-    for (const name of genres) {
-        insertGenre.run(name)
-        const row = getGenreId.get(name) as { id: number }
-        insertLink.run(entityId, row.id)
+    const linkGenre = db.prepare(`
+        INSERT OR IGNORE INTO entity_genres (entity_id, genre_id)
+        SELECT ?, id FROM genres WHERE name = ?
+    `)
+    for (const genre of genres) {
+        insertGenre.run(genre)
+        linkGenre.run(entityId, genre)
     }
 }
 
-function upsertCredits(entityId: string, credits: { cast?: any[]; crew?: any[] } | null): void {
+/**
+ * Persists the item's effective metadata and keeps provider credits entity-owned.
+ * The first write materializes the item's current values before applying the patch.
+ */
+export function upsertMetadata(itemId: string, updates: any): void {
+    runTransaction(() => {
+        const db = getDb()
+        const fields = ENTITY_SCALAR_METADATA_FIELDS.filter(({ key }) => updates[key] !== undefined)
+        if (fields.length || updates.genres !== undefined) {
+            ensureItemMetadata(itemId)
+
+            const assignments = fields.map(({ column }) => `${column} = ?`)
+            const values = fields.map(({ key, serialize }) => serialize ? serialize(updates[key]) : updates[key])
+            if (updates.genres !== undefined) {
+                assignments.push('genres_json = ?')
+                values.push(JSON.stringify([...new Set(updates.genres ?? [])]))
+            }
+            db.prepare(`UPDATE media_item_metadata SET ${assignments.join(', ')} WHERE item_id = ?`)
+                .run(...values, itemId)
+        }
+
+        if (updates.tags !== undefined) {
+            upsertTags(itemId, updates.tags)
+        }
+    })
+}
+
+export function saveProviderCredits(entityId: string, credits: NonNullable<LibraryItem['tmdbCredits']>): void {
+    runTransaction(() => replaceProviderCredits(entityId, credits))
+}
+
+function replaceProviderCredits(entityId: string, credits: NonNullable<LibraryItem['tmdbCredits']>): void {
     const db = getDb()
     db.prepare('DELETE FROM credits WHERE entity_id = ?').run(entityId)
-    if (!credits) return
-
     const upsertPerson = db.prepare(
         'INSERT INTO people (id, name, profile_path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, profile_path = excluded.profile_path'
     )
@@ -165,93 +184,56 @@ function upsertTags(itemId: string, tags: Record<string, any> | null): void {
     }
 }
 
-/**
- * Looks up entity IDs for a set of item IDs in one query.
- */
-export function fetchEntityIdsForItemIds(itemIds: string[]): string[] {
-    if (itemIds.length === 0) return []
-    const db = getDb()
-    const placeholders = itemIds.map(() => '?').join(', ')
-    const rows = db.prepare(
-        `SELECT entity_id FROM media_items WHERE id IN (${placeholders}) AND entity_id IS NOT NULL`
-    ).all(...itemIds) as { entity_id: string }[]
-    return rows.map(r => r.entity_id)
-}
-
-/**
- * Bulk-clears all metadata for a set of items in a few SQL statements.
- * Use for recursive clear-metadata operations instead of N individual upsertMetadata calls.
- * Operates on entity IDs (not item IDs).
- */
-export function bulkClearEntityMetadata(entityIds: string[]): void {
-    if (entityIds.length === 0) return
-    const db = getDb()
-    const placeholders = entityIds.map(() => '?').join(', ')
-
-    runTransaction(() => {
-        db.prepare(`
-            UPDATE media_entities SET
-              ${ENTITY_SCALAR_METADATA_FIELDS.map((field) => `${field.column} = NULL`).join(',\n              ')}
-            WHERE id IN (${placeholders})
-        `).run(...entityIds)
-
-        db.prepare(`DELETE FROM entity_genres WHERE entity_id IN (${placeholders})`).run(...entityIds)
-        db.prepare(`DELETE FROM credits WHERE entity_id IN (${placeholders})`).run(...entityIds)
-    })
-}
-
-export function bulkClearItemTags(itemIds: string[]): void {
+/** Clears effective item metadata and unlinks the provider match. */
+export function bulkClearItemMetadata(itemIds: string[]): void {
     if (itemIds.length === 0) return
     const db = getDb()
     const placeholders = itemIds.map(() => '?').join(', ')
-    db.prepare(`DELETE FROM item_tags WHERE item_id IN (${placeholders})`).run(...itemIds)
+    runTransaction(() => {
+        db.prepare(`
+            INSERT OR IGNORE INTO media_item_metadata (item_id)
+            SELECT id FROM media_items WHERE id IN (${placeholders})
+        `).run(...itemIds)
+        db.prepare(`
+            UPDATE media_item_metadata SET
+              ${ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => `${column} = NULL`).join(', ')},
+              genres_json = '[]'
+            WHERE item_id IN (${placeholders})
+        `).run(...itemIds)
+        db.prepare(`UPDATE media_items SET entity_id = NULL WHERE id IN (${placeholders})`).run(...itemIds)
+    })
 }
 
 // ─── Read Helpers ───────────────────────────────────────────────────────────
 
-/**
- * Fetches raw entity row for an item (via entity_id link).
- */
 export function fetchMetadataRow(itemId: string): any {
-    const db = getDb()
-    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
-    if (!item?.entity_id) return null
-    return db.prepare('SELECT * FROM media_entities WHERE id = ?').get(item.entity_id)
+    return getDb().prepare(`SELECT * FROM ${EFFECTIVE_METADATA} WHERE item_id = ?`).get(itemId)
 }
 
-/**
- * Updates entity images directly.
- */
-export function updateMetadataImages(itemId: string, images: any): void {
-    const db = getDb()
-    const item = db.prepare('SELECT entity_id FROM media_items WHERE id = ?').get(itemId) as { entity_id: string | null } | undefined
-    if (!item?.entity_id) return
-    db.prepare('UPDATE media_entities SET poster_path = ?, backdrop_path = ?, logo_path = ? WHERE id = ?').run(
-        images.poster ?? null,
-        images.backdrop ?? null,
-        images.logo ?? null,
-        item.entity_id
-    )
+export function updateMetadataImages(
+    itemId: string,
+    images: { poster: string | null; backdrop: string | null; logo: string | null }
+): void {
+    upsertMetadata(itemId, {
+        posterPath: images.poster,
+        backdropPath: images.backdrop,
+        logoPath: images.logo,
+    })
 }
 
-/**
- * Fetches distinct values for a given column in the media_entities table.
- */
 export function getDistinctMetadataValues(column: string): string[] {
     const db = getDb()
     const rows = db
-        .prepare(`SELECT DISTINCT ${column} FROM media_entities WHERE ${column} IS NOT NULL`)
+        .prepare(`SELECT DISTINCT ${column} FROM ${EFFECTIVE_METADATA} WHERE ${column} IS NOT NULL`)
         .all() as any[]
     return rows.map((r) => String(r[column]))
 }
 
-/**
- * Fetches distinct genre names.
- */
 export function getDistinctGenreNames(): string[] {
-    const db = getDb()
-    const rows = db.prepare('SELECT name FROM genres ORDER BY name').all() as { name: string }[]
-    return rows.map(r => r.name)
+    const rows = getDb().prepare(`
+        SELECT DISTINCT g.value AS name FROM ${EFFECTIVE_METADATA} e, json_each(e.genres_json) g ORDER BY name
+    `).all() as { name: string }[]
+    return rows.map(({ name }) => name)
 }
 
 /**
@@ -361,7 +343,7 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
                 : `WHERE 1=1 ${scopeCondition}`
 
             const joinSql = tables.has('e')
-                ? 'LEFT JOIN media_entities e ON i.entity_id = e.id'
+                ? `LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
                 : ''
 
             const insertSql = `

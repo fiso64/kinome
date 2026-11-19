@@ -9,7 +9,10 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { setImage, removeImage, clearItemMetadata } from './metadata.service'
+import { setImage, removeImage, clearItemMetadata, fetchAndApplyMetadata } from './metadata.service'
+import type { MetadataProvider } from './metadata-provider'
+import { findByFtsQuery } from '../database/repositories/search.repo'
+import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { syncTvShowStructure } from './tv-show.service'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { find, getItemById } from './repository.service'
@@ -42,6 +45,56 @@ function fakePngBuffer(): Buffer {
     'base64'
   )
 }
+
+it('shares provider facts while materializing and clearing metadata per item', async () => {
+  ctx.seedItems([{ id: 'edition-1' }, { id: 'edition-2' }])
+  upsertMetadata('edition-1', {
+    title: 'Personal Title',
+    genres: ['Custom Genre'],
+    lockedFields: ['title', 'genres'],
+    tags: { accepted: 'yes' },
+  })
+  await setImage('edition-1', 'poster', { type: 'local', buffer: fakePngBuffer(), originalName: 'one.png' })
+
+  const provider: MetadataProvider = {
+    name: 'fixture',
+    match: async () => ({ id: 51, type: 'movie' }),
+    details: async () => ({
+      title: 'Provider Movie',
+      originalTitle: 'Original Movie',
+      overview: 'Searchable description',
+      releaseDate: '2020-01-01',
+      year: 2020,
+      runtime: 110,
+      genres: ['Drama'],
+      artwork: {},
+    }),
+    credits: async () => ({ cast: [{ id: 23, name: 'Example Actor', profile_path: null }], crew: [] }),
+    episodes: async () => null,
+  }
+  for (const id of ['edition-1', 'edition-2']) {
+    await fetchAndApplyMetadata(getItemById(id)!, { provider })
+  }
+
+  const matches = ctx.db.prepare(`
+    SELECT DISTINCT e.id, e.title FROM media_items i JOIN media_entities e ON i.entity_id = e.id
+  `).all() as { id: string; title: string }[]
+  expect(matches).toHaveLength(1)
+  expect(matches[0].title).toBe('Provider Movie')
+  expect(getItemById('edition-1')).toMatchObject({
+    title: 'Personal Title', genres: ['Custom Genre'], posterPath: 'edition-1.png',
+  })
+  expect(getItemById('edition-2')).toMatchObject({ title: 'Provider Movie', genres: ['Drama'], posterPath: null })
+  expect(find({ where: { genre: 'Custom Genre' }, fields: ['id'] }).map(({ id }) => id)).toEqual(['edition-1'])
+  expect(findByFtsQuery('Personal', [], 10).map(({ id }) => id)).toEqual(['edition-1'])
+
+  await clearItemMetadata('edition-1')
+  expect(getItemById('edition-1')).toMatchObject({ title: null, tags: { accepted: 'yes' } })
+  expect(getItemById('edition-2')).toMatchObject({ title: 'Provider Movie', genres: ['Drama'] })
+  expect(ctx.db.prepare('SELECT title FROM media_entities WHERE id = ?').get(matches[0].id))
+    .toEqual({ title: 'Provider Movie' })
+  expect(findByFtsQuery('Personal', [], 10)).toEqual([])
+})
 
 describe('setImage — buffer upload', () => {
   it('saves a poster from a buffer for a real file item', async () => {

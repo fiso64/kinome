@@ -81,8 +81,8 @@ function fetchRoot(): any {
            e.poster_path, e.backdrop_path, e.logo_path,
            e.locked_fields_json, e.last_refreshed_at, e.version,
            (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres,
-           (SELECT json_group_object(t.key, t.value) FROM entity_tags t WHERE t.entity_id = e.id) AS tags,
-           (SELECT json_group_object(vt.key, vt.value) FROM entity_virtual_tags vt WHERE vt.entity_id = e.id) AS virtualTags,
+           (SELECT json_group_object(t.key, t.value) FROM item_tags t WHERE t.item_id = i.id) AS tags,
+           (SELECT json_group_object(vt.key, vt.value) FROM item_virtual_tags vt WHERE vt.item_id = i.id) AS virtualTags,
            u.watched, u.last_watched_at, u.continue_watching_dismissed,
            u.next_up_dismissed, u.next_up_episode_id,
            CASE WHEN f.applied_grouping IS NOT NULL

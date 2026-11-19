@@ -21,6 +21,7 @@ import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
 import { relativePathFromAbsolute } from '../database/repositories/filesystem.repo'
+import { replaceSourcePriorities } from '../database/repositories/media-location.repo'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as userRepo from '../database/repositories/user.repo'
 import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
@@ -83,6 +84,8 @@ function findAncestorTvShow(itemId: string): MediaFolder | null {
 
 export async function loadDbIntoMemory(): Promise<void> {
   await repositoryService.loadDb()
+  const settings = await settingsService.readSettings()
+  updateSourcePriority(settings.mediaSources ?? [])
 
   // Ensure home defaults on every startup (no-scan path).
   // INSERT OR IGNORE makes this a no-op for existing installs; returns true
@@ -102,7 +105,6 @@ export async function loadDbIntoMemory(): Promise<void> {
 }
 
 export async function switchToLibrary(newPath: string): Promise<void> {
-  pathsService.setLibraryDataPath(newPath)
   log(`Switching library data location to: ${newPath}`)
 
   // 1. Close current database connection
@@ -110,6 +112,7 @@ export async function switchToLibrary(newPath: string): Promise<void> {
 
   // 2. Update paths service
   pathsService.setLibraryDataPath(newPath)
+  settingsService.invalidateSettingsCaches()
 
   // 3. Re-initialize database at the new location
   await loadDbIntoMemory()
@@ -147,6 +150,7 @@ async function _runBackgroundScan(
     shadowMinDepth?: number
     cleanupMissing?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
+    sourcePaths?: ReadonlyMap<string, string>
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
@@ -173,6 +177,7 @@ async function _runBackgroundScan(
       shadowMinDepth: options.shadowMinDepth,
       cleanupMissing: options.cleanupMissing,
       sameRelativePathRescueSources: options.sameRelativePathRescueSources,
+      sourcePaths: options.sourcePaths,
       onFoundItems: (foundItemIds) => {
         scanResult.foundItemIds = foundItemIds
         options.onFoundItems?.(foundItemIds)
@@ -230,7 +235,13 @@ export const saveSource = async (source: import('@shared/types').MediaSource): P
     ? existingSources.map((s) => (s.id === source.id ? source : s))
     : [...existingSources, source]
   await settingsService.writeLibrarySettings({ mediaSources: updatedSources })
+  updateSourcePriority(updatedSources)
   return { success: true }
+}
+
+export function updateSourcePriority(sources: import('@shared/types').MediaSource[]): void {
+  replaceSourcePriorities(sources.map(({ id }) => id))
+  accountFilterService.markDirty()
 }
 
 export async function runFullLibraryScan({
@@ -241,13 +252,11 @@ export async function runFullLibraryScan({
   shadowMinDepth = 1,
   runEarlyMaintenance = true
 }: FullLibraryScanOptions): Promise<void> {
+  updateSourcePriority(sources)
   // Initialize roots before any scanning begins
   for (const source of sources) {
     const resolvedAbsPath = sourcePaths.get(source.id)
     if (!resolvedAbsPath) continue
-    if (!pathsService.isRemotePath(resolvedAbsPath)) {
-      await settingsService.createDirectory(resolvedAbsPath)
-    }
     const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
     filesystemService.initializeRoot(source, resolvedAbsPath, normalizedSettings)
   }
@@ -292,6 +301,7 @@ export async function runFullLibraryScan({
       shadowMinDepth,
       cleanupMissing: false,
       sameRelativePathRescueSources,
+      sourcePaths,
       runMaintenance: false
     })
 

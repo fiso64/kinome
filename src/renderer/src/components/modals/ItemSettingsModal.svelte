@@ -10,6 +10,7 @@
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { dialogStore } from '@lib/dialog-store'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { FOLDER_ORGANIZATION_KEYS } from '@shared/types'
   import type {
     StoredViewSettings,
@@ -75,6 +76,10 @@
     return isNaN(parsed) ? undefined : parsed
   }
 
+  function parseEpisodeNumber(value: number | undefined): number | null {
+    return value !== undefined && Number.isFinite(value) && value >= 1 ? value : null
+  }
+
   function cleanNulls<T extends object>(obj: T): { [K in keyof T]: NonNullable<T[K]> } {
     return Object.fromEntries(
       Object.entries(obj).filter(([, v]) => v != null)
@@ -96,7 +101,7 @@
         return acc
       }, {}),
       seasonNumber: parseOptionalInt(seasonNumber),
-      episodeNumber: parseOptionalInt(episodeNumber),
+      episodeNumber: parseEpisodeNumber(episodeNumber),
       episodeSeasonNumber: parseOptionalInt(episodeSeasonNumber),
       viewSettings: cleanNulls(viewSettings),
       selectedGroupBy,
@@ -119,7 +124,7 @@
         // Update local state with fresh data to correct any stale props
         title = freshItem.title ?? ''
         year = freshItem.year?.toString() ?? ''
-        mediaType = freshItem.mediaType
+        mediaType = freshItem.mediaType ?? null
         overview = freshItem.overview ?? ''
         genres = JSON.parse(JSON.stringify(freshItem.genres ?? []))
         tags = Object.entries(freshItem.tags ?? {}).map(([key, value]) => ({
@@ -188,7 +193,7 @@
           }
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
-          episodeNumber = (freshItem as MediaFile).episodeNumber?.toString() ?? ''
+          episodeNumber = (freshItem as MediaFile).episodeNumber ?? undefined
         }
 
         // After refreshing, re-capture initial values so they reflect the single source of truth
@@ -211,15 +216,15 @@
 
   let title = $state(item.title ?? '')
   let year = $state(item.year?.toString() ?? '')
-  let mediaType = $state(item.mediaType)
+  let mediaType = $state(item.mediaType ?? null)
   let overview = $state(item.overview ?? '')
   let genres = $state<string[]>(JSON.parse(JSON.stringify(item.genres ?? [])))
   let tags = $state(
     Object.entries(item.tags ?? {}).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
   )
   let seasonNumber = $state(_isFolder ? ((item as MediaFolder).seasonNumber?.toString() ?? '') : '')
-  let episodeNumber = $state(
-    !_isFolder ? ((item as MediaFile).episodeNumber?.toString() ?? '') : ''
+  let episodeNumber = $state<number | undefined>(
+    !_isFolder ? (item as MediaFile).episodeNumber ?? undefined : undefined
   )
   let episodeSeasonNumber = $state(
     !_isFolder ? ((item as MediaFile).seasonNumber?.toString() ?? '') : ''
@@ -310,7 +315,7 @@
 
       let changedLocal = false
       if (isNumeric(n1) && isNumeric(n2)) {
-        changedLocal = parseInt(n1.toString(), 10) !== parseInt(n2.toString(), 10)
+        changedLocal = Number(n1) !== Number(n2)
       } else if (typeof n1 === 'object' || typeof n2 === 'object') {
         changedLocal = !equal(n1, n2)
       } else {
@@ -400,7 +405,7 @@
     } else {
       if (mediaType === 'episode') {
         const finalEpSeason = parseOptionalInt(episodeSeasonNumber)
-        const finalEpNum = parseOptionalInt(episodeNumber)
+        const finalEpNum = parseEpisodeNumber(episodeNumber)
         if (hasChanged(finalEpSeason, initialValues.episodeSeasonNumber)) {
           updates.seasonNumber = finalEpSeason
           changed = true
@@ -459,6 +464,7 @@
   async function handleSave() {
     const itemsToUpdate = await buildUpdatedItems()
     let needsRefresh = false
+    let changedGrouping = false
 
     try {
       for (const itemToUpdate of itemsToUpdate) {
@@ -481,6 +487,7 @@
         const initialGroupBy = initialValues.selectedGroupBy === 'folder' ? null : initialValues.selectedGroupBy
         if (newGroupBy !== initialGroupBy) {
           await window.api.setGrouping(item.id, newGroupBy)
+          changedGrouping = true
         }
       }
 
@@ -499,6 +506,10 @@
     // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
     // will handle removing it from the view. The modal should always close.
     handleClose()
+
+    if (itemsToUpdate.length > 0 || changedGrouping) {
+      libraryDataService.invalidateAllQueries()
+    }
 
     // Trigger refresh after closing the modal for a better user experience.
     if (needsRefresh) {
@@ -583,7 +594,7 @@
           bind:selectedGroupBy
         />
     {:else if activeTab === 'virtualFolder' && caps.canEditVirtualFolder}
-      <VirtualFolderTab bind:filter={vfolderFilter} parentId={item.parentId ?? ''} {suggestions} />
+      <VirtualFolderTab bind:filter={vfolderFilter} folderId={item.id} parentId={item.parentId ?? ''} {suggestions} />
     {:else if activeTab === 'folder' && caps.canEditFolderSettings}
       <FolderTab
         item={item as MediaFolder}

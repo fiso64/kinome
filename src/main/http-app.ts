@@ -607,7 +607,6 @@ export function buildApp() {
             })
             .delete('/accounts/:id/filter', ({ params }: { params: any }) => {
               accountFilterRepo.deleteFilterRule(params.id)
-              accountFilterRepo.replaceVisibleItems(params.id, [])
               return { success: true }
             })
             .post('/accounts/:id/filter/rebuild', ({ params }: { params: any }) => {
@@ -708,6 +707,8 @@ export function buildApp() {
               if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
                 await libraryService.switchToLibrary(body.libraryLocation)
                 getTransport().forceRendererReload()
+              } else if (Array.isArray(body.mediaSources)) {
+                libraryService.updateSourcePriority(body.mediaSources)
               }
               const sanitized = settingsService.sanitizeForClient(await settingsService.readSettings())
               getTransport().notifySettingsUpdated(sanitized as any)

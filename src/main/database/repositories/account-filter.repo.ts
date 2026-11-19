@@ -29,7 +29,10 @@ export function setFilterRule(accountId: string, mode: 'allow' | 'deny', filter:
 
 export function deleteFilterRule(accountId: string): void {
   const db = getDb()
-  db.prepare('DELETE FROM account_filter_rules WHERE account_id = ?').run(accountId)
+  runTransaction(() => {
+    db.prepare('DELETE FROM account_filter_rules WHERE account_id = ?').run(accountId)
+    replaceVisibleItems(accountId, [])
+  })
 }
 
 export function hasFilterRule(accountId: string): boolean {
@@ -46,19 +49,14 @@ export function getAllFilteredAccountIds(): string[] {
   return rows.map((r) => r.account_id)
 }
 
-export function replaceVisibleItems(accountId: string, itemIds: string[]): void {
+export function replaceVisibleItems(accountId: string, itemIds: string[], excludedLocations: string[] = []): void {
   const db = getDb()
   runTransaction(() => {
     db.prepare('DELETE FROM account_visible_items WHERE account_id = ?').run(accountId)
-    if (itemIds.length === 0) return
-
-    const stmt = db.prepare('INSERT INTO account_visible_items (account_id, item_id) VALUES (?, ?)')
-    const CHUNK = 500
-    for (let i = 0; i < itemIds.length; i += CHUNK) {
-      const chunk = itemIds.slice(i, i + CHUNK)
-      for (const id of chunk) {
-        stmt.run(accountId, id)
-      }
-    }
+    db.prepare('DELETE FROM account_excluded_locations WHERE account_id = ?').run(accountId)
+    const insertItem = db.prepare('INSERT INTO account_visible_items (account_id, item_id) VALUES (?, ?)')
+    const excludeLocation = db.prepare('INSERT INTO account_excluded_locations (account_id, location_id) VALUES (?, ?)')
+    for (const id of itemIds) insertItem.run(accountId, id)
+    for (const id of excludedLocations) excludeLocation.run(accountId, id)
   })
 }

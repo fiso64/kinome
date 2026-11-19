@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { runTransaction } from '../database/client'
 import {
   insertVirtualItem,
+  updateFilterJson,
   deleteVirtualItemsByType,
   deleteItem,
   getDistinctSeasonNumbers,
@@ -152,6 +153,7 @@ function buildGroupingFilter(parent: LibraryFilter, extra: LibraryCondition): Li
   if (groups.length === 0) groups = [[]]
   return {
     scope: parent.scope,
+    requiredConditions: parent.requiredConditions,
     conditionGroups: groups.map(group => [...group, extra]),
   }
 }
@@ -160,59 +162,38 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
   const { realChildren, inheritedFilter } = resolveChildrenAndScope(folderId)
   const { uniqueValues, hasUncategorized } = collectUniqueValues(realChildren, groupByKey)
 
-  const desiredIds = new Set<string>()
-  for (const value of uniqueValues) {
-    desiredIds.add(groupingFolderId(folderId, groupByKey, value))
-  }
+  const groups = [...uniqueValues].map((value) => ({
+    id: groupingFolderId(folderId, groupByKey, value),
+    name: value,
+    title: displayTitle(groupByKey, value),
+    filter: buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'eq', value }),
+  }))
   if (hasUncategorized) {
-    desiredIds.add(groupingFolderId(folderId, groupByKey, '__uncategorized__'))
-  }
-
-  const existingIds = new Set(getVirtualGroupingFolderIds(folderId))
-  const unchanged = desiredIds.size === existingIds.size && [...desiredIds].every(id => existingIds.has(id))
-
-  if (!unchanged) {
-    runTransaction(() => {
-      for (const existingId of existingIds) {
-        if (!desiredIds.has(existingId)) deleteItem(existingId)
-      }
-
-      for (const value of uniqueValues) {
-        const id = groupingFolderId(folderId, groupByKey, value)
-        const filter = buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'eq', value })
-        insertVirtualItem({
-          id,
-          parentId: folderId,
-          name: value,
-          virtualType: 'grouping',
-          filterJson: JSON.stringify(filter),
-          insertOrIgnore: true
-        })
-        if (!existingIds.has(id)) {
-          upsertMetadata(id, { title: displayTitle(groupByKey, value) })
-        }
-      }
-
-      if (hasUncategorized) {
-        const id = groupingFolderId(folderId, groupByKey, '__uncategorized__')
-        const filter = buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'isNull' })
-        insertVirtualItem({
-          id,
-          parentId: folderId,
-          name: 'Uncategorized',
-          virtualType: 'grouping',
-          filterJson: JSON.stringify(filter),
-          insertOrIgnore: true
-        })
-        if (!existingIds.has(id)) {
-          upsertMetadata(id, { title: 'Uncategorized' })
-        }
-      }
-
-      mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
+    groups.push({
+      id: groupingFolderId(folderId, groupByKey, '__uncategorized__'),
+      name: 'Uncategorized',
+      title: 'Uncategorized',
+      filter: buildGroupingFilter(inheritedFilter, { field: groupByKey, op: 'isNull' }),
     })
   }
 
+  const desiredIds = new Set(groups.map(({ id }) => id))
+  const existingIds = new Set(getVirtualGroupingFolderIds(folderId))
+  runTransaction(() => {
+    for (const id of existingIds) {
+      if (!desiredIds.has(id)) deleteItem(id)
+    }
+    for (const { id, name, title, filter } of groups) {
+      const filterJson = JSON.stringify(filter)
+      if (existingIds.has(id)) {
+        updateFilterJson(id, filterJson)
+      } else {
+        insertVirtualItem({ id, parentId: folderId, name, virtualType: 'grouping', filterJson })
+        upsertMetadata(id, { title })
+      }
+    }
+    mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
+  })
 }
 
 export function syncAllGroupings(): void {

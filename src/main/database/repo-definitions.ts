@@ -28,7 +28,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     virtualType: { sql: 'i.virtual_type', table: 'i' },
     filter: { sql: 'i.filter_json', table: 'i', isJson: true },
     addedAt: { sql: 'i.added_at', table: 'i' },
-    addedDaysAgo: { sql: `((cast(strftime('%s','now') as int) - i.added_at / 1000) / 86400)`, table: 'i' },
+    addedDaysAgo: { sql: `CAST((CAST(strftime('%s','now') AS INTEGER) - i.added_at / 1000) / 86400 AS INTEGER)`, table: 'i' },
     // Computed sort keys
     typeRank: { sql: `CASE WHEN e.media_type = 'season' THEN 0 WHEN e.media_type = 'episode' THEN 1 WHEN i.type = 'folder' THEN 2 ELSE 3 END`, table: 'e' },
     displayName: { sql: `COALESCE(e.title, i.name)`, table: 'e' },
@@ -37,7 +37,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     entityId: { sql: 'i.entity_id', table: 'i' },
     sourceId: { sql: 'i.source_id', table: 'i' },
 
-    // Media Entities Table
+    // Effective item metadata
     tmdbId: { sql: 'e.tmdb_id', table: 'e' },
     mediaType: {
         sql: 'e.media_type',
@@ -62,7 +62,8 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     logoPath: { sql: 'e.logo_path', table: 'e' },
     // Relational data (hydrated via subqueries)
     genres: {
-        sql: `(SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id)`,
+        sql: 'e.genres_json',
+        table: 'e',
         isJson: true,
         isSubquery: true,
         jsonDefault: [],

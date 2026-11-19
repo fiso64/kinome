@@ -16,20 +16,27 @@ export function isSupportedVideoFile(fileName: string): boolean {
   return VIDEO_EXTENSIONS.includes(ext)
 }
 
+const EPISODE_PATTERNS = [
+  'sxxexx', 'episode_xx', 'exx', 'absolute'
+] as const
+type EpisodePattern = (typeof EPISODE_PATTERNS)[number]
+
 export function parseEpisodeInfo(
   name: string
-): { season?: number; episode: number; pattern: 'sxxexx' | 'episode_xx' | 'exx' } | null {
-  const sxxexxPatterns = [/\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i, /S(\d{1,2})E(\d{1,3})/i]
+): { season?: number; episode: number; pattern: EpisodePattern } | null {
+  const sxxexxPatterns = [/\bS(\d{1,2})\s?\.?\s?E(\d{1,3}(?:\.\d+)?)\b/i, /S(\d{1,2})E(\d{1,3}(?:\.\d+)?)\b/i]
   for (const pattern of sxxexxPatterns) {
     const match = name.match(pattern)
-    if (match) return { season: parseInt(match[1]), episode: parseInt(match[2]), pattern: 'sxxexx' }
+    if (match) return { season: Number(match[1]), episode: Number(match[2]), pattern: 'sxxexx' }
   }
-  const episodeXXPattern = /\bEpisode\s*(\d{1,2})\b/i
+  const episodeXXPattern = /\bEpisode\s*(\d{1,3}(?:\.\d+)?)\b/i
   const episodeMatch = name.match(episodeXXPattern)
-  if (episodeMatch) return { episode: parseInt(episodeMatch[1]), pattern: 'episode_xx' }
-  const exxPattern = /\bE(\d{2})\b/i
+  if (episodeMatch) return { episode: Number(episodeMatch[1]), pattern: 'episode_xx' }
+  const exxPattern = /\bE(\d{1,3}(?:\.\d+)?)\b/i
   const exxMatch = name.match(exxPattern)
-  if (exxMatch) return { episode: parseInt(exxMatch[1]), pattern: 'exx' }
+  if (exxMatch) return { episode: Number(exxMatch[1]), pattern: 'exx' }
+  const absoluteMatch = name.match(/\s-\s+(\d{1,3}(?:\.\d+)?)(?=v\d+\b|[\s.\[(]|$)/i)
+  if (absoluteMatch) return { episode: Number(absoluteMatch[1]), pattern: 'absolute' }
   return null
 }
 
@@ -72,20 +79,20 @@ export type TvParserDiagnostic =
     }
   | {
       event: 'determineEpisodeNumbers:pattern'
-      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      pattern: EpisodePattern
       matches: number
       mismatches: number
       matchedFiles: { name: string; season?: number; episode: number }[]
     }
   | {
       event: 'determineEpisodeNumbers:duplicate'
-      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      pattern: EpisodePattern
       duplicateKey: string
       fileName: string
     }
   | {
       event: 'determineEpisodeNumbers:selectedPattern'
-      pattern: 'sxxexx' | 'episode_xx' | 'exx'
+      pattern: EpisodePattern
       assigned: { name: string; season?: number | null; episode: number }[]
     }
   | {
@@ -122,10 +129,9 @@ export function determineEpisodeNumbers(
 
   // 1. Try "Consensus" Regex Pattern (Only if strategy is Smart)
   if (strategy === 'smart') {
-    const patterns: ('sxxexx' | 'episode_xx' | 'exx')[] = ['sxxexx', 'episode_xx', 'exx']
     const allParsedInfo = videoFiles.map((name) => ({ name, parsed: parseEpisodeInfo(name) }))
 
-    for (const currentPattern of patterns) {
+    for (const currentPattern of EPISODE_PATTERNS) {
       const matches = allParsedInfo.filter((info) => info.parsed?.pattern === currentPattern)
       const mismatches = allParsedInfo.length - matches.length
       diagnostic?.({

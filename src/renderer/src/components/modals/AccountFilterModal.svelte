@@ -92,6 +92,13 @@
       </label>
     </div>
 
+    {#if filterMode === 'allow'}
+      <p class="description">
+        Children inherit access from matching condition groups. A conflicting tag stops inheritance
+        for that group. A direct match in another OR group can keep the branch visible.
+      </p>
+    {/if}
+
     <FilterEditor bind:groups={filterGroups} {suggestions} />
 
     {#if message.text}

@@ -215,7 +215,6 @@ export function createServiceTestContext(): ServiceTestContext {
   const seedTags = (entityId: string, tags: Record<string, string>) => {
     const itemRows = db.prepare('SELECT id FROM media_items WHERE entity_id = ?').all(entityId) as { id: string }[]
     for (const [key, value] of Object.entries(tags)) {
-      db.prepare(`INSERT OR REPLACE INTO entity_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
       for (const row of itemRows) {
         db.prepare(`INSERT OR REPLACE INTO item_tags (item_id, key, value) VALUES (?, ?, ?)`).run(row.id, key, value)
       }
@@ -225,7 +224,6 @@ export function createServiceTestContext(): ServiceTestContext {
   const seedVirtualTags = (entityId: string, tags: Record<string, string>) => {
     const itemRows = db.prepare('SELECT id FROM media_items WHERE entity_id = ?').all(entityId) as { id: string }[]
     for (const [key, value] of Object.entries(tags)) {
-      db.prepare(`INSERT OR REPLACE INTO entity_virtual_tags (entity_id, key, value) VALUES (?, ?, ?)`).run(entityId, key, value)
       for (const row of itemRows) {
         db.prepare(`INSERT OR REPLACE INTO item_virtual_tags (item_id, key, value) VALUES (?, ?, ?)`).run(row.id, key, value)
       }

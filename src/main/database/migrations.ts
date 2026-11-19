@@ -6,6 +6,11 @@ import { migration as retargetItemStateForeignKeys } from './migrations/0004_ret
 import { migration as addItemTags } from './migrations/0005_add_item_tags'
 import { migration as dropLegacyItemsFts } from './migrations/0006_drop_legacy_items_fts'
 import { migration as dropLegacyItemsTable } from './migrations/0007_drop_legacy_items_table'
+import { migration as addItemMetadata } from './migrations/0008_add_item_metadata'
+import { migration as canonicalProviderEntities } from './migrations/0009_canonical_provider_entities'
+import { migration as selectedLocationPriority } from './migrations/0010_selected_location_priority'
+import { migration as accountLocationVisibility } from './migrations/0011_account_location_visibility'
+import { migration as dropEntityClassification } from './migrations/0012_drop_entity_classification'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -24,7 +29,12 @@ const MIGRATIONS: Migration[] = [
   retargetItemStateForeignKeys,
   addItemTags,
   dropLegacyItemsFts,
-  dropLegacyItemsTable
+  dropLegacyItemsTable,
+  addItemMetadata,
+  canonicalProviderEntities,
+  selectedLocationPriority,
+  accountLocationVisibility,
+  dropEntityClassification
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

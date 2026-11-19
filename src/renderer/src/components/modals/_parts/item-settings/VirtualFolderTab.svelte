@@ -5,10 +5,12 @@
 
   let {
     filter = $bindable(),
+    folderId,
     parentId,
     suggestions
   }: {
     filter: LibraryFilter
+    folderId?: string
     parentId: string
     suggestions?: AutocompleteSuggestions
   } = $props()
@@ -62,7 +64,9 @@
     <select id="vf-scope" bind:value={scope}>
       <option value="none">None (Manual)</option>
       <option value="parent">Parent Folder</option>
-      <option value="home">Home Folder</option>
+      {#if folderId !== 'virtual-home'}
+        <option value="home">Home Folder</option>
+      {/if}
       <option value="root">Root Folder</option>
       <option value="library">Full Library — all files and folders</option>
     </select>

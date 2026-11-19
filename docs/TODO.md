@@ -3,20 +3,22 @@
 
 ---
 
-Add support for half episodes like 20.5 (typically recap episodes in anime). Detect them, allow .5 in the episode field, and sort correctly.
+Add support for half episodes like 20.5 (typically recap episodes in anime). Detect them, allow decimals in the episode field, and sort correctly.
 
 ---
 
-Bug: Not possible to reset media item back to "unknown" media type.
+Bug: Not possible to reset media item back to "unknown" media type.  
 Consider adding a new media type None (explicit, not just null). (needs further discussion)
 
 ---
 
-Bug: Some folder settings reset on scan.
+Bug: Some folder settings do not apply correctly, reset on scan.
 1. Right click the "Recently Added" folder > Folder Settings
 2. Modify days since added value from 14 to 30.
-3. Save & close the modal. The setting will apply, showing older items.
-4. Rescan library using the button in the toolbar. The setting resets to 14 for no reason.
+3. Save & close the modal. The setting will result in all library items being shown, not just those added in the last 30 days (this is another bug, that should also be fixed).
+4. Rescan library using the button in the toolbar. The setting resets to 14.  
+  
+Similarly, for the __home__ folder settings, changing its conditions gets reset on scan.
 
 ---
 
@@ -25,6 +27,10 @@ Metadata canonicalization and vtag ownership.
 Item-bound manual tags and virtual tags are now implemented (`item_tags`, `item_virtual_tags`, vtag writes by `item_id`, and filtering/search/grouping/autocomplete reads by `item_id`). The remaining work is metadata canonicalization itself: if `MediaEntity` becomes canonical/shared provider data, locks, selected images, user edits, refresh gates, and other item-specific metadata must move to an item metadata/override table first.
 
 See [metadata-vtag-canonicalization-plan.md](metadata-vtag-canonicalization-plan.md).
+
+---
+
+Tag season 1 as "accepted:yes" > Tag episode 3 as "accepted:no". For a whitelist use with "accepted:yes", season 1 should appear while episode 3 should be excluded. This is an example; the actual rule should be general and clear and well-defined.
 
 ---
 
@@ -110,4 +116,4 @@ Need to check if still accurate.
 We currently have: tv show, movie, and season-level manual assignment flows, but not episode-level assignment.
 Example: I have a special episode in the S02 folder (Black Mirror S02EXX.Special.White.Christmas.mkv). Tmdb thinks it's part of season 0 (Specials). I cannot link this episode to the metadata from the special season because the episode is in the S02 folder. Want to achieve this without having to move the file (tmdb isn't God, users may prefer to organize differently).
 Easy solution: Edit the episode metadata to set the season to 0 and the episode number to 1. Currently does not seem to work (bug?). Doesn't put the episode in the specials tab or fetch metadata for it. 
-However, even if we have that, maybe I want to still keep the episode in the S02 tab. Need to think of a clean way to handle this - some kind of override? 
+However, even if we have that, maybe I want to still keep the episode in the S02 tab. Need to think of a clean way to handle this - some kind of override?

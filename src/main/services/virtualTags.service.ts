@@ -1,4 +1,6 @@
 import * as metadataRepo from '../database/repositories/metadata.repo'
+import { runTransaction } from '../database/client'
+import { markDirty } from './account-filter.service'
 import type { VirtualTagConfig } from '@shared/types'
 
 const log = (message: string): void => {
@@ -10,15 +12,14 @@ const log = (message: string): void => {
  * and writing results to the item_virtual_tags table.
  */
 export function applyVirtualTags(tags: VirtualTagConfig[] | undefined, itemIds?: string[]): void {
-  if (!tags || tags.length === 0) {
-    metadataRepo.clearVirtualTags(itemIds)
-    return
-  }
-
-  metadataRepo.clearVirtualTags(itemIds)
+  if (itemIds?.length === 0) return
 
   try {
-    const totalInserted = metadataRepo.evaluateAndInsertVirtualTags(tags, itemIds)
+    const totalInserted = runTransaction(() => {
+      metadataRepo.clearVirtualTags(itemIds)
+      return tags?.length ? metadataRepo.evaluateAndInsertVirtualTags(tags, itemIds) : 0
+    })
+    markDirty()
 
     if (itemIds && itemIds.length > 0) {
       log(`Applied virtual tags: ${totalInserted} entries for ${itemIds.length} items.`)

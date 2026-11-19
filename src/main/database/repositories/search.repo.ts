@@ -2,8 +2,10 @@
  * SEARCH REPOSITORY
  * Handles FTS5 indexing and trigram search execution.
  */
+import { EFFECTIVE_METADATA } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
 import { ITEM_READ_MODEL } from '../query-builder'
+import { withAccountLocations } from '../media-read-model.sql'
 
 const FTS_TABLE = 'media_items_fts'
 
@@ -21,7 +23,7 @@ export function rebuildFtsIndex(): void {
         i.id, i.name, 
         e.title, e.original_title, e.overview
       FROM ${ITEM_READ_MODEL} i
-      LEFT JOIN media_entities e ON i.entity_id = e.id
+      LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     `
         ).run()
     })
@@ -51,7 +53,7 @@ const SEARCH_SELECT = `
     e.title, e.overview, e.media_type, e.year, e.tmdb_runtime,
     e.poster_path, e.backdrop_path, e.logo_path,
     e.episode_number,
-    (SELECT json_group_array(g.name) FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id) AS genres_json,
+    e.genres_json AS genres_json,
     (SELECT json_group_object(t.key, t.value) FROM item_tags t WHERE t.item_id = i.id) AS tags_json,
     (SELECT json_group_object(vt.key, vt.value) FROM item_virtual_tags vt WHERE vt.item_id = i.id) AS virtual_tags_json,
     u.watched`
@@ -94,7 +96,7 @@ function appendTagFilters(
         } else if (tag.key === 'genre') {
             const pVal = `@genreVal${idx}`
             params[pVal] = tagValue
-            sql += ` AND EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND lower(g.name) = ${pVal})`
+            sql += ` AND EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE lower(value) = ${pVal})`
         } else if (tag.key === 'person') {
             const pVal = `@personVal${idx}`
             params[pVal] = `%${tagValue}%`
@@ -118,6 +120,12 @@ function appendTagFilters(
 }
 
 
+function querySearch(sql: string, params: Record<string, any>, userId?: string): any[] {
+    if (!userId) return getDb().prepare(sql).all(params)
+    return getDb().prepare(withAccountLocations(sql, '@locationAccount'))
+        .all({ ...params, '@locationAccount': userId })
+}
+
 /**
  * Finds items matching a short text query (LIKE).
  */
@@ -127,7 +135,6 @@ export function findByShortQuery(
     limit: number,
     userId?: string
 ): any[] {
-    const db = getDb()
     const likeQuery = `%${normalized}%`
     const startQuery = `${normalized.toLowerCase()}%`
     const params: any = {
@@ -141,7 +148,7 @@ export function findByShortQuery(
             0 as rank,
             0 as static_score
           FROM ${ITEM_READ_MODEL} i
-          LEFT JOIN media_entities e ON i.entity_id = e.id
+          LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE (i.name LIKE @likeQuery OR e.title LIKE @likeQuery)
             AND i.is_ignored = 0
@@ -161,7 +168,7 @@ export function findByShortQuery(
           END ASC,
           e.title ASC, i.name ASC LIMIT @limit`
 
-    return db.prepare(sql).all(params) as any[]
+    return querySearch(sql, params, userId)
 }
 
 /**
@@ -173,7 +180,6 @@ export function findByFtsQuery(
     limit: number,
     userId?: string
 ): any[] {
-    const db = getDb()
     const params: any = { '@limit': limit }
 
     let sql = `
@@ -182,7 +188,7 @@ export function findByFtsQuery(
             0 as static_score
           FROM ${FTS_TABLE}
           JOIN ${ITEM_READ_MODEL} i ON ${FTS_TABLE}.id = i.id
-          LEFT JOIN media_entities e ON i.entity_id = e.id
+          LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE ${FTS_TABLE} MATCH @matchQuery
             AND i.is_ignored = 0
@@ -195,7 +201,7 @@ export function findByFtsQuery(
 
     sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(${FTS_TABLE}, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
-    return db.prepare(sql).all(params) as any[]
+    return querySearch(sql, params, userId)
 }
 
 /**
@@ -206,7 +212,6 @@ export function findByTagsOnly(
     limit: number,
     userId?: string
 ): any[] {
-    const db = getDb()
     const params: any = { '@limit': limit }
 
     let sql = `
@@ -214,7 +219,7 @@ export function findByTagsOnly(
         0 as rank,
         0 as static_score
       FROM ${ITEM_READ_MODEL} i
-      LEFT JOIN media_entities e ON i.entity_id = e.id
+      LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
       LEFT JOIN user_state u ON i.id = u.item_id
       WHERE i.is_ignored = 0
         AND i.is_hidden = 0
@@ -225,5 +230,5 @@ export function findByTagsOnly(
 
     sql += ` ORDER BY e.title ASC, i.name ASC LIMIT @limit`
 
-    return db.prepare(sql).all(params) as any[]
+    return querySearch(sql, params, userId)
 }

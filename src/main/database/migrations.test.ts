@@ -36,6 +36,39 @@ function getForeignKeyViolations(db: Database): any[] {
 }
 
 describe('database migrations', () => {
+  it('canonicalizes legacy copies while preserving item metadata and classification', () => {
+    const db = new Database(':memory:')
+    db.exec(SCHEMA_SQL)
+    db.exec(`
+      PRAGMA user_version = 7;
+      INSERT INTO media_entities (id, tmdb_id, media_type, title, poster_path, locked_fields_json, last_refreshed_at)
+      VALUES ('old-a', 42, 'movie', 'Cut A', 'a.jpg', '["title"]', 100),
+             ('old-b', 42, 'movie', 'Cut B', 'b.jpg', '[]', 200);
+      INSERT INTO media_items (id, physical_kind, name, entity_id, created_at, updated_at)
+      VALUES ('a', 'file', 'A.mkv', 'old-a', 1, 1), ('b', 'file', 'B.mkv', 'old-b', 2, 2);
+      INSERT INTO genres (id, name) VALUES (1, 'Drama'), (2, 'Comedy');
+      INSERT INTO entity_genres (entity_id, genre_id) VALUES ('old-a', 1), ('old-b', 2);
+      INSERT INTO item_tags (item_id, key, value) VALUES ('a', 'cut', 'theatrical'), ('b', 'cut', 'director');
+    `)
+
+    runMigrations(db)
+    runMigrations(db)
+    expect(db.query(`
+      SELECT i.id, i.entity_id, e.title, e.poster_path, e.locked_fields_json,
+             e.last_refreshed_at, e.genres_json, t.value AS tag
+      FROM media_items i JOIN media_item_metadata_read e ON e.item_id = i.id
+      JOIN item_tags t ON t.item_id = i.id ORDER BY i.id
+    `).all()).toEqual([
+      { id: 'a', entity_id: 'old-b', title: 'Cut A', poster_path: 'a.jpg', locked_fields_json: '["title"]',
+        last_refreshed_at: 100, genres_json: '["Drama"]', tag: 'theatrical' },
+      { id: 'b', entity_id: 'old-b', title: 'Cut B', poster_path: 'b.jpg', locked_fields_json: '[]',
+        last_refreshed_at: 200, genres_json: '["Comedy"]', tag: 'director' },
+    ])
+    expect(db.query(`SELECT id, provider, provider_id FROM media_entities WHERE provider IS NOT NULL`).all())
+      .toEqual([{ id: 'old-b', provider: 'tmdb', provider_id: '42' }])
+    db.close()
+  })
+
   it('keeps migrations uniquely versioned and ordered', () => {
     const versions = DATABASE_MIGRATIONS.map((migration) => migration.version)
     expect(versions).toEqual([...versions].sort((a, b) => a - b))
@@ -269,8 +302,10 @@ describe('database migrations', () => {
     expect(read.is_ignored).toBe(0)
 
     db.prepare('UPDATE media_entities SET media_type = ? WHERE id = ?').run('tv', 'entity-1')
-    const updatedKind = db.prepare('SELECT media_kind FROM media_items WHERE id = ?').get('movie-file') as any
-    expect(updatedKind.media_kind).toBe('tv')
+    const selectKind = db.prepare('SELECT media_kind FROM media_items WHERE id = ?')
+    expect(selectKind.get('movie-file')).toEqual({ media_kind: 'movie' })
+    db.prepare('UPDATE media_item_metadata SET media_type = ? WHERE item_id = ?').run('tv', 'movie-file')
+    expect(selectKind.get('movie-file')).toEqual({ media_kind: 'tv' })
 
     db.close()
   })
@@ -460,7 +495,7 @@ describe('database migrations', () => {
     expect(getForeignKeyTargets(db, 'folder_settings')).toContain('media_items')
     expect(getForeignKeyTargets(db, 'account_visible_items')).toContain('media_items')
 
-    const entity = db.prepare('SELECT * FROM media_entities WHERE id = ?').get('entity-movie') as any
+    const entity = db.prepare('SELECT * FROM media_item_metadata WHERE item_id = ?').get('movie-file') as any
     expect(entity.tmdb_runtime).toBe(136)
     expect(entity.poster_path).toBe('poster.jpg')
     expect(entity.backdrop_path).toBe('backdrop.jpg')
@@ -518,6 +553,8 @@ describe('database migrations', () => {
       .prepare('SELECT value FROM item_virtual_tags WHERE item_id = ? AND key = ?')
       .get('movie-file', 'collection') as any
     expect(virtualTag.value).toBe('wachowskis')
+    expect(getTableNames(db)).not.toContain('entity_tags')
+    expect(getTableNames(db)).not.toContain('entity_virtual_tags')
 
     const ftsRow = db.prepare('SELECT name, title FROM media_items_fts WHERE id = ?').get('movie-file') as any
     expect(ftsRow.name).toBe('The Matrix.mkv')

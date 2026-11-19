@@ -1,3 +1,5 @@
+import { EFFECTIVE_METADATA } from './item-metadata.sql'
+import { withAccountLocations } from './media-read-model.sql'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter, LibraryCondition } from '@shared/types'
@@ -108,7 +110,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
 
     // Join the related table on the target parent if needed
     if (def.table === 'e') {
-        joins.push(`LEFT JOIN media_entities ${remap['e']} ON ${target}.entity_id = ${remap['e']}.id`)
+        joins.push(`LEFT JOIN ${EFFECTIVE_METADATA} ${remap['e']} ON ${target}.id = ${remap['e']}.item_id`)
     } else if (def.table === 'f') {
         joins.push(`LEFT JOIN folder_settings ${remap['f']} ON ${target}.id = ${remap['f']}.item_id`)
     } else if (def.table === 'u') {
@@ -164,14 +166,14 @@ export function compileConditionToSql(field: string, op: string, value?: string 
 
     if (field === 'genre' || field === 'genres') {
         tables.add('e')
-        const subquery = `SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id`
+        const subquery = `SELECT 1 FROM json_each(e.genres_json) WHERE 1=1`
         if (op === 'isNull' || op === 'isEmpty') return { sql: `NOT EXISTS (${subquery})`, params, tables }
         if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: `EXISTS (${subquery})`, params, tables }
-        if (op === 'contains') { params.push(`%${value}%`); return { sql: `EXISTS (${subquery} AND g.name LIKE ?)`, params, tables } }
-        if (op === 'notContains') { params.push(`%${value}%`); return { sql: `NOT EXISTS (${subquery} AND g.name LIKE ?)`, params, tables } }
-        if (op === 'ne') { params.push(value); return { sql: `NOT EXISTS (${subquery} AND g.name = ?)`, params, tables } }
+        if (op === 'contains') { params.push(`%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'notContains') { params.push(`%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
+        if (op === 'ne') { params.push(value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
         params.push(value)
-        return { sql: `EXISTS (${subquery} AND g.name = ?)`, params, tables }
+        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
     }
 
     if (field.startsWith('tags.')) {
@@ -368,7 +370,7 @@ export function buildWhereFragment(options: FindOptions): {
                 params.push(tagKey, value)
             } else if (key === 'genre' || key === 'genres') {
                 tables.add('e')
-                conditions.push(`EXISTS (SELECT 1 FROM entity_genres eg JOIN genres g ON eg.genre_id = g.id WHERE eg.entity_id = e.id AND g.name = ?)`)
+                conditions.push(`EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE value = ?)`)
                 params.push(value)
             }
         }
@@ -499,7 +501,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
 
     const selectParts: string[] = []
     if (usedTables.has('e')) {
-        selectParts.push('e.id AS _entity_id')
+        selectParts.push('e.item_id AS _entity_id')
     }
 
     for (const alias of finalFields) {
@@ -514,7 +516,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
     const joinParams: any[] = []
 
     if (usedTables.has('e')) {
-        query += ` LEFT JOIN media_entities e ON i.entity_id = e.id`
+        query += ` LEFT JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
     }
     if (usedTables.has('u')) {
         if (userId) {
@@ -582,5 +584,7 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         }
     }
 
-    return { query, params: [...joinParams, ...params] }
+    return userId
+        ? { query: withAccountLocations(query, '?'), params: [userId, ...joinParams, ...params] }
+        : { query, params: [...joinParams, ...params] }
 }

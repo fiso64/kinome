@@ -1,6 +1,6 @@
 import { columnExists, tableExists } from './sqlite-helpers'
 import type { Migration } from './types'
-import { MEDIA_ITEMS_READ_MODEL_SQL } from '../media-read-model.sql'
+import { MEDIA_ITEMS_READ_MODEL_SQL, SOURCE_PRIORITIES_SQL } from '../media-read-model.sql'
 
 function createMediaItemsTable(db: import('bun:sqlite').Database): void {
   db.exec(`
@@ -239,7 +239,8 @@ function createCompatibilityTriggers(db: import('bun:sqlite').Database): void {
 function createMediaItemsReadModel(db: import('bun:sqlite').Database): void {
   db.exec(`
     DROP VIEW IF EXISTS media_items_read;
-    ${MEDIA_ITEMS_READ_MODEL_SQL};
+    ${SOURCE_PRIORITIES_SQL}
+${MEDIA_ITEMS_READ_MODEL_SQL};
   `)
 }
 
