@@ -1,6 +1,6 @@
 
 More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
-Add them as new fields to virtual tag/virtual folder configurations and search bar, where applicable.
+Add them as new fields to virtual tag/virtual folder configurations and search bar, where reasonable.
 
 ---
 
