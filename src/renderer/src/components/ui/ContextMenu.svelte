@@ -9,6 +9,7 @@
     LibraryItem,
     MediaFolder,
     MediaFile,
+    SearchIndexEntry,
     Settings,
     PlayerCommandConfig
   } from '@shared/types'
@@ -17,6 +18,8 @@
     position,
     layout,
     globalSettings,
+    matchingFiles,
+    onOpenMatchingFile,
     onClose,
     onOpen,
     onEditMetadata,
@@ -39,6 +42,8 @@
     position: { top: number; left: number }
     layout?: string
     globalSettings: Settings | null
+    matchingFiles?: SearchIndexEntry['matchingFiles']
+    onOpenMatchingFile: (id: string) => void
     onClose: () => void
     onOpen: () => void
     onEditMetadata: () => void
@@ -336,6 +341,33 @@
     </button>
     <div class="separator"></div>
   {/if}
+  {#if matchingFiles?.length}
+    <div
+      class="submenu-container"
+      onmouseenter={() => (activeSubmenu = 'matches')}
+      onmouseleave={() => (activeSubmenu = null)}
+    >
+      <button class="context-menu-item has-submenu" onclick={() => (activeSubmenu = 'matches')}>
+        <span>Matching files ({matchingFiles.length})</span>
+        <span class="submenu-arrow">▸</span>
+      </button>
+      {#if activeSubmenu === 'matches'}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu matching-files"
+          class:on-left={submenuOnLeft}
+          style="top: {submenuTop}px;"
+        >
+          {#each matchingFiles as file (file.id)}
+            <button class="context-menu-item" onclick={() => { onClose(); onOpenMatchingFile(file.id) }}>
+              {file.title}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="separator"></div>
+  {/if}
   {#if caps.canPlay && availablePlayers.length > 0}
     <div
       class="submenu-container"
@@ -590,6 +622,11 @@
 </div>
 
 <style>
+  .matching-files {
+    max-height: min(24rem, 80vh);
+    overflow-y: auto;
+  }
+
   .context-menu {
     position: fixed; /* Position relative to the viewport */
     background-color: var(--ev-c-black-soft);

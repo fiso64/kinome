@@ -1,3 +1,4 @@
+import { LOCAL_MEDIA_SQL } from './local-media.sql'
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
 import { EFFECTIVE_METADATA_VIEW_SQL, ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, TMDB_COLUMNS, TMDB_RELATIONS_SQL } from './item-metadata.sql'
@@ -73,6 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_media_locations_relative_path ON media_locations(
 CREATE INDEX IF NOT EXISTS idx_media_locations_fingerprint ON media_locations(location_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_media_locations_presence ON media_locations(is_present);
 CREATE INDEX IF NOT EXISTS idx_media_locations_shadowed ON media_locations(is_shadowed);
+
+${LOCAL_MEDIA_SQL}
 
 ${SOURCE_PRIORITIES_SQL}
 ${ACCOUNT_EXCLUDED_LOCATIONS_SQL}

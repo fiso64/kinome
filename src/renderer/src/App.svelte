@@ -693,7 +693,7 @@
   <QueryClientProvider client={queryClient}>
     <ModalRoot bind:settings {groupByKeys} onRefresh={handleRefresh} />
 
-    <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} />
+    <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} onOpenMatchingFile={(id) => navStore.openDetail(id)} />
     <NotificationContainer />
 
     {#if $autocompleteState.show}

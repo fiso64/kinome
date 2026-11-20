@@ -126,7 +126,7 @@ function computeVisibility(rule: AccountFilterRule, allItems: ItemRow[], findMat
 function usesLocationFields(rule: AccountFilterRule): boolean {
   const { conditionGroups, conditions, requiredConditions } = rule.filter
   return [...(conditionGroups?.flat() ?? conditions ?? []), ...(requiredConditions ?? [])]
-    .some(({ field }) => /^(parent\.)*(path|sourceId|size|mtime|birthtime|inode|deviceId|isIgnored)$/.test(field))
+    .some(({ field }) => /^(parent\.)*(path|sourceId|size|mtime|birthtime|inode|deviceId|isIgnored|file\..+)$/.test(field))
 }
 
 export function rebuildForAccount(accountId: string): void {

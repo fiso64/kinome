@@ -1,11 +1,11 @@
-import { ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_FIELDS, type TmdbFilterField } from '@shared/metadata-fields'
+import { BUILTIN_METADATA_FIELDS, ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_KEYS, type TmdbFilterField } from '@shared/metadata-fields'
 
 export const EFFECTIVE_METADATA = 'media_item_metadata_read'
 
-export const TMDB_SCALAR_FIELDS = (Object.keys(TMDB_FILTER_FIELDS) as TmdbFilterField[])
-  .filter((field) => TMDB_FILTER_FIELDS[field].kind !== 'list')
-export const TMDB_LIST_FIELDS = (Object.keys(TMDB_FILTER_FIELDS) as TmdbFilterField[])
-  .filter((field) => TMDB_FILTER_FIELDS[field].kind === 'list')
+export const TMDB_SCALAR_FIELDS = TMDB_FILTER_KEYS
+  .filter((field) => BUILTIN_METADATA_FIELDS[field].kind !== 'list')
+export const TMDB_LIST_FIELDS = TMDB_FILTER_KEYS
+  .filter((field) => BUILTIN_METADATA_FIELDS[field].kind === 'list')
 
 export function tmdbColumn(field: TmdbFilterField): string {
   return `tmdb_${field.replace(/^tmdb/, '').replace(/^./, (letter) => letter.toLowerCase()).replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}`
@@ -15,7 +15,7 @@ export const TMDB_COLUMNS = [
   ['tmdb_display_json', 'TEXT'],
   ...TMDB_SCALAR_FIELDS.map((field) => [
     tmdbColumn(field),
-    TMDB_FILTER_FIELDS[field].kind === 'number' ? (field === 'tmdbRating' ? 'REAL' : 'INTEGER') : 'TEXT COLLATE NOCASE'
+    BUILTIN_METADATA_FIELDS[field].kind === 'number' ? (field === 'tmdbRating' ? 'REAL' : 'INTEGER') : 'TEXT COLLATE NOCASE'
   ])
 ]
 

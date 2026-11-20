@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { LocalMedia } from '@shared/local-media'
   import type { TmdbMetadata } from '@shared/metadata-fields'
   import GenreInput from '@ui/GenreInput.svelte'
   import TagInput from '@ui/TagInput.svelte'
@@ -7,6 +8,7 @@
   let {
     item,
     tmdbMetadata,
+    localMedia,
     title = $bindable(),
     year = $bindable(),
     mediaType = $bindable(),
@@ -20,6 +22,7 @@
   }: {
     item: LibraryItem
     tmdbMetadata?: TmdbMetadata | null
+    localMedia?: LocalMedia | null
     title: string
     year: string
     mediaType: 'movie' | 'tv' | 'season' | 'episode' | null
@@ -118,6 +121,39 @@
     <TagInput bind:tags {suggestions} />
   </div>
 
+  {#if localMedia}
+    <section class="metadata-summary">
+      <h3>File metadata</h3>
+      <dl class="metadata-facts">
+        {#if localMedia.container}
+          <dt>Container</dt><dd>{localMedia.container}</dd>
+        {/if}
+        {#if localMedia.durationSeconds}
+          {@const seconds = Math.round(localMedia.durationSeconds)}
+          <dt>Duration</dt><dd>{Math.floor(seconds / 60)}m {seconds % 60}s</dd>
+        {/if}
+        {#if localMedia.bitrate}
+          <dt>Bitrate</dt><dd>{Math.round(localMedia.bitrate / 1000)} kb/s</dd>
+        {/if}
+        {#if localMedia.encoder}
+          <dt>Encoder</dt><dd>{localMedia.encoder}</dd>
+        {/if}
+        {#each localMedia.tracks as track (track.index)}
+          <dt>{track.kind[0].toUpperCase() + track.kind.slice(1)} #{track.index}</dt>
+          <dd>
+            {[
+              track.codec, track.profile, track.width && track.height && `${track.width} × ${track.height}`,
+              track.channelLayout ?? (track.channels && `${track.channels} channels`),
+              track.pixelFormat, track.sampleRate && `${track.sampleRate} Hz`, track.bitrate && `${Math.round(track.bitrate / 1000)} kb/s`,
+              track.language, track.title, track.encoder !== localMedia.encoder && track.encoder,
+              track.default && 'Default', track.forced && 'Forced', track.hearingImpaired && 'Hearing impaired'
+            ].filter(Boolean).join(' · ')}
+          </dd>
+        {/each}
+      </dl>
+    </section>
+  {/if}
+
   {#if tmdbMetadata}
     {@const score = tmdbMetadata.tmdbRating}
     {@const facts = [
@@ -131,9 +167,9 @@
       ['Production countries', tmdbMetadata.productionCountries?.join(', ')],
       ['Original language', tmdbMetadata.originalLanguage]
     ].filter(([, value]) => value)}
-    <section class="tmdb-summary">
+    <section class="metadata-summary">
       <h3>TMDB metadata</h3>
-      <dl class="tmdb-facts">
+      <dl class="metadata-facts">
         {#each facts as [label, value] (label)}
           <dt>{label}</dt>
           <dd>{value}</dd>
@@ -187,14 +223,14 @@
   h3 {
     font-weight: bold;
   }
-  .tmdb-summary {
+  .metadata-summary {
     display: grid;
     gap: 0.75rem;
     border-top: 1px solid var(--color-border);
     padding-top: 1rem;
     user-select: text;
   }
-  .tmdb-facts {
+  .metadata-facts {
     display: grid;
     grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
     gap: 0.45rem 1rem;
@@ -202,14 +238,14 @@
     line-height: 1.5;
     margin: 0;
   }
-  .tmdb-facts dt {
+  .metadata-facts dt {
     color: var(--color-text-soft);
   }
-  .tmdb-facts a {
+  .metadata-facts a {
     color: var(--color-primary-soft);
     text-underline-offset: 0.2em;
   }
-  .tmdb-facts dd {
+  .metadata-facts dd {
     margin: 0;
     overflow-wrap: anywhere;
   }

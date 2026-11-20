@@ -29,10 +29,11 @@ const log = (message: string): void => {
 /**
  * Phase 2: Metadata Enrichment (DB -> API)
  */
-export async function enrichDatabase() {
+export async function enrichDatabase(localMetadataChanged = false) {
   return runEnrichment({
     includeStructuralPrepass: true,
-    runMaintenance: true
+    runMaintenance: true,
+    localMetadataChanged
   })
 }
 
@@ -56,11 +57,13 @@ async function runEnrichment(options: {
   includeStructuralPrepass: boolean
   runMaintenance: boolean
   deferFileChangeRefresh?: boolean
+  localMetadataChanged?: boolean
 }) {
   return runWithoutAccount(async () => {
     const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) {
       log('Enrichment skipped: No TMDB API key.')
+      if (options.runMaintenance && options.localMetadataChanged) await maintenancePass(true)
       return
     }
 
@@ -122,7 +125,7 @@ async function runEnrichment(options: {
 
       // 4. Maintenance Pass
       if (options.runMaintenance) {
-        await maintenancePass(entryPoints.length > 0)
+        await maintenancePass(entryPoints.length > 0 || options.localMetadataChanged)
       }
     } finally {
       getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })

@@ -31,6 +31,13 @@ function selectMediaItems(options: { source?: string; account?: string } = {}): 
       END AND parent.id != sl.id
     ), mi.parent_item_id)`
     : 'mi.parent_item_id'
+  const visibility = options.account ? `(
+    NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = ${options.account})
+    OR EXISTS (
+      SELECT 1 FROM account_visible_items
+      WHERE account_id = ${options.account} AND item_id = mi.id
+    )
+  )` : '1'
   return `
 SELECT
   mi.id,
@@ -52,6 +59,7 @@ SELECT
   sl.inode,
   sl.device_id,
   mi.entity_id,
+  ${visibility} AS is_account_visible,
   CASE WHEN mi.is_hidden = 1 OR COALESCE(sl.is_hidden, 0) = 1 THEN 1 ELSE 0 END AS is_hidden,
   COALESCE(sl.is_ignored, 0) AS is_ignored,
   CASE
@@ -109,6 +117,8 @@ export function withSourceLocations(query: string): string {
   return `WITH media_items_read AS (${selectMediaItems({ source: '?' })}) ${query}`
 }
 
-export function withAccountLocations(query: string, accountParameter: string): string {
-  return `WITH media_items_read AS (${selectMediaItems({ account: accountParameter })}) ${query}`
+export function withAccountLocations(query: string, accountParameter: string, extraCte?: string): string {
+  const account = '(SELECT id FROM location_account)'
+  return `WITH location_account AS (SELECT ${accountParameter} AS id),
+    media_items_read AS NOT MATERIALIZED (${selectMediaItems({ account })})${extraCte ? `, ${extraCte}` : ''} ${query}`
 }

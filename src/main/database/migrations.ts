@@ -14,6 +14,8 @@ import { migration as dropEntityClassification } from './migrations/0012_drop_en
 import { migration as indexedLocationSelection } from './migrations/0013_indexed_location_selection'
 import { migration as locationIdentityIndex } from './migrations/0014_location_identity_index'
 import { migration as tmdbMetadata } from './migrations/0015_tmdb_metadata'
+import { migration as localMedia } from './migrations/0016_local_media'
+import { migration as fileMatchVisibility } from './migrations/0017_file_match_visibility'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -40,7 +42,9 @@ const MIGRATIONS: Migration[] = [
   dropEntityClassification,
   indexedLocationSelection,
   locationIdentityIndex,
-  tmdbMetadata
+  tmdbMetadata,
+  localMedia,
+  fileMatchVisibility
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

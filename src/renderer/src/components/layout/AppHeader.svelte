@@ -97,6 +97,8 @@
   }
 
   function handleSearchKeyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented) return
+
     const autocompleteMenu = document.querySelector('.autocomplete-menu')
     if (autocompleteMenu && autocompleteMenu.contains(event.target as Node)) {
       return // Let autocomplete handle its own keyboard events

@@ -17,6 +17,7 @@ export interface ContextMenuOptions {
 // --- State ---
 
 let item = $state<LibraryItem | null>(null)
+let matchingFiles = $state<SearchIndexEntry['matchingFiles']>()
 let parentItem = $state<LibraryItem | null>(null)
 let position = $state<ContextMenuPosition>({ top: 0, left: 0 })
 let layout = $state<string | undefined>(undefined)
@@ -65,6 +66,7 @@ async function open(
     item = target
   }
 
+  matchingFiles = 'matchingFiles' in target ? target.matchingFiles?.filter(({ id }) => id !== target.id) : undefined
   layout = options?.layout
   showLogout = options?.showLogout ?? false
   parentItem = options?.parentItem || null
@@ -89,6 +91,7 @@ function openForBackground(
   lastClick = { x: event.clientX, y: event.clientY, time: event.timeStamp }
 
   item = target
+  matchingFiles = undefined
   layout = options?.layout
   parentItem = options?.parentItem || null
   position = { top: event.clientY, left: event.clientX }
@@ -97,6 +100,7 @@ function openForBackground(
 
 function close() {
   item = null
+  matchingFiles = undefined
   parentItem = null
   showLogout = false
   isVisible = false
@@ -107,6 +111,9 @@ function close() {
 export const contextMenuStore = {
   get item() {
     return item
+  },
+  get matchingFiles() {
+    return matchingFiles
   },
   get parentItem() {
     return parentItem

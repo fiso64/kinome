@@ -4,10 +4,11 @@
   import { authStore } from '@lib/auth-store.svelte'
   import type { LibraryItem, Settings } from '@shared/types'
 
-  let { settings, actions, onItemClick } = $props<{
+  let { settings, actions, onItemClick, onOpenMatchingFile } = $props<{
     settings: Settings | null
     actions: any
     onItemClick: (item: LibraryItem) => Promise<void>
+    onOpenMatchingFile: (id: string) => void
   }>()
 
   const item = $derived(contextMenuStore.item)
@@ -23,6 +24,8 @@
     {position}
     {layout}
     globalSettings={settings}
+    matchingFiles={contextMenuStore.matchingFiles}
+    {onOpenMatchingFile}
     onClose={() => contextMenuStore.close()}
     onOpen={() => onItemClick(item)}
     onEditMetadata={() => actions.editMetadata(item)}

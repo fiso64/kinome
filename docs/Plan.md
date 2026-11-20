@@ -100,8 +100,8 @@
 
 - [ ] [P1] Improve filename extraction, handle many more patterns. Check Kyoo's approach.
   - [ ] In particular: Handle decimal episodes (20.5)
-- [ ] [P1] Retrieve and save more local metadata using ffprobe (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc. 
-  - [ ] Make it all searchable and accessible in virtual tag definitions like every other piece of metadata.
+- [x] [P1] Retrieve and save more local metadata using ffprobe (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc.
+  - [x] Make it all searchable and accessible in virtual tag definitions like every other piece of metadata.
 - [ ] [P1] Decide how to represent multiple same media items in different locations. E.g. `source1/tv show X/season 1/`, `source2/tv show X/season 2/`. 
 - [ ] [P2] UI to manage metadata locks (add or remove).
 - [ ] A "Notes" text field? Or star rating field? Or custom field definitions? 

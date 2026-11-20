@@ -20,11 +20,18 @@ Kinome is under development and is missing some important features which one wou
 
 - web player
 - transcoding/transmuxing
-- local ffmpeg metadata extraction and display
 - automatic library rescans
 - scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
 - percentage based progress (just binary watched state)
 - any semblance of a polished webui
+
+Install `ffprobe` from FFmpeg on the server to extract local media metadata during a library scan.
+Probe results are cached per file. The metadata modal, virtual rules, and search can use the saved facts.
+
+In search and virtual rules, fields such as `mediaType` apply to the media item. Conditions on
+`file.*` fields within the same AND group must match one playable file associated with that item.
+For example, `>mediaType:movie` with `>file.videoHeight:1080` finds movies with a 1080-pixel-high
+feature file. Search results show the matching files in their context menu. Extras can match as files.
 
 See [**Plan.md**](./docs/Plan.md) for more details.
 

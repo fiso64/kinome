@@ -89,7 +89,7 @@ let textMirror: HTMLSpanElement | null = null
  */
 function captureKeydown(event: KeyboardEvent) {
   const state = get(autocompleteState)
-  if (!state.show || state.suggestions.length === 0) return
+  if (!state.show || state.suggestions.length === 0 || state.targetNode !== event.target) return
 
   if (event.key === 'ArrowDown') {
     event.preventDefault()
@@ -156,17 +156,19 @@ export function autocomplete(
     const text = node.value
     const cursorPos = node.selectionStart ?? 0
     const requestId = ++currentRequestId
+    autocompleteState.update((s) =>
+      s.targetNode === node && s.suggestions.length ? { ...s, suggestions: [], loading: true } : s
+    )
 
     const runUpdate = async () => {
-      // If it's potentially async, show loading if it's not immediate
-      let isImmediate = true
+      if (node.value !== text || document.activeElement !== node) return
       const rawResult = config.getSuggestions(text, cursorPos)
 
       if (rawResult instanceof Promise) {
-        isImmediate = false
         const position = calculatePosition(node, text, cursorPos)
         autocompleteState.update((s) => ({
           ...s,
+          suggestions: [],
           loading: true,
           show: true,
           position,
@@ -177,7 +179,13 @@ export function autocomplete(
       try {
         const rawSuggestions = await rawResult
         // Only update if this is still the latest request
-        if (requestId !== currentRequestId) return
+        if (requestId !== currentRequestId || document.activeElement !== node) return
+        if (node.value !== text) {
+          autocompleteState.update((s) =>
+            s.targetNode === node ? { ...s, show: false, loading: false } : s
+          )
+          return
+        }
 
         const suggestions = rawSuggestions.slice(0, SUGGESTION_LIMIT)
 

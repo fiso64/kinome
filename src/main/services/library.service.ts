@@ -1,3 +1,4 @@
+import { refreshLocalMedia } from './local-media.service'
 import path from 'path'
 import crypto from 'crypto'
 import equal from 'fast-deep-equal'
@@ -211,10 +212,10 @@ async function _runBackgroundScan(
   }
 }
 
-async function runScanMaintenance(): Promise<void> {
+async function runScanMaintenance(localMetadataChanged = false): Promise<void> {
   searchService.buildFullSearchIndex()
 
-  await metadataService.enrichDatabase().catch((err) => {
+  await metadataService.enrichDatabase(localMetadataChanged).catch((err) => {
     console.error('[Library Service] Enrichment failed during rescan:', err)
   })
 }
@@ -332,7 +333,11 @@ export async function runFullLibraryScan({
   }
 
   await earlyEnrichment
-  await runScanMaintenance()
+  const localMetadataChanged = await refreshLocalMedia(sourcePaths).catch((error) => {
+    console.error('[Library Service] Local media probe batch failed', error)
+    return false
+  })
+  await runScanMaintenance(localMetadataChanged)
   playbackService.clearStreamCache()
 }
 

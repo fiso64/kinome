@@ -135,6 +135,7 @@ function mapRowToEntry(row: any): SearchIndexEntry {
     episodeNumber: row.episode_number,
     isMissing: false,
     _v: 0,
+    matchingFiles: row.matching_files ? parseJsonArray(row.matching_files) : undefined,
     staticScore: 0
   }
   return entry

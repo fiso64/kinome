@@ -6,7 +6,7 @@ import { EFFECTIVE_METADATA, TMDB_LIST_FIELDS, TMDB_SCALAR_FIELDS, tmdbColumn } 
 import { getDb, runTransaction } from '../client'
 import { withAccountLocations } from '../media-read-model.sql'
 import { compileFilter, buildWhereFragment, ITEM_READ_MODEL } from '../query-builder'
-import { ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_FIELDS, type TmdbFilterField, type TmdbMetadata } from '@shared/metadata-fields'
+import { BUILTIN_METADATA_FIELDS, ENTITY_SCALAR_METADATA_FIELDS, type TmdbFilterField, type TmdbMetadata } from '@shared/metadata-fields'
 import type { LibraryItem, VirtualTagConfig } from '@shared/types'
 import type { ProviderDetails, ProviderMatch } from '../../services/metadata-provider'
 
@@ -329,7 +329,7 @@ export function getDistinctMetadataValues(column: 'media_type' | 'year'): string
 }
 
 export function suggestTmdbValues(field: TmdbFilterField, query: string, limit: number, accountId?: string): string[] {
-    const isList = TMDB_FILTER_FIELDS[field].kind === 'list'
+    const isList = BUILTIN_METADATA_FIELDS[field].kind === 'list'
     const column = isList ? 'e.value' : `e.${tmdbColumn(field)}`
     const entities = isList ? 'tmdb_entity_values e' : 'media_entities e'
     const id = isList ? 'e.entity_id' : 'e.id'

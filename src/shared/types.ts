@@ -1,3 +1,4 @@
+import type { LocalMedia } from './local-media'
 import type { TmdbMetadata } from './metadata-fields'
 
 export const LIBRARY_ROOT_ID = 'virtual-library-root'
@@ -556,6 +557,7 @@ export type LibraryItem = (MediaFile | MediaFolder) &
   BaseLibraryItem & {
     /** Optional side-channel for the resolved view hierarchy tree. */
     viewHierarchy?: ViewHierarchyNode
+    localMedia?: LocalMedia | null
   }
 
 export interface PlayerCommandConfig {
@@ -669,6 +671,7 @@ export interface SearchIndexEntry {
   isMissing?: boolean
   _v?: number // Cache-busting version number
   // Score for ranking
+  matchingFiles?: { id: string; title: string }[]
   staticScore: number
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { getTmdbSearchField, hasTmdbValueSuggestions, TMDB_FILTER_FIELDS, TMDB_SEARCH_PREFIX } from '@shared/metadata-fields'
+  import { getMetadataSearchField, METADATA_SEARCH_KEYS } from '@shared/metadata-fields'
+  import { getMetadataSuggestions } from '@lib/metadata-autocomplete'
   import type { AutocompleteSuggestions } from '@shared/types'
   import {
     autocomplete,
@@ -8,26 +9,7 @@
     getFuzzySuggestions,
     type AutocompleteItem
   } from '@lib/autocomplete-manager'
-  import { api } from '@lib/api'
   import IconX from './IconX.svelte'
-
-  const tmdbSearchKeys = Object.entries(TMDB_FILTER_FIELDS)
-    .filter(([, field]) => field.search)
-    .map(([key]) => `${TMDB_SEARCH_PREFIX}${key}`)
-
-  const SUGGESTION_KEYS = {
-    special: ['mediaType', 'genre', 'person'],
-    all: (suggestions: AutocompleteSuggestions) =>
-      Array.from(
-        new Set([
-          'year',
-          ...tmdbSearchKeys,
-          ...SUGGESTION_KEYS.special,
-          ...Object.keys(suggestions.tags ?? {}),
-          ...Object.keys(suggestions.virtualTags ?? {})
-        ])
-      )
-  }
 
   let {
     query = $bindable({ text: '', tags: [] }),
@@ -54,6 +36,7 @@
       } else {
         query.text = ''
       }
+      autocompleteState.update((s) => ({ ...s, show: false }))
     }
   }
 
@@ -63,6 +46,8 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented) return
+
     if (e.key === 'Backspace' && query.text === '' && query.tags.length > 0) {
       removePill(query.tags.length - 1)
       return
@@ -88,23 +73,18 @@
         const key = valueMatch[1]
         const value = valueMatch[2]
 
-        const tmdbField = getTmdbSearchField(key)
-        if (key === 'person' || (tmdbField && hasTmdbValueSuggestions(tmdbField))) {
-          const results = await api.getAutocompleteValues(key, value)
-          return getFuzzySuggestions(results, value)
-        }
-
-        const sourceMap: Record<string, string[]> = {
-          mediaType: suggestions.mediaType ?? [],
-          genre: suggestions.genre ?? []
-        }
-        const source =
-          sourceMap[key] ?? suggestions.tags?.[key] ?? suggestions.virtualTags?.[key] ?? []
-        return getFuzzySuggestions(source, value)
+        const field = getMetadataSearchField(key)
+        const values = field
+          ? await getMetadataSuggestions(field, value, suggestions)
+          : suggestions.tags?.[key] ?? suggestions.virtualTags?.[key] ?? []
+        return getFuzzySuggestions(values, value)
       } else if (keyMatch) {
-        const key = keyMatch[1]
-        const allKeys = SUGGESTION_KEYS.all(suggestions)
-        return getFuzzySuggestions(allKeys, key)
+        const keys = [...new Set([
+          ...METADATA_SEARCH_KEYS,
+          ...Object.keys(suggestions.tags ?? {}),
+          ...Object.keys(suggestions.virtualTags ?? {})
+        ])]
+        return getFuzzySuggestions(keys, keyMatch[1])
       }
       return []
     },
@@ -116,10 +96,7 @@
       const valueMatch = textUpToCursor.match(/>([a-zA-Z0-9_.-]+):([^:]*)$/)
 
       if (valueMatch) {
-        // Value selected
         addPill(valueMatch[1], suggestion)
-        // Hide menu after pill is added, as the text is now gone.
-        autocompleteState.update((s) => ({ ...s, show: false }))
       } else if (keyMatch) {
         // Key selected
         const textBefore = input.value.substring(0, keyMatch.index)

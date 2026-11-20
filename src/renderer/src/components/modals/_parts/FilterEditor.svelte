@@ -4,9 +4,9 @@
     getFuzzySuggestions,
     type AutocompleteConfig
   } from '@lib/autocomplete-manager'
-  import { hasTmdbValueSuggestions, isTmdbFilterField, TMDB_FILTER_FIELDS, TMDB_SEARCH_PREFIX } from '@shared/metadata-fields'
+  import { getMetadataField, isBuiltinMetadataField, metadataSuggestionLookup, METADATA_RULE_FIELDS } from '@shared/metadata-fields'
+  import { getMetadataSuggestions } from '@lib/metadata-autocomplete'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
-  import { api } from '@lib/api'
   import IconX from '@components/ui/IconX.svelte'
 
   let {
@@ -17,19 +17,8 @@
     suggestions?: AutocompleteSuggestions
   } = $props()
 
-  const builtinFields: { value: string; label: string }[] = [
-    { value: 'genre', label: 'Genre' },
-    { value: 'year', label: 'Year' },
-    { value: 'title', label: 'Title' },
-    { value: 'mediaType', label: 'Media Type' },
-    { value: 'path', label: 'File Path' },
-    { value: 'addedDaysAgo', label: 'Days Since Added' },
-    { value: 'retrieveChildrenMetadata', label: 'Retrieve Children Metadata' },
-    ...Object.entries(TMDB_FILTER_FIELDS).map(([value, { label }]) => ({ value, label }))
-  ]
-
   const fields = $derived.by(() => {
-    const result = [...builtinFields]
+    const result: { value: string; label: string }[] = [...METADATA_RULE_FIELDS]
     if (suggestions?.virtualTags) {
       for (const key of Object.keys(suggestions.virtualTags)) {
         result.push({ value: `vt.${key}`, label: `vt: ${key}` })
@@ -58,10 +47,6 @@
 
   const orderedOperators = new Set<LibraryConditionOp>(['gt', 'gte', 'lt', 'lte'])
 
-  function isListField(field: string) {
-    return isTmdbFilterField(field) && TMDB_FILTER_FIELDS[field].kind === 'list'
-  }
-
   function getTarget(field: string): 'item' | 'parent' {
     return field.startsWith('parent.') ? 'parent' : 'item'
   }
@@ -78,7 +63,7 @@
   function setField(cond: LibraryCondition, base: string) {
     const target = getTarget(cond.field)
     cond.field = target === 'parent' ? `parent.${base}` : base
-    if (isListField(base) && orderedOperators.has(cond.op)) cond.op = 'eq'
+    if (getMetadataField(base)?.kind === 'list' && orderedOperators.has(cond.op)) cond.op = 'eq'
   }
 
   function defaultCondition(): LibraryCondition {
@@ -103,10 +88,8 @@
       .filter((g) => g.length > 0)
   }
 
-  function getValuesForField(field: string): string[] {
+  function getTagValues(field: string): string[] {
     if (!suggestions) return []
-    if (field === 'genre') return suggestions.genre ?? []
-    if (field === 'mediaType') return suggestions.mediaType ?? []
     if (field.startsWith('vt.')) return suggestions.virtualTags?.[field.slice(3)] ?? []
     if (field.startsWith('tags.')) return suggestions.tags?.[field.slice(5)] ?? []
     return []
@@ -116,9 +99,9 @@
     return {
       getSuggestions: async (text) => {
         const field = getBaseField(cond.field)
-        const values = hasTmdbValueSuggestions(field)
-          ? await api.getAutocompleteValues(`${TMDB_SEARCH_PREFIX}${field}`, text)
-          : getValuesForField(field)
+        const values = isBuiltinMetadataField(field)
+          ? await getMetadataSuggestions(field, text, suggestions)
+          : getTagValues(field)
         return getFuzzySuggestions(values, text)
       },
       onSelect: (suggestion, node) => {
@@ -163,14 +146,17 @@
           </select>
           <select bind:value={cond.op} class="op-select">
             {#each operators as op}
-              {#if !isListField(getBaseField(cond.field)) || !orderedOperators.has(op.value)}
+              {#if getMetadataField(getBaseField(cond.field))?.kind !== 'list' || !orderedOperators.has(op.value)}
                 <option value={op.value}>{op.label}</option>
               {/if}
             {/each}
           </select>
           {#if cond.op !== 'isNull' && cond.op !== 'isNotNull' && cond.op !== 'isEmpty' && cond.op !== 'isNotEmpty'}
-            {@const values = getValuesForField(getBaseField(cond.field))}
-            {#if values.length > 0 || hasTmdbValueSuggestions(getBaseField(cond.field))}
+            {@const field = getBaseField(cond.field)}
+            {@const showSuggestions = isBuiltinMetadataField(field)
+              ? !!metadataSuggestionLookup(field)
+              : getTagValues(field).length > 0}
+            {#if showSuggestions}
               <input
                 type="text"
                 bind:value={cond.value}

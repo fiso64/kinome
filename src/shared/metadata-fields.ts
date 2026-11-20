@@ -56,38 +56,109 @@ export interface TmdbMetadata {
   revenue?: number
 }
 
-export const TMDB_FILTER_FIELDS = {
-  status: { label: 'TMDB status', kind: 'text', search: true },
-  contentRating: { label: 'US content rating', kind: 'text', search: true },
-  tmdbRating: { label: 'TMDB score', kind: 'number', search: false },
-  tmdbVoteCount: { label: 'TMDB vote count', kind: 'number', search: false },
-  imdbId: { label: 'IMDb ID', kind: 'text', search: true },
-  studios: { label: 'Production company', kind: 'list', search: true },
-  networks: { label: 'TV network', kind: 'list', search: true },
-  productionCountries: { label: 'Production country', kind: 'list', search: true },
-  originalLanguage: { label: 'Original language code', kind: 'text', search: true },
-  nextAirDate: { label: 'Next air date (YYYY-MM-DD)', kind: 'text', search: false }
-} as const satisfies Partial<Record<keyof TmdbMetadata, {
+type IndexedMetadataStorage = 'tmdb' | 'localMedia'
+type LibrarySuggestionLookup = 'mediaType' | 'genre' | 'year' | 'person'
+
+type MetadataFieldDefinition = {
   label: string
   kind: 'text' | 'number' | 'list'
   search: boolean
-}>>
+  rule: boolean
+} & (
+  | { storage: 'tmdb'; scope?: 'item'; suggestions: 'manual' | 'stored' }
+  | { storage: 'localMedia'; scope: 'file'; suggestions: 'manual' | 'stored' }
+  | { storage?: undefined; scope?: 'item'; suggestions: 'manual' | LibrarySuggestionLookup }
+)
 
-export type TmdbFilterField = keyof typeof TMDB_FILTER_FIELDS
+export const BUILTIN_METADATA_FIELDS = {
+  genre: { label: 'Genre', kind: 'list', search: true, rule: true, suggestions: 'genre' },
+  year: { label: 'Year', kind: 'number', search: true, rule: true, suggestions: 'year' },
+  title: { label: 'Title', kind: 'text', search: false, rule: true, suggestions: 'manual' },
+  mediaType: { label: 'Media Type', kind: 'text', search: true, rule: true, suggestions: 'mediaType' },
+  path: { label: 'File Path', kind: 'text', search: false, rule: true, suggestions: 'manual' },
+  addedDaysAgo: { label: 'Days Since Added', kind: 'number', search: false, rule: true, suggestions: 'manual' },
+  retrieveChildrenMetadata: { label: 'Retrieve Children Metadata', kind: 'number', search: false, rule: true, suggestions: 'manual' },
+  person: { label: 'Person', kind: 'text', search: true, rule: false, suggestions: 'person' },
+  status: { label: 'TMDB status', kind: 'text', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  contentRating: { label: 'US content rating', kind: 'text', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  tmdbRating: { label: 'TMDB score', kind: 'number', search: false, rule: true, storage: 'tmdb', suggestions: 'manual' },
+  tmdbVoteCount: { label: 'TMDB vote count', kind: 'number', search: false, rule: true, storage: 'tmdb', suggestions: 'manual' },
+  imdbId: { label: 'IMDb ID', kind: 'text', search: true, rule: true, storage: 'tmdb', suggestions: 'manual' },
+  studios: { label: 'Production company', kind: 'list', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  networks: { label: 'TV network', kind: 'list', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  productionCountries: { label: 'Production country', kind: 'list', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  originalLanguage: { label: 'Original language code', kind: 'text', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
+  nextAirDate: { label: 'Next air date (YYYY-MM-DD)', kind: 'text', search: false, rule: true, storage: 'tmdb', suggestions: 'manual' },
+  'file.container': { label: 'File container', kind: 'text', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.durationSeconds': { label: 'File duration (seconds)', kind: 'number', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'manual' },
+  'file.encoder': { label: 'File encoder', kind: 'text', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'manual' },
+  'file.videoHeight': { label: 'Video height (pixels)', kind: 'number', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.videoCodec': { label: 'Video codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.audioCodec': { label: 'Audio codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.audioLanguage': { label: 'Audio language code', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.subtitleCodec': { label: 'Subtitle codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
+  'file.subtitleLanguage': { label: 'Subtitle language code', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' }
+} as const satisfies Record<string, MetadataFieldDefinition>
 
-export function isTmdbFilterField(key: string): key is TmdbFilterField {
-  return Object.hasOwn(TMDB_FILTER_FIELDS, key)
+export type BuiltinMetadataField = keyof typeof BUILTIN_METADATA_FIELDS
+
+type FieldWithStorage<Storage extends IndexedMetadataStorage> = {
+  [Field in BuiltinMetadataField]: typeof BUILTIN_METADATA_FIELDS[Field] extends { storage: Storage } ? Field : never
+}[BuiltinMetadataField]
+
+export type TmdbFilterField = FieldWithStorage<'tmdb'>
+export type LocalMediaField = FieldWithStorage<'localMedia'>
+export type MetadataSuggestionLookup = LibrarySuggestionLookup | IndexedMetadataStorage
+
+export function isBuiltinMetadataField(field: string): field is BuiltinMetadataField {
+  return Object.hasOwn(BUILTIN_METADATA_FIELDS, field)
 }
 
-export function hasTmdbValueSuggestions(key: string): boolean {
-  return key !== 'imdbId' && isTmdbFilterField(key) && TMDB_FILTER_FIELDS[key].search
+export function getMetadataField(field: string): MetadataFieldDefinition | undefined {
+  return isBuiltinMetadataField(field) ? BUILTIN_METADATA_FIELDS[field] : undefined
 }
 
+export function isTmdbFilterField(field: string): field is TmdbFilterField {
+  return getMetadataField(field)?.storage === 'tmdb'
+}
 
-export const TMDB_SEARCH_PREFIX = 'tmdb.'
+export function isLocalMediaField(field: string): field is LocalMediaField {
+  return getMetadataField(field)?.storage === 'localMedia'
+}
 
-export function getTmdbSearchField(key: string): TmdbFilterField | undefined {
-  if (!key.startsWith(TMDB_SEARCH_PREFIX)) return
-  const field = key.slice(TMDB_SEARCH_PREFIX.length)
-  if (isTmdbFilterField(field) && TMDB_FILTER_FIELDS[field].search) return field
+export function isFileScopedField(field: string): field is LocalMediaField {
+  return getMetadataField(field)?.scope === 'file'
+}
+
+export function metadataFieldKey(field: BuiltinMetadataField): string {
+  return getMetadataField(field)?.storage === 'tmdb' ? `tmdb.${field}` : field
+}
+
+export function metadataSuggestionLookup(field: BuiltinMetadataField): MetadataSuggestionLookup | undefined {
+  const definition: MetadataFieldDefinition = BUILTIN_METADATA_FIELDS[field]
+  if (definition.suggestions === 'manual') return
+  return definition.suggestions === 'stored' ? definition.storage : definition.suggestions
+}
+
+const fields = Object.keys(BUILTIN_METADATA_FIELDS) as BuiltinMetadataField[]
+export const TMDB_FILTER_KEYS = fields.filter(isTmdbFilterField)
+export const METADATA_RULE_FIELDS = fields
+  .filter((field) => BUILTIN_METADATA_FIELDS[field].rule)
+  .map((value) => ({ value, label: BUILTIN_METADATA_FIELDS[value].label }))
+
+const searchFields = new Map(fields
+  .filter((field) => BUILTIN_METADATA_FIELDS[field].search)
+  .map((field) => [metadataFieldKey(field), field] as const))
+const valueFields = new Map(fields
+  .filter((field) => BUILTIN_METADATA_FIELDS[field].search || metadataSuggestionLookup(field))
+  .map((field) => [metadataFieldKey(field), field] as const))
+
+export const METADATA_SEARCH_KEYS = [...searchFields.keys()]
+
+export function getMetadataSearchField(key: string): BuiltinMetadataField | undefined {
+  return searchFields.get(key)
+}
+
+export function getMetadataValueField(key: string): BuiltinMetadataField | undefined {
+  return valueFields.get(key)
 }

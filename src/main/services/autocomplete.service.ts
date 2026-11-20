@@ -1,9 +1,11 @@
-import { getTmdbSearchField, hasTmdbValueSuggestions } from '@shared/metadata-fields'
+import {
+  getMetadataValueField, metadataSuggestionLookup,
+  type BuiltinMetadataField, type LocalMediaField, type MetadataSuggestionLookup, type TmdbFilterField
+} from '@shared/metadata-fields'
+import { suggestLocalMediaValues } from '../database/repositories/local-media.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
-import * as settingsRepo from '../database/repositories/settings.repo'
 import * as settingsService from './settings.service'
 import type { AutocompleteSuggestions } from '@shared/types'
-import * as repositoryService from './repository.service'
 import { getCurrentAccountId } from '../request-context'
 import { ensureUpToDate } from './account-filter.service'
 
@@ -29,47 +31,44 @@ const fuzzyFilterAndSort = (items: string[], query: string, limit: number): stri
     .map((r) => r.item)
 }
 
+function accountForSuggestions(): string | undefined {
+  const accountId = getCurrentAccountId()
+  if (accountId) ensureUpToDate(accountId)
+  return accountId
+}
+
+const metadataLookups = {
+  mediaType: (_field, query, limit) =>
+    fuzzyFilterAndSort(metadataRepo.getDistinctMetadataValues('media_type').sort(), query, limit),
+  genre: (_field, query, limit) =>
+    fuzzyFilterAndSort(metadataRepo.getDistinctGenreNames().sort(), query, limit),
+  year: (_field, query, limit) =>
+    fuzzyFilterAndSort(metadataRepo.getDistinctMetadataValues('year').sort(), query, limit),
+  person: (_field, query, limit) => searchPersons(query, limit),
+  tmdb: (field, query, limit) =>
+    metadataRepo.suggestTmdbValues(field as TmdbFilterField, query.trim(), limit, accountForSuggestions()),
+  localMedia: (field, query, limit) =>
+    suggestLocalMediaValues(field as LocalMediaField, query.trim(), limit, accountForSuggestions())
+} satisfies Record<MetadataSuggestionLookup, (
+  field: BuiltinMetadataField, query: string, limit: number
+) => string[] | Promise<string[]>>
+
 export const getAutocompleteValues = async (
   key: string,
   query: string = '',
   limit: number = 20
 ): Promise<string[]> => {
-  // Specialized high-performance path for persons
-  if (key === 'person') {
-    return searchPersons(query, limit)
+  const field = getMetadataValueField(key)
+  if (field) {
+    const lookup = metadataSuggestionLookup(field)
+    return lookup ? metadataLookups[lookup](field, query, limit) : []
   }
 
-  const tmdbField = getTmdbSearchField(key)
-  if (tmdbField) {
-    if (!hasTmdbValueSuggestions(tmdbField)) return []
-    const accountId = getCurrentAccountId()
-    if (accountId) ensureUpToDate(accountId)
-    return metadataRepo.suggestTmdbValues(tmdbField, query.trim(), limit, accountId)
-  }
-
-  let values: string[] = []
-
-  if (key === 'mediaType') {
-    values = metadataRepo.getDistinctMetadataValues('media_type')
-  } else if (key === 'genre') {
-    values = metadataRepo.getDistinctGenreNames()
-  } else if (key === 'year') {
-    values = metadataRepo.getDistinctMetadataValues('year')
-  } else {
-    // Check tags first, then virtual tags
-    const tagMatch = metadataRepo.getDistinctTagEntries('item_tags', key)
-
-    if (tagMatch.length > 0) {
-      values = tagMatch.map((r: any) => r.value)
-    } else {
-        values = metadataRepo
-        .getDistinctTagEntries('item_virtual_tags', key)
-        .map((r: any) => r.value)
-    }
-  }
-
-  const uniqueValues = Array.from(new Set(values.filter(Boolean))).sort()
-  return fuzzyFilterAndSort(uniqueValues, query, limit)
+  // Prefer a custom tag over a virtual tag with the same key.
+  const tags = metadataRepo.getDistinctTagEntries('item_tags', key)
+  const entries = tags.length ? tags : metadataRepo.getDistinctTagEntries('item_virtual_tags', key)
+  const values = [...new Set(entries.map(({ value }) => value).filter(Boolean))].sort()
+  return fuzzyFilterAndSort(values, query, limit)
 }
 
 export const getGroupByKeys = async () => {

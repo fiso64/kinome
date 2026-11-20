@@ -394,6 +394,7 @@ export function buildApp() {
               'logoPath',
               'tmdbRuntime',
               'tmdbMetadata',
+              'localMedia',
               'releaseDate',
               'genres',
               'tags',

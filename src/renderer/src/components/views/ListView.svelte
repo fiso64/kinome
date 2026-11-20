@@ -123,6 +123,9 @@
             {#if item.year}
               <span class="year">({item.year})</span>
             {/if}
+            {#if item.type === 'folder' && 'matchingFiles' in item && item.matchingFiles?.length}
+              <span class="matching-files">{item.matchingFiles.length} matching {item.matchingFiles.length === 1 ? 'file' : 'files'}</span>
+            {/if}
           </div>
           {#if overview && listDescriptionRows > 0}
             <p class="overview" style="--description-rows: {listDescriptionRows}">{overview}</p>
@@ -136,6 +139,12 @@
 </div>
 
 <style>
+  .matching-files {
+    flex: none;
+    font-size: 0.8rem;
+    color: var(--color-text-soft);
+  }
+
   .empty-message {
     padding: 1.5rem;
     color: var(--ev-c-text-2);

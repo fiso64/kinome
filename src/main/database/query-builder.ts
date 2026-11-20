@@ -1,9 +1,11 @@
+import { playableFileMatchesSql } from './playable-files.sql'
+import { LOCAL_MEDIA_COLUMNS } from './local-media.sql'
 import { EFFECTIVE_METADATA, tmdbColumn } from './item-metadata.sql'
 import { withAccountLocations } from './media-read-model.sql'
-import { isTmdbFilterField, TMDB_FILTER_FIELDS } from '@shared/metadata-fields'
+import { BUILTIN_METADATA_FIELDS, isFileScopedField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
-import type { LibraryFilter, LibraryCondition } from '@shared/types'
+import type { LibraryFilter } from '@shared/types'
 
 export const ITEM_READ_MODEL = 'media_items_read'
 
@@ -16,6 +18,8 @@ export interface TypedWhereClause {
     op: 'eq' | 'ne' | 'contains' | 'notContains' | 'gt' | 'gte' | 'lt' | 'lte' | 'isNull' | 'isNotNull' | 'isEmpty' | 'isNotEmpty'
     value?: string | number | null
 }
+
+export type FileCondition = TypedWhereClause & { field: LocalMediaField }
 
 /**
  * A compiled SQL fragment with its bound params and required table joins.
@@ -101,8 +105,8 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     // Resolve the remaining field path against REPOSITORY_SCHEMA
     const parts = remaining.split('.')
     const schemaKey = parts[0]
-    if (isTmdbFilterField(remaining)) {
-        const condition = compileTmdbCondition(remaining, target, op, value)
+    const condition = compileMediaCondition(remaining, target, op, value)
+    if (condition) {
         return {
             sql: `EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} p1 ${joins.join(' ')}
                 WHERE p1.id = i.parent_id AND ${condition.sql})`,
@@ -165,21 +169,28 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     return { sql, params, tables }
 }
 
-function compileTmdbCondition(
-    field: keyof typeof TMDB_FILTER_FIELDS,
-    itemAlias: string,
+function compileMediaCondition(field: string, itemAlias: string, op: string, value?: string | number | null) {
+    if (isTmdbFilterField(field)) {
+        const { kind } = BUILTIN_METADATA_FIELDS[field]
+        const column = kind === 'list' ? 'value' : tmdbColumn(field)
+        const candidates = kind === 'list'
+            ? `SELECT entity_id FROM tmdb_entity_values WHERE field = '${field}'`
+            : `SELECT id FROM media_entities WHERE ${column} IS NOT NULL`
+        return compileFactCondition(`${itemAlias}.entity_id`, candidates, column, kind, op, value)
+    }
+}
+
+function compileFactCondition(
+    entity: string,
+    candidates: string,
+    column: string,
+    kind: 'text' | 'number' | 'list',
     op: string,
     value?: string | number | null
 ): { sql: string; params: (string | number)[] } {
-    const { kind } = TMDB_FILTER_FIELDS[field]
     const empty = op === 'isNull' || op === 'isEmpty'
     const present = op === 'isNotNull' || op === 'isNotEmpty'
     const relation = kind === 'list'
-    const entity = `${itemAlias}.entity_id`
-    const column = relation ? 'value' : tmdbColumn(field)
-    const candidates = relation
-        ? `SELECT entity_id FROM tmdb_entity_values WHERE field = '${field}'`
-        : `SELECT id FROM media_entities WHERE ${column} IS NOT NULL`
     const matching = (predicate = '') => `${entity} IN (${candidates}${predicate})`
     const excluding = (predicate = '') => `(${entity} IS NULL OR ${entity} NOT IN (${candidates}${predicate}))`
 
@@ -202,7 +213,55 @@ function compileTmdbCondition(
     return { sql, params: [valueToCompare] }
 }
 
-export function compileConditionToSql(field: string, op: string, value?: string | number | null): CompiledSql {
+export function compilePlayableFileMatches(
+    conditions: readonly FileCondition[],
+    preferTitle = false
+): { sql: string; params: (string | number)[] } {
+    const predicates = conditions.map(({ field, op, value }) => {
+        const { kind } = BUILTIN_METADATA_FIELDS[field]
+        const { column, track } = LOCAL_MEDIA_COLUMNS[field]
+        const candidates = track
+            ? `SELECT location_id FROM local_media_tracks WHERE kind = '${track}' AND ${column} IS NOT NULL`
+            : `SELECT location_id FROM local_media WHERE ${column} IS NOT NULL`
+        return compileFactCondition('l.id', candidates, column, kind, op, value)
+    })
+    return {
+        sql: playableFileMatchesSql(predicates.map(({ sql }) => sql).join(' AND '), preferTitle),
+        params: predicates.flatMap(({ params }) => params)
+    }
+}
+
+export function getFileConditionTarget(field: string): { field: LocalMediaField; depth: number } | undefined {
+    let depth = 0
+    while (field.startsWith('parent.')) {
+        field = field.slice(7)
+        depth++
+    }
+    if (isFileScopedField(field)) return { field, depth }
+}
+
+function compileFileConditions(conditions: FileCondition[], depth: number): CompiledSql {
+    const matches = compilePlayableFileMatches(conditions)
+    const id = depth === 0 ? 'i.id' : `p${depth}.id`
+    const predicate = `${id} IN (SELECT item_id FROM (${matches.sql}))`
+    if (!depth) return { sql: predicate, params: matches.params, tables: new Set() }
+
+    const joins: string[] = []
+    for (let level = 2; level <= depth; level++) {
+        joins.push(`JOIN ${ITEM_READ_MODEL} p${level} ON p${level}.id = p${level - 1}.parent_id`)
+    }
+    return {
+        sql: `EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} p1 ${joins.join(' ')}
+            WHERE p1.id = i.parent_id AND ${predicate})`,
+        params: matches.params,
+        tables: new Set()
+    }
+}
+
+export function compileConditionToSql(field: string, op: TypedWhereClause['op'], value?: string | number | null): CompiledSql {
+    const fileTarget = getFileConditionTarget(field)
+    if (fileTarget) return compileFileConditions([{ field: fileTarget.field, op, value }], fileTarget.depth)
+
     // Handle parent.* field references
     if (field.startsWith('parent.')) {
         return compileParentCondition(field, op, value)
@@ -211,9 +270,8 @@ export function compileConditionToSql(field: string, op: string, value?: string 
     const params: any[] = []
     const tables = new Set<string>()
 
-    if (isTmdbFilterField(field)) {
-        return { ...compileTmdbCondition(field, 'i', op, value), tables }
-    }
+    const mediaCondition = compileMediaCondition(field, 'i', op, value)
+    if (mediaCondition) return { ...mediaCondition, tables }
 
     if (field === 'genre' || field === 'genres') {
         tables.add('e')
@@ -284,7 +342,7 @@ function mergeTables(target: Set<string>, source: Set<string>): void {
  * Compiles an array of AND-groups (joined by OR) into a single CompiledSql.
  * Each group's conditions are AND-joined; groups are OR-joined.
  */
-export function compileConditionGroups(groups: LibraryCondition[][]): CompiledSql {
+export function compileConditionGroups(groups: TypedWhereClause[][]): CompiledSql {
     const allParams: any[] = []
     const tables = new Set<string>()
 
@@ -297,11 +355,24 @@ export function compileConditionGroups(groups: LibraryCondition[][]): CompiledSq
             continue
         }
         const parts: string[] = []
+        const fileGroups = new Map<number, FileCondition[]>()
         for (const cond of group) {
+            const target = getFileConditionTarget(cond.field)
+            if (target) {
+                const conditions = fileGroups.get(target.depth) ?? []
+                conditions.push({ ...cond, field: target.field })
+                fileGroups.set(target.depth, conditions)
+                continue
+            }
             const compiled = compileConditionToSql(cond.field, cond.op, cond.value)
             parts.push(compiled.sql)
             allParams.push(...compiled.params)
             mergeTables(tables, compiled.tables)
+        }
+        for (const [depth, conditions] of fileGroups) {
+            const compiled = compileFileConditions(conditions, depth)
+            parts.push(compiled.sql)
+            allParams.push(...compiled.params)
         }
         groupSqls.push(parts.length === 1 ? parts[0] : `(${parts.join(' AND ')})`)
     }
@@ -337,7 +408,15 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
     }
 
     // Normalize: conditionGroups takes precedence over legacy conditions
-    const groups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [])
+    let groups = filter.conditionGroups ?? (filter.conditions ? [filter.conditions] : [])
+    let requiredConditions = filter.requiredConditions
+    // Required file predicates must share the same witness as file predicates
+    // in any matching OR branch when they refer to the same item.
+    if (requiredConditions?.some(({ field }) => getFileConditionTarget(field))
+        && groups.some((group) => group.some(({ field }) => getFileConditionTarget(field)))) {
+        groups = groups.map((group) => [...group, ...requiredConditions!])
+        requiredConditions = undefined
+    }
 
     let compiledConditions: CompiledSql | undefined
     if (groups.length > 0) {
@@ -346,8 +425,8 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
 
     // requiredConditions are AND'd on top of the OR groups.
     // Wrap the groups in parens to preserve precedence: (A OR B OR C) AND (D AND E)
-    if (filter.requiredConditions?.length) {
-        const required = compileConditionGroups([filter.requiredConditions])
+    if (requiredConditions?.length) {
+        const required = compileConditionGroups([requiredConditions])
         if (compiledConditions) {
             const tables = new Set([...compiledConditions.tables, ...required.tables])
             compiledConditions = {
@@ -428,13 +507,11 @@ export function buildWhereFragment(options: FindOptions): {
     }
 
     // typedWhere: still supported for manual FindOptions construction (parseFindOptions, etc.)
-    if (options.typedWhere) {
-        for (const { field, op, value } of options.typedWhere) {
-            const compiled = compileConditionToSql(field, op, value)
-            conditions.push(compiled.sql)
-            params.push(...compiled.params)
-            mergeTables(tables, compiled.tables)
-        }
+    if (options.typedWhere?.length) {
+        const compiled = compileConditionGroups([options.typedWhere])
+        conditions.push(compiled.sql)
+        params.push(...compiled.params)
+        mergeTables(tables, compiled.tables)
     }
 
     // compiledConditions: structured SQL from compileFilter (params tied to SQL)

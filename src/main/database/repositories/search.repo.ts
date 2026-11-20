@@ -4,8 +4,8 @@
  */
 import { EFFECTIVE_METADATA } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
-import { getTmdbSearchField } from '@shared/metadata-fields'
-import { compileConditionToSql, ITEM_READ_MODEL } from '../query-builder'
+import { getMetadataSearchField, isFileScopedField } from '@shared/metadata-fields'
+import { compileConditionToSql, compilePlayableFileMatches, ITEM_READ_MODEL, type FileCondition } from '../query-builder'
 import { withAccountLocations } from '../media-read-model.sql'
 
 const FTS_TABLE = 'media_items_fts'
@@ -88,25 +88,26 @@ function appendTagFilters(
         const pKey = `@tagVal${idx}`
         const tagValue = tag.value.toLowerCase()
 
-        const tmdbField = getTmdbSearchField(tag.key)
-        if (tmdbField) {
-            const condition = compileConditionToSql(tmdbField, 'eq', tag.value)
-            sql += ` AND ${condition.sql.replace('?', pKey)}`
-            if (condition.params.length) params[pKey] = condition.params[0]
-        } else if (tag.key === 'mediaType') {
+        const field = getMetadataSearchField(tag.key)
+        if (field && isFileScopedField(field)) return
+        if (field === 'mediaType') {
             sql += ` AND e.media_type = ${pKey}`
             params[pKey] = tagValue
-        } else if (tag.key === 'year') {
+        } else if (field === 'year') {
             sql += ` AND e.year = ${pKey}`
             params[pKey] = parseInt(tagValue) || 0
-        } else if (tag.key === 'genre') {
+        } else if (field === 'genre') {
             const pVal = `@genreVal${idx}`
             params[pVal] = tagValue
             sql += ` AND EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE lower(value) = ${pVal})`
-        } else if (tag.key === 'person') {
+        } else if (field === 'person') {
             const pVal = `@personVal${idx}`
             params[pVal] = `%${tagValue}%`
             sql += ` AND EXISTS (SELECT 1 FROM credits c JOIN people p ON c.person_id = p.id WHERE c.entity_id = e.id AND lower(p.name) LIKE ${pVal})`
+        } else if (field) {
+            const condition = compileConditionToSql(field, 'eq', tag.value)
+            sql += ` AND ${condition.sql.replace('?', pKey)}`
+            if (condition.params.length) params[pKey] = condition.params[0]
         } else {
             // Custom tag or virtual tag
             const pValKey = `@tagVal${idx}`
@@ -124,11 +125,38 @@ function appendTagFilters(
     })
     return sql
 }
+function searchFileMatches(tags: { key: string; value: string }[], params: Record<string, unknown>) {
+    const conditions: FileCondition[] = []
+    let preferTitle = true
+    for (const tag of tags) {
+        const field = getMetadataSearchField(tag.key)
+        if (field && isFileScopedField(field)) conditions.push({ field, op: 'eq', value: tag.value })
+        if (field === 'mediaType' && ['season', 'episode'].includes(tag.value.toLowerCase())) preferTitle = false
+    }
+    if (conditions.length === 0) return ''
 
+    const matches = compilePlayableFileMatches(conditions, preferTitle)
+    let index = 0
+    const sql = matches.sql.replace(/\?/g, () => {
+        const parameter = `@fileMatch${index}`
+        params[parameter] = matches.params[index++]
+        return parameter
+    })
+    return `search_file_matches AS (
+        SELECT m.item_id,
+               json_group_array(json_object('id', m.file_id, 'title',
+                   CASE WHEN parent.media_kind = 'season' THEN parent.name || ' / ' || file.name ELSE file.name END
+               ) ORDER BY parent.name, file.name, file.id) AS matching_files
+        FROM (${sql}) m CROSS JOIN media_items file
+        LEFT JOIN media_items parent ON parent.id = file.parent_item_id
+        WHERE file.id = m.file_id
+        GROUP BY m.item_id
+    )`
+}
 
-function querySearch(sql: string, params: Record<string, any>, userId?: string): any[] {
-    if (!userId) return getDb().prepare(sql).all(params)
-    return getDb().prepare(withAccountLocations(sql, '@locationAccount'))
+function querySearch(sql: string, params: Record<string, any>, userId?: string, files?: string): any[] {
+    if (!userId) return getDb().prepare(files ? `WITH ${files} ${sql}` : sql).all(params)
+    return getDb().prepare(withAccountLocations(sql, '@locationAccount', files))
         .all({ ...params, '@locationAccount': userId })
 }
 
@@ -149,12 +177,14 @@ export function findByShortQuery(
         '@limit': limit
     }
 
+    const files = searchFileMatches(tags, params)
     let sql = `
-          SELECT ${SEARCH_SELECT},
+          SELECT ${SEARCH_SELECT}${files ? ", fm.matching_files" : ""},
             0 as rank,
             0 as static_score
           FROM ${ITEM_READ_MODEL} i
           JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+          ${files ? "JOIN search_file_matches fm ON i.id = fm.item_id" : ""}
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE (i.name LIKE @likeQuery OR e.title LIKE @likeQuery)
             AND i.is_ignored = 0
@@ -174,7 +204,7 @@ export function findByShortQuery(
           END ASC,
           e.title ASC, i.name ASC LIMIT @limit`
 
-    return querySearch(sql, params, userId)
+    return querySearch(sql, params, userId, files)
 }
 
 /**
@@ -188,13 +218,15 @@ export function findByFtsQuery(
 ): any[] {
     const params: any = { '@limit': limit }
 
+    const files = searchFileMatches(tags, params)
     let sql = `
-          SELECT ${SEARCH_SELECT},
+          SELECT ${SEARCH_SELECT}${files ? ", fm.matching_files" : ""},
             ${FTS_TABLE}.rank,
             0 as static_score
           FROM ${FTS_TABLE}
           JOIN ${ITEM_READ_MODEL} i ON ${FTS_TABLE}.id = i.id
           JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+          ${files ? "JOIN search_file_matches fm ON i.id = fm.item_id" : ""}
           LEFT JOIN user_state u ON i.id = u.item_id
           WHERE ${FTS_TABLE} MATCH @matchQuery
             AND i.is_ignored = 0
@@ -207,7 +239,7 @@ export function findByFtsQuery(
 
     sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(${FTS_TABLE}, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
-    return querySearch(sql, params, userId)
+    return querySearch(sql, params, userId, files)
 }
 
 /**
@@ -220,12 +252,14 @@ export function findByTagsOnly(
 ): any[] {
     const params: any = { '@limit': limit }
 
+    const files = searchFileMatches(tags, params)
     let sql = `
-      SELECT ${SEARCH_SELECT},
+      SELECT ${SEARCH_SELECT}${files ? ", fm.matching_files" : ""},
         0 as rank,
         0 as static_score
       FROM ${ITEM_READ_MODEL} i
       JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
+      ${files ? "JOIN search_file_matches fm ON i.id = fm.item_id" : ""}
       LEFT JOIN user_state u ON i.id = u.item_id
       WHERE i.is_ignored = 0
         AND i.is_hidden = 0
@@ -236,5 +270,5 @@ export function findByTagsOnly(
 
     sql += ` ORDER BY e.title ASC, i.name ASC LIMIT @limit`
 
-    return querySearch(sql, params, userId)
+    return querySearch(sql, params, userId, files)
 }

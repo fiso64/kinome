@@ -1,12 +1,3 @@
-More local metadata. Use ffmpeg to extract lots of data from all playable files in the library such as the duration, encoder, audio, resolution, subtitle and audio tracks (and their properties), etc, etc.
-Add useful ones as new fields to vtag/vfolder configurations and the search bar, as well as the metadata modal.
-
-Need careful thought how to make this fast but also not too intensive on low powered devices. Maybe a global setting controlling the number of concurrent ffmpeg jobs?
-
-Also need to think when and how that data needs to be invalidated and refetched. For example, a downloading torrent file might initially have incomplete/broken headers which would result in bad output from ffmpeg or a crash. We don't want to commit this forever, but also, we don't want to blindly rescan every single time.
-
----
-
 Add new sort by: last watched date and add new home section "Last Watched".
 Also add new fields for vtags and vfolders: days since last watched (int), and playback state ∈ {completed, unwatched, in progress}, where
 - completed = media type = movie and (item type = file and item watched = true OR item type = folder and item has playable child item which is watched) OR media type = tv and all episodes are watched.

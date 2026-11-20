@@ -79,7 +79,7 @@ export function parseSeasonFolder(name: string): number | null {
   return match ? Number(match[1]) : null
 }
 
-const SPECIAL_FOLDER_NAMES_FOR_TV = [
+export const SPECIAL_FOLDER_NAMES_FOR_TV = [
   'extras',
   'specials',
   'ova',
