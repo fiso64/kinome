@@ -10,7 +10,7 @@ export const migration: Migration = {
     db.exec('DROP VIEW IF EXISTS media_items_read')
     db.exec(MEDIA_ITEMS_READ_MODEL_SQL)
     db.exec(`DROP VIEW IF EXISTS ${EFFECTIVE_METADATA}`)
-    db.exec(EFFECTIVE_METADATA_VIEW_SQL)
+    db.exec(EFFECTIVE_METADATA_VIEW_SQL())
     if (tableExists(db, 'user_state')) {
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_user_state_next_up_by_user

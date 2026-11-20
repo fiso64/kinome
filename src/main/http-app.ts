@@ -393,6 +393,7 @@ export function buildApp() {
               'backdropPath',
               'logoPath',
               'tmdbRuntime',
+              'tmdbMetadata',
               'releaseDate',
               'genres',
               'tags',

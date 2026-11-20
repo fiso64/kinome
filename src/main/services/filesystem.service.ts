@@ -134,6 +134,7 @@ async function syncDiskToDatabase(
   cleanupMissing: boolean = true,
   priorSources: SourceHistory = new Map(),
   sourcePaths?: ReadonlyMap<string, string>,
+  refetchRemoteMetadataOnFileChange = true
 ): Promise<SyncDiskResult> {
   const discovered: DiscoveredLocation[] = []
   const foundLocationPaths = new Set<string>()
@@ -282,9 +283,16 @@ async function syncDiskToDatabase(
     }
     const plan = buildReconciliationPlan(
       source.id, discovered, currentLocations, foundLocationPaths, scanSucceeded,
-      { scannedPaths: priorSources, probedMissingPaths }, log
+      { scannedPaths: priorSources, probedMissingPaths }, log, refetchRemoteMetadataOnFileChange
     )
     const ids = applyReconciliationPlan(source.id, plan, log)
+    if (refetchRemoteMetadataOnFileChange) {
+      const updatedFiles: string[] = []
+      for (const { itemId, fileUpdated } of plan) {
+        if (fileUpdated) updatedFiles.push(itemId)
+      }
+      for (const itemId of metadataRepo.markMetadataStaleForFiles(updatedFiles)) ids.add(itemId)
+    }
     if (cleanupMissing) cleanupMissingForSource(source.id, rootRelPath, foundLocationPaths, scanSucceeded)
     return ids
   })
@@ -322,6 +330,7 @@ export async function scanDirectory(
     higherPriorityPaths?: Set<string>
     shadowMinDepth?: number
     cleanupMissing?: boolean
+    refetchRemoteMetadataOnFileChange?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
     sourcePaths?: ReadonlyMap<string, string>
     onFoundItems?: (foundItemIds: Set<string>) => void
@@ -341,7 +350,8 @@ export async function scanDirectory(
     options.shadowMinDepth,
     options.cleanupMissing ?? true,
     options.sameRelativePathRescueSources,
-    options.sourcePaths
+    options.sourcePaths,
+    options.refetchRemoteMetadataOnFileChange
   )
     .then((result) => {
       options.onFoundItems?.(result.foundItemIds)

@@ -44,8 +44,14 @@ export function initializeDatabase(): Database {
       console.log(`[Database] Created pre-migration backup at ${backupPath}`)
     }
 
-    applySchema()
+    // Existing libraries must migrate before the current schema defines views
+    // that reference columns the migrations have yet to add.
+    const hasLibrarySchema = databaseAlreadyExists && !!db.query(
+      "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'media_entities'"
+    ).get()
+    if (!hasLibrarySchema) applySchema()
     runMigrations(db)
+    if (hasLibrarySchema) applySchema()
 
     return db
   } catch (error) {

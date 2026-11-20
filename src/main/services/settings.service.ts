@@ -259,6 +259,7 @@ async function readRawSettings(): Promise<Settings> {
     searchPopupView: { layout: 'list', listDescriptionRows: 2 },
     itemDetailBackdropSize: 'small',
     itemDetailBackdropBlur: 4,
+    refetchRemoteMetadataOnFileChange: true,
     serverPort: 3000,
     serverHost: '::'
   }

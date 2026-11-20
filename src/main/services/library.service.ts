@@ -62,6 +62,7 @@ interface FullLibraryScanOptions {
   shadowSources?: boolean
   shadowMinDepth?: number
   runEarlyMaintenance?: boolean
+  refetchRemoteMetadataOnFileChange?: boolean
 }
 
 // --- Helpers ---
@@ -149,6 +150,7 @@ async function _runBackgroundScan(
     higherPriorityPaths?: Set<string>
     shadowMinDepth?: number
     cleanupMissing?: boolean
+    refetchRemoteMetadataOnFileChange?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
     sourcePaths?: ReadonlyMap<string, string>
     onFoundItems?: (foundItemIds: Set<string>) => void
@@ -176,6 +178,7 @@ async function _runBackgroundScan(
       higherPriorityPaths: options.higherPriorityPaths,
       shadowMinDepth: options.shadowMinDepth,
       cleanupMissing: options.cleanupMissing,
+      refetchRemoteMetadataOnFileChange: options.refetchRemoteMetadataOnFileChange,
       sameRelativePathRescueSources: options.sameRelativePathRescueSources,
       sourcePaths: options.sourcePaths,
       onFoundItems: (foundItemIds) => {
@@ -242,7 +245,8 @@ export async function runFullLibraryScan({
   sourceFolderSettings,
   shadowSources = false,
   shadowMinDepth = 1,
-  runEarlyMaintenance = true
+  runEarlyMaintenance = true,
+  refetchRemoteMetadataOnFileChange = true
 }: FullLibraryScanOptions): Promise<void> {
   updateSourcePriority(sources)
   // Initialize roots before any scanning begins
@@ -293,6 +297,7 @@ export async function runFullLibraryScan({
       higherPriorityPaths,
       shadowMinDepth,
       cleanupMissing: false,
+      refetchRemoteMetadataOnFileChange,
       sameRelativePathRescueSources,
       sourcePaths,
       runMaintenance: false
@@ -307,7 +312,7 @@ export async function runFullLibraryScan({
       if (scanResult.foundItemIds.size > 0) {
         // Keep enrichment serial while letting local discovery continue during provider requests.
         earlyEnrichment = earlyEnrichment
-          .then(() => metadataService.enrichItems(scanResult.foundItemIds, { runMaintenance: false }))
+          .then(() => metadataService.enrichItems(scanResult.foundItemIds, { deferFileChangeRefresh: true }))
           .catch((err) => {
             console.error('[Library Service] Targeted enrichment failed during rescan:', err)
           })
@@ -351,7 +356,8 @@ export const performScan = async (
     sourcePaths,
     sourceFolderSettings,
     shadowSources,
-    shadowMinDepth
+    shadowMinDepth,
+    refetchRemoteMetadataOnFileChange: settings.refetchRemoteMetadataOnFileChange
   }).catch((err) => {
     console.error('[Library Service] Background scan sequence failed:', err)
   })

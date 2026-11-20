@@ -4,7 +4,9 @@
     getFuzzySuggestions,
     type AutocompleteConfig
   } from '@lib/autocomplete-manager'
+  import { hasTmdbValueSuggestions, isTmdbFilterField, TMDB_FILTER_FIELDS, TMDB_SEARCH_PREFIX } from '@shared/metadata-fields'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
+  import { api } from '@lib/api'
   import IconX from '@components/ui/IconX.svelte'
 
   let {
@@ -22,7 +24,8 @@
     { value: 'mediaType', label: 'Media Type' },
     { value: 'path', label: 'File Path' },
     { value: 'addedDaysAgo', label: 'Days Since Added' },
-    { value: 'retrieveChildrenMetadata', label: 'Retrieve Children Metadata' }
+    { value: 'retrieveChildrenMetadata', label: 'Retrieve Children Metadata' },
+    ...Object.entries(TMDB_FILTER_FIELDS).map(([value, { label }]) => ({ value, label }))
   ]
 
   const fields = $derived.by(() => {
@@ -53,6 +56,12 @@
     { value: 'isNotEmpty', label: 'is not empty' }
   ]
 
+  const orderedOperators = new Set<LibraryConditionOp>(['gt', 'gte', 'lt', 'lte'])
+
+  function isListField(field: string) {
+    return isTmdbFilterField(field) && TMDB_FILTER_FIELDS[field].kind === 'list'
+  }
+
   function getTarget(field: string): 'item' | 'parent' {
     return field.startsWith('parent.') ? 'parent' : 'item'
   }
@@ -69,6 +78,7 @@
   function setField(cond: LibraryCondition, base: string) {
     const target = getTarget(cond.field)
     cond.field = target === 'parent' ? `parent.${base}` : base
+    if (isListField(base) && orderedOperators.has(cond.op)) cond.op = 'eq'
   }
 
   function defaultCondition(): LibraryCondition {
@@ -104,8 +114,13 @@
 
   function makeAutocompleteConfig(cond: LibraryCondition): AutocompleteConfig {
     return {
-      getSuggestions: (text) =>
-        getFuzzySuggestions(getValuesForField(getBaseField(cond.field)), text),
+      getSuggestions: async (text) => {
+        const field = getBaseField(cond.field)
+        const values = hasTmdbValueSuggestions(field)
+          ? await api.getAutocompleteValues(`${TMDB_SEARCH_PREFIX}${field}`, text)
+          : getValuesForField(field)
+        return getFuzzySuggestions(values, text)
+      },
       onSelect: (suggestion, node) => {
         cond.value = suggestion.label
         ;(node as HTMLInputElement).value = suggestion.label
@@ -148,12 +163,14 @@
           </select>
           <select bind:value={cond.op} class="op-select">
             {#each operators as op}
-              <option value={op.value}>{op.label}</option>
+              {#if !isListField(getBaseField(cond.field)) || !orderedOperators.has(op.value)}
+                <option value={op.value}>{op.label}</option>
+              {/if}
             {/each}
           </select>
           {#if cond.op !== 'isNull' && cond.op !== 'isNotNull' && cond.op !== 'isEmpty' && cond.op !== 'isNotEmpty'}
             {@const values = getValuesForField(getBaseField(cond.field))}
-            {#if values.length > 0}
+            {#if values.length > 0 || hasTmdbValueSuggestions(getBaseField(cond.field))}
               <input
                 type="text"
                 bind:value={cond.value}

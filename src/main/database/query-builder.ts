@@ -1,5 +1,6 @@
-import { EFFECTIVE_METADATA } from './item-metadata.sql'
+import { EFFECTIVE_METADATA, tmdbColumn } from './item-metadata.sql'
 import { withAccountLocations } from './media-read-model.sql'
+import { isTmdbFilterField, TMDB_FILTER_FIELDS } from '@shared/metadata-fields'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter, LibraryCondition } from '@shared/types'
@@ -100,6 +101,15 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     // Resolve the remaining field path against REPOSITORY_SCHEMA
     const parts = remaining.split('.')
     const schemaKey = parts[0]
+    if (isTmdbFilterField(remaining)) {
+        const condition = compileTmdbCondition(remaining, target, op, value)
+        return {
+            sql: `EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} p1 ${joins.join(' ')}
+                WHERE p1.id = i.parent_id AND ${condition.sql})`,
+            params: condition.params,
+            tables
+        }
+    }
     const def = REPOSITORY_SCHEMA[schemaKey]
     if (!def) return { sql: '1=1', params, tables }
 
@@ -155,6 +165,43 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     return { sql, params, tables }
 }
 
+function compileTmdbCondition(
+    field: keyof typeof TMDB_FILTER_FIELDS,
+    itemAlias: string,
+    op: string,
+    value?: string | number | null
+): { sql: string; params: (string | number)[] } {
+    const { kind } = TMDB_FILTER_FIELDS[field]
+    const empty = op === 'isNull' || op === 'isEmpty'
+    const present = op === 'isNotNull' || op === 'isNotEmpty'
+    const relation = kind === 'list'
+    const entity = `${itemAlias}.entity_id`
+    const column = relation ? 'value' : tmdbColumn(field)
+    const candidates = relation
+        ? `SELECT entity_id FROM tmdb_entity_values WHERE field = '${field}'`
+        : `SELECT id FROM media_entities WHERE ${column} IS NOT NULL`
+    const matching = (predicate = '') => `${entity} IN (${candidates}${predicate})`
+    const excluding = (predicate = '') => `(${entity} IS NULL OR ${entity} NOT IN (${candidates}${predicate}))`
+
+    if (empty || present) return { sql: empty ? excluding() : matching(), params: [] }
+    if (value == null) return { sql: '0', params: [] }
+    if (op === 'contains' || op === 'notContains') {
+        const like = ` AND ${column} LIKE ?`
+        const sql = op === 'contains' ? matching(like)
+            : relation ? excluding(like) : matching(` AND ${column} NOT LIKE ?`)
+        return { sql, params: [`%${value}%`] }
+    }
+
+    if (relation && op !== 'eq' && op !== 'ne') return { sql: '0', params: [] }
+    const valueToCompare = kind === 'number' ? Number(value) : value
+    if (kind === 'number' && (String(value).trim() === '' || !Number.isFinite(valueToCompare))) return { sql: '0', params: [] }
+    const operators = { eq: '=', ne: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=' }
+    if (!Object.hasOwn(operators, op)) return { sql: '0', params: [] }
+    const sql = relation && op === 'ne' ? excluding(` AND ${column} = ?`)
+        : matching(` AND ${column} ${operators[op as keyof typeof operators]} ?`)
+    return { sql, params: [valueToCompare] }
+}
+
 export function compileConditionToSql(field: string, op: string, value?: string | number | null): CompiledSql {
     // Handle parent.* field references
     if (field.startsWith('parent.')) {
@@ -163,6 +210,10 @@ export function compileConditionToSql(field: string, op: string, value?: string 
 
     const params: any[] = []
     const tables = new Set<string>()
+
+    if (isTmdbFilterField(field)) {
+        return { ...compileTmdbCondition(field, 'i', op, value), tables }
+    }
 
     if (field === 'genre' || field === 'genres') {
         tables.add('e')

@@ -122,6 +122,7 @@
         title = freshItem.title ?? ''
         year = freshItem.year?.toString() ?? ''
         mediaType = freshItem.mediaType ?? null
+        tmdbMetadata = freshItem.tmdbMetadata
         overview = freshItem.overview ?? ''
         genres = JSON.parse(JSON.stringify(freshItem.genres ?? []))
         tags = Object.entries(freshItem.tags ?? {}).map(([key, value]) => ({
@@ -212,6 +213,7 @@
   })
 
   let title = $state(item.title ?? '')
+  let tmdbMetadata = $state(item.tmdbMetadata)
   let year = $state(item.year?.toString() ?? '')
   let mediaType = $state(item.mediaType ?? null)
   let overview = $state(item.overview ?? '')
@@ -578,6 +580,7 @@
     {:else if activeTab === 'metadata' && caps.canEditMetadata}
       <MetadataTab
         {item}
+        {tmdbMetadata}
         bind:title
         bind:year
         bind:mediaType

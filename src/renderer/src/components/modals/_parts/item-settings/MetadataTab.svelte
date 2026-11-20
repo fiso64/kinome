@@ -1,10 +1,12 @@
 <script lang="ts">
+  import type { TmdbMetadata } from '@shared/metadata-fields'
   import GenreInput from '@ui/GenreInput.svelte'
   import TagInput from '@ui/TagInput.svelte'
   import type { LibraryItem, AutocompleteSuggestions } from '@shared/types'
 
   let {
     item,
+    tmdbMetadata,
     title = $bindable(),
     year = $bindable(),
     mediaType = $bindable(),
@@ -17,6 +19,7 @@
     suggestions
   }: {
     item: LibraryItem
+    tmdbMetadata?: TmdbMetadata | null
     title: string
     year: string
     mediaType: 'movie' | 'tv' | 'season' | 'episode' | null
@@ -110,10 +113,54 @@
 
   <div class="divider"></div>
 
-  <h3>Custom Tags</h3>
   <div class="form-group">
+    <h3>Custom Tags</h3>
     <TagInput bind:tags {suggestions} />
   </div>
+
+  {#if tmdbMetadata}
+    {@const score = tmdbMetadata.tmdbRating}
+    {@const facts = [
+      ['Status', tmdbMetadata.status],
+      ['US content rating', tmdbMetadata.contentRating],
+      ['TMDB score', score == null ? undefined : `${score.toFixed(1)}/10 (${tmdbMetadata.tmdbVoteCount} votes)`],
+      ['Next air date', tmdbMetadata.nextAirDate],
+      ['In production', tmdbMetadata.inProduction === undefined ? undefined : tmdbMetadata.inProduction ? 'Yes' : 'No'],
+      ['Production companies', tmdbMetadata.studios?.join(', ')],
+      ['TV networks', tmdbMetadata.networks?.join(', ')],
+      ['Production countries', tmdbMetadata.productionCountries?.join(', ')],
+      ['Original language', tmdbMetadata.originalLanguage]
+    ].filter(([, value]) => value)}
+    <section class="tmdb-summary">
+      <h3>TMDB metadata</h3>
+      <dl class="tmdb-facts">
+        {#each facts as [label, value] (label)}
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        {/each}
+        {#if tmdbMetadata.imdbId}
+          <dt>IMDb</dt>
+          <dd>
+            <a href={`https://www.imdb.com/title/${tmdbMetadata.imdbId}/`} target="_blank" rel="noopener noreferrer">
+              {tmdbMetadata.imdbId}
+            </a>
+          </dd>
+        {/if}
+        {#if tmdbMetadata.homepage}
+          <dt>Website</dt>
+          <dd><a href={tmdbMetadata.homepage} target="_blank" rel="noopener noreferrer">Official website</a></dd>
+        {/if}
+        {#if item.tmdbId && (item.mediaType === 'tv' || item.mediaType === 'movie')}
+          <dt>TMDB</dt>
+          <dd>
+            <a href={`https://www.themoviedb.org/${item.mediaType}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer">
+              View on TMDB
+            </a>
+          </dd>
+        {/if}
+      </dl>
+    </section>
+  {/if}
 </div>
 
 <style>
@@ -139,6 +186,32 @@
   label,
   h3 {
     font-weight: bold;
+  }
+  .tmdb-summary {
+    display: grid;
+    gap: 0.75rem;
+    border-top: 1px solid var(--color-border);
+    padding-top: 1rem;
+    user-select: text;
+  }
+  .tmdb-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
+    gap: 0.45rem 1rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0;
+  }
+  .tmdb-facts dt {
+    color: var(--color-text-soft);
+  }
+  .tmdb-facts a {
+    color: var(--color-primary-soft);
+    text-underline-offset: 0.2em;
+  }
+  .tmdb-facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
   .divider {
     border-bottom: 1px solid var(--color-background-mute);

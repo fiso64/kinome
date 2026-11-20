@@ -72,6 +72,7 @@ export function buildReconciliationPlan(
   scanSucceeded: boolean,
   evidence: LocationEvidence,
   diagnose: (message: string) => void,
+  detectFileChanges = false,
 ) {
   const byPath = new Map(previous.map((location) => [location.path, location]))
   const missingByFingerprint = new Map<string, typeof previous>()
@@ -163,6 +164,7 @@ export function buildReconciliationPlan(
   }
 
   const itemIds = new Map<string, string>()
+  let byLocationId: Map<string, (typeof previous)[number]> | undefined
   return discovered.map((entry, index) => {
     let match = matches[index]
     if (match && (claimed.get(match.itemId) ?? 0) > 1 &&
@@ -176,7 +178,24 @@ export function buildReconciliationPlan(
       ? locations.LIBRARY_ROOT_ID
       : itemIds.get(parentPath) ?? locations.getItemIdBySourcePath(sourceId, parentPath)
     itemIds.set(entry.relativePath, itemId)
-    return { entry, itemId, parentId, match }
+    let fileUpdated = false
+    if (detectFileChanges && entry.type === 'file' && match) {
+      if (match.moveLocationId && !byLocationId) {
+        byLocationId = new Map(previous.map((location) => [location.locationId, location]))
+      }
+      const prior = match.moveLocationId
+        ? byLocationId?.get(match.moveLocationId)
+        : byPath.get(entry.relativePath)
+      if (prior?.type === 'file' && prior.id === itemId) {
+        const { stats } = entry
+        fileUpdated = (prior.mtime != null && prior.mtime !== Math.floor(stats.mtimeMs)) ||
+          (prior.size != null && prior.size !== stats.size) ||
+          (prior.inode != null && prior.inode !== stats.ino) ||
+          (prior.deviceId != null && prior.deviceId !== stats.dev) ||
+          (prior.birthtime != null && prior.birthtime !== Math.floor(stats.birthtimeMs))
+      }
+    }
+    return { entry, itemId, parentId, match, fileUpdated }
   })
 }
 

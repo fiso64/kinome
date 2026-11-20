@@ -123,7 +123,13 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
  */
 export async function broadcastModifiedItems(
   items: LibraryItem[],
-  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string; userStateOnly?: boolean } = {}
+  options: {
+    updateSuggestions?: boolean
+    settings?: Settings
+    userId?: string
+    userStateOnly?: boolean
+    deferGroupingSync?: boolean
+  } = {}
 ): Promise<void> {
   if (items.length === 0) return
 
@@ -142,9 +148,11 @@ export async function broadcastModifiedItems(
       item.virtualTags = freshVirtualTags[item.id] ?? {}
     }
 
-    const t2 = Date.now()
-    syncAllGroupings()
-    log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
+    if (!options.deferGroupingSync) {
+      const t2 = Date.now()
+      syncAllGroupings()
+      log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
+    }
 
     accountFilterService.markDirty()
   }
@@ -185,7 +193,7 @@ export async function broadcastModifiedItems(
 
 export async function updateIfChangedAndBroadcast(
   items: LibraryItem | LibraryItem[],
-  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string } = {}
+  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string; deferGroupingSync?: boolean } = {}
 ): Promise<void> {
   if (!items || (Array.isArray(items) && items.length === 0)) return
   const itemsArray = Array.isArray(items) ? items : [items]

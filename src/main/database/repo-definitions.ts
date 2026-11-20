@@ -49,6 +49,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     overview: { sql: 'e.overview', table: 'e' },
     releaseDate: { sql: 'e.release_date', table: 'e' },
     tmdbRuntime: { sql: 'e.tmdb_runtime', table: 'e' },
+    tmdbMetadata: { sql: 'e.tmdb_metadata_json', table: 'e', isJson: true },
     year: {
         sql: 'e.year',
         table: 'e',

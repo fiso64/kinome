@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTmdbSearchField, hasTmdbValueSuggestions, TMDB_FILTER_FIELDS, TMDB_SEARCH_PREFIX } from '@shared/metadata-fields'
   import type { AutocompleteSuggestions } from '@shared/types'
   import {
     autocomplete,
@@ -10,13 +11,17 @@
   import { api } from '@lib/api'
   import IconX from './IconX.svelte'
 
-  // This constant centralizes the "special" keys that have their own suggestion lists.
+  const tmdbSearchKeys = Object.entries(TMDB_FILTER_FIELDS)
+    .filter(([, field]) => field.search)
+    .map(([key]) => `${TMDB_SEARCH_PREFIX}${key}`)
+
   const SUGGESTION_KEYS = {
     special: ['mediaType', 'genre', 'person'],
     all: (suggestions: AutocompleteSuggestions) =>
       Array.from(
         new Set([
           'year',
+          ...tmdbSearchKeys,
           ...SUGGESTION_KEYS.special,
           ...Object.keys(suggestions.tags ?? {}),
           ...Object.keys(suggestions.virtualTags ?? {})
@@ -83,8 +88,9 @@
         const key = valueMatch[1]
         const value = valueMatch[2]
 
-        if (key === 'person') {
-          const results = await api.getAutocompleteValues('person', value)
+        const tmdbField = getTmdbSearchField(key)
+        if (key === 'person' || (tmdbField && hasTmdbValueSuggestions(tmdbField))) {
+          const results = await api.getAutocompleteValues(key, value)
           return getFuzzySuggestions(results, value)
         }
 

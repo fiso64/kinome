@@ -1,4 +1,9 @@
-I have configured the server to use the library at `./test-data/test-lib-small/.library/library.db` by default (appdata roaming settings.json points to it, no need to do anything else, already works). Structure of the test-lib-small is as follows:
+Run `bun run dev:test`, then open `http://localhost:3000`.
+It uses `test-data/test-lib-small/.library` and keeps instance settings in
+`test-data/.kinome`. The existing fixture has `admin` / `q` and `user` / `q`
+accounts. Use Ctrl+C to stop the instance when running in a terminal.
+
+Structure of the test library:
 
 ```
 ├── .library

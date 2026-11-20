@@ -12,7 +12,7 @@ import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
-import { syncVirtualSeasonFolders } from './grouping.service'
+import { syncAllGroupings, syncVirtualSeasonFolders } from './grouping.service'
 import { getTransport } from '../transport.registry'
 import { runWithoutAccount } from '../request-context'
 import * as filesystemService from './filesystem.service'
@@ -38,7 +38,7 @@ export async function enrichDatabase() {
 
 export async function enrichItems(
   itemIds: Iterable<string>,
-  options: { runMaintenance?: boolean } = {}
+  options: { runMaintenance?: boolean; deferFileChangeRefresh?: boolean } = {}
 ) {
   const scopedItemIds = [...new Set(itemIds)]
   if (scopedItemIds.length === 0) return
@@ -46,7 +46,8 @@ export async function enrichItems(
   return runEnrichment({
     itemIds: scopedItemIds,
     includeStructuralPrepass: false,
-    runMaintenance: options.runMaintenance ?? false
+    runMaintenance: options.runMaintenance ?? false,
+    deferFileChangeRefresh: options.deferFileChangeRefresh
   })
 }
 
@@ -54,6 +55,7 @@ async function runEnrichment(options: {
   itemIds?: string[]
   includeStructuralPrepass: boolean
   runMaintenance: boolean
+  deferFileChangeRefresh?: boolean
 }) {
   return runWithoutAccount(async () => {
     const settings = await settingsService.readSettings()
@@ -66,7 +68,7 @@ async function runEnrichment(options: {
 
     try {
       // 1. Preprocess TV Structural Changes
-      const tvShowsWithChanges: LibraryItem[] = []
+      const tvShowsWithChanges = new Map<string, LibraryItem>()
       const tvShowsToSync = options.includeStructuralPrepass
         ? repositoryService.getTvShowsForStructuralSync(options.itemIds)
         : []
@@ -80,19 +82,22 @@ async function runEnrichment(options: {
               `[Phase 2] [Structure] TV Show "${show.name}" has ${modified.length} structural changes.`
             )
             if (show.tmdbId) {
-              tvShowsWithChanges.push(show)
+              tvShowsWithChanges.set(show.id, show)
             }
           }
         }
       }
 
       // 2. Discovery: Find "Logical Entry Points"
-      const discoveredDirtyItems = repositoryService.getDiscoveryItemsForPhase2(options.itemIds)
-      const itemMap = new Map<string, LibraryItem>()
-      discoveredDirtyItems.forEach((item: LibraryItem) => itemMap.set(item.id, item))
-      tvShowsWithChanges.forEach((item) => itemMap.set(item.id, item))
-
-      const entryPoints = Array.from(itemMap.values())
+      const entryById = new Map(
+        repositoryService.getDiscoveryItemsForPhase2(options.itemIds).map((entry) => [entry.item.id, entry])
+      )
+      for (const [id, item] of tvShowsWithChanges) {
+        if (!entryById.has(id)) entryById.set(id, { item, needsTmdbBackfill: false })
+      }
+      const entryPoints = [...entryById.values()].filter(
+        (entry) => !options.deferFileChangeRefresh || !entry.fileChangeRevision
+      )
 
       if (entryPoints.length === 0) {
         log('[Phase 2] No dirty entry points found. Enrichment skipped.')
@@ -102,18 +107,22 @@ async function runEnrichment(options: {
         )
 
         // 3. The Orchestration Loop
-        await processInChunks(entryPoints, 5, async (item) => {
-          const force = tvShowsWithChanges.some((show) => show.id === item.id)
-          log(
-            `[Phase 2] [${item.mediaType || item.type}] Enriching: "${item.name}"${force ? ' (Structural change detected)' : ''}`
-          )
-          await fetchAndApplyMetadata(item, { force })
+        const provider = createTmdbProvider(settings.tmdbApiKey)
+        await processInChunks(entryPoints, 5, async ({ item, fileChangeRevision, needsTmdbBackfill }) => {
+          const force = tvShowsWithChanges.has(item.id)
+          const backfillOnly = needsTmdbBackfill && !force && !fileChangeRevision
+          const reason = fileChangeRevision ? 'file changed'
+            : force ? 'structure changed' : backfillOnly ? 'supplemental metadata backfill' : 'missing metadata'
+          log(`[Phase 2] [${item.mediaType || item.type}] Enriching "${item.name}" (${reason})`)
+          await fetchAndApplyMetadata(item, {
+            force, provider, fileChangeRevision, backfillOnly, deferGroupingSync: options.runMaintenance
+          })
         })
       }
 
       // 4. Maintenance Pass
       if (options.runMaintenance) {
-        await maintenancePass()
+        await maintenancePass(entryPoints.length > 0)
       }
     } finally {
       getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
@@ -124,7 +133,7 @@ async function runEnrichment(options: {
   }) // runWithoutAccount
 }
 
-export async function maintenancePass() {
+export async function maintenancePass(syncGroupings = false) {
   log('[Maintenance] Starting pass...')
   const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
@@ -136,6 +145,7 @@ export async function maintenancePass() {
   // 2. SQL Virtual Tag Sync
   log('[Maintenance] Syncing virtual tags via SQL...')
   virtualTagsService.applyVirtualTags(settings.virtualTags)
+  if (syncGroupings) syncAllGroupings()
 
   // 3. Signal Frontend to Refresh Cache & Metadata Index
   log('[Maintenance] Notifying UI to refresh.')
@@ -155,7 +165,14 @@ export async function maintenancePass() {
 
 export async function fetchAndApplyMetadata(
   item: LibraryItem,
-  options: { force?: boolean; year?: number; provider?: MetadataProvider } = {}
+  options: {
+    force?: boolean
+    year?: number
+    provider?: MetadataProvider
+    fileChangeRevision?: string
+    backfillOnly?: boolean
+    deferGroupingSync?: boolean
+  } = {}
 ): Promise<LibraryItem[]> {
   const typeLocked = repositoryService.isFieldLocked(item, 'mediaType')
   if (typeLocked && item.mediaType == null) return []
@@ -166,6 +183,11 @@ export async function fetchAndApplyMetadata(
   const allModifiedItems: LibraryItem[] = [item]
 
   if (pathsService.isRemoteLibrary()) return []
+  if (options.backfillOnly && metadataRepo.hasSupplementalTmdbMetadata(item.id)) return []
+
+  const fileChangeRefresh = options.fileChangeRevision
+    ? { completed: new Map<string, string>(), failed: false, onlyChangedSeasons: !options.force }
+    : undefined
 
   log(`[Orchestrator] fetchAndApplyMetadata for "${item.name}"`)
 
@@ -210,21 +232,32 @@ export async function fetchAndApplyMetadata(
     // 2. Save provider facts independently of item locks and materialize the item.
     if (item.tmdbId && (item.mediaType === 'movie' || item.mediaType === 'tv')) {
       const match = { id: item.tmdbId, type: item.mediaType }
-      const details = await provider.details(match)
-      const entityId = metadataRepo.saveProviderMatch(item.id, provider.name, match, details)
-      if (details) {
-        await metadataMapping.applyMetadataToItem(item, details)
-        const credits = await provider.credits(match)
-        if (credits) {
-          metadataRepo.saveProviderCredits(entityId, credits)
-          item.tmdbCredits = credits
+      const details = await provider.details(match, { includeArtwork: !options.backfillOnly })
+      if (options.backfillOnly) {
+        if (details?.metadata) {
+          metadataRepo.saveProviderMatch(item.id, provider.name, match, details, { supplementalOnly: true })
         }
-        for (const id of metadataRepo.findOtherItemsForEntity(entityId, item.id)) {
-          const copy = repositoryService.getItemById(id)
-          if (!copy || copy.mediaType !== match.type || copy.tmdbId !== match.id) continue
-          metadataMapping.applyProviderFields(copy, details)
-          allModifiedItems.push(copy)
-        }
+        return []
+      }
+      const { entityId, metadataChanged } = metadataRepo.saveProviderMatch(item.id, provider.name, match, details)
+      if (!details) {
+        // Keep the matched identity and pending freshness state for the next pass.
+        if (!item.lastRefreshedAt) await updateIfChangedAndBroadcast(item)
+        return []
+      }
+      await metadataMapping.applyMetadataToItem(item, details)
+      if (metadataChanged) item.tmdbMetadata = details.metadata
+      const credits = await provider.credits(match)
+      if (credits) {
+        metadataRepo.saveProviderCredits(entityId, credits)
+        item.tmdbCredits = credits
+      }
+      for (const id of metadataRepo.findOtherItemsForEntity(entityId, item.id)) {
+        const copy = repositoryService.getItemById(id)
+        if (!copy || copy.mediaType !== match.type || copy.tmdbId !== match.id) continue
+        metadataMapping.applyProviderFields(copy, details)
+        if (metadataChanged) copy.tmdbMetadata = details.metadata
+        allModifiedItems.push(copy)
       }
     }
 
@@ -240,7 +273,7 @@ export async function fetchAndApplyMetadata(
 
     // 4. Managed Copy (TV propagation)
     if (
-      (item.mediaType === 'tv' && item.folderSettings?.processTvChildren !== false) ||
+      (item.mediaType === 'tv' && (item.folderSettings?.processTvChildren !== false || fileChangeRefresh)) ||
       item.mediaType === 'season' ||
       options.force
     ) {
@@ -258,6 +291,7 @@ export async function fetchAndApplyMetadata(
           respectLocks: true,
           force: options.force,
           provider,
+          fileChangeRefresh
         })
         allModifiedItems.push(...modified)
       }
@@ -265,7 +299,14 @@ export async function fetchAndApplyMetadata(
 
     // 5. Finalize
     item.lastRefreshedAt = Date.now()
-    await updateIfChangedAndBroadcast(allModifiedItems)
+    const modifiedItems = [...new Map(allModifiedItems.map((changed) => [changed.id, changed])).values()]
+    await updateIfChangedAndBroadcast(modifiedItems, { settings, deferGroupingSync: options.deferGroupingSync })
+    if (fileChangeRefresh) {
+      if (!fileChangeRefresh.failed) {
+        fileChangeRefresh.completed.set(item.id, options.fileChangeRevision!)
+      }
+      metadataRepo.completeFileChangeRefresh(fileChangeRefresh.completed)
+    }
 
     return allModifiedItems
   } catch (error) {
@@ -571,7 +612,7 @@ export const fetchCredits = async (itemId: string) => {
   const match = { id: item.tmdbId, type: item.mediaType }
   const credits = await provider.credits(match)
   if (credits) {
-    const entityId = metadataRepo.saveProviderMatch(item.id, provider.name, match)
+    const { entityId } = metadataRepo.saveProviderMatch(item.id, provider.name, match)
     metadataRepo.saveProviderCredits(entityId, credits)
     await updateIfChangedAndBroadcast({ id: item.id, tmdbCredits: credits, _v: Date.now() } as LibraryItem)
   }

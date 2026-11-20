@@ -1,3 +1,5 @@
+import type { TmdbMetadata } from './metadata-fields'
+
 export const LIBRARY_ROOT_ID = 'virtual-library-root'
 
 // --- Layout-Specific Settings Definitions ---
@@ -301,6 +303,7 @@ export interface ServerSettings {
   libraryLocation: string
   serverPort?: number
   serverHost?: string
+  refetchRemoteMetadataOnFileChange?: boolean
 }
 
 /**
@@ -367,6 +370,7 @@ export interface GlobalConfig {
 export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'serverPort',
   'serverHost',
+  'refetchRemoteMetadataOnFileChange',
   'libraryLocation'
 ]
 
@@ -403,6 +407,7 @@ export interface MediaFile {
   releaseDate?: string | null
   year?: number | null
   tmdbRuntime?: number | null
+  tmdbMetadata?: TmdbMetadata | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   seasonNumber?: number | null
@@ -454,6 +459,7 @@ export interface MediaFolder {
   releaseDate?: string | null
   year?: number | null
   tmdbRuntime?: number | null
+  tmdbMetadata?: TmdbMetadata | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   seasonNumber?: number | null // For season folders
@@ -493,6 +499,7 @@ export interface BaseLibraryItem {
   releaseDate?: string | null
   year?: number | null
   tmdbRuntime?: number | null
+  tmdbMetadata?: TmdbMetadata | null
   genres?: string[] | null
   tags?: Record<string, string> | null
   virtualTags?: Record<string, string>

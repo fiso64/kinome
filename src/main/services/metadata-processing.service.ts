@@ -4,6 +4,7 @@ import fs from 'fs/promises'
 import { downloadImage } from '../utils/download'
 import * as repositoryService from './repository.service'
 import * as pathsService from './paths.service'
+import { getFileChangeRevisions } from '../database/repositories/metadata.repo'
 import { createTmdbProvider, type MetadataProvider, type ProviderDetails } from './metadata-provider'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 
@@ -30,7 +31,7 @@ export function applyProviderFields(item: LibraryItem, details: ProviderDetails)
 
 export async function applyMetadataToItem(item: LibraryItem, details: ProviderDetails): Promise<void> {
   applyProviderFields(item, details)
-  if (item.type === 'folder' && item.mediaType === 'tv') item.tmdbSeasons = details.seasons
+  if (item.type === 'folder' && item.mediaType === 'tv') item.tmdbSeasons = details.seasons ?? []
 
   for (const kind of ['poster', 'backdrop', 'logo'] as const) {
     const url = details.artwork[kind]
@@ -82,6 +83,21 @@ export async function downloadAndApplyImage(
   }
 }
 
+interface EpisodeFetchOptions {
+  respectLocks?: boolean
+  force?: boolean
+  provider?: MetadataProvider
+  getEpisodes?: (number: number) => Promise<TmdbEpisode[] | null>
+  localEpisodes?: MediaFile[]
+  onFetch?: (success: boolean) => void
+}
+
+interface FileChangeRefresh {
+  completed: Map<string, string>
+  failed: boolean
+  onlyChangedSeasons: boolean
+}
+
 /**
  * Propagates TV show metadata down to its hierarchy (Seasons and Episodes).
  */
@@ -89,12 +105,41 @@ export async function applyTvShowData(
   show: MediaFolder,
   settings: Settings,
   libraryDataPath: string,
-  options: { respectLocks?: boolean; force?: boolean; provider?: MetadataProvider } = { respectLocks: true }
+  options: EpisodeFetchOptions & { fileChangeRefresh?: FileChangeRefresh } = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   const allModifiedItems: LibraryItem[] = []
   if (!show.tmdbId || !show.tmdbSeasons) return []
 
-  const children = repositoryService.getChildren(show.id)
+  const children = repositoryService.getChildren(show.id, [...repositoryService.CORE_FIELDS, 'overview', 'lastRefreshedAt']).filter((child) => !child.isMissing)
+  const refresh = options.fileChangeRefresh
+  const revisions = refresh ? getFileChangeRevisions(children.map(({ id }) => id)) : new Map<string, string>()
+  const seasonsByNumber = new Map(show.tmdbSeasons.map((season) => [season.season_number, season]))
+  const provider = options.provider ?? createTmdbProvider(settings.tmdbApiKey!)
+  const tmdbId = show.tmdbId
+  const episodeRequests = new Map<number, Promise<TmdbEpisode[] | null>>()
+
+  const getEpisodes = (number: number) => {
+    const pending = episodeRequests.get(number)
+    if (pending) return pending
+    const request = provider.episodes(tmdbId, number).catch((error) => {
+      console.error(`[Metadata Processing] Episode fetch failed for TMDB show ${tmdbId}, season ${number}`, error)
+      return null
+    })
+    episodeRequests.set(number, request)
+    return request
+  }
+
+  const recordFetch = (ids: string[], success: boolean) => {
+    if (!refresh) return
+    if (!success) {
+      refresh.failed = true
+      return
+    }
+    for (const id of ids) {
+      const revision = revisions.get(id)
+      if (revision) refresh.completed.set(id, revision)
+    }
+  }
 
   // 1. Process Season Folders
   const seasonFolders = children.filter(
@@ -103,7 +148,9 @@ export async function applyTvShowData(
 
   for (const seasonFolder of seasonFolders) {
     let seasonChanged = false
-    const tmdbSeason = show.tmdbSeasons.find((s) => s.season_number === seasonFolder.seasonNumber)
+    const seasonIsStale = revisions.has(seasonFolder.id)
+    if (refresh?.onlyChangedSeasons && !seasonIsStale && show.folderSettings?.processTvChildren === false) continue
+    const tmdbSeason = seasonsByNumber.get(seasonFolder.seasonNumber!)
 
     if (tmdbSeason) {
       if (!options.respectLocks || !repositoryService.isFieldLocked(seasonFolder, 'title')) {
@@ -134,47 +181,53 @@ export async function applyTvShowData(
       }
     }
 
-    const modifiedInSeason = await fetchAndApplyEpisodeData(
-      seasonFolder,
-      show.tmdbId,
-      settings.tmdbApiKey!,
-      libraryDataPath,
-      show.tmdbSeasons,
-      options
-    )
-    allModifiedItems.push(...modifiedInSeason)
-    if (seasonChanged) allModifiedItems.push(seasonFolder)
-  }
-
-  // 2. Process Loose Episodes (Scenario B)
-  const looseEpisodes = children.filter(
-    (c) => c.type === 'file' && typeof (c as MediaFile).seasonNumber === 'number'
-  ) as MediaFile[]
-
-  if (looseEpisodes.length > 0) {
-    const seasonsToFetch = new Set(looseEpisodes.map((f) => f.seasonNumber as number))
-    for (const seasonNum of seasonsToFetch) {
-      const episodesInThisSeason = looseEpisodes.filter((f) => f.seasonNumber === seasonNum)
-
-      // For loose files, we create a temporary "proxy" folder to satisfy fetchAndApplyEpisodeData
-      const proxySeasonFolder: MediaFolder = {
-        ...show,
-        seasonNumber: seasonNum,
-        children: episodesInThisSeason,
-        lastRefreshedAt: null // Force it to fetch
-      }
-
+    if (!seasonFolder.isVirtual && (!refresh?.onlyChangedSeasons || seasonIsStale || !seasonFolder.lastRefreshedAt)) {
       const modifiedInSeason = await fetchAndApplyEpisodeData(
-        proxySeasonFolder,
-        show.tmdbId,
+        seasonFolder,
+        tmdbId,
         settings.tmdbApiKey!,
         libraryDataPath,
         show.tmdbSeasons,
-        options
+        {
+          ...options,
+          force: options.force || seasonIsStale,
+          getEpisodes,
+          onFetch: (success) => recordFetch([seasonFolder.id], success)
+        }
       )
-      // Filter out the proxy itself (same ID as show)
-      allModifiedItems.push(...modifiedInSeason.filter((m) => m.id !== show.id))
+      allModifiedItems.push(...modifiedInSeason)
     }
+    if (seasonChanged) allModifiedItems.push(seasonFolder)
+  }
+
+  // Group loose episodes once. Files belonging to a different season must
+  // never be compared against this season's provider episode numbers.
+  const looseBySeason = new Map<number, MediaFile[]>()
+  for (const child of children) {
+    if (child.type !== 'file' || child.mediaType !== 'episode' || child.seasonNumber == null) continue
+    let episodes = looseBySeason.get(child.seasonNumber)
+    if (!episodes) looseBySeason.set(child.seasonNumber, (episodes = []))
+    episodes.push(child)
+  }
+
+  for (const [seasonNumber, episodes] of looseBySeason) {
+    const ids = episodes.map(({ id }) => id)
+    if (refresh?.onlyChangedSeasons && !ids.some((id) => revisions.has(id))) continue
+    const proxySeason: MediaFolder = { ...show, seasonNumber, lastRefreshedAt: null }
+    const modified = await fetchAndApplyEpisodeData(
+      proxySeason,
+      tmdbId,
+      settings.tmdbApiKey!,
+      libraryDataPath,
+      show.tmdbSeasons,
+      {
+        ...options,
+        localEpisodes: episodes,
+        getEpisodes,
+        onFetch: (success) => recordFetch(ids, success)
+      }
+    )
+    allModifiedItems.push(...modified.filter((item) => item.id !== show.id))
   }
 
   return allModifiedItems
@@ -189,13 +242,14 @@ export async function fetchAndApplyEpisodeData(
   tmdbApiKey: string,
   libraryDataPath: string,
   tmdbSeasons: TmdbSeason[] | undefined,
-  options: { respectLocks?: boolean; force?: boolean; provider?: MetadataProvider } = { respectLocks: true }
+  options: EpisodeFetchOptions = { respectLocks: true }
 ): Promise<LibraryItem[]> {
   const seasonNumber = seasonFolder.seasonNumber
-  if (seasonNumber === null || typeof seasonNumber === 'undefined') return []
+  if (seasonNumber == null) return []
 
   // Guard: Does this season even exist in TMDB?
   if (tmdbSeasons && !tmdbSeasons.some((s) => s.season_number === seasonNumber)) {
+    options.onFetch?.(true)
     return []
   }
 
@@ -204,14 +258,16 @@ export async function fetchAndApplyEpisodeData(
 
   // Fetch if not cached or forced
   if (!tmdbEpisodes || options.force) {
-    const provider = options.provider ?? createTmdbProvider(tmdbApiKey)
-    const episodes = await provider.episodes(showTmdbId, seasonNumber)
+    const episodes = options.getEpisodes
+      ? await options.getEpisodes(seasonNumber)
+      : await (options.provider ?? createTmdbProvider(tmdbApiKey)).episodes(showTmdbId, seasonNumber)
+    options.onFetch?.(episodes !== null)
     if (episodes) {
       tmdbEpisodes = episodes
       const alreadyFetched = !!seasonFolder.lastRefreshedAt
 
       seasonFolder.tmdbEpisodes = tmdbEpisodes
-      if (!alreadyFetched) {
+      if (!alreadyFetched || options.force) {
         seasonFolder.lastRefreshedAt = Date.now()
         modifiedItems.push(seasonFolder)
       }
@@ -222,10 +278,10 @@ export async function fetchAndApplyEpisodeData(
 
   // Always fetch with overview included — callers may pass children with only
   // CORE_FIELDS, which excludes overview. We need it for change detection.
-  const children = repositoryService.getChildren(
+  const localEpisodes = options.localEpisodes ?? repositoryService.getChildren(
     seasonFolder.id, [...repositoryService.CORE_FIELDS, 'overview']
-  )
-  const localEpisodes = children.filter((c) => c.type === 'file') as MediaFile[]
+  ).filter((item): item is MediaFile => item.type === 'file' && !item.isMissing)
+  const episodesByNumber = new Map(tmdbEpisodes.map((episode) => [episode.episode_number, episode]))
 
   for (const localEpisode of localEpisodes) {
     if (
@@ -233,8 +289,8 @@ export async function fetchAndApplyEpisodeData(
       localEpisode.mediaType !== 'episode' &&
       repositoryService.isFieldLocked(localEpisode, 'mediaType')
     ) continue
-    if (typeof localEpisode.episodeNumber === 'undefined') continue
-    const tmdbEpisode = tmdbEpisodes.find((e) => e.episode_number === localEpisode.episodeNumber)
+    if (localEpisode.episodeNumber == null) continue
+    const tmdbEpisode = episodesByNumber.get(localEpisode.episodeNumber)
 
     // Snapshot fields before mutation to detect real changes
     const before = {

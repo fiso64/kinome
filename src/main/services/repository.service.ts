@@ -191,11 +191,10 @@ export function getChildrenForDetailView(parentId: string, fields?: string[]): L
 
 function buildItemIdScope(itemIds?: string[]): { sql: string; params: string[] } | null {
   if (!itemIds) return { sql: '', params: [] }
-  const uniqueIds = [...new Set(itemIds)]
-  if (uniqueIds.length === 0) return null
+  if (itemIds.length === 0) return null
   return {
-    sql: ` AND i.id IN (${uniqueIds.map(() => '?').join(', ')})`,
-    params: uniqueIds
+    sql: ' AND i.id IN (SELECT value FROM json_each(?))',
+    params: [JSON.stringify(itemIds)]
   }
 }
 
@@ -227,38 +226,46 @@ export function getTvShowsForStructuralSync(itemIds?: string[]): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-export function getDiscoveryItemsForPhase2(itemIds?: string[]): LibraryItem[] {
+type EnrichmentItem = { item: LibraryItem; fileChangeRevision?: string; needsTmdbBackfill: boolean }
+
+export function getDiscoveryItemsForPhase2(itemIds?: string[]): EnrichmentItem[] {
   const scope = buildItemIdScope(itemIds)
   if (!scope) return []
 
   const db = getDb()
-  // SPEC(scan_architecture.md §Phase 2, line 187-195):
-  //   dirty_roots = items WHERE
-  //     (mediaType IN ('movie', 'tv', NULL) AND lastRefreshedAt IS NULL)
-  //     AND (parent.retrieve_children_metadata == TRUE)
-  //
-  //   Both conditions are ANDed: must be dirty AND have a gated parent.
+  // Identification is gated by the parent. A matched title can also be
+  // refreshed after a file edit or backfilled with supplemental provider facts.
+  const needsTmdbBackfill = `e.tmdb_id > 0 AND e.media_type IN ('movie', 'tv')
+    AND e.tmdb_display_json IS NULL AND e.last_refreshed_at IS NOT NULL`
   const rows = db
     .prepare(
       `
-    SELECT i.*, ${ENTITY_COLUMNS_SQL},
+    SELECT i.*, ${ENTITY_COLUMNS_SQL}, e.file_change_revision,
+           (${needsTmdbBackfill}) AS needs_tmdb_backfill,
            f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
     LEFT JOIN folder_settings f ON i.id = f.item_id
     LEFT JOIN folder_settings pf ON i.parent_id = pf.item_id
     WHERE (e.media_type IN ('movie', 'tv') OR e.media_type IS NULL)
-      AND e.last_refreshed_at IS NULL
       AND i.is_missing = 0
       AND i.is_ignored = 0
       AND i.is_hidden = 0
-      AND pf.retrieve_children_metadata = 1
+      AND (
+        (e.last_refreshed_at IS NULL AND pf.retrieve_children_metadata = 1)
+        OR (e.file_change_revision IS NOT NULL AND e.tmdb_id > 0)
+        ${itemIds ? '' : `OR (${needsTmdbBackfill})`}
+      )
       ${scope.sql}
   `
     )
     .all(...scope.params) as any[]
 
-  return rows.map(mapRowToLibraryItem)
+  return rows.map((row) => ({
+    item: mapRowToLibraryItem(row),
+    fileChangeRevision: row.file_change_revision ?? undefined,
+    needsTmdbBackfill: Boolean(row.needs_tmdb_backfill)
+  }))
 }
 
 export function getAllDescendantsAsList(node: MediaFolder): LibraryItem[] {

@@ -10,6 +10,7 @@ export const DETAIL_HEADER_FIELDS = [
   'backdropPath',
   'logoPath',
   'tmdbRuntime',
+  'tmdbMetadata',
   'releaseDate',
   'genres',
   'tags'

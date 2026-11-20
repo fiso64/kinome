@@ -3,11 +3,11 @@ export async function processInChunks<T>(
   concurrencyLimit: number,
   task: (item: T) => Promise<void>
 ): Promise<void> {
-  const queue = [...items]
+  let nextIndex = 0
   const active: Promise<void>[] = []
-  while (queue.length > 0 || active.length > 0) {
-    while (active.length < concurrencyLimit && queue.length > 0) {
-      const item = queue.shift()!
+  while (nextIndex < items.length || active.length > 0) {
+    while (active.length < concurrencyLimit && nextIndex < items.length) {
+      const item = items[nextIndex++]
       const promise = task(item).finally(() => {
         const index = active.indexOf(promise)
         if (index !== -1) active.splice(index, 1)

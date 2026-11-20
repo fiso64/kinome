@@ -1,6 +1,6 @@
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
-import { EFFECTIVE_METADATA_VIEW_SQL, ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL } from './item-metadata.sql'
+import { EFFECTIVE_METADATA_VIEW_SQL, ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, TMDB_COLUMNS, TMDB_RELATIONS_SQL } from './item-metadata.sql'
 import { ACCOUNT_EXCLUDED_LOCATIONS_SQL, MEDIA_ITEMS_READ_MODEL_SQL, SOURCE_PRIORITIES_SQL } from './media-read-model.sql'
 
 export const SCHEMA_SQL = `
@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS media_entities (
     provider TEXT,
     provider_id TEXT,
     fetched_at INTEGER,
+    ${TMDB_COLUMNS.map(([column, type]) => `${column} ${type}`).join(',\n    ')},
     tmdb_id INTEGER,
     media_type TEXT, -- 'movie', 'tv', 'season', 'episode'
     title TEXT,
@@ -258,7 +259,8 @@ CREATE TABLE IF NOT EXISTS folder_settings (
     FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-${EFFECTIVE_METADATA_VIEW_SQL}
+${TMDB_RELATIONS_SQL}
+${EFFECTIVE_METADATA_VIEW_SQL(true)}
 
 -- FTS5 index keyed by durable media_items.id.
 CREATE VIRTUAL TABLE IF NOT EXISTS media_items_fts USING fts5(

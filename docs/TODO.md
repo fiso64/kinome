@@ -1,13 +1,3 @@
-
-More retriever metadata. Fetch many more important TMDB fields like whether the show is airing, PG rating (if that's a thing), ratings, links, studios and other production info, etc, etc.
-Add them as new fields to virtual tag/virtual folder configurations and search bar, where reasonable.
-
----
-
-New global setting: Refetch remote metadata on file change. On rescan, if playable files are updated, mark as stale the closest tv show or movie type parent (including intermediate season types if any) for the metadata fetch phase, resulting in a refetch. Useful for airing tv shows. On by default.
-
----
-
 More local metadata. Use ffmpeg to extract lots of data from all playable files in the library such as the duration, encoder, audio, resolution, subtitle and audio tracks (and their properties), etc, etc.
 Add useful ones as new fields to vtag/vfolder configurations and the search bar.
 

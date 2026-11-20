@@ -87,18 +87,17 @@
   })
 
   const isHeaderLoading = $derived(itemQuery.status === 'pending')
+  const releaseFacts = $derived([
+    item.year,
+    item.mediaType === 'movie' ? formatRuntime(item.tmdbRuntime) : '',
+    item.tmdbMetadata?.productionCountries?.join(', ')
+  ].filter(Boolean))
 
   function formatRuntime(minutes: number | null | undefined): string {
     if (!minutes || minutes <= 0) return ''
     const hours = Math.floor(minutes / 60)
     const remainingMinutes = minutes % 60
     return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`
-  }
-
-  function getDisplayRuntime(item: LibraryItem): number | null | undefined {
-    // Temporary: this is TMDB runtime. Once ffmpeg metadata extraction exists,
-    // prefer true local runtime for display while continuing to store TMDB runtime.
-    return item.tmdbRuntime
   }
 
   // 1. Reset states ONLY if the path actually changed
@@ -409,14 +408,21 @@
                 {:else}
                   <h1>{displayTitle}</h1>
                 {/if}
-                <div class="meta">
-                  {#if item.year}
-                    <span class="year">{item.year}</span>
+                <div class="media-meta">
+                  {#if releaseFacts.length}
+                    <div class="release-facts">
+                      {#each releaseFacts as fact, index}
+                        {#if index > 0}
+                          <span class="fact-separator" aria-hidden="true"></span>
+                        {/if}
+                        <span class="release-fact">{fact}</span>
+                      {/each}
+                    </div>
                   {/if}
-                  {#if item.mediaType === 'movie' && getDisplayRuntime(item)}
-                    <span class="runtime">• {formatRuntime(getDisplayRuntime(item))}</span>
+                  {#if item.mediaType === 'tv' && item.tmdbMetadata?.nextAirDate}
+                    <p class="next-air-date">Next episode <time datetime={item.tmdbMetadata.nextAirDate}>{item.tmdbMetadata.nextAirDate}</time></p>
                   {/if}
-                  {#if item.genres && item.genres.length > 0}
+                  {#if item.genres?.length}
                     <div class="genres">
                       {#each item.genres as genre}
                         <button class="genre-tag" onclick={() => onSearchByTag('genre', genre)}>
@@ -856,22 +862,48 @@
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
   }
 
-  .meta,
-  .genres {
+  .media-meta {
     display: flex;
     align-items: center;
-    gap: 1rem;
     flex-wrap: wrap;
-  }
-  .genres {
-    gap: 0.5rem;
+    gap: 0.5rem 1rem;
   }
 
-  .year,
-  .runtime {
+  .release-facts {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
     font-size: 1.2rem;
+    line-height: 1.45;
+    color: var(--color-text-soft);
+  }
+
+  .release-fact {
     font-weight: 600;
-    color: var(--ev-c-text-2);
+  }
+
+  .release-fact:not(:last-child) {
+    white-space: nowrap;
+  }
+
+  .fact-separator {
+    flex: none;
+    width: 0.22em;
+    height: 0.22em;
+    border-radius: 50%;
+    background: var(--color-text-soft);
+  }
+
+  .next-air-date {
+    font-size: 0.9rem;
+    color: var(--color-text-soft);
+  }
+
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .genre-tag {

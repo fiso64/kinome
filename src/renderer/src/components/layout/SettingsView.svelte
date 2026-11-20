@@ -59,6 +59,7 @@
   let libraryDataLocation = $state('')
   let mediaSources = $state<MediaSource[]>([])
   let shadowSources = $state(false)
+  let refetchRemoteMetadataOnFileChange = $state(true)
   let shadowMinDepth = $state(1)
   let serverPort = $state(3000)
   let serverHost = $state('::')
@@ -120,6 +121,7 @@
         ? JSON.parse(JSON.stringify(s.mediaSources))
         : [{ id: crypto.randomUUID(), path: '', isRelative: false }]
       shadowSources = s.shadowSources ?? false
+      refetchRemoteMetadataOnFileChange = s.refetchRemoteMetadataOnFileChange ?? true
       shadowMinDepth = s.shadowMinDepth ?? 1
       serverPort = s.serverPort ?? 3000
       serverHost = s.serverHost ?? '::'
@@ -200,6 +202,7 @@
         libraryLocation: libraryDataLocation,
         mediaSources,
         shadowSources,
+        refetchRemoteMetadataOnFileChange,
         shadowMinDepth,
         serverPort,
         serverHost,
@@ -416,6 +419,13 @@
               />
             </div>
             <div class="form-section">
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" bind:checked={refetchRemoteMetadataOnFileChange} />
+                  Refetch remote metadata on file change
+                </label>
+                <p class="help-text">Refresh TMDB metadata for the affected movie, show, and season on rescan.</p>
+              </div>
               <h3>Folder Settings</h3>
               <p class="help-text">Configure metadata retrieval for each folder in your library.</p>
               <LibraryTreeBrowser />

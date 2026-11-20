@@ -4,7 +4,8 @@
  */
 import { EFFECTIVE_METADATA } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
-import { ITEM_READ_MODEL } from '../query-builder'
+import { getTmdbSearchField } from '@shared/metadata-fields'
+import { compileConditionToSql, ITEM_READ_MODEL } from '../query-builder'
 import { withAccountLocations } from '../media-read-model.sql'
 
 const FTS_TABLE = 'media_items_fts'
@@ -87,7 +88,12 @@ function appendTagFilters(
         const pKey = `@tagVal${idx}`
         const tagValue = tag.value.toLowerCase()
 
-        if (tag.key === 'mediaType') {
+        const tmdbField = getTmdbSearchField(tag.key)
+        if (tmdbField) {
+            const condition = compileConditionToSql(tmdbField, 'eq', tag.value)
+            sql += ` AND ${condition.sql.replace('?', pKey)}`
+            if (condition.params.length) params[pKey] = condition.params[0]
+        } else if (tag.key === 'mediaType') {
             sql += ` AND e.media_type = ${pKey}`
             params[pKey] = tagValue
         } else if (tag.key === 'year') {

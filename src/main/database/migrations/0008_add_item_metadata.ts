@@ -27,7 +27,7 @@ export const migration: Migration = {
       DROP TRIGGER IF EXISTS media_items_fts_entities_au;
       DROP TRIGGER IF EXISTS media_items_fts_entities_ad;
     `)
-    db.exec(EFFECTIVE_METADATA_VIEW_SQL)
+    db.exec(EFFECTIVE_METADATA_VIEW_SQL())
     db.exec(ITEM_METADATA_TRIGGER_SQL)
   }
 }

@@ -1,6 +1,48 @@
-import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
+import { ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_FIELDS, type TmdbFilterField } from '@shared/metadata-fields'
 
 export const EFFECTIVE_METADATA = 'media_item_metadata_read'
+
+export const TMDB_SCALAR_FIELDS = (Object.keys(TMDB_FILTER_FIELDS) as TmdbFilterField[])
+  .filter((field) => TMDB_FILTER_FIELDS[field].kind !== 'list')
+export const TMDB_LIST_FIELDS = (Object.keys(TMDB_FILTER_FIELDS) as TmdbFilterField[])
+  .filter((field) => TMDB_FILTER_FIELDS[field].kind === 'list')
+
+export function tmdbColumn(field: TmdbFilterField): string {
+  return `tmdb_${field.replace(/^tmdb/, '').replace(/^./, (letter) => letter.toLowerCase()).replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}`
+}
+
+export const TMDB_COLUMNS = [
+  ['tmdb_display_json', 'TEXT'],
+  ...TMDB_SCALAR_FIELDS.map((field) => [
+    tmdbColumn(field),
+    TMDB_FILTER_FIELDS[field].kind === 'number' ? (field === 'tmdbRating' ? 'REAL' : 'INTEGER') : 'TEXT COLLATE NOCASE'
+  ])
+]
+
+export const TMDB_RELATIONS_SQL = `
+CREATE TABLE IF NOT EXISTS tmdb_entity_values (
+    entity_id TEXT NOT NULL REFERENCES media_entities(id) ON DELETE CASCADE,
+    field TEXT NOT NULL,
+    value TEXT COLLATE NOCASE NOT NULL,
+    PRIMARY KEY (entity_id, field, value)
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_tmdb_entity_values_value
+    ON tmdb_entity_values(field, value, entity_id);
+`
+
+// Project the provider object only when an item detail query requests it.
+const tmdbProjection = `
+    CASE WHEN e.tmdb_display_json IS NOT NULL THEN
+      json_patch(e.tmdb_display_json, json_object(
+        ${TMDB_SCALAR_FIELDS.map((field) => `'${field}', e.${tmdbColumn(field)}`).join(',\n        ')},
+        ${TMDB_LIST_FIELDS.map((field) => `'${field}', (
+          SELECT json_group_array(value)
+          FROM tmdb_entity_values
+          WHERE entity_id = e.id AND field = '${field}'
+        )`).join(',\n        ')}
+      ))
+    END AS tmdb_metadata_json`
 
 export const ITEM_METADATA_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS media_item_metadata (
@@ -21,7 +63,8 @@ CREATE TABLE IF NOT EXISTS media_item_metadata (
     locked_fields_json TEXT,
     last_refreshed_at INTEGER,
     version INTEGER DEFAULT 0,
-    genres_json TEXT
+    genres_json TEXT,
+    file_change_revision TEXT
 );
 `
  
@@ -34,11 +77,14 @@ const fields = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => {
 
 // Keep one row per item so readers can use an inner join. SQLite can then
 // apply their item predicates before looking up item metadata and provider facts.
-export const EFFECTIVE_METADATA_VIEW_SQL = `
+export const EFFECTIVE_METADATA_VIEW_SQL = (includeTmdbMetadata = false) => `
 CREATE VIEW IF NOT EXISTS ${EFFECTIVE_METADATA} AS
 SELECT i.id AS item_id,
        CASE WHEN e.id IS NOT NULL OR m.item_id IS NOT NULL THEN i.id END AS metadata_item_id,
-       e.id, e.parent_entity_id,
+       e.id, e.parent_entity_id,${includeTmdbMetadata ? `
+       e.tmdb_display_json,
+       ${tmdbProjection},
+       m.file_change_revision,` : ''}
        ${fields.join(',\n       ')},
        COALESCE(m.genres_json, (
            SELECT json_group_array(g.name)

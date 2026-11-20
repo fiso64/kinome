@@ -1,8 +1,11 @@
+import { getTmdbSearchField, hasTmdbValueSuggestions } from '@shared/metadata-fields'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
 import * as settingsService from './settings.service'
 import type { AutocompleteSuggestions } from '@shared/types'
 import * as repositoryService from './repository.service'
+import { getCurrentAccountId } from '../request-context'
+import { ensureUpToDate } from './account-filter.service'
 
 const fuzzyFilterAndSort = (items: string[], query: string, limit: number): string[] => {
   const lowerQuery = query.toLowerCase().trim()
@@ -34,6 +37,14 @@ export const getAutocompleteValues = async (
   // Specialized high-performance path for persons
   if (key === 'person') {
     return searchPersons(query, limit)
+  }
+
+  const tmdbField = getTmdbSearchField(key)
+  if (tmdbField) {
+    if (!hasTmdbValueSuggestions(tmdbField)) return []
+    const accountId = getCurrentAccountId()
+    if (accountId) ensureUpToDate(accountId)
+    return metadataRepo.suggestTmdbValues(tmdbField, query.trim(), limit, accountId)
   }
 
   let values: string[] = []

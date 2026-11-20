@@ -2,10 +2,11 @@
  * METADATA REPOSITORY (Logical Content Metadata)
  * Owns effective item metadata, provider credits, tags and virtual tags.
  */
-import { EFFECTIVE_METADATA } from '../item-metadata.sql'
+import { EFFECTIVE_METADATA, TMDB_LIST_FIELDS, TMDB_SCALAR_FIELDS, tmdbColumn } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
-import { compileFilter, buildWhereFragment } from '../query-builder'
-import { ENTITY_SCALAR_METADATA_FIELDS } from '@shared/metadata-fields'
+import { withAccountLocations } from '../media-read-model.sql'
+import { compileFilter, buildWhereFragment, ITEM_READ_MODEL } from '../query-builder'
+import { ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_FIELDS, type TmdbFilterField, type TmdbMetadata } from '@shared/metadata-fields'
 import type { LibraryItem, VirtualTagConfig } from '@shared/types'
 import type { ProviderDetails, ProviderMatch } from '../../services/metadata-provider'
 
@@ -58,13 +59,61 @@ function ensureItemMetadata(itemId: string): void {
     db.prepare('INSERT OR IGNORE INTO media_item_metadata (item_id) VALUES (?)').run(itemId)
 }
 
+/** Mark known titles and the seasons on their changed files' paths in one transaction. */
+export function markMetadataStaleForFiles(fileIds: string[]): string[] {
+    if (!fileIds.length) return []
+    const columns = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => column).join(', ')
+    const rows = getDb().query(`
+        WITH RECURSIVE ancestors(id, parent_id, kind) AS (
+            SELECT i.id, i.parent_item_id, i.media_kind
+            FROM json_each(?) files JOIN media_items i ON i.id = files.value
+            UNION
+            SELECT parent.id, parent.parent_item_id, parent.media_kind
+            FROM ancestors child JOIN media_items parent ON parent.id = child.parent_id
+            WHERE child.kind IS NULL OR child.kind NOT IN ('movie', 'tv')
+        )
+        INSERT INTO media_item_metadata (item_id, ${columns}, genres_json, file_change_revision)
+        SELECT m.item_id, ${ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => `m.${column}`).join(', ')}, m.genres_json, lower(hex(randomblob(16)))
+        FROM ancestors a JOIN ${EFFECTIVE_METADATA} m ON m.item_id = a.id
+        WHERE a.kind = 'season'
+           OR (a.kind IN ('movie', 'tv') AND m.tmdb_id > 0)
+           OR (a.kind = 'episode' AND EXISTS (
+               SELECT 1 FROM media_items parent WHERE parent.id = a.parent_id AND parent.media_kind = 'tv'
+           ))
+        ON CONFLICT(item_id) DO UPDATE SET file_change_revision = excluded.file_change_revision
+        RETURNING item_id
+    `).all(JSON.stringify(fileIds)) as { item_id: string }[]
+    return rows.map(({ item_id }) => item_id)
+}
+
+export function getFileChangeRevisions(ids: string[]): Map<string, string> {
+    if (!ids.length) return new Map()
+    const rows = getDb().query(`
+        SELECT m.item_id, m.file_change_revision
+        FROM json_each(?) ids JOIN media_item_metadata m ON m.item_id = ids.value
+        WHERE m.file_change_revision IS NOT NULL
+    `).all(JSON.stringify(ids)) as { item_id: string; file_change_revision: string }[]
+    return new Map(rows.map(({ item_id, file_change_revision }) => [item_id, file_change_revision]))
+}
+
+export function completeFileChangeRefresh(revisions: Map<string, string>): void {
+    if (!revisions.size) return
+    getDb().query(`
+        WITH refreshed AS MATERIALIZED (SELECT key, value FROM json_each(?))
+        UPDATE media_item_metadata SET file_change_revision = NULL
+        WHERE item_id IN (SELECT key FROM refreshed)
+          AND file_change_revision = (SELECT value FROM refreshed WHERE key = item_id)
+    `).run(JSON.stringify(Object.fromEntries(revisions)))
+}
+
 /** Links a materialized item to the shared provider identity and optionally refreshes its facts. */
 export function saveProviderMatch(
     itemId: string,
     provider: string,
     match: ProviderMatch,
     details?: ProviderDetails | null,
-): string {
+    options: { supplementalOnly?: boolean } = {},
+): { entityId: string; metadataChanged: boolean } {
     return runTransaction(() => {
         const db = getDb()
         ensureItemMetadata(itemId)
@@ -79,7 +128,7 @@ export function saveProviderMatch(
                 VALUES (?, ?, ?, ?, ?)
             `).run(entityId, ...identity, provider === 'tmdb' ? match.id : null)
         }
-        if (details) {
+        if (details && !options.supplementalOnly) {
             db.prepare(`
                 UPDATE media_entities SET title = ?, original_title = ?, overview = ?,
                     release_date = ?, year = ?, tmdb_runtime = ?, fetched_at = ?,
@@ -92,10 +141,53 @@ export function saveProviderMatch(
             )
             upsertProviderGenres(entityId, details.genres)
         }
+        const metadataChanged = details?.metadata ? saveTmdbMetadata(entityId, details.metadata) : false
         db.prepare('UPDATE media_items SET entity_id = ? WHERE id = ? AND entity_id IS NOT ?')
             .run(entityId, itemId, entityId)
-        return entityId
+        return { entityId, metadataChanged }
     })
+}
+
+function saveTmdbMetadata(entityId: string, metadata: TmdbMetadata): boolean {
+    const db = getDb()
+    const display = { ...metadata }
+    for (const field of [...TMDB_SCALAR_FIELDS, ...TMDB_LIST_FIELDS]) delete display[field]
+
+    const columns = ['tmdb_display_json', ...TMDB_SCALAR_FIELDS.map(tmdbColumn)]
+    const values = [JSON.stringify(display), ...TMDB_SCALAR_FIELDS.map((field) => {
+        const value = metadata[field]
+        return typeof value === 'string' || typeof value === 'number' ? value : null
+    })]
+    const scalarChanges = db.query(`
+        UPDATE media_entities
+        SET ${columns.map((column, index) => `${column} = ?${index + 1}`).join(', ')}
+        WHERE id = ?${columns.length + 1}
+          AND (${columns.map((column, index) => `${column} COLLATE BINARY IS NOT ?${index + 1}`).join(' OR ')})
+    `).run(...values, entityId).changes
+
+    const lists = JSON.stringify(Object.fromEntries(TMDB_LIST_FIELDS.map((field) => [field, metadata[field] ?? []])))
+    const incoming = `SELECT lists.key AS field, entries.value
+        FROM json_each($lists) lists JOIN json_each(lists.value) entries`
+    const removed = db.query(`
+        WITH incoming AS MATERIALIZED (${incoming})
+        DELETE FROM tmdb_entity_values AS old
+        WHERE old.entity_id = $entityId
+          AND NOT EXISTS (
+            SELECT 1 FROM incoming WHERE field = old.field AND value = old.value COLLATE BINARY
+          )
+    `).run({ $entityId: entityId, $lists: lists }).changes
+    const inserted = db.query(`
+        INSERT OR IGNORE INTO tmdb_entity_values (entity_id, field, value)
+        SELECT $entityId, field, value FROM (${incoming})
+    `).run({ $entityId: entityId, $lists: lists }).changes
+    return scalarChanges + removed + inserted > 0
+}
+
+export function hasSupplementalTmdbMetadata(itemId: string): boolean {
+    return !!getDb().query(`
+        SELECT 1 FROM media_items i JOIN media_entities e ON e.id = i.entity_id
+        WHERE i.id = ? AND e.tmdb_display_json IS NOT NULL
+    `).get(itemId)
 }
 
 export function findOtherItemsForEntity(entityId: string, itemId: string): string[] {
@@ -197,7 +289,7 @@ export function bulkClearItemMetadata(itemIds: string[]): void {
         db.prepare(`
             UPDATE media_item_metadata SET
               ${ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => `${column} = NULL`).join(', ')},
-              genres_json = '[]'
+              genres_json = '[]', file_change_revision = NULL
             WHERE item_id IN (${placeholders})
         `).run(...itemIds)
         db.prepare(`UPDATE media_items SET entity_id = NULL WHERE id IN (${placeholders})`).run(...itemIds)
@@ -234,6 +326,37 @@ export function getDistinctMetadataValues(column: 'media_type' | 'year'): string
         )
     `).all() as { value: string | number }[]
     return rows.map(({ value }) => String(value))
+}
+
+export function suggestTmdbValues(field: TmdbFilterField, query: string, limit: number, accountId?: string): string[] {
+    const isList = TMDB_FILTER_FIELDS[field].kind === 'list'
+    const column = isList ? 'e.value' : `e.${tmdbColumn(field)}`
+    const entities = isList ? 'tmdb_entity_values e' : 'media_entities e'
+    const id = isList ? 'e.entity_id' : 'e.id'
+    const visibility = accountId ? `
+        AND (NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = $accountId)
+          OR EXISTS (
+              SELECT 1 FROM account_visible_items WHERE account_id = $accountId AND item_id = i.id
+          ))
+    ` : ''
+    const sql = `
+        SELECT DISTINCT ${column} AS suggestion
+        FROM ${entities}
+        WHERE ${isList ? `e.field = '${field}' AND ` : ''}${column} IS NOT NULL
+          AND instr(lower(${column}), lower($query)) > 0
+          AND EXISTS (
+              SELECT 1 FROM ${ITEM_READ_MODEL} i
+              WHERE i.entity_id = ${id} AND i.is_hidden = 0 AND i.is_ignored = 0
+              ${visibility}
+          )
+        ORDER BY instr(lower(${column}), lower($query)), suggestion COLLATE NOCASE
+        LIMIT $limit
+    `
+    const params = { $query: query, $limit: Number.isSafeInteger(limit) && limit >= 0 ? limit : 20 }
+    const rows = (accountId
+        ? getDb().query(withAccountLocations(sql, '$accountId')).all({ ...params, $accountId: accountId })
+        : getDb().query(sql).all(params)) as { suggestion: string }[]
+    return rows.map(({ suggestion }) => suggestion)
 }
 
 export function getDistinctGenreNames(): string[] {

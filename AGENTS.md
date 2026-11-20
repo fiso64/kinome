@@ -4,9 +4,6 @@ Kinome is a self-hosted media server and manager. The operator and configured
 media roots are trusted.
 
 - Code is a liability. Follow KISS and DRY principles.
-- Consider new features across the server API, Web UI, and local player handler
-  where relevant. Keep library, access, and playback rules in one owner, and reuse
-  shared types and contracts across the server and Web UI.
 - Handle valid work on a best-effort basis. Do not reject it because of estimated
   memory, aggregate size, queue depth, or other internal implementation limits.
   Bound resource use where there is a clear need. For example, batch database
@@ -30,16 +27,20 @@ media roots are trusted.
   Svelte components for common controls. Keep feature styles focused on layout
   and domain states. Keep markup, behavior, and responsive layout common across
   themes, with theme differences limited to visual styling.
+- After making changes, redeploy the local testing instance with
+  `bun run dev:test` and verify it at `http://localhost:3000`.
 - For high-volume SQLite writes, assess database round trips and write
   amplification as well as latency. Prefer set-based operations or prepared,
   batched writes when they preserve ordering, replay, and per-entry failure
-  behavior.
+  behavior. Mostly avoid json in SQL, especially in cases where those fields are
+  used in virtual tags, searching, and filtering, as these must remain highly
+  performant even on large libraries.
 - Check the performance impact of most feature additions before considering them
   complete. Review how the implementation scales with realistic library sizes and
-  repeated use. Look for repeated queries, full scans, unnecessary rendering, and
-  redundant work. Static analysis is sufficient when the impact is clear. Run a
-  focused benchmark when it is unclear. Fix avoidable costs in the same change
-  so they do not accumulate as the app grows.
+  repeated use. Look for repeated queries, full scans, unnecessary rendering, 
+  extra overhead on requests, and redundant work. Static analysis is sufficient
+  when the impact is clear. Run a focused benchmark when it is unclear. Fix
+  avoidable costs in the same change so they do not accumulate as the app grows.
 - Make server-owned work observable. Log coarse lifecycle and health transitions
   for scans and other background operations at their owner. Include a stable
   operation ID, outcome, duration, and safe, bounded counts where applicable.

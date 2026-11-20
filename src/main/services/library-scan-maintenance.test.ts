@@ -6,6 +6,10 @@ import { createServiceTestContext, type ServiceTestContext } from '../database/t
 import { runFullLibraryScan } from './library.service'
 import * as filesystemService from './filesystem.service'
 import * as metadataService from './metadata.service'
+import * as settingsService from './settings.service'
+import * as retriever from './retriever.service'
+import { getFileChangeRevisions, saveProviderMatch, upsertMetadata } from '../database/repositories/metadata.repo'
+import { find as findItems, getItemById } from './repository.service'
 
 let ctx: ServiceTestContext
 
@@ -70,6 +74,148 @@ describe('full-library scan maintenance orchestration', () => {
     } finally {
       enrichment.mockRestore()
       await fs.rm(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('refreshes changed files’ nearest titles and only the affected season, with retry and opt-out', async () => {
+    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-refresh-on-edit-'))
+    const source = { id: 'source', path: fixture, isRelative: false }
+    const scan = (refetchRemoteMetadataOnFileChange?: boolean) => runFullLibraryScan({
+      sources: [source], sourcePaths: new Map([[source.id, fixture]]), refetchRemoteMetadataOnFileChange
+    })
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const settings = await settingsService.readSettings()
+    const readSettings = spyOn(settingsService, 'readSettings').mockResolvedValue({ ...settings, tmdbApiKey: '' })
+    const getDetails = spyOn(retriever, 'getDetails').mockImplementation(async (id, type) => type === 'tv' ? {
+      id, name: 'Orbit', status: 'Returning Series', next_episode_to_air: { air_date: '2030-01-02' },
+      seasons: [1, 2].map((season_number) => ({ season_number, name: `Season ${season_number}`, overview: '' }))
+    } : { id, title: 'Feature Refreshed', status: 'Released' })
+    const getCredits = spyOn(retriever, 'getCredits').mockResolvedValue(null)
+    const getSeason = spyOn(retriever, 'getSeasonDetails').mockImplementation(async (_id, season) => ({
+      episodes: [{ episode_number: 1, name: `Episode ${season}`, overview: '' }]
+    }))
+
+    try {
+      const episode1 = 'Orbit/Season 01/Orbit.S01E01.mkv'
+      const episode2 = 'Orbit/Season 02/Orbit.S02E01.mkv'
+      const feature = 'Feature.mkv'
+      for (const file of [episode1, episode2, feature]) {
+        const filePath = path.join(fixture, file)
+        await fs.mkdir(path.dirname(filePath), { recursive: true })
+        await fs.writeFile(filePath, 'before')
+      }
+      await scan()
+      const idFor = (file: string) => itemIdForSourcePath(source.id, file)!
+      const show = idFor('Orbit')
+      const movie = idFor(feature)
+      const season1 = idFor('Orbit/Season 01')
+      const season2 = idFor('Orbit/Season 02')
+      const providerFacts = {
+        title: 'Fixture', originalTitle: null, overview: null, releaseDate: null,
+        year: null, runtime: null, genres: [], artwork: {}, metadata: {}
+      }
+      saveProviderMatch(show, 'tmdb', { id: 101, type: 'tv' }, providerFacts)
+      saveProviderMatch(movie, 'tmdb', { id: 102, type: 'movie' }, providerFacts)
+      upsertMetadata(show, { tmdbId: 101, mediaType: 'tv', lastRefreshedAt: 1 })
+      upsertMetadata(movie, { tmdbId: 102, mediaType: 'movie', lastRefreshedAt: 1 })
+      for (const [number, folder, file] of [[1, season1, episode1], [2, season2, episode2]] as const) {
+        upsertMetadata(folder, { mediaType: 'season', seasonNumber: number, lastRefreshedAt: 1 })
+        upsertMetadata(idFor(file), { mediaType: 'episode', seasonNumber: number, episodeNumber: 1 })
+      }
+
+      readSettings.mockResolvedValue({ ...settings, tmdbApiKey: 'fixture-key' })
+      await scan()
+      expect(getDetails).toHaveBeenCalledTimes(0)
+
+      await fs.appendFile(path.join(fixture, episode1), 'change')
+      await fs.utimes(path.join(fixture, feature), 1_800_000_000, 1_800_000_000)
+      getSeason.mockResolvedValueOnce(null)
+      await scan()
+      expect(getDetails.mock.calls.map(([id]) => id).sort()).toEqual([101, 102])
+      expect(getDetails.mock.calls.find(([id]) => id === 101)?.[3]).toContain('content_ratings')
+      expect(findItems({ where: { id: show }, fields: ['tmdbMetadata'] })[0].tmdbMetadata).toMatchObject({
+        status: 'Returning Series',
+        nextAirDate: '2030-01-02'
+      })
+      expect(getSeason.mock.calls.map(([, season]) => season)).toEqual([1])
+      expect(getItemById(movie)?.title).toBe('Feature Refreshed')
+      expect([...getFileChangeRevisions([show, season1, season2, movie]).keys()].sort())
+        .toEqual([season1, show].sort())
+
+      getDetails.mockClear()
+      getSeason.mockClear()
+      await scan()
+      expect(getDetails.mock.calls.map(([id]) => id)).toEqual([101])
+      expect(getSeason.mock.calls.map(([, season]) => season)).toEqual([1])
+      expect(getItemById(idFor(episode1))?.title).toBe('Episode 1')
+      expect(getFileChangeRevisions([show, season1, season2, movie]).size).toBe(0)
+      expect(getItemById(season2)?.lastRefreshedAt).toBe(1)
+
+      getDetails.mockClear()
+      getSeason.mockClear()
+      await fs.appendFile(path.join(fixture, episode2), 'disabled')
+      await scan(false)
+      await scan()
+      expect(getDetails).toHaveBeenCalledTimes(0)
+      expect(getSeason).toHaveBeenCalledTimes(0)
+    } finally {
+      getSeason.mockRestore()
+      getCredits.mockRestore()
+      getDetails.mockRestore()
+      readSettings.mockRestore()
+      log.mockRestore()
+      await fs.rm(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('backfills previously matched titles once, fetching supplemental details without artwork or credits', async () => {
+    ctx.seedItems([
+      { id: 'root', type: 'folder' },
+      { id: 'movie', parentId: 'root', name: 'Original.mkv' },
+      { id: 'edition', parentId: 'root', name: 'Edition.mkv' }
+    ])
+    for (const id of ['movie', 'edition']) {
+      saveProviderMatch(id, 'tmdb', { id: 34, type: 'movie' })
+      upsertMetadata(id, { title: 'Library title', tmdbId: 34, mediaType: 'movie', lastRefreshedAt: 1 })
+    }
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const settings = await settingsService.readSettings()
+    const readSettings = spyOn(settingsService, 'readSettings').mockResolvedValue({ ...settings, tmdbApiKey: 'fixture-key' })
+    const getDetails = spyOn(retriever, 'getDetails').mockResolvedValue({
+      title: 'Provider title',
+      vote_average: 8.3,
+      vote_count: 21,
+      release_dates: { results: [
+        { iso_3166_1: 'GB', release_dates: [{ type: 3, certification: '12A' }] },
+        { iso_3166_1: 'US', release_dates: [
+          { type: 1, certification: 'R' }, { type: 3, certification: 'PG-13' }
+        ] }
+      ] },
+      external_ids: { imdb_id: 'tt1234' },
+      homepage: 'javascript:alert(1)',
+      production_companies: [{ name: 'Studio One' }, { name: 'Studio One' }]
+    })
+    const getCredits = spyOn(retriever, 'getCredits').mockResolvedValue(null)
+
+    try {
+      await metadataService.enrichDatabase()
+      await metadataService.enrichDatabase()
+      expect(getDetails.mock.calls).toEqual([[34, 'movie', 'fixture-key', 'external_ids,release_dates']])
+      expect(getCredits).toHaveBeenCalledTimes(0)
+      const editions = findItems({ where: { parentId: 'root' }, fields: ['title', 'tmdbMetadata'] })
+      expect(editions).toHaveLength(2)
+      for (const edition of editions) {
+        expect(edition.title).toBe('Library title')
+        expect(edition.tmdbMetadata).toMatchObject({
+          contentRating: 'PG-13', tmdbRating: 8.3, imdbId: 'tt1234', studios: ['Studio One']
+        })
+        expect(edition.tmdbMetadata?.homepage).toBeUndefined()
+      }
+    } finally {
+      getCredits.mockRestore()
+      getDetails.mockRestore()
+      readSettings.mockRestore()
+      log.mockRestore()
     }
   })
 

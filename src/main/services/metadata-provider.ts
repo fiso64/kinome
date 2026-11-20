@@ -1,4 +1,5 @@
 import type { LibraryItem, Person, TmdbEpisode, TmdbSeason } from '@shared/types'
+import type { TmdbMetadata } from '@shared/metadata-fields'
 import * as tmdb from './retriever.service'
 
 export type ProviderMediaType = 'movie' | 'tv'
@@ -12,6 +13,7 @@ export interface ProviderDetails {
   year: number | null
   runtime: number | null
   genres: string[]
+  metadata?: TmdbMetadata
   artwork: Partial<Record<'poster' | 'backdrop' | 'logo', string>>
   seasons?: TmdbSeason[]
 }
@@ -19,7 +21,7 @@ export interface ProviderDetails {
 export interface MetadataProvider {
   name: string
   match(query: string, type: ProviderMediaType | 'multi', year?: number): Promise<ProviderMatch | null>
-  details(match: ProviderMatch): Promise<ProviderDetails | null>
+  details(match: ProviderMatch, options?: { includeArtwork?: boolean }): Promise<ProviderDetails | null>
   credits(match: ProviderMatch): Promise<NonNullable<LibraryItem['tmdbCredits']> | null>
   episodes(showId: number, season: number): Promise<TmdbEpisode[] | null>
 }
@@ -29,6 +31,16 @@ function artworkUrl(filePath: string | undefined, size: 'w500' | 'original'): st
 }
 
 export function createTmdbProvider(apiKey: string): MetadataProvider {
+  const pendingDetails = new Map<string, ReturnType<typeof tmdb.getDetails>>()
+  function getDetails({ id, type }: ProviderMatch, append: string) {
+    const key = `${type}:${id}:${append}`
+    const pending = pendingDetails.get(key)
+    if (pending) return pending
+    const request = tmdb.getDetails(id, type, apiKey, append).finally(() => pendingDetails.delete(key))
+    pendingDetails.set(key, request)
+    return request
+  }
+
   return {
     name: 'tmdb',
     async match(query, type, year) {
@@ -36,8 +48,10 @@ export function createTmdbProvider(apiKey: string): MetadataProvider {
       if (!result) return null
       return { id: result.id, type: result.media_type || (type === 'multi' ? 'movie' : type) }
     },
-    async details({ id, type }) {
-      const details = await tmdb.getDetails(id, type, apiKey)
+    async details({ id, type }, { includeArtwork = true } = {}) {
+      const ratingsEndpoint = type === 'tv' ? 'content_ratings' : 'release_dates'
+      const append = includeArtwork ? `images,external_ids,${ratingsEndpoint}` : `external_ids,${ratingsEndpoint}`
+      const details = await getDetails({ id, type }, append)
       if (!details) return null
       const releaseDate = details.release_date || details.first_air_date || null
       const year = releaseDate ? Number(releaseDate.slice(0, 4)) : null
@@ -53,6 +67,7 @@ export function createTmdbProvider(apiKey: string): MetadataProvider {
         year: year && Number.isFinite(year) ? year : null,
         runtime: type === 'movie' && typeof details.runtime === 'number' ? details.runtime : null,
         genres: (details.genres ?? []).map(({ name }: { name: string }) => name),
+        metadata: normalizeMetadata(type, details),
         artwork: {
           poster: artworkUrl(details.poster_path, 'w500'),
           backdrop: artworkUrl(details.backdrop_path, 'original'),
@@ -73,6 +88,66 @@ export function createTmdbProvider(apiKey: string): MetadataProvider {
         })
       ) : null
     },
+  }
+}
+
+interface TmdbDetailsFields {
+  status?: string
+  in_production?: boolean
+  vote_average?: number
+  vote_count?: number
+  imdb_id?: string
+  external_ids?: { imdb_id?: string }
+  homepage?: string
+  tagline?: string
+  production_companies?: { name: string }[]
+  networks?: { name: string }[]
+  production_countries?: { iso_3166_1: string }[]
+  original_language?: string
+  last_air_date?: string
+  next_episode_to_air?: { air_date?: string }
+  number_of_seasons?: number
+  number_of_episodes?: number
+  budget?: number
+  revenue?: number
+  content_ratings?: { results?: { iso_3166_1: string; rating: string }[] }
+  release_dates?: {
+    results?: {
+      iso_3166_1: string
+      release_dates: { type: number; certification: string }[]
+    }[]
+  }
+}
+
+function normalizeMetadata(type: ProviderMediaType, details: TmdbDetailsFields): TmdbMetadata {
+  const inUs = (entry: { iso_3166_1: string }) => entry.iso_3166_1 === 'US'
+  const movieReleases = details.release_dates?.results?.find(inUs)?.release_dates
+  const movieRating = movieReleases?.find((entry) => entry.type === 3 && entry.certification)
+    ?? movieReleases?.find((entry) => entry.certification)
+  const imdbId = details.external_ids?.imdb_id || details.imdb_id
+  const unique = (values?: string[]) => values?.length ? [...new Set(values.filter(Boolean))] : undefined
+
+  return {
+    status: details.status || undefined,
+    inProduction: details.in_production ?? undefined,
+    contentRating: (type === 'tv'
+      ? details.content_ratings?.results?.find(inUs)?.rating
+      : movieRating?.certification) || undefined,
+    tmdbRating: details.vote_count ? details.vote_average ?? undefined : undefined,
+    tmdbVoteCount: details.vote_count ?? undefined,
+    imdbId: imdbId && /^tt\d+$/.test(imdbId) ? imdbId : undefined,
+    homepage: /^https?:\/\//i.test(details.homepage ?? '') ? details.homepage : undefined,
+    tagline: details.tagline || undefined,
+    studios: unique(details.production_companies?.map(({ name }) => name)),
+    networks: unique(details.networks?.map(({ name }) => name)),
+    productionCountries: unique(details.production_countries?.map(({ iso_3166_1 }) => iso_3166_1)),
+    originalLanguage: details.original_language || undefined,
+    lastAirDate: details.last_air_date || undefined,
+    nextAirDate: details.next_episode_to_air?.air_date || undefined,
+    seasonCount: details.number_of_seasons ?? undefined,
+    episodeCount: details.number_of_episodes ?? undefined,
+    budget: details.budget || undefined,
+    revenue: details.revenue || undefined
   }
 }
 
