@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     VIDEO_QUALITIES, DEFAULT_VIDEO_QUALITIES, qualityLabel,
-    type PlaybackConversion, type PlaybackQuality, type PlaybackWorkerStatus, type VideoQuality
+    type PlaybackConversion, type PlaybackQuality, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
   } from '@shared/playback-quality'
   import { api } from '@lib/api'
   import Skeleton from '@components/ui/Skeleton.svelte'
@@ -58,8 +58,30 @@
   let playbackConversion = $state<PlaybackConversion>('full')
   let defaultPlaybackQuality = $state<PlaybackQuality>('original')
   let playbackQualities = $state<VideoQuality[]>([...DEFAULT_VIDEO_QUALITIES])
-  let workerStatus = $state<PlaybackWorkerStatus>()
+  const workerStatusLabels: Record<PlaybackWorkerStatus, string> = {
+    ready: 'Ready',
+    unconfigured: 'Not configured',
+    unreachable: 'Unreachable',
+    unready: 'Not ready'
+  }
+  let workerHealth = $state<PlaybackWorkerHealth | null>(null)
+  let checkingWorker = $state(false)
   const defaultQualityChoices = $derived<PlaybackQuality[]>(['original', 'remux', ...playbackQualities])
+
+  async function checkWorker(): Promise<void> {
+    checkingWorker = true
+    try {
+      workerHealth = await api.getPlaybackWorkerHealth()
+    } catch {
+      workerHealth = null
+    } finally {
+      checkingWorker = false
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'playback') void checkWorker()
+  })
 
   let customActions = $state<CustomActionConfig[]>([])
   let tmdbApiKey = $state('')
@@ -151,7 +173,6 @@
       isSettingsLoading = false
     })
 
-    api.getPlaybackWorkerStatus().then(({ status }) => { workerStatus = status }).catch(() => {})
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
 
     loadAccounts()
@@ -366,11 +387,21 @@
                   <option value="remux">Remux and audio only</option>
                   <option value="off">Off</option>
                 </select>
-                {#if workerStatus === 'unconfigured'}
-                  <p class="help-text">No conversion worker is configured on this server.</p>
-                {:else if workerStatus === 'unreachable'}
-                  <p class="help-text">The conversion worker is unreachable.</p>
-                {/if}
+              </div>
+              <div class="form-group">
+                <span class="label">Conversion Worker</span>
+                <div role="status">
+                  {#if checkingWorker}
+                    <span>Checking…</span>
+                  {:else if workerHealth}
+                    <span>{workerStatusLabels[workerHealth.status]}</span>
+                    <p class="help-text">{workerHealth.detail}</p>
+                  {:else}
+                    <span>Status unavailable</span>
+                    <p class="help-text">Kinome could not complete the worker status check.</p>
+                  {/if}
+                </div>
+                <button class="secondary check-worker" disabled={checkingWorker} onclick={checkWorker}>Check again</button>
               </div>
               <div class="form-group">
                 <label for="default-playback-quality">Default Playback Quality</label>
@@ -903,6 +934,10 @@
     font-size: 0.85rem;
     color: var(--color-text-dim);
     margin: 0;
+  }
+
+  .check-worker {
+    align-self: flex-start;
   }
 
   .view-config-row {

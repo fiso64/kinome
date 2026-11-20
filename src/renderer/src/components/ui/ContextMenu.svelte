@@ -1,6 +1,6 @@
 <script lang="ts">
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
-  import { getDownloadUrl } from '@lib/api'
+  import { api, getDownloadUrl } from '@lib/api'
   import { playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
@@ -77,9 +77,22 @@
   let activeSubmenu = $state<string | null>(null)
   const playbackQualities = $derived(availablePlaybackQualities(globalSettings))
   const defaultQuality = $derived(resolvePlaybackQuality(globalSettings))
+  let workerNotice = $state('')
   let activePlayerQuality = $state<string | null>(null)
   let qualityMenu = $state<HTMLDivElement>()
   let qualityMenuPosition = $state('')
+
+  $effect(() => {
+    workerNotice = ''
+    if (activeSubmenu !== 'play' || globalSettings?.playbackConversion === 'off') return
+    let active = true
+    api.getPlaybackWorkerHealth().then((health) => {
+      if (active && health.status !== 'ready') workerNotice = health.detail
+    }).catch(() => {
+      if (active) workerNotice = 'Could not check the conversion worker.'
+    })
+    return () => { active = false }
+  })
 
   $effect(() => {
     if (!qualityMenu) return
@@ -425,6 +438,9 @@
               {/if}
             </div>
           {/each}
+          {#if workerNotice}
+            <div class="worker-notice" role="status">{workerNotice} Original playback is available.</div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -726,6 +742,14 @@
   .player-row {
     display: flex;
     position: relative;
+  }
+
+  .worker-notice {
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+    max-width: 17rem;
+    padding: 0.5rem 0.75rem;
   }
 
   .player-action {

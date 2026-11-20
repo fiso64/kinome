@@ -68,6 +68,54 @@ export function resolvePlaybackQuality(settings?: Settings | null): PlaybackQual
   return availablePlaybackQualities(settings).includes(preferred) ? preferred : 'original'
 }
 
+class PlaybackUnavailableError extends Error {}
+
+async function checkConvertedStream(url: string): Promise<void> {
+  const signal = AbortSignal.timeout(95_000)
+  try {
+    const response = await fetch(url, { signal, redirect: 'error' })
+    const contentType = response.headers.get('content-type')
+    if (response.ok && contentType === 'application/vnd.apple.mpegurl') {
+      await response.body?.cancel()
+      return
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new PlaybackUnavailableError('Access to this stream was denied. Check that you are signed in and have access to the file.')
+    }
+    if (!response.ok && contentType?.startsWith('text/plain')) {
+      const detail = (await response.text()).trim()
+      if (detail && detail.length <= 250) throw new PlaybackUnavailableError(detail)
+    }
+    await response.body?.cancel()
+    throw new PlaybackUnavailableError(response.ok
+      ? 'Kinome returned an unexpected playback response.'
+      : `Kinome could not open the converted stream (HTTP ${response.status}).`)
+  } catch (error) {
+    if (error instanceof PlaybackUnavailableError) throw error
+    throw new PlaybackUnavailableError(signal.aborted
+      ? 'Checking the converted stream timed out.'
+      : 'Could not reach Kinome to check the converted stream.')
+  }
+}
+
+async function copyPlaybackLink(url: string, ready?: Promise<void>): Promise<void> {
+  if (ready && navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+    // Safari needs clipboard.write to run during the click, before the network check completes.
+    const data = ready.then(() => new Blob([url], { type: 'text/plain' }))
+    void data.catch(() => {}) // The browser may refuse the write before consuming the data.
+    const results = await Promise.allSettled([
+      ready,
+      navigator.clipboard.write([new ClipboardItem({ 'text/plain': data })])
+    ])
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason
+    }
+    return
+  }
+  if (ready) await ready
+  await navigator.clipboard.writeText(url)
+}
+
 export const playerLauncherService = {
   /**
    * Executes the default player or a specific command for a media item.
@@ -80,48 +128,38 @@ export const playerLauncherService = {
     preferredCommand?: PlayerCommandConfig,
     quality: PlaybackQuality = 'original'
   ): Promise<void> {
-    const playlistUrl = getPlaylistUrl(file.id, quality)
-
     const commandToExecute = preferredCommand ?? commands[0] ?? BUILTIN_COPY_PLAYLIST_LINK
-
-    if (commandToExecute.command === 'builtin:copy-link') {
-      try {
-        await navigator.clipboard.writeText(playlistUrl)
-        notificationStore.add('Playlist link copied to clipboard!', 'success')
-      } catch (err) {
-        console.error('Failed to copy playlist link', err)
-        notificationStore.add('Failed to copy link. Check browser permissions.', 'error')
-      }
-      return
-    }
-
-    if (commandToExecute.command === 'builtin:copy-stream-link') {
-      try {
-        await navigator.clipboard.writeText(getPlaybackUrl(file.id, file.name, quality))
-        notificationStore.add('Link copied to clipboard!', 'success')
-      } catch (err) {
-        console.error('Failed to copy link', err)
-        notificationStore.add('Failed to copy link. Check browser permissions.', 'error')
-      }
-      return
-    }
-
+    const direct = commandToExecute.command === BUILTIN_COPY_LINK.command
+    const copy = direct || commandToExecute.command === BUILTIN_COPY_PLAYLIST_LINK.command
     try {
-      const secret = localStorage.getItem('kinome_client_secret')
-      if (!secret) {
+      const secret = copy ? null : localStorage.getItem('kinome_client_secret')
+      if (!copy && !secret) {
         notificationStore.add('Kinome handler not set up. Please visit settings.', 'error')
         return
       }
-
-      const resolvedCommand = commandToExecute.command.replace('<url>', playlistUrl)
+      const playbackUrl = getPlaybackUrl(file.id, file.name, quality)
+      const url = direct ? playbackUrl : getPlaylistUrl(file.id, quality)
+      const ready = quality === 'original' ? undefined : checkConvertedStream(playbackUrl)
+      if (copy) {
+        await copyPlaybackLink(url, ready)
+        notificationStore.add(direct ? 'Link copied to clipboard!' : 'Playlist link copied to clipboard!', 'success')
+        return
+      }
+      if (ready) await ready
+      const resolvedCommand = commandToExecute.command.replace('<url>', url)
       const encodedCommand = btoa(resolvedCommand)
-      const protocolUrl = `kinome://run?secret=${encodeURIComponent(secret)}&command=${encodeURIComponent(encodedCommand)}`
+      const protocolUrl = `kinome://run?secret=${encodeURIComponent(secret!)}&command=${encodeURIComponent(encodedCommand)}`
 
       window.location.href = protocolUrl
       notificationStore.add(`Launching ${commandToExecute.name}...`, 'success')
     } catch (err) {
-      console.error('Failed to launch player', err)
-      notificationStore.add('Failed to launch player. Check handler installation.', 'error')
+      if (err instanceof PlaybackUnavailableError) {
+        notificationStore.add(err.message, 'error', 8_000)
+      } else {
+        notificationStore.add(copy
+          ? 'Failed to copy link. Check browser permissions.'
+          : 'Failed to launch player. Check handler installation.', 'error')
+      }
     }
   }
 }

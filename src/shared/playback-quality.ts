@@ -3,7 +3,12 @@ export const VIDEO_QUALITIES = ['4k', '1440p', '1080p', '720p', '480p', '360p', 
 export type VideoQuality = (typeof VIDEO_QUALITIES)[number]
 export type PlaybackQuality = 'original' | 'remux' | VideoQuality
 export type PlaybackConversion = 'full' | 'remux' | 'off'
-export type PlaybackWorkerStatus = 'unconfigured' | 'ready' | 'unreachable'
+export type PlaybackWorkerStatus = 'unconfigured' | 'ready' | 'unreachable' | 'unready'
+
+export interface PlaybackWorkerHealth {
+  status: PlaybackWorkerStatus
+  detail: string
+}
 
 export const DEFAULT_VIDEO_QUALITIES: readonly VideoQuality[] = ['1080p', '720p', '480p']
 

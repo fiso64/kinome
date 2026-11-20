@@ -127,14 +127,6 @@ in
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 ${cfg.user} ${cfg.group} -"
       "d ${cfg.libraryDir} 0750 ${cfg.user} ${cfg.group} -"
-    ] ++ lib.optionals cfg.gocoder.enable [
-      "d '${defaultMediaRoot}' 0750 ${cfg.user} ${cfg.group} -"
-      "d '${gocoderDir}' 0700 root root -"
-      "d '${gocoderDir}/cache' 0700 root root -"
-      "d '${gocoderDir}/metadata' 0700 root root -"
-      "d '${gocoderDir}/postgres' 0700 root root -"
-      "d /run/kinome-gocoder 0700 root root -"
-      "d ${databaseSocket} 0777 root root -"
     ];
 
     assertions = lib.optional cfg.gocoder.enable {
@@ -172,6 +164,20 @@ in
           "${databaseSocket}:/var/run/postgresql:ro"
         ] ++ map (root: "${root}:/video${root}:ro") mediaRoots;
       };
+    };
+
+    systemd.services.kinome-gocoder-db = lib.mkIf cfg.gocoder.enable {
+      after = [ "systemd-tmpfiles-setup.service" ];
+      unitConfig.RequiresMountsFor = [ cfg.dataDir ];
+      # Create both containers' bind mounts before the OCI service tries to start.
+      preStart = lib.mkBefore ''
+        ${lib.getExe' pkgs.coreutils "install"} -d -m 0750 -o ${lib.escapeShellArg cfg.user} -g ${lib.escapeShellArg cfg.group} ${lib.escapeShellArg defaultMediaRoot}
+        ${lib.getExe' pkgs.coreutils "mkdir"} -p -m 0700 ${lib.escapeShellArgs [
+          gocoderDir "${gocoderDir}/cache" "${gocoderDir}/metadata" "${gocoderDir}/postgres" "/run/kinome-gocoder"
+        ]}
+        ${lib.getExe' pkgs.coreutils "mkdir"} -p -m 0777 ${lib.escapeShellArg databaseSocket}
+      '';
+      serviceConfig.RestartSec = "5s";
     };
 
     systemd.services.kinome-gocoder = lib.mkIf cfg.gocoder.enable {

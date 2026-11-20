@@ -1,4 +1,4 @@
-import type { PlaybackWorkerStatus } from '@shared/playback-quality'
+import type { PlaybackWorkerHealth } from '@shared/playback-quality'
 import type {
   Settings,
   MediaFile,
@@ -583,7 +583,7 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/item-properties/${encodeURIComponent(itemId)}`)
   }
 
-  getPlaybackWorkerStatus(): Promise<{ status: PlaybackWorkerStatus }> {
+  getPlaybackWorkerHealth(): Promise<PlaybackWorkerHealth> {
     return this.request('/api/playback/worker-status')
   }
 

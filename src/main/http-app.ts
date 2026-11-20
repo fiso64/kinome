@@ -207,7 +207,7 @@ export function buildApp() {
         console.log(`[API] [REQUEST] ${request.method} ${url}`)
       }
     })
-    .onAfterHandle(({ request, set }) => {
+    .onAfterHandle(({ request, set, responseValue }) => {
       const url = new URL(request.url).pathname
       const range = request.headers.get('range')
       const isStatic = url.startsWith('/api/assets')
@@ -217,9 +217,8 @@ export function buildApp() {
       if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
         const start = (request as any)._startTime
         const duration = start ? Date.now() - start : 0
-        console.log(
-          `[API] [RESPONSE] ${request.method} ${url} - Status: ${set.status || 200} (${duration}ms)`
-        )
+        const status = responseValue instanceof Response ? responseValue.status : set.status ?? 200
+        console.log(`[API] [RESPONSE] ${request.method} ${url} - Status: ${status} (${duration}ms)`)
       }
     })
     .onError(({ code, error, request, set }) => {
@@ -546,7 +545,7 @@ export function buildApp() {
         })
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
-        .get('/playback/worker-status', async () => ({ status: await getWorkerStatus() }))
+        .get('/playback/worker-status', getWorkerStatus)
         .get('/stream/:id', handleDirectStreamRequest)
         .head('/stream/:id', handleDirectStreamRequest)
         .get('/stream/:id/:filename', handleDirectStreamRequest)

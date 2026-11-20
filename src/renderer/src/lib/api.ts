@@ -1,4 +1,4 @@
-import type { PlaybackQuality, PlaybackWorkerStatus } from '@shared/playback-quality'
+import type { PlaybackQuality, PlaybackWorkerHealth } from '@shared/playback-quality'
 import type {
   Settings,
   MediaFile,
@@ -121,7 +121,7 @@ export interface ApiClient {
   getItemProperties(itemId: string): Promise<MediaProperties | null>
   // Native directory picking (selectLibraryDirectory, selectMediaSourceDirectory) removed.
   getSettings(): Promise<Settings>
-  getPlaybackWorkerStatus(): Promise<{ status: PlaybackWorkerStatus }>
+  getPlaybackWorkerHealth(): Promise<PlaybackWorkerHealth>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
   getAccounts(): Promise<import('@shared/types').Account[]>
