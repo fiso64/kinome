@@ -5,6 +5,8 @@
 , go
 , git
 , zip
+, makeWrapper
+, ffmpeg-headless
 }:
 
 let
@@ -37,7 +39,7 @@ bun2nix.mkDerivation {
     bunNix = ../bun.nix;
   };
 
-  nativeBuildInputs = [ bun go git zip ];
+  nativeBuildInputs = [ bun go git zip makeWrapper ];
 
   # Bun compiled executables append the application payload to the Bun runtime.
   # Nix's default strip phase removes that payload, leaving a plain `bun` binary.
@@ -69,7 +71,8 @@ bun2nix.mkDerivation {
     mkdir -p $out/bin $out/libexec/kinome
     install -Dm755 dist/kinome $out/libexec/kinome/kinome
     cp -r out public $out/libexec/kinome/
-    ln -s $out/libexec/kinome/kinome $out/bin/kinome
+    makeWrapper $out/libexec/kinome/kinome $out/bin/kinome \
+      --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
 
     runHook postInstall
   '';

@@ -9,7 +9,6 @@ import type { LocalMedia } from '@shared/local-media'
 const DEFAULT_PROBE_CONCURRENCY = 1
 const STABILITY_WINDOW_MS = 60_000
 const batches = new SerializedQueue()
-let warnedMissingProbe = false
 
 async function matchesScan(filePath: string, file: ProbeCandidate): Promise<boolean> {
   const stats = await stat(filePath)
@@ -26,11 +25,9 @@ export function refreshLocalMedia(
     if (!sourcePaths.size) return false
     const executable = Bun.which('ffprobe')
     if (!executable) {
-      if (!warnedMissingProbe) console.warn('[Local media] ffprobe was not found on PATH')
-      warnedMissingProbe = true
+      console.warn('[Local media] Skipping file metadata extraction because ffprobe was not found on PATH')
       return false
     }
-    warnedMissingProbe = false
     const candidates = findProbeCandidates([...sourcePaths.keys()], Date.now())
     if (!candidates.length) return false
 
