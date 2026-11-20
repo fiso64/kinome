@@ -1,3 +1,4 @@
+import { DEFAULT_VIDEO_QUALITIES, isVideoQuality, isPlaybackQuality } from '@shared/playback-quality'
 import path, { dirname, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
@@ -274,6 +275,9 @@ async function readRawSettings(): Promise<Settings> {
     itemDetailBackdropSize: 'small',
     itemDetailBackdropBlur: 4,
     refetchRemoteMetadataOnFileChange: true,
+    playbackConversion: 'full',
+    defaultPlaybackQuality: 'original',
+    playbackQualities: [...DEFAULT_VIDEO_QUALITIES],
     serverPort: 3000,
     serverHost: '::'
   }
@@ -327,6 +331,11 @@ async function readRawSettings(): Promise<Settings> {
     ...(finalSettings.virtualTags ?? [])
   ]
 
+  finalSettings.gocoderConfigured = !!process.env.KINOME_GOCODER_URL
+  if (!isPlaybackQuality(finalSettings.defaultPlaybackQuality)) finalSettings.defaultPlaybackQuality = 'original'
+  finalSettings.playbackQualities = Array.isArray(finalSettings.playbackQualities)
+    ? [...new Set(finalSettings.playbackQualities.filter(isVideoQuality))]
+    : [...DEFAULT_VIDEO_QUALITIES]
   return finalSettings
 }
 
@@ -430,7 +439,10 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
   const current = await readSettings()
   for (const key of Object.keys(settingsToSave) as (keyof Settings)[]) {
     const value = settingsToSave[key]
-    if (value === undefined || equal(value, current[key])) continue
+    if (key === 'gocoderConfigured' || value === undefined || equal(value, current[key])) continue
+    if (key === 'playbackConversion' && value !== 'full' && value !== 'remux' && value !== 'off') continue
+    if (key === 'defaultPlaybackQuality' && !isPlaybackQuality(value)) continue
+    if (key === 'playbackQualities' && (!Array.isArray(value) || !value.every(isVideoQuality))) continue
     if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
       ; (serverChanges as any)[key] = value
     } else {

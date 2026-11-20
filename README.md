@@ -1,3 +1,5 @@
+<!-- Maintainers: Keep this README mostly as-is. Edit it to correct inaccuracies; don't add detailed setup or feature documentation or implementation details. -->
+
 # Kinome
 
 Media server and manager. Fetches metadata from TMDB and displays it nice, streams media. Under development and incomplete!
@@ -19,7 +21,6 @@ Media server and manager. Fetches metadata from TMDB and displays it nice, strea
 Kinome is under development and is missing some important features which one would expect to find in a media server. These are planned, but not yet available in the latest version:
 
 - web player
-- transcoding/transmuxing
 - automatic library rescans
 - scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
 - percentage based progress (just binary watched state)

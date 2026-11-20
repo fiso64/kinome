@@ -1,9 +1,58 @@
-import { expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServiceTestContext } from '../database/test-helpers'
 import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { runWithAccount } from '../request-context'
-import { generateM3UPlaylist, generatePlaylist } from './playback.service'
+import { generateM3UPlaylist, generatePlaylist, handleFileStreamFast } from './playback.service'
+import { prepareHlsPlaylist } from './transcoding.service'
+
+describe('direct media streaming', () => {
+  let directory: string
+  let file: Bun.BunFile
+
+  beforeAll(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'kinome-range-'))
+    const filePath = join(directory, 'video.mp4')
+    await Bun.write(filePath, '0123456789')
+    file = Bun.file(filePath)
+  })
+
+  afterAll(async () => {
+    if (directory) await rm(directory, { recursive: true, force: true })
+  })
+
+  it.each([
+    [null, 200, null, '0123456789'],
+    ['bytes=2-4', 206, 'bytes 2-4/10', '234'],
+    ['bytes=6-', 206, 'bytes 6-9/10', '6789'],
+    ['bytes=-3', 206, 'bytes 7-9/10', '789'],
+    ['bytes=-20', 206, 'bytes 0-9/10', '0123456789'],
+    ['bytes=8-999999999999999999999', 206, 'bytes 8-9/10', '89'],
+    ['bytes=10-', 416, 'bytes */10', ''],
+    ['bytes=-0', 416, 'bytes */10', ''],
+    ['bytes=9-8', 200, null, '0123456789'],
+    ['bytes=0-1,4-5', 200, null, '0123456789'],
+    ['frames=0-1', 200, null, '0123456789']
+  ])('serves direct media for Range %s', async (range, status, contentRange, body) => {
+    const response = handleFileStreamFast(file, file.size, 'video/mp4', range)
+    expect(response.status).toBe(status)
+    expect(response.headers.get('Content-Range')).toBe(contentRange)
+    expect(response.headers.get('Accept-Ranges')).toBe('bytes')
+    if (status !== 416) expect(response.headers.get('Content-Length')).toBe(String(body.length))
+    expect(await response.text()).toBe(body)
+  })
+
+  it('returns full representation headers and no body for a HEAD request with Range', () => {
+    const response = handleFileStreamFast(file, file.size, 'video/mp4', 'bytes=2-4', { method: 'HEAD' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Length')).toBe('10')
+    expect(response.headers.has('Content-Range')).toBe(false)
+    expect(response.body).toBeNull()
+  })
+})
 
 it('continues an external playlist through later episodes and seasons of the same show', async () => {
   const ctx = createServiceTestContext()
@@ -44,6 +93,10 @@ it('continues an external playlist through later episodes and seasons of the sam
     expect(urls?.map((url) => url.search)).toEqual(Array(4).fill('?token=example-token&watch=1'))
     expect(urls?.[0].pathname).toBe('/api/stream/start/Episode%202.mkv')
 
+    const converted = await generateM3UPlaylist('start.m3u', 'localhost:3000', 'http:', 'example-token', '720p', 'viewer')
+    expect(converted).toContain('/api/hls/start/720p/master.m3u8?token=example-token&clientId=viewer')
+    expect(converted).toContain('/api/hls/next-season/720p/master.m3u8?token=example-token&clientId=viewer')
+
     createAccount('restricted', 'restricted', 'unused', 'normal')
     setFilterRule('restricted', 'deny', { conditions: [{ field: 'sourceId', op: 'eq', value: 'second-drive' }] })
     const restricted = await runWithAccount('restricted', () => generatePlaylist('start'))
@@ -52,6 +105,35 @@ it('continues an external playlist through later episodes and seasons of the sam
   } finally {
     ctx.cleanup()
   }
+})
+
+it('keeps the selected HLS rendition and its audio tracks within the authenticated playback URL', () => {
+  const master = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a-original",NAME="English",URI="audio/0/original/index.m3u8?clientId=private"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a-192k",NAME="English",URI="audio/0/192k/index.m3u8?clientId=private"
+#EXT-X-STREAM-INF:BANDWIDTH=4000000,AUDIO="a-original"
+0/original/index.m3u8?clientId=private
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,AUDIO="a-192k"
+0/720p/index.m3u8?clientId=private
+`
+  const query = new URLSearchParams({ token: 'login-token', clientId: 'viewer' })
+  const converted = prepareHlsPlaylist(master, 'master.m3u8', '720p', query)
+  expect(converted).toContain('0/720p/index.m3u8?token=login-token&clientId=viewer')
+  expect(converted).toContain('audio/0/192k/index.m3u8?token=login-token&clientId=viewer')
+  expect(converted).not.toContain('original/index.m3u8')
+  expect(converted).not.toContain('clientId=private')
+  for (const quality of ['remux', '1080p'] as const) {
+    const remuxed = prepareHlsPlaylist(master, 'master.m3u8', quality, query)
+    expect(remuxed).toContain('0/original/index.m3u8?token=login-token&clientId=viewer')
+    expect(remuxed).not.toContain('720p/index.m3u8')
+  }
+
+  const media = '#EXTM3U\n#EXT-X-MAP:URI="init.mp4?ignored=true"\n#EXTINF:3.0,\nsegment-0.mp4?ignored=true\n'
+  const result = prepareHlsPlaylist(media, '0/720p/index.m3u8', '720p', query)
+  expect(result).toContain('URI="init.mp4?token=login-token&clientId=viewer"')
+  expect(result).toContain('segment-0.mp4?token=login-token&clientId=viewer')
+  expect(() => prepareHlsPlaylist(media.replace('segment-0.mp4', '../../../other.mp4'),
+    '0/720p/index.m3u8', '720p', query)).toThrow('Unexpected gocoder playlist resource')
 })
 
 it.each([false, true])('keeps unclassified files in their current folder (TV ancestor: %s)', async (knownShow) => {

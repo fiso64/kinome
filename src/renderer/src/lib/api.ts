@@ -1,3 +1,4 @@
+import type { PlaybackQuality, PlaybackWorkerStatus } from '@shared/playback-quality'
 import type {
   Settings,
   MediaFile,
@@ -120,6 +121,7 @@ export interface ApiClient {
   getItemProperties(itemId: string): Promise<MediaProperties | null>
   // Native directory picking (selectLibraryDirectory, selectMediaSourceDirectory) removed.
   getSettings(): Promise<Settings>
+  getPlaybackWorkerStatus(): Promise<{ status: PlaybackWorkerStatus }>
   saveSettings(settings: Partial<Settings>): Promise<void>
   changePassword(password: string): Promise<void>
   getAccounts(): Promise<import('@shared/types').Account[]>
@@ -184,10 +186,27 @@ export function getAssetUrl(relativePath: string): string {
 /**
  * Returns a full HTTP URL for a playlist.
  */
-export function getPlaylistUrl(itemId: string): string {
+export function getPlaylistUrl(itemId: string, quality: PlaybackQuality = 'original'): string {
   if (!itemId) return ''
-  const url = `${window.location.origin}/api/playlist/${itemId}`
-  return authStore.token ? `${url}?token=${authStore.token}` : url
+  const url = new URL(`/api/playlist/${encodeURIComponent(itemId)}.m3u`, window.location.origin)
+  if (authStore.token) url.searchParams.set('token', authStore.token)
+  if (quality !== 'original') {
+    url.searchParams.set('quality', quality)
+    url.searchParams.set('clientId', playbackClientId())
+  }
+  return url.toString()
+}
+
+export function getPlaybackUrl(itemId: string, filename: string, quality: PlaybackQuality): string {
+  if (quality === 'original') return getStreamUrl(itemId, filename, { watch: true })
+  const url = new URL(`/api/hls/${encodeURIComponent(itemId)}/${quality}/master.m3u8`, window.location.origin)
+  if (authStore.token) url.searchParams.set('token', authStore.token)
+  url.searchParams.set('clientId', playbackClientId())
+  return url.toString()
+}
+
+function playbackClientId(): string {
+  return crypto.getRandomValues(new Uint32Array(4)).join('-')
 }
 
 /**

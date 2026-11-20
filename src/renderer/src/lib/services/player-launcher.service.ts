@@ -1,4 +1,7 @@
-import { getPlaylistUrl, getStreamUrl } from '../api'
+import { availablePlaybackQualities } from '@shared/playback-quality'
+import type { PlaybackQuality } from '@shared/playback-quality'
+import type { Settings } from '@shared/types'
+import { getPlaylistUrl, getPlaybackUrl } from '../api'
 import type { MediaFile, PlayerCommandConfig } from '@shared/types'
 import { notificationStore } from '../notification-store.svelte'
 
@@ -60,6 +63,11 @@ export function resolveClientPlayers(
   return result
 }
 
+export function resolvePlaybackQuality(settings?: Settings | null): PlaybackQuality {
+  const preferred = settings?.defaultPlaybackQuality ?? 'original'
+  return availablePlaybackQualities(settings).includes(preferred) ? preferred : 'original'
+}
+
 export const playerLauncherService = {
   /**
    * Executes the default player or a specific command for a media item.
@@ -69,10 +77,10 @@ export const playerLauncherService = {
   async playItem(
     file: MediaFile,
     commands: PlayerCommandConfig[],
-    preferredCommand?: PlayerCommandConfig
+    preferredCommand?: PlayerCommandConfig,
+    quality: PlaybackQuality = 'original'
   ): Promise<void> {
-    const playlistUrl = getPlaylistUrl(file.id)
-    const streamUrl = getStreamUrl(file.id, file.name, { watch: true })
+    const playlistUrl = getPlaylistUrl(file.id, quality)
 
     const commandToExecute = preferredCommand ?? commands[0] ?? BUILTIN_COPY_PLAYLIST_LINK
 
@@ -89,7 +97,7 @@ export const playerLauncherService = {
 
     if (commandToExecute.command === 'builtin:copy-stream-link') {
       try {
-        await navigator.clipboard.writeText(streamUrl)
+        await navigator.clipboard.writeText(getPlaybackUrl(file.id, file.name, quality))
         notificationStore.add('Link copied to clipboard!', 'success')
       } catch (err) {
         console.error('Failed to copy link', err)

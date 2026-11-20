@@ -1,3 +1,4 @@
+import type { PlaybackQuality } from '@shared/playback-quality'
 import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
@@ -93,7 +94,7 @@ export function recordPlaybackDebounced(
   }
 }
 
-async function resolveStreamPath(itemId: string, userId?: string | null): Promise<string | null> {
+export async function resolveStreamPath(itemId: string, userId?: string | null): Promise<string | null> {
   const location = itemsRepo.getPresentItemLocation(itemId, 'file', userId)
   if (!location) return null
   const absSourcePath = await settingsService.getAbsoluteSourcePath(location.sourceId)
@@ -166,12 +167,6 @@ function getMimeType(filePath: string): string {
 
 // --- Streaming ---
 
-/**
- * Maximum chunk size for open-ended range requests.
- * Reduce to improve random seek performance at the cost of more requests/stability.
- */
-const MAX_CHUNK_SIZE = 30 * 1024 * 1024 // 30MB should be safe for high bitrate 4K video?
-
 interface StreamRequestLogContext {
   itemId?: string
   method?: string
@@ -182,101 +177,54 @@ interface StreamRequestLogContext {
   cacheHit?: boolean
 }
 
-/**
- * Handles file streaming with HTTP range request support for large video files.
- * This is the core streaming function - it takes a pre-resolved file path.
- *
- * @param filePath Absolute path to the file
- * @param fileSize File size in bytes (pass if known to avoid stat call)
- * @param contentType MIME type (pass if known to avoid lookup)
- * @param rangeHeader HTTP Range header value (e.g., "bytes=0-1023")
- * @returns Response object with appropriate headers and file slice
- */
+function parseByteRange(header: string | null, fileSize: number): { start: number; end: number } | 'unsatisfiable' | null {
+  // Ignore unsupported range units, malformed values, and multipart requests.
+  const match = header && /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
+  if (!match || (!match[1] && !match[2])) return null
+
+  const size = BigInt(fileSize)
+  if (!match[1]) {
+    const suffix = BigInt(match[2])
+    if (suffix === 0n || size === 0n) return 'unsatisfiable'
+    return { start: suffix >= size ? 0 : Number(size - suffix), end: fileSize - 1 }
+  }
+
+  const start = BigInt(match[1])
+  const end = match[2] ? BigInt(match[2]) : undefined
+  if (end !== undefined && end < start) return null
+  if (start >= size) return 'unsatisfiable'
+  return { start: Number(start), end: end === undefined || end >= size ? fileSize - 1 : Number(end) }
+}
+
+/** Serves the requested bytes from a file-backed Blob. */
 export function handleFileStreamFast(
-  filePath: string,
+  file: Bun.BunFile,
   fileSize: number,
   contentType: string,
   rangeHeader: string | null,
   logContext?: StreamRequestLogContext
 ): Response {
-  const safeLogContext = getSafeLogContext(logContext)
+  const head = logContext?.method === 'HEAD'
+  const range = head ? null : parseByteRange(rangeHeader, fileSize)
+  const headers = new Headers({ 'Accept-Ranges': 'bytes', 'Content-Type': contentType })
+  if (range === 'unsatisfiable') {
+    headers.set('Content-Range', `bytes */${fileSize}`)
+    return new Response(null, { status: 416, headers })
+  }
 
-  if (rangeHeader) {
-    // Parse range header (e.g., "bytes=0-1023" or "bytes=0-")
-    const parts = rangeHeader.replace(/bytes=/, '').split('-')
-    const start = parseInt(parts[0], 10)
-
-    let end: number
-    if (parts[1] && parts[1].trim() !== '') {
-      // Explicit end specified
-      end = parseInt(parts[1], 10)
-    } else {
-      // Open-ended range: limit to MAX_CHUNK_SIZE
-      end = Math.min(start + MAX_CHUNK_SIZE - 1, fileSize - 1)
-    }
-
-    const chunkSize = end - start + 1
-    const file = Bun.file(filePath)
-    const slice = file.slice(start, end + 1)
-    const contentRange = `bytes ${start}-${end}/${fileSize}`
-
-    logVerbose('Serving ranged stream request.', {
-      ...safeLogContext,
-      filePath,
-      fileSize,
-      contentType,
-      requestRange: rangeHeader,
-      requestedStart: start,
-      requestedEnd: parts[1] && parts[1].trim() !== '' ? end : null,
-      openEndedRange: !(parts[1] && parts[1].trim() !== ''),
-      servedStart: start,
-      servedEnd: end,
-      servedBytes: chunkSize,
-      status: 206,
-      contentRange
-    })
-
-    return new Response(slice, {
-      status: 206,
-      headers: {
-        'Content-Range': contentRange,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize.toString(),
-        'Content-Type': contentType
-      }
+  const start = range?.start ?? 0
+  const end = range ? range.end + 1 : fileSize
+  const status = range ? 206 : 200
+  if (range) headers.set('Content-Range', `bytes ${start}-${end - 1}/${fileSize}`)
+  headers.set('Content-Length', String(end - start))
+  if (isVerbosePlaybackLoggingEnabled()) {
+    logVerbose('Serving file stream.', {
+      ...getSafeLogContext(logContext), requestRange: rangeHeader, status,
+      contentRange: headers.get('Content-Range')
     })
   }
 
-  // No range request: Send a small initial chunk to prompt the client to use range requests
-  const INITIAL_CHUNK_SIZE = 1024 * 1024 // 1MB
-  const initialSize = Math.min(INITIAL_CHUNK_SIZE, fileSize)
-
-  const file = Bun.file(filePath)
-  const slice = file.slice(0, initialSize)
-  const contentRange = `bytes 0-${initialSize - 1}/${fileSize}`
-
-  logVerbose('Serving stream request without Range header.', {
-    ...safeLogContext,
-    filePath,
-    fileSize,
-    contentType,
-    requestRange: null,
-    servedStart: 0,
-    servedEnd: initialSize - 1,
-    servedBytes: initialSize,
-    status: 206,
-    contentRange
-  })
-
-  return new Response(slice, {
-    status: 206,
-    headers: {
-      'Content-Range': contentRange,
-      'Accept-Ranges': 'bytes',
-      'Content-Length': initialSize.toString(),
-      'Content-Type': contentType
-    }
-  })
+  return new Response(head ? null : file.slice(start, end), { status, headers })
 }
 
 /**
@@ -321,10 +269,10 @@ export async function handleCachedStream(
   // Get LIVE file size for every request to support growing files (e.g. active torrents)
   const file = Bun.file(cacheEntry.absolutePath)
   const fileSize = file.size
-  if (fileSize === 0) {
-    // Handle file potentially deleted or inaccessible
+  if (fileSize === 0 && !await file.exists()) {
+    // Clear stale locations while allowing empty files to return their actual length.
     streamCache.delete(cacheKey)
-    logVerbose('Stream request failed because file size was zero.', {
+    logVerbose('Stream request failed because the file is unavailable.', {
       ...safeLogContext,
       ...getItemLogInfo(itemId),
       absolutePath: cacheEntry.absolutePath,
@@ -335,7 +283,7 @@ export async function handleCachedStream(
   }
 
   return handleFileStreamFast(
-    cacheEntry.absolutePath,
+    file,
     fileSize,
     cacheEntry.contentType,
     rangeHeader,
@@ -413,7 +361,9 @@ export async function generateM3UPlaylist(
   itemId: string,
   host: string,
   protocol: string,
-  token?: string
+  token?: string,
+  quality: PlaybackQuality = 'original',
+  clientId?: string
 ): Promise<string | null> {
   // Remove .m3u extension if present
   const id = itemId.endsWith('.m3u') ? itemId.slice(0, -4) : itemId
@@ -436,14 +386,17 @@ export async function generateM3UPlaylist(
       title = `S${s}E${e} - ${title}`
     }
 
-    m3uContent += `#EXTINF:-1,${title}\n`
+    m3uContent += `#EXTINF:-1,${title.replace(/[\r\n]/g, ' ')}\n`
 
     // Build stream URL
     const filename = encodeURIComponent(item.name)
-    const streamUrl = `${protocol}//${host}/api/stream/${item.id}/${filename}`
+    const streamUrl = quality === 'original'
+      ? `${protocol}//${host}/api/stream/${item.id}/${filename}`
+      : `${protocol}//${host}/api/hls/${item.id}/${quality}/master.m3u8`
     const params = new URLSearchParams()
     if (token) params.set('token', token)
-    params.set('watch', '1')
+    if (quality === 'original') params.set('watch', '1')
+    else if (clientId) params.set('clientId', clientId)
 
     const fullUrl = `${streamUrl}?${params.toString()}`
     m3uContent += `${fullUrl}\n`

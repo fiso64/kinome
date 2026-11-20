@@ -1,10 +1,11 @@
 <script lang="ts">
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { getDownloadUrl } from '@lib/api'
-  import { playerLauncherService, resolveClientPlayers } from '@lib/services/player-launcher.service'
+  import { playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
+  import { availablePlaybackQualities, qualityLabel, type PlaybackQuality } from '@shared/playback-quality'
   import type {
     LibraryItem,
     MediaFolder,
@@ -74,6 +75,20 @@
   let menuElement = $state<HTMLDivElement>()
   let submenuElement = $state<HTMLDivElement>()
   let activeSubmenu = $state<string | null>(null)
+  const playbackQualities = $derived(availablePlaybackQualities(globalSettings))
+  const defaultQuality = $derived(resolvePlaybackQuality(globalSettings))
+  let activePlayerQuality = $state<string | null>(null)
+  let qualityMenu = $state<HTMLDivElement>()
+  let qualityMenuPosition = $state('')
+
+  $effect(() => {
+    if (!qualityMenu) return
+    const parent = qualityMenu.parentElement!.getBoundingClientRect()
+    const menu = qualityMenu.getBoundingClientRect()
+    const left = parent.right + menu.width <= window.innerWidth ? parent.width - 1 : -menu.width + 1
+    const top = Math.max(4, Math.min(parent.top - 4, window.innerHeight - menu.height - 4)) - parent.top
+    qualityMenuPosition = `left: ${Math.max(4 - parent.left, left)}px; top: ${top}px;`
+  })
   let submenuOnLeft = $state(false)
   let submenuTop = $state(0) // For vertical adjustment
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
@@ -230,8 +245,8 @@
   }
 
 
-  function handlePlayWith(player: PlayerCommandConfig) {
-    playerLauncherService.playItem(item as MediaFile, availablePlayers, player)
+  function handlePlayWith(player: PlayerCommandConfig, quality: PlaybackQuality = defaultQuality) {
+    playerLauncherService.playItem(item as MediaFile, availablePlayers, player, quality)
     onClose()
   }
 
@@ -372,9 +387,9 @@
     <div
       class="submenu-container"
       onmouseenter={() => (activeSubmenu = 'play')}
-      onmouseleave={() => (activeSubmenu = null)}
+      onmouseleave={() => { activeSubmenu = null; activePlayerQuality = null }}
     >
-      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
+      <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'play'} onclick={() => (activeSubmenu = 'play')}>
         <span class="icon">▶️</span>
         <span>Play with...</span>
         <span class="submenu-arrow">▸</span>
@@ -388,10 +403,27 @@
           style="top: {submenuTop}px;"
           onclick={(e) => e.stopPropagation()}
         >
-          {#each availablePlayers as player}
-            <button class="context-menu-item" onclick={() => handlePlayWith(player)}>
-              <span>{player.name}</span>
-            </button>
+          {#each availablePlayers as player (player.id)}
+            <div class="player-row">
+              <button class="context-menu-item player-action" onclick={() => handlePlayWith(player)}>
+                {player.name}
+              </button>
+              <button
+                class="context-menu-item quality-arrow"
+                aria-label={`Quality for ${player.name}`}
+                title="Playback quality"
+                aria-expanded={activePlayerQuality === player.id}
+                onclick={() => (activePlayerQuality = activePlayerQuality === player.id ? null : player.id)}
+              >▸</button>
+              {#if activePlayerQuality === player.id}
+                <div class="context-menu submenu quality-menu" bind:this={qualityMenu} style={qualityMenuPosition}>
+                  {#each playbackQualities as quality (quality)}
+                    <button class="context-menu-item" aria-current={quality === defaultQuality}
+                      onclick={() => handlePlayWith(player, quality)}>{qualityLabel(quality)}</button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -689,6 +721,28 @@
     left: 100%;
     margin-left: -1px;
     animation: fadeIn 0.1s ease-out;
+  }
+
+  .player-row {
+    display: flex;
+    position: relative;
+  }
+
+  .player-action {
+    flex: 1;
+    white-space: nowrap;
+  }
+
+  .quality-arrow {
+    width: auto;
+    flex-shrink: 0;
+    padding-inline: 0.65rem;
+    color: var(--ev-c-text-2);
+  }
+
+  .quality-menu {
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
   }
 
   .submenu-container {

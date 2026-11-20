@@ -18,7 +18,7 @@
 
 ### 🎬 Playback & Transcoding
 
-- [ ] [P1] Transcoding and transmuxing support. Try to steal as much code from Jellyfin or Kyoo as possible. (Gocoder looks good).
+- [x] [P1] Transcoding and transmuxing support. Try to steal as much code from Jellyfin or Kyoo as possible. (Gocoder looks good).
 - [ ] [P1] Refine players.
   - [ ] Look at the percentage watched to determine if an item is watched or not, instead of setting immediately on play. Look into how jellyfin does it.
   - [ ] Add a better integration for mpv (and vlc if possible) that reports accurate progress and allows navigating to the previous item in a playlist. E.g. using ipc+wrapper or lua scripts. Should be as easy to set up/run as possible. 
@@ -26,16 +26,6 @@
     - [x] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
   - [ ] Web player, Capabilities detection decision engine. (Requires transmuxing/transcoding support) (libs: hls.js, vidstack, JavascriptSubtitlesOctopus)
     - [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
-- [ ] [P0] According to chatgpt: 
-  In `handleFileStreamFast()`, when the request doesn't contain a `Range` header, you currently return a `206 Partial Content` response containing only the first 1 MiB.
-  This isn't normal HTTP range behavior. A client that makes a regular GET request may interpret the response unexpectedly.
-  I would change this to provide:
-  - A full `200 OK` response when no range is requested.
-  - `206 Partial Content` for valid range requests, with accurate `Content-Range`.
-  - `416 Range Not Satisfiable` for unsatisfiable ranges.
-  - Correct support for open-ended and suffix byte ranges.
-  - Suitable behavior for HEAD requests.
-    MPV/FFmpeg uses HTTP seeking, so getting this right is more important than implementing transmuxing.
 - [ ] [P1] Default audio and sub language option. Requires: Metadata extraction to display available options. Allow passing chosen default to custom players.
   - [ ] Somehow support external sub files near videos, in both web and external players.
 

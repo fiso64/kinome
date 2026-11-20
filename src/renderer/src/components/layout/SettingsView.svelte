@@ -1,4 +1,8 @@
 <script lang="ts">
+  import {
+    VIDEO_QUALITIES, DEFAULT_VIDEO_QUALITIES, qualityLabel,
+    type PlaybackConversion, type PlaybackQuality, type PlaybackWorkerStatus, type VideoQuality
+  } from '@shared/playback-quality'
   import { api } from '@lib/api'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import { formatLayoutString } from '@shared/settings-helpers'
@@ -32,13 +36,17 @@
     general: 'General',
     accounts: 'Accounts',
     library: 'Library',
-    view: 'Display Preferences',
+    playback: 'Playback',
+    view: 'View',
     virtualTags: 'Virtual Tags'
   }
 
+  type SettingsTab = keyof typeof TAB_LABELS
+  const TABS = Object.keys(TAB_LABELS) as SettingsTab[]
+
   type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
 
-  let activeTab: 'general' | 'library' | 'view' | 'virtualTags' | 'accounts' = $state('general')
+  let activeTab = $state<SettingsTab>('general')
   let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
   let activeLayoutSettingsModal = $state(false)
   let activePlayerCommandsModal = $state(false)
@@ -47,6 +55,12 @@
 
   // --- Form State ---
   let playerCommands = $state<PlayerCommandConfig[]>([])
+  let playbackConversion = $state<PlaybackConversion>('full')
+  let defaultPlaybackQuality = $state<PlaybackQuality>('original')
+  let playbackQualities = $state<VideoQuality[]>([...DEFAULT_VIDEO_QUALITIES])
+  let workerStatus = $state<PlaybackWorkerStatus>()
+  const defaultQualityChoices = $derived<PlaybackQuality[]>(['original', 'remux', ...playbackQualities])
+
   let customActions = $state<CustomActionConfig[]>([])
   let tmdbApiKey = $state('')
   let useLogos = $state(true)
@@ -102,6 +116,9 @@
   $effect(() => {
     api.getSettings().then((s) => {
       playerCommands = JSON.parse(JSON.stringify(s.playerCommands ?? []))
+      playbackConversion = s.playbackConversion ?? 'full'
+      defaultPlaybackQuality = s.defaultPlaybackQuality ?? 'original'
+      playbackQualities = [...(s.playbackQualities ?? DEFAULT_VIDEO_QUALITIES)]
       customActions = JSON.parse(JSON.stringify(s.customActions ?? []))
       tmdbApiKey = s.tmdbApiKey
       useLogos = s.useLogos
@@ -134,11 +151,11 @@
       isSettingsLoading = false
     })
 
+    api.getPlaybackWorkerStatus().then(({ status }) => { workerStatus = status }).catch(() => {})
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
 
     loadAccounts()
 
-    const TABS = ['general', 'accounts', 'library', 'view', 'virtualTags'] as const
     const handleKeydown = (event: KeyboardEvent): void => {
       if (activeViewSettingsModal || activeLayoutSettingsModal) return
 
@@ -189,6 +206,9 @@
     try {
       await api.saveSettings({
         playerCommands: JSON.parse(JSON.stringify(playerCommands)),
+        playbackConversion,
+        playbackQualities,
+        defaultPlaybackQuality: defaultQualityChoices.includes(defaultPlaybackQuality) ? defaultPlaybackQuality : 'original',
         customActions: JSON.parse(JSON.stringify(customActions)),
         tmdbApiKey,
         useLogos,
@@ -297,28 +317,17 @@
   <div class="settings-container">
     <div class="sidebar">
       <div class="tabs">
-        <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}
-          >General</button
-        >
-        <button class:active={activeTab === 'accounts'} onclick={() => (activeTab = 'accounts')}
-          >Accounts</button
-        >
-        <button class:active={activeTab === 'library'} onclick={() => (activeTab = 'library')}
-          >Library</button
-        >
-        <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}
-          >View</button
-        >
-        <button
-          class:active={activeTab === 'virtualTags'}
-          onclick={() => (activeTab = 'virtualTags')}>Virtual Tags</button
-        >
+        {#each TABS as tab (tab)}
+          <button class:active={activeTab === tab} onclick={() => (activeTab = tab)}>
+            {TAB_LABELS[tab]}
+          </button>
+        {/each}
       </div>
     </div>
 
     <div class="right-column">
       <div class="content-header">
-        <h2>{TAB_LABELS[activeTab]}</h2>
+        <h2>{activeTab === 'view' ? 'Display Preferences' : TAB_LABELS[activeTab]}</h2>
         <button class="primary save-button" onclick={handleSave}>Save Changes</button>
       </div>
       <div class="content scroll-area">
@@ -329,7 +338,7 @@
                 <Skeleton width={w} height={h} />
               {/each}
             </div>
-          {:else if activeTab === 'general'}
+          {:else if activeTab === 'playback'}
             <div class="form-section">
               <div class="form-group start-group">
                 <span id="player-commands-label" class="label">Player Commands</span>
@@ -351,6 +360,42 @@
                 </p>
               </div>
               <div class="form-group">
+                <label for="playback-conversion">Playback Conversion</label>
+                <select id="playback-conversion" bind:value={playbackConversion}>
+                  <option value="full">Full</option>
+                  <option value="remux">Remux and audio only</option>
+                  <option value="off">Off</option>
+                </select>
+                {#if workerStatus === 'unconfigured'}
+                  <p class="help-text">No conversion worker is configured on this server.</p>
+                {:else if workerStatus === 'unreachable'}
+                  <p class="help-text">The conversion worker is unreachable.</p>
+                {/if}
+              </div>
+              <div class="form-group">
+                <label for="default-playback-quality">Default Playback Quality</label>
+                <select id="default-playback-quality" bind:value={defaultPlaybackQuality}>
+                  {#each defaultQualityChoices as quality (quality)}
+                    <option value={quality}>{qualityLabel(quality)}</option>
+                  {/each}
+                </select>
+                <p class="help-text">Used when clicking a player name. The arrow opens its quality menu.</p>
+              </div>
+              <div class="form-group">
+                <span class="label">Transcoding Qualities</span>
+                <div class="quality-presets">
+                  {#each VIDEO_QUALITIES as quality (quality)}
+                    <label class="checkbox-label">
+                      <input type="checkbox" value={quality} bind:group={playbackQualities} />
+                      <span>{quality === '4k' ? '4K' : quality}</span>
+                    </label>
+                  {/each}
+                </div>
+              </div>
+            </div>
+          {:else if activeTab === 'general'}
+            <div class="form-section">
+              <div class="form-group start-group">
                 <span id="custom-actions-label" class="label">Custom Actions</span>
                 <div class="path-display-container">
                   <div
@@ -810,6 +855,12 @@
   .form-group label {
     font-weight: 600;
     font-size: 0.9rem;
+  }
+
+  .quality-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
   }
 
   .checkbox-group {

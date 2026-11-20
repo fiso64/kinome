@@ -1,3 +1,5 @@
+import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
+import { getWorkerStatus, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
  *
@@ -147,6 +149,46 @@ function guardCap(cap: string) {
   }
 }
 
+async function handleDirectStreamRequest({ params, query, request, session }: {
+  params: { id: string }
+  query: Record<string, unknown>
+  request: Request
+  session: { accountId: string }
+}): Promise<Response> {
+  const userId = session.accountId
+  const watchRequested = request.method === 'GET' && (query.watch === '1' || query.watch === 'true')
+  // There is no strong validator for a live media file. An If-Range request gets the full representation.
+  const range = request.headers.has('if-range') ? null : request.headers.get('range')
+  const response = await playbackService.handleCachedStream(params.id, range, {
+    method: request.method,
+    url: request.url,
+    userAgent: request.headers.get('user-agent'),
+    watchRequested,
+    userId
+  })
+  if (!response) return new Response(request.method === 'HEAD' ? null : 'File not found', { status: 404 })
+  if (watchRequested && response.ok) {
+    playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))
+  }
+  return response
+}
+
+async function handleHlsRequest({ params, request, session, server }: {
+  params: { id: string; quality: string; '*': string }
+  request: Request
+  session: { accountId: string }
+  server: { timeout(request: Request, seconds: number): void } | null
+}): Promise<Response> {
+  if (!isPlaybackQuality(params.quality)) return new Response('Invalid quality', { status: 400 })
+  server?.timeout(request, 100)
+  const response = await serveHls(request, params.id, params.quality, params['*'], session.accountId)
+  if (response.ok && request.method === 'GET' && /segment-\d+\.mp4$/.test(params['*'])) {
+    const userId = session.accountId
+    playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))
+  }
+  return response
+}
+
 export function buildApp() {
   return new Elysia()
     .use(cors())
@@ -156,7 +198,8 @@ export function buildApp() {
       const range = request.headers.get('range')
 
       const isStatic = url.startsWith('/api/assets')
-      const isStreamChunk = url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')
+      const isStreamChunk = (url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')) ||
+        (url.startsWith('/api/hls/') && url.endsWith('.mp4'))
       const isInstaller = url.startsWith('/install-kinome-handler')
 
       if ((url.startsWith('/api/') || isInstaller) && !isStatic && !isStreamChunk) {
@@ -168,7 +211,8 @@ export function buildApp() {
       const url = new URL(request.url).pathname
       const range = request.headers.get('range')
       const isStatic = url.startsWith('/api/assets')
-      const isStreamChunk = url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')
+      const isStreamChunk = (url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')) ||
+        (url.startsWith('/api/hls/') && url.endsWith('.mp4'))
 
       if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
         const start = (request as any)._startTime
@@ -502,38 +546,11 @@ export function buildApp() {
         })
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
-        .get('/stream/:id', async ({ params, query, set, request, session }: any) => {
-          const watchRequested = query.watch === '1' || query.watch === 'true'
-          if (watchRequested && session?.accountId) {
-            const userId = session.accountId
-            playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
-          }
-          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'), {
-            method: request.method,
-            url: request.url,
-            userAgent: request.headers.get('user-agent'),
-            watchRequested,
-            userId: session?.accountId
-          })
-          if (!response) { set.status = 404; return 'File not found' }
-          return response
-        })
-        .get('/stream/:id/:filename', async ({ params, query, set, request, session }: any) => {
-          const watchRequested = query.watch === '1' || query.watch === 'true'
-          if (watchRequested && session?.accountId) {
-            const userId = session.accountId
-            playbackService.recordPlaybackDebounced(params.id, userId, (id: string) => libraryService.recordPlayback(id, userId))
-          }
-          const response = await playbackService.handleCachedStream(params.id, request.headers.get('range'), {
-            method: request.method,
-            url: request.url,
-            userAgent: request.headers.get('user-agent'),
-            watchRequested,
-            userId: session?.accountId
-          })
-          if (!response) { set.status = 404; return 'File not found' }
-          return response
-        })
+        .get('/playback/worker-status', async () => ({ status: await getWorkerStatus() }))
+        .get('/stream/:id', handleDirectStreamRequest)
+        .head('/stream/:id', handleDirectStreamRequest)
+        .get('/stream/:id/:filename', handleDirectStreamRequest)
+        .head('/stream/:id/:filename', handleDirectStreamRequest)
         .get('/download/:id', async ({ params, set, session }: { params: any; set: any; session: any }) => {
           const item = (await libraryService.getItemById(params.id)) as any
           if (!item?.path) { set.status = 404; return 'File not found' }
@@ -546,10 +563,19 @@ export function buildApp() {
             }
           })
         })
+        .get('/hls/:id/:quality/*', handleHlsRequest)
+        .head('/hls/:id/:quality/*', handleHlsRequest)
         .get('/playlist/:id', async ({ params, query, request, set }) => {
           const url = new URL(request.url)
+          const quality = query.quality ?? 'original'
+          if (!isPlaybackQuality(quality)) { set.status = 400; return 'Invalid quality' }
+          if (!availablePlaybackQualities(await settingsService.readSettings()).includes(quality)) {
+            set.status = 503
+            return 'Playback quality is unavailable'
+          }
           const m3uContent = await playbackService.generateM3UPlaylist(
-            params.id, url.host, url.protocol, query.token as string | undefined
+            params.id, url.host, url.protocol, url.searchParams.get('token') ?? undefined,
+            quality, url.searchParams.get('clientId') ?? undefined
           )
           if (!m3uContent) { set.status = 404; return 'Item not found' }
           set.headers['Content-Type'] = 'audio/x-mpegurl'

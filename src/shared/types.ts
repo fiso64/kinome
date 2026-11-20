@@ -1,3 +1,4 @@
+import type { PlaybackConversion, PlaybackQuality, VideoQuality } from './playback-quality'
 import type { LocalMedia } from './local-media'
 import type { TmdbMetadata } from './metadata-fields'
 
@@ -280,6 +281,10 @@ export interface ServerSettings {
   serverPort?: number
   serverHost?: string
   refetchRemoteMetadataOnFileChange?: boolean
+  playbackConversion?: PlaybackConversion
+  defaultPlaybackQuality?: PlaybackQuality
+  playbackQualities?: VideoQuality[]
+  gocoderConfigured?: boolean
 }
 
 /**
@@ -340,6 +345,9 @@ export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'serverPort',
   'serverHost',
   'refetchRemoteMetadataOnFileChange',
+  'playbackConversion',
+  'defaultPlaybackQuality',
+  'playbackQualities',
   'libraryLocation'
 ]
 
