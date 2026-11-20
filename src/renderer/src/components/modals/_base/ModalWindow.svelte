@@ -49,11 +49,11 @@
           return
         }
 
-        // If it's a normal Enter in a textarea or pill-input, allow the default behavior (newline/pill).
+        // Let forms, textareas, and pill inputs handle Enter themselves.
         // But if it's Ctrl/Cmd + Enter, we ALWAYS save.
         if (
           !isModEnter &&
-          (target.tagName === 'TEXTAREA' || target.hasAttribute('data-enter-pill'))
+          (target.closest('form') || target.tagName === 'TEXTAREA' || target.hasAttribute('data-enter-pill'))
         ) {
           return
         }

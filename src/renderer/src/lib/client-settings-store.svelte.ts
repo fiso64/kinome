@@ -6,7 +6,7 @@ const STORAGE_KEY = 'kinome:client-settings'
 export interface ClientSettings {
   /**
    * IDs of players available on this device, in preference order.
-   * The first entry is the implicit default. Empty means only the web player is used.
+   * The first entry is the implicit default. An empty list uses the built-in order.
    * Must reference valid built-in or server-side player definition IDs.
    */
   enabledPlayerIds: string[]

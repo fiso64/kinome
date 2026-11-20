@@ -23,7 +23,9 @@
  *
  * Dragging from any part of the item is supported. Interactive elements (inputs,
  * buttons, etc.) are excluded from drag initiation so they retain full native
- * behaviour, including click-drag text selection in inputs.
+ * behaviour. A button marked data-drag-handle can also initiate a drag.
+ * Use external on an item outside the ordered list and dropZone on the list
+ * to allow inserting that item at the drop position.
  */
 
 // Elements whose pointerdown events must not start a drag
@@ -31,37 +33,45 @@ const INTERACTIVE_SELECTOR = 'input, textarea, select, button, a, label, [conten
 // Pixels the pointer must move before a pending pointerdown commits to a drag.
 // This preserves click handlers on non-interactive item areas.
 const DRAG_THRESHOLD = 5
+type DragSource<T> = { index: number } | { item: T }
 
 export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => void) {
   let draggedIndex = $state<number | null>(null)
+  let externalDrag = $state.raw<{ item: T }>()
+  let dropIndex = $state<number | null>(null)
+  let dropTarget: HTMLElement | undefined
 
-  // Map from current array index → registered DOM element
-  const itemEls = new Map<number, HTMLElement>()
+  const itemEls = new Map<HTMLElement, number>()
 
   let floatingEl: HTMLElement | null = null
   let pointerOffsetX = 0
   let pointerOffsetY = 0
   let originalItems: T[] = []
+  let pointerId: number | undefined
+  let dragOrigin: HTMLElement | undefined
+  let originalUserSelect = ''
 
   // --- Pending drag (before threshold crossed) ---
 
-  let pending: { startX: number; startY: number; index: number; itemEl: HTMLElement } | null = null
+  let pending: { startX: number; startY: number; source: DragSource<T>; itemEl: HTMLElement; pointerId: number } | null = null
 
   function onPendingMove(e: PointerEvent) {
-    if (!pending) return
+    if (pending?.pointerId !== e.pointerId) return
     const dx = e.clientX - pending.startX
     const dy = e.clientY - pending.startY
     if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-      const { index, itemEl } = pending
+      const { source, itemEl } = pending
       clearPending()
-      startDrag(e, itemEl, index)
+      startDrag(e, itemEl, source)
     }
   }
 
-  function clearPending() {
+  function clearPending(event?: PointerEvent) {
+    if (event && pending?.pointerId !== event.pointerId) return
     pending = null
     document.removeEventListener('pointermove', onPendingMove)
     document.removeEventListener('pointerup', clearPending)
+    document.removeEventListener('pointercancel', clearPending)
   }
 
   // --- Active drag ---
@@ -72,10 +82,8 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
    * Returns the index at which to insert the dragged item (in the pre-splice array).
    */
   function findInsertIndex(clientY: number): number {
-    if (draggedIndex === null) return 0
-
     const positions: Array<{ index: number; center: number }> = []
-    for (const [idx, el] of itemEls) {
+    for (const [el, idx] of itemEls) {
       if (idx === draggedIndex) continue
       const rect = el.getBoundingClientRect()
       positions.push({ index: idx, center: rect.top + rect.height / 2 })
@@ -96,11 +104,17 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
   }
 
   function onPointerMove(e: PointerEvent) {
-    if (!floatingEl || draggedIndex === null) return
+    if (!floatingEl || e.pointerId !== pointerId) return
 
     // Move the floating clone to follow the pointer
     floatingEl.style.left = `${e.clientX - pointerOffsetX}px`
     floatingEl.style.top = `${e.clientY - pointerOffsetY}px`
+
+    if (externalDrag) {
+      dropIndex = externalInsertionIndex(e)
+      return
+    }
+    if (draggedIndex === null) return
 
     // Compute the new insertion position
     const targetIndex = findInsertIndex(e.clientY)
@@ -115,16 +129,41 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     }
   }
 
-  function onPointerUp() {
+  function externalInsertionIndex(e: PointerEvent): number | null {
+    return dropTarget?.contains(document.elementFromPoint(e.clientX, e.clientY))
+      ? findInsertIndex(e.clientY)
+      : null
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    if (e.pointerId !== pointerId) return
+    const external = externalDrag
+    const index = external ? externalInsertionIndex(e) : null
     cleanup()
+
+    // The pointer release can still dispatch a click on a card or its controls.
+    const suppressClick = (event: MouseEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+    }
+    document.addEventListener('click', suppressClick, { capture: true, once: true })
+    setTimeout(() => document.removeEventListener('click', suppressClick, true), 0)
+
+    if (external && index !== null) {
+      const items = [...getItems()]
+      items.splice(index, 0, external.item)
+      setItems(items)
+    }
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      setItems(originalItems)
-      draggedIndex = null
-      cleanup()
-    }
+    if (e.key === 'Escape') cancelDrag()
+  }
+
+  function cancelDrag(e?: PointerEvent) {
+    if (e && e.pointerId !== pointerId) return
+    if (draggedIndex !== null) setItems(originalItems)
+    cleanup()
   }
 
   function cleanup() {
@@ -132,28 +171,24 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     if (floatingEl) {
       floatingEl.remove()
       floatingEl = null
+      document.body.style.userSelect = originalUserSelect
     }
     document.removeEventListener('pointermove', onPointerMove)
     document.removeEventListener('pointerup', onPointerUp)
+    document.removeEventListener('pointercancel', cancelDrag)
     document.removeEventListener('keydown', onKeyDown)
-    document.body.style.userSelect = ''
+    pointerId = undefined
+    dragOrigin = undefined
     draggedIndex = null
+    externalDrag = undefined
+    dropIndex = null
   }
 
-  function startDrag(e: PointerEvent, itemEl: HTMLElement, index: number) {
+  function startDrag(e: PointerEvent, itemEl: HTMLElement, source: DragSource<T>) {
     e.preventDefault()
-
-    // After the drag gesture ends (pointerup), the browser may fire a click event.
-    // Suppress it so item onclick handlers don't fire after a drag.
-    const suppressClick = (ev: MouseEvent) => {
-      ev.stopPropagation()
-      ev.preventDefault()
-      document.removeEventListener('click', suppressClick, true)
-    }
-    document.addEventListener('click', suppressClick, true)
-
+    pointerId = e.pointerId
+    dragOrigin = itemEl
     originalItems = [...getItems()]
-    draggedIndex = index
 
     const rect = itemEl.getBoundingClientRect()
     pointerOffsetX = e.clientX - rect.left
@@ -176,33 +211,27 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     floatingEl.style.transition = 'box-shadow 0.15s, transform 0.15s'
     document.body.appendChild(floatingEl)
 
+    originalUserSelect = document.body.style.userSelect
     document.body.style.userSelect = 'none'
+    if ('index' in source) draggedIndex = source.index
+    else externalDrag = source
+    onPointerMove(e)
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', cancelDrag)
     document.addEventListener('keydown', onKeyDown)
   }
 
   /** Svelte action for item container elements. */
   function item(el: HTMLElement, index: number) {
     el.dataset.dragItem = 'true'
-    itemEls.set(index, el)
+    itemEls.set(el, index)
     return {
       update(newIndex: number) {
-        for (const [k, v] of itemEls) {
-          if (v === el) {
-            itemEls.delete(k)
-            break
-          }
-        }
-        itemEls.set(newIndex, el)
+        itemEls.set(el, newIndex)
       },
       destroy() {
-        for (const [k, v] of itemEls) {
-          if (v === el) {
-            itemEls.delete(k)
-            break
-          }
-        }
+        itemEls.delete(el)
         delete el.dataset.dragItem
       }
     }
@@ -217,40 +246,57 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
    * regardless of where this action is applied.
    */
   function handle(el: HTMLElement, index: number) {
+    const destroy = dragHandle(el, () => ({ index }))
+    return { update: (value: number) => { index = value }, destroy }
+  }
+
+  function external(el: HTMLElement, item: T) {
+    const destroy = dragHandle(el, () => ({ item }))
+    return { update: (value: T) => { item = value }, destroy }
+  }
+
+  function dragHandle(el: HTMLElement, getSource: () => DragSource<T>) {
     el.style.cursor = 'grab'
+    let itemEl: HTMLElement | undefined
 
     function onPointerDown(e: PointerEvent) {
-      if (e.button !== 0) return
+      if (e.button !== 0 || pending || floatingEl) return
       // If the click landed on or inside an interactive element, do nothing —
       // let the browser handle it (text selection, focus, button click, etc.)
-      if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) return
-
-      const itemEl = el.closest('[data-drag-item]') as HTMLElement | null
-      if (!itemEl) return
+      const control = (e.target as Element).closest(INTERACTIVE_SELECTOR)
+      if (control && !control.hasAttribute('data-drag-handle')) return
+      itemEl = el.closest<HTMLElement>('[data-drag-item]') ?? el
 
       // Arm a pending drag. Only commit after the pointer moves past the threshold
       // so that plain clicks on the item still fire onclick handlers.
-      pending = { startX: e.clientX, startY: e.clientY, index, itemEl }
+      pending = { startX: e.clientX, startY: e.clientY, source: getSource(), itemEl, pointerId: e.pointerId }
       document.addEventListener('pointermove', onPendingMove)
       document.addEventListener('pointerup', clearPending)
+      document.addEventListener('pointercancel', clearPending)
     }
 
     el.addEventListener('pointerdown', onPointerDown)
-    return {
-      update(newIndex: number) {
-        index = newIndex
-      },
-      destroy() {
-        el.removeEventListener('pointerdown', onPointerDown)
-      }
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown)
+      if (itemEl && dragOrigin === itemEl) cleanup()
+      else if (itemEl && pending?.itemEl === itemEl) clearPending()
     }
+  }
+
+  function dropZone(el: HTMLElement) {
+    dropTarget = el
+    return { destroy: () => { if (dropTarget === el) dropTarget = undefined } }
   }
 
   return {
     get draggedIndex() {
       return draggedIndex
     },
+    get externalItem() { return externalDrag?.item },
+    get dropIndex() { return dropIndex },
     item,
-    handle
+    handle,
+    external,
+    dropZone
   }
 }

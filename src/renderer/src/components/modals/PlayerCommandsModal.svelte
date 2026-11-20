@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onDestroy, tick, untrack } from 'svelte'
+  import { flip } from 'svelte/animate'
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { BUILTIN_PLAYER_COMMANDS } from '@lib/services/player-launcher.service'
-  import { flip } from 'svelte/animate'
+  import { BUILTIN_COPY_LINK, resolveClientPlayers } from '@lib/services/player-launcher.service'
 
   let {
     playerCommands = $bindable(),
@@ -15,587 +16,492 @@
     onClose: () => void
   } = $props()
 
-  // --- Handler state ---
-  let clientSecret = $state<string | null>(null)
-  let handlerTested = $state(false)
-  let isTestingHandler = $state(false)
-  let testResult = $state<'idle' | 'success' | 'error'>('idle')
-  let testErrorMessage = $state('')
-  let forceShowSetup = $state(false)
-  let copiedId = $state<string | null>(null)
-  let isWebSocketConnected = $state(api.getIsWebSocketConnected())
-
-  $effect(() => {
-    return api.onWebSocketStatusChanged((connected) => {
-      isWebSocketConnected = connected
-    })
+  let definitions = $state(untrack(() => playerCommands
+    .filter((command) => !command.isBuiltIn)
+    .map((command) => ({ ...command }))))
+  let enabledIds = $state(untrack(() => [...clientSettingsStore.settings.enabledPlayerIds]))
+  type CommandDraft = { id?: string; name: string; command: string }
+  let editor = $state<CommandDraft | null>(null)
+  let editorForm = $state<HTMLFormElement>()
+  let addPlayerButton = $state<HTMLButtonElement>()
+  let selectedId = $state<string | null>(null)
+  const canSaveCommand = $derived(Boolean(editor?.name.trim() && editor.command.trim()))
+  const originalCommand = $derived(definitions.find((command) => command.id === editor?.id))
+  const commandChanged = $derived(Boolean(editor && (
+    editor.name !== (originalCommand?.name ?? '') || editor.command !== (originalCommand?.command ?? '')
+  )))
+  const devicePlayers = $derived(resolveClientPlayers(definitions, enabledIds))
+  const selectedPlayer = $derived(devicePlayers.find((player) => player.id === selectedId)
+    ?? definitions.find((player) => player.id === selectedId))
+  const availablePlayers = $derived.by(() => {
+    const enabled = new Set(enabledIds)
+    return definitions.filter((command) => !enabled.has(command.id))
   })
 
-  // --- Definitions state (server-side: custom players only, no built-ins) ---
-  let localServerDefinitions = $state<PlayerCommandConfig[]>([])
-  let editCommandId = $state<string | null>(null)
-  let formNameForNew = $state('')
-  let formCommandForNew = $state('')
-  let modalContentRef = $state<HTMLDivElement | null>(null)
+  let editorPanel = $state<HTMLElement>()
 
-  // --- Device state (client-side: ordered enabled player IDs) ---
-  let localEnabledPlayerIds = $state<string[]>([])
+  const dragSort = useDragSort(
+    () => devicePlayers,
+    (players) => { enabledIds = players.map((player) => player.id) }
+  )
 
-  $effect(() => {
-    const stored = localStorage.getItem('kinome_client_secret')
-    clientSecret = stored ?? crypto.randomUUID()
-    if (!stored) localStorage.setItem('kinome_client_secret', clientSecret!)
+  function movePlayer(index: number, direction: -1 | 1) {
+    const next = index + direction
+    if (next < 0 || next >= devicePlayers.length) return
+    const ids = devicePlayers.map((player) => player.id)
+    ;[ids[index], ids[next]] = [ids[next], ids[index]]
+    enabledIds = ids
+  }
 
-    handlerTested = localStorage.getItem('kinome_handler_tested') === 'true'
+  function enablePlayer(id: string) {
+    enabledIds = [...devicePlayers.map((player) => player.id), id]
+  }
 
-    // Strip built-ins from server definitions — they are implicit, not stored server-side
-    localServerDefinitions = playerCommands.filter((c) => !c.isBuiltIn)
+  function disablePlayer(id: string) {
+    enabledIds = devicePlayers.filter((player) => player.id !== id).map((player) => player.id)
+  }
 
-    // Init client-side selection; ensure built-ins are always present for ordering
-    let ids = [...clientSettingsStore.settings.enabledPlayerIds]
-    for (const builtin of BUILTIN_PLAYER_COMMANDS) {
-      if (!ids.includes(builtin.id)) ids.push(builtin.id)
+  function removeCommand(id: string) {
+    definitions = definitions.filter((command) => command.id !== id)
+    disablePlayer(id)
+    if (selectedId === id) {
+      selectedId = null
+      editor = null
     }
-    localEnabledPlayerIds = ids
+  }
+
+  function saveCommand() {
+    if (!editor || !canSaveCommand) return false
+    const command = { id: editor.id ?? crypto.randomUUID(), name: editor.name.trim(), command: editor.command.trim() }
+    if (editor.id) {
+      definitions = definitions.map((entry) => entry.id === command.id ? command : entry)
+      editor = { ...command }
+    } else {
+      definitions = [...definitions, command]
+      enablePlayer(command.id)
+      selectedId = null
+      editor = null
+    }
+    return true
+  }
+
+  function submitCommand(event: SubmitEvent) {
+    event.preventDefault()
+    const adding = !editor?.id
+    if (saveCommand() && adding) void tick().then(() => addPlayerButton?.focus())
+  }
+
+  function applyPendingEdit(): boolean {
+    if (!commandChanged || saveCommand()) return true
+    editorForm?.reportValidity()
+    return false
+  }
+
+  async function revealEditor() {
+    if (!window.matchMedia('(max-width: 760px)').matches) return
+    await tick()
+    editorPanel?.scrollIntoView({ block: 'nearest' })
+  }
+
+  function selectPlayer(player: PlayerCommandConfig) {
+    if (player.id !== selectedId) {
+      if (!applyPendingEdit()) return
+      selectedId = player.id
+      editor = player.isBuiltIn ? null : { ...player }
+    }
+    void revealEditor()
+  }
+
+  async function addPlayer() {
+    if (!applyPendingEdit()) return
+    selectedId = null
+    editor = { name: '', command: '' }
+    await tick()
+    editorForm?.querySelector('input')?.focus()
+  }
+
+  function resetEditor() {
+    editor = originalCommand ? { ...originalCommand } : null
+  }
+
+  function handleSave() {
+    if (!applyPendingEdit()) return
+    playerCommands = definitions.map((command) => ({ ...command }))
+    clientSettingsStore.update({ enabledPlayerIds: devicePlayers.map((player) => player.id) })
+    onClose()
+  }
+
+  let handlerTested = $state(localStorage.getItem('kinome_handler_tested') === 'true')
+  let isWebSocketConnected = $state(api.getIsWebSocketConnected())
+  let isTesting = $state(false)
+  let testError = $state('')
+  let showInstallers = $state(false)
+  let clientSecret = $state(localStorage.getItem('kinome_client_secret') ?? '')
+  let copied = $state<string | null>(null)
+  let cancelTest: (() => void) | undefined
+  let copyTimeout: ReturnType<typeof setTimeout> | undefined
+
+  $effect(() => api.onWebSocketStatusChanged((connected) => { isWebSocketConnected = connected }))
+
+  onDestroy(() => {
+    cancelTest?.()
+    clearTimeout(copyTimeout)
   })
 
-  // --- Derived device lists ---
-  const enabledDeviceItems = $derived(
-    localEnabledPlayerIds
-      .map((id) => {
-        const builtin = BUILTIN_PLAYER_COMMANDS.find((p) => p.id === id)
-        if (builtin) return builtin
-        return localServerDefinitions.find((d) => d.id === id) ?? null
-      })
-      .filter(Boolean) as PlayerCommandConfig[]
+  function getClientSecret(): string {
+    if (!clientSecret) {
+      clientSecret = crypto.randomUUID()
+      localStorage.setItem('kinome_client_secret', clientSecret)
+    }
+    return clientSecret
+  }
+
+  const handlerStatus = $derived(
+    isTesting ? 'Waiting for the handler…'
+    : testError || (handlerTested ? 'Handler verified on this device.' : 'Handler setup has not been verified.')
   )
 
-  const disabledDeviceItems = $derived(
-    localServerDefinitions.filter((d) => !localEnabledPlayerIds.includes(d.id))
-  )
-
-  // devDrag sorts enabledDeviceItems directly (not localEnabledPlayerIds) to avoid
-  // any indirection that could cause mismatch between what's displayed and what's sorted.
-  const devDrag = useDragSort(
-    () => enabledDeviceItems,
-    (items) => (localEnabledPlayerIds = items.map((p) => p.id))
-  )
-
-  // --- Handler test ---
-  async function testHandlerConnection() {
-    if (!clientSecret) return
-    isTestingHandler = true
-    testResult = 'idle'
-    testErrorMessage = ''
+  async function testHandler() {
+    const secret = getClientSecret()
     const sessionId = crypto.randomUUID()
-
-    const cleanup = api.onHandlerTestSuccess((data) => {
-      if (data.sessionId === sessionId) {
-        cleanup()
-        if (timeoutId) clearTimeout(timeoutId)
-        isTestingHandler = false
-        testResult = 'success'
-        handlerTested = true
-        localStorage.setItem('kinome_handler_tested', 'true')
-      }
+    isTesting = true
+    testError = ''
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let frame: HTMLIFrameElement | undefined
+    const unsubscribe = api.onHandlerTestSuccess((event) => {
+      if (event.sessionId !== sessionId) return
+      cleanup()
+      handlerTested = true
+      localStorage.setItem('kinome_handler_tested', 'true')
     })
-
-    let timeoutId: any = null
+    function cleanup() {
+      unsubscribe()
+      clearTimeout(timeout)
+      frame?.remove()
+      cancelTest = undefined
+      isTesting = false
+    }
+    cancelTest = cleanup
     try {
-      await api.startHandlerTest(sessionId)
-      const handshakeUrl = `${window.location.origin}/api/handler-test/${sessionId}`
-      const testUrl = `kinome://test?secret=${encodeURIComponent(clientSecret!)}&url=${encodeURIComponent(btoa(handshakeUrl))}`
-      const iframe = document.createElement('iframe')
-      iframe.style.display = 'none'
-      iframe.src = testUrl
-      document.body.appendChild(iframe)
-      setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe) }, 1000)
-      timeoutId = setTimeout(() => {
+      const result = await api.startHandlerTest(sessionId)
+      if (cancelTest !== cleanup) return
+      if (!result.success) throw new Error('The server could not start the test.')
+      const callback = btoa(`${window.location.origin}/api/handler-test/${sessionId}`)
+      frame = document.createElement('iframe')
+      frame.hidden = true
+      frame.src = `kinome://test?secret=${encodeURIComponent(secret)}&url=${encodeURIComponent(callback)}`
+      document.body.appendChild(frame)
+      timeout = setTimeout(() => {
         cleanup()
-        if (isTestingHandler) {
-          isTestingHandler = false
-          testResult = 'error'
-          testErrorMessage = "No response from handler. Make sure it's installed correctly."
-        }
+        testError = 'No response from the handler. Check the installation and try again.'
       }, 5000)
     } catch (error) {
+      if (cancelTest !== cleanup) return
       cleanup()
-      isTestingHandler = false
-      testResult = 'error'
-      testErrorMessage = 'Failed to start test: ' + (error as Error).message
+      testError = error instanceof Error ? error.message : 'Could not start the handler test.'
     }
   }
 
-  function getStatusMessage() {
-    if (!isWebSocketConnected) return 'Waiting for server connection (WebSocket offline)...'
-    if (isTestingHandler) return 'Testing Connection...'
-    if (testResult === 'success') return 'Test Successful'
-    if (testResult === 'error') return `${testErrorMessage || 'Test Failed'}`
-    if (handlerTested) return 'Local handler installation detected'
-    return 'Handler not yet tested'
-  }
+  const installers = $derived([
+    { id: 'windows', label: 'Windows PowerShell', command: `irm ${window.location.origin}/install-kinome-handler.ps1?secret=${clientSecret} | iex` },
+    { id: 'linux', label: 'Linux or macOS', command: `curl -fsSL ${window.location.origin}/install-kinome-handler.sh | SECRET=${clientSecret} bash` },
+    { id: 'secret', label: 'Client secret', command: clientSecret }
+  ])
 
-  function getInstallerCommands() {
-    if (!clientSecret) return { windows: '', linux: '' }
-    const baseUrl = window.location.origin
-    return {
-      windows: `irm ${baseUrl}/install-kinome-handler.ps1?secret=${clientSecret} | iex`,
-      linux: `curl -fsSL ${baseUrl}/install-kinome-handler.sh | SECRET=${clientSecret} bash`
-    }
-  }
-
-  // --- Clipboard ---
-  async function copyToClipboard(text: string, id: string) {
+  async function copy(text: string, id: string) {
     try {
       await navigator.clipboard.writeText(text)
-      copiedId = id
-      setTimeout(() => { if (copiedId === id) copiedId = null }, 2000)
-    } catch (err) {
-      console.error('Failed to copy', err)
+      copied = id
+    } catch {
+      copied = `${id}-error`
     }
-  }
-
-  // --- Definition management ---
-  function handleWindowClick(event: MouseEvent) {
-    if (!editCommandId) return
-    const target = event.target as HTMLElement
-    if (modalContentRef && !modalContentRef.contains(target)) { editCommandId = null; return }
-    if (target.tagName !== 'INPUT') editCommandId = null
-  }
-
-  function removeDefinition(id: string) {
-    localServerDefinitions = localServerDefinitions.filter((c) => c.id !== id)
-    localEnabledPlayerIds = localEnabledPlayerIds.filter((eid) => eid !== id)
-    if (editCommandId === id) editCommandId = null
-  }
-
-  function handleAddDefinition() {
-    if (formNameForNew.trim() && formCommandForNew.trim()) {
-      localServerDefinitions = [
-        ...localServerDefinitions,
-        { id: crypto.randomUUID(), name: formNameForNew.trim(), command: formCommandForNew.trim() }
-      ]
-      formNameForNew = ''
-      formCommandForNew = ''
-    }
-  }
-
-  // --- Device management ---
-  function enableOnDevice(id: string) {
-    if (!localEnabledPlayerIds.includes(id)) {
-      localEnabledPlayerIds = [...localEnabledPlayerIds, id]
-    }
-  }
-
-  function disableOnDevice(id: string) {
-    localEnabledPlayerIds = localEnabledPlayerIds.filter((eid) => eid !== id)
-  }
-
-
-
-  // --- Save ---
-  function handleSave() {
-    playerCommands = [...localServerDefinitions]
-    clientSettingsStore.update({ enabledPlayerIds: localEnabledPlayerIds })
-    onClose()
+    clearTimeout(copyTimeout)
+    copyTimeout = setTimeout(() => { copied = null }, 2000)
   }
 </script>
 
-<svelte:window onmousedown={handleWindowClick} />
-
-<ModalWindow title="Manage Players" {onClose} onSave={handleSave} maxWidth="900px" zIndex={101}>
-  <div class="content" bind:this={modalContentRef}>
-
-    <!-- Handler Status -->
-    <div class="test-section">
-      <div
-        class="connection-status-card"
-        class:success={testResult === 'success' || (testResult === 'idle' && handlerTested)}
-        class:error={testResult === 'error'}
-        class:testing={isTestingHandler}
-      >
-        <div class="status-info">
-          <div class="indicator-dot"></div>
-          <div class="status-details">
-            <span class="label">Local Handler</span>
-            <span class="message">{getStatusMessage()}</span>
-          </div>
-        </div>
-        <div class="test-actions">
-          {#if handlerTested}
-            <button class="test-action-btn secondary" onclick={() => (forceShowSetup = !forceShowSetup)}>
-              {forceShowSetup ? 'Back to Players' : 'Setup Instructions'}
-            </button>
-          {/if}
-          <button
-            class="test-action-btn"
-            onclick={testHandlerConnection}
-            disabled={isTestingHandler || !isWebSocketConnected}
-          >
-            {#if !isWebSocketConnected}Offline{:else if isTestingHandler}Testing...{:else}Test Connection{/if}
-          </button>
-        </div>
-      </div>
+{#snippet commandEditor(draft: CommandDraft)}
+  <form
+    class="command-form"
+    bind:this={editorForm}
+    onsubmit={submitCommand}
+  >
+    <label for="player-command-name">Player name</label>
+    <input id="player-command-name" bind:value={draft.name} required pattern={'.*\\S.*'} />
+    <label for="player-command-template">Launch command</label>
+    <input
+      id="player-command-template"
+      bind:value={draft.command}
+      placeholder="mpv --prefetch-playlist=no &lt;url&gt;"
+      required
+      pattern={'.*\\S.*'}
+      aria-describedby="player-command-hint"
+    />
+    <p id="player-command-hint">Use <code>&lt;url&gt;</code> for the playlist URL. Disable player prefetching to avoid marking queued items watched early.</p>
+    <div class="form-actions">
+      {#if draft.id}
+        {@const id = draft.id}
+        <button type="button" class="remove-command" onclick={() => removeCommand(id)}>Remove</button>
+      {/if}
+      <button type="button" class="secondary compact" disabled={!!draft.id && !commandChanged} onclick={resetEditor}>Cancel edit</button>
+      <button type="submit" class="primary compact" disabled={!canSaveCommand || !commandChanged}>{draft.id ? 'Apply' : 'Add'}</button>
     </div>
+  </form>
+{/snippet}
 
-    {#if !handlerTested || forceShowSetup}
-      <!-- Setup Mode -->
-      <div class="setup-mode">
-        <h3>Setup Local Player Handler</h3>
-        <p>Run this command in your terminal to install the handler:</p>
-        <div class="installer-commands">
-          <div class="command-block">
-            <label>Windows (PowerShell)</label>
-            <div class="code-wrapper">
-              <input readonly value={getInstallerCommands().windows} class="code-box" />
-              <button class="copy-btn" class:copied={copiedId === 'win'} onclick={() => copyToClipboard(getInstallerCommands().windows, 'win')}>
-                {copiedId === 'win' ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-          <div class="command-block">
-            <label>Linux / macOS</label>
-            <div class="code-wrapper">
-              <input readonly value={getInstallerCommands().linux} class="code-box" />
-              <button class="copy-btn" class:copied={copiedId === 'linux'} onclick={() => copyToClipboard(getInstallerCommands().linux, 'linux')}>
-                {copiedId === 'linux' ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="secret-display">
-          <label>Your Client Secret:</label>
-          <div class="code-wrapper">
-            <input readonly value={clientSecret} class="code-box" />
-            <button class="copy-btn" class:copied={copiedId === 'secret'} onclick={() => copyToClipboard(clientSecret || '', 'secret')}>
-              {copiedId === 'secret' ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
-        </div>
-        <div class="hint-box">
-          <p><strong>Next Steps:</strong></p>
-          <ol>
-            <li>Copy and run one of the installer commands above</li>
-            <li>Click "Test Connection" to verify the installation</li>
-            <li>On success, enable players for this device in the panel on the right</li>
-          </ol>
-        </div>
-      </div>
+{#snippet playerCard(player: PlayerCommandConfig, index?: number)}
+  <button
+    class="player-select"
+    data-drag-handle
+    aria-pressed={selectedId === player.id}
+    aria-label={`Select ${player.name}`}
+    onclick={() => selectPlayer(player)}
+  >
+    <span class="drag-handle" aria-hidden="true">⠿</span>
+    <span class="player-name">
+      <strong>{player.name}</strong>
+      {#if index === 0}<span class="default-tag">Default</span>{/if}
+    </span>
+  </button>
+  <div class="row-actions">
+    {#if index === undefined}
+      <button class="secondary compact" aria-label={`Enable ${player.name} on this device`} onclick={() => enablePlayer(player.id)}>Enable</button>
     {:else}
-      <!-- Management Mode: two panels -->
-      <div class="management-panels">
-
-        <!-- Left: Server-side definitions -->
-        <div class="panel">
-          <h3>Player Definitions</h3>
-          <p class="panel-subtitle">Shared across all devices</p>
-          <div class="player-note">
-            Disable playlist or media prefetching in external players so queued items are not marked watched early.
-            For mpv, use <code>mpv --prefetch-playlist=no &lt;url&gt;</code>.
-          </div>
-
-          <div class="definition-list">
-            {#each localServerDefinitions as cmd (cmd.id)}
-              <div
-                class="definition-item"
-                class:editing={editCommandId === cmd.id}
-                onclick={() => { editCommandId = editCommandId === cmd.id ? null : cmd.id }}
-              >
-                {#if editCommandId === cmd.id}
-                  <div class="edit-inputs">
-                    <input
-                      type="text"
-                      bind:value={cmd.name}
-                      placeholder="Player Name"
-                      onclick={(e) => e.stopPropagation()}
-                      oninput={(e) => { e.stopPropagation(); localServerDefinitions = localServerDefinitions }}
-                    />
-                    <input
-                      type="text"
-                      bind:value={cmd.command}
-                      placeholder="Command"
-                      onclick={(e) => e.stopPropagation()}
-                      oninput={(e) => { e.stopPropagation(); localServerDefinitions = localServerDefinitions }}
-                    />
-                  </div>
-                {:else}
-                  <div class="definition-details">
-                    <div class="definition-name">{cmd.name}</div>
-                    <div class="definition-command">{cmd.command}</div>
-                  </div>
-                {/if}
-                <button class="remove-btn" onclick={(e) => { e.stopPropagation(); removeDefinition(cmd.id) }}>
-                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                  </svg>
-                </button>
-              </div>
-            {/each}
-
-            {#if localServerDefinitions.length === 0}
-              <p class="empty-hint">No custom players defined yet.</p>
-            {/if}
-          </div>
-
-          <div class="add-form">
-            <h4>Add Player</h4>
-            <input type="text" bind:value={formNameForNew} placeholder="Name (e.g. MPV)" />
-            <input type="text" bind:value={formCommandForNew} placeholder="Command (e.g. mpv --prefetch-playlist=no --fullscreen <url>)" />
-            <button
-              class="primary"
-              onclick={handleAddDefinition}
-              disabled={!formNameForNew.trim() || !formCommandForNew.trim()}
-            >Add</button>
-          </div>
-        </div>
-
-        <!-- Right: This Device -->
-        <div class="panel">
-          <h3>This Device</h3>
-          <p class="panel-subtitle">Enabled players in priority order — drag to reorder</p>
-
-          <div class="device-list">
-            <!-- Enabled items (draggable) -->
-            {#each enabledDeviceItems as player, i (player.id)}
-              <div
-                class="device-item enabled"
-                use:devDrag.item={i}
-                use:devDrag.handle={i}
-                class:drag-placeholder={devDrag.draggedIndex === i}
-                animate:flip={{ duration: 200 }}
-              >
-                <div class="drag-handle">⠿</div>
-                <div class="device-item-name">
-                  {player.name}
-                  {#if i === 0}<span class="badge">Default</span>{/if}
-                  {#if player.isBuiltIn}<span class="badge builtin">Always available</span>{/if}
-                </div>
-                {#if !player.isBuiltIn}
-                  <button class="toggle-btn on" onclick={() => disableOnDevice(player.id)}>
-                    Enabled
-                  </button>
-                {/if}
-              </div>
-            {/each}
-
-            <!-- Disabled custom items -->
-            {#each disabledDeviceItems as player (player.id)}
-              <div class="device-item disabled">
-                <div class="drag-handle inactive">⠿</div>
-                <div class="device-item-name">{player.name}</div>
-                <button class="toggle-btn off" onclick={() => enableOnDevice(player.id)}>
-                  Enable
-                </button>
-              </div>
-            {/each}
-
-            {#if enabledDeviceItems.length <= 1 && disabledDeviceItems.length === 0}
-              <p class="empty-hint">Add custom players in the Definitions panel, then enable them here.</p>
-            {/if}
-          </div>
-        </div>
-
+      {#if !player.isBuiltIn}
+        <button class="quiet-button compact" aria-label={`Disable ${player.name} on this device`} onclick={() => disablePlayer(player.id)}>Disable</button>
+      {/if}
+      <div class="order-controls">
+        <button class="quiet-button icon-button" aria-label={`Move ${player.name} up`} disabled={index === 0} onclick={() => movePlayer(index, -1)}>↑</button>
+        <button class="quiet-button icon-button" aria-label={`Move ${player.name} down`} disabled={index === devicePlayers.length - 1} onclick={() => movePlayer(index, 1)}>↓</button>
       </div>
     {/if}
+  </div>
+{/snippet}
+
+<ModalWindow title="Manage Players" {onClose} onSave={handleSave} maxWidth="860px" zIndex={101}>
+  <div class="content">
+    <div class="player-grid">
+      <section class="panel" aria-labelledby="player-order-heading">
+        <header class="panel-header">
+          <h3 id="player-order-heading">This device</h3>
+          <p>Drag or use the arrows to change the play order.</p>
+        </header>
+        <ol class="player-list" data-testid="player-order" aria-label="Play order" use:dragSort.dropZone>
+          {#each devicePlayers as player, index (player.id)}
+            <li
+              class="player-row"
+              use:dragSort.item={index}
+              use:dragSort.handle={index}
+              class:selected={selectedId === player.id}
+              class:drag-placeholder={dragSort.draggedIndex === index}
+              class:insert-before={dragSort.dropIndex === index}
+              class:insert-after={dragSort.dropIndex === index + 1 && index === devicePlayers.length - 1}
+              animate:flip={{ duration: 180 }}
+              data-player-id={player.id}
+            >
+              {@render playerCard(player, index)}
+            </li>
+          {/each}
+        </ol>
+        {#if availablePlayers.length}
+          <h4 id="available-players-heading">Available to enable</h4>
+          <ul class="player-list" aria-labelledby="available-players-heading">
+            {#each availablePlayers as player (player.id)}
+              <li
+                class="player-row"
+                use:dragSort.external={player}
+                class:selected={selectedId === player.id}
+                class:drag-placeholder={dragSort.externalItem?.id === player.id}
+                data-player-id={player.id}
+              >
+                {@render playerCard(player)}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+
+      <section class="panel" aria-labelledby="player-details-heading" bind:this={editorPanel}>
+        <header class="panel-header editor-header">
+          <h3 id="player-details-heading">{selectedPlayer?.name ?? (editor ? 'New player' : 'Player details')}</h3>
+          <button class="secondary compact" bind:this={addPlayerButton} disabled={!!editor && !editor.id} onclick={addPlayer}>Add player</button>
+        </header>
+        {#if editor}
+          <p>Launch commands are shared across devices.</p>
+          {@render commandEditor(editor)}
+        {:else if selectedPlayer?.isBuiltIn}
+          <p>{selectedPlayer.id === BUILTIN_COPY_LINK.id
+            ? 'Copies the playback link to your clipboard.'
+            : 'Copies a playlist link to your clipboard.'}</p>
+        {:else}
+          <p>Select a player to view or edit it.</p>
+        {/if}
+      </section>
+    </div>
+
+    <section class="handler-panel" aria-labelledby="player-handler-heading">
+      <div class="handler-summary">
+        <div class="handler-text">
+          <h3 id="player-handler-heading">Local player handler</h3>
+          <p class="handler-status" role="status">{handlerStatus}{!isWebSocketConnected ? ' Testing needs a live connection.' : ''}</p>
+        </div>
+        <div class="handler-actions">
+          <button class="secondary compact" onclick={testHandler} disabled={isTesting || !isWebSocketConnected}>Test connection</button>
+          <button
+            class="secondary compact"
+            aria-expanded={showInstallers}
+            aria-controls={showInstallers ? 'handler-installers' : undefined}
+            onclick={() => {
+              if (!showInstallers) getClientSecret()
+              showInstallers = !showInstallers
+            }}
+          >Installation instructions</button>
+        </div>
+      </div>
+
+      {#if showInstallers}
+        <div id="handler-installers" class="installer-list">
+          <p>Install the handler on this device to launch custom players.</p>
+          {#each installers as installer (installer.id)}
+            <div class="installer">
+              <label for={`handler-${installer.id}`}>{installer.label}</label>
+              <div class="installer-command">
+                <input id={`handler-${installer.id}`} readonly value={installer.command} />
+                <button class="secondary compact" disabled={!clientSecret} onclick={() => copy(installer.command, installer.id)}>
+                  {copied === installer.id ? 'Copied' : copied === `${installer.id}-error` ? 'Copy failed' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
   </div>
 </ModalWindow>
 
 <style>
   .content {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  /* Handler status (unchanged) */
-  .test-section { margin-bottom: 0.5rem; }
-
-  .connection-status-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    background: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 8px;
-    height: 56px;
-    transition: all 0.3s ease;
-  }
-
-  .status-info { display: flex; align-items: center; gap: 1rem; }
-  .indicator-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--ev-c-text-3);
-    box-shadow: 0 0 0 4px rgba(255,255,255,0.05);
-    transition: all 0.3s ease;
-  }
-  .status-details { display: flex; flex-direction: column; gap: 2px; }
-  .status-details .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ev-c-text-3); font-weight: 600; }
-  .status-details .message { font-size: 0.9rem; color: var(--ev-c-text-1); font-weight: 500; }
-  .test-actions { display: flex; gap: 0.5rem; }
-  .test-action-btn { padding: 0.4rem 1rem; font-size: 0.8rem; background: var(--color-background-mute); border: 1px solid transparent; border-radius: 4px; color: var(--ev-c-text-2); cursor: pointer; transition: all 0.2s; }
-  .test-action-btn:hover:not(:disabled) { background: var(--ev-c-gray-3); color: var(--ev-c-text-1); }
-  .test-action-btn.secondary { background: transparent; border-color: var(--color-background-mute); }
-  .test-action-btn.secondary:hover { background: var(--color-background-mute); }
-  .connection-status-card.success { border-color: rgba(40,167,69,0.3); background: rgba(40,167,69,0.05); }
-  .connection-status-card.success .indicator-dot { background: #28a745; box-shadow: 0 0 8px rgba(40,167,69,0.4); }
-  .connection-status-card.error { border-color: rgba(220,53,69,0.3); background: rgba(220,53,69,0.05); }
-  .connection-status-card.error .indicator-dot { background: #dc3545; box-shadow: 0 0 8px rgba(220,53,69,0.4); }
-  .connection-status-card.testing .indicator-dot { background: var(--ev-c-blue-1); box-shadow: 0 0 8px rgba(0,123,255,0.4); animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
-
-  /* Setup mode (unchanged) */
-  .setup-mode { display: flex; flex-direction: column; gap: 1.5rem; }
-  .setup-mode h3 { margin-bottom: 0.5rem; color: var(--ev-c-text-1); }
-  .installer-commands { display: flex; flex-direction: column; gap: 1rem; }
-  .command-block { display: flex; flex-direction: column; gap: 0.5rem; }
-  .command-block label { font-weight: bold; font-size: 0.9rem; color: var(--ev-c-text-1); }
-  .code-wrapper { display: flex; gap: 0.5rem; align-items: center; }
-  .code-wrapper .code-box { flex: 1; background: #0d1117; padding: 1rem; border-radius: 8px; font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; font-size: 0.85rem; color: #e6edf3; border: 1px solid rgba(255,255,255,0.1); outline: none; cursor: text; width: 100%; user-select: text; }
-  .code-wrapper .code-box::selection { background: rgba(33,110,241,0.4); }
-  .copy-btn { width: 80px; height: 38px; display: flex; align-items: center; justify-content: center; padding: 0; background: var(--ev-c-gray-3); color: var(--ev-c-text-2); border: 1px solid var(--color-background-mute); border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-  .copy-btn:hover { background: var(--ev-c-gray-2); color: var(--ev-c-text-1); border-color: var(--ev-c-gray-1); }
-  .copy-btn.copied { background: rgba(40,167,69,0.15); color: #2ea043; border-color: rgba(40,167,69,0.5); }
-  .secret-display { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem; background: var(--color-background-soft); border-radius: 6px; }
-  .secret-display label { font-weight: bold; font-size: 0.9rem; }
-  .hint-box { padding: 1rem; background: var(--ev-c-gray-3); border-left: 3px solid var(--ev-c-green-1); border-radius: 4px; }
-  .hint-box p { margin-bottom: 0.5rem; }
-  .hint-box ol { margin-left: 1.5rem; line-height: 1.6; }
-
-  /* Two-panel management layout */
-  .management-panels {
+    padding: 1.25rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    gap: 1rem;
+  }
+
+  .player-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+    gap: 1rem;
     align-items: start;
   }
 
   .panel {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    background: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 8px;
-    padding: 1rem;
-  }
-
-  .panel h3 { font-size: 1rem; font-weight: 600; margin: 0; }
-  .panel-subtitle { font-size: 0.8rem; color: var(--ev-c-text-3); margin: 0; }
-  .player-note {
-    padding: 0.6rem 0.75rem;
-    background: rgba(255, 193, 7, 0.08);
-    border: 1px solid rgba(255, 193, 7, 0.25);
-    border-radius: 6px;
-    color: var(--ev-c-text-2);
-    font-size: 0.8rem;
-    line-height: 1.45;
-  }
-  .player-note code {
-    color: var(--ev-c-text-1);
-    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-    font-size: 0.76rem;
-  }
-
-  /* Definitions panel */
-  .definition-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    max-height: 280px;
-    overflow-y: auto;
-  }
-
-  .definition-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0.75rem;
-    background: var(--color-background);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-  .definition-item:hover { border-color: var(--color-background-mute); }
-  .definition-item.editing { border-color: var(--ev-c-gray-1); background: var(--ev-c-gray-3); cursor: default; }
-
-  .definition-details { flex: 1; min-width: 0; }
-  .definition-name { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .definition-command { font-size: 0.75rem; color: var(--ev-c-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  .edit-inputs { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
-  .edit-inputs input { padding: 0.4rem 0.5rem; font-size: 0.85rem; background: var(--color-background); border: 1px solid var(--color-background-mute); border-radius: 4px; color: var(--ev-c-text-1); }
-
-  .remove-btn { background: none; border: none; padding: 0; color: var(--ev-c-text-2); width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
-  .remove-btn:hover { background: var(--ev-c-gray-3); color: #e81123; }
-
-  .add-form { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-background-mute); }
-  .add-form h4 { font-size: 0.85rem; font-weight: 600; margin: 0; }
-  .add-form input { padding: 0.5rem; background: var(--color-background); border: 1px solid var(--color-background-mute); border-radius: 4px; color: var(--ev-c-text-1); font-size: 0.85rem; }
-  .add-form .primary { align-self: flex-start; padding: 0.4rem 1rem; font-size: 0.85rem; }
-  .add-form .primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .empty-hint { font-size: 0.8rem; color: var(--ev-c-text-3); font-style: italic; padding: 0.5rem 0; }
-
-  /* Device panel */
-  .device-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  .device-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0.75rem;
-    background: var(--color-background);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    transition: border-color 0.15s;
-  }
-  .device-item.enabled { cursor: default; }
-  .device-item.disabled { opacity: 0.5; cursor: default; }
-  .device-item.drag-placeholder { opacity: 0.25; pointer-events: none; }
-
-  .drag-handle { color: var(--ev-c-text-2); font-size: 1.1rem; padding: 0 0.2rem; flex-shrink: 0; }
-  .drag-handle.inactive { opacity: 0.3; }
-
-  .device-item-name {
-    flex: 1;
-    font-size: 0.9rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    display: grid;
+    gap: 0.6rem;
     min-width: 0;
+    background: var(--color-background);
+    border: 1px solid var(--color-border-soft);
+    border-radius: 8px;
+    padding: 0.9rem;
   }
 
-  .badge {
-    font-size: 0.7rem;
-    font-weight: normal;
-    padding: 0.1rem 0.4rem;
-    background: var(--ev-c-gray-2);
-    border-radius: 3px;
-    color: var(--ev-c-text-2);
-    flex-shrink: 0;
-  }
-  .badge.builtin { background: rgba(40,167,69,0.15); color: #2ea043; }
+  h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+  h4 { margin: 0.3rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--color-text-soft); }
+  p { margin: 0; color: var(--color-text-soft); font-size: 0.83rem; }
+  .panel-header p, .handler-text p { margin-top: 0.25rem; }
 
-  .toggle-btn {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.75rem;
+  .editor-header, .handler-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .player-list { display: grid; gap: 0.4rem; list-style: none; padding: 0; margin: 0; }
+
+  .player-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.4rem;
+    border: 1px solid var(--color-border-soft);
+    border-radius: 6px;
+    background: var(--color-background-soft);
+    touch-action: none;
+  }
+
+  .player-row:hover { background: var(--color-background-mute); }
+  .player-row.selected, .player-row:has(.player-select:focus-visible) { border-color: var(--color-primary); }
+  .player-row.insert-before::before, .player-row.insert-after::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-primary);
+    pointer-events: none;
+  }
+  .player-row.insert-before::before { top: -0.26rem; }
+  .player-row.insert-after::after { bottom: -0.26rem; }
+
+  .player-select {
+    display: flex;
+    align-items: center;
+    min-height: 2.3rem;
+    gap: 0.45rem;
+    padding: 0.2rem;
+    text-align: left;
+    background: transparent;
+    cursor: grab;
+  }
+  .player-select:hover:not(:disabled) { background: transparent; }
+  .player-select:active { transform: none; cursor: grabbing; }
+  .player-select::after { content: ''; position: absolute; inset: 0; border-radius: 6px; }
+
+  .player-name, .row-actions, .handler-actions, .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .player-list strong { font-size: 0.87rem; font-weight: 600; overflow-wrap: anywhere; }
+  .row-actions { position: relative; pointer-events: none; }
+  .row-actions button { pointer-events: auto; }
+  .row-actions, .form-actions { justify-content: flex-end; }
+  .compact { padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+
+  .order-controls { display: inline-flex; }
+  .quiet-button, .remove-command { background: transparent; }
+  .icon-button { min-width: 2rem; min-height: 2rem; padding: 0; }
+  .default-tag {
+    padding: 0.1rem 0.35rem;
+    background: var(--color-background-mute);
     border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s;
+    font-size: 0.7rem;
   }
-  .toggle-btn.on { background: rgba(40,167,69,0.15); color: #2ea043; border: 1px solid rgba(40,167,69,0.3); }
-  .toggle-btn.on:hover { background: rgba(220,53,69,0.12); color: #dc3545; border-color: rgba(220,53,69,0.3); }
-  .toggle-btn.off { background: var(--color-background-mute); color: var(--ev-c-text-2); border: 1px solid transparent; }
-  .toggle-btn.off:hover { background: rgba(40,167,69,0.12); color: #2ea043; border-color: rgba(40,167,69,0.3); }
+
+  .drag-handle { color: var(--color-text-soft); }
+  .drag-placeholder { opacity: 0.25; pointer-events: none; }
+  .command-form { display: grid; gap: 0.4rem; width: 100%; padding: 0.4rem 0; }
+  .command-form label, .installer label { font-size: 0.83rem; font-weight: 600; }
+  .command-form input { min-width: 0; }
+  .remove-command { margin-right: auto; color: var(--color-danger); padding: 0.35rem 0.2rem; font-size: 0.8rem; }
+
+  .handler-panel { border-top: 1px solid var(--color-border-soft); padding: 0.9rem 0.2rem 0; }
+  .handler-text { flex: 1 1 13rem; }
+  .installer-list { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
+  .installer { display: grid; gap: 0.25rem; }
+  .installer-command { display: flex; gap: 0.4rem; }
+  .installer-command input { flex: 1; min-width: 0; font-family: monospace; font-size: 0.82rem; }
+
+  @media (max-width: 760px) {
+    .player-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  @media (max-width: 480px) {
+    .content, .panel { padding: 0.75rem; }
+    .content, .player-grid { gap: 0.75rem; }
+    .player-row { gap: 0.3rem; }
+  }
 </style>

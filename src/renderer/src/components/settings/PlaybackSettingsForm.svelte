@@ -73,10 +73,10 @@
       </div>
       <div class="setting-row">
         <div>
-          <span class="setting-label">External players</span>
+          <span class="setting-label">Players</span>
           <p>{playerCommandCount ? `${playerCommandCount} custom ${playerCommandCount === 1 ? 'command' : 'commands'} configured` : 'Player order and custom launch commands'}</p>
         </div>
-        <button class="secondary" onclick={onManagePlayers}>Manage players</button>
+        <button class="primary" onclick={onManagePlayers}>Manage players</button>
       </div>
     </div>
   </section>
