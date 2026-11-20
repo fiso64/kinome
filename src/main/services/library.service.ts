@@ -212,10 +212,10 @@ async function _runBackgroundScan(
   }
 }
 
-async function runScanMaintenance(localMetadataChanged = false): Promise<void> {
+async function runScanMaintenance(syncGroupings = false): Promise<void> {
   searchService.buildFullSearchIndex()
 
-  await metadataService.enrichDatabase(localMetadataChanged).catch((err) => {
+  await metadataService.enrichDatabase(syncGroupings).catch((err) => {
     console.error('[Library Service] Enrichment failed during rescan:', err)
   })
 }
@@ -333,12 +333,14 @@ export async function runFullLibraryScan({
   }
 
   await earlyEnrichment
-  const localMetadataChanged = await refreshLocalMedia(sourcePaths).catch((error) => {
-    console.error('[Library Service] Local media probe batch failed', error)
-    return false
-  })
-  await runScanMaintenance(localMetadataChanged)
+  await runScanMaintenance(true)
   playbackService.clearStreamCache()
+
+  await refreshLocalMedia(sourcePaths, {
+    onChanged: () => metadataService.publishLibraryMetadata(true)
+  }).catch((error) => {
+    console.error('[Library Service] Local media refresh failed', error)
+  })
 }
 
 /**

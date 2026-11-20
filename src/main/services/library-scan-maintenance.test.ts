@@ -6,10 +6,12 @@ import { createServiceTestContext, type ServiceTestContext } from '../database/t
 import { runFullLibraryScan } from './library.service'
 import * as filesystemService from './filesystem.service'
 import * as metadataService from './metadata.service'
+import * as fileProbe from './probe-media'
 import * as settingsService from './settings.service'
 import * as retriever from './retriever.service'
+import { getTransport } from '../transport.registry'
 import { getFileChangeRevisions, saveProviderMatch, upsertMetadata } from '../database/repositories/metadata.repo'
-import { find as findItems, getItemById } from './repository.service'
+import { find as findItems, getHomeFolderId, getItemById } from './repository.service'
 
 let ctx: ServiceTestContext
 
@@ -41,6 +43,78 @@ function itemIdForSourcePath(sourceId: string, relativePath: string): string | n
 }
 
 describe('full-library scan maintenance orchestration', () => {
+  it('publishes Home before probing and keeps probe status active through the file-tag refresh', async () => {
+    const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-probe-milestones-'))
+    const source = { id: 'source', path: fixture, isRelative: false }
+    const probeStarted = Promise.withResolvers<void>()
+    const releaseProbe = Promise.withResolvers<void>()
+    const settings = await settingsService.readSettings()
+    const readSettings = spyOn(settingsService, 'readSettings').mockResolvedValue({
+      ...settings,
+      tmdbApiKey: '',
+      virtualTags: [...(settings.virtualTags ?? []), {
+        id: 'resolution', name: 'resolution', cases: [{
+          filter: { conditions: [{ field: 'file.videoHeight', op: 'eq', value: 1080 }] },
+          result: '1080p'
+        }]
+      }]
+    })
+    const which = spyOn(Bun, 'which').mockReturnValue('ffprobe')
+    const probe = spyOn(fileProbe, 'probeMedia').mockImplementation(async () => {
+      probeStarted.resolve()
+      await releaseProbe.promise
+      return { tracks: [{ index: 0, kind: 'video', height: 1080, default: true, forced: false, hearingImpaired: false }] }
+    })
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const info = spyOn(console, 'info').mockImplementation(() => {})
+    const events: string[] = []
+    const transport = getTransport()
+    const notify = spyOn(transport, 'notifyMetadataIndexUpdated').mockImplementation(() => {
+      events.push('published')
+    })
+    const status = spyOn(transport, 'notifyScanStatusChanged').mockImplementation(({ isProbingLocalMedia }) => {
+      if (isProbingLocalMedia !== undefined) events.push(isProbingLocalMedia ? 'probe started' : 'probe finished')
+    })
+    const scanLibrary = () => runFullLibraryScan({
+      sources: [source],
+      sourcePaths: new Map([[source.id, fixture]]),
+      sourceFolderSettings: { [source.id]: { [fixture]: { retrieve_children_metadata: true } } }
+    })
+
+    try {
+      const file = path.join(fixture, 'Feature.mkv')
+      await fs.writeFile(file, 'probe fixture')
+      await fs.utimes(file, 1_700_000_000, 1_700_000_000)
+      const scan = scanLibrary()
+      try {
+        await Promise.race([probeStarted.promise, scan])
+        expect(events).toEqual(['published', 'probe started'])
+        expect(ctx.db.query("SELECT 1 FROM media_items WHERE parent_item_id = ? AND name = 'Uncategorized'").get(getHomeFolderId()))
+          .not.toBeNull()
+        expect(ctx.db.query("SELECT value FROM item_virtual_tags WHERE key = 'resolution'").get()).toBeNull()
+      } finally {
+        releaseProbe.resolve()
+        await scan
+      }
+      expect(ctx.db.query("SELECT value FROM item_virtual_tags WHERE key = 'resolution'").get()).toEqual({ value: '1080p' })
+      expect(events).toEqual(['published', 'probe started', 'published', 'probe finished'])
+
+      events.length = 0
+      await scanLibrary()
+      expect(events).toEqual(['published'])
+      expect(probe).toHaveBeenCalledTimes(1)
+    } finally {
+      status.mockRestore()
+      notify.mockRestore()
+      info.mockRestore()
+      log.mockRestore()
+      probe.mockRestore()
+      which.mockRestore()
+      readSettings.mockRestore()
+      await fs.rm(fixture, { recursive: true, force: true })
+    }
+  })
+
   it.each([false, true])('preserves identity after copy, delete, and rename (reverse priority: %s)', async (reverse) => {
     const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-content-move-'))
     const sources = ['first', 'second'].map((id) => ({

@@ -12,6 +12,7 @@ export class WebTransport implements ITransport {
   private currentStatus: ScanStatus = {
     isFileScanningLibrary: false,
     isMetadataFetchingLibrary: false,
+    isProbingLocalMedia: false,
     isFastUpdating: false
   }
 

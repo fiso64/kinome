@@ -14,13 +14,14 @@ export interface ProbeCandidate {
   inode: number
   device: number
   failures: number
+  hadMetadata: number
 }
 
 export function findProbeCandidates(sourceIds: string[], now: number): ProbeCandidate[] {
   return getDb().query(`
     SELECT l.id, l.source_id AS sourceId, l.relative_path AS relativePath,
            l.size, l.mtime, l.birthtime, l.inode, l.device_id AS device,
-           coalesce(m.failures, 0) AS failures
+           coalesce(m.failures, 0) AS failures, m.failures IS 0 AS hadMetadata
     FROM media_locations l LEFT JOIN local_media m ON m.location_id = l.id
     WHERE l.source_id IN (SELECT value FROM json_each(?))
       AND l.type = 'file' AND l.is_present = 1 AND l.is_ignored = 0

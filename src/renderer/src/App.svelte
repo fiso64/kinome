@@ -44,12 +44,9 @@
   }
 
   let isInitializing = $state(true)
-  let isFileScanningLibrary = $state(false)
-  let isMetadataFetchingLibrary = $state(false)
-  let isFastUpdating = $derived(isFileScanningLibrary || isMetadataFetchingLibrary)
-
-  // Deprecated: used for props in components that haven't been updated yet
-  let isScanning = $derived(isFastUpdating)
+  let scanStatus = $state<ScanStatus | null>(null)
+  const isFastUpdating = $derived(scanStatus?.isFastUpdating ?? false)
+  const isScanning = $derived(isFastUpdating || (scanStatus?.isProbingLocalMedia ?? false))
   let libraryStatus = $state<LibraryStatus | null>(null)
   let isWaitingForScan = $state(false)
   let allAutocompleteSuggestions = $state<AutocompleteSuggestions>({
@@ -99,12 +96,7 @@
     const unlistenScanStatus = api.onScanStatusChanged(async (status) => {
       log(`Scan status changed from backend: ${JSON.stringify(status)}`)
 
-      if (status.isFileScanningLibrary !== undefined) {
-        isFileScanningLibrary = status.isFileScanningLibrary
-      }
-      if (status.isMetadataFetchingLibrary !== undefined) {
-        isMetadataFetchingLibrary = status.isMetadataFetchingLibrary
-      }
+      scanStatus = status
 
       if (!isFastUpdating) {
         log('All background library tasks finished, flushing throttled updates.')
@@ -259,7 +251,7 @@
   })
 
   async function handleRefresh(): Promise<void> {
-    if (isWaitingForScan || isFastUpdating || isInitializing) return
+    if (isWaitingForScan || isScanning || isInitializing) return
     isWaitingForScan = true
     // clearItemCache() // Removed in V2
     try {

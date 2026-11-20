@@ -29,11 +29,11 @@ const log = (message: string): void => {
 /**
  * Phase 2: Metadata Enrichment (DB -> API)
  */
-export async function enrichDatabase(localMetadataChanged = false) {
+export async function enrichDatabase(syncGroupings = false) {
   return runEnrichment({
     includeStructuralPrepass: true,
     runMaintenance: true,
-    localMetadataChanged
+    syncGroupings
   })
 }
 
@@ -57,13 +57,13 @@ async function runEnrichment(options: {
   includeStructuralPrepass: boolean
   runMaintenance: boolean
   deferFileChangeRefresh?: boolean
-  localMetadataChanged?: boolean
+  syncGroupings?: boolean
 }) {
   return runWithoutAccount(async () => {
     const settings = await settingsService.readSettings()
     if (!settings.tmdbApiKey) {
       log('Enrichment skipped: No TMDB API key.')
-      if (options.runMaintenance && options.localMetadataChanged) await maintenancePass(true)
+      if (options.runMaintenance && options.syncGroupings) await maintenancePass(true)
       return
     }
 
@@ -125,7 +125,7 @@ async function runEnrichment(options: {
 
       // 4. Maintenance Pass
       if (options.runMaintenance) {
-        await maintenancePass(entryPoints.length > 0 || options.localMetadataChanged)
+        await maintenancePass(entryPoints.length > 0 || options.syncGroupings)
       }
     } finally {
       getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
@@ -138,32 +138,33 @@ async function runEnrichment(options: {
 
 export async function maintenancePass(syncGroupings = false) {
   log('[Maintenance] Starting pass...')
-  const settings = await settingsService.readSettings()
   const libraryDataPath = pathsService.getLibraryDataPath()
   const imagesDir = path.join(libraryDataPath, 'images')
 
-  // 1. Filesystem Integrity Check (Existing)
   await filesystemService.verifyImagePaths(imagesDir)
-
-  // 2. SQL Virtual Tag Sync
-  log('[Maintenance] Syncing virtual tags via SQL...')
-  virtualTagsService.applyVirtualTags(settings.virtualTags)
-  if (syncGroupings) syncAllGroupings()
-
-  // 3. Signal Frontend to Refresh Cache & Metadata Index
-  log('[Maintenance] Notifying UI to refresh.')
-  const [suggestions, groupByKeys] = await Promise.all([
-    autocompleteService.getAutocompleteSuggestions(),
-    autocompleteService.getGroupByKeys()
-  ])
-
-  getTransport().notifyMetadataIndexUpdated({
-    suggestions,
-    groupByKeys,
-    invalidateItems: true
-  })
-
+  await publishLibraryMetadata(syncGroupings)
   log('[Maintenance] Pass complete.')
+}
+
+export async function publishLibraryMetadata(syncGroupings: boolean) {
+  return runWithoutAccount(async () => {
+    const settings = await settingsService.readSettings()
+    log('[Maintenance] Syncing virtual tags via SQL...')
+    virtualTagsService.applyVirtualTags(settings.virtualTags)
+    if (syncGroupings) syncAllGroupings()
+
+    log('[Maintenance] Notifying UI to refresh.')
+    const [suggestions, groupByKeys] = await Promise.all([
+      autocompleteService.getAutocompleteSuggestions(),
+      autocompleteService.getGroupByKeys()
+    ])
+
+    getTransport().notifyMetadataIndexUpdated({
+      suggestions,
+      groupByKeys,
+      invalidateItems: true
+    })
+  })
 }
 
 export async function fetchAndApplyMetadata(

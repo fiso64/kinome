@@ -9,6 +9,7 @@ import { compileConditionToSql, compilePlayableFileMatches, ITEM_READ_MODEL, typ
 import { withAccountLocations } from '../media-read-model.sql'
 
 const FTS_TABLE = 'media_items_fts'
+const TITLE_PRIORITY = `CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END`
 
 /**
  * Rebuilds the Full-Text Search index.
@@ -195,7 +196,7 @@ export function findByShortQuery(
     sql = appendVisibilityFilter(sql, params, userId)
 
     sql += ` ORDER BY
-          CASE WHEN e.media_type IN ('movie', 'tv') THEN 1 ELSE 2 END ASC,
+          ${TITLE_PRIORITY} ASC,
           CASE
             WHEN lower(coalesce(e.title, '')) LIKE @startQuery THEN 1
             WHEN lower(coalesce(e.title, '')) LIKE @likeQuery THEN 2
@@ -237,7 +238,7 @@ export function findByFtsQuery(
     sql = appendTagFilters(sql, params, tags)
     sql = appendVisibilityFilter(sql, params, userId)
 
-    sql += ` ORDER BY (CASE WHEN e.media_type IN ('movie', 'tv') THEN 0 ELSE 1 END) ASC, bm25(${FTS_TABLE}, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
+    sql += ` ORDER BY ${TITLE_PRIORITY} ASC, bm25(${FTS_TABLE}, 0.0, 10.0, 5.0, 1.0, 0.1) ASC LIMIT @limit`
 
     return querySearch(sql, params, userId, files)
 }
@@ -268,7 +269,7 @@ export function findByTagsOnly(
     sql = appendTagFilters(sql, params, tags)
     sql = appendVisibilityFilter(sql, params, userId)
 
-    sql += ` ORDER BY e.title ASC, i.name ASC LIMIT @limit`
+    sql += ` ORDER BY ${TITLE_PRIORITY} ASC, e.title ASC, i.name ASC LIMIT @limit`
 
     return querySearch(sql, params, userId, files)
 }

@@ -150,7 +150,7 @@ describe('media location repository', () => {
     expect(findByTagsOnly([movie, { ...hd, value: '2160' }], 30)).toEqual([])
     expect(findByTagsOnly([{ ...hd, value: '2160' }], 30).map(({ id }) => id).sort())
       .toEqual(['featurette', 'trailer'])
-    expect(findByTagsOnly([hd], 30).map(({ id }) => id).sort()).toEqual(['movie', 'show', 'standalone'])
+    expect(findByTagsOnly([hd], 30).map(({ id }) => id)).toEqual(['show', 'movie', 'standalone'])
     expect(findByTagsOnly([{ key: 'mediaType', value: 'episode' }, hd], 30).map(({ id }) => id))
       .toEqual(['episode-hd'])
     expect(findByTagsOnly([movie, hd], 30, 'viewer')).toEqual([])

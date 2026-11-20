@@ -18,7 +18,10 @@ async function matchesScan(filePath: string, file: ProbeCandidate): Promise<bool
 
 export function refreshLocalMedia(
   sourcePaths: ReadonlyMap<string, string>,
-  concurrency = DEFAULT_PROBE_CONCURRENCY
+  { concurrency = DEFAULT_PROBE_CONCURRENCY, onChanged }: {
+    concurrency?: number
+    onChanged?: () => Promise<void>
+  } = {}
 ): Promise<boolean> {
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error('Probe concurrency must be a positive integer')
   return batches.run(async () => {
@@ -35,8 +38,9 @@ export function refreshLocalMedia(
     const started = performance.now()
     let saved = 0
     let failed = 0
+    let removed = 0
     console.info('[Local media] Probing files', { batch, files: candidates.length })
-    getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: true })
+    getTransport().notifyScanStatusChanged({ isProbingLocalMedia: true })
     try {
       await processInChunks(candidates, concurrency, async (file) => {
         const filePath = securePathJoin(sourcePaths.get(file.sourceId)!, file.relativePath)
@@ -55,17 +59,22 @@ export function refreshLocalMedia(
           }
           if (await matchesScan(filePath, file) && saveProbeResult(file, media, retryAt)) {
             if (media) saved++
-            else failed++
+            else {
+              failed++
+              removed += file.hadMetadata
+            }
           }
         } catch (error) {
           failed++
           console.debug('[Local media] Could not refresh file', { batch, locationId: file.id, error })
         }
       })
+      console.info('[Local media] Probe complete', { batch, saved, failed, removed, durationMs: Math.round(performance.now() - started) })
+      const changed = saved > 0 || removed > 0
+      if (changed) await onChanged?.()
+      return changed
     } finally {
-      getTransport().notifyScanStatusChanged({ isMetadataFetchingLibrary: false })
+      getTransport().notifyScanStatusChanged({ isProbingLocalMedia: false })
     }
-    console.info('[Local media] Probe complete', { batch, saved, failed, durationMs: Math.round(performance.now() - started) })
-    return true
   })
 }

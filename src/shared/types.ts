@@ -222,6 +222,7 @@ export type DefaultLayoutKey = keyof typeof DEFAULT_LAYOUTS_CONFIG
 export interface ScanStatus {
   isFileScanningLibrary: boolean
   isMetadataFetchingLibrary: boolean
+  isProbingLocalMedia: boolean
   isFastUpdating: boolean
 }
 
