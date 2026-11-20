@@ -8,7 +8,7 @@ import * as settingsService from './services/settings.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
 import * as authService from './services/auth.service'
-import { buildApp } from './http-app'
+import { buildApp, getPublicRequestUrl } from './http-app'
 import * as handlerService from './services/handler.service'
 import * as accountRepo from './database/repositories/account.repo'
 import bcrypt from 'bcryptjs'
@@ -109,34 +109,22 @@ app.ws('/ws', {
 // Installer scripts (served as text/plain)
 app
   .get('/install-kinome-handler.ps1', async ({ query, request, set }) => {
-    const url = new URL(request.url)
+    const url = getPublicRequestUrl(request)
     const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
-
-    let baseUrl = url.origin
-    const forwardedProto = request.headers.get('x-forwarded-proto')
-    if (forwardedProto === 'https' && baseUrl.startsWith('http://')) {
-      baseUrl = baseUrl.replace('http://', 'https://')
-    }
 
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     set.headers['Cache-Control'] = 'no-store'
 
-    return handlerService.generateWindowsInstaller(secret, baseUrl)
+    return handlerService.generateWindowsInstaller(secret, url.origin)
   })
   .get('/install-kinome-handler.sh', async ({ query, request, set }) => {
-    const url = new URL(request.url)
+    const url = getPublicRequestUrl(request)
     const secret = (query.secret as string) || url.searchParams.get('secret') || undefined
-
-    let baseUrl = url.origin
-    const forwardedProto = request.headers.get('x-forwarded-proto')
-    if (forwardedProto === 'https' && baseUrl.startsWith('http://')) {
-      baseUrl = baseUrl.replace('http://', 'https://')
-    }
 
     set.headers['Content-Type'] = 'text/plain; charset=utf-8'
     set.headers['Cache-Control'] = 'no-store'
 
-    return handlerService.generateLinuxInstaller(secret, baseUrl)
+    return handlerService.generateLinuxInstaller(secret, url.origin)
   })
   .get('/bin/*', ({ params, set }) => {
     const exeDir = path.dirname(process.execPath)

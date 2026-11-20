@@ -33,6 +33,14 @@ import { getTransport } from './transport.registry'
 
 export const PUBLIC_PATHS = ['/api/login', '/api/check-auth', '/api/setup-admin', '/api/handler-test', '/api/users']
 
+export function getPublicRequestUrl(request: Request): URL {
+  const url = new URL(request.url)
+  if (url.protocol === 'http:' && request.headers.get('x-forwarded-proto') === 'https') {
+    url.protocol = 'https:'
+  }
+  return url
+}
+
 // Simple in-memory rate limiter for login
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 mins
@@ -565,7 +573,7 @@ export function buildApp() {
         .get('/hls/:id/:quality/*', handleHlsRequest)
         .head('/hls/:id/:quality/*', handleHlsRequest)
         .get('/playlist/:id', async ({ params, query, request, set }) => {
-          const url = new URL(request.url)
+          const url = getPublicRequestUrl(request)
           const quality = query.quality ?? 'original'
           if (!isPlaybackQuality(quality)) { set.status = 400; return 'Invalid quality' }
           if (!availablePlaybackQualities(await settingsService.readSettings()).includes(quality)) {

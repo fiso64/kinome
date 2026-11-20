@@ -146,7 +146,10 @@ export const playerLauncherService = {
         return
       }
       if (ready) await ready
-      const resolvedCommand = commandToExecute.command.replace('<url>', url)
+      // Keep the entire URL in one shell argument, including its query string.
+      // Templates can already quote the placeholder or an option such as "--playlist=<url>".
+      const resolvedCommand = commandToExecute.command.replace(/"(?:\\.|[^"\\])*"|'[^']*'|<url>/g,
+        (part) => part === '<url>' ? `"${url}"` : part.replaceAll('<url>', url))
       const encodedCommand = btoa(resolvedCommand)
       const protocolUrl = `kinome://run?secret=${encodeURIComponent(secret!)}&command=${encodeURIComponent(encodedCommand)}`
 

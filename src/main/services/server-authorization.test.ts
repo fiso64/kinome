@@ -54,6 +54,18 @@ describe('HTTP authorization — capability enforcement', () => {
   const expectNotBlocked = async (method: string, url: string, body?: any) =>
     expect((await app.handle(req(method, url, body, adminToken))).status).not.toBe(403)
 
+  it('keeps playlist entries on HTTPS behind a reverse proxy', async () => {
+    ctx.seedItems([{ id: 'proxy-movie', name: 'Movie.mkv' }])
+    const query = new URLSearchParams({ token: adminToken })
+    const response = await app.handle(new Request(`http://kinome.example/api/playlist/proxy-movie.m3u?${query}`, {
+      headers: { 'X-Forwarded-Proto': 'https' }
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain(
+      `https://kinome.example/api/stream/proxy-movie/Movie.mkv?token=${adminToken}&watch=1`
+    )
+  })
+
   // ─── editSettings ────────────────────────────────────────────────────────────
 
   describe('editSettings — normal user blocked', () => {
