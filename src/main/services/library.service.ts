@@ -208,16 +208,8 @@ async function _runBackgroundScan(
   }
 }
 
-async function runScanMaintenance(itemIds?: Set<string>): Promise<void> {
+async function runScanMaintenance(): Promise<void> {
   searchService.buildFullSearchIndex()
-
-  if (itemIds) {
-    if (itemIds.size === 0) return
-    await metadataService.enrichItems(itemIds, { runMaintenance: false }).catch((err) => {
-      console.error('[Library Service] Targeted enrichment failed during rescan:', err)
-    })
-    return
-  }
 
   await metadataService.enrichDatabase().catch((err) => {
     console.error('[Library Service] Enrichment failed during rescan:', err)
@@ -265,6 +257,7 @@ export async function runFullLibraryScan({
   const foundLocationPathsBySource = new Map<string, Set<string>>()
   const foundNonEmptyFolderPathsBySource = new Map<string, Set<string>>()
   const scanSucceededBySource = new Map<string, boolean>()
+  let earlyEnrichment = Promise.resolve()
 
   for (let j = 0; j < sources.length; j++) {
     const source = sources[j]
@@ -310,7 +303,15 @@ export async function runFullLibraryScan({
     scanSucceededBySource.set(source.id, scanResult.scanSucceeded)
 
     if (runEarlyMaintenance && scanResult.scanSucceeded) {
-      await runScanMaintenance(scanResult.foundItemIds)
+      searchService.buildFullSearchIndex()
+      if (scanResult.foundItemIds.size > 0) {
+        // Keep enrichment serial while letting local discovery continue during provider requests.
+        earlyEnrichment = earlyEnrichment
+          .then(() => metadataService.enrichItems(scanResult.foundItemIds, { runMaintenance: false }))
+          .catch((err) => {
+            console.error('[Library Service] Targeted enrichment failed during rescan:', err)
+          })
+      }
     }
   }
 
@@ -325,6 +326,7 @@ export async function runFullLibraryScan({
     )
   }
 
+  await earlyEnrichment
   await runScanMaintenance()
   playbackService.clearStreamCache()
 }

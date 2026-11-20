@@ -192,7 +192,9 @@
           oncontextmenu={(e) =>
             onShowContextMenu(folder, e, { layout: 'tabs', parentItem: container as LibraryItem })}
         >
-          {folder.title ?? folder.name}
+          {folder.title ?? (folder.mediaType === 'season' && folder.seasonNumber != null
+            ? `Season ${folder.seasonNumber}`
+            : folder.name)}
         </button>
       {/each}
     </div>

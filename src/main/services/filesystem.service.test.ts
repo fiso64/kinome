@@ -616,21 +616,37 @@ describe('shadowing', () => {
     expect(shadowedLocation).toEqual({ item_id: moviesAId!, is_shadowed: 1 })
   })
 
-  it.each(['absent', 'removed', 'empty'])('keeps a unique season under a shadowed show (primary season folder: %s)', async (primaryFolder) => {
+  const seasonPack = 'Anime.Name.2021.S03E01-E14.1080p.CR.WEB-DL.DUAL.DDP2.0.H.264-Releaser'
+  it.each([
+    ['absent', 's02', 's03'],
+    ['removed', 's02', 's03'],
+    ['empty', 's02', 's03'],
+    ['absent', 's02', seasonPack],
+    ['empty', 'Anime.Name.2021.S02E01-E14.1080p', seasonPack]
+  ])('keeps a unique season under a shadowed show (primary season folder: %s, seasons: %s and %s)', async (primaryFolder, seasonTwoName, seasonThreeName) => {
     const sourceA = { ...SOURCE_A, path: tmpA }
     const sourceB = { ...SOURCE_B, path: tmpB }
-    const seasonTwo = path.join(tmpA, 'show', 's02')
-    const seasonThree = path.join(tmpB, 'show', 's03')
+    const seasonTwo = path.join(tmpA, 'show', seasonTwoName)
+    const seasonThree = path.join(tmpB, 'show', seasonThreeName)
     await fs.mkdir(seasonTwo, { recursive: true })
     await fs.writeFile(path.join(seasonTwo, 'Show.S02E01.mkv'), 'season two')
-    const oldSeasonThree = path.join(tmpA, 'show', 's03')
+    const oldSeasonThree = path.join(tmpA, 'show', seasonThreeName)
     if (primaryFolder !== 'absent') await fs.mkdir(oldSeasonThree)
     await scanDirectory(sourceA, tmpA)
-    const oldSeasonThreeId = itemIdForLocation(sourceA.id, 'show/s03')
+    const seasonThreePath = `show/${seasonThreeName}`
+    const oldSeasonThreeId = itemIdForLocation(sourceA.id, seasonThreePath)
     if (primaryFolder === 'removed') await fs.rmdir(oldSeasonThree)
 
     await fs.mkdir(seasonThree, { recursive: true })
     await fs.writeFile(path.join(seasonThree, 'Show.S03E01.mkv'), 'season three')
+    const unnumberedFolder = path.join(tmpB, 'show', 'Bonus Videos')
+    await fs.mkdir(unnumberedFolder)
+    await fs.writeFile(path.join(unnumberedFolder, 'Interview.mkv'), 'bonus video')
+    for (const source of [tmpA, tmpB]) {
+      const overlap = path.join(source, 'show', 'Interviews')
+      await fs.mkdir(overlap)
+      await fs.writeFile(path.join(overlap, source === tmpA ? 'Primary.mkv' : 'Shadowed.mkv'), 'interview')
+    }
     const duplicateSeason = path.join(tmpB, 'show', 'Season 02')
     await fs.mkdir(duplicateSeason)
     await fs.writeFile(path.join(duplicateSeason, 'Show.S02E02.mkv'), 'lower-priority duplicate season')
@@ -650,20 +666,23 @@ describe('shadowing', () => {
     expect(itemIdForLocation(sourceB.id, 'show')).toBe(showId)
     expect(itemIdForLocation(sourceB.id, 'show/Season 02/Show.S02E02.mkv')).toBeNull()
     expect(itemIdForLocation(sourceB.id, 'show/Show.S00E01.mkv')).toBeNull()
-    if (primaryFolder !== 'absent') expect(itemIdForLocation(sourceB.id, 'show/s03')).toBe(oldSeasonThreeId)
+    expect(itemIdForLocation(sourceB.id, 'show/Interviews/Shadowed.mkv')).toBeNull()
+    if (primaryFolder !== 'absent') expect(itemIdForLocation(sourceB.id, seasonThreePath)).toBe(oldSeasonThreeId)
 
-    repositoryService._updateItem(showId, { mediaType: 'tv' })
+    repositoryService._updateItem(showId, { mediaType: 'tv', viewSettings: { layout: 'tabs' } })
     const show = repositoryService.getItemById(showId)
     if (show?.type !== 'folder') throw new Error('Scanned show is missing')
     await syncTvShowStructure(show)
 
-    const seasons = await getViewChildren(show.id)
-    if (!Array.isArray(seasons)) throw new Error(seasons.message)
-    expect(seasons.map((season) => [season.mediaType, season.seasonNumber])).toEqual([
-      ['season', 2], ['season', 3]
-    ])
+    const children = await getViewChildren(show.id)
+    if (!Array.isArray(children)) throw new Error(children.message)
+    const seasons = children.filter((child) => child.mediaType === 'season')
+    expect(seasons.map((season) => season.seasonNumber)).toEqual([2, 3])
     const episodes = await getViewChildren(seasons[1].id)
     expect(episodes).toMatchObject([{ mediaType: 'episode', seasonNumber: 3, episodeNumber: 1 }])
+    const unnumbered = children.find((child) => child.name === 'Bonus Videos')
+    expect(unnumbered).toMatchObject({ children: [{ name: 'Interview.mkv' }] })
+    expect(unnumbered?.mediaType).toBeUndefined()
   })
 
   it('prefers a populated lower-priority folder over an empty high-priority folder', async () => {

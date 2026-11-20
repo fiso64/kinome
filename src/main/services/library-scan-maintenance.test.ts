@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { runFullLibraryScan } from './library.service'
+import * as filesystemService from './filesystem.service'
 import * as metadataService from './metadata.service'
 
 let ctx: ServiceTestContext
@@ -72,7 +73,7 @@ describe('full-library scan maintenance orchestration', () => {
     }
   })
 
-  it('runs targeted enrichment for a completed source before scanning the next source', async () => {
+  it('starts targeted enrichment early without blocking the next source scan', async () => {
     const tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-fast-source-'))
     const tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-slow-source-'))
 
@@ -84,6 +85,14 @@ describe('full-library scan maintenance orchestration', () => {
       | { kind: 'final' }
     > = []
 
+    const pendingMetadata = Promise.withResolvers<void>()
+    const secondSourceScanned = Promise.withResolvers<void>()
+    const scanDirectory = filesystemService.scanDirectory
+    const scanSpy = spyOn(filesystemService, 'scanDirectory').mockImplementation(async (...args) => {
+      const result = await scanDirectory(...args)
+      if (args[0].id === sourceB.id) secondSourceScanned.resolve()
+      return result
+    })
     const enrichItemsSpy = spyOn(metadataService, 'enrichItems').mockImplementation(async (itemIds: Iterable<string>) => {
       const slowFile = ctx.db
         .prepare("SELECT 1 FROM media_locations WHERE source_id = ? AND relative_path = 'slow.mkv'")
@@ -93,6 +102,7 @@ describe('full-library scan maintenance orchestration', () => {
         slowFileScanned: !!slowFile,
         paths: pathsForItemIds(itemIds)
       })
+      if (!slowFile) await pendingMetadata.promise
     })
     const enrichDatabaseSpy = spyOn(metadataService, 'enrichDatabase').mockImplementation(async () => {
       events.push({ kind: 'final' })
@@ -102,7 +112,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.writeFile(path.join(tmpA, 'fast.mkv'), 'fast')
       await fs.writeFile(path.join(tmpB, 'slow.mkv'), 'slow')
 
-      await runFullLibraryScan({
+      const scan = runFullLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths: new Map([
           [sourceA.id, tmpA],
@@ -110,6 +120,22 @@ describe('full-library scan maintenance orchestration', () => {
         ]),
         runEarlyMaintenance: true
       })
+
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          secondSourceScanned.promise,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('Second source waited for metadata')), 1_500)
+          })
+        ])
+        expect(itemIdForSourcePath(sourceB.id, 'slow.mkv')).not.toBeNull()
+        expect(events).toHaveLength(1)
+      } finally {
+        clearTimeout(timeout)
+        pendingMetadata.resolve()
+        await scan
+      }
 
       const targetedEvents = events.filter((event) => event.kind === 'targeted') as Extract<
         (typeof events)[number],
@@ -123,6 +149,7 @@ describe('full-library scan maintenance orchestration', () => {
       expect(targetedEvents[1].paths).toContain('slow.mkv')
       expect(events.at(-1)).toEqual({ kind: 'final' })
     } finally {
+      scanSpy.mockRestore()
       enrichItemsSpy.mockRestore()
       enrichDatabaseSpy.mockRestore()
       await fs.rm(tmpA, { recursive: true, force: true })

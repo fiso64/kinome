@@ -76,10 +76,10 @@ If the show folder contains video files **directly** AND no subfolders match the
 
 **If `seasonStrategy = 'smart'`:**
 
-1. Attempt to parse each subfolder name using the season regex:
+1. Attempt to parse each subfolder name for a season number:
 
-   - Pattern: `/\b(?:Season\s*|S)(\d{1,2})\b/i`
-   - Examples: `Season 1`, `S01`, `Season 02` → extracts the number
+   - Standalone season labels include `Season 1`, `S01`, and `Season 02`.
+   - Release names with a single-season episode range, such as `Show.S03E01-E14.1080p`, yield season 3.
 
 2. **If at least one folder matches the pattern:**
 

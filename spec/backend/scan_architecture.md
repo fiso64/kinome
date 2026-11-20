@@ -54,8 +54,9 @@ It records physical paths and stats, skips hidden or ignored branches, and compu
 content fingerprints when the cached stats change.
 
 When shadowing skips a folder whose higher-priority copy contains numbered
-seasons, discovery still scans numbered season folders that are unique to the
-lower-priority source. It attaches those seasons to the shared show.
+seasons, discovery still scans child folders whose paths and season numbers,
+if recognized, are unique to the lower-priority source. Unnumbered child
+folders remain browsable under the shared show.
 
 Reconciliation matches known source paths first, then checks inode and device,
 shadowing, proven-absent paths on other sources, content fingerprints, and TV

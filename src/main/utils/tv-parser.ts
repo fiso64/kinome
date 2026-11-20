@@ -74,10 +74,9 @@ export function parseEpisodeInfo(
 
 export function parseSeasonFolder(name: string): number | null {
   if (/specials/i.test(name)) return 0
-  const seasonPattern = /\b(?:Season\s*|S)(\d{1,2})\b/i
-  const match = name.match(seasonPattern)
-  if (match) return parseInt(match[1])
-  return null
+  const match = name.match(/\b(?:Season\s*|S)(\d{1,2})\b/i)
+    ?? name.match(/\bS(\d{1,2})E\d{1,3}\s*[-–]\s*(?:S\1E|E)?\d{1,3}\b/i)
+  return match ? Number(match[1]) : null
 }
 
 const SPECIAL_FOLDER_NAMES_FOR_TV = [

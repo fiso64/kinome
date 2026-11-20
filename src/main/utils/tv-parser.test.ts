@@ -131,6 +131,16 @@ describe('parseSeasonFolder', () => {
         expect(parseSeasonFolder('Season 02')).toBe(2)
     })
 
+    it('parses a season pack named with an episode range', () => {
+        expect(parseSeasonFolder('Anime.Name.2021.S03E01-E14.1080p.CR.WEB-DL.DUAL.DDP2.0.H.264-Releaser')).toBe(3)
+        expect(parseSeasonFolder('Show.S03E01-S03E14')).toBe(3)
+    })
+
+    it('does not treat an individual episode or a cross-season range as one season pack', () => {
+        expect(parseSeasonFolder('Show.S03E01.1080p')).toBeNull()
+        expect(parseSeasonFolder('Show.S03E01-S04E14')).toBeNull()
+    })
+
     it('recognizes "Specials" as season 0', () => {
         expect(parseSeasonFolder('Specials')).toBe(0)
     })

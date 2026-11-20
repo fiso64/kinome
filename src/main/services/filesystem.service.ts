@@ -140,7 +140,7 @@ async function syncDiskToDatabase(
   const foundNonEmptyFolderPaths = new Set<string>()
   const skippedBranches = new Set<string>()
   const higherPrioritySeasons = getHigherPrioritySeasons(higherPriorityPaths)
-  const seasonsFromShadowedShows = new Set<string>()
+  const foldersFromShadowedShows = new Set<string>()
   const progress = new ProgressBroadcaster()
   const rootRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, rootAbsPath)
   const previous = itemsRepo.getScanLocations(source.id, rootRelPath)
@@ -168,15 +168,15 @@ async function syncDiskToDatabase(
       const shadow = shadowCandidate && (!exact || exact.id === shadowCandidate.itemId)
         ? shadowCandidate
         : undefined
-      let emptySeasonItemId: string | undefined
-      if (!exact && seasonsFromShadowedShows.has(relativePath)) {
+      let emptyFolderItemId: string | undefined
+      if (!exact && foldersFromShadowedShows.has(relativePath)) {
         const matchingFolders = new Set<string>()
         for (const [priorSourceId, paths] of priorSources) {
           if (!paths.has(relativePath)) continue
           const itemId = itemsRepo.getItemIdBySourcePath(priorSourceId, relativePath)
           if (itemId) matchingFolders.add(itemId)
         }
-        if (matchingFolders.size === 1) [emptySeasonItemId] = matchingFolders
+        if (matchingFolders.size === 1) [emptyFolderItemId] = matchingFolders
       }
       const entry: DiscoveredLocation = {
         relativePath,
@@ -185,7 +185,7 @@ async function syncDiskToDatabase(
         stats,
         ignored: false,
         shadow,
-        emptySeasonItemId,
+        emptyFolderItemId,
       }
       remember(entry)
       const existingSeasons = shadow ? higherPrioritySeasons.get(relativePath) : undefined
@@ -201,14 +201,16 @@ async function syncDiskToDatabase(
         return
       }
       if (existingSeasons) {
-        // A shadowed show can still have seasons that are absent from higher-priority sources.
+        // Keep unique folders browseable even if they have no recognized season number.
         for (const child of children) {
           const season = child.isDirectory() ? getSeasonNumberForShadowing(child.name) : null
-          if (season !== null && !existingSeasons.has(season)) {
-            seasonsFromShadowedShows.add(path.posix.join(relativePath, child.name))
+          const childPath = path.posix.join(relativePath, child.name)
+          if (child.isDirectory() && !higherPriorityPaths?.has(childPath) &&
+              (season === null || !existingSeasons.has(season))) {
+            foldersFromShadowedShows.add(childPath)
             queue.push(path.join(absolutePath, child.name))
           } else {
-            skippedBranches.add(path.posix.join(relativePath, child.name))
+            skippedBranches.add(childPath)
           }
         }
         return
