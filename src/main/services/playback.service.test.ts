@@ -136,6 +136,33 @@ it('keeps the selected HLS rendition and its audio tracks within the authenticat
     '0/720p/index.m3u8', '720p', query)).toThrow('Unexpected gocoder playlist resource')
 })
 
+it('opens a growing HLS playlist near the beginning before exposing the rest of its timeline', () => {
+  const event = `#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXT-X-START:TIME-OFFSET=0
+#EXT-X-TARGETDURATION:4
+#EXT-X-MAP:URI="init.mp4"
+#EXTINF:2.0,
+segment-0.mp4
+#EXTINF:2.0,
+segment-1.mp4
+#EXTINF:3.0,
+segment-2.mp4
+`
+  const query = new URLSearchParams({ token: 'login-token' })
+  const resource = 'audio/0/128k/index.m3u8'
+  const initial = prepareHlsPlaylist(event, resource, '480p', query, true)
+  const refreshed = prepareHlsPlaylist(event, resource, '480p', query)
+  expect(initial).toContain('URI="init.mp4?token=login-token"')
+  expect(initial).toEndWith('segment-1.mp4?token=login-token\n')
+  expect(initial).not.toContain('segment-2.mp4')
+  expect(refreshed).toStartWith(initial)
+  const complete = event + '#EXT-X-ENDLIST\n'
+  expect(prepareHlsPlaylist(complete, resource, '480p', query, true))
+    .toBe(refreshed + '#EXT-X-ENDLIST\n')
+})
+
 it.each([false, true])('keeps unclassified files in their current folder (TV ancestor: %s)', async (knownShow) => {
   const ctx = createServiceTestContext()
   try {

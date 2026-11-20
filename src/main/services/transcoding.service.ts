@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { availablePlaybackQualities, isVideoQuality, type PlaybackQuality, type PlaybackWorkerHealth } from '@shared/playback-quality'
 import * as accountFilters from './account-filter.service'
@@ -92,10 +92,31 @@ function selectRenditions(lines: string[], quality: PlaybackQuality): string[] {
   return ['#EXTM3U', '#EXT-X-VERSION:7', ...tracks, ...variants]
 }
 
-export function prepareHlsPlaylist(text: string, resource: string, quality: PlaybackQuality, query: URLSearchParams): string {
+function eventOpening(lines: string[]): string[] {
+  // Start the audio and video near the same timestamp even in players that ignore
+  // EXT-X-START and independently choose the end of each growing playlist.
+  const targetDuration = Number(lines.find((line) => line.startsWith('#EXT-X-TARGETDURATION:'))?.split(':')[1])
+  if (!(targetDuration > 0)) return lines
+  let duration = 0
+  for (const [i, line] of lines.entries()) {
+    if (!line.startsWith('#EXTINF:')) continue
+    if (duration >= targetDuration) return lines.slice(0, i)
+    duration += Number(line.slice(8).split(',', 1)[0])
+  }
+  return lines
+}
+
+function isGrowingEvent(text: string): boolean {
+  return text.includes('#EXT-X-PLAYLIST-TYPE:EVENT') && !text.includes('#EXT-X-ENDLIST')
+}
+
+export function prepareHlsPlaylist(
+  text: string, resource: string, quality: PlaybackQuality, query: URLSearchParams, opening = false
+): string {
   let lines = text.trim().split(/\r?\n/)
   if (lines[0] !== '#EXTM3U') throw new Error('Invalid gocoder playlist')
   if (resource === 'master.m3u8') lines = selectRenditions(lines, quality)
+  else if (opening && isGrowingEvent(text)) lines = eventOpening(lines)
 
   const base = resource.slice(0, resource.lastIndexOf('/') + 1)
   const rewrite = (uri: string) => {
@@ -107,6 +128,35 @@ export function prepareHlsPlaylist(text: string, resource: string, quality: Play
     if (line.startsWith('#')) return line.replace(/\bURI="([^"]+)"/g, (_, uri) => `URI="${rewrite(uri)}"`)
     return line ? rewrite(line) : line
   }).join('\n') + '\n'
+}
+
+// Keep the opening response consistent per rendition. Later EVENT responses can only grow.
+const eventViewers = new Map<string, number>()
+const eventViewerLifetime = 60 * 60_000
+const maxEventViewers = 4096
+
+function rememberEventViewer(id: string, now: number): void {
+  eventViewers.delete(id)
+  eventViewers.set(id, now + eventViewerLifetime)
+  for (const [viewer, expires] of eventViewers) {
+    if (expires > now && eventViewers.size <= maxEventViewers) break
+    eventViewers.delete(viewer)
+  }
+}
+
+function playlistResponse(request: Request, playlist: string): Response {
+  const headers = new Headers({
+    'Content-Type': hlsType,
+    'Cache-Control': 'private, no-store',
+    Vary: 'Accept-Encoding'
+  })
+  const acceptsGzip = request.headers.get('accept-encoding')?.split(',').some((entry) => {
+    const [encoding, quality] = entry.trim().toLowerCase().split(/\s*;\s*/, 2)
+    return encoding === 'gzip' && (quality === undefined || Number(quality.slice(2)) > 0)
+  })
+  const gzip = playlist.length > 2048 && acceptsGzip
+  if (gzip) headers.set('Content-Encoding', 'gzip')
+  return new Response(request.method === 'HEAD' ? null : gzip ? Bun.gzipSync(playlist, { level: 1 }) : playlist, { headers })
 }
 
 let lastWorkerWarning: number | undefined
@@ -140,8 +190,13 @@ export async function serveHls(
   const auth = params.get('token')
   const client = params.get('clientId') ?? 'default'
   if (auth) publicQuery.set('token', auth)
-  if (client !== 'default') publicQuery.set('clientId', client)
-  const clientId = createHash('sha256').update(JSON.stringify([accountId, itemId, client])).digest('hex')
+  // Opening a saved master URL again creates a fresh viewer for its media playlists.
+  if (resource === 'master.m3u8') publicQuery.set('clientId', randomUUID())
+  else if (client !== 'default') publicQuery.set('clientId', client)
+  // Gocoder tracks one audio and one video rendition per client and stops the previous
+  // encoder when it sees a switch. HLS players can probe several renditions at once.
+  const rendition = resource.slice(0, resource.lastIndexOf('/'))
+  const clientId = createHash('sha256').update(JSON.stringify([accountId, itemId, client, rendition])).digest('hex')
   const workerPath = '/video' + source
   const headers = new Headers({ 'Accept-Encoding': 'identity' })
   const range = request.headers.get('range')
@@ -179,10 +234,14 @@ export async function serveHls(
   }
   if (resource.endsWith('.m3u8')) {
     try {
-      const playlist = prepareHlsPlaylist(await response.text(), resource, quality, publicQuery)
-      return new Response(request.method === 'HEAD' ? null : playlist, {
-        headers: { 'Content-Type': hlsType, 'Cache-Control': 'private, no-store' }
-      })
+      const text = await response.text()
+      const now = Date.now()
+      const growingEvent = resource !== 'master.m3u8' && isGrowingEvent(text)
+      const opening = growingEvent && (eventViewers.get(clientId) ?? 0) <= now
+      const playlist = prepareHlsPlaylist(text, resource, quality, publicQuery, opening)
+      if (growingEvent && request.method === 'GET') rememberEventViewer(clientId, now)
+      else if (!growingEvent) eventViewers.delete(clientId)
+      return playlistResponse(request, playlist)
     } catch {
       return timeout.aborted
         ? workerFailure(504, 'The conversion worker took too long to respond.', 'timeout')
