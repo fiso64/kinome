@@ -8,6 +8,7 @@ export type PlaybackWorkerStatus = 'unconfigured' | 'ready' | 'unreachable' | 'u
 export interface PlaybackWorkerHealth {
   status: PlaybackWorkerStatus
   detail: string
+  videoBackend?: 'software' | 'vaapi'
 }
 
 export const DEFAULT_VIDEO_QUALITIES: readonly VideoQuality[] = ['1080p', '720p', '480p']

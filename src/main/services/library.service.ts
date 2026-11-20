@@ -1046,25 +1046,16 @@ export const recordPlayback = async (itemId: string, userId: string) => {
 
   userRepo.overlayUserState([item], userId)
 
-  const modifiedItems: LibraryItem[] = []
-
-  // Check if it was NEW before we mark it
   const isNewWatch = !item.watched
 
-  // Update item state
   item.watched = true
   item.lastWatched = Date.now()
-  modifiedItems.push(item)
+  const modifiedItems: LibraryItem[] = [item]
 
-  // --- Logic for Un-Dismissing ---
-  let parent = repositoryService.findParent(itemId)
-  while (parent && (parent.type !== 'folder' || parent.mediaType !== 'tv')) {
-    parent = repositoryService.findParent(parent.id)
-  }
-
-  if (parent && isNewWatch && item.mediaType === 'episode') {
+  const show = isNewWatch && item.mediaType === 'episode' ? findAncestorTvShow(itemId) : null
+  if (show) {
     const undismissedShow = await checkAndUndismissShow(
-      parent.id,
+      show.id,
       userId,
       [item as MediaFile],
       modifiedItems
@@ -1073,8 +1064,7 @@ export const recordPlayback = async (itemId: string, userId: string) => {
       modifiedItems.push(undismissedShow)
     }
 
-    // ALWAYS recalculate next_up_episode_id when watching something in a show
-    const showWithNextUp = await recalculateNextUpForShow(parent.id, userId, modifiedItems)
+    const showWithNextUp = await recalculateNextUpForShow(show.id, userId, modifiedItems)
     if (showWithNextUp) {
       modifiedItems.push(showWithNextUp)
     }

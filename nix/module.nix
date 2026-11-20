@@ -16,6 +16,7 @@ let
 
   librarySettingsFile = json.generate "kinome-library-settings.json" cfg.librarySettings;
   gocoderDir = "${cfg.dataDir}/gocoder";
+  useVaapi = cfg.gocoder.vaapiDevice != null;
   databaseSocket = "/run/kinome-gocoder/postgres";
   defaultMediaRoot = "${cfg.dataDir}/media";
   declaredMediaRoots = map (source:
@@ -95,6 +96,13 @@ in
         default = [ defaultMediaRoot ] ++ declaredMediaRoots;
         description = "Read-only media roots available to gocoder. Add roots configured interactively if outside the declared paths.";
       };
+
+      vaapiDevice = lib.mkOption {
+        type = lib.types.nullOr (lib.types.strMatching "/dev/dri/[^:]+");
+        default = null;
+        example = "/dev/dri/renderD128";
+        description = "DRM render device for VA-API video transcoding. Leave null to use software transcoding.";
+      };
     };
 
     memoryMax = lib.mkOption {
@@ -157,7 +165,13 @@ in
         image = "ghcr.io/zoriya/kyoo_transcoder:5.3.0@sha256:1171f5001e10a082db3da7e12f4b9ac958feb1e51d9a4a62a392c50a3e2fab4b";
         dependsOn = [ "kinome-gocoder-db" ];
         ports = [ "127.0.0.1:${toString cfg.gocoder.port}:7666" ];
-        environment.POSTGRES_URL = "postgresql://gocoder@localhost/gocoder?host=/var/run/postgresql&sslmode=disable";
+        environment = {
+          POSTGRES_URL = "postgresql://gocoder@localhost/gocoder?host=/var/run/postgresql&sslmode=disable";
+        } // lib.optionalAttrs useVaapi {
+          GOCODER_HWACCEL = "vaapi";
+        };
+        extraOptions = lib.optional useVaapi
+          "--device=${cfg.gocoder.vaapiDevice}:/dev/dri/renderD128";
         volumes = [
           "${gocoderDir}/cache:/cache"
           "${gocoderDir}/metadata:/metadata"
@@ -200,6 +214,7 @@ in
       } // lib.optionalAttrs cfg.gocoder.enable {
         KINOME_GOCODER_URL = "http://127.0.0.1:${toString cfg.gocoder.port}";
         KINOME_GOCODER_ROOTS = builtins.toJSON mediaRoots;
+        KINOME_GOCODER_VIDEO_BACKEND = if useVaapi then "vaapi" else "software";
       };
 
       preStart = ''

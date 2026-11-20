@@ -29,9 +29,18 @@ export async function getWorkerStatus(): Promise<PlaybackWorkerHealth> {
   if (!workerUrl) {
     return { status: 'unconfigured', detail: 'This server has no playback conversion worker configured.' }
   }
+  const health = await checkWorkerReadiness(workerUrl)
+  // Stock Gocoder's readiness endpoint checks PostgreSQL. The backend comes from
+  // our deployment configuration so readiness does not imply GPU validation.
+  const videoBackend = process.env.KINOME_GOCODER_VIDEO_BACKEND
+  if (videoBackend === 'software' || videoBackend === 'vaapi') health.videoBackend = videoBackend
+  return health
+}
+
+async function checkWorkerReadiness(url: string): Promise<PlaybackWorkerHealth> {
   const signal = AbortSignal.timeout(2_000)
   try {
-    const response = await fetch(new URL('/video/ready', workerUrl), {
+    const response = await fetch(new URL('/video/ready', url), {
       signal, redirect: 'error'
     })
     const health = await response.json().catch(() => null) as { status?: unknown; database?: unknown } | null
@@ -119,10 +128,11 @@ export function prepareHlsPlaylist(
   else if (opening && isGrowingEvent(text)) lines = eventOpening(lines)
 
   const base = resource.slice(0, resource.lastIndexOf('/') + 1)
+  const suffix = `?${query.toString()}`
   const rewrite = (uri: string) => {
     const target = uri.split('?', 1)[0]
     if (!allowsResource(base + target, quality)) throw new Error('Unexpected gocoder playlist resource')
-    return `${target}?${query}`
+    return target + suffix
   }
   return lines.map((line) => {
     if (line.startsWith('#')) return line.replace(/\bURI="([^"]+)"/g, (_, uri) => `URI="${rewrite(uri)}"`)
@@ -186,13 +196,8 @@ export async function serveHls(
   }
 
   const params = new URL(request.url).searchParams
-  const publicQuery = new URLSearchParams()
-  const auth = params.get('token')
   const client = params.get('clientId') ?? 'default'
-  if (auth) publicQuery.set('token', auth)
-  // Opening a saved master URL again creates a fresh viewer for its media playlists.
-  if (resource === 'master.m3u8') publicQuery.set('clientId', randomUUID())
-  else if (client !== 'default') publicQuery.set('clientId', client)
+  const isPlaylist = resource.endsWith('.m3u8')
   // Gocoder tracks one audio and one video rendition per client and stops the previous
   // encoder when it sees a switch. HLS players can probe several renditions at once.
   const rendition = resource.slice(0, resource.lastIndexOf('/'))
@@ -200,7 +205,7 @@ export async function serveHls(
   const workerPath = '/video' + source
   const headers = new Headers({ 'Accept-Encoding': 'identity' })
   const range = request.headers.get('range')
-  if (range && !resource.endsWith('.m3u8')) headers.set('Range', range)
+  if (range && !isPlaylist) headers.set('Range', range)
 
   function workerFailure(status: number, detail: string, reason: string): Response {
     const now = Date.now()
@@ -214,6 +219,9 @@ export async function serveHls(
   const timeout = AbortSignal.timeout(90_000)
   let response: Response
   try {
+    // TODO: Monitor upstream seek scheduling. An uncached seek can wait for an encoder
+    // up to 60 media seconds behind. Revisit a patch if this remains a playback issue.
+    // https://github.com/zoriya/Kyoo/blob/v5.3.0/transcoder/src/stream.go#L529
     const upstream = new URL(`/video/${Buffer.from(workerPath).toString('base64url')}/${resource}`, workerUrl)
     upstream.searchParams.set('clientId', clientId)
     response = await fetch(upstream, {
@@ -232,9 +240,15 @@ export async function serveHls(
       : `The conversion worker could not serve this stream (HTTP ${response.status}).`
     return workerFailure(status, detail, `upstream HTTP ${response.status}`)
   }
-  if (resource.endsWith('.m3u8')) {
+  if (isPlaylist) {
     try {
       const text = await response.text()
+      const publicQuery = new URLSearchParams()
+      const auth = params.get('token')
+      if (auth) publicQuery.set('token', auth)
+      // Opening a saved master URL again creates a fresh viewer for its media playlists.
+      if (resource === 'master.m3u8') publicQuery.set('clientId', randomUUID())
+      else if (client !== 'default') publicQuery.set('clientId', client)
       const now = Date.now()
       const growingEvent = resource !== 'master.m3u8' && isGrowingEvent(text)
       const opening = growingEvent && (eventViewers.get(clientId) ?? 0) <= now

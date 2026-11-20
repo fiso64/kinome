@@ -134,8 +134,8 @@ export function resolveSelectedLocationForItem(
       WHERE ${conditions.join(' AND ')}
     `
   const row = (options.userId
-    ? db.prepare(withAccountLocations(query, '?')).get(options.userId, ...params)
-    : db.prepare(query).get(...params)) as
+    ? db.query(withAccountLocations(query, '?')).get(options.userId, ...params)
+    : db.query(query).get(...params)) as
     | {
         id: string
         itemId: string

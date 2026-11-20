@@ -64,6 +64,7 @@
     unreachable: 'Unreachable',
     unready: 'Not ready'
   }
+  const videoBackendLabels = { vaapi: 'VA-API', software: 'Software (CPU)' }
   let workerHealth = $state<PlaybackWorkerHealth | null>(null)
   let checkingWorker = $state(false)
   const defaultQualityChoices = $derived<PlaybackQuality[]>(['original', 'remux', ...playbackQualities])
@@ -394,8 +395,22 @@
                   {#if checkingWorker}
                     <span>Checking…</span>
                   {:else if workerHealth}
-                    <span>{workerStatusLabels[workerHealth.status]}</span>
-                    <p class="help-text">{workerHealth.detail}</p>
+                    <dl class="worker-details">
+                      <dt>Worker status</dt>
+                      <dd>
+                        <strong>{workerStatusLabels[workerHealth.status]}</strong>
+                        <p class="help-text">{workerHealth.detail}</p>
+                      </dd>
+                      {#if workerHealth.status !== 'unconfigured'}
+                        <dt>Configured video backend</dt>
+                        <dd>
+                          <span>{workerHealth.videoBackend ? videoBackendLabels[workerHealth.videoBackend] : 'Unknown'}</span>
+                          {#if !workerHealth.videoBackend}
+                            <p class="help-text">Check the worker configuration for its video backend.</p>
+                          {/if}
+                        </dd>
+                      {/if}
+                    </dl>
                   {:else}
                     <span>Status unavailable</span>
                     <p class="help-text">Kinome could not complete the worker status check.</p>
@@ -938,6 +953,21 @@
 
   .check-worker {
     align-self: flex-start;
+  }
+
+  .worker-details {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    gap: 0.65rem 1rem;
+    margin: 0;
+  }
+
+  .worker-details dt {
+    color: var(--color-text-dim);
+  }
+
+  .worker-details dd {
+    margin: 0;
   }
 
   .view-config-row {
