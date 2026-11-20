@@ -17,7 +17,8 @@ let
   librarySettingsFile = json.generate "kinome-library-settings.json" cfg.librarySettings;
   gocoderDir = "${cfg.dataDir}/gocoder";
   useVaapi = cfg.gocoder.vaapiDevice != null;
-  databaseSocket = "/run/kinome-gocoder/postgres";
+  databaseService = "kinome-gocoder-db";
+  databaseSocket = "/run/${databaseService}/postgres";
   defaultMediaRoot = "${cfg.dataDir}/media";
   declaredMediaRoots = map (source:
     if (source.isRelative or false) || !lib.hasPrefix "/" source.path
@@ -144,8 +145,8 @@ in
     };
 
     virtualisation.oci-containers.containers = lib.mkIf cfg.gocoder.enable {
-      kinome-gocoder-db = {
-        serviceName = "kinome-gocoder-db";
+      ${databaseService} = {
+        serviceName = databaseService;
         image = "docker.io/library/postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32";
         environment = {
           POSTGRES_USER = "gocoder";
@@ -163,7 +164,7 @@ in
       kinome-gocoder = {
         serviceName = "kinome-gocoder";
         image = "ghcr.io/zoriya/kyoo_transcoder:5.3.0@sha256:1171f5001e10a082db3da7e12f4b9ac958feb1e51d9a4a62a392c50a3e2fab4b";
-        dependsOn = [ "kinome-gocoder-db" ];
+        dependsOn = [ databaseService ];
         ports = [ "127.0.0.1:${toString cfg.gocoder.port}:7666" ];
         environment = {
           POSTGRES_URL = "postgresql://gocoder@localhost/gocoder?host=/var/run/postgresql&sslmode=disable";
@@ -180,17 +181,20 @@ in
       };
     };
 
-    systemd.services.kinome-gocoder-db = lib.mkIf cfg.gocoder.enable {
+    systemd.services.${databaseService} = lib.mkIf cfg.gocoder.enable {
       after = [ "systemd-tmpfiles-setup.service" ];
       unitConfig.RequiresMountsFor = [ cfg.dataDir ];
-      # Create both containers' bind mounts before the OCI service tries to start.
+      # Keep the shared socket in the database service's runtime directory.
       preStart = lib.mkBefore ''
         ${lib.getExe' pkgs.coreutils "install"} -d -m 0750 -o ${lib.escapeShellArg cfg.user} -g ${lib.escapeShellArg cfg.group} ${lib.escapeShellArg defaultMediaRoot}
         ${lib.getExe' pkgs.coreutils "mkdir"} -p -m 0700 ${lib.escapeShellArgs [
-          gocoderDir "${gocoderDir}/cache" "${gocoderDir}/metadata" "${gocoderDir}/postgres" "/run/kinome-gocoder"
+          gocoderDir "${gocoderDir}/cache" "${gocoderDir}/metadata" "${gocoderDir}/postgres"
         ]}
         ${lib.getExe' pkgs.coreutils "mkdir"} -p -m 0777 ${lib.escapeShellArg databaseSocket}
       '';
+      serviceConfig.RuntimeDirectory = databaseService;
+      # Gocoder can keep its existing bind mount while PostgreSQL restarts.
+      serviceConfig.RuntimeDirectoryPreserve = "restart";
       serviceConfig.RestartSec = "5s";
     };
 
