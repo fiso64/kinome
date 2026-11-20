@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import { shouldBeGreyedOut } from '@lib/view-helpers'
@@ -38,13 +39,14 @@
   const persistentState = viewStateStore.get(stateKey, { scrollX: 0 })
 
   $effect(() => {
-    if (listElement && persistentState.scrollX > 0) {
-      // Small timeout to ensure internal layout is complete
-      const timeout = setTimeout(() => {
-        if (listElement) listElement.scrollLeft = persistentState.scrollX
-      }, 0)
-      return () => clearTimeout(timeout)
-    }
+    const element = listElement
+    if (!element) return
+    const scrollX = untrack(() => persistentState.scrollX)
+    if (scrollX <= 0) return
+
+    // Restore on mount without reapplying the saved position during scrolling.
+    const timeout = setTimeout(() => { element.scrollLeft = scrollX }, 0)
+    return () => clearTimeout(timeout)
   })
 
   function handleScroll(e: Event) {

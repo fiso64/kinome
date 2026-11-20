@@ -58,20 +58,12 @@ export function horizontalScroller(node: HTMLElement, state: Writable<Horizontal
   }
 
   const handleWheel = (event: WheelEvent) => {
-    // If there's no horizontal overflow, do nothing.
-    if (node.scrollWidth <= node.clientWidth) return
+    // Leave native horizontal gestures to the browser so momentum can continue.
+    if (event.deltaX !== 0 || !event.ctrlKey || event.deltaY === 0) return
+    if (node.scrollWidth <= node.clientWidth || !event.cancelable || event.defaultPrevented) return
 
-    const verticalScrollIntent = event.deltaY !== 0 && event.ctrlKey
-    const horizontalScrollIntent = event.deltaX !== 0 // Native horizontal trackpad/mouse scroll
-
-    if (verticalScrollIntent || horizontalScrollIntent) {
-      event.preventDefault()
-      let scrollAmount = event.deltaX // Start with native horizontal scroll
-      if (verticalScrollIntent) {
-        scrollAmount += event.deltaY // Add vertical wheel scroll if Ctrl is pressed
-      }
-      node.scrollLeft += scrollAmount
-    }
+    event.preventDefault()
+    node.scrollLeft += event.deltaY
   }
 
   node.addEventListener('smooth-scroll', smoothScroll as EventListener)

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import { shouldBeGreyedOut } from '@lib/view-helpers'
@@ -40,12 +41,13 @@
   const persistentState = viewStateStore.get(stateKey, { scrollX: 0 })
 
   $effect(() => {
-    if (scrollHorizontally && listElement && persistentState.scrollX > 0) {
-      const timeout = setTimeout(() => {
-        if (listElement) listElement.scrollLeft = persistentState.scrollX
-      }, 0)
-      return () => clearTimeout(timeout)
-    }
+    const element = listElement
+    if (!scrollHorizontally || !element) return
+    const scrollX = untrack(() => persistentState.scrollX)
+    if (scrollX <= 0) return
+
+    const timeout = setTimeout(() => { element.scrollLeft = scrollX }, 0)
+    return () => clearTimeout(timeout)
   })
 
   function handleScroll(e: Event) {

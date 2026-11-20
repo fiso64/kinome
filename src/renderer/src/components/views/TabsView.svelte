@@ -3,11 +3,11 @@
 
   import MediaView from '../layout/MediaView.svelte'
   import ViewContextProvider from '../layout/ViewContextProvider.svelte'
+  import Skeleton from '@components/ui/Skeleton.svelte'
   import { viewStateStore, getViewKey } from '@lib/view-state-store.svelte'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
-  // import { triggerSeasonEpisodeFetch } from '@lib/item-store'
   import type { AutocompleteSuggestions, Settings } from '@shared/types'
-  import { api } from '@lib/api'
+  import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { fade } from 'svelte/transition'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -34,66 +34,45 @@
     viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
-  // --- Persistent Tab State ---
-  // --- Persistent Tab State ---
   const stateKey = getViewKey('tabs')
-  // We initialize with NULL so we can detect if the user/logic has set a tab yet.
-  // The derived value `activeTabId` handles the visual fallback to the first tab.
-  const persistentState = viewStateStore.get(stateKey, { activeTabId: null })
+  const persistentState = viewStateStore.get<{ activeTabId: string | null }>(stateKey, { activeTabId: null })
+  const isTvShow = $derived(container?.mediaType === 'tv')
+  const nextUpQuery = libraryDataService.getContinueWatchingForShowQuery(() => container?.id, {
+    enabled: () => isTvShow && !persistentState.activeTabId
+  })
+  const navigationIntent = $derived.by(() => {
+    const intent = viewStateStore.tabNavigationIntent
+    return intent?.targetShowId === container?.id ? intent : null
+  })
+  const intentFolder = $derived(navigationIntent
+    ? folders.find((folder) => folder.seasonNumber === navigationIntent.targetSeasonNumber)
+    : undefined)
 
-  const activeTabId = $derived(persistentState.activeTabId ?? folders[0]?.id ?? null)
+  const activeTabId = $derived.by(() => {
+    if (intentFolder) return intentFolder.id
+    if (persistentState.activeTabId) return persistentState.activeTabId
+    if (isTvShow && nextUpQuery.isPending) return null
+
+    const info = nextUpQuery.data
+    const season = info?.nextEpisode.seasonNumber
+    if (isTvShow && season != null && !info?.show.nextUpDismissed) {
+      const target = folders.find((folder) => folder.seasonNumber === season)
+      if (target) return target.id
+    }
+    return folders[0]?.id ?? null
+  })
 
   function selectTab(tabId: string) {
     persistentState.activeTabId = tabId
   }
 
-  // --- Next Up Logic ---
-  let nextUpTargetSeason = $state<number | null>(null)
-
   $effect(() => {
-    if (!container) return
-
-    // Limit to TV shows
-    if (container.type !== 'folder' || container.mediaType !== 'tv') return
-
-    // If a tab is already explicitly selected (and persisted), skip logic
-    // This assumes `activeTabId` in store is null on fresh navigation (navStore does this)
-    if (persistentState.activeTabId) return
-
-    // If we already found a target season for this container, skip fetching again
-    // (This avoids re-fetching if `folders` updates but container is same)
-    if (nextUpTargetSeason !== null) return
-
-    api.getContinueWatchingForShow(container.id).then((info) => {
-      if (info && !info.show.nextUpDismissed) {
-        nextUpTargetSeason = info.nextEpisode.seasonNumber
-      }
-    })
-  })
-
-  // Apply target season selection once folders are available
-  $effect(() => {
-    if (nextUpTargetSeason !== null && !persistentState.activeTabId && folders.length > 0) {
-      const targetFolder = folders.find(
-        (f) => (f as MediaFolder).seasonNumber === nextUpTargetSeason
-      )
-      if (targetFolder) {
-        selectTab(targetFolder.id)
-      }
-    }
-  })
-
-  // Link navigation intent to persistent state
-  $effect(() => {
-    const intent = viewStateStore.tabNavigationIntent
-    if (intent && container && intent.targetShowId === container.id) {
-      const targetFolder = folders.find(
-        (f) => (f as MediaFolder).seasonNumber === intent.targetSeasonNumber
-      )
-      if (targetFolder) {
-        selectTab(targetFolder.id)
-      }
-      viewStateStore.tabNavigationIntent = null // Consume
+    if (navigationIntent && folders.length > 0) {
+      if (intentFolder) selectTab(intentFolder.id)
+      viewStateStore.tabNavigationIntent = null
+    } else if (isTvShow && !persistentState.activeTabId && activeTabId) {
+      // Keep the initial selection when Next Up refetches in the background.
+      selectTab(activeTabId)
     }
   })
 
@@ -107,16 +86,6 @@
   })
   const canScrollLeft = $derived($scrollState.canScrollLeft)
   const canScrollRight = $derived($scrollState.canScrollRight)
-
-  // Effect to trigger data fetching when the active tab changes
-  $effect(() => {
-    if (activeTabId) {
-      const activeFolder = folders.find((f) => f.id === activeTabId)
-      if (activeFolder) {
-        // triggerSeasonEpisodeFetch(activeFolder)
-      }
-    }
-  })
 
   $effect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -217,7 +186,11 @@
     </button>
   </div>
   <div class="tab-content" use:scrollPersistence={{ key: getViewKey('vertical') }}>
-    {#if folders.length > 0}
+    {#if folders.length > 0 && activeTabId === null}
+      <div class="tab-loading" role="status" aria-label="Loading season">
+        <Skeleton height="4rem" />
+      </div>
+    {:else if folders.length > 0}
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
           {@const childNode = viewNode?.children?.[folder.id]}
@@ -244,6 +217,9 @@
 </div>
 
 <style>
+  .tab-loading {
+    padding: 1.5rem;
+  }
   .empty-message {
     padding: 1.5rem;
     color: var(--ev-c-text-2);
