@@ -1,5 +1,7 @@
 import crypto from 'crypto'
+import equal from 'fast-deep-equal'
 import { runTransaction } from '../database/client'
+import { parseJsonSafe } from '../database/mappers'
 import {
   insertVirtualItem,
   updateFilterJson,
@@ -152,8 +154,8 @@ function buildGroupingFilter(parent: LibraryFilter, extra: LibraryCondition): Li
     ?? (parent.conditions ? [parent.conditions] : [[]])
   if (groups.length === 0) groups = [[]]
   return {
-    scope: parent.scope,
-    requiredConditions: parent.requiredConditions,
+    ...(parent.scope && { scope: parent.scope }),
+    ...(parent.requiredConditions && { requiredConditions: parent.requiredConditions }),
     conditionGroups: groups.map(group => [...group, extra]),
   }
 }
@@ -184,11 +186,11 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
       if (!desiredIds.has(id)) deleteItem(id)
     }
     for (const { id, name, title, filter } of groups) {
-      const filterJson = JSON.stringify(filter)
       if (existingFilters.has(id)) {
-        if (existingFilters.get(id) !== filterJson) updateFilterJson(id, filterJson)
+        const previous = parseJsonSafe<LibraryFilter | null>(existingFilters.get(id) ?? null, null)
+        if (!equal(previous, filter)) updateFilterJson(id, JSON.stringify(filter))
       } else {
-        insertVirtualItem({ id, parentId: folderId, name, virtualType: 'grouping', filterJson })
+        insertVirtualItem({ id, parentId: folderId, name, virtualType: 'grouping', filterJson: JSON.stringify(filter) })
         upsertMetadata(id, { title })
       }
     }

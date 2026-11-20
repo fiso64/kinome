@@ -711,15 +711,14 @@ export function buildApp() {
               settingsService.resolveMediaSourcePath(body.path, body.isRelative, body.libraryLocation)
             )
             .post('/save-settings', async ({ body }: { body: any }) => {
-              const oldSettings = await settingsService.readSettings()
-              await settingsService.saveSettingsChanges(body)
-              playbackService.clearStreamCache()
-              if (body.virtualTags) libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
-              if (body.libraryLocation && body.libraryLocation !== oldSettings.libraryLocation) {
-                await libraryService.switchToLibrary(body.libraryLocation)
+              const changes = await settingsService.saveSettingsChanges(body)
+              if (Object.keys(changes).length > 0) playbackService.clearStreamCache()
+              if (changes.virtualTags) libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
+              if (changes.libraryLocation) {
+                await libraryService.switchToLibrary(changes.libraryLocation)
                 getTransport().forceRendererReload()
-              } else if (Array.isArray(body.mediaSources)) {
-                libraryService.updateSourcePriority(body.mediaSources)
+              } else if (Array.isArray(changes.mediaSources)) {
+                libraryService.updateSourcePriority(changes.mediaSources)
               }
               const sanitized = settingsService.sanitizeForClient(await settingsService.readSettings())
               getTransport().notifySettingsUpdated(sanitized as any)

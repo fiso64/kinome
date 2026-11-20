@@ -2,7 +2,7 @@ import { viewStateStore } from './view-state-store.svelte'
 
 export interface ScrollPersistenceOptions {
   key: string
-  resetOn?: any
+  resetOn?: string
   disabled?: boolean
   onRestore?: (y: number, x: number) => void
 }
@@ -26,7 +26,7 @@ export function scrollPersistence(node: HTMLElement, options: ScrollPersistenceO
   // it means the context changed while this component was unmounted/inactive.
   // We must reset the scroll position.
   if (!options.disabled && options.resetOn !== undefined) {
-    const currentVal = JSON.stringify(options.resetOn)
+    const currentVal = options.resetOn
     const store = getStore()
 
     console.log(
@@ -119,7 +119,7 @@ export function scrollPersistence(node: HTMLElement, options: ScrollPersistenceO
       // --- Update Reset Check ---
       // Only update/reset if the view is active (not disabled).
       if (!newOptions.disabled && newOptions.resetOn !== undefined) {
-        const currentVal = JSON.stringify(newOptions.resetOn)
+        const currentVal = newOptions.resetOn
         // Access store with potentially new key
         const store = viewStateStore.get(newOptions.key, {
           y: 0,

@@ -1,8 +1,10 @@
-Add new sort by: last watched date and add new home section "Last Watched".
+Add new sort by: last watched date and add new home section "Last Watched" after "Recently Added".
 Also add new fields for vtags and vfolders: days since last watched (int), and playback state ∈ {completed, unwatched, in progress}, where
 - completed = media type = movie and (item type = file and item watched = true OR item type = folder and item has playable child item which is watched) OR media type = tv and all episodes are watched.
 - unwatched = nothing watched at all for that item
 - in progress = Not unwatched and the last episode of the last season is not watched. Invariant: Only tv shows can have in progress playback state.
+
+Be careful with performance.
 
 ---
 
@@ -16,46 +18,6 @@ Make it possible to apply non-cascadable view-related settings to children autom
 ---
 
 Make the UI more clear regarding child view overrides / normal view settings and refactor the code if needed.
-
----
-
-Find any places where we use json stringify (or similar) to deep compare items and replace by fast deep equal, which is already used in some places throughout the code.
-Ensure that individual settings fields are not saved to files if they have not been modified by the user (sparse). Only modified fields are written to json.
-
----
-
-Layout system design (small refactor), ai generated comment:
-```
-While adding the `button-grid` layout, I noticed a few significant architectural bottlenecks and DRY (Don't Repeat Yourself) violations. The layout system works, but it's suffering from **"Prop Drilling and State Explosion"**, which makes scaling it painful.
-
-Here are the main areas of tech debt I noticed:
-
-### 1. The "State Explosion" in Settings Modals
-To add `scrollHorizontally`, I had to explicitly declare it, bind it, and track it in:
-- `ItemSettingsModal.svelte` (as a `$state`, in the `hasChanged` checks, and in the payload builder)
-- `ViewTab.svelte` (as a prop and binding)
-- `ViewConfigurator.svelte` (as a prop and binding)
-- `DefaultLayoutSettingsModal.svelte` (as a `$state`, and in two separate `$effect` sync blocks)
-
-**The Problem:** The UI treats every layout-specific setting as a top-level, independent variable. If we add 5 more layout types with 10 new settings, the boilerplate in these 4-5 files will grow linearly and become a nightmare to maintain.
-**The Fix:** The UI should treat layout-specific settings dynamically. Instead of `bind:gridPosterSize`, the components should just pass around a `layoutSettings: Record<string, any>` dictionary and use `LAYOUT_SPECIFIC_SETTINGS_CONFIG` to dynamically render inputs and detect changes.
-
-### 2. Duplicated UI Logic for Horizontal Scrolling
-Take a look at `HorizontalGridView.svelte` and `ButtonGridView.svelte`. They both duplicate about 100 lines of identical code for:
-- The persistent scroll state (`viewStateStore`).
-- The scroll button SVGs and visibility logic (`canScrollLeft`, `canScrollRight`).
-- The fade gradients (`::before` / `::after` CSS).
-- The `horizontalScroller` action binding.
-
-**The Problem:** If we want to change the style of the scroll buttons, or fix a bug with persistent scrolling, we have to do it in multiple files.
-**The Fix:** We should extract this into a `<HorizontalScrollContainer>` wrapper component that handles the buttons, gradients, and store logic, accepting the grid items via a Svelte snippet or slot.
-
-### 3. Flat Type Definitions
-In `types.ts`, `StoredViewSettings` is a massive intersection of all possible layout settings (`GridSettings & HorizontalGridSettings & ListSettings...`). 
-
-**The Problem:** There is no strict type relationship enforcing that `gridPosterSize` only belongs to grid-like layouts. At the data layer, it's just a giant bucket of optional properties.
-```
-Need to check if still accurate.
 
 ---
 

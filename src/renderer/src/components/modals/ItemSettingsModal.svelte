@@ -12,9 +12,8 @@
   import { hasValidEpisodePrecision } from '@shared/metadata-fields'
   import { dialogStore } from '@lib/dialog-store'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
-  import { FOLDER_ORGANIZATION_KEYS } from '@shared/types'
+  import { ALL_VIEW_OVERRIDE_KEYS } from '@shared/types'
   import type {
-    StoredViewSettings,
     CascadableViewSettings,
     EditableViewSettings,
     MediaFolder,
@@ -24,7 +23,6 @@
     Settings,
     AutocompleteSuggestions,
     ResolutionInfo,
-    ResolutionSource,
     ViewLayout
   } from '@shared/types'
 
@@ -135,49 +133,9 @@
         if (freshItem.type === 'folder') {
           const folder = freshItem as MediaFolder
 
-          // Use the centralized resolution logic to see what's currently active.
-          // We pass overrideParent's childViewSettings as inheritedSettings.
-          const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored
-          const resolution = resolveViewSettings(
-            folder,
-            settings,
-            new Set(),
-            parentStored?.childViewSettings
-          )
-
-          // We only want to populate the modal with values that are actually STORED
-          // at the relevant layer (Item layer or Override layer).
-          const stored: StoredViewSettings = {}
-          for (const [key, sourceInfo] of Object.entries(resolution.sources) as [
-            keyof StoredViewSettings,
-            ResolutionSource
-          ][]) {
-            if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
-              ;(stored as any)[key] = (resolution.settings as any)[key]
-            }
-          }
-          // Structural (non-cascading) fields are never in resolution.sources — merge directly.
-          for (const key of FOLDER_ORGANIZATION_KEYS) {
-            if (folder.viewSettings?.[key] !== undefined) {
-              ;(stored as any)[key] = folder.viewSettings[key]
-            }
-          }
-
           seasonNumber = folder.seasonNumber?.toString() ?? ''
-
-          // Refresh View State
-          selectedGroupBy = stored.appliedGrouping ?? null
-          viewSettings = {
-            layout: stored.layout ?? null,
-            clickAction: stored.clickAction ?? null,
-            sortBy: stored.sortBy ?? null,
-            sortDescending: stored.sortDescending ?? null,
-            gridPosterSize: stored.gridPosterSize ?? null,
-            listDescriptionRows: stored.listDescriptionRows ?? null,
-            showHorizontalScrollbar: stored.showHorizontalScrollbar ?? null,
-            scrollHorizontally: stored.scrollHorizontally ?? null,
-            childViewSettings: stored.childViewSettings ?? null,
-          }
+          selectedGroupBy = folder.viewSettings?.appliedGrouping ?? null
+          viewSettings = readEditableViewSettings(folder)
 
           // Refresh Folder Settings
           retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
@@ -232,50 +190,19 @@
   )
 
   // --- View State (for folders) ---
-  const initialStored = (() => {
-    if (item.type !== 'folder') return {}
-    const folder = item as MediaFolder
-
+  function readEditableViewSettings(folder: MediaFolder): EditableViewSettings {
     const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored
-    const resolution = resolveViewSettings(
-      folder,
-      settings,
-      new Set(),
-      parentStored?.childViewSettings
-    )
+    const resolution = resolveViewSettings(folder, settings, new Set(), parentStored?.childViewSettings)
+    const keys = [...ALL_VIEW_OVERRIDE_KEYS, 'sortBy', 'sortDescending'] as const
+    return Object.fromEntries(keys.map((key) => {
+      const source = resolution.sources[key]?.source
+      return [key, source === 'item' || source === 'override' ? resolution.settings[key] ?? null : null]
+    }))
+  }
 
-    const stored: StoredViewSettings = {}
-    for (const [key, sourceInfo] of Object.entries(resolution.sources) as [
-      keyof StoredViewSettings,
-      ResolutionSource
-    ][]) {
-      if (sourceInfo.source === 'item' || sourceInfo.source === 'override') {
-        ;(stored as any)[key] = (resolution.settings as any)[key]
-      }
-    }
-    // FolderOrganizationSettings fields are never in resolution.sources — merge directly.
-    for (const key of FOLDER_ORGANIZATION_KEYS) {
-      if (folder.viewSettings?.[key] !== undefined) {
-        ;(stored as any)[key] = folder.viewSettings[key]
-      }
-    }
-
-    return stored
-  })()
-
-  let selectedGroupBy = $state(_isFolder ? (initialStored.appliedGrouping ?? null) : null)
+  let selectedGroupBy = $state(_isFolder ? item.viewSettings?.appliedGrouping ?? null : null)
   let viewSettings = $state<EditableViewSettings>(
-    _isFolder ? {
-      layout: initialStored.layout ?? null,
-      clickAction: initialStored.clickAction ?? null,
-      sortBy: initialStored.sortBy ?? null,
-      sortDescending: initialStored.sortDescending ?? null,
-      gridPosterSize: initialStored.gridPosterSize ?? null,
-      listDescriptionRows: initialStored.listDescriptionRows ?? null,
-      showHorizontalScrollbar: initialStored.showHorizontalScrollbar ?? null,
-      scrollHorizontally: initialStored.scrollHorizontally ?? null,
-      childViewSettings: initialStored.childViewSettings ?? null,
-    } : {}
+    item.type === 'folder' ? readEditableViewSettings(item) : {}
   )
 
   // --- Folder Settings State ---

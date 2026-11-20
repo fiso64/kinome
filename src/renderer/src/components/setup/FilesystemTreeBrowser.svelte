@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import equal from 'fast-deep-equal'
   import { api } from '@lib/api'
   import FolderTree from '@components/ui/FolderTree.svelte'
 
@@ -80,7 +81,9 @@
     }
   }
 
-  function handleSettingsChange() {
+  let lastSettings: Record<string, any> | undefined
+
+  function collectSettings() {
     const flatSettings: Record<string, any> = {}
 
     function collect(entries: DirectoryEntry[]) {
@@ -98,7 +101,7 @@
     }
 
     collect(rootEntries)
-    onSettingsChange(flatSettings)
+    return flatSettings
   }
 
   $effect(() => {
@@ -108,8 +111,11 @@
   })
 
   $effect(() => {
-    JSON.stringify(rootEntries)
-    untrack(handleSettingsChange)
+    const settings = collectSettings()
+    if (!equal(settings, lastSettings)) {
+      lastSettings = settings
+      untrack(() => onSettingsChange(settings))
+    }
   })
 </script>
 

@@ -6,35 +6,6 @@ export const LIBRARY_ROOT_ID = 'virtual-library-root'
 // --- Layout-Specific Settings Definitions ---
 
 /**
- * Defines the shape of settings specific to the 'grid' layout.
- */
-export interface GridSettings {
-  gridPosterSize: number
-}
-
-/**
- * Defines the shape of settings for a horizontal grid layout.
- */
-export interface HorizontalGridSettings extends GridSettings {
-  showHorizontalScrollbar: boolean
-}
-
-/**
- * Defines the shape of settings for a button grid layout.
- */
-export interface ButtonGridSettings extends GridSettings {
-  scrollHorizontally: boolean
-  showHorizontalScrollbar: boolean
-}
-
-/**
- * Defines the shape of settings specific to the 'list' layout.
- */
-export interface ListSettings {
-  listDescriptionRows: number
-}
-
-/**
  * The single source of truth for layout-specific properties and their ultimate default values.
  * This drives the data-driven settings resolution logic.
  */
@@ -46,6 +17,26 @@ export const LAYOUT_SPECIFIC_SETTINGS_CONFIG = {
   tabs: {},
   sections: {}
 } as const
+
+type LayoutDefaults = typeof LAYOUT_SPECIFIC_SETTINGS_CONFIG
+
+export type DefaultLayoutSettings = {
+  -readonly [Layout in keyof LayoutDefaults]: {
+    -readonly [Key in keyof LayoutDefaults[Layout]]: LayoutDefaults[Layout][Key] extends boolean
+      ? boolean : number
+  }
+}
+
+export type LayoutOption = {
+  [Layout in keyof DefaultLayoutSettings]: keyof DefaultLayoutSettings[Layout]
+}[keyof DefaultLayoutSettings]
+
+export type LayoutOptions = {
+  [Option in LayoutOption]: {
+    [Layout in keyof DefaultLayoutSettings]: Option extends keyof DefaultLayoutSettings[Layout]
+      ? DefaultLayoutSettings[Layout][Option] : never
+  }[keyof DefaultLayoutSettings]
+}
 
 // --- Generated Helper Constants ---
 
@@ -63,22 +54,21 @@ export type ViewLayout = (typeof ALL_VIEW_LAYOUTS)[number]
 export const CONTAINER_LAYOUTS: readonly ViewLayout[] = ['tabs', 'sections']
 
 // This function computes all unique keys from the layout-specific settings config.
-function getAllLayoutSpecificKeys(): string[] {
-  const allKeys = (
-    Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG) as { [key: string]: any }[]
-  ).flatMap((config) => Object.keys(config))
+function getAllLayoutSpecificKeys(): LayoutOption[] {
+  const allKeys = Object.values(LAYOUT_SPECIFIC_SETTINGS_CONFIG)
+    .flatMap((config) => Object.keys(config) as LayoutOption[])
   return [...new Set(allKeys)]
 }
 
 /**
  * A data-driven constant holding all possible keys that can be overridden on a per-item basis for view settings.
  */
-export const ALL_VIEW_OVERRIDE_KEYS: readonly string[] = [
+export const ALL_VIEW_OVERRIDE_KEYS = [
   'layout',
   'clickAction',
   ...getAllLayoutSpecificKeys(),
   'childViewSettings'
-]
+] as const
 
 // --- View Settings Type Definitions ---
 
@@ -99,14 +89,7 @@ export type SortBy = 'hybrid' | 'alpha' | 'date-added' | 'year' | 'random'
  *
  * ⚠️  New presentation settings belong here.
  */
-export interface CascadableViewSettings
-  extends Partial<
-    BaseViewSettings &
-      GridSettings &
-      HorizontalGridSettings &
-      ButtonGridSettings &
-      ListSettings
-  > {
+export interface CascadableViewSettings extends Partial<BaseViewSettings & LayoutOptions> {
   /** How to sort children. Defaults to 'hybrid' (season-aware). */
   sortBy?: SortBy
   /** Whether to sort in descending order. Defaults to false. */
@@ -152,16 +135,7 @@ export type StoredViewSettings = CascadableViewSettings & FolderOrganizationSett
 /**
  * Represents the final, computed settings object after the cascade has been applied.
  */
-export type ResolvedViewSettings = BaseViewSettings &
-  Partial<
-    GridSettings & HorizontalGridSettings & ButtonGridSettings & ListSettings
-  > & {
-    sortBy?: SortBy
-    sortDescending?: boolean
-    childViewSettings?: CascadableViewSettings
-    overrides?: Record<string, CascadableViewSettings>
-    title?: string
-  }
+export type ResolvedViewSettings = BaseViewSettings & CascadableViewSettings
 
 /**
  * Mutable view settings object used by the settings UI.
@@ -335,14 +309,7 @@ export interface LibrarySettings {
   mediaSources?: MediaSource[]
   shadowSources?: boolean
   shadowMinDepth?: number
-  defaultLayoutSettings: {
-    grid: GridSettings
-    'horizontal-grid': HorizontalGridSettings
-    'button-grid': ButtonGridSettings
-    list: ListSettings
-    tabs: Record<string, never>
-    sections: Record<string, never>
-  }
+  defaultLayoutSettings: DefaultLayoutSettings
   defaultLayouts: {
     [K in DefaultLayoutKey]: CascadableViewSettings
   }

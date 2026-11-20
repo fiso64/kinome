@@ -12,6 +12,8 @@
     type Settings,
     type ViewLayout,
     type SortBy,
+    type LayoutOption,
+    type LayoutOptions,
   } from '@shared/types'
   import type { DefaultLayoutKey, ResolutionSource, ResolutionInfo } from '@shared/types'
   import { modalStore } from '@lib/modal-store.svelte'
@@ -83,7 +85,7 @@
     groupByKeys?: string[]
     configMode?: boolean
     // Bindings
-    activeConfigLayout?: ViewLayout
+    activeConfigLayout?: keyof Settings['defaultLayoutSettings']
     viewSettings?: EditableViewSettings
     selectedGroupBy?: string | null
     inheritedSettings?: CascadableViewSettings
@@ -144,31 +146,29 @@
   const effectiveLayout = $derived(viewSettings.layout ?? inheritedInfo.settings.layout)
   const layoutToShowOptionsFor = $derived(configMode ? activeConfigLayout : effectiveLayout)
 
-  const defaultGridSize = $derived(
-    inheritedInfo.settings.gridPosterSize ?? LAYOUT_SPECIFIC_SETTINGS_CONFIG.grid.gridPosterSize
+  type OptionControl = { title: string } & (
+    { label: string } | { min: number; max: number; step: number; unit?: string }
   )
-  const effectiveGridSize = $derived(viewSettings.gridPosterSize ?? defaultGridSize)
-  const isGridSizeOverridden = $derived(viewSettings.gridPosterSize != null)
+  const controls: Record<LayoutOption, OptionControl> = {
+    gridPosterSize: { title: 'Poster Size', min: 50, max: 500, step: 10, unit: 'px' },
+    scrollHorizontally: { title: 'Horizontal Scrolling', label: 'Scroll horizontally' },
+    showHorizontalScrollbar: { title: 'Horizontal Scrollbar', label: 'Show horizontal scrollbar' },
+    listDescriptionRows: { title: 'Description Rows', min: 0, max: 10, step: 1 }
+  }
 
-  const defaultDescriptionRows = $derived(
-    inheritedInfo.settings.listDescriptionRows ??
-      LAYOUT_SPECIFIC_SETTINGS_CONFIG.list.listDescriptionRows
-  )
-  const effectiveDescriptionRows = $derived(viewSettings.listDescriptionRows ?? defaultDescriptionRows)
-  const isDescriptionRowsOverridden = $derived(viewSettings.listDescriptionRows != null)
+  function getLayoutOptions(layout: ViewLayout): Partial<LayoutOptions> {
+    return layout === 'tree' ? {} : LAYOUT_SPECIFIC_SETTINGS_CONFIG[layout]
+  }
 
-  const defaultShowScrollbar = $derived(
-    (inheritedInfo.settings as any).showHorizontalScrollbar ??
-      LAYOUT_SPECIFIC_SETTINGS_CONFIG['horizontal-grid'].showHorizontalScrollbar
-  )
-  const effectiveShowScrollbar = $derived(viewSettings.showHorizontalScrollbar ?? defaultShowScrollbar)
-  const isShowScrollbarOverridden = $derived(viewSettings.showHorizontalScrollbar != null)
+  const optionDefaults = $derived(getLayoutOptions(layoutToShowOptionsFor))
+  const layoutOptions = $derived((Object.keys(optionDefaults) as LayoutOption[]).filter((key) =>
+    key !== 'showHorizontalScrollbar' || layoutToShowOptionsFor !== 'button-grid' ||
+    (viewSettings.scrollHorizontally ?? inheritedInfo.settings.scrollHorizontally ?? optionDefaults.scrollHorizontally)
+  ))
 
-  const defaultScrollHorizontally = $derived(
-    (inheritedInfo.settings as any).scrollHorizontally ?? false
-  )
-  const effectiveScrollHorizontally = $derived(viewSettings.scrollHorizontally ?? defaultScrollHorizontally)
-  const isScrollHorizontallyOverridden = $derived(viewSettings.scrollHorizontally != null)
+  function setLayoutOption<K extends LayoutOption>(key: K, value: EditableViewSettings[K]) {
+    viewSettings = { ...viewSettings, [key]: value }
+  }
 
   const effectiveGroupBy = $derived(selectedGroupBy ?? 'folder')
 
@@ -182,12 +182,7 @@
   const effectiveClickAction = $derived(viewSettings.clickAction ?? defaultClickAction)
   const isClickActionOverridden = $derived(viewSettings.clickAction != null)
 
-  const hasLayoutOptions = $derived(
-    layoutToShowOptionsFor === 'grid' ||
-    layoutToShowOptionsFor === 'horizontal-grid' ||
-    layoutToShowOptionsFor === 'button-grid' ||
-    layoutToShowOptionsFor === 'list'
-  )
+  const hasLayoutOptions = $derived(layoutOptions.length > 0)
 
   function formatKey(key: string): string {
     if (key === 'folder') return 'Folder'
@@ -288,13 +283,13 @@
     <h3>Configure Defaults For</h3>
     <div class="layout-options horizontal">
       {#each layouts as layout}
-        {#if Object.keys(LAYOUT_SPECIFIC_SETTINGS_CONFIG).includes(layout.value)}
+        {#if layout.value !== 'tree' && Object.keys(LAYOUT_SPECIFIC_SETTINGS_CONFIG[layout.value]).length > 0}
           <label class="layout-option horizontal-item">
             <input
               type="radio"
               name="config-layout"
               value={layout.value}
-              onchange={() => (activeConfigLayout = layout.value as any)}
+              onchange={() => { if (layout.value !== 'tree') activeConfigLayout = layout.value }}
               checked={activeConfigLayout === layout.value}
             />
             <span>{layout.label}</span>
@@ -307,103 +302,36 @@
   <!-- Layout-specific options: always shown in configMode, toggled in item mode -->
   {#if (configMode || showLayoutOptions) && hasLayoutOptions}
     <div class="options-panel">
-      {#if layoutToShowOptionsFor === 'grid' || layoutToShowOptionsFor === 'horizontal-grid' || layoutToShowOptionsFor === 'button-grid'}
+      {#each layoutOptions as key (key)}
+        {@const control = controls[key]}
+        {@const value = viewSettings[key] ?? inheritedInfo.settings[key] ?? optionDefaults[key]}
         <div class="heading-with-action">
-          <h4>Poster Size</h4>
+          <h4>{control.title}</h4>
           {#if !configMode}
-            {#if isGridSizeOverridden}
-              <button class="link-button" onclick={() => (viewSettings.gridPosterSize = null)}>Reset to default</button>
+            {#if viewSettings[key] != null}
+              <button class="link-button" onclick={() => setLayoutOption(key, null)}>Reset to default</button>
             {:else}
               <span class="inherited-value-text-inline">
-                Using default from <strong>{formatSource(inheritedInfo.sources.gridPosterSize)}</strong>
+                Using default from <strong>{formatSource(inheritedInfo.sources[key])}</strong>
               </span>
             {/if}
           {/if}
         </div>
-        <div class="slider-container">
-          <input
-            type="range"
-            value={effectiveGridSize}
-            oninput={(e) => (viewSettings.gridPosterSize = parseInt((e.target as HTMLInputElement).value, 10))}
-            min="50"
-            max="500"
-            step="10"
-          />
-          <span>{effectiveGridSize}px</span>
-        </div>
-      {/if}
-
-      {#if layoutToShowOptionsFor === 'button-grid'}
-        <div class="heading-with-action">
-          <h4>Horizontal Scrolling</h4>
-          {#if !configMode}
-            {#if isScrollHorizontallyOverridden}
-              <button class="link-button" onclick={() => (viewSettings.scrollHorizontally = null)}>Reset to default</button>
-            {:else}
-              <span class="inherited-value-text-inline">
-                Using default from <strong>{formatSource((inheritedInfo.sources as any).scrollHorizontally)}</strong>
-              </span>
-            {/if}
-          {/if}
-        </div>
-        <label class="checkbox-label">
-          <input
-            type="checkbox"
-            checked={effectiveScrollHorizontally}
-            onchange={() => (viewSettings.scrollHorizontally = !effectiveScrollHorizontally)}
-          />
-          <span>Scroll horizontally</span>
-        </label>
-      {/if}
-
-      {#if layoutToShowOptionsFor === 'horizontal-grid' || (layoutToShowOptionsFor === 'button-grid' && effectiveScrollHorizontally)}
-        <div class="heading-with-action">
-          <h4>Horizontal Scrollbar</h4>
-          {#if !configMode}
-            {#if isShowScrollbarOverridden}
-              <button class="link-button" onclick={() => (viewSettings.showHorizontalScrollbar = null)}>Reset to default</button>
-            {:else}
-              <span class="inherited-value-text-inline">
-                Using default from <strong>{formatSource(inheritedInfo.sources.showHorizontalScrollbar)}</strong>
-              </span>
-            {/if}
-          {/if}
-        </div>
-        <label class="checkbox-label">
-          <input
-            type="checkbox"
-            checked={effectiveShowScrollbar}
-            onchange={() => (viewSettings.showHorizontalScrollbar = !effectiveShowScrollbar)}
-          />
-          <span>Show horizontal scrollbar</span>
-        </label>
-      {/if}
-
-      {#if layoutToShowOptionsFor === 'list'}
-        <div class="heading-with-action">
-          <h4>Description Rows</h4>
-          {#if !configMode}
-            {#if isDescriptionRowsOverridden}
-              <button class="link-button" onclick={() => (viewSettings.listDescriptionRows = null)}>Reset to default</button>
-            {:else}
-              <span class="inherited-value-text-inline">
-                Using default from <strong>{formatSource(inheritedInfo.sources.listDescriptionRows)}</strong>
-              </span>
-            {/if}
-          {/if}
-        </div>
-        <div class="slider-container">
-          <input
-            type="range"
-            value={effectiveDescriptionRows}
-            oninput={(e) => (viewSettings.listDescriptionRows = parseInt((e.target as HTMLInputElement).value, 10))}
-            min="0"
-            max="10"
-            step="1"
-          />
-          <span>{effectiveDescriptionRows}</span>
-        </div>
-      {/if}
+        {#if 'label' in control}
+          <label class="checkbox-label">
+            <input type="checkbox" checked={Boolean(value)}
+              onchange={(event) => setLayoutOption(key, event.currentTarget.checked)} />
+            <span>{control.label}</span>
+          </label>
+        {:else}
+          <label class="slider-container">
+            <input type="range" aria-label={control.title}
+              min={control.min} max={control.max} step={control.step} {value}
+              oninput={(event) => setLayoutOption(key, event.currentTarget.valueAsNumber)} />
+            <span>{value}{control.unit ?? ''}</span>
+          </label>
+        {/if}
+      {/each}
     </div>
   {/if}
 

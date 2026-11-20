@@ -23,6 +23,12 @@ const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
 const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // make bots work for it a little
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
+const DEFAULT_LAYOUTS: Settings['defaultLayouts'] = {
+  _default: { layout: 'grid' },
+  movie: { layout: 'tree' },
+  tv: { layout: 'tabs' },
+  season: { layout: 'list', listDescriptionRows: 3 }
+}
 
 let cachedSettings: Settings | null = null
 let cachedAbsoluteSourcePaths: Map<string, string> | null = null
@@ -228,6 +234,19 @@ function mergeNestedObjects<T extends Record<string, any>>(
   return result
 }
 
+function layoutOverrides<T extends Record<string, object>>(
+  settings: T, defaults: T
+): { [Key in keyof T]?: Partial<T[Key]> } | undefined {
+  const overrides = Object.entries(settings).flatMap(([layout, values]) => {
+    const inherited = (defaults[layout] ?? {}) as Record<string, unknown>
+    const fields = Object.entries(values).filter(([key, value]) =>
+      value !== undefined && !equal(value, inherited[key])
+    )
+    return fields.length ? [[layout, Object.fromEntries(fields)]] : []
+  })
+  return overrides.length ? Object.fromEntries(overrides) : undefined
+}
+
 /**
  * Reads and merges settings from defaults, global, and library-specific files.
  * @returns A fully populated Settings object.
@@ -248,13 +267,8 @@ async function readRawSettings(): Promise<Settings> {
     mediaSources: [],
     shadowSources: false,
     shadowMinDepth: 1,
-    defaultLayoutSettings: JSON.parse(JSON.stringify(LAYOUT_SPECIFIC_SETTINGS_CONFIG)),
-    defaultLayouts: {
-      _default: { layout: 'grid' },
-      movie: { layout: 'tree' },
-      tv: { layout: 'tabs' },
-      season: { layout: 'list', listDescriptionRows: 3 }
-    },
+    defaultLayoutSettings: structuredClone(LAYOUT_SPECIFIC_SETTINGS_CONFIG),
+    defaultLayouts: structuredClone(DEFAULT_LAYOUTS),
     searchResultView: { layout: 'list', listDescriptionRows: 5 },
     searchPopupView: { layout: 'list', listDescriptionRows: 2 },
     itemDetailBackdropSize: 'small',
@@ -363,7 +377,15 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
       await fs.mkdir(getLibraryDataPath(), { recursive: true })
 
       const currentSettings = await readSettingsFile(settingsPath)
-      const settingsToSave: Partial<Settings> = { ...currentSettings, ...settings }
+      const { defaultLayoutSettings, defaultLayouts, ...changes } = settings
+      const settingsToSave = {
+        ...currentSettings,
+        ...changes,
+        defaultLayoutSettings: defaultLayoutSettings === undefined ? currentSettings.defaultLayoutSettings
+          : layoutOverrides<Settings['defaultLayoutSettings']>(defaultLayoutSettings, LAYOUT_SPECIFIC_SETTINGS_CONFIG),
+        defaultLayouts: defaultLayouts === undefined ? currentSettings.defaultLayouts
+          : layoutOverrides(defaultLayouts, DEFAULT_LAYOUTS)
+      }
 
       // Strip predefined vtags that are identical to their defaults — they don't
       // need to be persisted unless the user has actually modified them.
@@ -399,13 +421,16 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
  * Does not handle library location changes.
  * @param settingsToSave The partial settings object to save.
  */
-export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Promise<void> {
+export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Promise<Partial<Settings>> {
   console.log('[Settings Service] Saving settings. Identifying server vs library changes.')
 
   const serverChanges: Partial<Settings> = {}
   const libraryChanges: Partial<Settings> = {}
 
-  for (const [key, value] of Object.entries(settingsToSave)) {
+  const current = await readSettings()
+  for (const key of Object.keys(settingsToSave) as (keyof Settings)[]) {
+    const value = settingsToSave[key]
+    if (value === undefined || equal(value, current[key])) continue
     if ((SERVER_SETTING_KEYS as string[]).includes(key)) {
       ; (serverChanges as any)[key] = value
     } else {
@@ -421,11 +446,10 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
     await writeGlobalSettings(serverChanges)
   }
 
-  const settingsForCurrentLibrary = libraryChanges
-
-  if (Object.keys(settingsForCurrentLibrary).length > 0) {
-    await writeLibrarySettings(settingsForCurrentLibrary)
+  if (Object.keys(libraryChanges).length > 0) {
+    await writeLibrarySettings(libraryChanges)
   }
+  return { ...serverChanges, ...libraryChanges }
 }
 
 // --- FS Wrappers ---

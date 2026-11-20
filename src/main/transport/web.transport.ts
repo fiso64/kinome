@@ -1,4 +1,5 @@
 import { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '@shared/types'
+import equal from 'fast-deep-equal'
 import type { ITransport } from './transport.interface'
 
 /**
@@ -73,7 +74,7 @@ export class WebTransport implements ITransport {
   }
 
   notifyScanStatusChanged(statusUpdate: Partial<ScanStatus>): void {
-    const prevStatus = { ...this.currentStatus }
+    const prevStatus = this.currentStatus
     this.currentStatus = { ...this.currentStatus, ...statusUpdate }
 
     // Aggregate flag calculation
@@ -81,7 +82,7 @@ export class WebTransport implements ITransport {
       this.currentStatus.isFileScanningLibrary || this.currentStatus.isMetadataFetchingLibrary
 
     // Only broadcast if the state has meaningfully changed
-    if (JSON.stringify(prevStatus) !== JSON.stringify(this.currentStatus)) {
+    if (!equal(prevStatus, this.currentStatus)) {
       console.log('[WebTransport] Notifying status change:', this.currentStatus)
       this.broadcast('scan-status-changed', this.currentStatus)
     }

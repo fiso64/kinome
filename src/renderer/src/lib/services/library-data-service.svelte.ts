@@ -1,4 +1,5 @@
 import { QueryClient, createQuery, keepPreviousData } from '@tanstack/svelte-query'
+import equal from 'fast-deep-equal'
 import { QueryThrottler } from '@lib/query-throttler'
 import { api } from '@lib/api'
 import type { LibraryItem } from '@shared/types'
@@ -349,11 +350,11 @@ class LibraryDataService {
           const viewSettingsChanged =
             'viewSettings' in item &&
             'viewSettings' in old &&
-            JSON.stringify(old.viewSettings) !== JSON.stringify(item.viewSettings)
+            !equal(old.viewSettings, item.viewSettings)
           const folderSettingsChanged =
             'folderSettings' in item &&
             'folderSettings' in old &&
-            JSON.stringify(old.folderSettings) !== JSON.stringify((item as any).folderSettings)
+            !equal(old.folderSettings, item.folderSettings)
           if (viewSettingsChanged || folderSettingsChanged) {
             delete (patched as any).viewHierarchy
           }
