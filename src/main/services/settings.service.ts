@@ -1,4 +1,5 @@
-import { DEFAULT_VIDEO_QUALITIES, isVideoQuality, isPlaybackQuality } from '@shared/playback-quality'
+import { conversionAvailable } from './transcoding/runtime'
+import { DEFAULT_VIDEO_QUALITIES, isVideoQuality, isPlaybackQuality, normalizePlaybackEncoding } from '@shared/playback-quality'
 import path, { dirname, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
 import { Database } from 'bun:sqlite'
@@ -33,11 +34,13 @@ const DEFAULT_LAYOUTS: Settings['defaultLayouts'] = {
 
 let cachedSettings: Settings | null = null
 let cachedAbsoluteSourcePaths: Map<string, string> | null = null
+let settingsRevision = 0
 
 /**
  * Invalidates all in-memory settings caches.
  */
 export function invalidateSettingsCaches(): void {
+  settingsRevision++
   cachedSettings = null
   cachedAbsoluteSourcePaths = null
 }
@@ -172,7 +175,6 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
   invalidateSettingsCaches()
   return globalSettingsQueue.run(async () => {
     console.log('[Settings] writeGlobalSettings')
-    cachedSettings = null // Invalidate cache
     const settingsPath = getGlobalSettingsPath()
     if (!settingsPath) return // Can't write global settings for remote library
     try {
@@ -210,6 +212,7 @@ export async function writeGlobalSettings(settings: Partial<Settings>): Promise<
       }
 
       await fs.writeFile(settingsPath, JSON.stringify(configToSave, null, 2), 'utf-8')
+      invalidateSettingsCaches()
       console.log(`Global settings successfully saved to ${settingsPath}`)
     } catch (error) {
       console.error(`Failed to write global settings to ${settingsPath}:`, error)
@@ -331,7 +334,8 @@ async function readRawSettings(): Promise<Settings> {
     ...(finalSettings.virtualTags ?? [])
   ]
 
-  finalSettings.gocoderConfigured = !!process.env.KINOME_GOCODER_URL
+  finalSettings.playbackConversionAvailable = conversionAvailable
+  finalSettings.playbackEncoding = normalizePlaybackEncoding(finalSettings.playbackEncoding)
   if (!isPlaybackQuality(finalSettings.defaultPlaybackQuality)) finalSettings.defaultPlaybackQuality = 'original'
   finalSettings.playbackQualities = Array.isArray(finalSettings.playbackQualities)
     ? [...new Set(finalSettings.playbackQualities.filter(isVideoQuality))]
@@ -353,7 +357,9 @@ export function sanitizeForClient(settings: Settings): Settings {
 export async function readSettings(): Promise<Settings> {
   if (cachedSettings) return cachedSettings
 
+  const revision = settingsRevision
   const settings = await readRawSettings()
+  if (revision !== settingsRevision) return readSettings()
   if (!settings.tmdbApiKey) {
     settings.tmdbApiKey = DEFAULT_STRING
   }
@@ -416,6 +422,7 @@ export async function writeLibrarySettings(settings: Partial<Settings>): Promise
       }
 
       await fs.writeFile(settingsPath, JSON.stringify(settingsToSave, null, 2))
+      invalidateSettingsCaches()
       console.log(`Library settings successfully saved to ${settingsPath}`)
     } catch (error) {
       console.error(`Failed to write library settings to ${settingsPath}:`, error)
@@ -438,8 +445,10 @@ export async function saveSettingsChanges(settingsToSave: Partial<Settings>): Pr
 
   const current = await readSettings()
   for (const key of Object.keys(settingsToSave) as (keyof Settings)[]) {
-    const value = settingsToSave[key]
-    if (key === 'gocoderConfigured' || value === undefined || equal(value, current[key])) continue
+    const value = key === 'playbackEncoding' && settingsToSave.playbackEncoding !== undefined
+      ? normalizePlaybackEncoding(settingsToSave.playbackEncoding)
+      : settingsToSave[key]
+    if (key === 'playbackConversionAvailable' || value === undefined || equal(value, current[key])) continue
     if (key === 'playbackConversion' && value !== 'full' && value !== 'remux' && value !== 'off') continue
     if (key === 'defaultPlaybackQuality' && !isPlaybackQuality(value)) continue
     if (key === 'playbackQualities' && (!Array.isArray(value) || !value.every(isVideoQuality))) continue

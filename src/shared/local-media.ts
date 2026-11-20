@@ -5,6 +5,7 @@ export interface LocalMediaTrack {
   profile?: string
   encoder?: string
   pixelFormat?: string
+  colorTransfer?: string
   frameRate?: string
   bitrate?: number
   language?: string

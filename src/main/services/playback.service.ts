@@ -198,7 +198,7 @@ function parseByteRange(header: string | null, fileSize: number): { start: numbe
 
 /** Serves the requested bytes from a file-backed Blob. */
 export function handleFileStreamFast(
-  file: Bun.BunFile,
+  file: { slice(start: number, end: number): Blob },
   fileSize: number,
   contentType: string,
   rangeHeader: string | null,

@@ -10,6 +10,7 @@ import { setTransport } from './transport.registry'
 import * as authService from './services/auth.service'
 import { buildApp, getPublicRequestUrl } from './http-app'
 import * as handlerService from './services/handler.service'
+import { closeTranscodingSessions } from './services/transcoding.service'
 import * as accountRepo from './database/repositories/account.repo'
 import bcrypt from 'bcryptjs'
 
@@ -248,6 +249,14 @@ async function start() {
     console.log(`🦊 Elysia is running at http://${server?.hostname}:${server?.port}`)
   })
 }
+
+function shutdownPlayback(): void {
+  app.server?.stop(true)
+  void closeTranscodingSessions().finally(() => process.exit(0))
+}
+
+process.once('SIGTERM', shutdownPlayback)
+process.once('SIGINT', shutdownPlayback)
 
 start().catch((err) => {
   console.error('[Server] Failed to start:', err)

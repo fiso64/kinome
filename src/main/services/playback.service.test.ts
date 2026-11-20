@@ -7,7 +7,7 @@ import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { runWithAccount } from '../request-context'
 import { generateM3UPlaylist, generatePlaylist, handleFileStreamFast } from './playback.service'
-import { prepareHlsPlaylist } from './transcoding.service'
+import { createTimeline, segmentPlaylist } from './transcoding/timeline'
 
 describe('direct media streaming', () => {
   let directory: string
@@ -107,60 +107,15 @@ it('continues an external playlist through later episodes and seasons of the sam
   }
 })
 
-it('keeps the selected HLS rendition and its audio tracks within the authenticated playback URL', () => {
-  const master = `#EXTM3U
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a-original",NAME="English",URI="audio/0/original/index.m3u8?clientId=private"
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a-192k",NAME="English",URI="audio/0/192k/index.m3u8?clientId=private"
-#EXT-X-STREAM-INF:BANDWIDTH=4000000,AUDIO="a-original"
-0/original/index.m3u8?clientId=private
-#EXT-X-STREAM-INF:BANDWIDTH=2400000,AUDIO="a-192k"
-0/720p/index.m3u8?clientId=private
-`
+it('advertises the complete seek timeline with individually playable segments', () => {
+  const timeline = createTimeline(15, [0, 3, 7, 11])
   const query = new URLSearchParams({ token: 'login-token', clientId: 'viewer' })
-  const converted = prepareHlsPlaylist(master, 'master.m3u8', '720p', query)
-  expect(converted).toContain('0/720p/index.m3u8?token=login-token&clientId=viewer')
-  expect(converted).toContain('audio/0/192k/index.m3u8?token=login-token&clientId=viewer')
-  expect(converted).not.toContain('original/index.m3u8')
-  expect(converted).not.toContain('clientId=private')
-  for (const quality of ['remux', '1080p'] as const) {
-    const remuxed = prepareHlsPlaylist(master, 'master.m3u8', quality, query)
-    expect(remuxed).toContain('0/original/index.m3u8?token=login-token&clientId=viewer')
-    expect(remuxed).not.toContain('720p/index.m3u8')
-  }
-
-  const media = '#EXTM3U\n#EXT-X-MAP:URI="init.mp4?ignored=true"\n#EXTINF:3.0,\nsegment-0.mp4?ignored=true\n'
-  const result = prepareHlsPlaylist(media, '0/720p/index.m3u8', '720p', query)
-  expect(result).toContain('URI="init.mp4?token=login-token&clientId=viewer"')
-  expect(result).toContain('segment-0.mp4?token=login-token&clientId=viewer')
-  expect(() => prepareHlsPlaylist(media.replace('segment-0.mp4', '../../../other.mp4'),
-    '0/720p/index.m3u8', '720p', query)).toThrow('Unexpected gocoder playlist resource')
-})
-
-it('opens a growing HLS playlist near the beginning before exposing the rest of its timeline', () => {
-  const event = `#EXTM3U
-#EXT-X-VERSION:7
-#EXT-X-PLAYLIST-TYPE:EVENT
-#EXT-X-START:TIME-OFFSET=0
-#EXT-X-TARGETDURATION:4
-#EXT-X-MAP:URI="init.mp4"
-#EXTINF:2.0,
-segment-0.mp4
-#EXTINF:2.0,
-segment-1.mp4
-#EXTINF:3.0,
-segment-2.mp4
-`
-  const query = new URLSearchParams({ token: 'login-token' })
-  const resource = 'audio/0/128k/index.m3u8'
-  const initial = prepareHlsPlaylist(event, resource, '480p', query, true)
-  const refreshed = prepareHlsPlaylist(event, resource, '480p', query)
-  expect(initial).toContain('URI="init.mp4?token=login-token"')
-  expect(initial).toEndWith('segment-1.mp4?token=login-token\n')
-  expect(initial).not.toContain('segment-2.mp4')
-  expect(refreshed).toStartWith(initial)
-  const complete = event + '#EXT-X-ENDLIST\n'
-  expect(prepareHlsPlaylist(complete, resource, '480p', query, true))
-    .toBe(refreshed + '#EXT-X-ENDLIST\n')
+  const playlist = segmentPlaylist(timeline, (index) => `segment-${index}.ts?${query}`)
+  expect(playlist).toContain('#EXT-X-TARGETDURATION:5')
+  expect(playlist).toContain('#EXT-X-PLAYLIST-TYPE:VOD')
+  expect(playlist).toContain('#EXTINF:2.750000,\nsegment-0.ts?token=login-token&clientId=viewer')
+  expect(playlist).toContain('#EXTINF:4.250000,\nsegment-3.ts?token=login-token&clientId=viewer')
+  expect(playlist).toEndWith('#EXT-X-ENDLIST\n')
 })
 
 it.each([false, true])('keeps unclassified files in their current folder (TV ancestor: %s)', async (knownShow) => {

@@ -89,7 +89,7 @@
     api.getPlaybackWorkerHealth().then((health) => {
       if (active && health.status !== 'ready') workerNotice = health.detail
     }).catch(() => {
-      if (active) workerNotice = 'Could not check the conversion worker.'
+      if (active) workerNotice = 'Could not check the playback engine.'
     })
     return () => { active = false }
   })

@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
-    VIDEO_QUALITIES, DEFAULT_VIDEO_QUALITIES, qualityLabel,
-    type PlaybackConversion, type PlaybackQuality, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
+    DEFAULT_VIDEO_QUALITIES, normalizePlaybackEncoding,
+    type PlaybackConversion, type PlaybackQuality, type VideoQuality
   } from '@shared/playback-quality'
   import { api } from '@lib/api'
   import Skeleton from '@components/ui/Skeleton.svelte'
@@ -14,6 +14,7 @@
   import VirtualTagModal from '@modals/VirtualTagModal.svelte'
   import AccountModal from '@modals/AccountModal.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
+  import PlaybackSettingsForm from '@components/settings/PlaybackSettingsForm.svelte'
   import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
   import { DEFAULT_LAYOUTS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
   import type {
@@ -58,31 +59,9 @@
   let playbackConversion = $state<PlaybackConversion>('full')
   let defaultPlaybackQuality = $state<PlaybackQuality>('original')
   let playbackQualities = $state<VideoQuality[]>([...DEFAULT_VIDEO_QUALITIES])
-  const workerStatusLabels: Record<PlaybackWorkerStatus, string> = {
-    ready: 'Ready',
-    unconfigured: 'Not configured',
-    unreachable: 'Unreachable',
-    unready: 'Not ready'
-  }
-  const videoBackendLabels = { vaapi: 'VA-API', software: 'Software (CPU)' }
-  let workerHealth = $state<PlaybackWorkerHealth | null>(null)
-  let checkingWorker = $state(false)
+  let playbackEncoding = $state(normalizePlaybackEncoding())
+  let playbackConversionAvailable = $state(false)
   const defaultQualityChoices = $derived<PlaybackQuality[]>(['original', 'remux', ...playbackQualities])
-
-  async function checkWorker(): Promise<void> {
-    checkingWorker = true
-    try {
-      workerHealth = await api.getPlaybackWorkerHealth()
-    } catch {
-      workerHealth = null
-    } finally {
-      checkingWorker = false
-    }
-  }
-
-  $effect(() => {
-    if (activeTab === 'playback') void checkWorker()
-  })
 
   let customActions = $state<CustomActionConfig[]>([])
   let tmdbApiKey = $state('')
@@ -140,6 +119,8 @@
     api.getSettings().then((s) => {
       playerCommands = JSON.parse(JSON.stringify(s.playerCommands ?? []))
       playbackConversion = s.playbackConversion ?? 'full'
+      playbackConversionAvailable = s.playbackConversionAvailable ?? false
+      playbackEncoding = normalizePlaybackEncoding(s.playbackEncoding)
       defaultPlaybackQuality = s.defaultPlaybackQuality ?? 'original'
       playbackQualities = [...(s.playbackQualities ?? DEFAULT_VIDEO_QUALITIES)]
       customActions = JSON.parse(JSON.stringify(s.customActions ?? []))
@@ -229,6 +210,7 @@
       await api.saveSettings({
         playerCommands: JSON.parse(JSON.stringify(playerCommands)),
         playbackConversion,
+        playbackEncoding,
         playbackQualities,
         defaultPlaybackQuality: defaultQualityChoices.includes(defaultPlaybackQuality) ? defaultPlaybackQuality : 'original',
         customActions: JSON.parse(JSON.stringify(customActions)),
@@ -361,84 +343,15 @@
               {/each}
             </div>
           {:else if activeTab === 'playback'}
-            <div class="form-section">
-              <div class="form-group start-group">
-                <span id="player-commands-label" class="label">Player Commands</span>
-                <div class="path-display-container">
-                  <div
-                    id="player-commands"
-                    class="path-display"
-                    aria-labelledby="player-commands-label"
-                  >
-                    {playerCommands.length} command(s) configured
-                  </div>
-                  <button class="secondary" onclick={() => (activePlayerCommandsModal = true)}
-                    >Manage...</button
-                  >
-                </div>
-                <p class="help-text">
-                  Configure external players to launch when clicking a file. The first one in the
-                  list is used for the default play action.
-                </p>
-              </div>
-              <div class="form-group">
-                <label for="playback-conversion">Playback Conversion</label>
-                <select id="playback-conversion" bind:value={playbackConversion}>
-                  <option value="full">Full</option>
-                  <option value="remux">Remux and audio only</option>
-                  <option value="off">Off</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <span class="label">Conversion Worker</span>
-                <div role="status">
-                  {#if checkingWorker}
-                    <span>Checking…</span>
-                  {:else if workerHealth}
-                    <dl class="worker-details">
-                      <dt>Worker status</dt>
-                      <dd>
-                        <strong>{workerStatusLabels[workerHealth.status]}</strong>
-                        <p class="help-text">{workerHealth.detail}</p>
-                      </dd>
-                      {#if workerHealth.status !== 'unconfigured'}
-                        <dt>Configured video backend</dt>
-                        <dd>
-                          <span>{workerHealth.videoBackend ? videoBackendLabels[workerHealth.videoBackend] : 'Unknown'}</span>
-                          {#if !workerHealth.videoBackend}
-                            <p class="help-text">Check the worker configuration for its video backend.</p>
-                          {/if}
-                        </dd>
-                      {/if}
-                    </dl>
-                  {:else}
-                    <span>Status unavailable</span>
-                    <p class="help-text">Kinome could not complete the worker status check.</p>
-                  {/if}
-                </div>
-                <button class="secondary check-worker" disabled={checkingWorker} onclick={checkWorker}>Check again</button>
-              </div>
-              <div class="form-group">
-                <label for="default-playback-quality">Default Playback Quality</label>
-                <select id="default-playback-quality" bind:value={defaultPlaybackQuality}>
-                  {#each defaultQualityChoices as quality (quality)}
-                    <option value={quality}>{qualityLabel(quality)}</option>
-                  {/each}
-                </select>
-                <p class="help-text">Used when clicking a player name. The arrow opens its quality menu.</p>
-              </div>
-              <div class="form-group">
-                <span class="label">Transcoding Qualities</span>
-                <div class="quality-presets">
-                  {#each VIDEO_QUALITIES as quality (quality)}
-                    <label class="checkbox-label">
-                      <input type="checkbox" value={quality} bind:group={playbackQualities} />
-                      <span>{quality === '4k' ? '4K' : quality}</span>
-                    </label>
-                  {/each}
-                </div>
-              </div>
-            </div>
+            <PlaybackSettingsForm
+              conversionAvailable={playbackConversionAvailable}
+              bind:conversion={playbackConversion}
+              bind:defaultQuality={defaultPlaybackQuality}
+              bind:qualities={playbackQualities}
+              bind:encoding={playbackEncoding}
+              playerCommandCount={playerCommands.length}
+              onManagePlayers={() => (activePlayerCommandsModal = true)}
+            />
           {:else if activeTab === 'general'}
             <div class="form-section">
               <div class="form-group start-group">
@@ -878,6 +791,15 @@
     gap: 3rem;
   }
 
+  @media (max-width: 700px) {
+    .settings-container { flex-direction: column; padding-top: 1rem; }
+    .sidebar { width: 100%; }
+    .tabs { flex-direction: row; overflow-x: auto; padding: 0.25rem 0.75rem; align-items: center; }
+    .tabs button { padding: 0.5rem 0.75rem; white-space: nowrap; }
+    .right-column { flex: 1; height: auto; min-height: 0; }
+    .content-header, .content { padding: 1rem; }
+  }
+
   .form-section {
     display: flex;
     flex-direction: column;
@@ -901,12 +823,6 @@
   .form-group label {
     font-weight: 600;
     font-size: 0.9rem;
-  }
-
-  .quality-presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
   }
 
   .checkbox-group {
@@ -948,25 +864,6 @@
   .help-text {
     font-size: 0.85rem;
     color: var(--color-text-dim);
-    margin: 0;
-  }
-
-  .check-worker {
-    align-self: flex-start;
-  }
-
-  .worker-details {
-    display: grid;
-    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
-    gap: 0.65rem 1rem;
-    margin: 0;
-  }
-
-  .worker-details dt {
-    color: var(--color-text-dim);
-  }
-
-  .worker-details dd {
     margin: 0;
   }
 

@@ -6,12 +6,18 @@
  * - Admin-user tests: one clean representative per capability group, sufficient
  *   to prove the guard is two-directional without noisy service errors.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import bcrypt from 'bcryptjs'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { buildApp } from '../http-app'
 import * as accountRepo from '../database/repositories/account.repo'
 import * as authService from './auth.service'
+import * as settingsService from './settings.service'
+import { closeTranscodingSessions } from './transcoding.service'
+import { conversionAvailable, ffmpeg } from './transcoding/runtime'
 
 describe('HTTP authorization — capability enforcement', () => {
   let ctx: ServiceTestContext
@@ -64,6 +70,51 @@ describe('HTTP authorization — capability enforcement', () => {
     expect(await response.text()).toContain(
       `https://kinome.example/api/stream/proxy-movie/Movie.mkv?token=${adminToken}&watch=1`
     )
+  })
+
+  it.skipIf(!conversionAvailable)('serves authenticated byte ranges from seekable fragmented MP4 remuxes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kinome-hls-'))
+    const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
+    const defaults = await settingsService.readSettings()
+    const settings = spyOn(settingsService, 'readSettings').mockResolvedValue({
+      ...defaults, playbackConversion: 'full', playbackConversionAvailable: true
+    })
+    const logging = (['log', 'info', 'warn'] as const).map((method) => spyOn(console, method).mockImplementation(() => {}))
+    try {
+      const fixture = Bun.spawnSync([
+        ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:rate=24',
+        '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-t', '5',
+        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', join(directory, 'movie.mkv')
+      ])
+      expect(fixture.stderr.toString()).toBe('')
+      expect(fixture.exitCode).toBe(0)
+      ctx.seedItems([{ id: 'fragmented-movie', sourceId: 'hls-source', path: 'movie.mkv' }])
+      const master = new URL('http://localhost/api/hls/fragmented-movie/remux/master.m3u8')
+      master.searchParams.set('token', adminToken)
+      const playlist = await app.handle(new Request(master.href))
+      expect(playlist.status).toBe(200)
+      const text = await playlist.text()
+      const init = new URL(text.match(/#EXT-X-MAP:URI="([^"]+)"/)![1], master)
+      const media = new URL(text.split('\n').filter((line) => line.startsWith('segment-')).at(-1)!, master)
+      expect(media.pathname).toEndWith('segment-2.m4s')
+      const unauthorized = new URL(media)
+      unauthorized.searchParams.delete('token')
+      expect((await app.handle(new Request(unauthorized.href))).status).toBe(401)
+      const segment = await app.handle(new Request(media.href))
+      const data = await segment.arrayBuffer()
+      expect(segment.status).toBe(200)
+      expect(Number(segment.headers.get('Content-Length'))).toBe(data.byteLength)
+      expect(Buffer.from(data).toString('ascii', 4, 8)).toBe('moof')
+      const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
+      expect(initialization.status).toBe(206)
+      expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')
+    } finally {
+      source.mockRestore()
+      settings.mockRestore()
+      await closeTranscodingSessions()
+      for (const logger of logging) logger.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   // ─── editSettings ────────────────────────────────────────────────────────────

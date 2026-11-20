@@ -7,6 +7,7 @@ interface ProbeStream {
   codec_name?: string
   profile?: string
   pix_fmt?: string
+  color_transfer?: string
   avg_frame_rate?: string
   bit_rate?: string
   width?: number
@@ -38,7 +39,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     executable, '-v', 'error', '-protocol_whitelist', 'file',
     '-show_entries', [
       'format=format_name,duration,bit_rate', 'format_tags=encoder',
-      'stream=index,codec_type,codec_name,profile,pix_fmt,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate',
+      'stream=index,codec_type,codec_name,profile,pix_fmt,color_transfer,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate',
       'stream_tags=language,title,encoder', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
     ].join(':'),
     '-of', 'json', '-i', filePath
@@ -57,6 +58,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
       index: stream.index, kind, codec: stream.codec_name, profile: stream.profile,
       language: tag(stream.tags, 'language')?.trim().toLowerCase() || undefined,
       title: tag(stream.tags, 'title'), encoder: tag(stream.tags, 'encoder'), pixelFormat: stream.pix_fmt,
+      colorTransfer: stream.color_transfer,
       frameRate: stream.avg_frame_rate === '0/0' ? undefined : stream.avg_frame_rate,
       bitrate: positiveNumber(stream.bit_rate),
       width: positiveNumber(stream.width), height: positiveNumber(stream.height),

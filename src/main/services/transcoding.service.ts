@@ -1,272 +1,154 @@
-import { createHash, randomUUID } from 'node:crypto'
-import path from 'node:path'
-import { availablePlaybackQualities, isVideoQuality, type PlaybackQuality, type PlaybackWorkerHealth } from '@shared/playback-quality'
+import { Blob as BufferBlob } from 'node:buffer'
+import {
+  availablePlaybackQualities, normalizePlaybackEncoding, type PlaybackEncodingPreferences,
+  type PlaybackQuality, type PlaybackVideoBackend, type PlaybackWorkerHealth
+} from '@shared/playback-quality'
 import * as accountFilters from './account-filter.service'
 import { readSettings } from './settings.service'
-import { resolveStreamPath } from './playback.service'
+import { handleFileStreamFast, resolveStreamPath } from './playback.service'
+import { openPlaybackSource, PlaybackSession, segmentPlaylist } from './transcoding'
+import { conversionAvailable, conversionEnabled, ffmpeg, ffprobe, getVaapiDevice } from './transcoding/runtime'
 
-const workerUrl = process.env.KINOME_GOCODER_URL
-function readMediaRoots(): string[] | undefined {
-  const value = process.env.KINOME_GOCODER_ROOTS
-  if (!value) return
-  try {
-    const roots: unknown = JSON.parse(value)
-    if (Array.isArray(roots) && roots.every((root) => typeof root === 'string' && path.isAbsolute(root))) {
-      return roots.map((root) => path.resolve(root))
-    }
-  } catch {}
-  console.error('[Playback] KINOME_GOCODER_ROOTS must be a JSON array of absolute paths')
-  return []
+const hlsType = 'application/vnd.apple.mpegurl'
+const clientPattern = /^[a-zA-Z0-9_-]{1,128}$/
+export const hlsSegmentPattern = /^segment-(\d+)\.(ts|m4s)$/
+
+interface Viewer {
+  session: PlaybackSession
+  fragmented: boolean
+  timeline: Awaited<ReturnType<typeof openPlaybackSource>>['timeline']
 }
 
-const mediaRoots = readMediaRoots()
-const audioQualities = new Set(['original', '128k', '192k', '256k', '320k', '512k'])
-const hlsType = 'application/vnd.apple.mpegurl'
+const viewers = new Map<string, Promise<Viewer>>()
+let lastFailureLog = -Infinity
+let lastVideoBackend: PlaybackVideoBackend | undefined
 
-const workerUnavailable = 'Kinome could not reach the conversion worker. Check that the worker and its PostgreSQL service are running.'
+export async function closeTranscodingSessions(): Promise<void> {
+  const active = [...viewers.values()]
+  viewers.clear()
+  await Promise.allSettled(active.map(async (viewer) => (await viewer).session.close()))
+}
 
 export async function getWorkerStatus(): Promise<PlaybackWorkerHealth> {
-  if (!workerUrl) {
-    return { status: 'unconfigured', detail: 'This server has no playback conversion worker configured.' }
+  if (!conversionEnabled) return { status: 'unconfigured', detail: 'Playback conversion is disabled on this server.' }
+  if (!conversionAvailable) {
+    return { status: 'unready', detail: 'Kinome needs FFmpeg and FFprobe on its PATH to convert playback.' }
   }
-  const health = await checkWorkerReadiness(workerUrl)
-  // Stock Gocoder's readiness endpoint checks PostgreSQL. The backend comes from
-  // our deployment configuration so readiness does not imply GPU validation.
-  const videoBackend = process.env.KINOME_GOCODER_VIDEO_BACKEND
-  if (videoBackend === 'software' || videoBackend === 'vaapi') health.videoBackend = videoBackend
-  return health
+  const settings = await readSettings()
+  if (settings.playbackConversion === 'off') {
+    return { status: 'unconfigured', detail: 'Playback conversion is turned off in settings.' }
+  }
+  if (settings.playbackConversion === 'remux') {
+    return { status: 'ready', detail: 'FFmpeg is ready to remux media.' }
+  }
+  const softwareOnly = settings.playbackEncoding?.hardwareAcceleration === 'software'
+  const vaapiDevice = softwareOnly ? undefined : await getVaapiDevice()
+  return {
+    status: 'ready',
+    detail: vaapiDevice ? 'VA-API passed a hardware encode test.'
+      : softwareOnly ? 'Software encoding is selected.' : 'Software encoding is available. No usable VA-API device was detected.',
+    videoBackend: vaapiDevice ? 'vaapi' : 'software',
+    vaapiDevice,
+    lastVideoBackend
+  }
 }
 
-async function checkWorkerReadiness(url: string): Promise<PlaybackWorkerHealth> {
-  const signal = AbortSignal.timeout(2_000)
-  try {
-    const response = await fetch(new URL('/video/ready', url), {
-      signal, redirect: 'error'
+function getViewer(path: string, accountId: string, itemId: string, quality: Exclude<PlaybackQuality, 'original'>,
+  client: string, encoding: PlaybackEncodingPreferences, audioIndex?: number): Promise<Viewer> {
+  const key = JSON.stringify([accountId, itemId, path, quality, client, audioIndex])
+  let viewer = viewers.get(key)
+  if (viewer) return viewer
+  viewer = Promise.all([
+    openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex),
+    quality !== 'remux' && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
+  ]).then(([source, vaapiDevice]) => {
+    source.vaapiDevice = vaapiDevice
+    const session = new PlaybackSession(ffmpeg!, source, () => {
+      if (viewers.get(key) === viewer) viewers.delete(key)
+      void session.close().catch((error) => console.warn('[Playback] Could not clean up a playback session', { itemId, error }))
+    }, (mode) => {
+      lastVideoBackend = mode
     })
-    const health = await response.json().catch(() => null) as { status?: unknown; database?: unknown } | null
-    if (signal.aborted) return { status: 'unreachable', detail: 'The worker’s health check timed out.' }
-    if (response.ok && health?.status === 'healthy' && health.database === 'healthy') {
-      return { status: 'ready', detail: 'The worker and its PostgreSQL database are responding.' }
-    }
-    if (health?.status === 'unhealthy' && typeof health.database === 'string') {
-      return { status: 'unready', detail: 'The worker is running but could not reach its PostgreSQL database.' }
-    }
-    const detail = response.ok
-      ? 'The worker returned an unexpected health response.'
-      : `The worker’s health check returned HTTP ${response.status}.`
-    return { status: 'unready', detail }
-  } catch {
-    return {
-      status: 'unreachable',
-      detail: signal.aborted ? 'The worker’s health check timed out.' : workerUnavailable
-    }
-  }
-}
-
-function allowsResource(resource: string, quality: PlaybackQuality): boolean {
-  if (resource === 'master.m3u8') return true
-  const match = /^(audio\/)?\d+\/([a-z0-9]+)\/(index\.m3u8|init\.mp4|segment-\d+\.mp4)$/.exec(resource)
-  if (!match) return false
-  return match[1]
-    ? audioQualities.has(match[2])
-    : match[2] === 'original' || (isVideoQuality(quality) && match[2] === quality)
-}
-
-function renditionQuality(uri: string): string | undefined {
-  return /^\d+\/([^/]+)\/index\.m3u8(?:\?|$)/.exec(uri)?.[1]
-}
-
-function attribute(line: string, key: string): string | undefined {
-  return new RegExp(`[:,]${key}="([^"]+)"`).exec(line)?.[1]
-}
-
-function selectRenditions(lines: string[], quality: PlaybackQuality): string[] {
-  const hasRequested = lines.some((line) => renditionQuality(line) === quality)
-  const selected = hasRequested ? quality : 'original'
-  const variants: string[] = []
-  const groups = new Set<string>()
-  for (let i = 0; i + 1 < lines.length; i++) {
-    if (!lines[i].startsWith('#EXT-X-STREAM-INF:') || renditionQuality(lines[i + 1]) !== selected) continue
-    variants.push(lines[i], lines[i + 1])
-    for (const kind of ['AUDIO', 'VIDEO']) {
-      const id = attribute(lines[i], kind)
-      if (id) groups.add(id)
-    }
-  }
-  if (!variants.length) throw new Error('No compatible gocoder rendition')
-  const tracks = lines.filter((line) => {
-    const group = line.startsWith('#EXT-X-MEDIA:') && attribute(line, 'GROUP-ID')
-    return group && groups.has(group)
+    return { session, fragmented: source.fragmented, timeline: source.timeline }
   })
-  return ['#EXTM3U', '#EXT-X-VERSION:7', ...tracks, ...variants]
-}
-
-function eventOpening(lines: string[]): string[] {
-  // Start the audio and video near the same timestamp even in players that ignore
-  // EXT-X-START and independently choose the end of each growing playlist.
-  const targetDuration = Number(lines.find((line) => line.startsWith('#EXT-X-TARGETDURATION:'))?.split(':')[1])
-  if (!(targetDuration > 0)) return lines
-  let duration = 0
-  for (const [i, line] of lines.entries()) {
-    if (!line.startsWith('#EXTINF:')) continue
-    if (duration >= targetDuration) return lines.slice(0, i)
-    duration += Number(line.slice(8).split(',', 1)[0])
-  }
-  return lines
-}
-
-function isGrowingEvent(text: string): boolean {
-  return text.includes('#EXT-X-PLAYLIST-TYPE:EVENT') && !text.includes('#EXT-X-ENDLIST')
-}
-
-export function prepareHlsPlaylist(
-  text: string, resource: string, quality: PlaybackQuality, query: URLSearchParams, opening = false
-): string {
-  let lines = text.trim().split(/\r?\n/)
-  if (lines[0] !== '#EXTM3U') throw new Error('Invalid gocoder playlist')
-  if (resource === 'master.m3u8') lines = selectRenditions(lines, quality)
-  else if (opening && isGrowingEvent(text)) lines = eventOpening(lines)
-
-  const base = resource.slice(0, resource.lastIndexOf('/') + 1)
-  const suffix = `?${query.toString()}`
-  const rewrite = (uri: string) => {
-    const target = uri.split('?', 1)[0]
-    if (!allowsResource(base + target, quality)) throw new Error('Unexpected gocoder playlist resource')
-    return target + suffix
-  }
-  return lines.map((line) => {
-    if (line.startsWith('#')) return line.replace(/\bURI="([^"]+)"/g, (_, uri) => `URI="${rewrite(uri)}"`)
-    return line ? rewrite(line) : line
-  }).join('\n') + '\n'
-}
-
-// Keep the opening response consistent per rendition. Later EVENT responses can only grow.
-const eventViewers = new Map<string, number>()
-const eventViewerLifetime = 60 * 60_000
-const maxEventViewers = 4096
-
-function rememberEventViewer(id: string, now: number): void {
-  eventViewers.delete(id)
-  eventViewers.set(id, now + eventViewerLifetime)
-  for (const [viewer, expires] of eventViewers) {
-    if (expires > now && eventViewers.size <= maxEventViewers) break
-    eventViewers.delete(viewer)
-  }
-}
-
-function playlistResponse(request: Request, playlist: string): Response {
-  const headers = new Headers({
-    'Content-Type': hlsType,
-    'Cache-Control': 'private, no-store',
-    Vary: 'Accept-Encoding'
+  viewers.set(key, viewer)
+  void viewer.catch(() => {
+    if (viewers.get(key) === viewer) viewers.delete(key)
   })
-  const acceptsGzip = request.headers.get('accept-encoding')?.split(',').some((entry) => {
-    const [encoding, quality] = entry.trim().toLowerCase().split(/\s*;\s*/, 2)
-    return encoding === 'gzip' && (quality === undefined || Number(quality.slice(2)) > 0)
-  })
-  const gzip = playlist.length > 2048 && acceptsGzip
-  if (gzip) headers.set('Content-Encoding', 'gzip')
-  return new Response(request.method === 'HEAD' ? null : gzip ? Bun.gzipSync(playlist, { level: 1 }) : playlist, { headers })
+  return viewer
 }
-
-let lastWorkerWarning: number | undefined
 
 function hlsError(status: number, detail: string): Response {
   return new Response(detail, { status, headers: { 'Cache-Control': 'private, no-store' } })
 }
 
 export async function serveHls(
-  request: Request,
-  itemId: string,
-  quality: PlaybackQuality,
-  resource: string,
-  accountId: string
+  request: Request, itemId: string, quality: PlaybackQuality, resource: string, accountId: string
 ): Promise<Response> {
-  if (!workerUrl) return hlsError(503, 'This server has no playback conversion worker configured.')
+  if (!conversionAvailable) return hlsError(503, (await getWorkerStatus()).detail)
+  const isPlaylist = resource === 'master.m3u8'
+  const isInit = resource === 'init.mp4'
+  const segment = hlsSegmentPattern.exec(resource)
   const settings = await readSettings()
-  if (quality === 'original' || !availablePlaybackQualities(settings).includes(quality) || !allowsResource(resource, quality)) {
+  if (quality === 'original' || (!isPlaylist && !isInit && !segment) || !availablePlaybackQualities(settings).includes(quality)) {
     return hlsError(404, 'This playback quality or resource is unavailable.')
   }
 
-  accountFilters.ensureUpToDate(accountId)
-  const source = await resolveStreamPath(itemId, accountId)
-  if (!source) return hlsError(404, 'File not found.')
-  if (mediaRoots && !mediaRoots.some((root) => source.startsWith(root + path.sep))) {
-    return hlsError(503, 'The file is outside the conversion worker’s media mounts.')
-  }
-
   const params = new URL(request.url).searchParams
-  const client = params.get('clientId') ?? 'default'
-  const isPlaylist = resource.endsWith('.m3u8')
-  // Gocoder tracks one audio and one video rendition per client and stops the previous
-  // encoder when it sees a switch. HLS players can probe several renditions at once.
-  const rendition = resource.slice(0, resource.lastIndexOf('/'))
-  const clientId = createHash('sha256').update(JSON.stringify([accountId, itemId, client, rendition])).digest('hex')
-  const workerPath = '/video' + source
-  const headers = new Headers({ 'Accept-Encoding': 'identity' })
-  const range = request.headers.get('range')
-  if (range && !isPlaylist) headers.set('Range', range)
-
-  function workerFailure(status: number, detail: string, reason: string): Response {
-    const now = Date.now()
-    if (!request.signal.aborted && (lastWorkerWarning === undefined || now - lastWorkerWarning >= 30_000)) {
-      lastWorkerWarning = now
-      console.warn('[Playback] Conversion request failed', { itemId, quality, resource, reason })
-    }
-    return hlsError(status, detail)
+  const client = isPlaylist ? crypto.randomUUID() : params.get('clientId')
+  const audio = params.get('audio')
+  const audioIndex = audio === null ? undefined : Number(audio)
+  if (!client || !clientPattern.test(client) ||
+    (audio !== null && (!/^\d+$/.test(audio) || !Number.isSafeInteger(audioIndex)))) {
+    return hlsError(400, 'Invalid playback parameters.')
   }
 
-  const timeout = AbortSignal.timeout(90_000)
-  let response: Response
+  accountFilters.ensureUpToDate(accountId)
+  const path = await resolveStreamPath(itemId, accountId)
+  if (!path) return hlsError(404, 'File not found.')
+
   try {
-    // TODO: Monitor upstream seek scheduling. An uncached seek can wait for an encoder
-    // up to 60 media seconds behind. Revisit a patch if this remains a playback issue.
-    // https://github.com/zoriya/Kyoo/blob/v5.3.0/transcoder/src/stream.go#L529
-    const upstream = new URL(`/video/${Buffer.from(workerPath).toString('base64url')}/${resource}`, workerUrl)
-    upstream.searchParams.set('clientId', clientId)
-    response = await fetch(upstream, {
-      headers, redirect: 'error', signal: AbortSignal.any([request.signal, timeout])
-    })
-  } catch {
-    return timeout.aborted
-      ? workerFailure(504, 'The conversion worker took too long to respond.', 'timeout')
-      : workerFailure(503, workerUnavailable, 'connection failed')
-  }
-  if (!response.ok) {
-    await response.body?.cancel()
-    const status = response.status === 404 || response.status === 416 ? response.status : 502
-    const detail = response.status === 404 && resource === 'master.m3u8'
-      ? 'The conversion worker could not find or open this media file.'
-      : `The conversion worker could not serve this stream (HTTP ${response.status}).`
-    return workerFailure(status, detail, `upstream HTTP ${response.status}`)
-  }
-  if (isPlaylist) {
-    try {
-      const text = await response.text()
-      const publicQuery = new URLSearchParams()
-      const auth = params.get('token')
-      if (auth) publicQuery.set('token', auth)
-      // Opening a saved master URL again creates a fresh viewer for its media playlists.
-      if (resource === 'master.m3u8') publicQuery.set('clientId', randomUUID())
-      else if (client !== 'default') publicQuery.set('clientId', client)
-      const now = Date.now()
-      const growingEvent = resource !== 'master.m3u8' && isGrowingEvent(text)
-      const opening = growingEvent && (eventViewers.get(clientId) ?? 0) <= now
-      const playlist = prepareHlsPlaylist(text, resource, quality, publicQuery, opening)
-      if (growingEvent && request.method === 'GET') rememberEventViewer(clientId, now)
-      else if (!growingEvent) eventViewers.delete(clientId)
-      return playlistResponse(request, playlist)
-    } catch {
-      return timeout.aborted
-        ? workerFailure(504, 'The conversion worker took too long to respond.', 'timeout')
-        : workerFailure(502, 'The conversion worker returned an invalid playlist.', 'invalid playlist')
+    const encoding = settings.playbackEncoding ?? normalizePlaybackEncoding()
+    const { session, timeline, fragmented } = await getViewer(path, accountId, itemId, quality, client, encoding, audioIndex)
+    const extension = fragmented ? 'm4s' : 'ts'
+    if (isPlaylist) {
+      const query = new URLSearchParams({ clientId: client })
+      const token = params.get('token')
+      if (token) query.set('token', token)
+      if (audio !== null) query.set('audio', audio)
+      const suffix = query.toString()
+      const playlist = request.method === 'HEAD' ? null : segmentPlaylist(
+        timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined
+      )
+      return new Response(playlist, { headers: { 'Content-Type': hlsType, 'Cache-Control': 'private, no-store' } })
     }
+
+    let data: BufferBlob | Bun.BunFile
+    if (isInit) {
+      if (!fragmented) return hlsError(404, 'Initialization not found.')
+      data = new BufferBlob([await session.initialization(request.signal)])
+    } else {
+      const index = Number(segment![1])
+      if (segment![2] !== extension || !Number.isSafeInteger(index) || index >= timeline.starts.length) {
+        return hlsError(404, 'Segment not found.')
+      }
+      const cached = await session.segment(index, request.signal)
+      const file = Bun.file(cached.path)
+      data = cached.offset ? file.slice(cached.offset, cached.bytes) : file
+    }
+    const response = handleFileStreamFast(data, data.size, fragmented ? 'video/mp4' : 'video/mp2t',
+      request.headers.get('range'), { method: request.method })
+    response.headers.set('Cache-Control', 'private, no-store')
+    return response
+  } catch (error) {
+    const now = performance.now()
+    if (!request.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError') &&
+      now - lastFailureLog >= 30_000) {
+      lastFailureLog = now
+      console.warn('[Playback] Could not convert playback', { itemId, quality, resource, error })
+    }
+    return isPlaylist
+      ? hlsError(422, 'Kinome could not prepare this file for the requested playback quality.')
+      : hlsError(503, 'Kinome could not generate this playback segment. Retry the request.')
   }
-  const outputHeaders = new Headers({ 'Cache-Control': 'private, no-store' })
-  for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-    const value = response.headers.get(key)
-    if (value) outputHeaders.set(key, value)
-  }
-  if (request.method === 'HEAD') await response.body?.cancel()
-  return new Response(request.method === 'HEAD' ? null : response.body, { status: response.status, headers: outputHeaders })
 }

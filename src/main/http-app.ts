@@ -1,5 +1,5 @@
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
-import { getWorkerStatus, serveHls } from './services/transcoding.service'
+import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
  *
@@ -190,7 +190,7 @@ async function handleHlsRequest({ params, request, session, server }: {
   if (!isPlaybackQuality(params.quality)) return new Response('Invalid quality', { status: 400 })
   server?.timeout(request, 100)
   const response = await serveHls(request, params.id, params.quality, params['*'], session.accountId)
-  if (response.ok && request.method === 'GET' && /segment-\d+\.mp4$/.test(params['*'])) {
+  if (response.ok && request.method === 'GET' && hlsSegmentPattern.test(params['*'])) {
     const userId = session.accountId
     playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))
   }
@@ -207,7 +207,7 @@ export function buildApp() {
 
       const isStatic = url.startsWith('/api/assets')
       const isStreamChunk = (url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')) ||
-        (url.startsWith('/api/hls/') && url.endsWith('.mp4'))
+        (url.startsWith('/api/hls/') && /(?:\.ts|\.m4s)$/.test(url))
       const isInstaller = url.startsWith('/install-kinome-handler')
 
       if ((url.startsWith('/api/') || isInstaller) && !isStatic && !isStreamChunk) {
@@ -220,7 +220,7 @@ export function buildApp() {
       const range = request.headers.get('range')
       const isStatic = url.startsWith('/api/assets')
       const isStreamChunk = (url.startsWith('/api/stream') && range && !range.startsWith('bytes=0-')) ||
-        (url.startsWith('/api/hls/') && url.endsWith('.mp4'))
+        (url.startsWith('/api/hls/') && /(?:\.ts|\.m4s)$/.test(url))
 
       if (url.startsWith('/api/') && !isStatic && !isStreamChunk) {
         const start = (request as any)._startTime

@@ -18,7 +18,7 @@
 
 ### 🎬 Playback & Transcoding
 
-- [x] [P1] Transcoding and transmuxing support. Try to steal as much code from Jellyfin or Kyoo as possible. (Gocoder looks good).
+- [x] [P1] Transcoding and transmuxing support.
 - [ ] [P1] Refine players.
   - [ ] Look at the percentage watched to determine if an item is watched or not, instead of setting immediately on play. Look into how jellyfin does it.
   - [ ] Add a better integration for mpv (and vlc if possible) that reports accurate progress and allows navigating to the previous item in a playlist. E.g. using ipc+wrapper or lua scripts. Should be as easy to set up/run as possible. 

@@ -1,4 +1,4 @@
-import type { PlaybackConversion, PlaybackQuality, VideoQuality } from './playback-quality'
+import type { PlaybackConversion, PlaybackEncodingPreferences, PlaybackQuality, VideoQuality } from './playback-quality'
 import type { LocalMedia } from './local-media'
 import type { TmdbMetadata } from './metadata-fields'
 
@@ -284,7 +284,8 @@ export interface ServerSettings {
   playbackConversion?: PlaybackConversion
   defaultPlaybackQuality?: PlaybackQuality
   playbackQualities?: VideoQuality[]
-  gocoderConfigured?: boolean
+  playbackEncoding?: PlaybackEncodingPreferences
+  playbackConversionAvailable?: boolean
 }
 
 /**
@@ -348,6 +349,7 @@ export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'playbackConversion',
   'defaultPlaybackQuality',
   'playbackQualities',
+  'playbackEncoding',
   'libraryLocation'
 ]
 
