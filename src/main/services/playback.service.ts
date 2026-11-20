@@ -3,7 +3,7 @@ import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
-import type { LibraryItem } from '@shared/types'
+import type { LibraryItem, MediaFile } from '@shared/types'
 
 // --- Playback Tracking ---
 
@@ -350,33 +350,38 @@ export async function handleCachedStream(
 // --- Playlist Generation ---
 
 /**
- * Generates a playlist for an item (e.g., for continuous playback)
- * Returns the item and all subsequent siblings (sorted by season/episode or name)
- * @param itemId ID of the starting item
- * @returns Array of library items in playback order
+ * Starts at the selected item. Identified episodes continue through their show.
+ * Other files continue through their immediate folder.
  */
 export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
-  const item = repositoryService.getItemById(itemId)
+  const [item] = repositoryService.find({
+    where: { id: itemId },
+    includeHidden: true,
+    includeIgnored: true
+  })
   if (!item) return []
+  if (!item.parentId) return [item]
 
-  const parent = repositoryService.findParent(itemId)
-  // If no parent (root item?) or item is orphan, just return the item itself
-  if (!parent) return [item]
+  const show = item.mediaType === 'episode'
+    ? repositoryService.getAncestors(itemId).find((ancestor) => ancestor.type === 'folder' && ancestor.mediaType === 'tv')
+    : undefined
+  const candidates = show
+    ? repositoryService.find({
+        where: { type: 'file', mediaType: 'episode', isMissing: 0 },
+        compiledConditions: {
+          sql: `i.id IN (${itemsRepo.DESCENDANT_IDS_SQL} SELECT id FROM tree)`,
+          params: [show.id],
+          tables: new Set()
+        }
+      })
+    : repositoryService.getChildren(item.parentId)
+  const files = candidates.filter((candidate): candidate is MediaFile =>
+    candidate.type === 'file' && !candidate.isHidden && !candidate.isMissing
+  )
 
-  // Get all siblings including the item itself
-  const siblings = repositoryService
-    .getChildren(parent.id)
-    .filter((c) => c.type === 'file' && !c.isHidden && !c.isMissing)
-
-  // Sort siblings:
-  // 1. Season/Episode (if available)
-  // 2. Name (Alphabetical)
-  siblings.sort((a, b) => {
-    // Cast to any to access optional properties safely
-    const aS = (a as any).seasonNumber
-    const bS = (b as any).seasonNumber
-    const aE = (a as any).episodeNumber
-    const bE = (b as any).episodeNumber
+  files.sort((a, b) => {
+    const { seasonNumber: aS, episodeNumber: aE } = a
+    const { seasonNumber: bS, episodeNumber: bE } = b
 
     // Sort by Season
     if (aS != null && bS != null && aS !== bS) return aS - bS
@@ -392,12 +397,8 @@ export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
     return a.name.localeCompare(b.name, undefined, { numeric: true })
   })
 
-  // Find the index of the requested item
-  const index = siblings.findIndex((s) => s.id === itemId)
-  if (index === -1) return [item]
-
-  // Return the item and all subsequent items (Next episodes)
-  return siblings.slice(index)
+  const index = files.findIndex((file) => file.id === itemId)
+  return index === -1 ? [item] : files.slice(index)
 }
 
 /**

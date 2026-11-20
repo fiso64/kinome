@@ -249,7 +249,7 @@ export function fetchParent(id: string): any {
 
 // Parent links belong to logical items. Walk the indexed tree before
 // resolving metadata and selected locations for the resulting items.
-const DESCENDANT_IDS_SQL = `
+export const DESCENDANT_IDS_SQL = `
     WITH RECURSIVE tree(id) AS (
       SELECT id FROM media_items WHERE parent_item_id = ?
       UNION ALL
