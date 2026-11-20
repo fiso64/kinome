@@ -9,6 +9,7 @@ import { cors } from '@elysiajs/cors'
 import path from 'path'
 import fs from 'fs'
 
+import { hasValidEpisodePrecision } from '../shared/metadata-fields'
 import * as libraryService from './services/library.service'
 import * as settingsService from './services/settings.service'
 import { resolveLibraryPath } from './services/paths.service'
@@ -628,7 +629,15 @@ export function buildApp() {
               const { name, filter } = body as { name: string; filter?: any }
               return { id: virtualFoldersService.createUserVirtualFolder(parentId, name, filter) }
             })
-            .patch('/items', async ({ body }: { body: any }) => {
+            .patch('/items', async ({ body, set }: { body: any; set: any }) => {
+              if (body.episodeNumber != null && !hasValidEpisodePrecision(body.episodeNumber)) {
+                // Some callers send the full item when updating an unrelated field.
+                const existing = typeof body.id === 'string' ? repositoryService.getItemById(body.id) : null
+                if (existing?.type !== 'file' || existing.episodeNumber !== body.episodeNumber) {
+                  set.status = 400
+                  return { error: 'Episode numbers can have at most one decimal place.' }
+                }
+              }
               if (body.id === 'home') body.id = repositoryService.getHomeFolderId()
               await libraryService.updateItem(body, true)
               return { success: true }

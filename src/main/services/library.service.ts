@@ -449,8 +449,7 @@ export async function markAsUnwatched(itemId: string, userId: string): Promise<v
     }
   })
 
-  for (const i of itemsToUpdate) i._v = now
-  await broadcastModifiedItems(itemsToUpdate, { userId })
+  await broadcastModifiedItems(itemsToUpdate, { userId, userStateOnly: true })
 }
 
 /**
@@ -528,6 +527,10 @@ async function checkAndUndismissShow(
     if (show) userRepo.overlayUserState([show], userId)
   }
   if (!show || show.mediaType !== 'tv') return null
+
+  if ((!show.nextUpDismissed && !show.continueWatchingDismissed) || newlyWatchedEpisodes.length === 0) {
+    return null
+  }
 
   let allEpisodes: MediaFile[]
   if (preloadedEpisodes) {
@@ -662,9 +665,7 @@ export async function markAsWatched(itemId: string, userId: string): Promise<voi
     }
   })
 
-  // Stamp _v in memory and broadcast everything together.
-  for (const i of itemsToUpdate) i._v = now
-  await broadcastModifiedItems(itemsToUpdate, { userId })
+  await broadcastModifiedItems(itemsToUpdate, { userId, userStateOnly: true })
 }
 
 // --- Continue Watching ---

@@ -148,6 +148,7 @@ Collect all video files (`.mp4`, `.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm`
      - Fall through to alphabetic assignment (below).
    - **If no duplicates exist:**
      - Assign `episodeNumber` from the regex match to each matched file.
+     - Check the entire season for a shared fractional digit. In a two-episode season, both episodes must use it. In a longer season, at most one episode can differ. A one-episode season keeps its fractional digit. Strip the shared digit only if doing so leaves distinct episode numbers. For example, two episodes ending in `.5` in a ten-episode season keep their `.5`.
      - If pattern is `SxxExx`: also extract `seasonNumber` from filename (overrides parent).
      - If pattern is `Episode XX` or `Exx`: inherit `seasonNumber` from parent folder.
      - Mark each as `mediaType = 'episode'`.
@@ -197,6 +198,7 @@ Before writing the calculated `seasonNumber` or `episodeNumber` to the DB:
 
 **Notes:**
 
+- Episode patterns accept one optional fractional digit. A longer numeric suffix leaves the whole episode number intact. For example, `S01E02.2022` yields episode 2.
 - Word boundaries (`\b`) prevent false positives like `video1080p.mkv`.
 - `SxxExx` extracts both season and episode; others extract episode only.
 

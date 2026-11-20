@@ -21,21 +21,53 @@ const EPISODE_PATTERNS = [
 ] as const
 type EpisodePattern = (typeof EPISODE_PATTERNS)[number]
 
+// The negative lookahead keeps a year or resolution from being read as a fractional digit.
+const EPISODE_NUMBER = String.raw`(\d{1,3}(?:\.\d(?!\d))?)`
+const SXXEXX_PATTERNS = [
+  new RegExp(String.raw`\bS(\d{1,2})\s?\.?\s?E${EPISODE_NUMBER}\b`, 'i'),
+  new RegExp(String.raw`S(\d{1,2})E${EPISODE_NUMBER}\b`, 'i')
+]
+const EPISODE_XX_PATTERN = new RegExp(String.raw`\bEpisode\s*${EPISODE_NUMBER}\b`, 'i')
+const EXX_PATTERN = new RegExp(String.raw`\bE${EPISODE_NUMBER}\b`, 'i')
+const ABSOLUTE_PATTERN = new RegExp(
+  String.raw`\s-\s+${EPISODE_NUMBER}(?=v\d+\b|[\s.\[(]|$)`,
+  'i'
+)
+
+function getFractionalDigit(episode: number): number {
+  return Math.round(episode * 10) % 10
+}
+
+function getSeasonSuffix(episodes: (number | undefined)[]): number | undefined {
+  const digitCounts = new Map<number, number>()
+  for (const episode of episodes) {
+    const digit = episode === undefined ? 0 : getFractionalDigit(episode)
+    digitCounts.set(digit, (digitCounts.get(digit) ?? 0) + 1)
+  }
+
+  for (const [digit, count] of digitCounts) {
+    if (digit === 0 || count < 2 || count < episodes.length - 1) continue
+
+    const distinctEpisodes = new Set(episodes)
+    const normalized = new Set(episodes.map((episode) =>
+      episode !== undefined && getFractionalDigit(episode) === digit ? Math.trunc(episode) : episode
+    ))
+    if (normalized.size === distinctEpisodes.size) return digit
+  }
+}
+
 export function parseEpisodeInfo(
   name: string
 ): { season?: number; episode: number; pattern: EpisodePattern } | null {
-  const sxxexxPatterns = [/\bS(\d{1,2})\s?\.?\s?E(\d{1,3}(?:\.\d+)?)\b/i, /S(\d{1,2})E(\d{1,3}(?:\.\d+)?)\b/i]
-  for (const pattern of sxxexxPatterns) {
+  for (const pattern of SXXEXX_PATTERNS) {
     const match = name.match(pattern)
     if (match) return { season: Number(match[1]), episode: Number(match[2]), pattern: 'sxxexx' }
   }
-  const episodeXXPattern = /\bEpisode\s*(\d{1,3}(?:\.\d+)?)\b/i
-  const episodeMatch = name.match(episodeXXPattern)
+  const episodeMatch = name.match(EPISODE_XX_PATTERN)
   if (episodeMatch) return { episode: Number(episodeMatch[1]), pattern: 'episode_xx' }
-  const exxPattern = /\bE(\d{1,3}(?:\.\d+)?)\b/i
-  const exxMatch = name.match(exxPattern)
+  const exxMatch = name.match(EXX_PATTERN)
   if (exxMatch) return { episode: Number(exxMatch[1]), pattern: 'exx' }
-  const absoluteMatch = name.match(/\s-\s+(\d{1,3}(?:\.\d+)?)(?=v\d+\b|[\s.\[(]|$)/i)
+  const absoluteMatch = name.match(ABSOLUTE_PATTERN)
   if (absoluteMatch) return { episode: Number(absoluteMatch[1]), pattern: 'absolute' }
   return null
 }
@@ -149,8 +181,10 @@ export function determineEpisodeNumbers(
         // --- Check for Uniqueness ---
         const episodesSeen = new Set<string>()
         let hasDuplicate = false
+        let hasFractionalEpisodes = false
         for (const info of matches) {
           if (info.parsed) {
+            hasFractionalEpisodes ||= !Number.isInteger(info.parsed.episode)
             const seasonKey = info.parsed.season ?? parentSeasonNumber ?? 'unknown'
             const episodeKey = `${seasonKey}:${info.parsed.episode}`
             if (episodesSeen.has(episodeKey)) {
@@ -172,12 +206,32 @@ export function determineEpisodeNumbers(
           continue
         }
 
+        // A fractional digit shared by all or all but one episode looks like a suffix.
+        const seasonSuffixes = hasFractionalEpisodes ? new Map<number | undefined, number>() : undefined
+        if (seasonSuffixes) {
+          const episodesBySeason = new Map<number | undefined, (number | undefined)[]>()
+          for (const { parsed } of allParsedInfo) {
+            const season = parsed?.season ?? parentSeasonNumber ?? undefined
+            const episodes = episodesBySeason.get(season)
+            if (episodes) episodes.push(parsed?.episode)
+            else episodesBySeason.set(season, [parsed?.episode])
+          }
+          for (const [season, episodes] of episodesBySeason) {
+            const suffix = getSeasonSuffix(episodes)
+            if (suffix !== undefined) seasonSuffixes.set(season, suffix)
+          }
+        }
+
         // Apply this pattern
         matches.forEach(({ name, parsed }) => {
           if (parsed) {
+            const season = parsed.season ?? parentSeasonNumber
+            const suffix = seasonSuffixes?.get(season ?? undefined)
             results.set(name, {
-              episode: parsed.episode,
-              season: parsed.season ?? parentSeasonNumber,
+              episode: suffix !== undefined && suffix === getFractionalDigit(parsed.episode)
+                ? Math.trunc(parsed.episode)
+                : parsed.episode,
+              season,
               mediaType: 'episode'
             })
           }

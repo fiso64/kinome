@@ -23,6 +23,8 @@ import * as repositoryService from './repository.service'
 import { LIBRARY_ROOT_ID } from '../database/repositories/filesystem.repo'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
 import { cleanupMissingForSource, scanDirectory } from './filesystem.service'
+import { getChildren as getViewChildren } from './navigation.service'
+import { syncTvShowStructure } from './tv-show.service'
 
 const TEST_SOURCE = { id: 'test-source-uuid', path: '/media/library', isRelative: false }
 
@@ -612,6 +614,56 @@ describe('shadowing', () => {
       WHERE source_id = ? AND relative_path = 'Movies'
     `).get(SOURCE_B.id) as { item_id: string; is_shadowed: number } | undefined
     expect(shadowedLocation).toEqual({ item_id: moviesAId!, is_shadowed: 1 })
+  })
+
+  it.each(['absent', 'removed', 'empty'])('keeps a unique season under a shadowed show (primary season folder: %s)', async (primaryFolder) => {
+    const sourceA = { ...SOURCE_A, path: tmpA }
+    const sourceB = { ...SOURCE_B, path: tmpB }
+    const seasonTwo = path.join(tmpA, 'show', 's02')
+    const seasonThree = path.join(tmpB, 'show', 's03')
+    await fs.mkdir(seasonTwo, { recursive: true })
+    await fs.writeFile(path.join(seasonTwo, 'Show.S02E01.mkv'), 'season two')
+    const oldSeasonThree = path.join(tmpA, 'show', 's03')
+    if (primaryFolder !== 'absent') await fs.mkdir(oldSeasonThree)
+    await scanDirectory(sourceA, tmpA)
+    const oldSeasonThreeId = itemIdForLocation(sourceA.id, 'show/s03')
+    if (primaryFolder === 'removed') await fs.rmdir(oldSeasonThree)
+
+    await fs.mkdir(seasonThree, { recursive: true })
+    await fs.writeFile(path.join(seasonThree, 'Show.S03E01.mkv'), 'season three')
+    const duplicateSeason = path.join(tmpB, 'show', 'Season 02')
+    await fs.mkdir(duplicateSeason)
+    await fs.writeFile(path.join(duplicateSeason, 'Show.S02E02.mkv'), 'lower-priority duplicate season')
+    await fs.writeFile(path.join(tmpB, 'show', 'Show.S00E01.mkv'), 'lower-priority loose episode')
+
+    let primaryPaths = new Set<string>()
+    await scanDirectory(sourceA, tmpA, {
+      onFoundLocationPaths: (paths) => { primaryPaths = paths }
+    })
+    await scanDirectory(sourceB, tmpB, {
+      higherPriorityPaths: getNonEmptyFolderPathsInSource(sourceA.id),
+      shadowMinDepth: 1,
+      sameRelativePathRescueSources: new Map([[sourceA.id, primaryPaths]])
+    })
+
+    const showId = itemIdForLocation(sourceA.id, 'show')!
+    expect(itemIdForLocation(sourceB.id, 'show')).toBe(showId)
+    expect(itemIdForLocation(sourceB.id, 'show/Season 02/Show.S02E02.mkv')).toBeNull()
+    expect(itemIdForLocation(sourceB.id, 'show/Show.S00E01.mkv')).toBeNull()
+    if (primaryFolder !== 'absent') expect(itemIdForLocation(sourceB.id, 'show/s03')).toBe(oldSeasonThreeId)
+
+    repositoryService._updateItem(showId, { mediaType: 'tv' })
+    const show = repositoryService.getItemById(showId)
+    if (show?.type !== 'folder') throw new Error('Scanned show is missing')
+    await syncTvShowStructure(show)
+
+    const seasons = await getViewChildren(show.id)
+    if (!Array.isArray(seasons)) throw new Error(seasons.message)
+    expect(seasons.map((season) => [season.mediaType, season.seasonNumber])).toEqual([
+      ['season', 2], ['season', 3]
+    ])
+    const episodes = await getViewChildren(seasons[1].id)
+    expect(episodes).toMatchObject([{ mediaType: 'episode', seasonNumber: 3, episodeNumber: 1 }])
   })
 
   it('prefers a populated lower-priority folder over an empty high-priority folder', async () => {

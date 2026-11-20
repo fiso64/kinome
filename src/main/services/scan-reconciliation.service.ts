@@ -13,11 +13,12 @@ export interface DiscoveredLocation {
   ignored: boolean
   contentFingerprint?: string
   shadow?: { itemId: string; locationId: string }
+  emptySeasonItemId?: string
 }
 
 type LocationMatch = {
   itemId: string
-  rule: 'exact-location' | 'inode-device' | 'shadow' | 'same-relative-path' | 'content-fingerprint' | 'parsed-media'
+  rule: 'exact-location' | 'inode-device' | 'shadow' | 'empty-season' | 'same-relative-path' | 'content-fingerprint' | 'parsed-media'
   moveLocationId?: string
 }
 
@@ -107,6 +108,7 @@ export function buildReconciliationPlan(
     const exact = byPath.get(relativePath)
     if (shadow) return { itemId: shadow.itemId, rule: 'shadow' }
     if (exact) return { itemId: exact.id, rule: 'exact-location' }
+    if (entry.emptySeasonItemId) return { itemId: entry.emptySeasonItemId, rule: 'empty-season' }
 
     const key = fingerprint(stats.ino, stats.dev)
     if (key && fingerprintCounts.get(key) === 1) {

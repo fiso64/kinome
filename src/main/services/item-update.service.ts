@@ -123,27 +123,31 @@ export function isItemDataSame(existing: LibraryItem, updated: LibraryItem): boo
  */
 export async function broadcastModifiedItems(
   items: LibraryItem[],
-  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string } = {}
+  options: { updateSuggestions?: boolean; settings?: Settings; userId?: string; userStateOnly?: boolean } = {}
 ): Promise<void> {
   if (items.length === 0) return
 
-  const settings = options.settings ?? (await settingsService.readSettings())
+  // Watch progress is private. The persisted tag and grouping inputs are global.
+  const userStateOnly = !!options.userId && options.userStateOnly === true
+  if (!userStateOnly) {
+    const settings = options.settings ?? (await settingsService.readSettings())
 
-  const itemIds = items.map((i) => i.id)
+    const itemIds = items.map((i) => i.id)
 
-  const t1 = Date.now()
-  virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
-  const freshVirtualTags = metadataRepo.fetchVirtualTagsForItems(itemIds)
-  log(`[Timing] applyVirtualTags took ${Date.now() - t1}ms`)
-  for (const item of items) {
-    item.virtualTags = freshVirtualTags[item.id] ?? {}
+    const t1 = Date.now()
+    virtualTagsService.applyVirtualTags(settings.virtualTags, itemIds)
+    const freshVirtualTags = metadataRepo.fetchVirtualTagsForItems(itemIds)
+    log(`[Timing] applyVirtualTags took ${Date.now() - t1}ms`)
+    for (const item of items) {
+      item.virtualTags = freshVirtualTags[item.id] ?? {}
+    }
+
+    const t2 = Date.now()
+    syncAllGroupings()
+    log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
+
+    accountFilterService.markDirty()
   }
-
-  const t2 = Date.now()
-  syncAllGroupings()
-  log(`[Timing] syncAllGroupings took ${Date.now() - t2}ms`)
-
-  accountFilterService.markDirty()
 
   const plainItems = JSON.parse(JSON.stringify(items))
   const t3 = Date.now()
@@ -158,20 +162,19 @@ export async function broadcastModifiedItems(
   if (options.userId) {
     // Full payload to this user's private channel (includes user-state)
     getTransport().notifyLibraryItemsUpdated(plainItems, options.userId)
-    // Stripped payload to global channel: other clients get non-user-state updates
-    // without any user's watched/nextUp state bleeding into their caches.
-    // The frontend merges via spread so absent keys preserve existing cached values.
-    const globalItems = plainItems.map((item: any) => {
-      const copy = { ...item }
-      for (const key of USER_STATE_KEYS) delete copy[key]
-      return copy
-    })
-    getTransport().notifyLibraryItemsUpdated(globalItems)
+    if (!userStateOnly) {
+      const globalItems = plainItems.map((item: any) => {
+        const copy = { ...item }
+        for (const key of USER_STATE_KEYS) delete copy[key]
+        return copy
+      })
+      getTransport().notifyLibraryItemsUpdated(globalItems)
+    }
   } else {
     getTransport().notifyLibraryItemsUpdated(plainItems)
   }
 
-  if (options.updateSuggestions) {
+  if (!userStateOnly && options.updateSuggestions) {
     const [suggestions, groupByKeys] = await Promise.all([
       autocompleteService.getAutocompleteSuggestions(),
       autocompleteService.getGroupByKeys()
@@ -187,8 +190,8 @@ export async function updateIfChangedAndBroadcast(
   if (!items || (Array.isArray(items) && items.length === 0)) return
   const itemsArray = Array.isArray(items) ? items : [items]
 
-  const settings = options.settings ?? (await settingsService.readSettings())
   const modifiedItems: LibraryItem[] = []
+  let hasGlobalChanges = false
 
   const t0 = Date.now()
   repositoryService.runTransaction(() => {
@@ -228,9 +231,12 @@ export async function updateIfChangedAndBroadcast(
       const hasRealChanges = globalChanged || userStateChanged
 
       if (hasRealChanges) {
-        item._v = Date.now()
+        if (globalChanged) {
+          item._v = Date.now()
+          hasGlobalChanges = true
+          autocompleteService.invalidateCache()
+        }
         modifiedItems.push(item)
-        autocompleteService.invalidateCache()
       }
 
       // Strip fields that haven't changed to avoid unnecessary DB writes.
@@ -271,5 +277,5 @@ export async function updateIfChangedAndBroadcast(
   })
   log(`[Timing] runTransaction total: ${Date.now() - t0}ms`)
 
-  await broadcastModifiedItems(modifiedItems, { ...options, settings })
+  await broadcastModifiedItems(modifiedItems, { ...options, userStateOnly: !hasGlobalChanges })
 }

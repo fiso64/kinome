@@ -221,17 +221,36 @@ export function updateMetadataImages(
     })
 }
 
-export function getDistinctMetadataValues(column: string): string[] {
-    const db = getDb()
-    const rows = db
-        .prepare(`SELECT DISTINCT ${column} FROM ${EFFECTIVE_METADATA} WHERE ${column} IS NOT NULL`)
-        .all() as any[]
-    return rows.map((r) => String(r[column]))
+export function getDistinctMetadataValues(column: 'media_type' | 'year'): string[] {
+    const rows = getDb().query(`
+        SELECT ${column} AS value FROM media_item_metadata WHERE ${column} IS NOT NULL
+        UNION
+        SELECT e.${column} FROM media_entities e
+        WHERE e.${column} IS NOT NULL AND EXISTS (
+            SELECT 1 FROM media_items i
+            WHERE i.entity_id = e.id AND NOT EXISTS (
+                SELECT 1 FROM media_item_metadata m WHERE m.item_id = i.id
+            )
+        )
+    `).all() as { value: string | number }[]
+    return rows.map(({ value }) => String(value))
 }
 
 export function getDistinctGenreNames(): string[] {
-    const rows = getDb().prepare(`
-        SELECT DISTINCT g.value AS name FROM ${EFFECTIVE_METADATA} e, json_each(e.genres_json) g ORDER BY name
+    const rows = getDb().query(`
+        WITH genre_lists AS (
+            SELECT DISTINCT genres_json FROM media_item_metadata WHERE genres_json IS NOT NULL
+        )
+        SELECT entry.value AS name FROM genre_lists, json_each(genre_lists.genres_json) entry
+        UNION
+        SELECT g.name FROM genres g WHERE EXISTS (
+            SELECT 1 FROM entity_genres eg JOIN media_items i ON i.entity_id = eg.entity_id
+            WHERE eg.genre_id = g.id AND NOT EXISTS (
+                SELECT 1 FROM media_item_metadata m
+                WHERE m.item_id = i.id AND m.genres_json IS NOT NULL
+            )
+        )
+        ORDER BY name
     `).all() as { name: string }[]
     return rows.map(({ name }) => name)
 }

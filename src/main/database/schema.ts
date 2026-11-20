@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS media_locations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_locations_item_id ON media_locations(item_id);
+CREATE INDEX IF NOT EXISTS idx_media_locations_inode_device_type ON media_locations(inode, device_id, type);
 CREATE INDEX IF NOT EXISTS idx_media_locations_source_path ON media_locations(source_id, relative_path);
 CREATE INDEX IF NOT EXISTS idx_media_locations_relative_path ON media_locations(relative_path);
 CREATE INDEX IF NOT EXISTS idx_media_locations_fingerprint ON media_locations(location_fingerprint);

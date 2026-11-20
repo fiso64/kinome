@@ -12,6 +12,7 @@ import { migration as selectedLocationPriority } from './migrations/0010_selecte
 import { migration as accountLocationVisibility } from './migrations/0011_account_location_visibility'
 import { migration as dropEntityClassification } from './migrations/0012_drop_entity_classification'
 import { migration as indexedLocationSelection } from './migrations/0013_indexed_location_selection'
+import { migration as locationIdentityIndex } from './migrations/0014_location_identity_index'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -36,7 +37,8 @@ const MIGRATIONS: Migration[] = [
   selectedLocationPriority,
   accountLocationVisibility,
   dropEntityClassification,
-  indexedLocationSelection
+  indexedLocationSelection,
+  locationIdentityIndex
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

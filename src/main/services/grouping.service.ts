@@ -7,7 +7,7 @@ import {
   deleteItem,
   getDistinctSeasonNumbers,
   getVirtualSeasonFolderIds,
-  getVirtualGroupingFolderIds,
+  getVirtualGroupingFolders,
   getFoldersWithActiveGrouping
 } from '../database/repositories/filesystem.repo'
 import {
@@ -108,10 +108,10 @@ function groupingFolderId(parentId: string, groupByKey: string, value: string): 
 /**
  * Resolves real children and filter scope for a folder.
  */
-function resolveChildrenAndScope(folderId: string) {
+function resolveChildrenAndScope(folderId: string, groupByKey: string) {
   const folder = getItemById(folderId) as MediaFolder | null
   if (!folder) throw new Error(`applyGrouping: folder '${folderId}' not found`)
-  const fields = ['id', 'type', 'mediaType', 'seasonNumber', 'year', 'virtualTags', 'tags', 'genres']
+  const fields = ['id', groupByKey === 'genre' ? 'genres' : groupByKey]
 
   let realChildren
   if (folder.isVirtual && folder.filter) {
@@ -133,7 +133,7 @@ function resolveChildrenAndScope(folderId: string) {
     inheritedFilter = { scope: { parentId: folderId } }
   }
 
-  return { realChildren, inheritedFilter }
+  return { realChildren, inheritedFilter, appliedGrouping: folder.viewSettings?.appliedGrouping }
 }
 
 function collectUniqueValues(items: any[], groupByKey: string) {
@@ -159,7 +159,7 @@ function buildGroupingFilter(parent: LibraryFilter, extra: LibraryCondition): Li
 }
 
 export function applyGrouping(folderId: string, groupByKey: string): void {
-  const { realChildren, inheritedFilter } = resolveChildrenAndScope(folderId)
+  const { realChildren, inheritedFilter, appliedGrouping } = resolveChildrenAndScope(folderId, groupByKey)
   const { uniqueValues, hasUncategorized } = collectUniqueValues(realChildren, groupByKey)
 
   const groups = [...uniqueValues].map((value) => ({
@@ -178,21 +178,21 @@ export function applyGrouping(folderId: string, groupByKey: string): void {
   }
 
   const desiredIds = new Set(groups.map(({ id }) => id))
-  const existingIds = new Set(getVirtualGroupingFolderIds(folderId))
+  const existingFilters = new Map(getVirtualGroupingFolders(folderId).map(({ id, filterJson }) => [id, filterJson]))
   runTransaction(() => {
-    for (const id of existingIds) {
+    for (const id of existingFilters.keys()) {
       if (!desiredIds.has(id)) deleteItem(id)
     }
     for (const { id, name, title, filter } of groups) {
       const filterJson = JSON.stringify(filter)
-      if (existingIds.has(id)) {
-        updateFilterJson(id, filterJson)
+      if (existingFilters.has(id)) {
+        if (existingFilters.get(id) !== filterJson) updateFilterJson(id, filterJson)
       } else {
         insertVirtualItem({ id, parentId: folderId, name, virtualType: 'grouping', filterJson })
         upsertMetadata(id, { title })
       }
     }
-    mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
+    if (appliedGrouping !== groupByKey) mergeSettings(folderId, { viewSettings: { appliedGrouping: groupByKey } })
   })
 }
 

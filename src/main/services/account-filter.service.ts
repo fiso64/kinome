@@ -21,7 +21,7 @@ import {
 import { withSourceLocations } from '../database/media-read-model.sql'
 import type { AccountFilterRule, LibraryCondition } from '@shared/types'
 
-type ItemRow = { id: string; parent_id: string | null; selected_location_id: string | null }
+type ItemRow = { id: string; parent_id: string | null }
 type FindIds = (options: FindOptions) => string[]
 
 function findIds(options: FindOptions, source?: string): string[] {
@@ -138,7 +138,9 @@ export function rebuildForAccount(accountId: string): void {
 
   const db = getDb()
   const rowsSql = `SELECT id, parent_id, selected_location_id FROM ${ITEM_READ_MODEL} WHERE is_virtual = 0`
-  const allItems = db.prepare(rowsSql).all() as ItemRow[]
+  const allItems = db.query(`
+    SELECT id, parent_item_id AS parent_id FROM media_items WHERE is_virtual = 0
+  `).all() as ItemRow[]
   let visible: Set<string>
   const excluded: string[] = []
   if (!usesLocationFields(rule)) {
@@ -149,12 +151,12 @@ export function rebuildForAccount(accountId: string): void {
     const sources = db.prepare('SELECT DISTINCT source_id FROM media_locations').all() as { source_id: string }[]
     const bySource = db.prepare(withSourceLocations(`${rowsSql} AND selected_location_id IS NOT NULL`))
     for (const { source_id } of sources) {
-      const rows = bySource.all(source_id) as ItemRow[]
+      const rows = bySource.all(source_id) as (ItemRow & { selected_location_id: string })[]
       const locationItems = computeVisibility(rule, rows, (options) => findIds(options, source_id))
       for (const row of rows) {
         if (!locationItems.has(row.id)) continue
         visible.add(row.id)
-        if (row.selected_location_id) allowedLocations.add(row.selected_location_id)
+        allowedLocations.add(row.selected_location_id)
       }
     }
 

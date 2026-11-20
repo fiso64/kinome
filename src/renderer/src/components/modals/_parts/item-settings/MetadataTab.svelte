@@ -88,7 +88,7 @@
               bind:value={episodeNumber}
               class="number-input"
               min="1"
-              step="any"
+              step="0.1"
             />
           </div>
         {/if}

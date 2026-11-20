@@ -5,7 +5,7 @@
  * that persists item changes, re-evaluates virtual tags, syncs groupings,
  * and broadcasts updates.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { updateIfChangedAndBroadcast, isItemDataSame } from './item-update.service'
 import { applyGrouping } from './grouping.service'
@@ -13,6 +13,7 @@ import { getItemById, find } from './repository.service'
 import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { rebuildForAccount } from './account-filter.service'
+import { getTransport } from '../transport.registry'
 import type { LibraryItem, Settings } from '@shared/types'
 
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
@@ -68,6 +69,26 @@ describe('updateIfChangedAndBroadcast', () => {
 
     const item = getItemById('movie1')
     expect(item?.title).toBe('New Title')
+  })
+
+  it('keeps a watch-only edit private and skips global metadata work', async () => {
+    ctx.seedEntities([{ id: 'e1', mediaType: 'movie' }])
+    ctx.seedItems([{ id: 'movie', type: 'file', entityId: 'e1' }])
+    ctx.seedVirtualTags('e1', { category: 'Movies' })
+    const before = getItemById('movie')
+    const updates = spyOn(getTransport(), 'notifyLibraryItemsUpdated')
+    try {
+      await updateIfChangedAndBroadcast({ id: 'movie', watched: true } as LibraryItem, {
+        userId: 'viewer',
+        settings: DEFAULT_SETTINGS,
+      })
+      expect(find({ where: { id: 'movie' }, userId: 'viewer' })[0].watched).toBe(true)
+      expect(getItemById('movie')?.virtualTags).toEqual({ category: 'Movies' })
+      expect(getItemById('movie')?._v).toBe(before?._v)
+      expect(updates.mock.calls.map(([, userId]) => userId)).toEqual(['viewer'])
+    } finally {
+      updates.mockRestore()
+    }
   })
 
   it('does not update _v when data is unchanged', async () => {

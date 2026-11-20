@@ -13,7 +13,7 @@ import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
 import { ITEM_READ_MODEL } from '../database/query-builder'
-import { isSupportedVideoFile } from '../utils/tv-parser'
+import { isSpecialTvFolderName, isSupportedVideoFile, parseSeasonFolder } from '../utils/tv-parser'
 import {
   applyReconciliationPlan, buildReconciliationPlan, type DiscoveredLocation, type SourceHistory,
 } from './scan-reconciliation.service'
@@ -68,11 +68,16 @@ async function probeMissingLocations(
   const missing: SourceHistory = new Map()
   if (!sourcePaths || sourcePaths.size < 2) return missing
 
+  const unscannedSources = new Map([...sourcePaths].filter(([id, root]) =>
+    id !== sourceId && !priorSources.has(id) && !pathsService.isRemotePath(root)
+  ))
+  if (unscannedSources.size === 0) return missing
+
   const candidates: SourceHistory = new Map()
   for (const entry of discovered) {
     if (entry.shadow || knownPaths.has(entry.relativePath)) continue
     for (const match of itemsRepo.findPresentMoveCandidates(sourceId, entry.relativePath, entry.contentFingerprint)) {
-      if (priorSources.has(match.sourceId) || !sourcePaths.has(match.sourceId)) continue
+      if (!unscannedSources.has(match.sourceId)) continue
       const paths = candidates.get(match.sourceId) ?? new Set<string>()
       paths.add(match.path)
       candidates.set(match.sourceId, paths)
@@ -80,8 +85,7 @@ async function probeMissingLocations(
   }
 
   for (const [id, paths] of candidates) {
-    const root = sourcePaths.get(id)!
-    if (pathsService.isRemotePath(root)) continue
+    const root = unscannedSources.get(id)!
     try {
       await fs.access(root)
     } catch {
@@ -103,6 +107,25 @@ async function probeMissingLocations(
   return missing
 }
 
+function getSeasonNumberForShadowing(name: string): number | null {
+  return isSpecialTvFolderName(name) ? null : parseSeasonFolder(name)
+}
+
+function getHigherPrioritySeasons(folderPaths?: ReadonlySet<string>): Map<string, Set<number>> {
+  const seasonsByFolder = new Map<string, Set<number>>()
+  if (!folderPaths) return seasonsByFolder
+
+  for (const folderPath of folderPaths) {
+    const season = getSeasonNumberForShadowing(path.posix.basename(folderPath))
+    if (season === null) continue
+    const parent = path.posix.dirname(folderPath)
+    const seasons = seasonsByFolder.get(parent)
+    if (seasons) seasons.add(season)
+    else seasonsByFolder.set(parent, new Set([season]))
+  }
+  return seasonsByFolder
+}
+
 async function syncDiskToDatabase(
   rootAbsPath: string,
   source: { id: string; absolutePath: string },
@@ -116,6 +139,8 @@ async function syncDiskToDatabase(
   const foundLocationPaths = new Set<string>()
   const foundNonEmptyFolderPaths = new Set<string>()
   const skippedBranches = new Set<string>()
+  const higherPrioritySeasons = getHigherPrioritySeasons(higherPriorityPaths)
+  const seasonsFromShadowedShows = new Set<string>()
   const progress = new ProgressBroadcaster()
   const rootRelPath = itemsRepo.relativePathFromAbsolute(source.absolutePath, rootAbsPath)
   const previous = itemsRepo.getScanLocations(source.id, rootRelPath)
@@ -143,6 +168,16 @@ async function syncDiskToDatabase(
       const shadow = shadowCandidate && (!exact || exact.id === shadowCandidate.itemId)
         ? shadowCandidate
         : undefined
+      let emptySeasonItemId: string | undefined
+      if (!exact && seasonsFromShadowedShows.has(relativePath)) {
+        const matchingFolders = new Set<string>()
+        for (const [priorSourceId, paths] of priorSources) {
+          if (!paths.has(relativePath)) continue
+          const itemId = itemsRepo.getItemIdBySourcePath(priorSourceId, relativePath)
+          if (itemId) matchingFolders.add(itemId)
+        }
+        if (matchingFolders.size === 1) [emptySeasonItemId] = matchingFolders
+      }
       const entry: DiscoveredLocation = {
         relativePath,
         name: path.basename(absolutePath) || 'Library',
@@ -150,9 +185,11 @@ async function syncDiskToDatabase(
         stats,
         ignored: false,
         shadow,
+        emptySeasonItemId,
       }
       remember(entry)
-      if (shadow || hiddenPaths.has(relativePath)) {
+      const existingSeasons = shadow ? higherPrioritySeasons.get(relativePath) : undefined
+      if ((shadow && !existingSeasons) || hiddenPaths.has(relativePath)) {
         skippedBranches.add(relativePath)
         return
       }
@@ -161,6 +198,19 @@ async function syncDiskToDatabase(
       entry.ignored = children.some(({ name }) => name === '.ignore')
       if (entry.ignored) {
         skippedBranches.add(relativePath)
+        return
+      }
+      if (existingSeasons) {
+        // A shadowed show can still have seasons that are absent from higher-priority sources.
+        for (const child of children) {
+          const season = child.isDirectory() ? getSeasonNumberForShadowing(child.name) : null
+          if (season !== null && !existingSeasons.has(season)) {
+            seasonsFromShadowedShows.add(path.posix.join(relativePath, child.name))
+            queue.push(path.join(absolutePath, child.name))
+          } else {
+            skippedBranches.add(path.posix.join(relativePath, child.name))
+          }
+        }
         return
       }
       if (children.some((child) => child.isDirectory() || isSupportedVideoFile(child.name))) {
@@ -221,11 +271,11 @@ async function syncDiskToDatabase(
     for (const location of currentLocations) {
       let relativePath = location.path
       while (relativePath !== '.') {
-        relativePath = path.posix.dirname(relativePath)
         if (skippedBranches.has(relativePath)) {
           foundLocationPaths.add(location.path)
           break
         }
+        relativePath = path.posix.dirname(relativePath)
       }
     }
     const plan = buildReconciliationPlan(

@@ -59,6 +59,16 @@ describe('parseEpisodeInfo', () => {
         (name) => expect(parseEpisodeInfo(name)?.episode).toBe(20.5)
     )
 
+    it.each([
+        'Show.S01E02.2022.mkv',
+        'ShowS01E02.1080p.mkv',
+        'Episode 02.25 - Title.mkv',
+        'Show.E02.2022.mkv',
+        '[Group] Show - 02.25v2 [720p].mkv'
+    ])('uses the whole episode number from %s', (name) => {
+        expect(parseEpisodeInfo(name)?.episode).toBe(2)
+    })
+
     it('extracts SxxExx pattern (priority 1)', () => {
         const result = parseEpisodeInfo('Breaking.Bad.S01E05.mkv')
         expect(result).toEqual({ season: 1, episode: 5, pattern: 'sxxexx' })
@@ -144,6 +154,44 @@ describe('parseSeasonFolder', () => {
 // =================================================================
 
 describe('determineEpisodeNumbers', () => {
+    it('drops a fractional digit shared by all episodes in a season folder', () => {
+        const files = ['Episode 2.3.mkv', 'Episode 5.3.mkv', 'Episode 10.3.mkv']
+        const result = determineEpisodeNumbers(files, 1)
+
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([2, 5, 10])
+    })
+
+    it('checks for shared fractional digits separately in each season of a flat show', () => {
+        const files = [
+            'Show.S01E02.5.mkv', 'Show.S01E03.5.mkv',
+            'Show.S02E20.mkv', 'Show.S02E20.5.mkv', 'Show.S02E21.mkv',
+            'Show.S03E01.5.mkv'
+        ]
+        const result = determineEpisodeNumbers(files)
+
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([2, 3, 20, 20.5, 21, 1.5])
+    })
+
+    it('preserves different fractional digits within one season', () => {
+        const files = ['Show.S01E02.4.mkv', 'Show.S01E02.5.mkv']
+        const result = determineEpisodeNumbers(files)
+
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([2.4, 2.5])
+    })
+
+    it.each([
+        [[20.5, 21, 21.5, 22], [20.5, 21, 21.5, 22]],
+        [[1, 2.5, 3, 4, 5, 6.5, 7, 8, 9, 10], [1, 2.5, 3, 4, 5, 6.5, 7, 8, 9, 10]],
+        [[2.5, 3.5, 4, 5.5], [2, 3, 4, 5]],
+        [[2.5, 3.5, 4.7, 5.5], [2, 3, 4.7, 5]],
+        [[2.5, 3.5, 3, 5.5], [2.5, 3.5, 3, 5.5]]
+    ])('assigns season episodes %j as %j', (episodeNumbers, expected) => {
+        const files = episodeNumbers.map((episode) => `Show.S01E${episode}.mkv`)
+        const result = determineEpisodeNumbers(files)
+
+        expect(files.map((name) => result.get(name)?.episode)).toEqual(expected)
+    })
+
     it('achieves consensus with SxxExx pattern', () => {
         const files = [
             'Breaking.Bad.S01E01.mkv',

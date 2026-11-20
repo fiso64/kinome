@@ -30,3 +30,7 @@ export const ENTITY_SCALAR_METADATA_FIELDS: readonly EntityScalarMetadataField[]
 ] as const
 
 export const ENTITY_SCALAR_METADATA_KEYS = ENTITY_SCALAR_METADATA_FIELDS.map((field) => field.key)
+
+export function hasValidEpisodePrecision(value: unknown): boolean {
+  return typeof value === 'number' && (Number.isInteger(value) || Number.isInteger(value * 10))
+}

@@ -9,6 +9,7 @@
   import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { hasValidEpisodePrecision } from '@shared/metadata-fields'
   import { dialogStore } from '@lib/dialog-store'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { FOLDER_ORGANIZATION_KEYS } from '@shared/types'
@@ -76,10 +77,6 @@
     return isNaN(parsed) ? undefined : parsed
   }
 
-  function parseEpisodeNumber(value: number | undefined): number | null {
-    return value !== undefined && Number.isFinite(value) && value >= 1 ? value : null
-  }
-
   function cleanNulls<T extends object>(obj: T): { [K in keyof T]: NonNullable<T[K]> } {
     return Object.fromEntries(
       Object.entries(obj).filter(([, v]) => v != null)
@@ -101,7 +98,7 @@
         return acc
       }, {}),
       seasonNumber: parseOptionalInt(seasonNumber),
-      episodeNumber: parseEpisodeNumber(episodeNumber),
+      episodeNumber: episodeNumber ?? null,
       episodeSeasonNumber: parseOptionalInt(episodeSeasonNumber),
       viewSettings: cleanNulls(viewSettings),
       selectedGroupBy,
@@ -405,7 +402,7 @@
     } else {
       if (mediaType === 'episode') {
         const finalEpSeason = parseOptionalInt(episodeSeasonNumber)
-        const finalEpNum = parseEpisodeNumber(episodeNumber)
+        const finalEpNum = episodeNumber ?? null
         if (hasChanged(finalEpSeason, initialValues.episodeSeasonNumber)) {
           updates.seasonNumber = finalEpSeason
           changed = true
@@ -462,6 +459,20 @@
   }
 
   async function handleSave() {
+    if (
+      !isFolder &&
+      mediaType === 'episode' &&
+      episodeNumber !== undefined &&
+      episodeNumber !== initialValues.episodeNumber &&
+      (!hasValidEpisodePrecision(episodeNumber) || episodeNumber < 1)
+    ) {
+      dialogStore.showError({
+        title: 'Invalid Episode Number',
+        message: 'Enter an episode number of at least 1 with at most one decimal place.'
+      })
+      return
+    }
+
     const itemsToUpdate = await buildUpdatedItems()
     let needsRefresh = false
     let changedGrouping = false
