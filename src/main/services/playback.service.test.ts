@@ -8,7 +8,54 @@ import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { runWithAccount } from '../request-context'
 import { getWebPlaybackQueue } from './web-playback.service'
 import { generateM3UPlaylist, generatePlaylist, handleFileStreamFast } from './playback.service'
+import { readMatroskaAssIndexes, readMatroskaAssWindow } from './transcoding/matroska-cues'
 import { createTimeline, segmentPlaylist } from './transcoding/timeline'
+
+it('reads indexed ASS cues for a seek, including lines already on screen', async () => {
+  function element(id: string, ...parts: (Buffer | string | number)[]): Buffer {
+    const data = Buffer.concat(parts.map((part) => {
+      if (Buffer.isBuffer(part)) return part
+      if (typeof part === 'string') return Buffer.from(part)
+      const integer = Buffer.alloc(4)
+      integer.writeUInt32BE(part)
+      return integer
+    }))
+    return Buffer.concat([Buffer.from(id, 'hex'), Buffer.from([0x40 | (data.length >> 8), data.length & 255]), data])
+  }
+
+  const video = element('ae', element('d7', 1), element('83', 1))
+  const subtitle = element('ae', element('d7', 2), element('83', 17), element('86', 'S_TEXT/ASS'),
+    element('63a2', '[Script Info]\nScriptType: v4.00+\n\n[Events]\n'))
+  const info = element('1549a966', element('5741', 'mkvmerge fixture'))
+  const tracks = element('1654ae6b', video, subtitle)
+  const ongoing = element('a0', element('a1', Buffer.from([0x82, 0, 0, 0]), '0,0,Default,,0,0,0,,Long cue'))
+  const later = element('a3', Buffer.from([0x82, 0, 0, 0]), '1,0,Default,,0,0,0,,Later cue')
+  const makeCues = (cluster: number) => element('1c53bb6b',
+    element('bb', element('b3', 0), element('b7', element('f7', 1))),
+    element('bb', element('b3', 20_000), element('b7', element('f7', 2), element('f1', cluster),
+      element('f0', 0), element('b2', 20_000))),
+    element('bb', element('b3', 60_000), element('b7', element('f7', 2), element('f1', cluster),
+      element('f0', ongoing.length), element('b2', 1000))))
+  const cues = makeCues(info.length + tracks.length + makeCues(0).length)
+  const directory = await mkdtemp(join(tmpdir(), 'kinome-ass-index-'))
+  try {
+    const path = join(directory, 'indexed.mkv')
+    await Bun.write(path, element('18538067', info, tracks, cues, element('1f43b675', ongoing, later)))
+    const flags = { default: false, forced: false, hearingImpaired: false }
+    const index = (await readMatroskaAssIndexes(path, [
+      { index: 0, kind: 'video', ...flags }, { index: 1, kind: 'subtitle', codec: 'ass', ...flags }
+    ])).get(1)!
+    const signal = new AbortController().signal
+    const seek = await readMatroskaAssWindow(path, index, 30_000, 60_000, signal)
+    expect(seek).toContain('Dialogue: 0,0:00:20.00,0:00:40.00,Default,,0,0,0,,Long cue')
+    expect(seek).not.toContain('Later cue')
+    const next = await readMatroskaAssWindow(path, index, 60_000, 90_000, signal)
+    expect(next).toContain('Dialogue: 0,0:01:00.00,0:01:01.00,Default,,0,0,0,,Later cue')
+    expect(next).not.toContain('Long cue')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 describe('direct media streaming', () => {
   let directory: string

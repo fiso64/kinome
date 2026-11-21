@@ -3,7 +3,7 @@ import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { availablePlaybackQualities } from '@shared/playback-quality'
 import { isSupportedVideoFile, type LocalMedia } from '@shared/local-media'
-import type { SubtitleFormat, WebPlaybackInfo, WebQueueItem, WebSubtitle } from '@shared/web-playback'
+import { ASS_WINDOW_HEADER, ASS_WINDOW_SECONDS, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
 import { getPresentItemLocation } from '../database/repositories/filesystem.repo'
 import { getPlaybackPosition, savePlaybackPosition } from '../database/repositories/user.repo'
 import { ensureUpToDate } from './account-filter.service'
@@ -12,6 +12,7 @@ import { getPlaybackSequence, handleFileStreamFast, resolveStreamPath } from './
 import { getItemById } from './repository.service'
 import { readSettings } from './settings.service'
 import { playbackMetadata } from './transcoding'
+import { readMatroskaAssIndexes, readMatroskaAssWindow } from './transcoding/matroska-cues'
 import { ffmpeg, ffprobe } from './transcoding/runtime'
 
 const sidecarFormats: Readonly<Record<string, SubtitleFormat>> = {
@@ -237,6 +238,33 @@ export async function serveSubtitle(
       } else if (part === 'track') {
         const track = embeddedTracks(media).find((candidate) => candidate.id === id)
         if (!track) return missing()
+        const window = new URL(request.url).searchParams.get('window')
+        if (track.format === 'ass' && window !== null && request.method === 'GET' && !request.headers.has('range') &&
+            (media.container === 'mkv' || media.container === 'matroska')) {
+          const start = Number(window) * ASS_WINDOW_SECONDS * 1000
+          const end = start + ASS_WINDOW_SECONDS * 1000
+          if (!/^\d+$/.test(window) || !Number.isSafeInteger(end)) return new Response(null, { status: 400 })
+          record.assIndexes ??= readMatroskaAssIndexes(path, media.tracks).catch(() => new Map())
+          const indexes = await record.assIndexes
+          request.signal.throwIfAborted()
+          const streamIndex = Number(id.slice(2))
+          const index = indexes.get(streamIndex)
+          if (index) {
+            try {
+              const text = await readMatroskaAssWindow(path, index, start, end, request.signal)
+              return new Response(text, { headers: {
+                [ASS_WINDOW_HEADER]: window,
+                'Content-Type': mime.ass,
+                'Cache-Control': 'private, no-cache',
+                'X-Content-Type-Options': 'nosniff'
+              } })
+            } catch (error) {
+              request.signal.throwIfAborted()
+              indexes.delete(streamIndex)
+              console.debug('[Subtitles] Could not read indexed ASS cues, using extraction', { itemId, id, error })
+            }
+          }
+        }
         const { codec, muxer } = encodedSubtitles[track.format]
         const directory = await extract(record.key + ':' + id, request.signal, (dir, signal) => ffmpegExtract([
           '-i', path, '-map', '0:' + id.slice(2), '-map_metadata', '-1', '-c:s', codec, '-f', muxer, join(dir, 'track')

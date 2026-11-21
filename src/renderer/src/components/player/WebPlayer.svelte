@@ -10,11 +10,7 @@
   import '@videojs/html/ui/slider-track'
   import '@videojs/html/ui/slider-fill'
   import '@videojs/html/ui/slider-thumb'
-  import '@videojs/html/ui/slider-preview'
-  import '@videojs/html/ui/slider-value'
-  import '@videojs/html/ui/time-slider'
   import '@videojs/html/ui/volume-slider'
-  import '@videojs/html/ui/time'
   import '@videojs/html/icons/element'
   import NotificationContainer from '@ui/NotificationContainer.svelte'
   import { authStore } from '@lib/auth-store.svelte'
@@ -48,7 +44,13 @@
   let chromeFooter: HTMLElement
   let pointerFrame = 0
   let pointerY = 0
+  let cursorIdle = $state(false)
+  let lastPointerActivity = 0
+  let cursorTimer: ReturnType<typeof setTimeout> | undefined
+  let videoClickTimer: ReturnType<typeof setTimeout> | undefined
   let settingsButton: HTMLButtonElement
+  let tracksButton = $state<HTMLButtonElement>()
+  let queueButton: HTMLButtonElement
   let panelHeading = $state<HTMLHeadingElement>()
   let panelOrigin = $state<HTMLElement>()
   let panelElement = $state<HTMLElement>()
@@ -65,14 +67,24 @@
 
   let info = $state<WebPlaybackInfo>()
   let timelineDuration = $state(0)
+  let playbackPosition = $state(0)
+  let requestedPosition = $state<number>()
+  let committedPosition: number | undefined
+  let lastSeekAt = -Infinity
+  let seekTimer: ReturnType<typeof setTimeout> | undefined
+  let scrubPointer = $state<number>()
+  let seekInput: HTMLInputElement
+  let pointerPosition = $state<number>()
+  const playhead = $derived(requestedPosition ?? playbackPosition)
+  const previewPosition = $derived(scrubPointer !== undefined ? playhead : pointerPosition)
   let chapterIndex = $state(-1)
   let pointedChapter = $state(-1)
   let focusedChapter = $state(-1)
-  let previewChapterIndex = $state(-1)
   const chapters = $derived(info?.media?.chapters ?? [])
   const chapterHighlights = $derived(getChapterHighlights(chapters))
   const chapterHintIndex = $derived(focusedChapter >= 0 ? focusedChapter : pointedChapter)
   const chapterHint = $derived(chapters[chapterHintIndex])
+  const previewChapterIndex = $derived(previewPosition === undefined ? -1 : chapterAfter(previewPosition, 0) - 1)
   const previewChapter = $derived(chapters[previewChapterIndex])
   let quality = $state<WebQualityChoice>('auto')
   let activeQuality = $state<WebPlaybackQuality>()
@@ -80,6 +92,8 @@
   let subtitleId = $state('')
   let lastSubtitle = ''
   let delay = $state(0)
+  let subtitleScale = $state(100)
+  let subtitlePosition = $state(0)
   let speed = $state(1)
   let paused = $state(true)
   let loading = $state(true)
@@ -88,7 +102,8 @@
   let subtitleReady = $state(false)
   let subtitleNotice = $state('')
   let playBlocked = $state(false)
-  let shortcutFeedback = $state(false)
+  let shortcutFeedback = $state('')
+  let showTimelineForShortcut = $state(false)
   let shortcutTimer: ReturnType<typeof setTimeout> | undefined
   let width = $state(0)
   let height = $state(0)
@@ -102,6 +117,9 @@
   let hasPlayed = false
   let completed = false
   let writes = Promise.resolve()
+  let pendingFrameTime: number | undefined
+  let steppedFrameTime: number | undefined
+  let presentedFrameTime: number | undefined
   let audioCapability = $derived(info?.media?.tracks.filter((track) => track.kind === 'audio') ?? [])
   let defaultAudio = $derived(audioCapability.find((track) => track.default) ?? audioCapability[0])
   let availablePlayers = $derived(resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
@@ -151,6 +169,7 @@
 
   function revealNearPointer(event: PointerEvent) {
     if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
+    wakeCursor()
     pointerY = event.clientY
     if (pointerFrame) return
     pointerFrame = requestAnimationFrame(() => {
@@ -162,6 +181,18 @@
     })
   }
 
+  function wakeCursor() {
+    lastPointerActivity = performance.now()
+    cursorIdle = false
+    cursorTimer ??= setTimeout(hideIdleCursor, 1000)
+  }
+
+  function hideIdleCursor() {
+    const remaining = 1000 - (performance.now() - lastPointerActivity)
+    cursorTimer = remaining > 0 ? setTimeout(hideIdleCursor, remaining) : undefined
+    if (remaining <= 0) cursorIdle = true
+  }
+
   function setChromeProximity(element: HTMLElement, distance: number) {
     const reveal = Math.max(0, Math.min(1, (120 - distance) / (120 - 32)))
     element.style.setProperty('--reveal', reveal.toFixed(2))
@@ -169,6 +200,9 @@
   }
 
   function resetProximity() {
+    clearTimeout(cursorTimer)
+    cursorTimer = undefined
+    cursorIdle = false
     cancelAnimationFrame(pointerFrame)
     pointerFrame = 0
     setChromeProximity(chromeHeader, Infinity)
@@ -197,6 +231,10 @@
   }
 
   function clearSource() {
+    resetFrameStep()
+    clearSeek()
+    clearTimeout(videoClickTimer)
+    videoClickTimer = undefined
     operation?.abort()
     hls?.destroy()
     hls = undefined
@@ -230,7 +268,7 @@
     width = 0
     height = 0
     timelineDuration = 0
-    previewChapterIndex = -1
+    playbackPosition = 0
     paused = true
     const controller = new AbortController()
     operation = controller
@@ -248,6 +286,7 @@
       const mode = candidates[index++]
       if (attempt) {
         attempt.abort()
+        clearSeek()
         hls?.destroy()
         hls = undefined
         video.removeAttribute('src')
@@ -268,7 +307,7 @@
         if (signal.aborted) return
         if (mediaReady) {
           persist(true)
-          resumeAt = video.currentTime
+          resumeAt = requestedPosition ?? video.currentTime
           wantPlayback = !video.paused
         }
         mediaReady = false
@@ -296,6 +335,19 @@
       listen('durationchange', () => {
         timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
       })
+      listen('seeked', () => {
+        if (video.seeking) return
+        updatePlaybackPosition()
+        if (committedPosition !== undefined) {
+          const settledPosition = committedPosition
+          committedPosition = undefined
+          if (requestedPosition === settledPosition) {
+            if (scrubPointer === undefined) requestedPosition = undefined
+          } else scheduleLiveSeek()
+        }
+        applyFrameStep()
+      })
+      listen('play', resetFrameStep)
       listen('loadedmetadata', () => {
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
           failed('The browser could decode the audio but could not decode the video.')
@@ -305,7 +357,8 @@
           video.currentTime = Math.min(resumeAt, Math.max(0, video.duration - 0.1))
         }
         timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
-        chapterIndex = chapterAfter(video.currentTime) - 1
+        updatePlaybackPosition()
+        observePresentedFrames(signal)
         width = video.videoWidth
         height = video.videoHeight
         mediaReady = true
@@ -329,7 +382,7 @@
         if (!video.ended) persist(true)
       })
       listen('timeupdate', () => {
-        if (chapters.length) chapterIndex = chapterAfter(video.currentTime) - 1
+        updatePlaybackPosition()
         persist()
       })
       listen('ended', () => {
@@ -387,14 +440,146 @@
     setSubtitle(subtitleId ? '' : lastSubtitle || info?.subtitles[0]?.id || '')
   }
 
-  function seekTo(seconds: number) {
-    if (mediaReady && Number.isFinite(video.duration)) {
-      video.currentTime = Math.min(video.duration, Math.max(0, seconds))
+  function changeSubtitleTrack(direction: number) {
+    const tracks = info?.subtitles ?? []
+    if (!tracks.length) return
+    const current = tracks.findIndex((track) => track.id === subtitleId)
+    const index = current < 0 ? (direction > 0 ? 0 : tracks.length - 1) : (current + direction + tracks.length) % tracks.length
+    setSubtitle(tracks[index].id)
+  }
+
+  function subtitleFeedback() {
+    if (!info?.subtitles.length) return 'No subtitle tracks'
+    const track = info.subtitles.find((track) => track.id === subtitleId)
+    return track ? `Subtitles: ${track.title || languageName(track.language)}` : 'Subtitles hidden'
+  }
+
+  function updatePlaybackPosition() {
+    playbackPosition = video.currentTime
+    if (chapters.length) chapterIndex = chapterAfter(playbackPosition) - 1
+  }
+
+  function clearSeek() {
+    clearTimeout(seekTimer)
+    seekTimer = undefined
+    lastSeekAt = -Infinity
+    requestedPosition = committedPosition = pointerPosition = scrubPointer = undefined
+  }
+
+  function commitSeek() {
+    clearTimeout(seekTimer)
+    seekTimer = undefined
+    if (requestedPosition === undefined || requestedPosition === committedPosition) return
+    if (!video.seeking && requestedPosition === video.currentTime) {
+      updatePlaybackPosition()
+      if (scrubPointer === undefined) requestedPosition = undefined
+      return
+    }
+    committedPosition = requestedPosition
+    lastSeekAt = performance.now()
+    video.currentTime = committedPosition
+  }
+
+  function scheduleLiveSeek() {
+    // Give the browser a chance to present each intermediate seek. Keep only
+    // the latest target while it is decoding, and skip redundant short seeks.
+    if (committedPosition !== undefined || requestedPosition === undefined || seekTimer !== undefined) return
+    const remaining = 150 - (performance.now() - lastSeekAt)
+    if (remaining > 0) seekTimer = setTimeout(commitSeek, remaining)
+    else commitSeek()
+  }
+
+  function seekTo(seconds: number, live = false) {
+    if (!mediaReady || timelineDuration <= 0) return
+    resetFrameStep()
+    requestedPosition = Math.min(timelineDuration, Math.max(0, seconds))
+    if (live) scheduleLiveSeek()
+    else commitSeek()
+  }
+
+  function seek(seconds: number, live = false) {
+    seekTo((requestedPosition ?? video.currentTime) + seconds, live)
+  }
+
+  function startScrub(event: PointerEvent) {
+    if (event.button !== 0 || !event.isPrimary || !mediaReady || !timelineDuration) return
+    resetFrameStep()
+    clearTimeout(seekTimer)
+    seekTimer = undefined
+    scrubPointer = event.pointerId
+    requestedPosition ??= video.currentTime
+  }
+
+  function updateScrub(event: Event & { currentTarget: HTMLInputElement }) {
+    const time = event.currentTarget.valueAsNumber
+    if (scrubPointer === undefined) seekTo(time)
+    else {
+      requestedPosition = time
+      scheduleLiveSeek()
     }
   }
 
-  function seek(seconds: number) {
-    seekTo(video.currentTime + seconds)
+  function finishScrub(event: PointerEvent) {
+    if (event.pointerId !== scrubPointer) return
+    scrubPointer = undefined
+    if (event.type === 'pointercancel') {
+      clearTimeout(seekTimer)
+      seekTimer = undefined
+      requestedPosition = committedPosition
+      pointerPosition = undefined
+    } else {
+      if (event.pointerType === 'touch') pointerPosition = undefined
+      commitSeek()
+    }
+  }
+
+  function updateSeekPreview(event: PointerEvent & { currentTarget: HTMLInputElement }) {
+    if (!mediaReady || event.pointerType === 'touch') return
+    const width = event.currentTarget.clientWidth
+    if (width) pointerPosition = Math.min(1, Math.max(0, event.offsetX / width)) * timelineDuration
+  }
+
+  function stepFrame(direction: number) {
+    if (!mediaReady || !Number.isFinite(video.duration)) return false
+    if (scrubPointer === undefined) commitSeek()
+    video.pause()
+    const [frames, seconds = 1] = (info?.media?.tracks.find((track) => track.kind === 'video')?.frameRate ?? '').split('/').map(Number)
+    const rate = frames / seconds
+    const step = Number.isFinite(rate) && rate > 0 ? 1 / rate : 1 / 30
+    const presented = presentedFrameTime
+    // Center seeks within the target frame. Encoders and HLS can shift frame
+    // boundaries relative to currentTime even at a constant frame rate.
+    const base = steppedFrameTime ?? (presented !== undefined && !video.seeking &&
+      Math.abs(presented - video.currentTime) < step ? presented + step / 2 : video.currentTime)
+    steppedFrameTime = Math.min(video.duration, Math.max(0, base + direction * step))
+    pendingFrameTime = steppedFrameTime
+    applyFrameStep()
+    return true
+  }
+
+  function resetFrameStep() {
+    pendingFrameTime = steppedFrameTime = undefined
+  }
+
+  function observePresentedFrames(signal: AbortSignal) {
+    presentedFrameTime = undefined
+    if (typeof video.requestVideoFrameCallback !== 'function') return
+    let callback = video.requestVideoFrameCallback(rememberFrame)
+    function rememberFrame(_now: number, frame: VideoFrameCallbackMetadata) {
+      presentedFrameTime = frame.mediaTime
+      callback = video.requestVideoFrameCallback(rememberFrame)
+    }
+    signal.addEventListener('abort', () => {
+      video.cancelVideoFrameCallback(callback)
+      presentedFrameTime = undefined
+    }, { once: true })
+  }
+
+  function applyFrameStep() {
+    if (pendingFrameTime === undefined || video.seeking) return
+    const position = pendingFrameTime
+    pendingFrameTime = undefined
+    if (position !== video.currentTime) video.currentTime = position
   }
 
   // Playback can report a seek a few milliseconds before the exact target.
@@ -409,17 +594,17 @@
     return left
   }
 
-  function previewChapterAtPointer(event: PointerEvent & { currentTarget: HTMLElement }) {
-    if (!mediaReady || !timelineDuration || !chapters.length) return
-    // Decorative slider children have pointer events disabled, so offsetX is relative to the slider.
-    const seconds = event.offsetX / event.currentTarget.clientWidth * timelineDuration
-    previewChapterIndex = chapterAfter(seconds, 0) - 1
-  }
-
   function seekChapter(next: boolean) {
-    const index = chapterAfter(video.currentTime)
-    if (!next) seekTo(chapters[index - 2]?.startSeconds ?? 0)
-    else if (chapters[index]) seekTo(chapters[index].startSeconds)
+    const index = chapterAfter(requestedPosition ?? video.currentTime)
+    const target = next ? index : index - 2
+    const chapter = chapters[target]
+    if (chapter) {
+      seekTo(chapter.startSeconds)
+      return chapterTitle(chapter, target)
+    }
+    if (next) return 'No next chapter'
+    seekTo(0)
+    return 'Start of video'
   }
 
   function chapterTitle(chapter: MediaChapter, index: number): string {
@@ -427,8 +612,8 @@
   }
 
   // uosc's default chapter patterns, including its Japanese aliases.
-  const creditsPattern = /^(?:op|ed)(?: |$)| (?:op|ed)$|(?:^| )(?:opening|intro|ending)$|^ending |^(?:avant|prologue)$|オープニング|エンディング/u
-  const closingPattern = /(?:^| )outro$|^closing(?: |$)|^(?:preview|pv)$/
+  const creditsPattern = /^(?:op|ed)(?: |$)| (?:op|ed)$|(?:^| )(?:opening|ending)$|^ending |オープニング|エンディング/u
+  const introOutroPattern = /(?:^| )(?:intro|outro)$|^closing(?: |$)|^(?:avant|prologue|preview|pv)$/
 
   function getChapterHighlights(chapters: readonly MediaChapter[]) {
     const credits = { label: '#30abf9', range: '#30abf964' }
@@ -437,11 +622,9 @@
     const labels: (string | undefined)[] = []
     const ranges: { startSeconds: number; endSeconds?: number; color: string }[] = []
 
-    function highlight(index: number, endSeconds: number | undefined, palette: typeof credits, extendToEnd: boolean) {
+    function highlight(index: number, endSeconds: number | undefined, palette: typeof credits) {
       labels[index] = palette.label
-      if (endSeconds !== undefined || extendToEnd) {
-        ranges.push({ startSeconds: chapters[index].startSeconds, endSeconds, color: palette.range })
-      }
+      ranges.push({ startSeconds: chapters[index].startSeconds, endSeconds, color: palette.range })
     }
 
     for (const [index, chapter] of chapters.entries()) {
@@ -449,9 +632,10 @@
       const segment = /segment (start|end) *\(([a-z0-9]+)\)/.exec(title)
       if (!segment) {
         const nextStart = chapters[index + 1]?.startSeconds
-        if (/\[sponsorblock\]:|^sponsor/.test(title)) highlight(index, nextStart, sponsor, true)
-        else if (closingPattern.test(title)) highlight(index, nextStart, credits, true)
-        else if (creditsPattern.test(title)) highlight(index, nextStart, credits, false)
+        const end = chapter.endSeconds === undefined ? nextStart : Math.min(chapter.endSeconds, nextStart ?? Infinity)
+        if (/\[sponsorblock\]:|^sponsor/.test(title)) highlight(index, end, sponsor)
+        else if (creditsPattern.test(title)) highlight(index, end, credits)
+        else if (introOutroPattern.test(title)) labels[index] = credits.label
         continue
       }
       const [, boundary, id] = segment
@@ -462,7 +646,7 @@
       } else if (starts) {
         for (const start of starts) labels[start] = sponsor.label
         labels[index] = sponsor.label
-        highlight(starts[0], chapter.startSeconds, sponsor, false)
+        highlight(starts[0], chapter.startSeconds, sponsor)
         sponsorStarts.delete(id)
       }
     }
@@ -470,11 +654,16 @@
   }
 
   function chapterTime(chapter: MediaChapter): string {
-    const time = Math.floor(chapter.startSeconds)
+    return clockTime(chapter.startSeconds, chapter.startSeconds)
+  }
+
+  function clockTime(seconds: number, guide = timelineDuration): string {
+    const time = Math.floor(Math.max(0, seconds))
     const hours = Math.floor(time / 3600)
     const minutes = Math.floor(time / 60) % 60
-    const seconds = String(time % 60).padStart(2, '0')
-    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`
+    const minutesText = String(minutes).padStart(guide >= 600 ? 2 : 1, '0')
+    const secondsText = String(time % 60).padStart(2, '0')
+    return guide >= 3600 ? `${hours}:${minutesText}:${secondsText}` : `${minutesText}:${secondsText}`
   }
 
   function setSpeed(rate: number) {
@@ -496,6 +685,18 @@
   function changeDelay(delta: number) {
     delay = Math.round((delay + delta) * 1000) / 1000
   }
+
+  function changeSubtitleScale(delta: number) {
+    subtitleScale = Math.max(50, Math.min(200, subtitleScale + delta))
+  }
+
+  function changeSubtitlePosition(delta: number) {
+    subtitlePosition = Math.max(-80, Math.min(5, subtitlePosition + delta))
+  }
+
+  const delayLabel = $derived(`${delay > 0 ? '+' : ''}${delay.toFixed(1)} s`)
+  const subtitlePositionLabel = $derived(subtitlePosition === 0 ? 'Default' :
+    `${Math.abs(subtitlePosition)}% ${subtitlePosition < 0 ? 'higher' : 'lower'}`)
 
   function openPanel(next: Panel, origin?: HTMLElement) {
     if (origin) panelOrigin = origin
@@ -525,6 +726,16 @@
     panelOrigin = undefined
   }
 
+  function toggleKeyboardPanel(target: Panel, anchor: HTMLElement) {
+    const label = panelTitles[target]
+    if (panel === target) {
+      closePanel()
+      return `${label} closed`
+    }
+    openPanel(target, anchor)
+    return label
+  }
+
   function tapVideo(event: MouseEvent) {
     if (dismissedPanelOnVideo) {
       dismissedPanelOnVideo = false
@@ -532,10 +743,20 @@
     }
     const pointer = event instanceof PointerEvent ? event.pointerType : ''
     if (pointer === 'touch' || (!pointer && matchMedia('(hover: none)').matches)) return
-    togglePlayback()
+    clearTimeout(videoClickTimer)
+    if (event.detail > 1) return
+    videoClickTimer = setTimeout(togglePlayback, 250)
+  }
+
+  function doubleClickVideo(event: MouseEvent) {
+    if (event instanceof PointerEvent && event.pointerType === 'touch') return
+    clearTimeout(videoClickTimer)
+    fullscreenButton.click()
   }
 
   function dismissPanelOnPointerDown(event: PointerEvent) {
+    if (event.pointerType === 'mouse' || event.pointerType === 'pen') wakeCursor()
+    resetFrameStep()
     keyboardNavigation = false
     dismissedPanelOnVideo = false
     if (panel && event.target instanceof Element && !event.target.closest('.control-panel, [data-panel-trigger]')) {
@@ -558,7 +779,10 @@
       if (panel || !document.fullscreenElement) {
         event.preventDefault()
         event.stopPropagation()
-        if (panel) closePanel()
+        if (panel) {
+          showShortcutFeedback(`${panelTitles[panel]} closed`)
+          closePanel()
+        }
         else onClose()
       }
       return
@@ -567,54 +791,125 @@
       keyboardNavigation = true
       return
     }
-    if (event.altKey || event.ctrlKey || event.metaKey) return
     const key = event.key.toLowerCase()
+    const subtitleModifier = event.ctrlKey && event.shiftKey && key.startsWith('arrow')
+    if (event.altKey || event.metaKey || (event.ctrlKey && !subtitleModifier)) return
     const target = event.target
+    const onSeekInput = target === seekInput
     if (target instanceof Element) {
-      if (target.closest('textarea, select, [contenteditable], input:not([type="radio"])')) return
+      if (!onSeekInput && target.closest('textarea, select, [contenteditable], input:not([type="radio"])')) return
       const radio = target.closest('input[type="radio"]')
       const slider = target.closest('[role="slider"]')
-      if (radio && (key === ' ' || key.startsWith('arrow'))) return
-      if (keyboardNavigation && slider && (key.startsWith('arrow') || ['home', 'end'].includes(key))) return
+      if (radio && (key === ' ' || (!event.shiftKey && key.startsWith('arrow')))) return
+      if (keyboardNavigation && slider && !onSeekInput && !event.shiftKey && (key.startsWith('arrow') || ['home', 'end'].includes(key))) return
       if ((keyboardNavigation || panel) && key === ' ' && target.closest('button, [role="button"]')) return
     }
-    switch (key) {
-      case ' ': case 'k': togglePlayback(); break
-      case 'arrowleft': seek(event.shiftKey ? -30 : -5); break
-      case 'arrowright': seek(event.shiftKey ? 30 : 5); break
-      case 'arrowup': video.volume = Math.min(1, video.volume + 0.05); break
-      case 'arrowdown': video.volume = Math.max(0, video.volume - 0.05); break
-      case 'm': video.muted = !video.muted; break
-      case 'f': fullscreenButton.click(); break
-      case 'pageup':
-        if (event.shiftKey) navigate(previous)
-        else seekChapter(false)
+    let feedback: string
+    let revealTimeline = false
+    if (subtitleModifier) {
+      if (key === 'arrowup' || key === 'arrowdown') {
+        changeSubtitleScale(key === 'arrowup' ? 10 : -10)
+        feedback = `Subtitle scale: ${subtitleScale}%`
+      } else {
+        changeDelay(key === 'arrowright' ? 0.1 : -0.1)
+        feedback = `Subtitle delay: ${delayLabel}`
+      }
+    } else switch (key) {
+      case ' ': case 'k':
+        if (event.repeat) return
+        feedback = video.paused ? 'Playing' : 'Paused'
+        togglePlayback()
         break
-      case 'pagedown':
-        if (event.shiftKey) navigate(next)
-        else seekChapter(true)
+      case ',': case '.':
+        feedback = stepFrame(key === '.' ? 1 : -1) ? (key === '.' ? 'Next frame' : 'Previous frame') : 'Video is still loading'
+        revealTimeline = true
         break
-      case '[': stepSpeed(-1); break
-      case ']': stepSpeed(1); break
-      case 'v': toggleSubtitle(); break
-      case 'j': {
-        const tracks = ['', ...(info?.subtitles.map((track) => track.id) ?? [])]
-        setSubtitle(tracks[(tracks.indexOf(subtitleId) + 1) % tracks.length])
+      case 'arrowleft': case 'arrowright': {
+        const seconds = event.shiftKey ? 30 : onSeekInput && keyboardNavigation ? 1 : 5
+        seek(key === 'arrowright' ? seconds : -seconds, event.repeat)
+        feedback = `Seek ${key === 'arrowright' ? 'forward' : 'back'} ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
+        revealTimeline = true
         break
       }
-      case 'z': changeDelay(-0.1); break
-      case 'x': changeDelay(0.1); break
+      case 'arrowup': case 'arrowdown': {
+        const up = key === 'arrowup'
+        if (event.shiftKey) {
+          changeSubtitleTrack(up ? -1 : 1)
+          feedback = subtitleFeedback()
+        } else if (onSeekInput && keyboardNavigation) {
+          seek(up ? 1 : -1, event.repeat)
+          feedback = `Seek ${up ? 'forward' : 'back'} 1 second`
+          revealTimeline = true
+        } else {
+          video.volume = Math.min(1, Math.max(0, video.volume + (up ? 0.05 : -0.05)))
+          feedback = `Volume: ${Math.round(video.volume * 100)}%`
+        }
+        break
+      }
+      case 'home': case 'end':
+        if (!onSeekInput) return
+        seekTo(key === 'end' ? timelineDuration : 0)
+        feedback = key === 'end' ? 'End of video' : 'Start of video'
+        revealTimeline = true
+        break
+      case 'm':
+        if (event.repeat) return
+        video.muted = !video.muted
+        feedback = video.muted ? 'Muted' : 'Unmuted'
+        break
+      case 'f':
+        if (event.repeat) return
+        feedback = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'
+        fullscreenButton.click()
+        break
+      case 'pageup':
+      case 'pagedown': {
+        const forward = key === 'pagedown'
+        if (event.shiftKey) {
+          const entry = forward ? next : previous
+          feedback = entry ? `Playing: ${entry.title || entry.name}` : `No ${forward ? 'next' : 'previous'} video`
+          navigate(entry)
+        } else {
+          feedback = seekChapter(forward)
+          revealTimeline = true
+        }
+        break
+      }
+      case '[': case ']':
+        stepSpeed(key === ']' ? 1 : -1)
+        feedback = `Playback speed: ${speed}x`
+        break
+      case 's':
+        if (event.repeat) return
+        toggleSubtitle()
+        feedback = subtitleId ? 'Subtitles visible' : subtitleFeedback()
+        break
+      case 'a': case 'p': case 'q':
       case '?':
-        if (panel === 'shortcuts') closePanel()
-        else openPanel('shortcuts', panelOrigin ?? settingsButton)
+        if (event.repeat) return
+        if (key === 'a') feedback = toggleKeyboardPanel('tracks', tracksButton ?? settingsButton)
+        else if (key === 'p') feedback = toggleKeyboardPanel('queue', queueButton)
+        else feedback = toggleKeyboardPanel(key === 'q' ? 'quality' : 'shortcuts', settingsButton)
         break
       default: return
     }
     event.preventDefault()
     event.stopPropagation()
-    shortcutFeedback = true
+    showShortcutFeedback(feedback, revealTimeline)
+  }
+
+  function finishKeyboardSeek(event: KeyboardEvent) {
+    if (scrubPointer === undefined && event.key.startsWith('Arrow')) commitSeek()
+  }
+
+  function showShortcutFeedback(text: string, revealTimeline = false) {
+    shortcutFeedback = text
+    showTimelineForShortcut = revealTimeline
     clearTimeout(shortcutTimer)
-    shortcutTimer = setTimeout(() => (shortcutFeedback = false), 1100)
+    shortcutTimer = setTimeout(() => {
+      shortcutFeedback = ''
+      showTimelineForShortcut = false
+    }, 2000)
   }
 
   let volumeTimer: ReturnType<typeof setTimeout> | undefined
@@ -671,6 +966,7 @@
       lifecycle.abort()
       opening?.abort()
       clearTimeout(shortcutTimer)
+      clearTimeout(cursorTimer)
       cancelAnimationFrame(pointerFrame)
       if (volumeTimer) {
         clearTimeout(volumeTimer)
@@ -701,12 +997,12 @@
     }).then((subtitle) => {
       if (controller.signal.aborted) return
       renderer = subtitle
-      renderer?.setDelay(delay)
     }).catch(onError)
     return () => { clearTimeout(slow); controller.abort(); renderer = undefined }
   })
 
   $effect(() => { renderer?.setDelay(delay) })
+  $effect(() => { renderer?.setPosition?.(subtitlePosition) })
 </script>
 
 {#snippet choice(group: string, label: string, selected: boolean, choose: () => void, detail?: string)}
@@ -729,14 +1025,32 @@
   </button>
 {/snippet}
 
-<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydowncapture={handleKey}
+{#snippet subtitleAdjustment(label: string, value: string, adjust: (direction: number) => void, reset: () => void)}
+  <div class="subtitle-adjustment" role="group" aria-label={label}>
+    <span>{label}</span>
+    <div class="subtitle-stepper">
+      <button type="button" class="control" aria-label={`Decrease ${label.toLowerCase()}`} onclick={() => adjust(-1)}>-</button>
+      <button type="button" class="control adjustment-value" aria-label={`Reset ${label.toLowerCase()}: ${value}`}
+        title={`Reset ${label.toLowerCase()}`} onclick={reset}>{value}</button>
+      <button type="button" class="control" aria-label={`Increase ${label.toLowerCase()}`} onclick={() => adjust(1)}>+</button>
+    </div>
+  </div>
+{/snippet}
+
+<svelte:window onpointerup={finishScrub} onpointercancel={finishScrub} />
+
+<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydowncapture={handleKey} onkeyup={finishKeyboardSeek}
   onkeydown={(event) => event.stopPropagation()}
-  onpointerdown={dismissPanelOnPointerDown} onpointermove={revealNearPointer} onpointerleave={resetProximity}
+  onpointerdown={dismissPanelOnPointerDown} onpointerenter={revealNearPointer} onpointermove={revealNearPointer} onpointerleave={resetProximity}
   oncancel={(event) => { event.preventDefault(); if (panel) closePanel(); else onClose() }}>
   <video-player>
-    <media-container class="player" class:keep-controls={Boolean(panel || loading || error || playBlocked || subtitleNotice || shortcutFeedback)} aria-label={title}>
-      <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}>
-        <video bind:this={video} playsinline preload="auto" onclick={tapVideo} onvolumechange={saveVolume}></video>
+    <media-container class="player" class:cursor-idle={cursorIdle}
+      class:keep-controls={Boolean(panel || loading || error || playBlocked || subtitleNotice || showTimelineForShortcut || requestedPosition !== undefined)}
+      aria-label={title}>
+      <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}
+        style:--subtitle-scale={subtitleScale / 100} style:--subtitle-position={`${subtitlePosition}%`}>
+        <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
+          onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
         {#if error}
           <div class="playback-error" role="alert">
             <h2>Couldn't play this video</h2>
@@ -753,6 +1067,7 @@
           </button>
         {/if}
       </div>
+      <div class="shortcut-feedback" role="status">{shortcutFeedback}</div>
 
       <header class="player-header chrome" bind:this={chromeHeader}>
         <button type="button" class="control back-button" title="Close player (Esc)" aria-label="Close player" onclick={onClose}>
@@ -819,15 +1134,11 @@
                     {/if}
                   </fieldset>
                 </div>
-                {#if subtitleId}
-                  <div class="delay-row" role="group" aria-label="Subtitle delay">
-                    <span>Subtitle delay</span>
-                    <div class="delay-controls">
-                      <button type="button" class="control" aria-label="Show subtitles earlier" onclick={() => changeDelay(-0.1)}>-</button>
-                      <output aria-label="Subtitle delay">{delay > 0 ? '+' : ''}{delay.toFixed(1)} s</output>
-                      <button type="button" class="control" aria-label="Show subtitles later" onclick={() => changeDelay(0.1)}>+</button>
-                      {#if delay}<button type="button" class="control reset-delay" onclick={() => (delay = 0)}>Reset</button>{/if}
-                    </div>
+                {#if info?.subtitles.length}
+                  <div class="subtitle-adjustments">
+                    {@render subtitleAdjustment('Subtitle delay', delayLabel, (step) => changeDelay(step * 0.1), () => (delay = 0))}
+                    {@render subtitleAdjustment('Subtitle scale', `${subtitleScale}%`, (step) => changeSubtitleScale(step * 10), () => (subtitleScale = 100))}
+                    {@render subtitleAdjustment('Subtitle position', subtitlePositionLabel, (step) => changeSubtitlePosition(step * 5), () => (subtitlePosition = 0))}
                   </div>
                 {/if}
               </div>
@@ -888,13 +1199,18 @@
               <dl class="panel-body shortcuts">
                 <dt><kbd>Space</kbd> / <kbd>K</kbd></dt><dd>Play or pause</dd>
                 <dt><kbd>Left</kbd> <kbd>Right</kbd></dt><dd>Seek 5 seconds (Shift for 30)</dd>
+                <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Previous or next frame</dd>
                 <dt><kbd>Up</kbd> <kbd>Down</kbd> / <kbd>M</kbd></dt><dd>Volume or mute</dd>
                 <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Playback speed</dd>
-                <dt><kbd>J</kbd> / <kbd>V</kbd></dt><dd>Cycle or toggle subtitles</dd>
-                <dt><kbd>Z</kbd> <kbd>X</kbd></dt><dd>Subtitle delay</dd>
+                <dt><kbd>A</kbd> / <kbd>Q</kbd> / <kbd>P</kbd></dt><dd>Audio & subtitles, quality, or queue</dd>
+                <dt><kbd>S</kbd></dt><dd>Toggle subtitles</dd>
+                <dt><kbd>Shift</kbd> + <kbd>Up</kbd> <kbd>Down</kbd></dt><dd>Previous or next subtitle track</dd>
+                <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Up</kbd> <kbd>Down</kbd></dt><dd>Subtitle scale</dd>
+                <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Left</kbd> <kbd>Right</kbd></dt><dd>Subtitle delay</dd>
                 <dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next chapter</dd>
                 <dt><kbd>Shift</kbd> + <kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next video</dd>
                 <dt><kbd>F</kbd> / <kbd>Esc</kbd></dt><dd>Fullscreen or close</dd>
+                <dt><kbd>?</kbd></dt><dd>Keyboard shortcuts</dd>
               </dl>
             {/if}
           </section>
@@ -907,7 +1223,7 @@
               <media-icon name="pause" class="pause-icon" aria-hidden="true"></media-icon>
             </media-play-button>
             {#if audioCapability.length || info?.subtitles.length}
-              <button type="button" class="control" aria-label="Audio & subtitles" title="Audio & subtitles"
+              <button type="button" class="control" aria-label="Audio & subtitles" title="Audio & subtitles (A)" bind:this={tracksButton}
                 data-panel-trigger aria-expanded={panel === 'tracks'} aria-controls={panel === 'tracks' ? 'player-control-panel' : undefined}
                 onclick={(event) => panel === 'tracks' ? closePanel() : openPanel('tracks', event.currentTarget)}>
                 <media-icon name={subtitleId ? 'captions-on' : 'captions-off'} aria-hidden="true"></media-icon>
@@ -944,7 +1260,7 @@
               <media-icon name="chevron" aria-hidden="true"></media-icon>
             </button>
             <button class="control queue-button" type="button" aria-label="Playback queue" title="Playback queue"
-              data-panel-trigger disabled={(queue?.length ?? 0) < 2} aria-expanded={panel === 'queue'}
+              bind:this={queueButton} data-panel-trigger disabled={!queue.length} aria-expanded={panel === 'queue'}
               aria-controls={panel === 'queue' ? 'player-control-panel' : undefined}
               onclick={(event) => panel === 'queue' ? closePanel() : openPanel('queue', event.currentTarget)}>
               <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -964,8 +1280,7 @@
           </div>
         </div>
         <div class="timeline">
-          <media-time-slider class="seek-slider" disabled={!mediaReady}
-            onpointermove={previewChapterAtPointer} onpointerleave={() => (previewChapterIndex = -1)}>
+          <div class="seek-slider" class:scrubbing={scrubPointer !== undefined}>
             {#if mediaReady && timelineDuration > 0}
               {#each chapterHighlights.ranges as range}
                 {#if range.startSeconds < timelineDuration}
@@ -975,18 +1290,21 @@
                 {/if}
               {/each}
             {/if}
-            <media-slider-thumb class="slider-thumb"></media-slider-thumb>
-            <media-time class="time-elapsed" type="current"></media-time>
-            <media-time class="time-remaining" type="remaining"></media-time>
-            <media-slider-preview class="seek-preview" aria-hidden="true">
-              <div class="timeline-tip">
-                {#if previewChapter}
-                  <span class="timeline-tip-title">{chapterTitle(previewChapter, previewChapterIndex)}</span>
-                {/if}
-                <media-slider-value class="timeline-tip-time" type="pointer"></media-slider-value>
+            <span class="slider-thumb" aria-hidden="true" style:left={`${timelineDuration ? playhead / timelineDuration * 100 : 0}%`}></span>
+            <span class="time-elapsed" aria-hidden="true">{clockTime(playhead)}</span>
+            <span class="time-remaining" aria-hidden="true">-{clockTime(timelineDuration - playhead)}</span>
+            {#if previewPosition !== undefined && timelineDuration > 0}
+              <div class="seek-preview timeline-tip" aria-hidden="true" style:--preview-ratio={previewPosition / timelineDuration}>
+                {#if previewChapter}<span class="timeline-tip-title">{chapterTitle(previewChapter, previewChapterIndex)}</span>{/if}
+                <time class="timeline-tip-time">{clockTime(previewPosition)}</time>
               </div>
-            </media-slider-preview>
-          </media-time-slider>
+            {/if}
+            <input bind:this={seekInput} type="range" class="seek-input" min="0" max={timelineDuration || 1} step="any"
+              disabled={!mediaReady || !timelineDuration} value={playhead} aria-label="Seek"
+              aria-valuetext={`${clockTime(playhead)} of ${clockTime(timelineDuration)}`}
+              onpointerdown={startScrub} oninput={updateScrub}
+              onpointermove={updateSeekPreview} onpointerleave={() => (pointerPosition = undefined)} />
+          </div>
           {#if mediaReady && timelineDuration > 0}
             {#each chapters as chapter, index (chapter.startSeconds)}
               {#if chapter.startSeconds < timelineDuration}
@@ -1050,10 +1368,36 @@
     display: grid;
     place-items: center;
     overflow: hidden;
+    container-type: size;
   }
   video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video.subtitle-scaled::cue {
+    font-size: calc(5cqh * var(--subtitle-scale));
+  }
   .video-surface:not(.media-ready) :global(.subtitle-canvas) { visibility: hidden; }
-  .video-surface :global(.subtitle-canvas) { position: absolute; pointer-events: none; }
+  .video-surface :global(.subtitle-canvas) {
+    position: absolute;
+    pointer-events: none;
+    transform-origin: center 95%;
+    transform: translateY(var(--subtitle-position)) scale(var(--subtitle-scale));
+  }
+  .player.cursor-idle, .player.cursor-idle :global(*) { cursor: none !important; }
+  .shortcut-feedback {
+    position: absolute;
+    z-index: 3;
+    inset-block-start: max(4.15rem, calc(env(safe-area-inset-top) + 3.4rem));
+    inset-inline-start: max(var(--edge), env(safe-area-inset-left));
+    max-width: calc(100% - 2 * var(--edge));
+    padding: 0.4rem 0.7rem;
+    border-radius: 0.35rem;
+    background: #000d;
+    color: #fff;
+    font-size: 0.91rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+  }
+  .shortcut-feedback:empty { visibility: hidden; }
   .chrome {
     position: absolute;
     inset-inline: 0;
@@ -1064,7 +1408,7 @@
   }
   .chrome:global([data-near-pointer]) { pointer-events: auto; }
   .player.keep-controls .chrome,
-  .player:has(:focus-visible, .seek-slider:global([data-dragging])) .chrome {
+  .player:has(:focus-visible, .seek-slider.scrubbing) .chrome {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1101,7 +1445,7 @@
     .player-footer:has(.timeline:hover) .transport { visibility: hidden; }
     .timeline:hover .chapter-hint { bottom: calc(100% + 0.4rem); }
   }
-  .transport, .transport-group, .jump-buttons, .delay-controls { display: flex; align-items: center; }
+  .transport, .transport-group, .jump-buttons, .subtitle-stepper { display: flex; align-items: center; }
   .transport {
     justify-content: space-between;
     gap: 0.3rem;
@@ -1133,7 +1477,7 @@
   .control:global([aria-disabled="true"]) { cursor: default; opacity: 0.45; }
   .playlist-step:disabled { cursor: default; opacity: 1; }
   .control:focus-visible, .center-play:focus-visible, .settings-link:focus-visible,
-  .choice:has(:focus-visible), :is(.seek-slider, .volume-slider):has(.slider-thumb:focus-visible) {
+  .choice:has(:focus-visible), .seek-slider:has(.seek-input:focus-visible), .volume-slider:has(.slider-thumb:focus-visible) {
     outline: 2px solid var(--player-accent);
     outline-offset: 1px;
   }
@@ -1207,6 +1551,25 @@
     border-top: 1px solid var(--timeline-edge);
     background: #000;
   }
+  .seek-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    cursor: inherit;
+    touch-action: none;
+    appearance: none;
+  }
+  .seek-input::-webkit-slider-thumb {
+    width: 1px;
+    height: 100%;
+    appearance: none;
+  }
+  .seek-input::-moz-range-thumb { width: 1px; border: 0; }
   .time-elapsed, .time-remaining {
     position: absolute;
     font-size: 0.8rem;
@@ -1269,10 +1632,9 @@
     right: max(0.45rem, calc(100% - var(--chapter-position) - 0.6rem));
     max-width: min(18rem, calc(var(--chapter-position) - 0.7rem));
   }
-  .seek-slider:global([data-pointing]) ~ .chapter-hint,
-  .seek-slider:global([data-dragging]) ~ .chapter-hint { visibility: hidden; }
+  .seek-slider:has(.seek-preview) ~ .chapter-hint { visibility: hidden; }
   .chapter-title { color: var(--chapter-color, inherit); }
-  .seek-slider:global([data-disabled]) { opacity: 0.5; cursor: default; }
+  .seek-slider:has(.seek-input:disabled) { opacity: 0.5; cursor: default; }
   .volume-slider { width: clamp(3.25rem, 7vw, 5.25rem); }
   .slider-track { position: relative; display: block; height: 4px; border-radius: 5px; background: #ffffff4a; }
   .slider-fill { position: absolute; display: block; inset: 0 auto 0 0; border-radius: inherit; }
@@ -1294,12 +1656,13 @@
     background: #fff;
     pointer-events: none;
   }
-  .seek-slider:global([data-interactive]) .slider-thumb { width: 3px; }
+  .seek-slider:is(:hover, .scrubbing, :focus-within) .slider-thumb { width: 3px; }
   .seek-preview {
     position: absolute;
     bottom: calc(100% + 0.4rem);
+    left: calc(var(--preview-ratio) * 100%);
+    transform: translateX(calc(var(--preview-ratio) * -100%));
     max-width: min(18rem, 100%);
-    visibility: hidden;
     pointer-events: none;
   }
   .timeline-tip {
@@ -1328,7 +1691,6 @@
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
-  .seek-preview:global([data-pointing]), .seek-preview:global([data-dragging]) { visibility: visible; }
   .control-panel {
     position: absolute;
     z-index: 3;
@@ -1397,21 +1759,26 @@
   .setting-value { margin-inline-start: auto; color: var(--label-muted); text-align: end; font-size: 0.79rem; }
   .setting-value + .forward { margin-inline-start: 0; }
   .speed-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; }
-  .delay-row {
+  .subtitle-adjustments {
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.6rem 0;
+    border-top: 1px solid #ffffff16;
+  }
+  .subtitle-adjustment {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 0.45rem;
-    padding: 0.4rem 0.6rem 0;
-    margin-top: 0.5rem;
-    border-top: 1px solid #ffffff16;
     font-size: 0.85rem;
   }
-  .delay-controls { gap: 0.2rem; }
-  .delay-controls .control { width: 2.25rem; height: 2.45rem; }
-  .delay-controls .reset-delay { width: auto; padding-inline: 0.55rem; }
-  .delay-controls output { min-width: 3rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .subtitle-stepper { gap: 0.2rem; }
+  .subtitle-stepper .control { width: 2rem; height: 2.15rem; }
+  .subtitle-stepper .adjustment-value {
+    width: 5.9rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
   .subtitle-notice {
     position: absolute;
     inset-inline-start: max(var(--edge), env(safe-area-inset-left));

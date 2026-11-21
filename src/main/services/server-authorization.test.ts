@@ -120,26 +120,36 @@ describe('HTTP authorization — capability enforcement', () => {
     const logging = (['log', 'info', 'warn'] as const).map((method) => spyOn(console, method).mockImplementation(() => {}))
     try {
       const chapterFile = join(directory, 'chapters.ffmeta')
+      const subtitleFile = join(directory, 'subtitles.srt')
       await Bun.write(chapterFile, [
         ';FFMETADATA1', '[CHAPTER]', 'TIMEBASE=1/1000', 'START=0', 'END=2000', 'title=Opening',
         '[CHAPTER]', 'TIMEBASE=1/1000', 'START=2000', 'END=5000', 'title=Scene', ''
       ].join('\n'))
+      await Bun.write(subtitleFile, '1\n00:00:01,000 --> 00:00:02,000\nHello from ASS\n')
       const fixture = Bun.spawnSync([
         ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:rate=24',
         '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-f', 'ffmetadata', '-i', chapterFile,
+        '-i', subtitleFile,
         '-map_chapters', '2', '-t', '5',
-        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', join(directory, 'movie.mkv')
+        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', '-c:s', 'ass', join(directory, 'movie.mkv')
       ])
       expect(fixture.stderr.toString()).toBe('')
       expect(fixture.exitCode).toBe(0)
       ctx.seedItems([{ id: 'fragmented-movie', sourceId: 'hls-source', path: 'movie.mkv' }])
       const info = await app.handle(req('GET', '/api/playback/fragmented-movie/info', undefined, adminToken))
       expect(info.status).toBe(200)
-      const { media: sourceInfo } = (await info.json()) as WebPlaybackInfo
+      const { media: sourceInfo, subtitles } = (await info.json()) as WebPlaybackInfo
       expect(sourceInfo?.chapters).toEqual([
         { startSeconds: 0, endSeconds: 2, title: 'Opening' },
         { startSeconds: 2, endSeconds: 5, title: 'Scene' }
       ])
+      expect(subtitles).toEqual([expect.objectContaining({ format: 'ass' })])
+      const subtitlePath = `/api/playback/fragmented-movie/subtitle/${subtitles[0].id}/track?window=0`
+      expect((await app.handle(new Request(`http://localhost${subtitlePath}`))).status).toBe(401)
+      const fallback = await app.handle(req('GET', subtitlePath, undefined, adminToken))
+      expect(fallback.status).toBe(200)
+      expect(fallback.headers.has('X-Kinome-Subtitle-Window')).toBe(false)
+      expect(await fallback.text()).toContain('Hello from ASS')
       const master = new URL('http://localhost/api/hls/fragmented-movie/remux/master.m3u8')
       master.searchParams.set('token', adminToken)
       const playlist = await app.handle(new Request(master.href))

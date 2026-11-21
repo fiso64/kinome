@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import type { LocalMedia } from '@shared/local-media'
 import type { PlaybackEncodingPreferences } from '@shared/playback-quality'
 import { probeMedia } from '../probe-media'
-import { readMatroskaCueTimes } from './matroska-cues'
+import { readMatroskaCueTimes, type MatroskaAssIndex } from './matroska-cues'
 import { readMp4Keyframes } from './mp4-keyframes'
 import { copiesVideo, type SegmentQuality, type SegmentSource } from './segment-job'
 import { createTimeline } from './timeline'
@@ -14,6 +14,7 @@ interface SourceMetadata {
   key: string
   media: Promise<LocalMedia>
   cues?: Promise<number[]>
+  assIndexes?: Promise<Map<number, MatroskaAssIndex>>
 }
 
 const metadata = new Map<string, SourceMetadata>()

@@ -13,6 +13,8 @@ export function webQualityLabel(quality: WebQualityChoice): string {
 }
 
 export type SubtitleFormat = 'text' | 'ass' | 'pgs' | 'vobsub'
+export const ASS_WINDOW_SECONDS = 30
+export const ASS_WINDOW_HEADER = 'X-Kinome-Subtitle-Window'
 
 export interface WebSubtitle {
   id: string
