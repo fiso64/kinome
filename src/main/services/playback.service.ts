@@ -297,24 +297,26 @@ export async function handleCachedStream(
 
 // --- Playlist Generation ---
 
-/**
- * Starts at the selected item. Identified episodes continue through their show.
- * Other files continue through their immediate folder.
- */
-export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
+const playlistFields = ['id', 'type', 'name', 'title', 'parentId', 'mediaType',
+  'seasonNumber', 'episodeNumber', 'isHidden', 'isMissing']
+
+/** Orders episodes within a show and other files within their immediate folder. */
+export function getPlaybackSequence(itemId: string): { item: LibraryItem; files: MediaFile[] } | undefined {
   const [item] = repositoryService.find({
+    fields: playlistFields,
     where: { id: itemId },
     includeHidden: true,
     includeIgnored: true
   })
-  if (!item) return []
-  if (!item.parentId) return [item]
+  if (!item) return
+  if (!item.parentId) return { item, files: [] }
 
   const show = item.mediaType === 'episode'
     ? repositoryService.getAncestors(itemId).find((ancestor) => ancestor.type === 'folder' && ancestor.mediaType === 'tv')
     : undefined
   const candidates = show
     ? repositoryService.find({
+        fields: playlistFields,
         where: { type: 'file', mediaType: 'episode', isMissing: 0 },
         compiledConditions: {
           sql: `i.id IN (${itemsRepo.DESCENDANT_IDS_SQL} SELECT id FROM tree)`,
@@ -322,7 +324,7 @@ export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
           tables: new Set()
         }
       })
-    : repositoryService.getChildren(item.parentId)
+    : repositoryService.getChildren(item.parentId, playlistFields)
   const files = candidates.filter((candidate): candidate is MediaFile =>
     candidate.type === 'file' && !candidate.isHidden && !candidate.isMissing
   )
@@ -345,6 +347,14 @@ export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
     return a.name.localeCompare(b.name, undefined, { numeric: true })
   })
 
+  return { item, files }
+}
+
+/** Builds the external playlist starting at the selected item. */
+export async function generatePlaylist(itemId: string): Promise<LibraryItem[]> {
+  const sequence = getPlaybackSequence(itemId)
+  if (!sequence) return []
+  const { item, files } = sequence
   const index = files.findIndex((file) => file.id === itemId)
   return index === -1 ? [item] : files.slice(index)
 }

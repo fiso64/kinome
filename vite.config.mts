@@ -9,7 +9,10 @@ export default defineConfig({
     // Vite's dependency cache does not preserve the subtitle packages' worker/WASM paths.
     entries: ['index.html', 'src/components/player/WebPlayer.svelte'],
     exclude: ['jassub', 'libbitsub'],
-    include: ['jassub > throughput', 'jassub > rvfc-polyfill']
+    include: [
+      'jassub > throughput', 'jassub > rvfc-polyfill',
+      '@videojs/html/ui/slider-preview', '@videojs/html/ui/slider-value'
+    ]
   },
   worker: { format: 'es' },
   build: {

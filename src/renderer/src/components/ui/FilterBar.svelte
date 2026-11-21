@@ -25,7 +25,7 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !(event.target instanceof Element && event.target.closest('dialog[open]'))) {
         event.preventDefault()
         event.stopPropagation()
         onClose()

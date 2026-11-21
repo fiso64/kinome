@@ -1,3 +1,4 @@
+import type { MediaFile } from './types'
 import type { LocalMedia } from './local-media'
 import { qualityLabel, type PlaybackQuality } from './playback-quality'
 
@@ -23,6 +24,8 @@ export interface WebSubtitle {
   hearingImpaired?: boolean
   sidecar?: boolean
 }
+
+export type WebQueueItem = Pick<MediaFile, 'id' | 'type' | 'name' | 'title' | 'seasonNumber' | 'episodeNumber'>
 
 export interface WebPlaybackInfo {
   media: LocalMedia | null

@@ -2,7 +2,7 @@ import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
 import type { LocalMediaTrack } from '@shared/local-media'
 import { isVideoQuality } from '@shared/playback-quality'
-import type { WebPlaybackInfo, WebPlaybackQuality, WebSubtitle } from '@shared/web-playback'
+import type { WebPlaybackInfo, WebPlaybackQuality, WebQueueItem, WebSubtitle } from '@shared/web-playback'
 
 export const hlsMime = 'application/vnd.apple.mpegurl'
 
@@ -115,6 +115,14 @@ export async function getWebPlaybackInfo(itemId: string, signal: AbortSignal): P
   })
   if (!response.ok) throw new Error(response.status === 404
     ? 'This file is no longer available.' : 'Could not load playback information.')
+  return response.json()
+}
+
+export async function getWebPlaybackQueue(itemId: string, signal: AbortSignal): Promise<WebQueueItem[]> {
+  const response = await fetch(`${playbackPath(itemId)}/queue`, {
+    signal, headers: { Authorization: `Bearer ${authStore.token}` }
+  })
+  if (!response.ok) throw new Error('Could not load the playback queue.')
   return response.json()
 }
 

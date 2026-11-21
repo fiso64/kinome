@@ -2,13 +2,13 @@ import { basename, dirname, extname, join, parse } from 'node:path'
 import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { availablePlaybackQualities } from '@shared/playback-quality'
-import type { LocalMedia } from '@shared/local-media'
-import type { SubtitleFormat, WebPlaybackInfo, WebSubtitle } from '@shared/web-playback'
+import { isSupportedVideoFile, type LocalMedia } from '@shared/local-media'
+import type { SubtitleFormat, WebPlaybackInfo, WebQueueItem, WebSubtitle } from '@shared/web-playback'
 import { getPresentItemLocation } from '../database/repositories/filesystem.repo'
 import { getPlaybackPosition, savePlaybackPosition } from '../database/repositories/user.repo'
 import { ensureUpToDate } from './account-filter.service'
 import { recordPlayback } from './library.service'
-import { handleFileStreamFast, resolveStreamPath } from './playback.service'
+import { getPlaybackSequence, handleFileStreamFast, resolveStreamPath } from './playback.service'
 import { getItemById } from './repository.service'
 import { readSettings } from './settings.service'
 import { playbackMetadata } from './transcoding'
@@ -152,6 +152,17 @@ function embeddedTracks(media: LocalMedia | null): WebSubtitle[] {
 async function visibleSource(itemId: string, accountId: string): Promise<string | null> {
   ensureUpToDate(accountId)
   return resolveStreamPath(itemId, accountId)
+}
+
+export function getWebPlaybackQueue(itemId: string, accountId: string): WebQueueItem[] {
+  ensureUpToDate(accountId)
+  const sequence = getPlaybackSequence(itemId)
+  if (!sequence || sequence.item.type !== 'file') return []
+  const { item, files } = sequence
+  const videos = files.filter((file) => file.id === item.id || isSupportedVideoFile(file.name))
+  const queue = videos.some((file) => file.id === item.id) ? videos : [item]
+  return queue.map(({ id, type, name, title, seasonNumber, episodeNumber }) =>
+    ({ id, type, name, title, seasonNumber, episodeNumber }))
 }
 
 export async function getWebPlaybackInfo(itemId: string, accountId: string): Promise<WebPlaybackInfo | null> {

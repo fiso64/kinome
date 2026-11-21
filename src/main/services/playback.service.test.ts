@@ -6,6 +6,7 @@ import { createServiceTestContext } from '../database/test-helpers'
 import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { runWithAccount } from '../request-context'
+import { getWebPlaybackQueue } from './web-playback.service'
 import { generateM3UPlaylist, generatePlaylist, handleFileStreamFast } from './playback.service'
 import { createTimeline, segmentPlaylist } from './transcoding/timeline'
 
@@ -74,14 +75,14 @@ it('continues an external playlist through later episodes and seasons of the sam
       { id: 'other-show', type: 'folder', entityId: 'tv' },
       { id: 'season-2', type: 'folder', parentId: 'show', entityId: 's2' },
       { id: 'season-3', type: 'folder', parentId: 'show', entityId: 's3' },
-      { id: 'earlier', parentId: 'season-2', entityId: 's2e1' },
-      { id: 'recap', parentId: 'season-2', entityId: 's2e25' },
+      { id: 'earlier', name: 'Earlier.mkv', parentId: 'season-2', entityId: 's2e1' },
+      { id: 'recap', name: 'Recap.mkv', parentId: 'season-2', entityId: 's2e25' },
       { id: 'start', parentId: 'season-2', entityId: 's2e2', name: 'Episode 2.mkv' },
       { id: 'extra', parentId: 'season-2' },
       { id: 'missing', parentId: 'season-3', entityId: 's3e1', isMissing: 1 },
       { id: 'hidden', parentId: 'season-3', entityId: 's3e2', isHidden: 1 },
-      { id: 'next-season', parentId: 'season-3', entityId: 's3e3', sourceId: 'second-drive' },
-      { id: 'loose-episode', parentId: 'show', entityId: 's4e1' },
+      { id: 'next-season', name: 'Next Season.mkv', parentId: 'season-3', entityId: 's3e3', sourceId: 'second-drive' },
+      { id: 'loose-episode', name: 'Loose Episode.mkv', parentId: 'show', entityId: 's4e1' },
       { id: 'unrelated', parentId: 'other-show', entityId: 's3e1' }
     ])
 
@@ -101,6 +102,8 @@ it('continues an external playlist through later episodes and seasons of the sam
     setFilterRule('restricted', 'deny', { conditions: [{ field: 'sourceId', op: 'eq', value: 'second-drive' }] })
     const restricted = await runWithAccount('restricted', () => generatePlaylist('start'))
     expect(restricted.map(({ id }) => id)).toEqual(['start', 'recap', 'loose-episode'])
+    const webQueue = await runWithAccount('restricted', () => getWebPlaybackQueue('start', 'restricted'))
+    expect(webQueue.map(({ id }) => id)).toEqual(['earlier', 'start', 'recap', 'loose-episode'])
     expect(await runWithAccount('restricted', () => generatePlaylist('next-season'))).toEqual([])
   } finally {
     ctx.cleanup()

@@ -1,5 +1,5 @@
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
-import { getWebPlaybackInfo, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
+import { getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
@@ -556,6 +556,7 @@ export function buildApp() {
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
         .get('/playback/worker-status', getWorkerStatus)
+        .get('/playback/:id/queue', ({ params, session }) => getWebPlaybackQueue(params.id, session.accountId))
         .get('/playback/:id/info', async ({ params, session, set }) => {
           const info = await getWebPlaybackInfo(params.id, session.accountId)
           if (!info) { set.status = 404; return 'File not found' }

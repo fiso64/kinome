@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import type HlsType from 'hls.js'
   import type { ErrorData } from 'hls.js'
   import '@videojs/html/video/player'
@@ -8,9 +8,10 @@
   import '@videojs/html/ui/mute-button'
   import '@videojs/html/ui/play-button'
   import '@videojs/html/ui/slider-track'
-  import '@videojs/html/ui/slider-buffer'
   import '@videojs/html/ui/slider-fill'
   import '@videojs/html/ui/slider-thumb'
+  import '@videojs/html/ui/slider-preview'
+  import '@videojs/html/ui/slider-value'
   import '@videojs/html/ui/time-slider'
   import '@videojs/html/ui/volume-slider'
   import '@videojs/html/ui/time'
@@ -20,24 +21,46 @@
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
-    automaticQualities, browserPlaybackUrl, getWebPlaybackInfo, hlsMime, languageName,
+    automaticQualities, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, hlsMime, languageName,
     matchesLanguage, preferredSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
-  import { webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice } from '@shared/web-playback'
+  import { webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
   import type { MediaFile, Settings } from '@shared/types'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
-  let { item, settings, initialQuality, onClose }: {
+  let { item: startItem, settings, initialQuality, onClose }: {
     item: MediaFile
     settings: Settings | null
     initialQuality?: WebQualityChoice
     onClose: () => void
   } = $props()
 
+  let item = $state<MediaFile>(untrack(() => startItem))
+  let queue = $state.raw<WebQueueItem[]>([])
+  let opening: AbortController | undefined
+
   let dialog: HTMLDialogElement
   let video: HTMLVideoElement
   let surface: HTMLDivElement
   let fullscreenButton: HTMLElement
+  let chromeHeader: HTMLElement
+  let chromeFooter: HTMLElement
+  let pointerFrame = 0
+  let pointerY = 0
+  let settingsButton: HTMLButtonElement
+  let panelHeading = $state<HTMLHeadingElement>()
+  let panelOrigin = $state<HTMLElement>()
+  let panelElement = $state<HTMLElement>()
+  let keyboardNavigation = false
+  let dismissedPanelOnVideo = false
+
+  type Panel = 'tracks' | 'queue' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
+  const panelTitles: Record<Panel, string> = {
+    tracks: 'Audio & subtitles', queue: 'Playback queue', settings: 'Playback settings', quality: 'Video quality',
+    speed: 'Playback speed', external: 'Play with', shortcuts: 'Keyboard shortcuts'
+  }
+  let panel = $state<Panel>()
+  const settingsOpen = $derived(Boolean(panel && panel !== 'tracks' && panel !== 'queue'))
 
   let info = $state<WebPlaybackInfo>()
   let quality = $state<WebQualityChoice>('auto')
@@ -53,9 +76,9 @@
   let error = $state('')
   let subtitleReady = $state(false)
   let subtitleNotice = $state('')
-  let showOptions = $state(false)
-  let showKeys = $state(false)
   let playBlocked = $state(false)
+  let shortcutFeedback = $state(false)
+  let shortcutTimer: ReturnType<typeof setTimeout> | undefined
   let width = $state(0)
   let height = $state(0)
   let resumeAt = 0
@@ -72,8 +95,74 @@
   let defaultAudio = $derived(audioCapability.find((track) => track.default) ?? audioCapability[0])
   let availablePlayers = $derived(resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
     .filter((player) => player.id !== BUILTIN_WEB_PLAYER.id))
+  const qualityChoices = $derived<WebQualityChoice[]>([
+    'auto', ...(info?.qualities ?? []), ...(info?.audioConversion ? ['audio' as const] : [])
+  ])
+  const canSwitchAudio = $derived(audioCapability.length > 1 && (info?.qualities.length ?? 0) > 1)
   const speeds = [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
   const title = $derived(item.title || item.name)
+  const queueIndex = $derived(queue?.findIndex((entry) => entry.id === item.id) ?? -1)
+  const previous = $derived(queueIndex > 0 ? queue?.[queueIndex - 1] : undefined)
+  const next = $derived(queueIndex >= 0 ? queue?.[queueIndex + 1] : undefined)
+
+  function navigate(entry: WebQueueItem | undefined) {
+    if (!entry || entry.id === item.id) return
+    persist(true)
+    clearSource()
+    closePanel()
+    item = entry
+    info = undefined
+    activeQuality = undefined
+    mediaReady = false
+    subtitleReady = false
+    subtitleId = ''
+    delay = 0
+    paused = true
+    hasPlayed = false
+    completed = false
+    lastSaveAt = 0
+    wantPlayback = true
+    openItem(quality)
+  }
+
+  function openItem(preferredQuality?: WebQualityChoice) {
+    opening?.abort()
+    opening = new AbortController()
+    void initialize(opening.signal, preferredQuality)
+  }
+
+  function episodeLabel(entry: WebQueueItem): string {
+    if (entry.episodeNumber == null) return ''
+    return entry.seasonNumber == null ? `Episode ${entry.episodeNumber}`
+      : `S${String(entry.seasonNumber).padStart(2, '0')}E${String(entry.episodeNumber).padStart(2, '0')}`
+  }
+
+  function revealNearPointer(event: PointerEvent) {
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
+    pointerY = event.clientY
+    if (pointerFrame) return
+    pointerFrame = requestAnimationFrame(() => {
+      pointerFrame = 0
+      const top = chromeHeader.getBoundingClientRect().bottom
+      const bottom = chromeFooter.getBoundingClientRect().top
+      setChromeProximity(chromeHeader, pointerY - top)
+      setChromeProximity(chromeFooter, bottom - pointerY)
+    })
+  }
+
+  function setChromeProximity(element: HTMLElement, distance: number) {
+    const reveal = Math.max(0, Math.min(1, (120 - distance) / (120 - 32)))
+    element.style.setProperty('--reveal', reveal.toFixed(2))
+    element.toggleAttribute('data-near-pointer', reveal > 0)
+  }
+
+  function resetProximity() {
+    cancelAnimationFrame(pointerFrame)
+    pointerFrame = 0
+    setChromeProximity(chromeHeader, Infinity)
+    setChromeProximity(chromeFooter, Infinity)
+  }
+
 
   const streamDescription = $derived(activeQuality === 'original' ? 'Direct play'
     : activeQuality === 'remux' ? 'Remuxing'
@@ -91,7 +180,7 @@
     if (!token) return
     const id = item.id
     writes = writes.then(() => storePlaybackPosition(id, token, position, finished)).catch(() => {
-      if (lastSaved === position) lastSaved = -1
+      if (item.id === id && lastSaved === position) lastSaved = -1
     })
   }
 
@@ -128,6 +217,7 @@
     playBlocked = false
     width = 0
     height = 0
+    paused = true
     const controller = new AbortController()
     operation = controller
     const audio = audioCapability.find((track) => track.index === audioIndex)
@@ -260,8 +350,8 @@
     void loadSource()
   }
 
-  function selectAudio(value: string) {
-    audioIndex = value ? Number(value) : undefined
+  function selectAudio(index: number) {
+    audioIndex = index
     if (quality === 'original') quality = 'auto'
     void loadSource()
   }
@@ -301,22 +391,87 @@
     delay = Math.round((delay + delta) * 1000) / 1000
   }
 
+  function openPanel(next: Panel, origin?: HTMLElement) {
+    if (origin) panelOrigin = origin
+    panel = next
+    void tick().then(() => panelHeading?.focus({ preventScroll: true }))
+  }
+
+  $effect(() => {
+    const anchor = panelOrigin
+    const popover = panelElement
+    if (!anchor || !popover) return
+    const updateAnchor = () => {
+      const bounds = anchor.getBoundingClientRect()
+      const footerLeft = chromeFooter.getBoundingClientRect().left
+      popover.style.setProperty('--anchor-x', `${bounds.left - footerLeft + bounds.width / 2}px`)
+    }
+    updateAnchor()
+    const observer = new ResizeObserver(updateAnchor)
+    observer.observe(chromeFooter)
+    observer.observe(anchor.parentElement ?? anchor)
+    return () => observer.disconnect()
+  })
+
+  function closePanel(restoreFocus = true) {
+    panel = undefined
+    if (restoreFocus) panelOrigin?.focus({ preventScroll: true })
+    panelOrigin = undefined
+  }
+
+  function tapVideo(event: MouseEvent) {
+    if (dismissedPanelOnVideo) {
+      dismissedPanelOnVideo = false
+      return
+    }
+    const pointer = event instanceof PointerEvent ? event.pointerType : ''
+    if (pointer === 'touch' || (!pointer && matchMedia('(hover: none)').matches)) return
+    togglePlayback()
+  }
+
+  function dismissPanelOnPointerDown(event: PointerEvent) {
+    keyboardNavigation = false
+    dismissedPanelOnVideo = false
+    if (panel && event.target instanceof Element && !event.target.closest('.control-panel, [data-panel-trigger]')) {
+      dismissedPanelOnVideo = event.target === video
+      closePanel(false)
+    }
+  }
+
+  function launchExternal(id: string) {
+    const player = availablePlayers.find((entry) => entry.id === id)
+    if (!player) return
+    const selected = quality === 'auto' || quality === 'audio' ? resolvePlaybackQuality(settings) : quality
+    void playerLauncherService.launchExternal(item, player, selected)
+    closePanel()
+  }
+
   function handleKey(event: KeyboardEvent) {
-    event.stopPropagation()
     if (event.defaultPrevented) return
     if (event.key === 'Escape') {
-      if (document.fullscreenElement) return
-      event.preventDefault()
-      if (showKeys) showKeys = false
-      else if (showOptions) showOptions = false
-      else onClose()
+      if (panel || !document.fullscreenElement) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (panel) closePanel()
+        else onClose()
+      }
+      return
+    }
+    if (event.key === 'Tab') {
+      keyboardNavigation = true
       return
     }
     if (event.altKey || event.ctrlKey || event.metaKey) return
-    const target = event.target
-    if (target instanceof Element && target.closest('input, select, textarea, [contenteditable], [role="slider"]')) return
     const key = event.key.toLowerCase()
-    if ((key === ' ' || key === 'enter') && target instanceof Element && target.closest('button, [role="button"]')) return
+    const target = event.target
+    if (target instanceof Element) {
+      if (target.closest('textarea, select, [contenteditable], input:not([type="radio"])')) return
+      const radio = target.closest('input[type="radio"]')
+      const slider = target.closest('[role="slider"]')
+      if (radio && (key === ' ' || key.startsWith('arrow'))) return
+      if (keyboardNavigation && slider && (key.startsWith('arrow') || ['home', 'end', 'pageup', 'pagedown'].includes(key))) return
+      if ((keyboardNavigation || panel) && key === ' ' && target.closest('button, [role="button"]')) return
+    }
     switch (key) {
       case ' ': case 'k': togglePlayback(); break
       case 'arrowleft': seek(event.shiftKey ? -30 : -5); break
@@ -325,6 +480,14 @@
       case 'arrowdown': video.volume = Math.max(0, video.volume - 0.05); break
       case 'm': video.muted = !video.muted; break
       case 'f': fullscreenButton.click(); break
+      case 'pageup':
+        if (panel || !previous) return
+        navigate(previous)
+        break
+      case 'pagedown':
+        if (panel || !next) return
+        navigate(next)
+        break
       case '[': stepSpeed(-1); break
       case ']': stepSpeed(1); break
       case 'v': toggleSubtitle(); break
@@ -335,10 +498,17 @@
       }
       case 'z': changeDelay(-0.1); break
       case 'x': changeDelay(0.1); break
-      case '?': showKeys = !showKeys; break
+      case '?':
+        if (panel === 'shortcuts') closePanel()
+        else openPanel('shortcuts', panelOrigin ?? settingsButton)
+        break
       default: return
     }
     event.preventDefault()
+    event.stopPropagation()
+    shortcutFeedback = true
+    clearTimeout(shortcutTimer)
+    shortcutTimer = setTimeout(() => (shortcutFeedback = false), 1100)
   }
 
   let volumeTimer: ReturnType<typeof setTimeout> | undefined
@@ -352,7 +522,7 @@
     clientSettingsStore.update({ playerVolume: video.volume, playerMuted: video.muted })
   }
 
-  async function initialize(signal: AbortSignal) {
+  async function initialize(signal: AbortSignal, chosenQuality?: WebQualityChoice) {
     loading = true
     error = ''
     try {
@@ -360,7 +530,7 @@
       if (signal.aborted) return
       info = result
       const preferences = clientSettingsStore.settings
-      const preferredQuality = initialQuality ?? preferences.webQuality
+      const preferredQuality = chosenQuality ?? preferences.webQuality
       quality = result.qualities.some((entry) => entry === preferredQuality) ||
         (preferredQuality === 'audio' && result.audioConversion) ? preferredQuality : 'auto'
       audioIndex = (quality === 'original' ? defaultAudio :
@@ -386,10 +556,16 @@
     video.muted = preferences.playerMuted
     const pageHide = () => persist(true)
     window.addEventListener('pagehide', pageHide, { signal: lifecycle.signal })
-    void initialize(lifecycle.signal)
+    void getWebPlaybackQueue(item.id, lifecycle.signal).then((files) => {
+      if (!lifecycle.signal.aborted) queue = files
+    }).catch(() => {})
+    openItem(initialQuality)
     return () => {
       persist(true)
       lifecycle.abort()
+      opening?.abort()
+      clearTimeout(shortcutTimer)
+      cancelAnimationFrame(pointerFrame)
       if (volumeTimer) {
         clearTimeout(volumeTimer)
         persistVolume()
@@ -427,223 +603,425 @@
   $effect(() => { renderer?.setDelay(delay) })
 </script>
 
-<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydown={handleKey}
-  oncancel={(event) => { event.preventDefault(); onClose() }}>
-  <video-player>
-    <media-container class="player" class:options-visible={showOptions || showKeys} aria-label={title}>
-      <header class="player-header">
-        <button type="button" class="icon-button back-button" title="Close player (Esc)" aria-label="Close player" onclick={onClose}>
-          <span aria-hidden="true">‹</span>
-        </button>
-        <div class="title">
-          <h1>{title}</h1>
-          {#if streamDescription}
-            <span>{streamDescription}{width && height ? ` · ${width}×${height}` : ''}</span>
-          {/if}
-        </div>
-      </header>
+{#snippet choice(group: string, label: string, selected: boolean, choose: () => void, detail?: string)}
+  <label class="choice" class:selected>
+    <input type="radio" name={group} checked={selected} onchange={choose} />
+    <span class="choice-copy">
+      <span>{label}</span>
+      {#if detail}<small>{detail}</small>{/if}
+    </span>
+    {#if selected}<media-icon name="check" class="check" aria-hidden="true"></media-icon>{/if}
+  </label>
+{/snippet}
 
+{#snippet settingsLink(icon: string, label: string, target: Panel, value?: string)}
+  <button type="button" class="settings-link" onclick={() => openPanel(target)}>
+    <media-icon name={icon} aria-hidden="true"></media-icon>
+    <span>{label}</span>
+    {#if value}<span class="setting-value">{value}</span>{/if}
+    <media-icon class="forward" name="chevron" aria-hidden="true"></media-icon>
+  </button>
+{/snippet}
+
+<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydowncapture={handleKey}
+  onkeydown={(event) => event.stopPropagation()}
+  onpointerdown={dismissPanelOnPointerDown} onpointermove={revealNearPointer} onpointerleave={resetProximity}
+  oncancel={(event) => { event.preventDefault(); if (panel) closePanel(); else onClose() }}>
+  <video-player>
+    <media-container class="player" class:keep-controls={Boolean(panel || loading || error || playBlocked || subtitleNotice || shortcutFeedback)} aria-label={title}>
       <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}>
-        <video bind:this={video} playsinline preload="auto" onclick={togglePlayback} onvolumechange={saveVolume}></video>
+        <video bind:this={video} playsinline preload="auto" onclick={tapVideo} onvolumechange={saveVolume}></video>
         {#if error}
-          <div class="player-message" role="alert">
+          <div class="playback-error" role="alert">
+            <h2>Couldn’t play this video</h2>
             <p>{error}</p>
-            <button class="secondary" onclick={() => info ? loadSource(false) : initialize(lifecycle.signal)}>Retry</button>
+            <button class="primary" onclick={() => info ? loadSource(false) : openItem(quality)}>Retry playback</button>
           </div>
         {:else if loading}
-          <div class="player-message loading" role="status" aria-label="Loading video"><span></span></div>
+          <div class="buffering" role="status" aria-label={mediaReady ? 'Buffering' : 'Opening video'}>
+            <span class="spinner"></span>
+          </div>
         {:else if playBlocked || paused}
           <button class="center-play" onclick={togglePlayback} aria-label="Play video" title="Play video">
-            <media-icon name="play"></media-icon>
+            <media-icon name="play" aria-hidden="true"></media-icon>
           </button>
         {/if}
       </div>
 
-      <div class="player-footer">
+      <header class="player-header chrome" bind:this={chromeHeader}>
+        <button type="button" class="control back-button" title="Close player (Esc)" aria-label="Close player" onclick={onClose}>
+          <media-icon name="chevron" aria-hidden="true"></media-icon>
+        </button>
+        <div class="title">
+          <h1>{title}</h1>
+          {#if streamDescription}
+            <p>{streamDescription}{width && height ? ` · ${width}×${height}` : ''}</p>
+          {/if}
+        </div>
+      </header>
+
+      <footer class="player-footer chrome" bind:this={chromeFooter}>
         {#if subtitleNotice}<p class="subtitle-notice" role="status">{subtitleNotice}</p>{/if}
-        {#if showOptions || showKeys}
-          <section class="player-options" aria-label={showKeys ? 'Keyboard shortcuts' : 'Playback options'}>
-            {#if showKeys}
-              <h2>Keyboard shortcuts</h2>
-              <dl class="shortcuts">
+        {#if panel}
+          <section class="control-panel" id="player-control-panel" aria-labelledby="player-panel-heading" bind:this={panelElement}>
+            <header class="panel-header">
+              {#if panel !== 'tracks' && panel !== 'queue' && panel !== 'settings'}
+                <button type="button" class="control back-button" aria-label="Back to playback settings" onclick={() => openPanel('settings')}>
+                  <media-icon name="chevron" aria-hidden="true"></media-icon>
+                </button>
+              {/if}
+              <h2 id="player-panel-heading" tabindex="-1" bind:this={panelHeading}>{panelTitles[panel]}</h2>
+              <button type="button" class="control panel-close" aria-label="Close playback panel" onclick={() => closePanel()}>×</button>
+            </header>
+            {#if panel === 'tracks'}
+              <div class="panel-body">
+                <div class="track-groups">
+                  <fieldset>
+                    <legend>Audio</legend>
+                    {#if audioCapability.length}
+                      {#if canSwitchAudio}
+                        {#each audioCapability as track (track.index)}
+                          {@render choice('player-audio', track.title || languageName(track.language), track.index === audioIndex,
+                            () => selectAudio(track.index), [track.codec?.toUpperCase(), track.channels ? `${track.channels} ch` : ''].filter(Boolean).join(' · '))}
+                        {/each}
+                      {:else if audioCapability.length > 1}
+                        <p class="panel-note">Audio switching requires playback conversion.</p>
+                      {:else}
+                        <p class="panel-note">{audioCapability[0].title || languageName(audioCapability[0].language)}</p>
+                      {/if}
+                    {:else}
+                      <p class="panel-note">No audio tracks available</p>
+                    {/if}
+                  </fieldset>
+                  <fieldset>
+                    <legend>Subtitles</legend>
+                    {#if info?.subtitles.length}
+                      {@render choice('player-subtitles', 'Off', !subtitleId, () => setSubtitle(''))}
+                      {#each info.subtitles as track (track.id)}
+                        {@render choice('player-subtitles', track.title || languageName(track.language), subtitleId === track.id,
+                          () => setSubtitle(track.id), [
+                            track.format === 'text' ? 'Text' : track.format.toUpperCase(),
+                            track.forced ? 'Forced' : '', track.hearingImpaired ? 'SDH' : ''
+                          ].filter(Boolean).join(' · '))}
+                      {/each}
+                    {:else}
+                      <p class="panel-note">No subtitle tracks available</p>
+                    {/if}
+                  </fieldset>
+                </div>
+                {#if subtitleId}
+                  <div class="delay-row" role="group" aria-label="Subtitle delay">
+                    <span>Subtitle delay</span>
+                    <div class="delay-controls">
+                      <button type="button" class="control" aria-label="Show subtitles earlier" onclick={() => changeDelay(-0.1)}>−</button>
+                      <output aria-label="Subtitle delay">{delay > 0 ? '+' : ''}{delay.toFixed(1)} s</output>
+                      <button type="button" class="control" aria-label="Show subtitles later" onclick={() => changeDelay(0.1)}>+</button>
+                      {#if delay}<button type="button" class="control reset-delay" onclick={() => (delay = 0)}>Reset</button>{/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {:else if panel === 'queue'}
+              <div class="panel-body">
+                {#each queue ?? [] as entry (entry.id)}
+                  <button type="button" class="settings-link queue-entry" aria-current={entry.id === item.id ? 'true' : undefined}
+                    onclick={() => navigate(entry)}>
+                    <span class="choice-copy">
+                      <span>{entry.title || entry.name}</span>
+                      {#if episodeLabel(entry)}<small>{episodeLabel(entry)}</small>{/if}
+                    </span>
+                    {#if entry.id === item.id}<media-icon name="play" class="check" aria-hidden="true"></media-icon>{/if}
+                  </button>
+                {/each}
+              </div>
+            {:else if panel === 'settings'}
+              <div class="panel-body">
+                {@render settingsLink('quality', 'Video quality', 'quality', webQualityLabel(quality))}
+                {@render settingsLink('speed', 'Playback speed', 'speed', `${speed}×`)}
+                {#if availablePlayers.length}{@render settingsLink('play', 'Play with', 'external')}{/if}
+                {@render settingsLink('switches', 'Keyboard shortcuts', 'shortcuts')}
+              </div>
+            {:else if panel === 'quality'}
+              <fieldset class="panel-body" aria-label="Video quality">
+                {#if info}
+                  {#each qualityChoices as value (value)}
+                    {@render choice('player-quality', webQualityLabel(value), quality === value, () => selectQuality(value))}
+                  {/each}
+                {:else}
+                  <p class="panel-note">Video qualities are unavailable.</p>
+                {/if}
+              </fieldset>
+            {:else if panel === 'speed'}
+              <fieldset class="panel-body speed-choices" aria-label="Playback speed">
+                {#each speeds as rate (rate)}
+                  {@render choice('player-speed', rate === 1 ? 'Normal · 1×' : `${rate}×`, speed === rate, () => setSpeed(rate))}
+                {/each}
+              </fieldset>
+            {:else if panel === 'external'}
+              <div class="panel-body">
+                {#each availablePlayers as player (player.id)}
+                  <button type="button" class="settings-link external-player" onclick={() => launchExternal(player.id)}>{player.name}</button>
+                {/each}
+              </div>
+            {:else}
+              <dl class="panel-body shortcuts">
                 <dt><kbd>Space</kbd> / <kbd>K</kbd></dt><dd>Play or pause</dd>
-                <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5s (Shift for 30s)</dd>
+                <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 seconds (Shift for 30)</dd>
                 <dt><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>M</kbd></dt><dd>Volume or mute</dd>
                 <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Playback speed</dd>
                 <dt><kbd>J</kbd> / <kbd>V</kbd></dt><dd>Cycle or toggle subtitles</dd>
                 <dt><kbd>Z</kbd> <kbd>X</kbd></dt><dd>Subtitle delay</dd>
+                <dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next video</dd>
                 <dt><kbd>F</kbd> / <kbd>Esc</kbd></dt><dd>Fullscreen or close</dd>
               </dl>
-            {:else}
-              <label>Quality
-                <select aria-label="Playback quality" value={quality} disabled={!info}
-                  onchange={(event) => selectQuality(event.currentTarget.value as WebQualityChoice)}>
-                  <option value="auto">{webQualityLabel('auto')}</option>
-                  {#each info?.qualities ?? [] as entry (entry)}
-                    <option value={entry}>{webQualityLabel(entry)}</option>
-                  {/each}
-                  {#if info?.audioConversion}<option value="audio">{webQualityLabel('audio')}</option>{/if}
-                </select>
-              </label>
-              {#if audioCapability.length}
-                <label>Audio
-                  <select aria-label="Audio track" value={audioIndex ?? ''} disabled={audioCapability.length < 2 || info?.qualities.length === 1}
-                    onchange={(event) => selectAudio(event.currentTarget.value)}>
-                    {#each audioCapability as track (track.index)}
-                      <option value={track.index}>
-                        {track.title || languageName(track.language)}{track.codec ? ` · ${track.codec.toUpperCase()}` : ''}{track.channels ? ` · ${track.channels}ch` : ''}
-                      </option>
-                    {/each}
-                  </select>
-                </label>
-              {/if}
-              <label>Subtitles
-                <select aria-label="Subtitle track" value={subtitleId} disabled={!info?.subtitles.length}
-                  onchange={(event) => setSubtitle(event.currentTarget.value)}>
-                  <option value="">{info?.subtitles.length ? 'Off' : 'No tracks available'}</option>
-                  {#each info?.subtitles ?? [] as track (track.id)}
-                    <option value={track.id}>
-                      {track.title || languageName(track.language)} · {track.format === 'text' ? 'Text' : track.format.toUpperCase()}{track.forced ? ' · Forced' : ''}{track.hearingImpaired ? ' · SDH' : ''}
-                    </option>
-                  {/each}
-                </select>
-              </label>
-              {#if subtitleId}
-                <label>Subtitle delay
-                  <span class="delay-control">
-                    <button type="button" aria-label="Show subtitles earlier" onclick={() => changeDelay(-0.1)}>−</button>
-                    <output>{delay > 0 ? '+' : ''}{delay.toFixed(1)} s</output>
-                    <button type="button" aria-label="Show subtitles later" onclick={() => changeDelay(0.1)}>+</button>
-                    <button type="button" aria-label="Reset subtitle delay" onclick={() => (delay = 0)}>Reset</button>
-                  </span>
-                </label>
-              {/if}
-              <label>Speed
-                <select aria-label="Playback speed" value={speed} onchange={(event) => setSpeed(Number(event.currentTarget.value))}>
-                  {#each speeds as rate (rate)}<option value={rate}>{rate}×</option>{/each}
-                </select>
-              </label>
-              {#if availablePlayers.length}
-                <label>Play with
-                  <select aria-label="External player" value=""
-                    onchange={(event) => {
-                      const player = availablePlayers.find((candidate) => candidate.id === event.currentTarget.value)
-                      if (player) {
-                        const selected = quality === 'auto' || quality === 'audio' ? resolvePlaybackQuality(settings) : quality
-                        void playerLauncherService.launchExternal(item, player, selected)
-                        event.currentTarget.value = ''
-                      }
-                    }}>
-                    <option value="">Choose a player</option>
-                    {#each availablePlayers as player (player.id)}<option value={player.id}>{player.name}</option>{/each}
-                  </select>
-                </label>
-              {/if}
             {/if}
           </section>
         {/if}
-        <media-time-slider class="seek-slider">
-          <media-slider-track class="slider-track">
-            <media-slider-buffer class="slider-buffer"></media-slider-buffer>
-            <media-slider-fill class="slider-fill"></media-slider-fill>
-          </media-slider-track>
-          <media-slider-thumb class="slider-thumb"></media-slider-thumb>
-        </media-time-slider>
+
         <div class="transport">
-          <media-play-button class="icon-button" title="Play or pause (Space)">
-            <media-icon name="play" class="play-icon"></media-icon>
-            <media-icon name="pause" class="pause-icon"></media-icon>
-          </media-play-button>
-          <media-mute-button class="icon-button" title="Mute (M)">
-            <media-icon name="volume-high" class="volume-icon"></media-icon>
-            <media-icon name="volume-off" class="mute-icon"></media-icon>
-          </media-mute-button>
-          <media-volume-slider class="volume-slider">
-            <media-slider-track class="slider-track">
-              <media-slider-fill class="slider-fill"></media-slider-fill>
-            </media-slider-track>
-            <media-slider-thumb class="slider-thumb"></media-slider-thumb>
-          </media-volume-slider>
-          <div class="time"><media-time type="current"></media-time><span>/</span><media-time type="duration"></media-time></div>
-          <div class="tools">
-            {#if info?.subtitles.length}
-              <button type="button" class="icon-button" aria-label="Toggle subtitles" title="Toggle subtitles (V)"
-                aria-pressed={Boolean(subtitleId)} onclick={toggleSubtitle}>
-                <media-icon name={subtitleId ? 'captions-on' : 'captions-off'}></media-icon>
+          <div class="transport-group">
+            <media-play-button class="control play-button" title="Play or pause (Space)" disabled={!mediaReady}>
+              <media-icon name="play" class="play-icon" aria-hidden="true"></media-icon>
+              <media-icon name="pause" class="pause-icon" aria-hidden="true"></media-icon>
+            </media-play-button>
+            {#if audioCapability.length || info?.subtitles.length}
+              <button type="button" class="control" aria-label="Audio & subtitles" title="Audio & subtitles"
+                data-panel-trigger aria-expanded={panel === 'tracks'} aria-controls={panel === 'tracks' ? 'player-control-panel' : undefined}
+                onclick={(event) => panel === 'tracks' ? closePanel() : openPanel('tracks', event.currentTarget)}>
+                <media-icon name={subtitleId ? 'captions-on' : 'captions-off'} aria-hidden="true"></media-icon>
               </button>
             {/if}
-            <button type="button" class="icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"
-              aria-expanded={showKeys} onclick={() => { showOptions = false; showKeys = !showKeys }}>?</button>
-            <button type="button" class="icon-button" aria-label="Playback options" title="Playback options"
-              aria-expanded={showOptions} onclick={() => { showKeys = false; showOptions = !showOptions }}>
-              <media-icon name="gear"></media-icon>
+            <div class="jump-buttons">
+              <button class="control jump" type="button" aria-label="Back 10 seconds" title="Back 10 seconds" disabled={!mediaReady} onclick={() => seek(-10)}>
+                <span aria-hidden="true">−10</span>
+              </button>
+              <button class="control jump" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled={!mediaReady} onclick={() => seek(10)}>
+                <span aria-hidden="true">+10</span>
+              </button>
+            </div>
+            <media-mute-button class="control mute-button" title="Mute (M)">
+              <media-icon name="volume-high" class="volume-icon" aria-hidden="true"></media-icon>
+              <media-icon name="volume-off" class="mute-icon" aria-hidden="true"></media-icon>
+            </media-mute-button>
+            <media-volume-slider class="volume-slider">
+              <media-slider-track class="slider-track"><media-slider-fill class="slider-fill"></media-slider-fill></media-slider-track>
+              <media-slider-thumb class="slider-thumb"></media-slider-thumb>
+            </media-volume-slider>
+
+            <button type="button" class="control" aria-label="Playback settings" title="Playback settings"
+              bind:this={settingsButton} data-panel-trigger aria-expanded={settingsOpen}
+              aria-controls={settingsOpen ? 'player-control-panel' : undefined}
+              onclick={(event) => settingsOpen ? closePanel() : openPanel('settings', event.currentTarget)}>
+              <media-icon name="gear" aria-hidden="true"></media-icon>
             </button>
-            <media-fullscreen-button class="icon-button" title="Fullscreen (F)" bind:this={fullscreenButton}>
-              <media-icon name="fullscreen-enter" class="fullscreen-enter"></media-icon>
-              <media-icon name="fullscreen-exit" class="fullscreen-exit"></media-icon>
+          </div>
+          <div class="transport-group tools">
+            <button class="control previous" type="button" aria-label="Previous video"
+              title={previous ? `Previous: ${previous.title || previous.name}` : 'Previous video'}
+              disabled={!previous} onclick={() => navigate(previous)}>
+              <media-icon name="chevron" aria-hidden="true"></media-icon>
+            </button>
+            <button class="control queue-button" type="button" aria-label="Playback queue" title="Playback queue"
+              data-panel-trigger disabled={(queue?.length ?? 0) < 2} aria-expanded={panel === 'queue'}
+              aria-controls={panel === 'queue' ? 'player-control-panel' : undefined}
+              onclick={(event) => panel === 'queue' ? closePanel() : openPanel('queue', event.currentTarget)}>
+              <span class="queue-icon" aria-hidden="true">≡</span>
+            </button>
+            <button class="control" type="button" aria-label="Next video"
+              title={next ? `Next: ${next.title || next.name}` : 'Next video'}
+              disabled={!next} onclick={() => navigate(next)}>
+              <media-icon name="chevron" aria-hidden="true"></media-icon>
+            </button>
+            <media-fullscreen-button class="control fullscreen-button" title="Fullscreen (F)" bind:this={fullscreenButton}>
+              <media-icon name="fullscreen-enter" class="fullscreen-enter" aria-hidden="true"></media-icon>
+              <media-icon name="fullscreen-exit" class="fullscreen-exit" aria-hidden="true"></media-icon>
             </media-fullscreen-button>
           </div>
         </div>
-      </div>
+        <media-time-slider class="seek-slider" disabled={!mediaReady}>
+          <media-slider-thumb class="slider-thumb"></media-slider-thumb>
+          <media-time class="time-elapsed" type="current"></media-time>
+          <media-time class="time-remaining" type="remaining"></media-time>
+          <media-slider-preview class="seek-preview" aria-hidden="true">
+            <media-slider-value type="pointer"></media-slider-value>
+          </media-slider-preview>
+        </media-time-slider>
+      </footer>
       <NotificationContainer />
     </media-container>
   </video-player>
 </dialog>
 
 <style>
-  .player-dialog {
+  .player-dialog, video-player, .player {
+    display: block;
     width: 100%;
     height: 100%;
+  }
+  .player-dialog::backdrop, .player:fullscreen::backdrop { background: #000; }
+  .player-dialog:not([open]) { display: none; }
+  .player-dialog {
     max-width: none;
     max-height: none;
     margin: 0;
     padding: 0;
     border: 0;
-    color: var(--color-text, #eee);
-    background: #090909;
+    overflow: hidden;
+    color-scheme: dark;
+    background: #000;
   }
-  video-player, .player { display: block; width: 100%; height: 100%; }
   .player {
+    --player-accent: var(--color-primary-soft, #a6a5ff);
+    --label-muted: #bbbcc6;
+    --panel-bg: #18191f;
+    --edge: clamp(0.75rem, 3.2vw, 2.8rem);
+    --transport-height: 2.75rem;
     position: relative;
+    isolation: isolate;
+    -webkit-tap-highlight-color: transparent;
+    color: #f7f7fa;
+    background: #000;
+  }
+  .video-surface {
+    position: absolute;
+    inset: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    color: #eee;
-    background: #090909;
-    --player-accent: var(--color-primary, #b4c1e4);
+    place-items: center;
+    overflow: hidden;
+  }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .video-surface:not(.media-ready) :global(.subtitle-canvas) { visibility: hidden; }
+  .video-surface :global(.subtitle-canvas) { position: absolute; pointer-events: none; }
+  .chrome {
+    position: absolute;
+    inset-inline: 0;
+    z-index: 2;
+    opacity: var(--reveal, 0);
+    pointer-events: none;
+    transition: opacity 140ms ease-out;
+  }
+  .chrome:global([data-near-pointer]) { pointer-events: auto; }
+  .player.keep-controls .chrome,
+  .player:has(:focus-visible, .seek-slider:global([data-dragging])) .chrome {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  @media (hover: none) {
+    .player:global([data-controls-visible]) .chrome { opacity: 1; pointer-events: auto; }
   }
   .player-header {
-    position: relative;
+    top: 0;
     display: flex;
     align-items: center;
-    gap: 0.65rem;
-    min-width: 0;
-    padding: max(0.5rem, env(safe-area-inset-top)) max(0.9rem, env(safe-area-inset-right)) 0.5rem max(0.65rem, env(safe-area-inset-left));
-    z-index: 2;
+    gap: 0.6rem;
+    padding-block: max(0.7rem, env(safe-area-inset-top)) 1.2rem;
+    padding-inline: max(0.55rem, env(safe-area-inset-left)) max(0.55rem, env(safe-area-inset-right));
+    background: linear-gradient(#000e, #0008 48%, #0000);
   }
-  .title { min-width: 0; }
-  h1 { margin: 0; font-size: clamp(0.95rem, 2vw, 1.2rem); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .title span { font-size: 0.8rem; color: #a8a8a8; }
-  .back-button span { font-size: 2rem; line-height: 1; margin-top: -0.25rem; }
-  .video-surface { position: relative; display: grid; place-items: center; min-height: 0; overflow: hidden; }
-  video { display: block; width: 100%; height: 100%; object-fit: contain; position: absolute; inset: 0; }
-  .video-surface:not(.media-ready) :global(.subtitle-canvas) { visibility: hidden; }
-  .video-surface :global(.subtitle-canvas) { pointer-events: none; position: absolute; }
-  .player-message { position: relative; margin: 1rem; max-width: 28rem; padding: 1.25rem; text-align: center; border-radius: 0.6rem; background: #1b1b1b; }
-  .player-message p { margin: 0 0 0.85rem; }
-  .player-message.loading { pointer-events: none; padding: 0; background: none; }
-  .loading span { display: block; width: 2rem; height: 2rem; border-radius: 50%; border: 2px solid #ffffff50; border-top-color: white; animation: rotate 0.8s linear infinite; }
-  @keyframes rotate { to { transform: rotate(360deg); } }
-  .center-play { z-index: 1; display: grid; place-items: center; border-radius: 50%; border: 1px solid #ffffff45; background: #151515bd; color: white; width: 3.5rem; height: 3.5rem; padding: 0; }
-  .center-play media-icon { font-size: 1.5rem; }
-  .player-footer { position: relative; z-index: 2; padding: 0 max(0.95rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.95rem, env(safe-area-inset-left)); }
-  .transport, .tools, .time { display: flex; align-items: center; gap: 0.4rem; }
-  .tools { margin-left: auto; }
-  .time { font-size: 0.83rem; font-variant-numeric: tabular-nums; white-space: nowrap; color: #ccc; }
-  .icon-button { flex: none; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 0.35rem; border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer; font-size: 1.1rem; }
-  .icon-button:hover, .icon-button[aria-expanded="true"] { background: #ffffff18; }
-  .icon-button[aria-pressed="true"] { color: var(--player-accent); }
-  .icon-button:focus-visible, .seek-slider:focus-visible, .volume-slider:focus-visible { outline: 2px solid var(--player-accent); outline-offset: 1px; }
-  media-icon { display: inline-flex; width: 1em; height: 1em; font-size: 1.3rem; }
+  .title { min-width: 0; text-shadow: 0 1px 8px #000b; }
+  h1 {
+    margin: 0;
+    font-size: clamp(1.02rem, 2.3vw, 1.45rem);
+    line-height: 1.25;
+    font-weight: 650;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .title p { margin: 0.22rem 0 0; font-size: 0.79rem; color: #dddde5; }
+  .player-footer {
+    bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  @media (hover: hover) {
+    .player:not(:fullscreen) .player-footer { bottom: 24px; }
+  }
+  .transport, .transport-group, .jump-buttons, .delay-controls { display: flex; align-items: center; }
+  .transport {
+    justify-content: space-between;
+    gap: 0.3rem;
+    color: #fff;
+    padding-inline: max(0.4rem, env(safe-area-inset-left)) max(0.4rem, env(safe-area-inset-right));
+  }
+  .transport-group { gap: clamp(0.1rem, 0.55vw, 0.5rem); }
+  .transport .control > :is(media-icon, span), .transport .volume-slider {
+    filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000);
+  }
+  .tools { margin-inline-start: auto; }
+  .control {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.65rem;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+  }
+  .control:hover:not(:disabled), .control[aria-expanded="true"] { background: #ffffff22; }
+  .control:global([aria-disabled="true"]) { cursor: default; opacity: 0.45; }
+  .control:focus-visible, .center-play:focus-visible, .settings-link:focus-visible,
+  .choice:has(:focus-visible), :is(.seek-slider, .volume-slider):has(.slider-thumb:focus-visible) {
+    outline: 2px solid var(--player-accent);
+    outline-offset: 1px;
+  }
+  media-icon { display: inline-flex; width: 1em; height: 1em; flex: none; font-size: 1.25rem; }
+  .back-button media-icon { transform: rotate(180deg); }
+  .back-button { border-radius: 50%; background: #15151bbd; }
+  .play-button media-icon { font-size: 1.45rem; }
+  .center-play, .buffering, .playback-error { z-index: 1; }
+  .center-play {
+    display: grid;
+    place-items: center;
+    width: clamp(3.6rem, 8vw, 5rem);
+    aspect-ratio: 1;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid #ffffff4d;
+    background: #111117e6;
+    color: white;
+    box-shadow: 0 6px 24px #0006;
+  }
+  .center-play:hover:not(:disabled) { background: #2b2b36; }
+  .center-play media-icon { transform: scale(1.5); }
+  .buffering { pointer-events: none; }
+  .spinner {
+    display: block;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    border: 2px solid #ffffff55;
+    border-top-color: white;
+    animation: spin 0.85s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .playback-error {
+    text-align: center;
+    max-width: min(28rem, calc(100vw - 2rem));
+    padding: 1.4rem;
+    border: 1px solid #ffffff28;
+    border-radius: 1rem;
+    background: var(--panel-bg);
+  }
+  .playback-error p { color: var(--label-muted); margin: 0.5rem 0 1rem; }
+  .jump { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .previous media-icon { transform: rotate(180deg); }
+  .queue-icon {
+    display: grid;
+    place-items: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    border: 1px solid currentColor;
+    border-radius: 0.16rem;
+    font-size: 1rem;
+    line-height: 0.65;
+  }
   .play-icon, .mute-icon, .fullscreen-exit,
   media-play-button:global([data-paused]) .pause-icon,
   media-mute-button:global([data-muted]) .volume-icon,
@@ -651,41 +1029,181 @@
   media-play-button:global([data-paused]) .play-icon,
   media-mute-button:global([data-muted]) .mute-icon,
   media-fullscreen-button:global([data-fullscreen]) .fullscreen-exit { display: inline-flex; }
-  .seek-slider, .volume-slider { display: grid; position: relative; align-items: center; cursor: pointer; touch-action: none; padding: 0; }
-  .seek-slider { height: 1.35rem; }
-  .volume-slider { height: 1.4rem; width: clamp(2.75rem, 9vw, 6rem); margin-right: 0.55rem; }
-  .slider-track { display: block; position: relative; height: 4px; border-radius: 9px; background: #ffffff35; }
-  .slider-fill, .slider-buffer { display: block; position: absolute; inset: 0 auto 0 0; width: var(--media-slider-fill, 0%); border-radius: inherit; background: var(--player-accent); }
-  .slider-buffer { width: var(--media-slider-buffer, 0%); background: #ffffff45; }
-  .slider-thumb { position: absolute; left: var(--media-slider-fill, 0%); width: 11px; height: 11px; transform: translateX(-50%); border-radius: 50%; background: var(--player-accent); }
-  .player-options { box-sizing: border-box; position: absolute; right: max(0.95rem, env(safe-area-inset-right)); bottom: calc(100% + 0.4rem); width: min(25rem, calc(100vw - 1.9rem)); max-height: min(70dvh, 28rem); overflow: auto; padding: 0.8rem; border: 1px solid #ffffff24; border-radius: 0.65rem; background: var(--color-surface, #1a1a1a); box-shadow: 0 6px 28px #0009; }
-  .player-options label { display: grid; grid-template-columns: 7rem minmax(0, 1fr); align-items: center; gap: 0.5rem; padding: 0.3rem; font-size: 0.87rem; }
-  .player-options select { width: 100%; min-width: 0; }
-  .delay-control { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; }
-  .delay-control output { white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .delay-control button { padding: 0.3rem 0.55rem; }
-  .subtitle-notice { position: absolute; bottom: 100%; margin: 0.45rem 0; padding: 0.55rem 0.75rem; background: #222e; border-radius: 0.35rem; font-size: 0.875rem; }
-  h2 { margin: 0 0 0.7rem; font-size: 1rem; }
-  .shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 0.75rem; margin: 0; font-size: 0.85rem; }
-  .shortcuts dd { margin: 0; }
-  kbd { background: #ffffff14; padding: 0.1rem 0.25rem; border-radius: 0.2rem; }
-  .player:fullscreen .video-surface { position: absolute; inset: 0; }
-  .player:fullscreen .player-header,
-  .player:fullscreen .player-footer {
-    position: absolute;
-    inset-inline: 0;
-    transition: opacity 160ms ease;
+  .seek-slider, .volume-slider {
+    position: relative;
+    display: grid;
+    align-items: center;
+    height: 1.65rem;
+    cursor: pointer;
+    touch-action: none;
   }
-  .player:fullscreen .player-header { top: 0; background: linear-gradient(#000c, transparent); }
-  .player:fullscreen .player-footer { bottom: 0; background: linear-gradient(transparent, #000c); }
-  .player:fullscreen:not(.options-visible):not(:global([data-controls-visible])):not(:has(:focus-visible)) .player-header,
-  .player:fullscreen:not(.options-visible):not(:global([data-controls-visible])):not(:has(:focus-visible)) .player-footer {
-    opacity: 0;
+  .seek-slider {
+    height: clamp(1.85rem, 4.25vh, 2.65rem);
+    border-top: 1px solid #ffffff23;
+    background: #000;
+  }
+  .time-elapsed, .time-remaining {
+    position: absolute;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 2px #000;
     pointer-events: none;
   }
-  @media (max-width: 420px) {
-    .transport, .tools { gap: 0.15rem; }
-    .icon-button { width: 2rem; }
-    .volume-slider { display: none; }
+  .time-elapsed { inset-inline-start: max(0.65rem, env(safe-area-inset-left)); }
+  .time-remaining { inset-inline-end: max(0.65rem, env(safe-area-inset-right)); }
+
+  .seek-slider:global([data-disabled]) { opacity: 0.5; cursor: default; }
+  .volume-slider { width: clamp(3.25rem, 7vw, 5.25rem); }
+  .slider-track { position: relative; display: block; height: 4px; border-radius: 5px; background: #ffffff4a; }
+  .slider-fill { position: absolute; display: block; inset: 0 auto 0 0; border-radius: inherit; }
+  .slider-fill { width: var(--media-slider-fill, 0%); background: var(--player-accent); }
+  .slider-thumb {
+    position: absolute;
+    left: var(--media-slider-fill, 0%);
+    width: 0.67rem;
+    height: 0.67rem;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    background: #f9f8ff;
+    box-shadow: 0 1px 5px #0009;
   }
+  .seek-slider .slider-thumb {
+    width: 2px;
+    height: 100%;
+    border-radius: 0;
+    background: #fff;
+  }
+  .seek-slider:global([data-interactive]) .slider-thumb { width: 3px; }
+  .seek-preview {
+    position: absolute;
+    bottom: calc(100% + var(--transport-height));
+    visibility: hidden;
+    border: 1px solid #ffffff33;
+    border-radius: 0.4rem;
+    padding: 0.24rem 0.5rem;
+    background: var(--panel-bg);
+    color: white;
+    font-size: 0.78rem;
+    pointer-events: none;
+  }
+  .seek-preview:global([data-pointing]), .seek-preview:global([data-dragging]) { visibility: visible; }
+  .control-panel {
+    position: absolute;
+    z-index: 3;
+    --gutter-left: max(var(--edge), env(safe-area-inset-left));
+    --gutter-right: max(var(--edge), env(safe-area-inset-right));
+    --panel-width: min(23rem, calc(100% - var(--gutter-left) - var(--gutter-right)));
+    left: clamp(calc(var(--gutter-left) + var(--panel-width) / 2), var(--anchor-x, 50%),
+      calc(100% - var(--gutter-right) - var(--panel-width) / 2));
+    transform: translateX(-50%);
+    bottom: calc(100% + 0.4rem);
+    width: var(--panel-width);
+    max-height: min(33rem, calc(100dvh - 8rem));
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid #ffffff26;
+    border-radius: 1rem;
+    background: var(--panel-bg);
+    box-shadow: 0 10px 35px #000a;
+  }
+  .control-panel:has(.track-groups) {
+    --panel-width: min(35rem, calc(100% - var(--gutter-left) - var(--gutter-right)));
+  }
+  .panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem 0.45rem 1rem;
+    border-bottom: 1px solid #ffffff16;
+    background: var(--panel-bg);
+  }
+  h2 { margin: 0; font-size: 1.025rem; font-weight: 650; }
+  .panel-header h2:focus { outline: none; }
+  .panel-header .back-button { margin-inline-start: -0.5rem; background: transparent; }
+  .panel-close { margin-inline-start: auto; font-size: 1.45rem; color: var(--label-muted); }
+  .panel-body { margin: 0; padding: 0.6rem; }
+  fieldset { min-width: 0; margin: 0; border: 0; }
+  .track-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  .track-groups fieldset { padding: 0; }
+  legend { padding: 0.45rem 0.6rem; color: var(--label-muted); font-size: 0.82rem; font-weight: 600; }
+  .choice, .settings-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.7rem;
+    padding: 0.42rem 0.6rem;
+    border-radius: 0.55rem;
+    font-size: 0.87rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .choice input { position: absolute; inset-inline-start: 0.65rem; opacity: 0; pointer-events: none; }
+  @media (hover: hover) {
+    .choice:hover, .settings-link:hover:not(:disabled) { background: #ffffff13; }
+  }
+  .choice.selected, .queue-entry[aria-current="true"] { background: #ffffff18; }
+  .choice-copy { min-width: 0; display: grid; gap: 0.14rem; overflow-wrap: anywhere; }
+  .choice-copy small, .panel-note { color: var(--label-muted); font-size: 0.76rem; }
+  .panel-note { margin: 0.55rem 0.6rem; }
+  .check { margin-inline-start: auto; color: var(--player-accent); font-size: 1rem; }
+  .settings-link { width: 100%; background: transparent; text-align: start; color: inherit; }
+  .settings-link .forward { color: var(--label-muted); margin-inline-start: auto; font-size: 0.9rem; }
+  .setting-value { margin-inline-start: auto; color: var(--label-muted); text-align: end; font-size: 0.79rem; }
+  .setting-value + .forward { margin-inline-start: 0; }
+  .speed-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; }
+  .delay-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding: 0.4rem 0.6rem 0;
+    margin-top: 0.5rem;
+    border-top: 1px solid #ffffff16;
+    font-size: 0.85rem;
+  }
+  .delay-controls { gap: 0.2rem; }
+  .delay-controls .control { width: 2.25rem; height: 2.45rem; }
+  .delay-controls .reset-delay { width: auto; padding-inline: 0.55rem; }
+  .delay-controls output { min-width: 3rem; text-align: center; font-variant-numeric: tabular-nums; }
+  .subtitle-notice {
+    position: absolute;
+    inset-inline-start: max(var(--edge), env(safe-area-inset-left));
+    bottom: calc(100% + 0.4rem);
+    max-width: min(24rem, calc(100vw - 2 * var(--edge)));
+    margin: 0;
+    padding: 0.5rem 0.7rem;
+    border-radius: 0.5rem;
+    color: white;
+    background: var(--panel-bg);
+    font-size: 0.83rem;
+  }
+  .shortcuts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 0.55rem 0.85rem;
+    padding: 1rem;
+    font-size: 0.83rem;
+  }
+  .shortcuts dd { margin: 0; color: var(--label-muted); }
+  kbd { padding: 0.1rem 0.27rem; border-radius: 0.25rem; background: #ffffff16; }
+  @media (max-width: 740px) {
+    .jump-buttons { display: none; }
+  }
+  @media (max-width: 460px) {
+    .volume-slider { display: none; }
+    .track-groups { grid-template-columns: minmax(0, 1fr); }
+    .control-panel { max-height: min(33rem, calc(100dvh - 7rem)); }
+
+  }
+  @media (max-width: 370px) {
+    .transport-group { gap: 0; }
+    .mute-button { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .chrome { transition: none; } }
 </style>
