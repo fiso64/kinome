@@ -3,7 +3,7 @@
 ### 🏗️ Core Architecture & Performance
 
 - [x] Clean up the API and optimize. Currently sends huge amount of data even though most of it is frequently not needed. Should be smarter and much more on-demand. Must rethink from scratch and adopt a good pattern.
-- [ ] [P1] Monitor option: Rescan on startup and watch filesystem for changes, rescan on change. Rescan only what's needed, do not always run an expensive full rescan,
+- [ ] [P0] Monitor/periodic rescan option: Rescan on startup and watch filesystem for changes, rescan on change. Rescan only what's needed, do not always run an expensive full rescan,
   - [x] Need to ensure rescan is non-destructive, always. (Probably already the case, see `spec/backend/metadata_locking.md`)
   - [ ] Introduce a public scoped rescan API.
 - [ ] [P1] Optimization
@@ -29,15 +29,16 @@
     - [ ] Adaptive bitrate switching across aligned HLS renditions.
     - [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
 - [x] Web player preferences for audio language, subtitle language, and forced subtitles.
-- [ ] Pass language preferences and sidecar subtitles to external players.
+- [x] Pass language preferences to external players.
+  - [ ] and sidecar subtitles?
 
 ### 🎨 UI/UX, Customization
 
-- [ ] [P2] Redesign the UI.
+- [x] [P2] Redesign the UI.
   - [ ] Different styling for nested sections and tabs. Subsections should have a different style than top-level sections.
-  - [ ] Replace the top toolbar by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
+  - [x] Replace the top toolbar by a cleaner sidebar. No more search bar (instead: looking glass icon in the sidebar).
   - [x] Think of some convenient browser-compatible shortcuts for common actions.
-  - [ ] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
+  - [x] Redesign the entire UI and make everything more consistent (centralized css definitions and ui elements), polished, pretty, modern, etc.
   - [ ] Command palette.
 - [x] Dynamic/"virtual" tags. Grouping and searching by virtual tags. (MusicBee-style)
 - [x] Full virtual filesystem. See `spec/backend/virtual_filesystem.md`. This will enable features like:
@@ -90,7 +91,7 @@
 
 ### 📚 Library & Metadata
 
-- [ ] [P1] Improve filename extraction, handle many more patterns. Check Kyoo's approach.
+- [ ] [P0] Improve filename extraction, handle many more patterns. Check Kyoo's approach.
   - [x] In particular: Handle decimal episodes (20.5)
 - [x] [P1] Retrieve and save more local metadata using ffprobe (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc.
   - [x] Make it all searchable and accessible in virtual tag definitions like every other piece of metadata.

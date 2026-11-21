@@ -3,13 +3,15 @@ import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { availablePlaybackQualities } from '@shared/playback-quality'
 import { isSupportedVideoFile, type LocalMedia } from '@shared/local-media'
-import { embeddedSubtitleFormats, SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
+import { embeddedSubtitleFormats, playbackLanguagePriorities, SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type PlaybackDefaultScope, type PlaybackDefaultsEditor, type PlaybackLanguageDefaults, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
 import { getPresentItemLocation } from '../database/repositories/filesystem.repo'
+import { getPlaybackDefaults, writePlaybackDefault } from '../database/repositories/playback-defaults.repo'
+import { getPlaybackTrackLanguages } from '../database/repositories/local-media.repo'
 import { getPlaybackPosition, savePlaybackPosition } from '../database/repositories/user.repo'
 import { ensureUpToDate } from './account-filter.service'
 import { recordPlayback } from './library.service'
-import { getPlaybackSequence, handleFileStreamFast, resolveStreamPath } from './playback.service'
-import { getItemById } from './repository.service'
+import { getPlaybackSequence, handleFileStreamFast, resolvePlaybackSource, resolveStreamPath } from './playback.service'
+import { find, getItemById } from './repository.service'
 import { readSettings } from './settings.service'
 import { keyframeReaderFor, playbackMetadata } from './transcoding'
 import { readMatroskaSubtitleIndexes, readMatroskaAssWindow, readMatroskaPgsWindow, readMatroskaPacketWindow } from './transcoding/matroska-cues'
@@ -166,6 +168,65 @@ export function getWebPlaybackQueue(itemId: string, accountId: string): WebQueue
     ({ id, type, name, title, seasonNumber, episodeNumber }))
 }
 
+function availablePlaybackDefaults(itemId: string, accountId: string) {
+  const [item] = find({
+    where: { id: itemId }, userId: accountId, fields: ['id', 'type', 'name'],
+    includeHidden: true, includeIgnored: true
+  })
+  if (!item || (item.type === 'file' && !isSupportedVideoFile(item.name))) return []
+  return getPlaybackDefaults(itemId, accountId)
+}
+
+export function getExternalPlaybackLanguages(itemId: string, accountId: string): PlaybackLanguageDefaults {
+  const audio = new Set<string>()
+  const subtitles = new Set<string>()
+  let inheritSubtitles = true
+  for (const { audioLanguage, subtitleLanguage } of availablePlaybackDefaults(itemId, accountId)) {
+    for (const language of playbackLanguagePriorities(audioLanguage)) audio.add(language)
+    if (subtitleLanguage === 'off') inheritSubtitles = false
+    if (inheritSubtitles) {
+      for (const language of playbackLanguagePriorities(subtitleLanguage)) subtitles.add(language)
+    }
+  }
+  return {
+    audioLanguage: [...audio].join(',') || null,
+    subtitleLanguage: [...subtitles].join(',') || null
+  }
+}
+
+export async function getItemPlaybackDefault(itemId: string, accountId: string): Promise<PlaybackDefaultsEditor> {
+  const [target] = availablePlaybackDefaults(itemId, accountId)
+  if (!target) return { defaults: null, languages: null }
+  const defaults = { audioLanguage: target.audioLanguage, subtitleLanguage: target.subtitleLanguage }
+  if (target.scope !== 'file') return { defaults, languages: null }
+
+  const languages = { audio: [] as string[], subtitles: [] as string[] }
+  const source = await resolvePlaybackSource(itemId, accountId)
+  if (source) {
+    for (const { kind, language } of getPlaybackTrackLanguages(source.locationId)) {
+      languages[kind === 'audio' ? 'audio' : 'subtitles'].push(language)
+    }
+    for (const track of await sidecarTracks(source.path)) {
+      if (track.language && isPlayableSidecar(track)) languages.subtitles.push(track.language)
+    }
+  }
+  return { defaults, languages }
+}
+
+function isPlayableSidecar(track: WebSubtitle): boolean {
+  return Boolean(ffmpeg || track.format !== 'text' || track.title?.toLowerCase().endsWith('.vtt'))
+}
+
+export function saveItemPlaybackDefault(
+  itemId: string, accountId: string, changes: Partial<PlaybackLanguageDefaults>, scope?: PlaybackDefaultScope
+): boolean {
+  const targets = availablePlaybackDefaults(itemId, accountId)
+  const target = scope ? targets.find((entry) => entry.scope === scope) : targets[0]
+  if (!target) return false
+  writePlaybackDefault(accountId, target, changes)
+  return true
+}
+
 export async function getWebPlaybackInfo(itemId: string, accountId: string): Promise<WebPlaybackInfo | null> {
   const path = await visibleSource(itemId, accountId)
   if (!path) return null
@@ -181,10 +242,11 @@ export async function getWebPlaybackInfo(itemId: string, accountId: string): Pro
   const embedded = ffmpeg && media ? embeddedTracks(media) : []
   return {
     fontRevision: media?.fonts?.length ? record?.revision : undefined,
-    media: description, subtitles: embedded.concat(sidecars.filter((track) => ffmpeg ||
-      track.format !== 'text' || track.title!.toLowerCase().endsWith('.vtt'))),
+    media: description, subtitles: embedded.concat(sidecars.filter(isPlayableSidecar)),
     qualities, audioConversion: qualities.includes('remux') && settings.playbackConversion !== 'remux',
-    position: getPlaybackPosition(itemId, accountId)
+    position: getPlaybackPosition(itemId, accountId),
+    languageDefaults: getPlaybackDefaults(itemId, accountId).map(({ scope, audioLanguage, subtitleLanguage }) =>
+      ({ scope, audioLanguage, subtitleLanguage }))
   }
 }
 

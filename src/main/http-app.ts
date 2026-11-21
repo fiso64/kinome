@@ -1,7 +1,8 @@
 import { ROLE_CAPABILITIES, type AccountRole, type Capability } from '@shared/types'
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
 import { textResponse } from './http-compression'
-import { getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
+import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes } from '@shared/web-playback'
+import { getExternalPlaybackLanguages, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
@@ -569,6 +570,29 @@ export function buildApp() {
           if (!info) { set.status = 404; return 'File not found' }
           return info
         })
+        .get('/playback/:id/defaults', ({ params, session }) =>
+          getItemPlaybackDefault(params.id, session.accountId))
+        .get('/playback/:id/languages', ({ params, session }) =>
+          getExternalPlaybackLanguages(params.id, session.accountId))
+        .put('/playback/:id/defaults', ({ params, body, session, set }) => {
+          const { scope, audioLanguage, subtitleLanguage } = body
+          const audio = typeof audioLanguage === 'string' ? normalizePlaybackLanguages(audioLanguage) : audioLanguage
+          const subtitles = typeof subtitleLanguage === 'string' ? normalizePlaybackLanguages(subtitleLanguage) : subtitleLanguage
+          if ((typeof audio === 'string' && !isPlaybackLanguageList(audio)) ||
+              (typeof subtitles === 'string' && subtitles !== 'off' && !isPlaybackLanguageList(subtitles))) {
+            set.status = 422
+            return { success: false }
+          }
+          const ok = saveItemPlaybackDefault(params.id, session.accountId, {
+            audioLanguage: audio, subtitleLanguage: subtitles
+          }, scope)
+          if (!ok) set.status = 404
+          return { success: ok }
+        }, { body: t.Object({
+          scope: t.Optional(t.Union(playbackDefaultScopes.map((scope) => t.Literal(scope)))),
+          audioLanguage: t.Optional(t.Union([t.String(), t.Null()])),
+          subtitleLanguage: t.Optional(t.Union([t.String(), t.Null()]))
+        }) })
         .post('/playback/:id/progress', async ({ params, body, session, set }) => {
           const ok = await updateWebPlayback(params.id, session.accountId, body.position, body.completed)
           if (!ok) set.status = 404

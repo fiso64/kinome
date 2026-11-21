@@ -8,6 +8,8 @@
   import ViewTab from './_parts/item-settings/ViewTab.svelte'
   import FolderTab from './_parts/item-settings/FolderTab.svelte'
   import VirtualFolderTab from './_parts/item-settings/VirtualFolderTab.svelte'
+  import { getItemPlaybackDefault, saveItemPlaybackDefault } from '@lib/services/web-playback.service'
+  import { isPlaybackLanguageList, normalizePlaybackLanguages, type PlaybackDefaultsEditor, type PlaybackLanguageDefaults } from '@shared/web-playback'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { hasValidEpisodePrecision } from '@shared/metadata-fields'
@@ -64,6 +66,31 @@
   )
 
   const activeTab = $derived(editControl.disabled ? 'metadata' : selectedTab)
+
+  let playbackDefaults = $state<PlaybackLanguageDefaults | null>(null)
+  let savedPlaybackDefaults = $state.raw<PlaybackLanguageDefaults | null>(null)
+  let trackLanguages = $state.raw<PlaybackDefaultsEditor['languages']>(null)
+  let playbackDefaultsError = $state(false)
+  let isSaving = $state(false)
+  const playbackDefaultsChanged = $derived(!equal(playbackDefaults, savedPlaybackDefaults))
+
+  $effect(() => {
+    const id = item.id
+    const controller = new AbortController()
+    playbackDefaults = null
+    savedPlaybackDefaults = null
+    playbackDefaultsError = false
+    trackLanguages = null
+    void getItemPlaybackDefault(id, controller.signal).then(({ defaults, languages }) => {
+      if (controller.signal.aborted) return
+      savedPlaybackDefaults = defaults
+      playbackDefaults = defaults ? { ...defaults } : null
+      trackLanguages = languages
+    }).catch(() => {
+      if (!controller.signal.aborted) playbackDefaultsError = true
+    })
+    return () => controller.abort()
+  })
 
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
@@ -416,8 +443,24 @@
   }
 
   async function handleSave() {
-    if (editControl.disabled || isRefreshing) return
+    if (isRefreshing || isSaving || (editControl.disabled && !playbackDefaultsChanged)) return
+    const defaultsUpdate = playbackDefaultsChanged && playbackDefaults ? {
+      audioLanguage: playbackDefaults.audioLanguage === null ? null : normalizePlaybackLanguages(playbackDefaults.audioLanguage),
+      subtitleLanguage: playbackDefaults.subtitleLanguage === null ? null : normalizePlaybackLanguages(playbackDefaults.subtitleLanguage)
+    } : null
+    if (defaultsUpdate && (
+      (defaultsUpdate.audioLanguage !== null && !isPlaybackLanguageList(defaultsUpdate.audioLanguage)) ||
+      (defaultsUpdate.subtitleLanguage !== null && defaultsUpdate.subtitleLanguage !== 'off' &&
+        !isPlaybackLanguageList(defaultsUpdate.subtitleLanguage))
+    )) {
+      dialogStore.showError({
+        title: 'Invalid Playback Language',
+        message: 'Enter one or more language codes separated by commas, for example en, ja, pt-BR.'
+      })
+      return
+    }
     if (
+      !editControl.disabled &&
       !isFolder &&
       mediaType === 'episode' &&
       episodeNumber !== undefined &&
@@ -431,11 +474,14 @@
       return
     }
 
-    const itemsToUpdate = await buildUpdatedItems()
+    isSaving = true
+    let itemUpdates = 0
     let needsRefresh = false
     let changedGrouping = false
 
     try {
+      const itemsToUpdate = editControl.disabled ? [] : await buildUpdatedItems()
+      itemUpdates = itemsToUpdate.length
       for (const itemToUpdate of itemsToUpdate) {
         const wasEnabled =
           itemToUpdate.type === 'folder' ? (itemToUpdate.folderSettings?.retrieveChildrenMetadata ?? false) : false
@@ -451,7 +497,7 @@
       }
 
       // Apply grouping change as a separate action if it changed
-      if (isFolder) {
+      if (!editControl.disabled && isFolder) {
         const newGroupBy = selectedGroupBy === 'folder' ? null : selectedGroupBy
         const initialGroupBy = initialValues.selectedGroupBy === 'folder' ? null : initialValues.selectedGroupBy
         if (newGroupBy !== initialGroupBy) {
@@ -460,23 +506,33 @@
         }
       }
 
-      if (itemsToUnhide.length > 0) {
+      if (!editControl.disabled && itemsToUnhide.length > 0) {
         for (const id of itemsToUnhide) {
           // We use userUpdateItem with just the ID and isHidden: false
           await window.api.userUpdateItem({ id, isHidden: false } as any)
         }
         needsRefresh = true
       }
+
+      if (defaultsUpdate && savedPlaybackDefaults) {
+        const patch: Partial<PlaybackLanguageDefaults> = {}
+        for (const field of ['audioLanguage', 'subtitleLanguage'] as const) {
+          if (defaultsUpdate[field] !== savedPlaybackDefaults[field]) patch[field] = defaultsUpdate[field]
+        }
+        if (Object.keys(patch).length) await saveItemPlaybackDefault(item.id, patch)
+      }
     } catch (err: any) {
       dialogStore.showError({ title: 'Error Saving', message: err.message || 'Failed to save settings.' })
       return
+    } finally {
+      isSaving = false
     }
 
     // If the item was hidden, the onLibraryItemUpdated listener in App.svelte
     // will handle removing it from the view. The modal should always close.
     handleClose()
 
-    if (itemsToUpdate.length > 0 || changedGrouping) {
+    if (itemUpdates > 0 || changedGrouping) {
       libraryDataService.invalidateAllQueries()
     }
 
@@ -500,8 +556,8 @@
   title={overrideParent && activeTab === 'view' ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
   onClose={handleClose}
   onSave={handleSave}
-  submitDisabled={editControl.disabled || isRefreshing}
-  cancelText={editControl.disabled ? 'Close' : 'Cancel'}
+  submitDisabled={isRefreshing || isSaving || (editControl.disabled && !playbackDefaultsChanged)}
+  cancelText={editControl.disabled && !playbackDefaultsChanged ? 'Close' : 'Cancel'}
   maxWidth="700px"
 >
   {#snippet header()}
@@ -539,6 +595,9 @@
     {:else if activeTab === 'metadata' && caps.canEditMetadata}
       <MetadataTab
         readOnly={editControl.disabled}
+        bind:playbackDefaults
+        {trackLanguages}
+        {playbackDefaultsError}
         {item}
         {tmdbMetadata}
         {localMedia}

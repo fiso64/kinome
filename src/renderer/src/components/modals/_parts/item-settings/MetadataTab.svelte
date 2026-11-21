@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { knownTrackLanguage, languageName } from '@lib/services/web-playback.service'
+  import type { PlaybackDefaultsEditor, PlaybackLanguageDefaults } from '@shared/web-playback'
   import type { LocalMedia } from '@shared/local-media'
   import TmdbMetadataSummary from '@components/ui/TmdbMetadataSummary.svelte'
   import type { TmdbMetadata } from '@shared/metadata-fields'
@@ -9,6 +11,9 @@
   let {
     item,
     readOnly,
+    playbackDefaults = $bindable(),
+    playbackDefaultsError,
+    trackLanguages,
     tmdbMetadata,
     localMedia,
     title = $bindable(),
@@ -24,6 +29,9 @@
   }: {
     item: LibraryItem
     readOnly: boolean
+    playbackDefaults: PlaybackLanguageDefaults | null
+    playbackDefaultsError: boolean
+    trackLanguages: PlaybackDefaultsEditor['languages']
     tmdbMetadata?: TmdbMetadata | null
     localMedia?: LocalMedia | null
     title: string
@@ -37,6 +45,29 @@
     episodeSeasonNumber: string
     suggestions: AutocompleteSuggestions
   } = $props()
+
+  type Preference = keyof PlaybackLanguageDefaults
+  const customLanguage = $state<Record<Preference, boolean>>({ audioLanguage: false, subtitleLanguage: false })
+
+  function languageOptions(codes: string[]) {
+    const byLabel = new Map<string, string>()
+    for (const raw of codes) {
+      const code = knownTrackLanguage(raw)
+      if (!code) continue
+      const label = languageName(code)
+      if (!byLabel.has(label)) byLabel.set(label, code)
+    }
+    return [...byLabel].sort(([a], [b]) => a.localeCompare(b))
+  }
+
+  const audioOptions = $derived(languageOptions(trackLanguages?.audio ?? []))
+  const subtitleOptions = $derived(languageOptions(trackLanguages?.subtitles ?? []))
+
+  function selectLanguage(field: Preference, option: string) {
+    if (!playbackDefaults) return
+    customLanguage[field] = option === 'custom'
+    playbackDefaults[field] = option === '' ? null : option === 'custom' ? '' : option
+  }
 </script>
 
 <div class="form-stack" class:read-only={readOnly}>
@@ -127,6 +158,39 @@
     </div>
   </fieldset>
 
+  {#if playbackDefaults}
+    <section class="metadata-summary raised-surface">
+      <h3>Playback defaults</h3>
+      <p class="form-hint">Applies to your account in the web player.</p>
+      <div class="playback-language-fields">
+        {#if trackLanguages}
+          {@render languageField('audioLanguage', 'Preferred audio language', audioOptions, playbackDefaults.audioLanguage)}
+          {@render languageField('subtitleLanguage', 'Preferred subtitles', subtitleOptions, playbackDefaults.subtitleLanguage)}
+        {:else}
+          <div class="form-field">
+            <label for="audioLanguage">Preferred audio language</label>
+            {@render languageInput('audioLanguage', 'Preferred audio language', playbackDefaults.audioLanguage ?? '', 'Inherit')}
+          </div>
+          <div class="form-field">
+            <label for="subtitleLanguage">Preferred subtitles</label>
+            <select id="subtitleLanguage"
+              value={playbackDefaults.subtitleLanguage === null ? '' : playbackDefaults.subtitleLanguage === 'off' ? 'off' : 'custom'}
+              onchange={(event) => selectLanguage('subtitleLanguage', event.currentTarget.value)}>
+              <option value="">Inherit</option>
+              <option value="custom">Preferred language</option>
+              <option value="off">Off</option>
+            </select>
+            {#if playbackDefaults.subtitleLanguage !== null && playbackDefaults.subtitleLanguage !== 'off'}
+              {@render languageInput('subtitleLanguage', 'Preferred subtitle language', playbackDefaults.subtitleLanguage)}
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </section>
+  {:else if playbackDefaultsError}
+    <p class="form-hint" role="status">Could not load playback defaults.</p>
+  {/if}
+
   {#if localMedia}
     <section class="metadata-summary raised-surface">
       <h3>File metadata</h3>
@@ -168,10 +232,46 @@
   {/if}
 </div>
 
+{#snippet languageField(field: Preference, label: string, options: [string, string][], current: string | null)}
+  {@const menuValue = current === null ? '' : current === 'off' ? 'off' :
+    customLanguage[field] ? 'custom' : options.find(([name]) => name === languageName(current))?.[1] ?? 'custom'}
+  <div class="form-field">
+    <label for={field}>{label}</label>
+    <select id={field} value={menuValue} onchange={(event) => selectLanguage(field, event.currentTarget.value)}>
+      <option value="">Inherit</option>
+      {#if field === 'subtitleLanguage'}<option value="off">Off</option>{/if}
+      {#each options as [name, code] (code)}
+        <option value={code}>{name}</option>
+      {/each}
+      <option value="custom">Other language…</option>
+    </select>
+    {#if menuValue === 'custom'}
+      {@render languageInput(field, label + ' codes', current ?? '')}
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet languageInput(field: Preference, label: string, current: string, placeholder = 'e.g. en, ja, pt-BR')}
+  <input id={trackLanguages || field === 'subtitleLanguage' ? undefined : field} aria-label={label}
+    {placeholder} value={current}
+    oninput={(event) => {
+      if (playbackDefaults) {
+        const value = event.currentTarget.value
+        playbackDefaults[field] = field === 'audioLanguage' && !value && !trackLanguages ? null : value
+      }
+    }} />
+{/snippet}
+
 <style>
   .form-row, .media-type-group { display: flex; flex-wrap: wrap; align-items: end; gap: .55rem; }
   .title-field { flex: 1 0 min(12rem, 100%); }
   .compact-field .number-input { width: 5rem; }
+  .playback-language-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+    align-items: start;
+    gap: .65rem;
+  }
   .tag-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
   .read-only :is(input, textarea)[readonly]:not(.readonly-input) { opacity: .65; cursor: text; }
   .readonly-input { color: var(--color-text-soft); cursor: text; }

@@ -6,7 +6,7 @@
  * - Admin-user tests: one clean representative per capability group, sufficient
  *   to prove the guard is two-directional without noisy service errors.
  */
-import type { WebPlaybackInfo } from '@shared/web-playback'
+import type { PlaybackDefaultsEditor, WebPlaybackInfo } from '@shared/web-playback'
 import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -73,6 +73,74 @@ describe('HTTP authorization — capability enforcement', () => {
     )
   })
 
+  it('shares personal season defaults between physical and virtual seasons without inheriting browsing folders', async () => {
+    ctx.seedEntities([
+      { id: 'defaults-show-entity', mediaType: 'tv' },
+      { id: 'defaults-season-entity', mediaType: 'season', seasonNumber: 1 },
+      { id: 'defaults-episode-entity', mediaType: 'episode', seasonNumber: 1 },
+      { id: 'defaults-movie-entity', mediaType: 'movie' }
+    ])
+    ctx.seedItems([
+      { id: 'defaults-show', type: 'folder', entityId: 'defaults-show-entity' },
+      { id: 'defaults-physical-season', parentId: 'defaults-show', type: 'folder', entityId: 'defaults-season-entity' },
+      { id: 'defaults-virtual-season', parentId: 'defaults-show', type: 'folder',
+        entityId: 'defaults-season-entity', isVirtual: 1, virtualType: 'season' },
+      { id: 'defaults-episode', parentId: 'defaults-show', name: 'episode.mkv', sourceId: 'defaults-source', entityId: 'defaults-episode-entity' },
+      { id: 'defaults-movie', name: 'movie.mp4', entityId: 'defaults-movie-entity' },
+      { id: 'defaults-group', type: 'folder', isVirtual: 1, virtualType: 'user' }
+    ])
+    ctx.db.exec(`
+      INSERT INTO local_media (location_id, failures)
+      SELECT id, 0 FROM media_locations WHERE item_id = 'defaults-episode';
+      INSERT INTO local_media_tracks (location_id, stream_index, kind, codec, language, is_default, forced, hearing_impaired)
+      SELECT id, 0, 'audio', 'aac', 'jpn', 0, 0, 0 FROM media_locations WHERE item_id = 'defaults-episode'
+      UNION ALL
+      SELECT id, 1, 'subtitle', 'subrip', 'eng', 0, 0, 0 FROM media_locations WHERE item_id = 'defaults-episode';
+    `)
+    const endpoint = (id: string) => `/api/playback/${id}/defaults`
+    const put = (id: string, data: object) => app.handle(req('PUT', endpoint(id), data))
+    const editor = async (id: string, token = normalToken) =>
+      (await (await app.handle(req('GET', endpoint(id), undefined, token))).json()) as PlaybackDefaultsEditor
+    const get = async (id: string, token = normalToken) => (await editor(id, token)).defaults
+
+    const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(tmpdir())
+    try {
+      expect((await editor('defaults-episode')).languages).toEqual({ audio: ['jpn'], subtitles: ['eng'] })
+    } finally {
+      source.mockRestore()
+    }
+    expect((await editor('defaults-virtual-season')).languages).toBeNull()
+    expect((await editor('defaults-physical-season')).languages).toBeNull()
+    expect((await editor('defaults-show')).languages).toBeNull()
+
+    expect((await put('defaults-show', { audioLanguage: 'ja' })).status).toBe(200)
+    expect((await put('defaults-episode', { scope: 'season', subtitleLanguage: 'EN' })).status).toBe(200)
+    const languages = async (token = normalToken) =>
+      (await app.handle(req('GET', '/api/playback/defaults-episode/languages', undefined, token))).json()
+    expect(await languages()).toEqual({ audioLanguage: 'ja', subtitleLanguage: 'en' })
+    expect(await languages(adminToken)).toEqual({ audioLanguage: null, subtitleLanguage: null })
+    expect(await get('defaults-virtual-season')).toEqual({ audioLanguage: null, subtitleLanguage: 'en' })
+    expect(await get('defaults-physical-season')).toEqual({ audioLanguage: null, subtitleLanguage: 'en' })
+    expect(await get('defaults-physical-season', adminToken)).toEqual({ audioLanguage: null, subtitleLanguage: null })
+    expect((await put('defaults-physical-season', { audioLanguage: 'jpn' })).status).toBe(200)
+    expect(await get('defaults-virtual-season')).toEqual({ audioLanguage: 'jpn', subtitleLanguage: 'en' })
+    expect((await put('defaults-virtual-season', { subtitleLanguage: null })).status).toBe(200)
+    expect(await get('defaults-physical-season')).toEqual({ audioLanguage: 'jpn', subtitleLanguage: null })
+    expect((await put('defaults-episode', { subtitleLanguage: 'off' })).status).toBe(200)
+    expect(await get('defaults-episode')).toEqual({ audioLanguage: null, subtitleLanguage: 'off' })
+    expect((await put('defaults-physical-season', { subtitleLanguage: 'en' })).status).toBe(200)
+    expect(await languages()).toEqual({ audioLanguage: 'jpn,ja', subtitleLanguage: null })
+    expect((await put('defaults-episode', { audioLanguage: ' ENG,en, Ja ', subtitleLanguage: 'FR , ja' })).status).toBe(200)
+    expect(await get('defaults-episode')).toEqual({ audioLanguage: 'eng, en, ja', subtitleLanguage: 'fr, ja' })
+    expect(await languages()).toEqual({ audioLanguage: 'eng,en,ja,jpn', subtitleLanguage: 'fr,ja,en' })
+    expect((await put('defaults-episode', { audioLanguage: 'en,,ja' })).status).toBe(422)
+    expect((await put('defaults-episode', { subtitleLanguage: 'en, Off' })).status).toBe(422)
+    expect(await get('defaults-group')).toBeNull()
+    expect((await put('defaults-group', { audioLanguage: 'ja' })).status).toBe(404)
+    expect((await put('defaults-movie', { scope: 'movie', audioLanguage: 'ja' })).status).toBe(404)
+    expect((await put('defaults-movie', { scope: 'file', audioLanguage: 'ja' })).status).toBe(200)
+  })
+
   it('serves matching subtitle sidecars and saves playback progress per account', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'kinome-web-playback-'))
     const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
@@ -85,10 +153,14 @@ describe('HTTP authorization — capability enforcement', () => {
       ])
       ctx.seedItems([
         { id: 'web-folder', type: 'folder', sourceId: 'web-source' },
-        { id: 'web-movie', parentId: 'web-folder', sourceId: 'web-source', path: 'film.mp4' }
+        { id: 'web-movie', parentId: 'web-folder', name: 'film.mp4', sourceId: 'web-source', path: 'film.mp4' }
       ])
       expect((await app.handle(new Request(`http://localhost${base}/info`))).status).toBe(401)
+      expect((await app.handle(req('PUT', base + '/defaults', { audioLanguage: 'eng' }))).status).toBe(200)
+      const editor = await (await app.handle(req('GET', base + '/defaults'))).json() as PlaybackDefaultsEditor
+      expect(editor.languages?.subtitles).toEqual(['en'])
       const info = await (await app.handle(req('GET', base + '/info'))).json() as WebPlaybackInfo
+      expect(info.languageDefaults).toEqual([{ scope: 'file', audioLanguage: 'eng', subtitleLanguage: null }])
       expect(info.position).toBe(0)
       expect(info.subtitles).toEqual([
         expect.objectContaining({ format: 'text', language: 'en', forced: true, sidecar: true })

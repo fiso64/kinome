@@ -2,7 +2,8 @@ import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
 import type { LocalMediaTrack } from '@shared/local-media'
 import { avcFormat, isVideoQuality, type PlaybackOutput } from '@shared/playback-quality'
-import type { WebPlaybackInfo, WebPlaybackQuality, WebQueueItem, WebSubtitle } from '@shared/web-playback'
+import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
+import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQueueItem, WebSubtitle } from '@shared/web-playback'
 
 export const hlsMime = 'application/vnd.apple.mpegurl'
 
@@ -36,6 +37,46 @@ export function matchesLanguage(code: string | undefined, preferred: string): bo
   return language(code) === language(preferred)
 }
 
+const languageCode = new RegExp(playbackLanguagePattern)
+
+export function knownTrackLanguage(code?: string): string | undefined {
+  const normalized = code?.trim().toLowerCase()
+  return normalized && !['und', 'zxx', 'off'].includes(normalized) && languageCode.test(normalized)
+    ? normalized : undefined
+}
+
+export function selectPlaybackAudio(
+  tracks: LocalMediaTrack[], defaults: PlaybackDefault[], browserLanguage: string
+): LocalMediaTrack | undefined {
+  for (const { audioLanguage } of defaults) {
+    for (const language of playbackLanguagePriorities(audioLanguage)) {
+      const track = tracks.find((audio) => matchesLanguage(audio.language, language))
+      if (track) return track
+    }
+  }
+  return tracks.find((audio) => matchesLanguage(audio.language, browserLanguage))
+}
+
+function matchingSubtitleTrack(tracks: WebSubtitle[]): WebSubtitle | undefined {
+  return tracks.find((track) => track.default && !track.forced) ??
+    tracks.find((track) => !track.forced && !track.hearingImpaired) ??
+    tracks.find((track) => !track.forced)
+}
+
+export function selectPlaybackSubtitle(
+  tracks: WebSubtitle[], defaults: PlaybackDefault[], browserLanguage: string, mode: 'default' | 'forced' | 'off'
+): string {
+  for (const { subtitleLanguage } of defaults) {
+    if (subtitleLanguage === 'off') return ''
+    for (const language of playbackLanguagePriorities(subtitleLanguage)) {
+      const matches = tracks.filter((track) => matchesLanguage(track.language, language))
+      const track = matchingSubtitleTrack(matches) ?? matches[0]
+      if (track) return track.id
+    }
+  }
+  return preferredSubtitle(tracks, browserLanguage, mode)
+}
+
 export function preferredSubtitle(
   subtitles: WebSubtitle[], preferred: string, mode: 'default' | 'forced' | 'off'
 ): string {
@@ -44,9 +85,7 @@ export function preferredSubtitle(
   const forced = matching.find((track) => track.forced) ??
     subtitles.find((track) => track.forced && (!preferred || !track.language || track.language === 'und'))
   if (mode === 'forced') return forced?.id ?? ''
-  return (matching.find((track) => track.default && !track.forced) ??
-    matching.find((track) => !track.forced && !track.hearingImpaired) ??
-    matching.find((track) => !track.forced) ?? forced ??
+  return (matchingSubtitleTrack(matching) ?? forced ??
     subtitles.find((track) => track.default && !track.forced))?.id ?? ''
 }
 
@@ -149,6 +188,24 @@ export async function getWebPlaybackInfo(itemId: string, signal: AbortSignal): P
   if (!response.ok) throw new Error(response.status === 404
     ? 'This file is no longer available.' : 'Could not load playback information.')
   return response.json()
+}
+
+export async function getItemPlaybackDefault(itemId: string, signal: AbortSignal): Promise<PlaybackDefaultsEditor> {
+  const response = await fetch(`${playbackPath(itemId)}/defaults`, {
+    signal, headers: { Authorization: `Bearer ${authStore.token}` }
+  })
+  if (!response.ok) throw new Error('Could not load playback defaults.')
+  return response.json()
+}
+
+export async function saveItemPlaybackDefault(
+  itemId: string, changes: Partial<PlaybackLanguageDefaults>, scope?: PlaybackDefaultScope
+): Promise<void> {
+  const response = await fetch(`${playbackPath(itemId)}/defaults`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${authStore.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...changes, scope })
+  })
+  if (!response.ok) throw new Error('Could not save playback defaults.')
 }
 
 export async function getWebPlaybackQueue(itemId: string, signal: AbortSignal): Promise<WebQueueItem[]> {

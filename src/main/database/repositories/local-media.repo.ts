@@ -1,3 +1,4 @@
+import { embeddedSubtitleFormats } from '@shared/web-playback'
 import type { LocalMedia } from '@shared/local-media'
 import type { LocalMediaField } from '@shared/metadata-fields'
 import { LOCAL_MEDIA_COLUMNS } from '../local-media.sql'
@@ -113,4 +114,15 @@ export function suggestLocalMediaValues(
     ? getDb().query(withAccountLocations(sql, '$accountId')).all({ ...params, $accountId: accountId })
     : getDb().query(sql).all(params)) as { value: string }[]
   return rows.map(({ value }) => value)
+}
+
+const supportedSubtitles = Object.keys(embeddedSubtitleFormats).map((codec) => `'${codec}'`).join(', ')
+
+export function getPlaybackTrackLanguages(locationId: string) {
+  return getDb().query<{ kind: 'audio' | 'subtitle'; language: string }, [string]>(`
+    SELECT DISTINCT kind, language FROM local_media_tracks
+    WHERE location_id = ? AND language IS NOT NULL
+      AND (kind = 'audio' OR (kind = 'subtitle' AND codec IN (${supportedSubtitles})))
+    ORDER BY kind, language
+  `).all(locationId)
 }

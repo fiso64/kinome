@@ -17,10 +17,10 @@
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
     videoQualityHeights, playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, hlsMime, languageName,
-    matchesLanguage, preferredSubtitle, storePlaybackPosition
+    knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
   import { isVideoQuality } from '@shared/playback-quality'
-  import { webQualityChoices, webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
+  import { webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
   import { isMp4Container, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
@@ -67,13 +67,14 @@
   let playbackSpace = false
   let dismissedPanelOnVideo = false
 
-  type Panel = 'tracks' | 'queue' | 'chapters' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
+  type Panel = 'tracks' | 'language-defaults' | 'queue' | 'chapters' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
   const panelTitles: Record<Panel, string> = {
-    tracks: 'Audio & subtitles', queue: 'Playback queue', chapters: 'Chapters', settings: 'Playback settings', quality: 'Video quality',
+    tracks: 'Audio & subtitles', 'language-defaults': 'Save language defaults', queue: 'Playback queue', chapters: 'Chapters', settings: 'Playback settings', quality: 'Video quality',
     speed: 'Playback speed', external: 'Play with', shortcuts: 'Keyboard shortcuts'
   }
   let panel = $state<Panel>()
-  const settingsOpen = $derived(Boolean(panel && panel !== 'tracks' && panel !== 'queue'))
+  const tracksOpen = $derived(panel === 'tracks' || panel === 'language-defaults')
+  const settingsOpen = $derived(Boolean(panel && !tracksOpen && panel !== 'queue'))
 
   let info = $state<WebPlaybackInfo>()
   let timelineDuration = $state(0)
@@ -101,6 +102,11 @@
   let activeQuality = $state<WebPlaybackQuality>()
   let audioIndex = $state<number>()
   let subtitleId = $state('')
+  let savingDefaults = $state(false)
+  let defaultsNotice = $state('')
+  const defaultScopeLabels: Record<PlaybackDefaultScope, string> = {
+    file: 'This file', season: 'This season', show: 'This show', movie: 'This movie'
+  }
   let lastSubtitle = ''
   let delay = $state(0)
   let subtitleScale = $state(100)
@@ -173,6 +179,7 @@
     clearSource()
     closePanel()
     item = entry
+    defaultsNotice = ''
     info = undefined
     activeQuality = undefined
     mediaReady = false
@@ -773,6 +780,32 @@
     return true
   }
 
+  const currentAudioLanguage = $derived(knownTrackLanguage(audioCapability.find((track) => track.index === audioIndex)?.language))
+  const currentSubtitleLanguage = $derived(info?.subtitles.length
+    ? subtitleId ? knownTrackLanguage(selectedSubtitle?.language) : 'off'
+    : undefined)
+
+  async function saveCurrentDefaults(scope: PlaybackDefaultScope) {
+    if (savingDefaults || (!currentAudioLanguage && !currentSubtitleLanguage)) return
+    const id = item.id
+    savingDefaults = true
+    defaultsNotice = ''
+    try {
+      await saveItemPlaybackDefault(id, {
+        audioLanguage: currentAudioLanguage,
+        subtitleLanguage: currentSubtitleLanguage
+      }, scope)
+      if (id === item.id) {
+        defaultsNotice = `Defaults saved for ${defaultScopeLabels[scope].toLowerCase()}.`
+        if (panel === 'language-defaults') openPanel('tracks')
+      }
+    } catch (error) {
+      if (id === item.id) defaultsNotice = error instanceof Error ? error.message : 'Could not save playback defaults.'
+    } finally {
+      savingDefaults = false
+    }
+  }
+
   function selectAudio(index: number) {
     audioIndex = index
     if (setNativeAudio(index)) return
@@ -1106,6 +1139,7 @@
     `${Math.abs(subtitlePosition)}% ${subtitlePosition < 0 ? 'higher' : 'lower'}`)
 
   function openPanel(next: Panel, origin?: HTMLElement) {
+    if (next === 'language-defaults') defaultsNotice = ''
     if (next === 'queue') queuePage = Math.max(0, Math.floor(queueIndex / queuePageSize))
     if (origin) panelOrigin = origin
     panel = next
@@ -1136,7 +1170,7 @@
 
   function toggleKeyboardPanel(target: Panel, anchor: HTMLElement) {
     const label = panelTitles[target]
-    if (panel === target) {
+    if (panel === target || (target === 'tracks' && tracksOpen)) {
       closePanel()
       return `${label} closed`
     }
@@ -1351,8 +1385,8 @@
       info = result
       const preferences = clientSettingsStore.settings
       quality = chosenQuality ?? preferences.webQuality
-      audioIndex = (audioCapability.find((track) => matchesLanguage(track.language, preferences.audioLanguage)) ?? defaultAudio)?.index
-      subtitleId = preferredSubtitle(result.subtitles, preferences.subtitleLanguage, preferences.subtitles)
+      audioIndex = (selectPlaybackAudio(audioCapability, result.languageDefaults, preferences.audioLanguage) ?? defaultAudio)?.index
+      subtitleId = selectPlaybackSubtitle(result.subtitles, result.languageDefaults, preferences.subtitleLanguage, preferences.subtitles)
       lastSubtitle = subtitleId
       lastSaved = result.position
       resumeAt = result.position
@@ -1538,7 +1572,9 @@
           <section class="control-panel" id="player-control-panel" aria-labelledby="player-panel-heading" bind:this={panelElement}>
             <header class="panel-header">
               {#if panel !== 'tracks' && panel !== 'queue' && panel !== 'settings'}
-                <button type="button" class="control back-button" aria-label="Back to playback settings" onclick={() => openPanel('settings')}>
+                <button type="button" class="control back-button"
+                  aria-label={panel === 'language-defaults' ? 'Back to audio and subtitles' : 'Back to playback settings'}
+                  onclick={() => openPanel(panel === 'language-defaults' ? 'tracks' : 'settings')}>
                   <media-icon name="chevron" aria-hidden="true"></media-icon>
                 </button>
               {/if}
@@ -1604,6 +1640,34 @@
                     {@render subtitleAdjustment('Subtitle position', subtitlePositionLabel, (step) => changeSubtitlePosition(step * 5), () => (subtitlePosition = 0))}
                   </div>
                 {/if}
+                {#if info?.languageDefaults.length && (currentAudioLanguage || currentSubtitleLanguage)}
+                  <div class="language-defaults-link">
+                    {@render settingsLink('switches', 'Save language defaults', 'language-defaults')}
+                  </div>
+                {/if}
+                {#if defaultsNotice}<p class="panel-note" role="status">{defaultsNotice}</p>{/if}
+              </div>
+            {:else if panel === 'language-defaults'}
+              <div class="panel-body">
+                <dl class="language-preview">
+                  {#if currentAudioLanguage}
+                    <div><dt>Audio</dt><dd>{languageName(currentAudioLanguage)}</dd></div>
+                  {/if}
+                  {#if currentSubtitleLanguage}
+                    <div><dt>Subtitles</dt><dd>{currentSubtitleLanguage === 'off' ? 'Off' : languageName(currentSubtitleLanguage)}</dd></div>
+                  {/if}
+                </dl>
+                <p class="panel-note">The player chooses a track in the saved language each time.</p>
+                <div class="language-defaults-targets">
+                  {#each info?.languageDefaults ?? [] as entry (entry.scope)}
+                    <button type="button" class="settings-link"
+                      disabled={savingDefaults || (!currentAudioLanguage && !currentSubtitleLanguage)}
+                      onclick={() => saveCurrentDefaults(entry.scope)}>
+                      Save for {defaultScopeLabels[entry.scope].toLowerCase()}
+                    </button>
+                  {/each}
+                </div>
+                {#if defaultsNotice}<p class="panel-note" role="status">{defaultsNotice}</p>{/if}
               </div>
             {:else if panel === 'queue'}
               <div class="panel-body">
@@ -1687,8 +1751,8 @@
             </button>
             {#if audioCapability.length || info?.subtitles.length}
               <button type="button" class="control" aria-label="Audio & subtitles" title="Audio & subtitles (A)" bind:this={tracksButton}
-                data-panel-trigger aria-expanded={panel === 'tracks'} aria-controls={panel === 'tracks' ? 'player-control-panel' : undefined}
-                onclick={(event) => panel === 'tracks' ? closePanel() : openPanel('tracks', event.currentTarget)}>
+                data-panel-trigger aria-expanded={tracksOpen} aria-controls={tracksOpen ? 'player-control-panel' : undefined}
+                onclick={(event) => tracksOpen ? closePanel() : openPanel('tracks', event.currentTarget)}>
                 <media-icon name={subtitleId ? 'captions-on' : 'captions-off'} aria-hidden="true"></media-icon>
               </button>
             {/if}
@@ -2248,6 +2312,15 @@
   .setting-value { margin-inline-start: auto; color: var(--label-muted); text-align: end; font-size: 0.79rem; }
   .setting-value + .forward { margin-inline-start: 0; }
   .speed-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; }
+  .language-defaults-link, .language-defaults-targets {
+    margin-top: .5rem;
+    padding-top: .35rem;
+    border-top: 1px solid #ffffff16;
+  }
+  .language-preview { display: grid; gap: .45rem; margin: .3rem .6rem .7rem; font-size: .85rem; }
+  .language-preview > div { display: flex; align-items: baseline; justify-content: space-between; gap: .7rem; }
+  .language-preview dt { color: var(--label-muted); }
+  .language-preview dd { margin: 0; font-weight: 600; text-align: end; }
   .subtitle-adjustments {
     margin-top: 0.5rem;
     padding: 0.35rem 0.6rem 0;

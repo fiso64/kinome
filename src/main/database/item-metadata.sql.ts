@@ -69,11 +69,14 @@ CREATE TABLE IF NOT EXISTS media_item_metadata (
 `
  
 const numericColumns = new Set(['tmdb_id', 'year', 'tmdb_runtime', 'season_number', 'episode_number', 'last_refreshed_at', 'version'])
-const fields = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) => {
+export function effectiveMetadataColumn(column: string): string {
   const value = `CASE WHEN m.item_id IS NULL THEN e.${column} ELSE m.${column} END`
-  const expression = numericColumns.has(column) ? `CAST(${value} AS NUMERIC)` : value
-  return `${expression} AS ${column}`
-})
+  return numericColumns.has(column) ? `CAST(${value} AS NUMERIC)` : value
+}
+
+const fields = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) =>
+  `${effectiveMetadataColumn(column)} AS ${column}`
+)
 
 // Keep one row per item so readers can use an inner join. SQLite can then
 // apply their item predicates before looking up item metadata and provider facts.

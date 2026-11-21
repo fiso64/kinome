@@ -4,6 +4,8 @@ import type { Settings } from '@shared/types'
 import { getPlaylistUrl, getPlaybackUrl } from '../api'
 import type { MediaFile, PlayerCommandConfig } from '@shared/types'
 import { notificationStore } from '../notification-store.svelte'
+import { authStore } from '../auth-store.svelte'
+import type { PlaybackLanguageDefaults } from '@shared/web-playback'
 
 export const BUILTIN_COPY_PLAYLIST_LINK: PlayerCommandConfig = {
   id: 'builtin:copy-link',
@@ -82,6 +84,18 @@ export function resolvePlaybackQuality(settings?: Settings | null): PlaybackQual
 
 class PlaybackUnavailableError extends Error {}
 
+async function loadPlayerLanguages(itemId: string): Promise<PlaybackLanguageDefaults> {
+  try {
+    const response = await fetch(`/api/playback/${encodeURIComponent(itemId)}/languages`, {
+      headers: { Authorization: `Bearer ${authStore.token}` }
+    })
+    if (response.ok) return await response.json()
+  } catch {
+    // Report the lookup failure in the same place as other launch errors.
+  }
+  throw new PlaybackUnavailableError('Could not load saved playback languages.')
+}
+
 async function checkConvertedStream(url: string): Promise<void> {
   const signal = AbortSignal.timeout(95_000)
   try {
@@ -150,11 +164,16 @@ export const playerLauncherService = {
         notificationStore.add(direct ? 'Link copied to clipboard!' : 'Playlist link copied to clipboard!', 'success')
         return
       }
-      if (ready) await ready
-      // Keep the entire URL in one shell argument, including its query string.
-      // Templates can already quote the placeholder or an option such as "--playlist=<url>".
-      const resolvedCommand = commandToExecute.command.replace(/"(?:\\.|[^"\\])*"|'[^']*'|<url>/g,
-        (part) => part === '<url>' ? `"${url}"` : part.replaceAll('<url>', url))
+      const template = commandToExecute.command
+      const languages = /<(?:alang|slang)>/.test(template) ? loadPlayerLanguages(file.id) : undefined
+      const [preferences] = languages ? await Promise.all([languages, ready]) : [undefined]
+      if (!languages && ready) await ready
+      const values = { url, alang: preferences?.audioLanguage ?? '', slang: preferences?.subtitleLanguage ?? '' }
+      // Templates can quote one placeholder or an entire option such as "--playlist=<url>".
+      const resolvedCommand = template.replace(/"(?:\\.|[^"\\])*"|'[^']*'|<(url|alang|slang)>/g,
+        (part, token?: keyof typeof values) => token
+          ? `"${values[token]}"`
+          : part.replace(/<(url|alang|slang)>/g, (_, key: keyof typeof values) => values[key]))
       const encodedCommand = btoa(resolvedCommand)
       const protocolUrl = `kinome://run?secret=${encodeURIComponent(secret!)}&command=${encodeURIComponent(encodedCommand)}`
 

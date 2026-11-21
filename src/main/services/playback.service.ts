@@ -5,6 +5,7 @@ import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
+import { resolveSelectedLocationForItem } from '../database/repositories/media-location.repo'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import type { LibraryItem, MediaFile } from '@shared/types'
 
@@ -96,12 +97,16 @@ export function recordPlaybackDebounced(
   }
 }
 
-export async function resolveStreamPath(itemId: string, userId?: string | null): Promise<string | null> {
-  const location = itemsRepo.getPresentItemLocation(itemId, 'file', userId)
+export async function resolvePlaybackSource(itemId: string, userId?: string | null) {
+  const location = resolveSelectedLocationForItem(itemId, { requirePresent: true, type: 'file', userId })
   if (!location) return null
   const absSourcePath = await settingsService.getAbsoluteSourcePath(location.sourceId)
-  if (!absSourcePath) return null
-  return pathsService.securePathJoin(absSourcePath, location.relativePath)
+  const path = absSourcePath && pathsService.securePathJoin(absSourcePath, location.relativePath)
+  return path ? { path, locationId: location.id } : null
+}
+
+export async function resolveStreamPath(itemId: string, userId?: string | null): Promise<string | null> {
+  return (await resolvePlaybackSource(itemId, userId))?.path ?? null
 }
 
 // --- Stream Path Cache ---

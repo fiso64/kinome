@@ -93,9 +93,10 @@ test.each([
     Object.assign(globalThis, {
       localStorage: { getItem: () => 'handler-secret' },
       window: { location },
-      fetch: async () => new Response('#EXTM3U', {
-        headers: { 'Content-Type': 'application/vnd.apple.mpegurl' }
-      })
+      fetch: async (input: string) => {
+        expect(input).toStartWith('https://')
+        return new Response('#EXTM3U', { headers: { 'Content-Type': 'application/vnd.apple.mpegurl' } })
+      }
     })
     await launcher.playerLauncherService.launchExternal(
       { id: 'movie', type: 'file', name: 'movie.mkv' },
@@ -116,12 +117,43 @@ test.each([
   }
 })
 
+test('expands saved language priorities once per launch and preserves empty arguments', async () => {
+  const { authStore } = await import('../auth-store.svelte')
+  const originalToken = authStore.token
+  const { fetch, localStorage, window } = globalThis
+  const location = { origin: 'https://kinome.example', href: '' }
+  const requests: string[] = []
+  try {
+    authStore.token = 'login-token'
+    Object.assign(globalThis, {
+      localStorage: { getItem: () => 'handler-secret' },
+      window: { location },
+      fetch: async (input: string, init: RequestInit) => {
+        requests.push(input)
+        expect(init.headers).toEqual({ Authorization: 'Bearer login-token' })
+        return Response.json({ audioLanguage: 'ja,en', subtitleLanguage: null })
+      }
+    })
+    await launcher.playerLauncherService.launchExternal(
+      { id: 'movie', type: 'file', name: 'movie.mkv' },
+      { id: 'test-player', name: 'Test Player', command: 'mpv --alang=<alang> "--slang=<slang>" <url>' }
+    )
+    const launch = new URL(location.href)
+    expect(atob(launch.searchParams.get('command')!)).toStartWith('mpv --alang="ja,en" "--slang=" "https://')
+    expect(requests).toEqual(['/api/playback/movie/languages'])
+  } finally {
+    authStore.token = originalToken
+    Object.assign(globalThis, { fetch, localStorage, window })
+  }
+})
+
 test('tries the original before lossy fallback and preserves compatible audio at source resolution', async () => {
   const { playbackAttempts } = await import('./web-playback.service')
   const flags = { default: true, forced: false, hearingImpaired: false }
   const video = { index: 0, kind: 'video' as const, codec: 'mpeg4', height: 2160, ...flags }
   const audio = { index: 1, kind: 'audio' as const, codec: 'aac', channels: 6, ...flags }
   const info: WebPlaybackInfo = {
+    languageDefaults: [],
     media: { container: 'avi', tracks: [video, audio] },
     qualities: ['original', 'remux', '4k', '1080p'],
     position: 0, subtitles: [], audioConversion: true
@@ -139,4 +171,32 @@ test('tries the original before lossy fallback and preserves compatible audio at
   info.media = { container: 'avi', tracks: [video, unsupported, { ...audio, index: 2, default: false }] }
   // This client cannot identify or select the track that its native demuxer picked.
   expect(playbackAttempts(player, info, unsupported, unsupported).some(attempt => attempt.mode === 'original')).toBe(false)
+})
+
+test('resolves audio and subtitle defaults independently and falls through unavailable languages', async () => {
+  const { selectPlaybackAudio, selectPlaybackSubtitle } = await import('./web-playback.service')
+  const flags = { default: false, forced: false, hearingImpaired: false }
+  const audio = [
+    { kind: 'audio' as const, index: 0, language: 'eng', ...flags },
+    { kind: 'audio' as const, index: 1, language: 'jpn', ...flags }
+  ]
+  const subtitles = [
+    { id: 'forced', format: 'text' as const, language: 'eng', forced: true },
+    { id: 'english', format: 'text' as const, language: 'eng' },
+    { id: 'japanese', format: 'text' as const, language: 'jpn' }
+  ]
+  const defaults = [
+    { scope: 'file' as const, audioLanguage: 'fr', subtitleLanguage: 'en' },
+    { scope: 'season' as const, audioLanguage: 'ja', subtitleLanguage: 'off' },
+    { scope: 'show' as const, audioLanguage: 'en', subtitleLanguage: 'ja' }
+  ]
+  expect(selectPlaybackAudio(audio, defaults, 'en')?.index).toBe(1)
+  expect(selectPlaybackSubtitle(subtitles, defaults, 'ja', 'off')).toBe('english')
+  expect(selectPlaybackSubtitle(subtitles, [{ ...defaults[0], subtitleLanguage: 'fr' }, ...defaults.slice(1)], 'ja', 'default'))
+    .toBe('')
+  expect(selectPlaybackAudio(audio, defaults.slice(0, 1), 'en')?.index).toBe(0)
+  const ordered = [{ ...defaults[0], audioLanguage: 'fr, eng, ja', subtitleLanguage: 'fr, ja, en' }, ...defaults.slice(1)]
+  expect(selectPlaybackAudio(audio, ordered, 'ja')?.index).toBe(0)
+  expect(selectPlaybackSubtitle(subtitles, ordered, 'en', 'off')).toBe('japanese')
+
 })

@@ -1,3 +1,4 @@
+import { PLAYBACK_DEFAULTS_SQL } from './playback-defaults.sql'
 import { LOCAL_MEDIA_SQL } from './local-media.sql'
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
@@ -224,6 +225,8 @@ CREATE TABLE IF NOT EXISTS account_visible_items (
 CREATE INDEX IF NOT EXISTS idx_account_visible_items_account
     ON account_visible_items(account_id);
 
+
+${PLAYBACK_DEFAULTS_SQL}
 
 -- User State (Watched status, etc.)
 CREATE TABLE IF NOT EXISTS user_state (

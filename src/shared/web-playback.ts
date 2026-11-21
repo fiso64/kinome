@@ -32,6 +32,41 @@ export interface WebSubtitle {
 
 export type WebQueueItem = Pick<MediaFile, 'id' | 'type' | 'name' | 'title' | 'seasonNumber' | 'episodeNumber'>
 
+export const playbackDefaultScopes = ['file', 'season', 'show', 'movie'] as const
+export type PlaybackDefaultScope = typeof playbackDefaultScopes[number]
+
+export interface PlaybackLanguageDefaults {
+  audioLanguage: string | null
+  subtitleLanguage: string | null
+}
+
+export interface PlaybackDefaultsEditor {
+  defaults: PlaybackLanguageDefaults | null
+  languages: { audio: string[]; subtitles: string[] } | null
+}
+
+export interface PlaybackDefault extends PlaybackLanguageDefaults {
+  scope: PlaybackDefaultScope
+}
+
+const playbackLanguageCode = '[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8}){0,4}'
+export const playbackLanguagePattern = `^${playbackLanguageCode}$`
+// Off is a subtitle mode. It cannot be mixed into a language list.
+const preferredLanguageCode = `(?![oO][fF][fF](?=[\\s,]|$))${playbackLanguageCode}`
+const playbackLanguageListPattern = new RegExp(`^\\s*${preferredLanguageCode}(?:\\s*,\\s*${preferredLanguageCode})*\\s*$`)
+
+export function isPlaybackLanguageList(value: string): boolean {
+  return playbackLanguageListPattern.test(value)
+}
+
+export function playbackLanguagePriorities(value: string | null): string[] {
+  return value?.split(',').map((language) => language.trim().toLowerCase()) ?? []
+}
+
+export function normalizePlaybackLanguages(value: string): string {
+  return playbackLanguagePriorities(value).join(', ')
+}
+
 export interface WebPlaybackInfo {
   media: LocalMedia | null
   fontRevision?: string
@@ -39,6 +74,7 @@ export interface WebPlaybackInfo {
   qualities: PlaybackQuality[]
   audioConversion: boolean
   position: number
+  languageDefaults: PlaybackDefault[]
 }
 
 export function isFontAttachment(filename?: string, mime?: string): boolean {
