@@ -65,9 +65,8 @@ type MetadataFieldDefinition = {
   search: boolean
   rule: boolean
 } & (
-  | { storage: 'tmdb'; scope?: 'item'; suggestions: 'manual' | 'stored' }
-  | { storage: 'localMedia'; scope: 'file'; suggestions: 'manual' | 'stored' }
-  | { storage?: undefined; scope?: 'item'; suggestions: 'manual' | LibrarySuggestionLookup }
+  | { storage: IndexedMetadataStorage; suggestions: 'manual' | 'stored' }
+  | { storage?: undefined; suggestions: 'manual' | LibrarySuggestionLookup }
 )
 
 export const BUILTIN_METADATA_FIELDS = {
@@ -89,15 +88,15 @@ export const BUILTIN_METADATA_FIELDS = {
   productionCountries: { label: 'Production country', kind: 'list', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
   originalLanguage: { label: 'Original language code', kind: 'text', search: true, rule: true, storage: 'tmdb', suggestions: 'stored' },
   nextAirDate: { label: 'Next air date (YYYY-MM-DD)', kind: 'text', search: false, rule: true, storage: 'tmdb', suggestions: 'manual' },
-  'file.container': { label: 'File container', kind: 'text', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.durationSeconds': { label: 'File duration (seconds)', kind: 'number', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'manual' },
-  'file.encoder': { label: 'File encoder', kind: 'text', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'manual' },
-  'file.videoHeight': { label: 'Video height (pixels)', kind: 'number', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.videoCodec': { label: 'Video codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.audioCodec': { label: 'Audio codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.audioLanguage': { label: 'Audio language code', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.subtitleCodec': { label: 'Subtitle codec', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' },
-  'file.subtitleLanguage': { label: 'Subtitle language code', kind: 'list', search: true, rule: true, storage: 'localMedia', scope: 'file', suggestions: 'stored' }
+  'file.container': { label: 'File container', kind: 'text', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.durationSeconds': { label: 'File duration (seconds)', kind: 'number', search: true, rule: true, storage: 'localMedia', suggestions: 'manual' },
+  'file.encoder': { label: 'File encoder', kind: 'text', search: true, rule: true, storage: 'localMedia', suggestions: 'manual' },
+  'file.videoHeight': { label: 'Video height (pixels)', kind: 'number', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.videoCodec': { label: 'Video codec', kind: 'list', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.audioCodec': { label: 'Audio codec', kind: 'list', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.audioLanguage': { label: 'Audio language code', kind: 'list', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.subtitleCodec': { label: 'Subtitle codec', kind: 'list', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' },
+  'file.subtitleLanguage': { label: 'Subtitle language code', kind: 'list', search: true, rule: true, storage: 'localMedia', suggestions: 'stored' }
 } as const satisfies Record<string, MetadataFieldDefinition>
 
 export type BuiltinMetadataField = keyof typeof BUILTIN_METADATA_FIELDS
@@ -125,10 +124,6 @@ export function isTmdbFilterField(field: string): field is TmdbFilterField {
 
 export function isLocalMediaField(field: string): field is LocalMediaField {
   return getMetadataField(field)?.storage === 'localMedia'
-}
-
-export function isFileScopedField(field: string): field is LocalMediaField {
-  return getMetadataField(field)?.scope === 'file'
 }
 
 export function metadataFieldKey(field: BuiltinMetadataField): string {

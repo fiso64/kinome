@@ -6,27 +6,27 @@ import {
     EFFECTIVE_METADATA, effectiveMetadataColumn, FTS_TABLE, ITEM_METADATA_JOINS, REBUILD_SEARCH_INDEX_SQL, SEARCH_RANK_WEIGHTS
 } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
-import { getMetadataSearchField, isFileScopedField } from '@shared/metadata-fields'
+import { getMetadataSearchField, isLocalMediaField } from '@shared/metadata-fields'
 import { compileConditionToSql, compilePlayableFileMatches, type FileCondition } from '../query-builder'
 import { accountItemVisibilitySql, ITEM_READ_MODEL, withAccountLocations } from '../media-read-model.sql'
 import { hasFilterRule } from './account-filter.repo'
 
 const TITLE_PRIORITY = `CASE WHEN ${effectiveMetadataColumn('media_type')} IN ('movie', 'tv') THEN 0 ELSE 1 END`
 const EFFECTIVE_TITLE = effectiveMetadataColumn('title')
+const MAX_RANKED_PREFIX = 256
+const CREDIT_LOOKUP_BUDGET = 64
+
+type SearchTag = { key: string; value: string }
+type ResolvedTag = SearchTag & { field: ReturnType<typeof getMetadataSearchField> }
+type SearchParams = Record<string, string | number | null>
+type RankedItem = { id: string }
+type RankMode = 'prefix' | 'titles' | 'complete'
 
 /**
  * Rebuilds the Full-Text Search index.
  */
 export function rebuildFtsIndex(): void {
     runTransaction(() => getDb().exec(REBUILD_SEARCH_INDEX_SQL))
-}
-
-/**
- * Executes a raw SQL search query.
- */
-export function executeSearchSql(sql: string, params: any): any[] {
-    const db = getDb()
-    return db.prepare(sql).all(params) as any[]
 }
 
 /**
@@ -66,16 +66,16 @@ function appendVisibilityFilter(sql: string, params: SearchParams, userId?: stri
  */
 function appendTagFilters(
     sql: string,
-    params: Record<string, any>,
-    tags: { key: string; value: string }[],
+    params: SearchParams,
+    tags: ResolvedTag[],
     narrowText = false
 ): string {
     tags.forEach((tag, idx) => {
         const pKey = `@tagVal${idx}`
         const tagValue = tag.value.toLowerCase()
 
-        const field = getMetadataSearchField(tag.key)
-        if (field && isFileScopedField(field)) return
+        const { field } = tag
+        if (field && isLocalMediaField(field)) return
         if (field === 'mediaType') {
             sql += ` AND ${effectiveMetadataColumn('media_type')} = ${pKey}`
             params[pKey] = tagValue
@@ -122,16 +122,12 @@ function appendTagFilters(
     })
     return sql
 }
-type SearchTag = { key: string; value: string }
-type SearchParams = Record<string, string | number | null>
-
-function searchFileFilter(tags: SearchTag[]) {
+function searchFileFilter(tags: ResolvedTag[]) {
     const conditions: FileCondition[] = []
     let preferTitle = true
-    for (const tag of tags) {
-        const field = getMetadataSearchField(tag.key)
-        if (field && isFileScopedField(field)) conditions.push({ field, op: 'eq', value: tag.value })
-        if (field === 'mediaType' && ['season', 'episode'].includes(tag.value.toLowerCase())) preferTitle = false
+    for (const { field, value } of tags) {
+        if (field && isLocalMediaField(field)) conditions.push({ field, op: 'eq', value })
+        if (field === 'mediaType' && ['season', 'episode'].includes(value.toLowerCase())) preferTitle = false
     }
     return conditions.length ? { conditions, preferTitle } : undefined
 }
@@ -161,10 +157,10 @@ function searchFileDetails(sql: string) {
     )`
 }
 
-function querySearch(sql: string, params: SearchParams, userId?: string, ctes: string[] = []): any[] {
+function querySearch<Row = any>(sql: string, params: SearchParams, userId?: string, ctes: string[] = []): Row[] {
     const withClause = ctes.join(', ')
-    if (!userId) return getDb().prepare(withClause ? `WITH ${withClause} ${sql}` : sql).all(params)
-    return getDb().prepare(withAccountLocations(sql, '@locationAccount', withClause))
+    if (!userId) return getDb().prepare<Row, SearchParams>(withClause ? `WITH ${withClause} ${sql}` : sql).all(params)
+    return getDb().prepare<Row, SearchParams>(withAccountLocations(sql, '@locationAccount', withClause))
         .all({ ...params, '@locationAccount': userId })
 }
 
@@ -174,8 +170,14 @@ interface SearchQuery {
     order: string[]
     ctes?: string[]
     params?: SearchParams
-    narrowText?: boolean
     ftsMatch?: string
+}
+
+function hasFewTextMatches(match: string): boolean {
+    const row = getDb().query<{ count: number }, [string, number]>(`
+        SELECT count(*) AS count FROM (SELECT 1 FROM ${FTS_TABLE} WHERE ${FTS_TABLE} MATCH ? LIMIT ?)
+    `).get(match, CREDIT_LOOKUP_BUDGET)
+    return !!row && row.count < CREDIT_LOOKUP_BUDGET
 }
 
 function hasDenseTitleSample(match: string, fileFilter: ReturnType<typeof searchFileFilter>, limit: number, sampleSize: number) {
@@ -192,7 +194,7 @@ function hasDenseTitleSample(match: string, fileFilter: ReturnType<typeof search
         })
         ctes.push(`sample_files AS (${searchFileQuery(scoped, params)})`)
     }
-    const [row] = querySearch(`
+    const [row] = querySearch<{ dense: number }>(`
         SELECT count(*) >= @enough AS dense
         FROM sample CROSS JOIN media_items i ON i.id = sample.id
         ${ITEM_METADATA_JOINS}
@@ -202,14 +204,54 @@ function hasDenseTitleSample(match: string, fileFilter: ReturnType<typeof search
     return row.dense === 1
 }
 
-function search(query: SearchQuery, tags: SearchTag[], limit: number, userId?: string): any[] {
+function searchResultsSql(order: string, matchFiles: boolean): string {
+    return `
+        SELECT ${SEARCH_SELECT}
+               ${matchFiles ? ', fm.matching_files' : ''}
+        FROM ranked
+        ${matchFiles ? 'JOIN search_file_details fm ON fm.item_id = ranked.id' : ''}
+        CROSS JOIN ${ITEM_READ_MODEL} i ON i.id = ranked.id
+        JOIN ${EFFECTIVE_METADATA} e ON e.item_id = i.id
+        LEFT JOIN user_state u ON u.item_id = i.id AND u.user_id = @watchUser
+        WHERE i.is_hidden = 0 AND i.is_ignored = 0
+        ORDER BY ${order}
+        LIMIT @limit
+    `
+}
+
+function readRankedPrefix(
+    prefix: RankedItem[],
+    fileFilter: ReturnType<typeof searchFileFilter>,
+    params: SearchParams,
+    userId?: string
+): any[] {
+    if (prefix.length === 0) return []
+    const rows = prefix.map(({ id }, index) => {
+        params[`@id${index}`] = id
+        return `(@id${index}, ${index})`
+    })
+    const ctes = [`ranked(id, position) AS (VALUES ${rows.join(', ')})`]
+    if (fileFilter) {
+        const scoped = compilePlayableFileMatches(fileFilter.conditions, {
+            preferTitle: fileFilter.preferTitle,
+            targets: 'SELECT id FROM ranked'
+        })
+        ctes.push(searchFileDetails(searchFileQuery(scoped, params)))
+    }
+    return querySearch(searchResultsSql('ranked.position', !!fileFilter), params, userId, ctes)
+}
+
+function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userId?: string): any[] {
+    const tags = inputTags.map(tag => ({ ...tag, field: getMetadataSearchField(tag.key) }))
     const watchParams = { '@watchUser': userId ?? null }
     const params = { ...query.params, ...watchParams, '@limit': limit }
     const baseCtes = query.ctes ?? []
     const fileFilter = searchFileFilter(tags)
     const fullFileMatches = fileFilter && compilePlayableFileMatches(fileFilter.conditions, fileFilter)
     const seed = fullFileMatches?.locationSeed
-    const probeSize = Number.isInteger(limit) && limit > 0 && limit <= 256 ? Math.min(limit * 4, 256) : 0
+    const probeSize = Number.isInteger(limit) && limit > 0 && limit <= MAX_RANKED_PREFIX
+        ? Math.min(limit * 4, MAX_RANKED_PREFIX)
+        : 0
     const locationCount = seed ? getDb().query<{ count: number }, (string | number)[]>(`
         SELECT count(*) AS count FROM (${seed.sql} LIMIT ?)
     `).get(...seed.params, probeSize || 1)?.count : undefined
@@ -220,33 +262,23 @@ function search(query: SearchQuery, tags: SearchTag[], limit: number, userId?: s
     const order = [TITLE_PRIORITY, ...query.order, 'i.id']
     const columns = order.map((expression, index) => `${expression} AS sort_${index}`)
     const sortKeys = order.map((_expression, index) => `sort_${index}`).join(', ')
+    // Selective text queries can check their own credits. Broad queries start from matching people.
+    const narrowText = !!query.ftsMatch && tags.some(({ field }) => field === 'person') && hasFewTextMatches(query.ftsMatch)
     let where = `WHERE i.is_hidden = 0 ${query.where ?? ''}`
-    where = appendTagFilters(where, params, tags, query.narrowText)
+    where = appendTagFilters(where, params, tags, narrowText)
     where = appendVisibilityFilter(where, params, userId)
 
-    const rankCandidates = (probe: boolean, nativeTitles = false) => `
-        SELECT i.id${nativeTitles ? '' : `, ${columns.join(', ')}`}
-        FROM ${!probe && fileFirst ? `(SELECT DISTINCT item_id FROM file_matches) candidate
+    const rankCandidates = (mode: RankMode) => `
+        SELECT i.id${mode === 'titles' ? '' : `, ${columns.join(', ')}`}
+        FROM ${mode === 'complete' && fileFirst ? `(SELECT DISTINCT item_id FROM file_matches) candidate
             CROSS JOIN media_items i ON i.id = candidate.item_id
             CROSS JOIN ${FTS_TABLE} ON ${FTS_TABLE}.rowid = i.search_document_id` : query.from}
         ${ITEM_METADATA_JOINS}
-        ${where} ${probe ? '' : `AND EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} eligible
-            WHERE eligible.id = i.id AND eligible.is_hidden = 0 AND eligible.is_ignored = 0)`}
-        ${!probe && fileFilter && !fileFirst ? 'AND i.id IN (SELECT item_id FROM file_matches)' : ''}
-        ${nativeTitles ? `AND ${TITLE_PRIORITY} = 0 AND ${FTS_TABLE}.rank MATCH 'bm25(${SEARCH_RANK_WEIGHTS})'` : ''}
-        ORDER BY ${nativeTitles ? `${FTS_TABLE}.rank` : sortKeys}
-    `
-    const projectResults = (sort: string, matchFiles: boolean) => `
-        SELECT ${SEARCH_SELECT}
-               ${matchFiles ? ', fm.matching_files' : ''}
-        FROM ranked
-        ${matchFiles ? 'JOIN search_file_details fm ON fm.item_id = ranked.id' : ''}
-        CROSS JOIN ${ITEM_READ_MODEL} i ON i.id = ranked.id
-        JOIN ${EFFECTIVE_METADATA} e ON e.item_id = i.id
-        LEFT JOIN user_state u ON u.item_id = i.id AND u.user_id = @watchUser
-        WHERE i.is_hidden = 0 AND i.is_ignored = 0
-        ORDER BY ${sort}
-        LIMIT @limit
+        ${where} ${mode === 'complete' ? `AND EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} eligible
+            WHERE eligible.id = i.id AND eligible.is_hidden = 0 AND eligible.is_ignored = 0)` : ''}
+        ${mode === 'complete' && fileFilter && !fileFirst ? 'AND i.id IN (SELECT item_id FROM file_matches)' : ''}
+        ${mode === 'titles' ? `AND ${TITLE_PRIORITY} = 0 AND ${FTS_TABLE}.rank MATCH 'bm25(${SEARCH_RANK_WEIGHTS})'` : ''}
+        ORDER BY ${mode === 'titles' ? `${FTS_TABLE}.rank` : sortKeys}
     `
 
     // When file facts are selective, start from their index. Otherwise defer
@@ -255,40 +287,23 @@ function search(query: SearchQuery, tags: SearchTag[], limit: number, userId?: s
         // FTS5 can order titles by weighted rank without sorting joined rows.
         // An entire page of titles outranks every non-title hit.
         const nativeTitles = !!query.ftsMatch && probeSize >= limit * 2
-            && tags.every(({ key }) => {
-                const field = getMetadataSearchField(key)
-                return field && isFileScopedField(field)
-            })
+            && tags.every(({ field }) => field && isLocalMediaField(field))
             && (!userId || !hasFilterRule(userId))
             && hasDenseTitleSample(query.ftsMatch, fileFilter, limit, probeSize)
-        const prefix = querySearch(`${rankCandidates(true, nativeTitles)} LIMIT @probeSize`,
+        const prefix = querySearch<RankedItem>(`${rankCandidates(nativeTitles ? 'titles' : 'prefix')} LIMIT @probeSize`,
             { ...params, '@probeSize': probeSize }, undefined, baseCtes)
-        if (prefix.length === 0 && !nativeTitles) return []
-        const scopedParams: SearchParams = { ...watchParams, '@limit': limit }
-        const rows = prefix.map(({ id }, index) => {
-            scopedParams[`@id${index}`] = id
-            return `(@id${index}, ${index})`
-        })
-        const ctes = [`ranked(id, position) AS (VALUES ${rows.join(', ')})`]
-        if (fileFilter) {
-            const scoped = compilePlayableFileMatches(fileFilter.conditions, {
-                preferTitle: fileFilter.preferTitle,
-                targets: 'SELECT id FROM ranked'
-            })
-            ctes.push(searchFileDetails(searchFileQuery(scoped, scopedParams)))
-        }
-        const results = prefix.length ? querySearch(projectResults('ranked.position', !!fileFilter), scopedParams, userId, ctes) : []
+        const results = readRankedPrefix(prefix, fileFilter, { ...watchParams, '@limit': limit }, userId)
         if (results.length === limit || (!nativeTitles && prefix.length < probeSize)) return results
     }
 
     const ctes = [...baseCtes]
     if (fullFileMatches) ctes.push(`file_matches AS MATERIALIZED (${searchFileQuery(fullFileMatches, params)})`)
-    ctes.push(`ranked AS MATERIALIZED (${rankCandidates(false)} LIMIT @limit)`)
+    ctes.push(`ranked AS MATERIALIZED (${rankCandidates('complete')} LIMIT @limit)`)
     if (fileFilter) ctes.push(searchFileDetails(`
         SELECT m.item_id, m.file_id
         FROM file_matches m WHERE m.item_id IN (SELECT id FROM ranked)
     `))
-    return querySearch(projectResults(sortKeys, !!fileFilter), params, userId, ctes)
+    return querySearch(searchResultsSql(sortKeys, !!fileFilter), params, userId, ctes)
 }
 
 /** Finds items matching a short text query (LIKE). */
@@ -317,19 +332,11 @@ export function findByShortQuery(normalized: string, tags: SearchTag[], limit: n
 
 /** Finds items using FTS5 match query with tag filtering. */
 export function findByFtsQuery(matchQuery: string, tags: SearchTag[], limit: number, userId?: string): any[] {
-    // A few text hits can check their own credits. A broad hit set starts from
-    // matching people so it does not walk the casts of unrelated titles.
-    const creditLookupBudget = 64
-    const narrowText = tags.some(({ key }) => getMetadataSearchField(key) === 'person')
-        && (getDb().query<{ count: number }, [string, number]>(`
-            SELECT count(*) AS count FROM (SELECT 1 FROM ${FTS_TABLE} WHERE ${FTS_TABLE} MATCH ? LIMIT ?)
-        `).get(matchQuery, creditLookupBudget)?.count ?? creditLookupBudget) < creditLookupBudget
     return search({
         from: `${FTS_TABLE} CROSS JOIN media_items i ON i.search_document_id = ${FTS_TABLE}.rowid`,
         where: `AND ${FTS_TABLE} MATCH @matchQuery`,
         order: [`bm25(${FTS_TABLE}, ${SEARCH_RANK_WEIGHTS})`],
         params: { '@matchQuery': matchQuery },
-        narrowText,
         ftsMatch: matchQuery
     }, tags, limit, userId)
 }

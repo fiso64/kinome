@@ -1,18 +1,15 @@
-import { EFFECTIVE_METADATA } from '../database/item-metadata.sql'
 import path from 'path'
 import fs from 'fs/promises'
 import type { Dirent } from 'node:fs'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import * as settingsRepo from '../database/repositories/settings.repo'
 import * as metadataRepo from '../database/repositories/metadata.repo'
-import * as searchRepo from '../database/repositories/search.repo'
 import { runTransaction } from '../database/client'
 import * as pathsService from './paths.service'
 import { GlobalTaskQueue } from '../utils/concurrency'
 import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
-import { ITEM_READ_MODEL } from '../database/media-read-model.sql'
 import { SPECIAL_FOLDER_NAMES_FOR_TV, isSupportedVideoFile, parseSeasonForFilesystem } from '../utils/tv-parser'
 import {
   applyReconciliationPlan, buildReconciliationPlan, type DiscoveredLocation, type SourceHistory,
@@ -403,15 +400,7 @@ export function getNonEmptyFolderPathsForSource(sourceId: string): Set<string> {
 }
 
 export async function verifyImagePaths(imagesDir: string): Promise<void> {
-  const rows = searchRepo.executeSearchSql(
-    `SELECT i.id AS item_id, e.poster_path, e.backdrop_path, e.logo_path
-     FROM ${ITEM_READ_MODEL} i
-     JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
-     WHERE e.poster_path IS NOT NULL OR e.backdrop_path IS NOT NULL OR e.logo_path IS NOT NULL`,
-    []
-  ) as { item_id: string; poster_path: string | null; backdrop_path: string | null; logo_path: string | null }[]
-
-  for (const row of rows) {
+  for (const row of metadataRepo.getItemArtworkPaths()) {
     const images = {
       poster: row.poster_path,
       backdrop: row.backdrop_path,

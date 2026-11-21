@@ -2,7 +2,7 @@ import { playableFileMatchesSql } from './playable-files.sql'
 import { localMediaFact, readMetadataFact, tmdbFact } from './metadata-facts.sql'
 import { EFFECTIVE_METADATA } from './item-metadata.sql'
 import { ITEM_READ_MODEL, withAccountLocations } from './media-read-model.sql'
-import { isFileScopedField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
+import { isLocalMediaField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter } from '@shared/types'
@@ -276,7 +276,7 @@ export function getFileConditionTarget(field: string): { field: LocalMediaField;
         field = field.slice(7)
         depth++
     }
-    if (isFileScopedField(field)) return { field, depth }
+    if (isLocalMediaField(field)) return { field, depth }
 }
 
 function compileFileConditions(conditions: FileCondition[], depth: number, targets?: string): CompiledSql {

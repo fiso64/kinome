@@ -111,11 +111,11 @@ ${ITEM_METADATA_JOINS};
 export const FTS_TABLE = 'media_items_fts'
 // FTS5 weights are positional. Define them in the same order as the columns.
 const searchColumns = [
-  { name: 'id', weight: 0.0, source: 'item', indexed: false, keyword: false },
-  { name: 'title', weight: 10.0, source: 'metadata', indexed: true, keyword: true },
-  { name: 'original_title', weight: 5.0, source: 'metadata', indexed: true, keyword: true },
-  { name: 'name', weight: 1.0, source: 'item', indexed: true, keyword: true },
-  { name: 'overview', weight: 0.1, source: 'metadata', indexed: true, keyword: false }
+  { name: 'id', weight: '0.0', source: 'item', indexed: false, keyword: false },
+  { name: 'title', weight: '10.0', source: 'metadata', indexed: true, keyword: true },
+  { name: 'original_title', weight: '5.0', source: 'metadata', indexed: true, keyword: true },
+  { name: 'name', weight: '1.0', source: 'item', indexed: true, keyword: true },
+  { name: 'overview', weight: '0.1', source: 'metadata', indexed: true, keyword: false }
 ] as const
 
 export const SEARCH_INDEX_SQL = `
@@ -124,7 +124,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS ${FTS_TABLE} USING fts5(
     tokenize = 'trigram'
 );`
 export const SEARCH_KEYWORD_COLUMNS = `{${searchColumns.filter(({ keyword }) => keyword).map(({ name }) => name).join(' ')}}`
-export const SEARCH_RANK_WEIGHTS = searchColumns.map(({ weight }) => weight.toFixed(1)).join(', ')
+export const SEARCH_RANK_WEIGHTS = searchColumns.map(({ weight }) => weight).join(', ')
 export const SEARCH_DOCUMENT_INDEX_SQL = `
 CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_search_document ON media_items(search_document_id)
 `

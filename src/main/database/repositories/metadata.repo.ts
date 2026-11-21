@@ -302,6 +302,19 @@ export function fetchMetadataRow(itemId: string): any {
     return getDb().prepare(`SELECT * FROM ${EFFECTIVE_METADATA} WHERE item_id = ? AND metadata_item_id IS NOT NULL`).get(itemId)
 }
 
+export function getItemArtworkPaths() {
+    return getDb().query<{
+        item_id: string
+        poster_path: string | null
+        backdrop_path: string | null
+        logo_path: string | null
+    }, []>(`
+        SELECT item_id, poster_path, backdrop_path, logo_path
+        FROM ${EFFECTIVE_METADATA}
+        WHERE poster_path IS NOT NULL OR backdrop_path IS NOT NULL OR logo_path IS NOT NULL
+    `).all()
+}
+
 export function updateMetadataImages(
     itemId: string,
     images: { poster: string | null; backdrop: string | null; logo: string | null }
