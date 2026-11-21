@@ -1330,7 +1330,7 @@
       <span>{label}</span>
       {#if detail}<small>{detail}</small>{/if}
     </span>
-    {#if language}<span class="track-language">{language}</span>{/if}
+    {#if language}<span class="track-language" title={language}>{language}</span>{/if}
     {#if selected || language}
       <media-icon name="check" class="check" class:unselected={!selected} aria-hidden="true"></media-icon>
     {/if}
@@ -2104,12 +2104,15 @@
   .check { margin-inline-start: auto; color: var(--player-accent); font-size: 1rem; }
   .check.unselected { visibility: hidden; }
   .track-language {
+    flex: none;
     max-inline-size: 45%;
     margin-inline-start: auto;
     color: var(--label-muted);
     font-size: 0.76rem;
     text-align: end;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .track-language + .check { margin-inline-start: 0; }
   .settings-link { width: 100%; background: transparent; text-align: start; color: inherit; }
