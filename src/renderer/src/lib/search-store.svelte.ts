@@ -1,6 +1,6 @@
 import { api } from './api'
 import { navStore } from './navigation-store.svelte'
-import { isTypingTag as isTypingTagHelper } from './view-helpers'
+import { isTypingTag as isTypingTagHelper, resultButton } from './view-helpers'
 import type { SearchIndexEntry, SearchQuery } from '@shared/types'
 import { serializeSearchQuery } from './search-query-helpers'
 
@@ -231,14 +231,25 @@ function handleLibraryUpdates(updatedItems: any[]) {
 // --- Exported Store Object ---
 
 
-function handleResultKeys(event: KeyboardEvent, scope: 'library' | 'title', onSelect: (item: SearchIndexEntry) => void) {
-  if (event.defaultPrevented || !(event.target instanceof HTMLInputElement)) return
+function handleResultKeys(
+  event: KeyboardEvent,
+  scope: 'library' | 'title',
+  input: HTMLInputElement | undefined,
+  onSelect: (item: SearchIndexEntry) => void
+) {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  const { target, currentTarget: root } = event
+  if (!(target instanceof HTMLElement) || !(root instanceof HTMLElement)) return
+  const fromInput = target === input
+  const focusedResult = target.closest<HTMLElement>('[data-media-item-id]')
+  if (!fromInput && !focusedResult && target !== root) return
+
   const global = scope === 'library'
   const items = global ? searchResults : detailResults
   if (items.length === 0) return
   const index = global ? highlightedGlobalIndex : highlightedDetailIndex
 
-  if (event.key === 'Enter') {
+  if (event.key === 'Enter' && fromInput) {
     if (index !== null && items[index]) {
       event.preventDefault()
       onSelect(items[index])
@@ -248,8 +259,14 @@ function handleResultKeys(event: KeyboardEvent, scope: 'library' | 'title', onSe
 
   const direction = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
   if (direction === 0) return
+  const focusedIndex = focusedResult ? items.findIndex(({ id }) => id === focusedResult.dataset.mediaItemId) : -1
+  const current = focusedIndex >= 0 ? focusedIndex : index
+  const next = current === null ? (direction > 0 ? 0 : items.length - 1) : (current + direction + items.length) % items.length
+  const button = resultButton(root, items[next].id)
+  if (!button) return
+
   event.preventDefault()
-  const next = index === null ? (direction > 0 ? 0 : items.length - 1) : (index + direction + items.length) % items.length
+  if (!fromInput) button.focus()
   if (global) highlightedGlobalIndex = next
   else highlightedDetailIndex = next
 }

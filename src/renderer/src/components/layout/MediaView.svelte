@@ -8,7 +8,7 @@
   import ListView from '../views/ListView.svelte'
   import { filterItems } from '@shared/filter'
   import { resolveViewSettings } from '@shared/settings-helpers'
-  import { isTypingTag as isTypingTagHelper } from '@lib/view-helpers'
+  import { highlightSearchResult, isTypingTag as isTypingTagHelper } from '@lib/view-helpers'
   import { CONTAINER_LAYOUTS } from '@shared/types'
   import type {
     LibraryItem,
@@ -157,6 +157,7 @@
 {#if settings}
   <div
     class="media-grid-container"
+    use:highlightSearchResult={highlightedIndex == null ? undefined : items[highlightedIndex]?.id}
   >
     {#if layout === 'grid'}
       <GridView
@@ -201,7 +202,6 @@
         items={itemsForViews}
         {onItemClick}
         {onShowContextMenu}
-        {highlightedIndex}
         {grayOutWatched}
         {parentItem}
         {listDescriptionRows}

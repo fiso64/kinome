@@ -149,8 +149,9 @@
 
         {#if searchOpen && navStore.isDetailViewActive}
           <section id="sidebar-search" class="search-panel glass-surface" aria-label="Search this title"
+            tabindex="-1"
             bind:this={searchPanel}
-            onkeydown={(event) => searchStore.handleResultKeys(event, 'title', (item) => dispatch('detailSearchItemClick', { item }))}>
+            onkeydown={(event) => searchStore.handleResultKeys(event, 'title', searchInputEl, (item) => dispatch('detailSearchItemClick', { item }))}>
             <SearchInput label="Search this folder" bind:query={searchStore.detailQuery} {suggestions} bind:element={searchInputEl} />
             <button class="icon-button" type="button" aria-label="Close title search" title="Close"
               onclick={closeTitleSearch}><Icon name="close" size={19} /></button>

@@ -16,7 +16,7 @@
   } = $props()
 </script>
 
-<div class="poster-card-shell interactive-card" class:episode>
+<div class="poster-card-shell interactive-card" class:episode data-media-item-id={itemId}>
   <button type="button" class="poster-card" class:watched class:missing class:thumbnail-action={episode}
     aria-label={title + (missing ? ', missing' : '')} onclick={onOpen} oncontextmenu={onMenu}>
     <div class="artwork">

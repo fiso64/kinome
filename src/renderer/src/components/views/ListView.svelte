@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { prefersReducedMotion } from 'svelte/motion'
   import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import { shouldBeGreyedOut } from '@lib/view-helpers'
@@ -11,7 +10,6 @@
     items,
     onItemClick,
     onShowContextMenu,
-    highlightedIndex,
     grayOutWatched,
     parentItem,
     listDescriptionRows,
@@ -24,7 +22,6 @@
       event: MouseEvent,
       options?: { layout?: string; parentItem?: LibraryItem }
     ) => void
-    highlightedIndex?: number | null
     grayOutWatched: boolean
     parentItem?: MediaFolder
     listDescriptionRows?: number | null
@@ -49,39 +46,18 @@
     return `${totalHeight}rem`
   })
 
-  let listElement: HTMLDivElement | undefined = $state()
-  let lastHighlightedIndex = $state<number | null>(highlightedIndex ?? null)
-
-  $effect(() => {
-    // Only scroll into view if the highlight actually MOVED while the component is active.
-    // This prevents the "scroll to top" glitch on mount when ScrollPersistence is trying to restore.
-    const hasMoved = highlightedIndex !== lastHighlightedIndex
-    lastHighlightedIndex = highlightedIndex ?? null
-
-    if (
-      hasMoved &&
-      listElement &&
-      highlightedIndex !== null &&
-      highlightedIndex >= 0 &&
-      items.length > highlightedIndex &&
-      listElement.children.length > highlightedIndex
-    ) {
-      const itemElement = listElement.children[highlightedIndex] as HTMLElement
-      itemElement?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion.current ? 'instant' : 'smooth' })
-    }
-  })
 </script>
 
-<div class="media-list" bind:this={listElement}>
+<div class="media-list">
   {#if items.length > 0}
-    {#each items as item, i (item.id)}
+    {#each items as item (item.id)}
       {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
       {@const displayTitle =
         'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
           ? `${item.episodeNumber}. ${baseTitle}`
           : baseTitle}
       {@const overview = 'overview' in item ? item.overview : ''}
-      <div class="list-row">
+      <div class="list-row" data-media-item-id={item.id}>
         <button
           type="button"
           class="list-item collection-row"
@@ -89,7 +65,6 @@
           class:single-line={listDescriptionRows === 0}
           style:--row-height={itemHeightRem}
           class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
-          class:highlighted={highlightedIndex === i}
           class:missing={item.isMissing}
           onclick={() => onItemClick(item)}
           oncontextmenu={(e) =>
@@ -208,7 +183,7 @@
     pointer-events: none;
     transition: opacity var(--row-highlight-motion);
   }
-  .list-item.highlighted::after { opacity: 1; }
+  .list-item:global([data-search-highlighted])::after { opacity: 1; }
 
   /* --- Base Poster & Image Styles --- */
   .poster {
@@ -313,7 +288,7 @@
   .list-item.watched:not(:is(:hover, :focus-visible)) :is(.poster, .title, .overview, .year, .icon-only) {
     opacity: .6;
   }
-  .list-item.highlighted {
+  .list-item:global([data-search-highlighted]) {
     border-color: var(--accent-border);
   }
   .list-item.missing {
@@ -344,7 +319,7 @@
   :global(.full-backdrop-mode) .list-item:is(:hover, :focus-visible) {
     border-color: rgba(255, 255, 255, 0.2);
   }
-  :global(.full-backdrop-mode) .list-item.highlighted {
+  :global(.full-backdrop-mode) .list-item:global([data-search-highlighted]) {
     border-color: rgba(255, 255, 255, 0.25);
   }
   @media (max-width: 620px) {

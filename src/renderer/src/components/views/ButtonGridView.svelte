@@ -42,7 +42,7 @@
     {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
     {@const bgImage = ('backdropPath' in item && item.backdropPath) ? item.backdropPath : item.posterPath}
     {@const hasImage = !!bgImage}
-    <div class="category-card-shell interactive-card" class:episode={item.mediaType === 'episode'}>
+    <div class="category-card-shell interactive-card" class:episode={item.mediaType === 'episode'} data-media-item-id={item.id}>
       <button
         type="button"
         class="category-card"

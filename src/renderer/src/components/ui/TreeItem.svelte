@@ -61,7 +61,7 @@
 </script>
 
 <div class="tree-item-container">
-  <div class="tree-row">
+  <div class="tree-row" data-media-item-id={item.id}>
     <button
       type="button"
       class="tree-item collection-row"

@@ -378,6 +378,11 @@
 
 .collection-row:where(:hover, :focus-visible)::before { opacity: 1; }
 
+button[data-search-highlighted]:not(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .collection-row { --row-highlight-motion: 0ms; transition: none; }
 }

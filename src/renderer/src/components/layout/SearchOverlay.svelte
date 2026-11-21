@@ -60,6 +60,10 @@
   <div
     class="view-wrapper"
     id="library-search"
+    role="region"
+    aria-labelledby="library-search-title"
+    tabindex="-1"
+    onkeydown={(event) => searchStore.handleResultKeys(event, 'library', inputElement, (item) => dispatch('itemClick', { item }))}
     use:scrollPersistence={{
       key: getViewKey('vertical'),
       resetOn: searchStore.globalQuery.text,
@@ -68,13 +72,12 @@
   >
     <header class="search-header">
       <div class="search-heading">
-        <h1>Search library</h1>
+        <h1 id="library-search-title">Search library</h1>
         <button class="icon-button" type="button" aria-label="Close search" title="Close search" onclick={onClose}>
           <Icon name="close" size={20} />
         </button>
       </div>
-      <div class="search-field" role="search"
-        onkeydown={(event) => searchStore.handleResultKeys(event, 'library', (item) => dispatch('itemClick', { item }))}>
+      <div class="search-field" role="search">
         <SearchInput bind:query={searchStore.globalQuery} {suggestions} bind:element={inputElement} />
       </div>
       {#if searchStore.isGlobalActive}

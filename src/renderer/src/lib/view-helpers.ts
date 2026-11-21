@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from 'svelte/motion'
 import type { LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
 
 type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -47,4 +48,26 @@ export function isTypingTag(text: string): boolean {
   // These regexes check if the user is in the middle of typing a tag.
   // e.g., ">key" or ">key:value"
   return />([a-zA-Z0-9_.-]*)$/.test(text) || />([a-zA-Z0-9_.-]+):([^:]*)$/.test(text)
+}
+
+export function resultButton(root: HTMLElement, id: string) {
+  return root.querySelector<HTMLButtonElement>(`[data-media-item-id="${CSS.escape(id)}"] > button`)
+}
+
+export function highlightSearchResult(root: HTMLElement, id?: string) {
+  let highlighted = id ? resultButton(root, id) : null
+  highlighted?.setAttribute('data-search-highlighted', '')
+  return {
+    update(id?: string) {
+      const next = id ? resultButton(root, id) : null
+      if (next === highlighted) return
+      highlighted?.removeAttribute('data-search-highlighted')
+      highlighted = next
+      highlighted?.setAttribute('data-search-highlighted', '')
+      highlighted?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: prefersReducedMotion.current ? 'instant' : 'smooth' })
+    },
+    destroy() {
+      highlighted?.removeAttribute('data-search-highlighted')
+    }
+  }
 }
