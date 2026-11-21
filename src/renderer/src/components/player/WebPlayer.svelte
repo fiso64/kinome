@@ -711,10 +711,17 @@
     setSubtitle(tracks[next - 1]?.id ?? '')
   }
 
+  function trackLabels(track: { language?: string; title?: string }) {
+    return { language: languageName(track.language), title: track.title?.trim() }
+  }
+
   function subtitleFeedback(offLabel = 'Subtitles hidden') {
     if (!info?.subtitles.length) return 'No subtitle tracks'
     const track = info.subtitles.find((track) => track.id === subtitleId)
-    return track ? `Subtitles: ${track.title || languageName(track.language)}` : offLabel
+    if (!track) return offLabel
+    const { language, title } = trackLabels(track)
+    const detail = title && title.toLowerCase() !== language.toLowerCase() ? `${title} (${language})` : language
+    return `Subtitles: ${detail}`
   }
 
   function updatePlaybackPosition() {
@@ -1300,14 +1307,17 @@
   $effect(() => { renderer?.setPosition?.(subtitlePosition) })
 </script>
 
-{#snippet choice(group: string, label: string, selected: boolean, choose: () => void, detail?: string)}
-  <label class="choice" class:selected>
-    <input type="radio" name={group} checked={selected} onchange={choose} />
+{#snippet choice(group: string, label: string, selected: boolean, choose: () => void, detail?: string, disabled = false, language?: string)}
+  <label class="choice" class:selected class:unavailable={disabled}>
+    <input type="radio" name={group} checked={selected} {disabled} onchange={choose} />
     <span class="choice-copy">
       <span>{label}</span>
       {#if detail}<small>{detail}</small>{/if}
     </span>
-    {#if selected}<media-icon name="check" class="check" aria-hidden="true"></media-icon>{/if}
+    {#if language}<span class="track-language">{language}</span>{/if}
+    {#if selected || language}
+      <media-icon name="check" class="check" class:unselected={!selected} aria-hidden="true"></media-icon>
+    {/if}
   </label>
 {/snippet}
 
@@ -1408,15 +1418,14 @@
                   <fieldset>
                     <legend>Audio</legend>
                     {#if audioCapability.length}
-                      {#if canSwitchAudio}
-                        {#each audioCapability as track (track.index)}
-                          {@render choice('player-audio', track.title || languageName(track.language), track.index === audioIndex,
-                            () => selectAudio(track.index), [track.codec?.toUpperCase(), track.channels ? `${track.channels} ch` : ''].filter(Boolean).join(', '))}
-                        {/each}
-                      {:else if audioCapability.length > 1}
+                      {#each audioCapability as track, index (track.index)}
+                        {@const labels = trackLabels(track)}
+                        {@render choice('player-audio', labels.title || `Track ${index + 1}`, track.index === audioIndex, () => selectAudio(track.index),
+                          [track.codec?.toUpperCase(), track.channels ? `${track.channels} ch` : '']
+                            .filter(Boolean).join(', '), !canSwitchAudio, labels.language)}
+                      {/each}
+                      {#if !canSwitchAudio && audioCapability.length > 1}
                         <p class="panel-note">Audio switching requires playback conversion.</p>
-                      {:else}
-                        <p class="panel-note">{audioCapability[0].title || languageName(audioCapability[0].language)}</p>
                       {/if}
                     {:else}
                       <p class="panel-note">No audio tracks available</p>
@@ -1426,12 +1435,13 @@
                     <legend>Subtitles</legend>
                     {#if info?.subtitles.length}
                       {@render choice('player-subtitles', 'Off', !subtitleId, () => setSubtitle(''))}
-                      {#each info.subtitles as track (track.id)}
-                        {@render choice('player-subtitles', track.title || languageName(track.language), subtitleId === track.id,
+                      {#each info.subtitles as track, index (track.id)}
+                        {@const labels = trackLabels(track)}
+                        {@render choice('player-subtitles', labels.title || `Track ${index + 1}`, subtitleId === track.id,
                           () => setSubtitle(track.id), [
                             track.format === 'text' ? 'Text' : track.format.toUpperCase(),
                             track.forced ? 'Forced' : '', track.hearingImpaired ? 'SDH' : ''
-                          ].filter(Boolean).join(', '))}
+                          ].filter(Boolean).join(', '), false, labels.language)}
                       {/each}
                     {:else}
                       <p class="panel-note">No subtitle tracks available</p>
@@ -2053,14 +2063,25 @@
     cursor: pointer;
   }
   .choice input { position: absolute; inset-inline-start: 0.65rem; opacity: 0; pointer-events: none; }
+  .choice.unavailable { cursor: default; }
   @media (hover: hover) {
-    .choice:hover, .settings-link:hover:not(:disabled) { background: #ffffff13; }
+    .choice:hover:not(.unavailable), .settings-link:hover:not(:disabled) { background: #ffffff13; }
   }
   .choice.selected, .queue-entry[aria-current="true"] { background: #ffffff18; }
   .choice-copy { min-width: 0; display: grid; gap: 0.14rem; overflow-wrap: anywhere; }
   .choice-copy small, .panel-note { color: var(--label-muted); font-size: 0.76rem; }
   .panel-note { margin: 0.55rem 0.6rem; }
   .check { margin-inline-start: auto; color: var(--player-accent); font-size: 1rem; }
+  .check.unselected { visibility: hidden; }
+  .track-language {
+    max-inline-size: 45%;
+    margin-inline-start: auto;
+    color: var(--label-muted);
+    font-size: 0.76rem;
+    text-align: end;
+    overflow-wrap: anywhere;
+  }
+  .track-language + .check { margin-inline-start: 0; }
   .settings-link { width: 100%; background: transparent; text-align: start; color: inherit; }
   .settings-link .forward { color: var(--label-muted); margin-inline-start: auto; font-size: 0.9rem; }
   .setting-value { margin-inline-start: auto; color: var(--label-muted); text-align: end; font-size: 0.79rem; }
