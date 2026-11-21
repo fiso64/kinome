@@ -26,7 +26,7 @@ interface SubtitleOptions {
 export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRenderer> {
   const { track, video, itemId, signal, delay, container, source, fonts, onReady, onError } = options
   const url = subtitleUrl(itemId, track.id)
-  if (track.format === 'text') return textTrack(video, url, track.language, delay, signal, onReady, onError)
+  if (track.format === 'text') return textTrack(video, url, track, delay, signal, onReady, onError)
   if (track.format === 'ass') {
     const firstWindow = subtitleWindow(video.currentTime - delay)
     const windows = track.sidecar ? undefined : subtitleWindows(url, signal, (response) => response.text())
@@ -102,9 +102,9 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
   }
 
   const firstWindow = subtitleWindow(video.currentTime - delay)
-  const windows = track.format === 'pgs' && !track.sidecar
+  const windows = !track.sidecar
     ? subtitleWindows(url, signal, async (response) =>
-        response.headers.has(SUBTITLE_WINDOW_HEADER) ? await response.arrayBuffer() : response) : undefined
+        track.format === 'pgs' && !response.headers.has(SUBTITLE_WINDOW_HEADER) ? response : await response.arrayBuffer()) : undefined
   const [{ PgsRenderer, VobSubRenderer }, initial] = await Promise.all([
     import('libbitsub'), windows?.load(firstWindow)
   ])
@@ -118,6 +118,43 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
     rangeRequests: false,
     onLoaded: () => { if (!signal.aborted) onReady() },
     onError: () => { if (!signal.aborted) onError() }
+  }
+  if (track.format === 'vobsub' && windows && initial) {
+    let renderer: InstanceType<typeof VobSubRenderer> | undefined
+    let offset = -delay
+    let cancel: (() => void) | undefined
+    const close = () => { cancel?.(); renderer?.dispose(); canvas.remove() }
+    signal.addEventListener('abort', close, { once: true })
+    const display = async (content: ArrayBuffer | Response) => {
+      renderer?.dispose()
+      renderer = undefined
+      // Reset the backing surface even for an empty window.
+      canvas.width = canvas.width
+      if (!(content instanceof ArrayBuffer) || !content.byteLength) return
+      try {
+        await new Promise<void>((resolve, reject) => {
+          cancel = () => reject(signal.reason)
+          renderer = new VobSubRenderer({ ...settings, fileName: 'subtitle.mks', subContent: content,
+            timeOffset: offset, onLoaded: resolve, onError: reject })
+        })
+      } finally {
+        cancel = undefined
+      }
+    }
+    await display(initial.content)
+    signal.throwIfAborted()
+    const follow = initial.windowed
+      ? followWindows(video, canvas, windows, firstWindow, signal, () => offset, display, onReady, onError)
+      : undefined
+    onReady()
+    follow?.()
+    return {
+      setDelay: (seconds) => {
+        offset = -seconds
+        if (renderer) renderer.timeOffset = offset
+        follow?.()
+      }
+    }
   }
   if (windows && initial) {
     const renderer = new PgsRenderer({ ...settings, onLoaded: undefined })
@@ -152,9 +189,7 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
     return { setDelay: (seconds) => { renderer.timeOffset = -seconds; follow?.() } }
   }
   const renderer = track.format === 'pgs' ? new PgsRenderer({ ...settings, subUrl: url }) : new VobSubRenderer({
-    ...settings, subUrl: url, ...(track.sidecar
-      ? { idxUrl: subtitleUrl(itemId, track.id, 'idx') }
-      : { fileName: 'subtitle.mks' })
+    ...settings, subUrl: url, idxUrl: subtitleUrl(itemId, track.id, 'idx')
   })
   const close = () => {
     renderer.dispose()
@@ -203,7 +238,7 @@ function subtitleWindows<T>(url: string, signal: AbortSignal, read: (response: R
 }
 
 function followWindows<T>(
-  video: HTMLVideoElement, canvas: HTMLCanvasElement, windows: ReturnType<typeof subtitleWindows<T>>,
+  video: HTMLVideoElement, canvas: HTMLCanvasElement | undefined, windows: ReturnType<typeof subtitleWindows<T>>,
   firstWindow: number, signal: AbortSignal, offset: () => number, apply: (content: T) => Promise<void>,
   onReady: () => void, onError: () => void
 ) {
@@ -223,7 +258,7 @@ function followWindows<T>(
       displayed = window
       complete = !next.windowed
       if ((complete || window === wanted) && !signal.aborted) {
-        canvas.hidden = false
+        if (canvas) canvas.hidden = false
         onReady()
       }
     } catch {
@@ -247,7 +282,7 @@ function followWindows<T>(
       prefetched = -1
       windows.keep(window)
     }
-    canvas.hidden = window !== displayed
+    if (canvas) canvas.hidden = window !== displayed
     if (window !== displayed && !applying && window !== failed) void change(window)
     const nextStart = (window + 1) * SUBTITLE_WINDOW_SECONDS
     if (displayed === window && prefetched !== window && nextStart - time <= 5 && nextStart < video.duration) {
@@ -260,14 +295,20 @@ function followWindows<T>(
   return follow
 }
 
-function textTrack(
-  video: HTMLVideoElement, url: string, language: string | undefined, delay: number,
+async function textTrack(
+  video: HTMLVideoElement, url: string, track: WebSubtitle, delay: number,
   signal: AbortSignal, onReady: () => void, onError: () => void
-): SubtitleRenderer {
+): Promise<SubtitleRenderer> {
+  // Fetch before attaching a native track. A pending track can hold the
+  // media element below HAVE_FUTURE_DATA even while it presents frames.
+  const firstWindow = subtitleWindow(video.currentTime - delay)
+  const read = (response: Response) => response.blob()
+  const windows = track.sidecar ? undefined : subtitleWindows(url, signal, read)
+  const initial = await (windows?.load(firstWindow) ?? fetchWindow(url, signal, read))
+  signal.throwIfAborted()
   const element = document.createElement('track')
   element.kind = 'subtitles'
-  element.srclang = language ?? 'und'
-  element.src = url
+  element.srclang = track.language ?? 'und'
   let originals: {
     cue: TextTrackCue; start: number; end: number; placement?: Pick<VTTCue, 'line' | 'lineAlign' | 'snapToLines'>
   }[] = []
@@ -298,26 +339,54 @@ function textTrack(
       }
     }
   }
-  element.addEventListener('load', () => {
-    originals = Array.from(element.track.cues ?? [], (cue) => ({
-      cue, start: cue.startTime, end: cue.endTime,
-      placement: cue instanceof VTTCue && !cue.vertical
-        ? { line: cue.line, lineAlign: cue.lineAlign, snapToLines: cue.snapToLines } : undefined
-    }))
-    apply()
-    if (position) moveCues()
-    onReady()
-  }, { signal })
-  element.addEventListener('error', onError, { signal })
-  video.append(element)
-  element.track.mode = 'showing'
+  let cancelLoad: (() => void) | undefined
   const close = () => {
+    cancelLoad?.()
     element.track.mode = 'disabled'
     element.remove()
   }
   signal.addEventListener('abort', close, { once: true })
+
+  async function display(blob: Blob) {
+    const localUrl = URL.createObjectURL(blob)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cancelLoad = () => reject(signal.reason)
+        element.onload = () => resolve()
+        element.onerror = () => reject(new Error('Could not parse subtitle track'))
+        element.src = localUrl
+        if (!element.parentNode) video.append(element)
+        element.track.mode = 'showing'
+      })
+      originals = Array.from(element.track.cues ?? [], (cue) => ({
+        cue, start: cue.startTime, end: cue.endTime,
+        placement: cue instanceof VTTCue && !cue.vertical
+          ? { line: cue.line, lineAlign: cue.lineAlign, snapToLines: cue.snapToLines } : undefined
+      }))
+      applied = 0
+      apply()
+      if (position) moveCues()
+    } finally {
+      cancelLoad = undefined
+      element.onload = element.onerror = null
+      URL.revokeObjectURL(localUrl)
+    }
+  }
+  try {
+    await display(initial.content)
+    signal.throwIfAborted()
+  } catch (error) {
+    signal.removeEventListener('abort', close)
+    close()
+    throw error
+  }
+  const follow = windows && initial.windowed
+    ? followWindows(video, undefined, windows, firstWindow, signal, () => -offset, display, onReady, onError)
+    : undefined
+  follow?.()
+  onReady()
   return {
-    setDelay: (seconds) => { offset = seconds; apply() },
+    setDelay: (seconds) => { offset = seconds; apply(); follow?.() },
     setPosition: (percent) => {
       if (position === percent) return
       position = percent

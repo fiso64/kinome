@@ -110,6 +110,44 @@ describe('HTTP authorization — capability enforcement', () => {
     }
   })
 
+  it.skipIf(!conversionAvailable)('serves indexed text and styled subtitles around the playhead, including an overlapping cue', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kinome-subrip-'))
+    const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
+    const logs = spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const subtitle = join(directory, 'source.srt')
+      await Bun.write(subtitle, '1\n00:00:28,000 --> 00:00:34,000\n<i>Carry over</i>\nSecond line\n\n' +
+        '2\n00:01:01,000 --> 00:01:03,000\nLater\n')
+      const fixture = Bun.spawnSync([ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=16x16:rate=1',
+        '-i', subtitle, '-t', '65', '-map', '0:v', '-map', '1:s', '-map', '1:s', '-map', '1:s',
+        '-c:v', 'mpeg4', '-bf', '0', '-g', '10', '-c:s:0', 'copy', '-c:s:1', 'webvtt', '-c:s:2', 'ass',
+        '-metadata:s:s', 'NUMBER_OF_FRAMES=2', join(directory, 'movie.mkv')])
+      expect(fixture.exitCode).toBe(0)
+      ctx.seedItems([{ id: 'indexed-text', sourceId: 'text-source', path: 'movie.mkv' }])
+      const base = '/api/playback/indexed-text'
+      const info = await (await app.handle(req('GET', base + '/info'))).json() as WebPlaybackInfo
+      expect(info.subtitles.map((track) => track.format)).toEqual(['text', 'text', 'ass'])
+      for (const track of info.subtitles) {
+        const url = base + '/subtitle/' + track.id + '/track?window='
+        for (const window of [2, 1, 3]) {
+          const response = await app.handle(req('GET', url + window))
+          expect(response.status).toBe(200)
+          expect(response.headers.get('X-Kinome-Subtitle-Window')).toBe(String(window))
+          const body = await response.text()
+          expect(body.includes('Later')).toBe(window === 2)
+          expect(body.includes('Carry over')).toBe(window === 1)
+          if (track.format === 'text' && window === 1) {
+            expect(body).toContain('00:28.000 --> 00:34.000\n<i>Carry over</i>\nSecond line')
+          }
+        }
+      }
+    } finally {
+      logs.mockRestore()
+      source.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it.skipIf(!conversionAvailable)('serves authenticated byte ranges from seekable fragmented MP4 remuxes', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'kinome-hls-'))
     const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)

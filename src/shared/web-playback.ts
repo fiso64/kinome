@@ -11,6 +11,11 @@ export function webQualityLabel(quality: WebQualityChoice): string {
 }
 
 export type SubtitleFormat = 'text' | 'ass' | 'pgs' | 'vobsub'
+export const embeddedSubtitleFormats: Readonly<Record<string, SubtitleFormat>> = {
+  ass: 'ass', ssa: 'ass', subrip: 'text', webvtt: 'text', mov_text: 'text', text: 'text',
+  hdmv_pgs_subtitle: 'pgs', dvd_subtitle: 'vobsub'
+}
+
 export const SUBTITLE_WINDOW_SECONDS = 30
 export const SUBTITLE_WINDOW_HEADER = 'X-Kinome-Subtitle-Window'
 

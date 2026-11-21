@@ -108,7 +108,7 @@ it('reads indexed ASS cues for a seek, including lines already on screen', async
       { index: 0, kind: 'video', ...flags }, { index: 1, kind: 'subtitle', codec: 'ass', ...flags }
     ])).get(1)!
     const signal = new AbortController().signal
-    if (index.format !== 'ass') throw new Error('Expected indexed ASS')
+    if (!('header' in index)) throw new Error('Expected indexed ASS')
     const seek = await readMatroskaAssWindow(path, index, 30_000, 60_000, signal)
     expect(seek).toContain('Dialogue: 0,0:00:20.00,0:00:40.00,Default,,0,0,0,,Long cue')
     expect(seek).not.toContain('Later cue')
