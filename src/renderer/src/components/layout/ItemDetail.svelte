@@ -310,6 +310,8 @@
   })
 
   function handleInfoTabKeys(event: KeyboardEvent, index: number) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+
     const tabs = availableInfoTabs
     let next: number
     switch (event.key) {
@@ -549,7 +551,11 @@
         {/if}
 
         {#if item.type === 'folder' && (children.length || loadingContents || childrenQuery.isError)}
-          <section class="children-section media-panel" aria-busy={loadingContents}>
+          <section
+            class="children-section"
+            class:media-panel={contentsLayout !== 'tabs' || loadingContents || !children.length}
+            aria-busy={loadingContents}
+          >
             {#if !CONTAINER_LAYOUTS.includes(contentsLayout as any) || loadingContents}
               <h2 class="section-title">Contents</h2>
             {/if}
@@ -765,7 +771,7 @@
   }
   .expand-overview:hover { background: transparent; color: var(--color-text); }
 
-  .media-panel {
+  :is(.media-panel, .children-section > :global(.media-grid-container > .tabs-view > .tab-content)) {
     min-width: 0;
     padding: clamp(.72rem, 1.65vw, 1.2rem);
     background: linear-gradient(
@@ -829,7 +835,12 @@
   .info-popout-heading { display: flex; justify-content: space-between; align-items: center; gap: .45rem; margin-bottom: .35rem; }
   .info-popout-heading h2 { font-size: .94rem; font-weight: 675; }
   .collapsible-content { padding-block: .55rem; }
-  .full-backdrop-mode :is(.overview-container, .media-panel, .collapsible-section) {
+  .full-backdrop-mode :is(
+    .overview-container,
+    .media-panel,
+    .collapsible-section,
+    .children-section > :global(.media-grid-container > .tabs-view > .tab-content)
+  ) {
     padding: .75rem .85rem;
     background: var(--surface-over-artwork);
     border: 1px solid var(--artwork-edge);

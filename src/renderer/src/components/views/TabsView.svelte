@@ -128,6 +128,8 @@
   })
 
   function handleTabKeys(event: KeyboardEvent, tabIndex: number) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+
     let index: number
     switch (event.key) {
       case 'ArrowLeft': index = (tabIndex - 1 + folders.length) % folders.length; break
