@@ -517,7 +517,7 @@ export function buildApp() {
               libraryService.getAutocompleteValues(
                 params.key,
                 (query.q as string) || '',
-                query.limit ? parseInt(query.limit as string, 10) : 20
+                query.limit ? parseInt(query.limit as string, 10) : undefined
               )
             )
         )

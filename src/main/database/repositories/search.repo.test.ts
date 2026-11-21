@@ -133,6 +133,43 @@ describe('Search Repository (Integration)', () => {
     })
 
     describe('findByFtsQuery (Full Text)', () => {
+        it('ranks titles before other hits when FTS can fill a title page', () => {
+            db.exec(`
+                INSERT INTO media_entities (id, title, media_type)
+                VALUES ('episode', 'Matrix Matrix Matrix', 'episode');
+                INSERT INTO media_items (id, physical_kind, media_kind, name, entity_id, created_at, updated_at)
+                VALUES ('7', 'file', 'episode', 'Matrix Matrix Matrix', 'episode', 1, 1);
+            `)
+            expect(searchRepo.findByFtsQuery('Matrix', [], 1)[0].media_type).toBe('movie')
+            expect(searchRepo.findByFtsQuery('Matrix', [], 3).map(({ media_type }) => media_type))
+                .toEqual(['movie', 'movie', 'episode'])
+        })
+
+        it('keeps a document linked through metadata edits, a rebuild, and deletion', () => {
+            const documentId = () => db.query("SELECT search_document_id FROM media_items WHERE id = '1'").get().search_document_id
+            const original = documentId()
+            expect(typeof original).toBe('number')
+            db.exec("UPDATE media_entities SET title = 'Zion Archive' WHERE id = 'e1'")
+            db.exec("UPDATE media_items SET name = 'New Name' WHERE id = '1'")
+            expect(searchRepo.findByFtsQuery('Zion', [], 10).map(({ id }) => id)).toEqual(['1'])
+            expect(searchRepo.findByFtsQuery('New Name', [], 10).map(({ id }) => id)).toEqual(['1'])
+            searchRepo.rebuildFtsIndex()
+            expect(documentId()).toBe(original)
+            db.exec("DELETE FROM media_items WHERE id = '1'")
+            expect(searchRepo.findByFtsQuery('Zion', [], 10)).toEqual([])
+        })
+
+        it('returns one hit with the requesting account’s watched state', () => {
+            db.exec(`
+                INSERT INTO user_state (item_id, user_id, watched)
+                VALUES ('5', 'first-viewer', 1), ('5', 'second-viewer', 0)
+            `)
+            const first = searchRepo.findByFtsQuery('Spirited', [], 10, 'first-viewer')
+            const second = searchRepo.findByFtsQuery('Spirited', [], 10, 'second-viewer')
+            expect(first.map(({ id, watched }) => [id, watched])).toEqual([['5', 1]])
+            expect(second.map(({ id, watched }) => [id, watched])).toEqual([['5', 0]])
+        })
+
         it('finds items by exact word match', () => {
             const query = '{title name} : "Matrix"'
             const results = searchRepo.findByFtsQuery(query, [], 10)
@@ -152,6 +189,17 @@ describe('Search Repository (Integration)', () => {
     })
 
     describe('findByTagsOnly', () => {
+        it('matches credited people in tag and text searches', () => {
+            db.exec(`
+                INSERT INTO people (id, name) VALUES (1, 'Keanu Reeves'), (2, 'Laurence Fishburne');
+                INSERT INTO credits (entity_id, person_id, credit_type)
+                VALUES ('e1', 1, 'cast'), ('e2', 2, 'cast');
+            `)
+            const tags = [{ key: 'person', value: 'reeves' }]
+            expect(searchRepo.findByTagsOnly(tags, 10).map(({ id }) => id)).toEqual(['1'])
+            expect(searchRepo.findByFtsQuery('Matrix', tags, 10).map(({ id }) => id)).toEqual(['1'])
+        })
+
         it('finds items by genre', () => {
             const tags = [{ key: 'genre', value: 'Animation' }]
             const results = searchRepo.findByTagsOnly(tags, 10)

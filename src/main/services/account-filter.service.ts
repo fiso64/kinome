@@ -15,10 +15,9 @@ import {
   buildFindQuery,
   compileConditionToSql,
   compileFilter,
-  ITEM_READ_MODEL,
   type FindOptions,
 } from '../database/query-builder'
-import { withSourceLocations } from '../database/media-read-model.sql'
+import { ITEM_READ_MODEL, withSourceLocations } from '../database/media-read-model.sql'
 import type { AccountFilterRule, LibraryCondition } from '@shared/types'
 
 type ItemRow = { id: string; parent_id: string | null }

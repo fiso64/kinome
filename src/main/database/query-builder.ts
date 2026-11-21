@@ -1,13 +1,11 @@
 import { playableFileMatchesSql } from './playable-files.sql'
-import { LOCAL_MEDIA_COLUMNS } from './local-media.sql'
-import { EFFECTIVE_METADATA, tmdbColumn } from './item-metadata.sql'
-import { withAccountLocations } from './media-read-model.sql'
-import { BUILTIN_METADATA_FIELDS, isFileScopedField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
+import { localMediaFact, readMetadataFact, tmdbFact } from './metadata-facts.sql'
+import { EFFECTIVE_METADATA } from './item-metadata.sql'
+import { ITEM_READ_MODEL, withAccountLocations } from './media-read-model.sql'
+import { isFileScopedField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter } from '@shared/types'
-
-export const ITEM_READ_MODEL = 'media_items_read'
 
 /**
  * An operator-aware WHERE condition that maps to a REPOSITORY_SCHEMA field
@@ -82,7 +80,7 @@ export interface FindOptions {
  *
  * JSON sub-paths (e.g., viewSettings.layout) are handled via json_extract().
  */
-function compileParentCondition(field: string, op: string, value?: string | number | null): CompiledSql {
+function compileParentCondition(field: string, op: string, value?: string | number | null, scoped = false): CompiledSql {
     const params: any[] = []
     const tables = new Set<string>()
 
@@ -105,7 +103,7 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     // Resolve the remaining field path against REPOSITORY_SCHEMA
     const parts = remaining.split('.')
     const schemaKey = parts[0]
-    const condition = compileMediaCondition(remaining, target, op, value)
+    const condition = compileMediaCondition(remaining, target, op, value, scoped)
     if (condition) {
         return {
             sql: `EXISTS (SELECT 1 FROM ${ITEM_READ_MODEL} p1 ${joins.join(' ')}
@@ -169,15 +167,33 @@ function compileParentCondition(field: string, op: string, value?: string | numb
     return { sql, params, tables }
 }
 
-function compileMediaCondition(field: string, itemAlias: string, op: string, value?: string | number | null) {
+function compileMediaCondition(field: string, itemAlias: string, op: string, value?: string | number | null, scoped = false) {
     if (isTmdbFilterField(field)) {
-        const { kind } = BUILTIN_METADATA_FIELDS[field]
-        const column = kind === 'list' ? 'value' : tmdbColumn(field)
-        const candidates = kind === 'list'
-            ? `SELECT entity_id FROM tmdb_entity_values WHERE field = '${field}'`
-            : `SELECT id FROM media_entities WHERE ${column} IS NOT NULL`
-        return compileFactCondition(`${itemAlias}.entity_id`, candidates, column, kind, op, value)
+        return compileStoredFactCondition(`${itemAlias}.entity_id`, tmdbFact(field), op, value, scoped)
     }
+}
+
+function compileStoredFactCondition(
+    entity: string,
+    fact: ReturnType<typeof tmdbFact>,
+    op: string,
+    value: string | number | null | undefined,
+    scoped: boolean
+) {
+    const read = readMetadataFact(fact, 'fact', scoped)
+    return compileFactCondition(entity, `SELECT ${read.owner} FROM ${read.source} WHERE ${read.present}`,
+        read.value, fact.kind, op, value, scoped ? read.owner : undefined)
+}
+
+function compileMembership(entity: string, candidates: string, lookupKey?: string) {
+    // For a small target set, probe facts by owner rather than building a library-wide set.
+    const matching = (predicate = '') => lookupKey
+        ? `EXISTS (${candidates} AND ${lookupKey} = ${entity}${predicate})`
+        : `${entity} IN (${candidates}${predicate})`
+    const excluding = (predicate = '') => lookupKey
+        ? `NOT ${matching(predicate)}`
+        : `(${entity} IS NULL OR ${entity} NOT IN (${candidates}${predicate}))`
+    return { matching, excluding }
 }
 
 function compileFactCondition(
@@ -186,21 +202,27 @@ function compileFactCondition(
     column: string,
     kind: 'text' | 'number' | 'list',
     op: string,
-    value?: string | number | null
-): { sql: string; params: (string | number)[] } {
+    value?: string | number | null,
+    lookupKey?: string
+): { sql: string; params: (string | number)[]; owners?: string } {
     const empty = op === 'isNull' || op === 'isEmpty'
     const present = op === 'isNotNull' || op === 'isNotEmpty'
     const relation = kind === 'list'
-    const matching = (predicate = '') => `${entity} IN (${candidates}${predicate})`
-    const excluding = (predicate = '') => `(${entity} IS NULL OR ${entity} NOT IN (${candidates}${predicate}))`
+    const { matching, excluding } = compileMembership(entity, candidates, lookupKey)
+    const include = (predicate = '', params: (string | number)[] = []) => ({
+        sql: matching(predicate), params, owners: lookupKey ? undefined : candidates + predicate
+    })
+    const exclude = (predicate = '', params: (string | number)[] = []) => ({
+        sql: excluding(predicate), params
+    })
 
-    if (empty || present) return { sql: empty ? excluding() : matching(), params: [] }
+    if (empty || present) return empty ? exclude() : include()
     if (value == null) return { sql: '0', params: [] }
     if (op === 'contains' || op === 'notContains') {
         const like = ` AND ${column} LIKE ?`
-        const sql = op === 'contains' ? matching(like)
-            : relation ? excluding(like) : matching(` AND ${column} NOT LIKE ?`)
-        return { sql, params: [`%${value}%`] }
+        const params = [`%${value}%`]
+        if (op === 'contains') return include(like, params)
+        return relation ? exclude(like, params) : include(` AND ${column} NOT LIKE ?`, params)
     }
 
     if (relation && op !== 'eq' && op !== 'ne') return { sql: '0', params: [] }
@@ -208,26 +230,43 @@ function compileFactCondition(
     if (kind === 'number' && (String(value).trim() === '' || !Number.isFinite(valueToCompare))) return { sql: '0', params: [] }
     const operators = { eq: '=', ne: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=' }
     if (!Object.hasOwn(operators, op)) return { sql: '0', params: [] }
-    const sql = relation && op === 'ne' ? excluding(` AND ${column} = ?`)
-        : matching(` AND ${column} ${operators[op as keyof typeof operators]} ?`)
-    return { sql, params: [valueToCompare] }
+    return relation && op === 'ne' ? exclude(` AND ${column} = ?`, [valueToCompare])
+        : include(` AND ${column} ${operators[op as keyof typeof operators]} ?`, [valueToCompare])
+}
+
+function compileTagCondition(field: string, op: string, value: string | number | null | undefined, scoped: boolean) {
+    const custom = field.startsWith('tags.')
+    const table = custom ? 'item_tags' : 'item_virtual_tags'
+    const key = custom ? field.slice(5) : field.split('.')[1]
+    const { matching, excluding } = compileMembership('i.id',
+        `SELECT item_id FROM ${table} WHERE key = ?`, scoped ? 'item_id' : undefined)
+    const params: (string | number | null | undefined)[] = [key]
+    if (op === 'isNull' || op === 'isEmpty') return { sql: excluding(), params }
+    if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: matching(), params }
+    if (op === 'contains' || op === 'notContains') {
+        params.push(`%${value}%`)
+        return { sql: (op === 'contains' ? matching : excluding)(' AND value LIKE ?'), params }
+    }
+    params.push(value)
+    return { sql: (op === 'ne' ? excluding : matching)(' AND value = ?'), params }
 }
 
 export function compilePlayableFileMatches(
     conditions: readonly FileCondition[],
-    preferTitle = false
-): { sql: string; params: (string | number)[] } {
-    const predicates = conditions.map(({ field, op, value }) => {
-        const { kind } = BUILTIN_METADATA_FIELDS[field]
-        const { column, track } = LOCAL_MEDIA_COLUMNS[field]
-        const candidates = track
-            ? `SELECT location_id FROM local_media_tracks WHERE kind = '${track}' AND ${column} IS NOT NULL`
-            : `SELECT location_id FROM local_media WHERE ${column} IS NOT NULL`
-        return compileFactCondition('l.id', candidates, column, kind, op, value)
-    })
+    options: { preferTitle?: boolean; targets?: string } = {}
+) {
+    const predicates = conditions.map(({ field, op, value }) =>
+        compileStoredFactCondition('l.id', localMediaFact(field), op, value, !!options.targets))
+    const seedIndex = predicates.findIndex(({ owners }) => owners !== undefined)
+    const [seed] = seedIndex === -1 ? [] : predicates.splice(seedIndex, 1)
+    // An affirmative predicate supplies candidate locations. Excluding facts
+    // can also match locations with no value, so those still start from probes.
+    const locationSeed = seed?.owners ? { sql: seed.owners, params: seed.params } : undefined
     return {
-        sql: playableFileMatchesSql(predicates.map(({ sql }) => sql).join(' AND '), preferTitle),
-        params: predicates.flatMap(({ params }) => params)
+        sql: playableFileMatchesSql(predicates.length ? predicates.map(({ sql }) => sql).join(' AND ') : '1',
+            { ...options, locations: locationSeed?.sql }),
+        params: [...(locationSeed?.params ?? []), ...predicates.flatMap(({ params }) => params)],
+        locationSeed
     }
 }
 
@@ -240,8 +279,14 @@ export function getFileConditionTarget(field: string): { field: LocalMediaField;
     if (isFileScopedField(field)) return { field, depth }
 }
 
-function compileFileConditions(conditions: FileCondition[], depth: number): CompiledSql {
-    const matches = compilePlayableFileMatches(conditions)
+function compileFileConditions(conditions: FileCondition[], depth: number, targets?: string): CompiledSql {
+    if (targets && depth > 0) {
+        const ancestors = Array.from({ length: depth }, (_, index) =>
+            `JOIN ${ITEM_READ_MODEL} a${index + 1} ON a${index + 1}.id = a${index}.parent_id`)
+        targets = `SELECT a${depth}.id FROM (${targets}) target
+            JOIN ${ITEM_READ_MODEL} a0 ON a0.id = target.id ${ancestors.join(' ')}`
+    }
+    const matches = compilePlayableFileMatches(conditions, { targets })
     const id = depth === 0 ? 'i.id' : `p${depth}.id`
     const predicate = `${id} IN (SELECT item_id FROM (${matches.sql}))`
     if (!depth) return { sql: predicate, params: matches.params, tables: new Set() }
@@ -258,19 +303,19 @@ function compileFileConditions(conditions: FileCondition[], depth: number): Comp
     }
 }
 
-export function compileConditionToSql(field: string, op: TypedWhereClause['op'], value?: string | number | null): CompiledSql {
+export function compileConditionToSql(field: string, op: TypedWhereClause['op'], value?: string | number | null, targets?: string): CompiledSql {
     const fileTarget = getFileConditionTarget(field)
-    if (fileTarget) return compileFileConditions([{ field: fileTarget.field, op, value }], fileTarget.depth)
+    if (fileTarget) return compileFileConditions([{ field: fileTarget.field, op, value }], fileTarget.depth, targets)
 
     // Handle parent.* field references
     if (field.startsWith('parent.')) {
-        return compileParentCondition(field, op, value)
+        return compileParentCondition(field, op, value, !!targets)
     }
 
     const params: any[] = []
     const tables = new Set<string>()
 
-    const mediaCondition = compileMediaCondition(field, 'i', op, value)
+    const mediaCondition = compileMediaCondition(field, 'i', op, value, !!targets)
     if (mediaCondition) return { ...mediaCondition, tables }
 
     if (field === 'genre' || field === 'genres') {
@@ -285,28 +330,8 @@ export function compileConditionToSql(field: string, op: TypedWhereClause['op'],
         return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
     }
 
-    if (field.startsWith('tags.')) {
-        const key = field.slice(5)
-        const subquery = `SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ?`
-        if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
-        if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
-        if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'notContains') { params.push(key, `%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'ne') { params.push(key, value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
-        params.push(key, value)
-        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
-    }
-
-    if (field.startsWith('vt.') || field.startsWith('virtualTags.')) {
-        const key = field.split('.')[1]
-        const subquery = `SELECT 1 FROM item_virtual_tags WHERE item_id = i.id AND key = ?`
-        if (op === 'isNull' || op === 'isEmpty') { params.push(key); return { sql: `NOT EXISTS (${subquery})`, params, tables } }
-        if (op === 'isNotNull' || op === 'isNotEmpty') { params.push(key); return { sql: `EXISTS (${subquery})`, params, tables } }
-        if (op === 'contains') { params.push(key, `%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'notContains') { params.push(key, `%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'ne') { params.push(key, value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
-        params.push(key, value)
-        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
+    if (field.startsWith('tags.') || field.startsWith('vt.') || field.startsWith('virtualTags.')) {
+        return { ...compileTagCondition(field, op, value, !!targets), tables }
     }
 
     const def = REPOSITORY_SCHEMA[field]
@@ -342,7 +367,7 @@ function mergeTables(target: Set<string>, source: Set<string>): void {
  * Compiles an array of AND-groups (joined by OR) into a single CompiledSql.
  * Each group's conditions are AND-joined; groups are OR-joined.
  */
-export function compileConditionGroups(groups: TypedWhereClause[][]): CompiledSql {
+export function compileConditionGroups(groups: TypedWhereClause[][], targets?: string): CompiledSql {
     const allParams: any[] = []
     const tables = new Set<string>()
 
@@ -364,13 +389,13 @@ export function compileConditionGroups(groups: TypedWhereClause[][]): CompiledSq
                 fileGroups.set(target.depth, conditions)
                 continue
             }
-            const compiled = compileConditionToSql(cond.field, cond.op, cond.value)
+            const compiled = compileConditionToSql(cond.field, cond.op, cond.value, targets)
             parts.push(compiled.sql)
             allParams.push(...compiled.params)
             mergeTables(tables, compiled.tables)
         }
         for (const [depth, conditions] of fileGroups) {
-            const compiled = compileFileConditions(conditions, depth)
+            const compiled = compileFileConditions(conditions, depth, targets)
             parts.push(compiled.sql)
             allParams.push(...compiled.params)
         }
@@ -394,7 +419,7 @@ export function compileConditionGroups(groups: TypedWhereClause[][]): CompiledSq
  * Normalizes conditions/conditionGroups into OR-of-AND groups and compiles
  * them into a single CompiledSql fragment via compileConditionGroups.
  */
-export function compileFilter(filter: LibraryFilter): FindOptions {
+export function compileFilter(filter: LibraryFilter, { targets }: { targets?: string } = {}): FindOptions {
     // Manual scope: no dynamic children — return impossible condition
     if (filter.scope?.manual) {
         return { rawConditions: ['0 = 1'] }
@@ -420,13 +445,13 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
 
     let compiledConditions: CompiledSql | undefined
     if (groups.length > 0) {
-        compiledConditions = compileConditionGroups(groups)
+        compiledConditions = compileConditionGroups(groups, targets)
     }
 
     // requiredConditions are AND'd on top of the OR groups.
     // Wrap the groups in parens to preserve precedence: (A OR B OR C) AND (D AND E)
     if (requiredConditions?.length) {
-        const required = compileConditionGroups([requiredConditions])
+        const required = compileConditionGroups([requiredConditions], targets)
         if (compiledConditions) {
             const tables = new Set([...compiledConditions.tables, ...required.tables])
             compiledConditions = {
@@ -452,7 +477,7 @@ export function compileFilter(filter: LibraryFilter): FindOptions {
 
 /**
  * Builds the WHERE conditions, params, and required table set from FindOptions.
- * Exported so that write-path code (e.g. evaluateAndInsertVirtualTags) can
+ * Exported so that write-path code (e.g. replaceVirtualTags) can
  * reuse the same condition logic without running a full SELECT query.
  */
 export function buildWhereFragment(options: FindOptions): {

@@ -4,9 +4,9 @@ import { find as findItems, getItemById } from '../../services/repository.servic
 import { compileFilter } from '../query-builder'
 import { findByFtsQuery, findByTagsOnly } from './search.repo'
 import {
-  clearVirtualTags, evaluateAndInsertVirtualTags, getDistinctGenreNames, getDistinctMetadataValues,
-  saveProviderMatch, suggestTmdbValues, upsertMetadata
+  replaceVirtualTags, saveProviderMatch, upsertMetadata
 } from './metadata.repo'
+import { getDistinctGenreNames, getDistinctMetadataValues, suggestStoredMetadataValues } from './metadata-suggestions.repo'
 
 describe('metadata repository', () => {
   let ctx: ServiceTestContext
@@ -54,6 +54,48 @@ describe('metadata repository', () => {
     expect(getDistinctMetadataValues('year')).toEqual(['1998', '1999'])
     expect(getDistinctGenreNames()).toEqual(['Comedy', 'Drama'])
   })
+
+  it('returns TMDB suggestions as spelled on visible items', () => {
+    ctx.seedEntities([{ id: 'a' }, { id: 'b' }])
+    ctx.seedItems([{ id: 'unlisted', entityId: 'a' }, { id: 'listed', entityId: 'b' }])
+    ctx.db.exec(`
+      INSERT INTO tmdb_entity_values (entity_id, field, value) VALUES
+        ('a', 'studios', 'STUDIO'), ('a', 'studios', 'Studio Extra'), ('b', 'studios', 'Studio');
+      UPDATE media_entities SET tmdb_original_language = CASE id WHEN 'a' THEN 'en' ELSE 'ja' END;
+      INSERT INTO accounts (id, username, password_hash, created_at)
+      VALUES ('viewer', 'viewer', 'hash', 1000);
+      INSERT INTO account_filter_rules (account_id, mode, filter_json)
+      VALUES ('viewer', 'allow', '{}');
+      INSERT INTO account_visible_items (account_id, item_id) VALUES ('viewer', 'listed');
+    `)
+
+    expect(suggestStoredMetadataValues('studios', 'stu', 20, 'viewer')).toEqual(['Studio'])
+    expect(suggestStoredMetadataValues('originalLanguage', '', 20, 'viewer')).toEqual(['ja'])
+  })
+
+  it('rebuilds virtual tags in case order and writes only changed results', () => {
+    ctx.seedItems([{ id: 'root', type: 'folder' }, { id: 'film', parentId: 'root' }])
+    const tags = [{
+      id: 'source', name: 'source',
+      cases: [{ filter: { conditions: [] }, result: 'Fresh' }],
+      defaultResult: 'Fallback'
+    }, {
+      id: 'derived', name: 'derived',
+      cases: [
+        { filter: { conditions: [{ field: 'vt.future', op: 'isNotNull' as const }] }, result: 'Stale' },
+        { filter: { conditions: [{ field: 'vt.source', op: 'eq' as const, value: 'Fresh' }] }, result: 'Correct' }
+      ]
+    }]
+    ctx.db.exec(`INSERT INTO item_virtual_tags VALUES ('film', 'future', 'Stale'), ('film', 'source', 'Old')`)
+
+    expect(replaceVirtualTags(tags)).toBe(3)
+    expect(ctx.db.query('SELECT key, value FROM item_virtual_tags ORDER BY key').all()).toEqual([
+      { key: 'derived', value: 'Correct' },
+      { key: 'source', value: 'Fresh' }
+    ])
+    expect(replaceVirtualTags(tags)).toBe(0)
+  })
+
   it('shares typed TMDB facts across copies and uses them in rules and search', () => {
     ctx.seedItems([
       { id: 'root', type: 'folder' },
@@ -93,16 +135,15 @@ describe('metadata repository', () => {
     }).map(({ id }) => id)).toEqual(['extra'])
 
     const rules = [{ id: 'staff', name: 'Staff pick', cases: [{ filter, result: 'Yes' }] }]
-    expect(evaluateAndInsertVirtualTags(rules)).toBe(2)
-    expect(suggestTmdbValues('studios', 'star', 20)).toEqual(['North Star Pictures'])
+    expect(replaceVirtualTags(rules)).toBe(2)
+    expect(suggestStoredMetadataValues('studios', 'star', 20)).toEqual(['North Star Pictures'])
     expect(findByTagsOnly([{ key: 'tmdb.studios', value: 'north star pictures' }], 20)).toHaveLength(2)
     expect(findByFtsQuery('{title original_title name} : "Orbit"', [{ key: 'tmdb.contentRating', value: 'pg-13' }], 20)).toHaveLength(2)
 
     saveProviderMatch('first', 'tmdb', match, { ...details, metadata: { status: 'Released', tmdbRating: 7, studios: ['Other'] } })
     expect(matchingIds()).toEqual([])
-    clearVirtualTags()
-    expect(evaluateAndInsertVirtualTags(rules)).toBe(0)
-    expect(suggestTmdbValues('studios', 'star', 20)).toEqual([])
+    expect(replaceVirtualTags(rules)).toBe(2)
+    expect(suggestStoredMetadataValues('studios', 'star', 20)).toEqual([])
     expect(findByTagsOnly([{ key: 'tmdb.contentRating', value: 'PG-13' }], 20)).toEqual([])
     upsertMetadata('extra', { tags: { studios: 'North Star Pictures' } })
     expect(findByTagsOnly([{ key: 'studios', value: 'north star pictures' }], 20).map(({ id }) => id))

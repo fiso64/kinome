@@ -1,6 +1,5 @@
 import { getDb, runTransaction } from '../client'
-import { ITEM_READ_MODEL } from '../query-builder'
-import { withAccountLocations } from '../media-read-model.sql'
+import { ITEM_READ_MODEL, withAccountLocations } from '../media-read-model.sql'
 
 export function replaceSourcePriorities(sourceIds: string[]): void {
   runTransaction(() => {
@@ -110,12 +109,7 @@ export function resolveSelectedLocationForItem(
   }
 
   if (options.userId) {
-    conditions.push(`(
-      i.is_virtual = 1
-      OR NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = ?)
-      OR EXISTS (SELECT 1 FROM account_visible_items WHERE account_id = ? AND item_id = i.id)
-    )`)
-    params.push(options.userId, options.userId)
+    conditions.push('(i.is_virtual = 1 OR i.is_account_visible = 1)')
   }
 
   const query = `

@@ -18,6 +18,10 @@ import { migration as localMedia } from './migrations/0016_local_media'
 import { migration as fileMatchVisibility } from './migrations/0017_file_match_visibility'
 import { migration as playbackPosition } from './migrations/0018_playback_position'
 import { migration as playbackDefaults } from './migrations/0019_playback_defaults'
+import { migration as locationReadModel } from './migrations/0020_location_read_model'
+import { migration as tagValueIndexes } from './migrations/0021_tag_value_indexes'
+import { migration as creditPersonIndex } from './migrations/0022_credit_person_index'
+import { migration as searchDocumentIds } from './migrations/0023_search_document_ids'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -48,7 +52,11 @@ const MIGRATIONS: Migration[] = [
   localMedia,
   fileMatchVisibility,
   playbackPosition,
-  playbackDefaults
+  playbackDefaults,
+  locationReadModel,
+  tagValueIndexes,
+  creditPersonIndex,
+  searchDocumentIds
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

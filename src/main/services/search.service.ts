@@ -1,5 +1,5 @@
-import * as repositoryService from './repository.service'
 import * as searchRepo from '../database/repositories/search.repo'
+import { SEARCH_KEYWORD_COLUMNS } from '../database/item-metadata.sql'
 import { ensureUpToDate } from './account-filter.service'
 import { getCurrentAccountId } from '../request-context'
 import type { SearchIndexEntry } from '@shared/types'
@@ -14,7 +14,7 @@ export function rebuildSearchIndex() {
 /**
  * Initializes the search index. Checks if FTS is populated, and rebuilds if empty but items exist.
  */
-export function buildFullSearchIndex(_items?: any[]) {
+export function buildFullSearchIndex() {
   try {
     const { count, itemCount } = searchRepo.getFtsIndexCount()
 
@@ -52,7 +52,7 @@ export function performSearch(query: {
   userId?: string
 }): SearchIndexEntry[] {
   const { text, tags } = query
-  const userId = query.userId ?? getCurrentAccountId()
+  const userId = getCurrentAccountId() ?? query.userId
   if (userId) ensureUpToDate(userId)
   const limit = query.limit || 30
 
@@ -67,17 +67,15 @@ export function performSearch(query: {
       rows = searchRepo.findByShortQuery(normalized, tags, limit, userId)
     } else {
       // --- Long Query Strategy (FTS Trigram) ---
-      const cols = '{title original_title name}'
-
       try {
-        const matchQuery = `${cols} : "${normalized}"`
+        const matchQuery = `${SEARCH_KEYWORD_COLUMNS} : "${normalized}"`
         rows = searchRepo.findByFtsQuery(matchQuery, tags, limit, userId)
 
         // Fuzzy Fallback
         if (rows.length === 0) {
           const trigrams = toTrigrams(normalized)
           if (trigrams.length > 0) {
-            const fuzzyMatchQuery = `${cols} : (${trigrams.map((t) => `"${t}"`).join(' OR ')})`
+            const fuzzyMatchQuery = `${SEARCH_KEYWORD_COLUMNS} : (${trigrams.map((t) => `"${t}"`).join(' OR ')})`
             rows = searchRepo.findByFtsQuery(fuzzyMatchQuery, tags, limit, userId)
           }
         }

@@ -347,7 +347,7 @@ describe('compileFilter', () => {
 
     it('compiles isNotNull vt.* condition', () => {
         const { sql, params } = compileToSql({ conditions: [{ field: 'vt.is_anime', op: 'isNotNull' }] })
-        expect(sql).toContain('EXISTS')
+        expect(sql).toContain('SELECT item_id FROM item_virtual_tags')
         expect(params).toContain('is_anime')
     })
 

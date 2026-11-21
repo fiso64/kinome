@@ -25,7 +25,7 @@ import { relativePathFromAbsolute } from '../database/repositories/filesystem.re
 import { replaceSourcePriorities } from '../database/repositories/media-location.repo'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as userRepo from '../database/repositories/user.repo'
-import { getAutocompleteSuggestions as fetchAutocompleteSuggestions } from './autocomplete.service'
+import { getAutocompleteSuggestions, getAutocompleteValues, getGroupByKeys } from './autocomplete.service'
 import { getTransport } from '../transport.registry'
 import * as playbackService from './playback.service'
 import {
@@ -737,14 +737,7 @@ export async function getContinueWatchingItems(
 
 // --- Passthroughs ---
 
-export const autocompleteSuggestions = fetchAutocompleteSuggestions
-export const getAutocompleteSuggestions = fetchAutocompleteSuggestions
-export const getGroupByKeys = async () => {
-  return (await import('./autocomplete.service')).getGroupByKeys()
-}
-export const getAutocompleteValues = async (key: string, query?: string, limit?: number) => {
-  return (await import('./autocomplete.service')).getAutocompleteValues(key, query, limit)
-}
+export { getAutocompleteSuggestions, getAutocompleteValues, getGroupByKeys }
 
 export const performSearch = searchService.performSearch
 export const debugPerformSearch = searchService.debugPerformSearch

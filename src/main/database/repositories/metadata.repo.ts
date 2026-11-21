@@ -4,9 +4,9 @@
  */
 import { EFFECTIVE_METADATA, TMDB_LIST_FIELDS, TMDB_SCALAR_FIELDS, tmdbColumn } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
-import { withAccountLocations } from '../media-read-model.sql'
-import { compileFilter, buildWhereFragment, ITEM_READ_MODEL } from '../query-builder'
-import { BUILTIN_METADATA_FIELDS, ENTITY_SCALAR_METADATA_FIELDS, type TmdbFilterField, type TmdbMetadata } from '@shared/metadata-fields'
+import { ITEM_READ_MODEL } from '../media-read-model.sql'
+import { compileFilter, buildWhereFragment } from '../query-builder'
+import { ENTITY_SCALAR_METADATA_FIELDS, type TmdbMetadata } from '@shared/metadata-fields'
 import type { LibraryItem, VirtualTagConfig } from '@shared/types'
 import type { ProviderDetails, ProviderMatch } from '../../services/metadata-provider'
 
@@ -313,92 +313,6 @@ export function updateMetadataImages(
     })
 }
 
-export function getDistinctMetadataValues(column: 'media_type' | 'year'): string[] {
-    const rows = getDb().query(`
-        SELECT ${column} AS value FROM media_item_metadata WHERE ${column} IS NOT NULL
-        UNION
-        SELECT e.${column} FROM media_entities e
-        WHERE e.${column} IS NOT NULL AND EXISTS (
-            SELECT 1 FROM media_items i
-            WHERE i.entity_id = e.id AND NOT EXISTS (
-                SELECT 1 FROM media_item_metadata m WHERE m.item_id = i.id
-            )
-        )
-    `).all() as { value: string | number }[]
-    return rows.map(({ value }) => String(value))
-}
-
-export function suggestTmdbValues(field: TmdbFilterField, query: string, limit: number, accountId?: string): string[] {
-    const isList = BUILTIN_METADATA_FIELDS[field].kind === 'list'
-    const column = isList ? 'e.value' : `e.${tmdbColumn(field)}`
-    const entities = isList ? 'tmdb_entity_values e' : 'media_entities e'
-    const id = isList ? 'e.entity_id' : 'e.id'
-    const visibility = accountId ? `
-        AND (NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = $accountId)
-          OR EXISTS (
-              SELECT 1 FROM account_visible_items WHERE account_id = $accountId AND item_id = i.id
-          ))
-    ` : ''
-    const sql = `
-        SELECT DISTINCT ${column} AS suggestion
-        FROM ${entities}
-        WHERE ${isList ? `e.field = '${field}' AND ` : ''}${column} IS NOT NULL
-          AND instr(lower(${column}), lower($query)) > 0
-          AND EXISTS (
-              SELECT 1 FROM ${ITEM_READ_MODEL} i
-              WHERE i.entity_id = ${id} AND i.is_hidden = 0 AND i.is_ignored = 0
-              ${visibility}
-          )
-        ORDER BY instr(lower(${column}), lower($query)), suggestion COLLATE NOCASE
-        LIMIT $limit
-    `
-    const params = { $query: query, $limit: Number.isSafeInteger(limit) && limit >= 0 ? limit : 20 }
-    const rows = (accountId
-        ? getDb().query(withAccountLocations(sql, '$accountId')).all({ ...params, $accountId: accountId })
-        : getDb().query(sql).all(params)) as { suggestion: string }[]
-    return rows.map(({ suggestion }) => suggestion)
-}
-
-export function getDistinctGenreNames(): string[] {
-    const rows = getDb().query(`
-        WITH genre_lists AS (
-            SELECT DISTINCT genres_json FROM media_item_metadata WHERE genres_json IS NOT NULL
-        )
-        SELECT entry.value AS name FROM genre_lists, json_each(genre_lists.genres_json) entry
-        UNION
-        SELECT g.name FROM genres g WHERE EXISTS (
-            SELECT 1 FROM entity_genres eg JOIN media_items i ON i.entity_id = eg.entity_id
-            WHERE eg.genre_id = g.id AND NOT EXISTS (
-                SELECT 1 FROM media_item_metadata m
-                WHERE m.item_id = i.id AND m.genres_json IS NOT NULL
-            )
-        )
-        ORDER BY name
-    `).all() as { name: string }[]
-    return rows.map(({ name }) => name)
-}
-
-/**
- * Fetches distinct tag keys and optionally values for a given key.
- */
-export function getDistinctTagEntries(table: 'item_tags' | 'item_virtual_tags', key?: string): { key: string; value: string }[] {
-    const db = getDb()
-    if (key) {
-        const rows = db.prepare(`SELECT DISTINCT value FROM ${table} WHERE key = ?`).all(key) as { value: string }[]
-        return rows.map(r => ({ key, value: r.value }))
-    }
-    return db.prepare(`SELECT DISTINCT key, value FROM ${table}`).all() as { key: string; value: string }[]
-}
-
-/**
- * Fetches distinct person names from the normalized people table.
- */
-export function getDistinctPersonNames(): string[] {
-    const db = getDb()
-    const rows = db.prepare('SELECT DISTINCT name FROM people ORDER BY name').all() as { name: string }[]
-    return rows.map((r) => r.name).filter(Boolean)
-}
-
 // ─── Virtual Tags ───────────────────────────────────────────────────────────
 
 /**
@@ -437,14 +351,14 @@ export function fetchVirtualTagsForItems(itemIds: string[]): Record<string, Reco
 /**
  * Clears virtual tags.
  */
-export function clearVirtualTags(itemIds?: string[]): void {
+function clearVirtualTags(itemIds?: string[]): number {
     const db = getDb()
-    if (itemIds && itemIds.length > 0) {
+    if (itemIds) {
+        if (!itemIds.length) return 0
         const placeholders = itemIds.map(() => '?').join(',')
-        db.prepare(`DELETE FROM item_virtual_tags WHERE item_id IN (${placeholders})`).run(...itemIds)
-    } else {
-        db.prepare('DELETE FROM item_virtual_tags').run()
+        return db.prepare(`DELETE FROM item_virtual_tags WHERE item_id IN (${placeholders})`).run(...itemIds).changes
     }
+    return db.prepare('DELETE FROM item_virtual_tags').run().changes
 }
 
 /**
@@ -456,19 +370,26 @@ export function clearVirtualTags(itemIds?: string[]): void {
  *
  * Returns total number of rows inserted.
  */
-export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?: string[]): number {
+function evaluateVirtualTags(tags: VirtualTagConfig[], itemIds?: string[], staged = false): number {
     const db = getDb()
     let totalInserted = 0
 
-    const scopeCondition = itemIds && itemIds.length > 0
-        ? `AND i.id IN (${itemIds.map(() => '?').join(',')})`
-        : ''
-    const scopeParams = itemIds && itemIds.length > 0 ? itemIds : []
+    if (itemIds?.length === 0) return 0
+    const scopeParams = itemIds ? [...new Set(itemIds)] : []
+    // A full rebuild's rules see the results of earlier cases in this rebuild.
+    const scope = itemIds
+        ? `WITH target_items(id) AS (VALUES ${scopeParams.map(() => '(?)').join(',')})`
+        : staged ? 'WITH item_virtual_tags AS (SELECT * FROM temp.virtual_tag_results)' : ''
+    const destination = staged ? 'temp.virtual_tag_results' : 'item_virtual_tags'
+    const targets = itemIds ? 'SELECT id FROM target_items' : undefined
+    const items = itemIds
+        ? `target_items target CROSS JOIN ${ITEM_READ_MODEL} i ON i.id = target.id`
+        : `${ITEM_READ_MODEL} i`
 
     for (const tag of tags) {
         // Evaluate each case in order — INSERT OR IGNORE preserves first-match-wins
         for (const vtCase of tag.cases) {
-            const compiled = compileFilter(vtCase.filter)
+            const compiled = compileFilter(vtCase.filter, { targets })
             // Override includeHidden/includeIgnored: vtags apply to all items
             const { conditions, params, tables } = buildWhereFragment({
                 ...compiled,
@@ -480,41 +401,77 @@ export function evaluateAndInsertVirtualTags(tags: VirtualTagConfig[], itemIds?:
                 'i.parent_id IS NOT NULL',
                 ...conditions
             ]
-            const whereSql = baseConditions.length
-                ? `WHERE ${baseConditions.join(' AND ')} ${scopeCondition}`
-                : `WHERE 1=1 ${scopeCondition}`
-
             const joinSql = tables.has('e')
                 ? `JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id`
                 : ''
 
             const insertSql = `
-                INSERT OR IGNORE INTO item_virtual_tags (item_id, key, value)
+                ${scope}
+                INSERT OR IGNORE INTO ${destination} (item_id, key, value)
                 SELECT i.id, ?, ?
-                FROM media_items_read i ${joinSql}
-                ${whereSql}
+                FROM ${items} ${joinSql}
+                WHERE ${baseConditions.join(' AND ')}
             `
-            const result = db.prepare(insertSql).run(tag.name, vtCase.result, ...params, ...scopeParams)
+            const result = db.prepare(insertSql).run(...scopeParams, tag.name, vtCase.result, ...params)
             totalInserted += result.changes
         }
 
         // Apply defaultResult for items not matched by any case
         if (tag.defaultResult) {
             const defaultSql = `
-                INSERT OR IGNORE INTO item_virtual_tags (item_id, key, value)
+                ${scope}
+                INSERT OR IGNORE INTO ${destination} (item_id, key, value)
                 SELECT i.id, ?, ?
-                FROM media_items_read i
+                FROM ${items}
                 WHERE i.parent_id IS NOT NULL
                   AND i.is_virtual = 0
-                  ${scopeCondition}
-                  AND i.id NOT IN (
-                    SELECT item_id FROM item_virtual_tags WHERE key = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM item_virtual_tags WHERE item_id = i.id AND key = ?
                   )
             `
-            const result = db.prepare(defaultSql).run(tag.name, tag.defaultResult, ...scopeParams, tag.name)
+            const result = db.prepare(defaultSql).run(...scopeParams, tag.name, tag.defaultResult, tag.name)
             totalInserted += result.changes
         }
     }
 
     return totalInserted
+}
+
+export function replaceVirtualTags(tags: VirtualTagConfig[] = [], itemIds?: string[]): number {
+    if (itemIds?.length === 0) return 0
+    const db = getDb()
+    return runTransaction(() => {
+        if (itemIds || !tags.length || !db.query('SELECT 1 FROM item_virtual_tags LIMIT 1').get()) {
+            return clearVirtualTags(itemIds) + evaluateVirtualTags(tags, itemIds)
+        }
+
+        db.exec(`
+            CREATE TEMP TABLE virtual_tag_results (
+                item_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+                PRIMARY KEY (item_id, key)
+            ) WITHOUT ROWID
+        `)
+        try {
+            evaluateVirtualTags(tags, undefined, true)
+            const removed = db.query(`
+                DELETE FROM item_virtual_tags AS existing
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM temp.virtual_tag_results result
+                    WHERE result.item_id = existing.item_id AND result.key = existing.key
+                )
+            `).run().changes
+            const updated = db.query(`
+                INSERT INTO item_virtual_tags (item_id, key, value)
+                SELECT result.item_id, result.key, result.value
+                FROM temp.virtual_tag_results result
+                LEFT JOIN item_virtual_tags existing
+                  ON existing.item_id = result.item_id AND existing.key = result.key
+                WHERE existing.value IS NOT result.value
+                ON CONFLICT (item_id, key) DO UPDATE SET value = excluded.value
+            `).run().changes
+            return removed + updated
+        } finally {
+            db.exec('DROP TABLE temp.virtual_tag_results')
+        }
+    })
 }

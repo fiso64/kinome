@@ -1,3 +1,15 @@
+export const ITEM_READ_MODEL = 'media_items_read'
+
+/** Visibility of a real item. Callers that display virtual folders can bypass it. */
+export function accountItemVisibilitySql(account: string, itemId: string): string {
+  return `(
+    NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = ${account})
+    OR EXISTS (
+      SELECT 1 FROM account_visible_items WHERE account_id = ${account} AND item_id = ${itemId}
+    )
+  )`
+}
+
 export const SOURCE_PRIORITIES_SQL = `
 CREATE TABLE IF NOT EXISTS media_source_priority (
   source_id TEXT PRIMARY KEY,
@@ -31,13 +43,7 @@ function selectMediaItems(options: { source?: string; account?: string } = {}): 
       END AND parent.id != sl.id
     ), mi.parent_item_id)`
     : 'mi.parent_item_id'
-  const visibility = options.account ? `(
-    NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = ${options.account})
-    OR EXISTS (
-      SELECT 1 FROM account_visible_items
-      WHERE account_id = ${options.account} AND item_id = mi.id
-    )
-  )` : '1'
+  const visibility = options.account ? accountItemVisibilitySql(options.account, 'mi.id') : '1'
   return `
 SELECT
   mi.id,
@@ -60,6 +66,7 @@ SELECT
   sl.device_id,
   mi.entity_id,
   ${visibility} AS is_account_visible,
+  mi.is_hidden AS is_item_hidden,
   CASE WHEN mi.is_hidden = 1 OR COALESCE(sl.is_hidden, 0) = 1 THEN 1 ELSE 0 END AS is_hidden,
   COALESCE(sl.is_ignored, 0) AS is_ignored,
   CASE
@@ -77,7 +84,7 @@ SELECT
   mi.media_kind,
   mi.logical_missing,
   mi.preferred_location_id,
-  sl.id AS selected_location_id,
+  mi.selected_location_id,
   sl.location_fingerprint,
   sl.is_present AS location_is_present,
   sl.is_shadowed AS location_is_shadowed,
@@ -85,40 +92,45 @@ SELECT
   sl.first_seen_at,
   sl.last_seen_at,
   sl.missing_since
-FROM media_items mi
 -- Select from this item's indexed locations. Ranking every location up front
 -- would scan the entire library even for a single item or folder.
-LEFT JOIN media_locations sl ON sl.id = (
-  SELECT ml.id
-  FROM media_locations ml
-  JOIN media_items owner ON owner.id = ml.item_id
-  LEFT JOIN media_source_priority sp ON sp.source_id = ml.source_id
-  WHERE ml.item_id = mi.id ${locationConstraint}
-  ORDER BY
-    ml.is_present DESC,
-    (ml.is_hidden OR ml.is_ignored),
-    CASE WHEN ml.id = owner.preferred_location_id THEN 0 ELSE 1 END,
-    sp.priority IS NULL,
-    sp.priority,
-    ml.is_shadowed,
-    ml.last_seen_at DESC,
-    ml.source_id COLLATE NOCASE,
-    ml.relative_path COLLATE NOCASE,
-    ml.id
-  LIMIT 1
-)
+FROM (
+  SELECT item.*, (
+    SELECT id FROM (
+      SELECT ml.id, ml.is_present, (ml.is_hidden OR ml.is_ignored) AS unavailable,
+        CASE WHEN ml.id = item.preferred_location_id THEN 0 ELSE 1 END AS preferred,
+        sp.priority, ml.is_shadowed, ml.last_seen_at, ml.source_id, ml.relative_path
+      FROM media_locations ml
+      LEFT JOIN media_source_priority sp ON sp.source_id = ml.source_id
+      WHERE ml.item_id = item.id ${locationConstraint}
+    )
+    ORDER BY
+      is_present DESC,
+      unavailable,
+      preferred,
+      priority IS NULL,
+      priority,
+      is_shadowed,
+      last_seen_at DESC,
+      source_id COLLATE NOCASE,
+      relative_path COLLATE NOCASE,
+      id
+    LIMIT 1
+  ) AS selected_location_id FROM media_items item
+) mi
+LEFT JOIN media_locations sl ON sl.id = mi.selected_location_id
 `
 }
 
 export const MEDIA_ITEMS_READ_MODEL_SQL =
-  `CREATE VIEW IF NOT EXISTS media_items_read AS ${selectMediaItems()}`
+  `CREATE VIEW IF NOT EXISTS ${ITEM_READ_MODEL} AS ${selectMediaItems()}`
 
 export function withSourceLocations(query: string): string {
-  return `WITH media_items_read AS (${selectMediaItems({ source: '?' })}) ${query}`
+  return `WITH ${ITEM_READ_MODEL} AS (${selectMediaItems({ source: '?' })}) ${query}`
 }
 
 export function withAccountLocations(query: string, accountParameter: string, extraCte?: string): string {
   const account = '(SELECT id FROM location_account)'
   return `WITH location_account AS (SELECT ${accountParameter} AS id),
-    media_items_read AS NOT MATERIALIZED (${selectMediaItems({ account })})${extraCte ? `, ${extraCte}` : ''} ${query}`
+    ${ITEM_READ_MODEL} AS NOT MATERIALIZED (${selectMediaItems({ account })})${extraCte ? `, ${extraCte}` : ''} ${query}`
 }

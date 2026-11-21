@@ -1,8 +1,5 @@
 import { embeddedSubtitleFormats } from '@shared/web-playback'
 import type { LocalMedia } from '@shared/local-media'
-import type { LocalMediaField } from '@shared/metadata-fields'
-import { LOCAL_MEDIA_COLUMNS } from '../local-media.sql'
-import { withAccountLocations } from '../media-read-model.sql'
 import { getDb, runTransaction } from '../client'
 
 export interface ProbeCandidate {
@@ -73,47 +70,6 @@ export function saveProbeResult(
     }
     return true
   })
-}
-
-export function suggestLocalMediaValues(
-  field: LocalMediaField,
-  query: string,
-  limit: number,
-  accountId?: string
-): string[] {
-  const { column, track } = LOCAL_MEDIA_COLUMNS[field]
-  const table = track ? 'local_media_tracks' : 'local_media'
-  const kind = track ? `kind = '${track}' AND ` : ''
-  const visibility = accountId ? `
-    AND (NOT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = $accountId)
-      OR EXISTS (
-        SELECT 1 FROM account_visible_items WHERE account_id = $accountId AND item_id = i.id
-      ))
-  ` : ''
-  // Deduplicate using the fact index before resolving account-selected locations.
-  const sql = `
-    SELECT CAST(candidate.value AS TEXT) AS value
-    FROM (
-      SELECT DISTINCT ${column} AS value
-      FROM ${table}
-      WHERE ${kind}${column} IS NOT NULL AND instr(lower(${column}), lower($query)) > 0
-    ) candidate
-    WHERE EXISTS (
-      SELECT 1 FROM ${table} fact
-      JOIN media_locations l ON l.id = fact.location_id
-      JOIN media_items_read i ON i.id = l.item_id AND i.selected_location_id = l.id
-      WHERE ${track ? `fact.kind = '${track}' AND ` : ''}fact.${column} = candidate.value
-        AND i.location_is_present = 1 AND i.is_hidden = 0 AND i.is_ignored = 0
-        ${visibility}
-    )
-    ORDER BY instr(lower(candidate.value), lower($query)), candidate.value COLLATE NOCASE
-    LIMIT $limit
-  `
-  const params = { $query: query, $limit: Number.isSafeInteger(limit) && limit >= 0 ? limit : 20 }
-  const rows = (accountId
-    ? getDb().query(withAccountLocations(sql, '$accountId')).all({ ...params, $accountId: accountId })
-    : getDb().query(sql).all(params)) as { value: string }[]
-  return rows.map(({ value }) => value)
 }
 
 const supportedSubtitles = Object.keys(embeddedSubtitleFormats).map((codec) => `'${codec}'`).join(', ')

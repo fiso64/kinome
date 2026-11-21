@@ -1,6 +1,11 @@
 import { BUILTIN_METADATA_FIELDS, ENTITY_SCALAR_METADATA_FIELDS, TMDB_FILTER_KEYS, type TmdbFilterField } from '@shared/metadata-fields'
 
 export const EFFECTIVE_METADATA = 'media_item_metadata_read'
+export const EFFECTIVE_SUGGESTION_COLUMNS = ['media_type', 'year'] as const
+
+export function effectiveSuggestionIndexSql(column: typeof EFFECTIVE_SUGGESTION_COLUMNS[number]): string {
+  return `CREATE INDEX IF NOT EXISTS idx_media_entities_${column} ON media_entities(${column}) WHERE ${column} IS NOT NULL`
+}
 
 export const TMDB_SCALAR_FIELDS = TMDB_FILTER_KEYS
   .filter((field) => BUILTIN_METADATA_FIELDS[field].kind !== 'list')
@@ -74,6 +79,11 @@ export function effectiveMetadataColumn(column: string): string {
   return numericColumns.has(column) ? `CAST(${value} AS NUMERIC)` : value
 }
 
+// The item is aliased as i, with e for provider data and m for overrides.
+export const ITEM_METADATA_JOINS = `
+LEFT JOIN media_entities e ON e.id = i.entity_id
+LEFT JOIN media_item_metadata m ON m.item_id = i.id`
+
 const fields = ENTITY_SCALAR_METADATA_FIELDS.map(({ column }) =>
   `${effectiveMetadataColumn(column)} AS ${column}`
 )
@@ -95,9 +105,60 @@ SELECT i.id AS item_id,
            WHERE eg.entity_id = e.id
        )) AS genres_json
 FROM media_items i
-LEFT JOIN media_entities e ON e.id = i.entity_id
-LEFT JOIN media_item_metadata m ON m.item_id = i.id;
+${ITEM_METADATA_JOINS};
 `
+
+export const FTS_TABLE = 'media_items_fts'
+// FTS5 weights are positional. Define them in the same order as the columns.
+const searchColumns = [
+  { name: 'id', weight: 0.0, source: 'item', indexed: false, keyword: false },
+  { name: 'title', weight: 10.0, source: 'metadata', indexed: true, keyword: true },
+  { name: 'original_title', weight: 5.0, source: 'metadata', indexed: true, keyword: true },
+  { name: 'name', weight: 1.0, source: 'item', indexed: true, keyword: true },
+  { name: 'overview', weight: 0.1, source: 'metadata', indexed: true, keyword: false }
+] as const
+
+export const SEARCH_INDEX_SQL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS ${FTS_TABLE} USING fts5(
+    ${searchColumns.map(({ name, indexed }) => indexed ? name : `${name} UNINDEXED`).join(',\n    ')},
+    tokenize = 'trigram'
+);`
+export const SEARCH_KEYWORD_COLUMNS = `{${searchColumns.filter(({ keyword }) => keyword).map(({ name }) => name).join(' ')}}`
+export const SEARCH_RANK_WEIGHTS = searchColumns.map(({ weight }) => weight.toFixed(1)).join(', ')
+export const SEARCH_DOCUMENT_INDEX_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_search_document ON media_items(search_document_id)
+`
+const SEARCH_TEXT_COLUMNS = searchColumns.filter(({ source }) => source === 'metadata').map(({ name }) => name)
+const SEARCH_TEXT_FIELDS = SEARCH_TEXT_COLUMNS.join(', ')
+const SEARCH_TEXT_UPDATED = SEARCH_TEXT_COLUMNS.map((column) => `old.${column} IS NOT new.${column}`).join(' OR ')
+const SEARCH_TEXT_ASSIGNMENTS = SEARCH_TEXT_COLUMNS.map((column) => `${column} = new.${column}`).join(', ')
+const SEARCH_DOCUMENT_COLUMNS = `i.name, ${SEARCH_TEXT_COLUMNS.map(effectiveMetadataColumn).join(', ')}`
+const SEARCH_DOCUMENT_SOURCE = `
+FROM media_items i
+${ITEM_METADATA_JOINS}
+`
+const SEARCH_DOCUMENT_SELECT = `
+SELECT i.search_document_id, i.id, ${SEARCH_DOCUMENT_COLUMNS}
+${SEARCH_DOCUMENT_SOURCE}
+`
+
+export const REBUILD_SEARCH_INDEX_SQL = `
+DELETE FROM ${FTS_TABLE};
+WITH missing AS MATERIALIZED (
+    SELECT id, row_number() OVER () +
+        (SELECT coalesce(max(search_document_id), 0) FROM media_items) AS document_id
+    FROM media_items WHERE search_document_id IS NULL
+)
+UPDATE media_items SET search_document_id = missing.document_id FROM missing WHERE media_items.id = missing.id;
+INSERT INTO ${FTS_TABLE} (rowid, id, name, ${SEARCH_TEXT_FIELDS})
+${SEARCH_DOCUMENT_SELECT};
+`
+
+function searchDocumentsForEntity(entityId: string): string {
+  return `SELECT i.search_document_id FROM media_items i
+      WHERE i.entity_id = ${entityId}
+        AND NOT EXISTS (SELECT 1 FROM media_item_metadata m WHERE m.item_id = i.id)`
+}
 
 export const ITEM_METADATA_TRIGGER_SQL = `
 CREATE TRIGGER IF NOT EXISTS media_items_entities_media_kind_ai AFTER INSERT ON media_entities
@@ -111,73 +172,58 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_items_fts_ai AFTER INSERT ON media_items BEGIN
-  INSERT INTO media_items_fts (id, name, title, original_title, overview)
-  VALUES (
-    new.id,
-    new.name,
-    (SELECT title FROM media_item_metadata_read WHERE item_id = new.id),
-    (SELECT original_title FROM media_item_metadata_read WHERE item_id = new.id),
-    (SELECT overview FROM media_item_metadata_read WHERE item_id = new.id)
-  );
+  UPDATE media_items SET search_document_id = (
+    SELECT coalesce(max(search_document_id), 0) + 1 FROM media_items
+  ) WHERE id = new.id;
+  INSERT INTO ${FTS_TABLE} (rowid, id, name, ${SEARCH_TEXT_FIELDS})
+  ${SEARCH_DOCUMENT_SELECT} WHERE i.id = new.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_items_fts_ad AFTER DELETE ON media_items BEGIN
-  DELETE FROM media_items_fts WHERE id = old.id;
+  DELETE FROM ${FTS_TABLE} WHERE rowid = old.search_document_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_items_fts_au AFTER UPDATE OF name, entity_id ON media_items
 FOR EACH ROW
 WHEN (OLD.name IS NOT NEW.name OR OLD.entity_id IS NOT NEW.entity_id)
 BEGIN
-  UPDATE media_items_fts SET
-    name = new.name,
-    title = (SELECT title FROM media_item_metadata_read WHERE item_id = new.id),
-    original_title = (SELECT original_title FROM media_item_metadata_read WHERE item_id = new.id),
-    overview = (SELECT overview FROM media_item_metadata_read WHERE item_id = new.id)
-  WHERE id = new.id;
+  UPDATE ${FTS_TABLE}
+  SET (name, ${SEARCH_TEXT_FIELDS}) = (
+    SELECT ${SEARCH_DOCUMENT_COLUMNS}
+    ${SEARCH_DOCUMENT_SOURCE} WHERE i.id = new.id
+  ) WHERE rowid = new.search_document_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_ai AFTER INSERT ON media_entities BEGIN
-  UPDATE media_items_fts SET
-    title = new.title,
-    original_title = new.original_title,
-    overview = new.overview
-  WHERE id IN (SELECT id FROM media_items WHERE entity_id = new.id AND id NOT IN (SELECT item_id FROM media_item_metadata));
+  UPDATE ${FTS_TABLE} SET ${SEARCH_TEXT_ASSIGNMENTS}
+  WHERE rowid IN (${searchDocumentsForEntity('new.id')});
 END;
 
-CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_au AFTER UPDATE OF title, original_title, overview ON media_entities
+CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_au AFTER UPDATE OF ${SEARCH_TEXT_FIELDS} ON media_entities
 FOR EACH ROW
-WHEN (
-    OLD.title IS NOT NEW.title OR
-    OLD.original_title IS NOT NEW.original_title OR
-    OLD.overview IS NOT NEW.overview
-)
+WHEN (${SEARCH_TEXT_UPDATED})
 BEGIN
-  UPDATE media_items_fts SET
-    title = new.title,
-    original_title = new.original_title,
-    overview = new.overview
-  WHERE id IN (SELECT id FROM media_items WHERE entity_id = new.id AND id NOT IN (SELECT item_id FROM media_item_metadata));
+  UPDATE ${FTS_TABLE} SET ${SEARCH_TEXT_ASSIGNMENTS}
+  WHERE rowid IN (${searchDocumentsForEntity('new.id')});
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_items_fts_entities_ad AFTER DELETE ON media_entities BEGIN
-  UPDATE media_items_fts SET title = NULL, original_title = NULL, overview = NULL
-  WHERE id IN (SELECT id FROM media_items WHERE entity_id = old.id AND id NOT IN (SELECT item_id FROM media_item_metadata));
+  UPDATE ${FTS_TABLE} SET ${SEARCH_TEXT_COLUMNS.map(column => `${column} = NULL`).join(', ')}
+  WHERE rowid IN (${searchDocumentsForEntity('old.id')});
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_item_metadata_ai AFTER INSERT ON media_item_metadata BEGIN
   UPDATE media_items SET media_kind = new.media_type WHERE id = new.item_id;
-  UPDATE media_items_fts SET title = new.title, original_title = new.original_title, overview = new.overview
-  WHERE id = new.item_id;
+  UPDATE ${FTS_TABLE} SET ${SEARCH_TEXT_ASSIGNMENTS}
+  WHERE rowid = (SELECT search_document_id FROM media_items WHERE id = new.item_id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS media_item_metadata_au
-AFTER UPDATE OF media_type, title, original_title, overview ON media_item_metadata
-WHEN old.media_type IS NOT new.media_type OR old.title IS NOT new.title
-  OR old.original_title IS NOT new.original_title OR old.overview IS NOT new.overview
+AFTER UPDATE OF media_type, ${SEARCH_TEXT_FIELDS} ON media_item_metadata
+WHEN old.media_type IS NOT new.media_type OR ${SEARCH_TEXT_UPDATED}
 BEGIN
   UPDATE media_items SET media_kind = new.media_type WHERE id = new.item_id;
-  UPDATE media_items_fts SET title = new.title, original_title = new.original_title, overview = new.overview
-  WHERE id = new.item_id;
+  UPDATE ${FTS_TABLE} SET ${SEARCH_TEXT_ASSIGNMENTS}
+  WHERE rowid = (SELECT search_document_id FROM media_items WHERE id = new.item_id);
 END;
 `

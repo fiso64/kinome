@@ -2,8 +2,19 @@ import { PLAYBACK_DEFAULTS_SQL } from './playback-defaults.sql'
 import { LOCAL_MEDIA_SQL } from './local-media.sql'
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
-import { EFFECTIVE_METADATA_VIEW_SQL, ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, TMDB_COLUMNS, TMDB_RELATIONS_SQL } from './item-metadata.sql'
+import {
+    EFFECTIVE_METADATA_VIEW_SQL, EFFECTIVE_SUGGESTION_COLUMNS, effectiveSuggestionIndexSql,
+    ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, SEARCH_DOCUMENT_INDEX_SQL, SEARCH_INDEX_SQL,
+    TMDB_COLUMNS, TMDB_RELATIONS_SQL
+} from './item-metadata.sql'
 import { ACCOUNT_EXCLUDED_LOCATIONS_SQL, MEDIA_ITEMS_READ_MODEL_SQL, SOURCE_PRIORITIES_SQL } from './media-read-model.sql'
+
+export const TAG_VALUE_INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS idx_item_tags_value ON item_tags(key, value, item_id);
+CREATE INDEX IF NOT EXISTS idx_item_virtual_tags_value ON item_virtual_tags(key, value, item_id);
+`
+
+export const CREDIT_PERSON_INDEX_SQL = 'CREATE INDEX IF NOT EXISTS idx_credits_person ON credits(person_id, entity_id)'
 
 export const SCHEMA_SQL = `
 -- Durable logical library items.
@@ -14,6 +25,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     media_kind TEXT,
     name TEXT NOT NULL,
     entity_id TEXT,
+    search_document_id INTEGER,
 
     is_virtual INTEGER NOT NULL DEFAULT 0,
     virtual_type TEXT CHECK(virtual_type IN ('user', 'grouping', 'season', 'home')),
@@ -37,6 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_media_items_is_virtual ON media_items(is_virtual)
 CREATE INDEX IF NOT EXISTS idx_media_items_virtual_type ON media_items(virtual_type);
 CREATE INDEX IF NOT EXISTS idx_media_items_physical_kind ON media_items(physical_kind);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_kind ON media_items(media_kind);
+${SEARCH_DOCUMENT_INDEX_SQL};
 
 -- Physical filesystem occurrences for a logical media item.
 CREATE TABLE IF NOT EXISTS media_locations (
@@ -123,6 +136,7 @@ CREATE TABLE IF NOT EXISTS media_entities (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_entities_tmdb_id ON media_entities(tmdb_id);
+${EFFECTIVE_SUGGESTION_COLUMNS.map(effectiveSuggestionIndexSql).join(';\n')};
 
 ${ITEM_METADATA_TABLE_SQL}
 
@@ -176,9 +190,8 @@ CREATE TABLE IF NOT EXISTS item_virtual_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_genres_entity_id ON entity_genres(entity_id);
-CREATE INDEX IF NOT EXISTS idx_credits_entity_id ON credits(entity_id);
-CREATE INDEX IF NOT EXISTS idx_item_tags_item_id ON item_tags(item_id);
-CREATE INDEX IF NOT EXISTS idx_item_virtual_tags_item_id ON item_virtual_tags(item_id);
+${CREDIT_PERSON_INDEX_SQL};
+${TAG_VALUE_INDEX_SQL}
 
 -- Orphan cleanup triggers
 CREATE TRIGGER IF NOT EXISTS cleanup_orphan_genres AFTER DELETE ON entity_genres
@@ -269,15 +282,6 @@ CREATE TABLE IF NOT EXISTS folder_settings (
 ${TMDB_RELATIONS_SQL}
 ${EFFECTIVE_METADATA_VIEW_SQL(true)}
 
--- FTS5 index keyed by durable media_items.id.
-CREATE VIRTUAL TABLE IF NOT EXISTS media_items_fts USING fts5(
-    id UNINDEXED,
-    title,
-    original_title,
-    name,
-    overview,
-    tokenize = 'trigram'
-);
-
+${SEARCH_INDEX_SQL}
 ${ITEM_METADATA_TRIGGER_SQL}
 `

@@ -3,12 +3,11 @@
  * Owns durable media_items and physical media_locations rows for scanned files and folders.
  */
 import { EFFECTIVE_METADATA } from '../item-metadata.sql'
-import { withAccountLocations } from '../media-read-model.sql'
+import { ITEM_READ_MODEL, withAccountLocations } from '../media-read-model.sql'
 import path from 'path'
 import crypto from 'crypto'
 import { getDb, runTransaction } from '../client'
 import { LIBRARY_ROOT_ID } from '@shared/types'
-import { ITEM_READ_MODEL } from '../query-builder'
 import { resolveSelectedLocationForItem } from './media-location.repo'
 
 export { LIBRARY_ROOT_ID }

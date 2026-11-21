@@ -1,9 +1,7 @@
 import {
-  getMetadataValueField, metadataSuggestionLookup,
-  type BuiltinMetadataField, type LocalMediaField, type MetadataSuggestionLookup, type TmdbFilterField
+  DEFAULT_AUTOCOMPLETE_LIMIT, getMetadataValueField, metadataSuggestionLookup, type MetadataSuggestionLookup
 } from '@shared/metadata-fields'
-import { suggestLocalMediaValues } from '../database/repositories/local-media.repo'
-import * as metadataRepo from '../database/repositories/metadata.repo'
+import * as suggestions from '../database/repositories/metadata-suggestions.repo'
 import * as settingsService from './settings.service'
 import type { AutocompleteSuggestions } from '@shared/types'
 import { getCurrentAccountId } from '../request-context'
@@ -37,36 +35,35 @@ function accountForSuggestions(): string | undefined {
   return accountId
 }
 
-const metadataLookups = {
-  mediaType: (_field, query, limit) =>
-    fuzzyFilterAndSort(metadataRepo.getDistinctMetadataValues('media_type').sort(), query, limit),
-  genre: (_field, query, limit) =>
-    fuzzyFilterAndSort(metadataRepo.getDistinctGenreNames().sort(), query, limit),
-  year: (_field, query, limit) =>
-    fuzzyFilterAndSort(metadataRepo.getDistinctMetadataValues('year').sort(), query, limit),
-  person: (_field, query, limit) => searchPersons(query, limit),
-  tmdb: (field, query, limit) =>
-    metadataRepo.suggestTmdbValues(field as TmdbFilterField, query.trim(), limit, accountForSuggestions()),
-  localMedia: (field, query, limit) =>
-    suggestLocalMediaValues(field as LocalMediaField, query.trim(), limit, accountForSuggestions())
-} satisfies Record<MetadataSuggestionLookup, (
-  field: BuiltinMetadataField, query: string, limit: number
+const catalogLookups = {
+  mediaType: (query, limit) =>
+    fuzzyFilterAndSort(suggestions.getDistinctMetadataValues('media_type').sort(), query, limit),
+  genre: (query, limit) =>
+    fuzzyFilterAndSort(suggestions.getDistinctGenreNames().sort(), query, limit),
+  year: (query, limit) =>
+    fuzzyFilterAndSort(suggestions.getDistinctMetadataValues('year', query).sort(), query, limit),
+  person: (query, limit) => searchPersons(query, limit)
+} satisfies Record<Exclude<MetadataSuggestionLookup, 'stored'>, (
+  query: string, limit: number
 ) => string[] | Promise<string[]>>
 
 export const getAutocompleteValues = async (
   key: string,
   query: string = '',
-  limit: number = 20
+  limit: number = DEFAULT_AUTOCOMPLETE_LIMIT
 ): Promise<string[]> => {
   const field = getMetadataValueField(key)
   if (field) {
     const lookup = metadataSuggestionLookup(field)
-    return lookup ? metadataLookups[lookup](field, query, limit) : []
+    if (lookup === 'stored') {
+      return suggestions.suggestStoredMetadataValues(field, query.trim(), limit, accountForSuggestions())
+    }
+    return lookup ? catalogLookups[lookup](query, limit) : []
   }
 
   // Prefer a custom tag over a virtual tag with the same key.
-  const tags = metadataRepo.getDistinctTagEntries('item_tags', key)
-  const entries = tags.length ? tags : metadataRepo.getDistinctTagEntries('item_virtual_tags', key)
+  const tags = suggestions.getDistinctTagEntries('item_tags', key)
+  const entries = tags.length ? tags : suggestions.getDistinctTagEntries('item_virtual_tags', key)
   const values = [...new Set(entries.map(({ value }) => value).filter(Boolean))].sort()
   return fuzzyFilterAndSort(values, query, limit)
 }
@@ -74,9 +71,7 @@ export const getAutocompleteValues = async (
 export const getGroupByKeys = async () => {
   const settings = await settingsService.readSettings()
 
-  const tagKeys = metadataRepo
-    .getDistinctTagEntries('item_tags')
-    .map((r) => r.key)
+  const tagKeys = suggestions.getCustomTagKeys()
 
   return [
     'folder',
@@ -84,66 +79,52 @@ export const getGroupByKeys = async () => {
     'genre',
     'year',
     ...(settings.virtualTags?.map((vt) => `vt.${vt.name}`) ?? []),
-    ...[...new Set(tagKeys)].sort().map((k) => `tags.${k}`)
+    ...tagKeys.sort().map((key) => `tags.${key}`)
   ]
+}
+
+function sortedValues(values: string[]): string[] {
+  return [...new Set(values)].filter((value) => typeof value === 'string').sort((a, b) => a.localeCompare(b))
+}
+
+function tagSuggestions(
+  entries: { key: string; value: string }[],
+  excludeHidden?: boolean,
+  definedTags: readonly { name: string }[] = []
+): Record<string, string[]> {
+  const tags: Record<string, string[]> = Object.create(null)
+  for (const { key, value } of entries) {
+    if (excludeHidden && key.startsWith('_')) continue
+    const values = tags[key] ??= []
+    if (value) values.push(value)
+  }
+  for (const { name } of definedTags) {
+    if (!excludeHidden || !name.startsWith('_')) tags[name] ??= []
+  }
+  for (const key of Object.keys(tags)) tags[key] = sortedValues(tags[key])
+  return tags
 }
 
 export const getAutocompleteSuggestions = async (options?: {
   excludeHidden?: boolean
 }): Promise<AutocompleteSuggestions> => {
   const settings = await settingsService.readSettings()
-
-  const mediaTypes = metadataRepo.getDistinctMetadataValues('media_type')
-  const genres = metadataRepo.getDistinctGenreNames()
-
-  const tagEntries = metadataRepo.getDistinctTagEntries('item_tags')
-  const virtualTagEntries = metadataRepo.getDistinctTagEntries('item_virtual_tags')
-
-  const tags: Record<string, string[]> = {}
-  for (const entry of tagEntries) {
-    if (options?.excludeHidden && entry.key.startsWith('_')) continue
-    if (!tags[entry.key]) tags[entry.key] = []
-    if (entry.value) tags[entry.key].push(entry.value)
-  }
-
-  const virtualTags: Record<string, string[]> = {}
-  for (const entry of virtualTagEntries) {
-    if (options?.excludeHidden && entry.key.startsWith('_')) continue
-    if (!virtualTags[entry.key]) virtualTags[entry.key] = []
-    if (entry.value) virtualTags[entry.key].push(entry.value)
-  }
-
-  // Ensure all defined virtual tags are present in the keys, even if empty
-  if (settings.virtualTags) {
-    for (const vt of settings.virtualTags) {
-      if (options?.excludeHidden && vt.name.startsWith('_')) continue
-      if (!virtualTags[vt.name]) virtualTags[vt.name] = []
-    }
-  }
-
-  // Sort and Deduplicate
-  const sortUnique = (arr: any[]) =>
-    Array.from(new Set(arr))
-      .filter((v) => typeof v === 'string')
-      .sort((a, b) => a.localeCompare(b))
-
-  Object.keys(tags).forEach((k) => (tags[k] = sortUnique(tags[k])))
-  Object.keys(virtualTags).forEach((k) => (virtualTags[k] = sortUnique(virtualTags[k])))
+  const excludeHidden = options?.excludeHidden
 
   return {
-    mediaType: sortUnique(mediaTypes),
-    genre: sortUnique(genres),
-    person: null, // Signalling that person suggestions are server-side
-    tags,
-    virtualTags
+    mediaType: sortedValues(suggestions.getDistinctMetadataValues('media_type')),
+    genre: sortedValues(suggestions.getDistinctGenreNames()),
+    person: null, // Person suggestions are fetched when requested.
+    tags: tagSuggestions(suggestions.getDistinctTagEntries('item_tags'), excludeHidden),
+    virtualTags: tagSuggestions(suggestions.getDistinctTagEntries('item_virtual_tags'), excludeHidden, settings.virtualTags)
   }
 }
 
 let personCache: string[] | null = null
 
-export const searchPersons = async (query: string, limit: number = 20): Promise<string[]> => {
+export const searchPersons = async (query: string, limit: number = DEFAULT_AUTOCOMPLETE_LIMIT): Promise<string[]> => {
   if (!personCache) {
-    personCache = metadataRepo.getDistinctPersonNames().sort()
+    personCache = suggestions.getDistinctPersonNames().sort()
   }
 
   return fuzzyFilterAndSort(personCache, query, limit)

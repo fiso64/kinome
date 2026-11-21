@@ -10,7 +10,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { SCHEMA_SQL } from './schema'
-import { buildFindQuery, compileConditionToSql, ITEM_READ_MODEL } from './query-builder'
+import { buildFindQuery, compileConditionToSql } from './query-builder'
+import { ITEM_READ_MODEL } from './media-read-model.sql'
 
 let db: Database
 

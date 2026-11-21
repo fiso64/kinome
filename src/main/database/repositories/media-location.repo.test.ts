@@ -2,9 +2,10 @@ import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { _clearDbForTesting, _setDbForTesting } from '../client'
 import { SCHEMA_SQL } from '../schema'
-import { findProbeCandidates, saveProbeResult, suggestLocalMediaValues } from './local-media.repo'
+import { findProbeCandidates, saveProbeResult } from './local-media.repo'
+import { suggestStoredMetadataValues } from './metadata-suggestions.repo'
 import { findByFtsQuery, findByTagsOnly } from './search.repo'
-import { evaluateAndInsertVirtualTags, upsertMetadata } from './metadata.repo'
+import { replaceVirtualTags, upsertMetadata } from './metadata.repo'
 import { buildFindQuery, compileFilter } from '../query-builder'
 import { replaceSourcePriorities, resolveSelectedLocationForItem } from './media-location.repo'
 
@@ -84,19 +85,19 @@ describe('media location repository', () => {
     }), fields: ['id', 'localMedia'] })
     const filter = () => db.query(query.query).all(...query.params) as { id: string; localMedia: string }[]
     replaceSourcePriorities(['source-a', 'source-b'])
-    expect(suggestLocalMediaValues('file.videoCodec', '', 20)).toEqual(['h264'])
+    expect(suggestStoredMetadataValues('file.videoCodec', '', 20)).toEqual(['h264'])
     expect(filter()).toEqual([])
     expect(findByTagsOnly([{ key: 'file.videoCodec', value: 'h264' }], 10)).toHaveLength(1)
     replaceSourcePriorities(['source-b', 'source-a'])
-    expect(suggestLocalMediaValues('file.videoCodec', 'he', 20)).toEqual(['hevc'])
-    expect(suggestLocalMediaValues('file.videoHeight', '', 20)).toEqual(['2160'])
+    expect(suggestStoredMetadataValues('file.videoCodec', 'he', 20)).toEqual(['hevc'])
+    expect(suggestStoredMetadataValues('file.videoHeight', '', 20)).toEqual(['2160'])
     expect(JSON.parse(filter()[0].localMedia).tracks[0]).toMatchObject({ codec: 'hevc', index: 2, default: true })
     expect(findByTagsOnly([{ key: 'file.videoCodec', value: 'h264' }], 10)).toEqual([])
 
     db.exec("UPDATE media_locations SET size = 201 WHERE id = 'b'")
     expect(saveProbeResult(second, media, null)).toBe(false)
     expect(filter()).toEqual([])
-    expect(suggestLocalMediaValues('file.videoCodec', '', 20)).toEqual([])
+    expect(suggestStoredMetadataValues('file.videoCodec', '', 20)).toEqual([])
     const [changed] = findProbeCandidates(['source-b'], 2000)
     expect(saveProbeResult(changed, null, 3000)).toBe(true)
     expect(findProbeCandidates(['source-b'], 2999)).toEqual([])
@@ -156,10 +157,28 @@ describe('media location repository', () => {
     expect(findByTagsOnly([movie, hd], 30, 'viewer')).toEqual([])
     expect(findByTagsOnly([movie, audience], 30, 'viewer').map(({ id }) => id)).toEqual(['movie'])
 
+    // The first ranked titles have no files. Their failure to fill a page must
+    // leave the later matching titles eligible.
+    for (let index = 0; index < 4; index++) {
+      const id = `empty-movie-${index}`
+      db.query(`
+        INSERT INTO media_items (id, parent_item_id, physical_kind, name, created_at, updated_at)
+        VALUES (?, 'root', 'folder', 'Aardvark', 1, 1)
+      `).run(id)
+      upsertMetadata(id, { title: 'Aardvark', mediaType: 'movie' })
+    }
+    db.exec(`
+      INSERT INTO media_locations (id,item_id,source_id,relative_path,name,type,is_present,first_seen_at,last_seen_at)
+      VALUES ('missing-alternate','movie-hd','backup','Feature.mkv','Feature.mkv','file',0,1,1);
+      INSERT INTO local_media (location_id,video_height,failures) VALUES ('missing-alternate',1080,0);
+    `)
+    const wholePage = findByTagsOnly([hd], 30)
+    expect(findByTagsOnly([hd], 1)).toEqual(wholePage.slice(0, 1))
+
     const movieCondition = { field: 'mediaType', op: 'eq' as const, value: 'movie' }
     const height = { field: 'file.videoHeight', op: 'eq' as const, value: 1080 }
     const language = { field: 'file.audioLanguage', op: 'eq' as const, value: 'jpn' }
-    evaluateAndInsertVirtualTags([{
+    replaceVirtualTags([{
       id: 'quality', name: 'quality', cases: [
         { filter: { conditions: [movieCondition, height], requiredConditions: [language] }, result: 'Japanese HD' },
         { filter: { conditions: [movieCondition, height] }, result: 'HD' }
@@ -167,6 +186,23 @@ describe('media location repository', () => {
     }])
     expect(db.query("SELECT item_id, value FROM item_virtual_tags WHERE key = 'quality'").all())
       .toEqual([{ item_id: 'movie', value: 'HD' }])
+
+    expect(replaceVirtualTags([{
+      id: 'scoped', name: 'scoped', cases: [
+        { filter: { conditions: [height, language] }, result: 'Japanese HD' },
+        { filter: { conditions: [height] }, result: 'HD' }
+      ]
+    }], ['movie'])).toBe(2)
+    expect(replaceVirtualTags([{
+      id: 'parent', name: 'parent', cases: [
+        { filter: { conditions: [{ ...height, field: 'parent.file.videoHeight' }] }, result: 'HD parent' }
+      ]
+    }], ['movie-hd'])).toBe(1)
+    expect(db.query("SELECT item_id, key, value FROM item_virtual_tags WHERE key IN ('scoped', 'parent') ORDER BY key").all())
+      .toEqual([
+        { item_id: 'movie-hd', key: 'parent', value: 'HD parent' },
+        { item_id: 'movie', key: 'scoped', value: 'HD' }
+      ])
   })
 
   it('does not resolve a missing location when a present location is required', () => {
@@ -216,7 +252,12 @@ describe('media location repository', () => {
         id, item_id, source_id, relative_path, name, type,
         is_present, is_hidden, is_ignored, is_shadowed, first_seen_at, last_seen_at
       )
-      VALUES ('loc-a', 'item-1', 'source-a', 'Movies/Movie.mkv', 'Movie.mkv', 'file', 1, 0, 0, 0, 1000, 1000);
+      VALUES
+        ('loc-a', 'item-1', 'source-a', 'Movies/Movie.mkv', 'Movie.mkv', 'file', 1, 0, 0, 0, 1000, 1000),
+        ('loc-b', 'item-1', 'source-b', 'Movies/Movie.mp4', 'Movie.mp4', 'file', 1, 0, 0, 0, 1000, 1000);
+
+      INSERT INTO local_media (location_id, container, failures)
+      VALUES ('loc-a', 'matroska', 0), ('loc-b', 'mp4', 0);
 
       INSERT INTO account_filter_rules (account_id, mode, filter_json)
       VALUES
@@ -225,10 +266,16 @@ describe('media location repository', () => {
 
       INSERT INTO account_visible_items (account_id, item_id)
       VALUES ('visible-account', 'item-1');
+
+      INSERT INTO account_excluded_locations (account_id, location_id)
+      VALUES ('visible-account', 'loc-a');
     `)
 
-    expect(resolveSelectedLocationForItem('item-1', { requirePresent: true, userId: 'visible-account' })?.id).toBe('loc-a')
+    expect(resolveSelectedLocationForItem('item-1', { requirePresent: true, userId: 'visible-account' })?.id).toBe('loc-b')
     expect(resolveSelectedLocationForItem('item-1', { requirePresent: true, userId: 'hidden-account' })).toBeNull()
     expect(resolveSelectedLocationForItem('item-1', { requirePresent: true, userId: 'unfiltered-account' })?.id).toBe('loc-a')
+    expect(suggestStoredMetadataValues('file.container', '', 20, 'visible-account')).toEqual(['mp4'])
+    expect(suggestStoredMetadataValues('file.container', '', 20, 'hidden-account')).toEqual([])
+    expect(suggestStoredMetadataValues('file.container', '', 20, 'unfiltered-account')).toEqual(['matroska'])
   })
 })

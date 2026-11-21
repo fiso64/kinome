@@ -12,7 +12,7 @@ import { GlobalTaskQueue } from '../utils/concurrency'
 import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
-import { ITEM_READ_MODEL } from '../database/query-builder'
+import { ITEM_READ_MODEL } from '../database/media-read-model.sql'
 import { SPECIAL_FOLDER_NAMES_FOR_TV, isSupportedVideoFile, parseSeasonForFilesystem } from '../utils/tv-parser'
 import {
   applyReconciliationPlan, buildReconciliationPlan, type DiscoveredLocation, type SourceHistory,

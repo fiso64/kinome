@@ -43,6 +43,19 @@ export function hasFilterRule(accountId: string): boolean {
   return row != null
 }
 
+/** Prefer indexed item lookups for selective filters. This only chooses a query plan. */
+export function hasSmallVisibleItemSet(accountId: string | undefined): boolean {
+  if (!accountId) return false
+  const lookupBudget = 8192
+  const row = getDb().query(`
+    SELECT EXISTS (SELECT 1 FROM account_filter_rules WHERE account_id = $accountId)
+      AND NOT EXISTS (
+        SELECT 1 FROM account_visible_items WHERE account_id = $accountId LIMIT 1 OFFSET $budget
+      ) AS small
+  `).get({ $accountId: accountId, $budget: lookupBudget }) as { small: number }
+  return row.small === 1
+}
+
 export function getAllFilteredAccountIds(): string[] {
   const db = getDb()
   const rows = db.prepare('SELECT account_id FROM account_filter_rules').all() as { account_id: string }[]

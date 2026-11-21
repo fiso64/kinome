@@ -108,7 +108,8 @@ type FieldWithStorage<Storage extends IndexedMetadataStorage> = {
 
 export type TmdbFilterField = FieldWithStorage<'tmdb'>
 export type LocalMediaField = FieldWithStorage<'localMedia'>
-export type MetadataSuggestionLookup = LibrarySuggestionLookup | IndexedMetadataStorage
+export const DEFAULT_AUTOCOMPLETE_LIMIT = 20
+export type MetadataSuggestionLookup = LibrarySuggestionLookup | 'stored'
 
 export function isBuiltinMetadataField(field: string): field is BuiltinMetadataField {
   return Object.hasOwn(BUILTIN_METADATA_FIELDS, field)
@@ -136,8 +137,7 @@ export function metadataFieldKey(field: BuiltinMetadataField): string {
 
 export function metadataSuggestionLookup(field: BuiltinMetadataField): MetadataSuggestionLookup | undefined {
   const definition: MetadataFieldDefinition = BUILTIN_METADATA_FIELDS[field]
-  if (definition.suggestions === 'manual') return
-  return definition.suggestions === 'stored' ? definition.storage : definition.suggestions
+    return definition.suggestions === 'manual' ? undefined : definition.suggestions
 }
 
 const fields = Object.keys(BUILTIN_METADATA_FIELDS) as BuiltinMetadataField[]
