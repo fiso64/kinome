@@ -144,9 +144,14 @@ export function createPlaybackHls(Hls: HlsClass, position: number, prefetch = fa
     progressive: true, maxBufferLength: 12, maxMaxBufferLength: 30,
     startPosition: position || -1, startFragPrefetch: prefetch
   })
-  player.on(Hls.Events.LEVEL_LOADED, (_event, { details }) => {
-    // TS can play progressively. fMP4 needs a complete moof/mdat pair.
-    if (details.fragments[0]?.initSegment) player.config.progressive = false
+  // Request the streaming loader above, but deliver complete fragments until
+  // the playlist identifies TS. HLS.js can start its first fragment inside
+  // its own LEVEL_LOADED listener, before application listeners run.
+  const canStream = player.config.progressive
+  player.config.progressive = false
+  player.on(Hls.Events.LEVEL_UPDATED, (_event, { details }) => {
+    const first = details.fragments[0]
+    player.config.progressive = canStream && !!first && !first.initSegment
   })
   return player
 }

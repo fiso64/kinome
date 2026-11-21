@@ -1,5 +1,15 @@
 import { expect, test } from 'bun:test'
-import { AdaptivePlaybackStats } from './adaptive-playback'
+import Hls from 'hls.js'
+import { AdaptivePlaybackStats, createPlaybackHls } from './adaptive-playback'
+
+test('delivers the first fragment whole before the playlist identifies its format', () => {
+  const player = createPlaybackHls(Hls, 0)
+  try {
+    expect(player.config.progressive).toBe(false)
+  } finally {
+    player.destroy()
+  }
+})
 
 test('keeps the buffered original through a temporary outage, but acts before sustained starvation', () => {
   const stats = new AdaptivePlaybackStats()

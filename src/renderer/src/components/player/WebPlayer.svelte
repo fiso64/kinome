@@ -275,6 +275,23 @@
     video.load()
   }
 
+  function diagnosticMessage(reason: unknown): string | undefined {
+    const text = reason instanceof Error ? reason.toString() : reason
+    if (typeof text !== 'string' || !text) return
+    // Browser and loader errors can include authenticated media URLs.
+    const token = authStore.token
+    const safe = token ? text.replaceAll(token, '[redacted]') : text
+    return safe.replace(/(?:https?:\/\/|blob:)[^\s"'<>]+/gi, '[URL]')
+      .replace(/(token=)[^&\s"'<>]+/gi, '$1[redacted]').slice(0, 512)
+  }
+
+  function hlsDiagnostic(data: ErrorData) {
+    return {
+      detail: data.details, segment: data.frag?.sn, status: data.response?.code,
+      mime: data.mimeType, cause: diagnosticMessage(data.error)
+    }
+  }
+
   function statusDetail(data: ErrorData): string {
     const text = data.response?.text
     if (text && typeof text === 'string' && text.length < 250 && !text.includes('<') && !text.includes('token=')) return text
@@ -305,8 +322,10 @@
     const controller = new AbortController()
     operation = controller
     const audio = audioCapability.find((track) => track.index === audioIndex)
+    const sourceVideo = info.media?.tracks.find((track) => track.kind === 'video')
     const candidates = playbackAttempts(video, info, audio, defaultAudio)
     let index = 0
+    let reportRecovery = false
     // Keep intermediate rungs available for a gradual recovery.
     const previousRenditions: RenditionTarget[] = []
     const incompatible = new Set<number>()
@@ -332,6 +351,7 @@
         loading = false
         activeQuality = undefined
         error = 'The selected audio track requires playback conversion.'
+        console.error('[Kinome player] No playable source', { itemId: item.id, audioIndex, position: resumeAt })
         loadQueue()
         return
       }
@@ -340,8 +360,23 @@
       const listen = <K extends keyof HTMLMediaElementEventMap>(event: K, handler: () => void, once = false) =>
         video.addEventListener(event, handler, { signal, once })
 
-      function failed(message: string, transport = false) {
+      const context = () => ({
+        itemId: item.id, mode, sourceVideo: sourceVideo?.codec, sourceAudio: audio?.codec, audioIndex,
+        videoCodec: candidate.videoCodec, sound: candidate.sound, position: mediaReady ? video.currentTime : resumeAt
+      })
+      function failed(message: string, transport = false, details?: object) {
         if (signal.aborted) return
+        const next = transport ? undefined : candidates[index]
+        const failure = {
+          ...context(), reason: diagnosticMessage(message), ...details,
+          mediaCode: video.error?.code, mediaMessage: diagnosticMessage(video.error?.message)
+        }
+        if (next) {
+          console.warn('[Kinome player] Source failed, trying fallback', { ...failure, next })
+        } else {
+          console.error('[Kinome player] Playback failed', failure)
+        }
+        reportRecovery = true
         if (mediaReady) {
           persist(true)
           resumeAt = requestedPosition ?? video.currentTime
@@ -383,7 +418,8 @@
         void video.play().catch((reason: DOMException) => {
           if (signal.aborted || reason.name === 'AbortError') return
           if (reason.name === 'NotAllowedError') { playBlocked = true; loading = false }
-          else if (!video.error) failed('This browser could not play the selected source.', reason.name === 'NetworkError')
+          else if (!video.error) failed('This browser could not play the selected source.', reason.name === 'NetworkError',
+            { cause: diagnosticMessage(reason) })
         })
       }
       listen('durationchange', () => {
@@ -533,6 +569,10 @@
       ) : undefined
       listen('waiting', () => { if (!video.paused) loading = true })
       listen('playing', () => {
+        if (reportRecovery) {
+          console.info('[Kinome player] Source playing after fallback or retry', context())
+          reportRecovery = false
+        }
         hasPlayed = true
         playBlocked = false
         loading = false
@@ -561,17 +601,19 @@
       })
       listen('error', async () => {
         let network = video.error?.code === MediaError.MEDIA_ERR_NETWORK
+        let status: number | undefined
         // Native playback can report HTTP errors as unsupported formats.
         // Probe only this ambiguous failure, leaving successful starts untouched.
         if (video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && video.getAttribute('src') === url) {
           try {
             const response = await fetch(url, { method: 'HEAD', signal })
-            network = !response.ok && response.status !== 422
+            status = response.status
+            network = !response.ok && status !== 422
           } catch {
             network = true
           }
         }
-        failed(network ? 'The video could not be loaded from the server.' : 'The browser could not decode the selected source.', network)
+        failed(network ? 'The video could not be loaded from the server.' : 'The browser could not decode the selected source.', network, { status })
       })
       if (mode === 'original' || (video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.')) {
         video.src = url
@@ -590,12 +632,23 @@
               adaptiveStats.fragment(loaded, frag.duration, loading.end - loading.start)
             }
           })
+          const warned = new Set<ErrorData['details']>()
           hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (!data.fatal) return
+            if (signal.aborted) return
+            if (!data.fatal) {
+              // Ordinary buffer management can emit events on healthy playback.
+              // Report actionable errors immediately, once per kind per attempt.
+              if (!warned.has(data.details) && (data.type === Hls.ErrorTypes.NETWORK_ERROR ||
+                data.type === Hls.ErrorTypes.MUX_ERROR || /codec|append|parsing/i.test(data.details))) {
+                warned.add(data.details)
+                console.warn('[Kinome player] Recoverable stream error', { ...context(), ...hlsDiagnostic(data) })
+              }
+              return
+            }
             // HLS.js also classifies playlist parsing failures as network errors.
             const transport = data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response?.code !== 422 &&
               (data.details.endsWith('LoadError') || data.details.endsWith('LoadTimeOut'))
-            failed(statusDetail(data), transport)
+            failed(statusDetail(data), transport, hlsDiagnostic(data))
           })
           if (!prepared) {
             hls.on(Hls.Events.MANIFEST_PARSED, play)
@@ -609,8 +662,8 @@
         } else {
           failed('This browser does not support HLS playback.')
         }
-      } catch {
-        failed('Could not start the HLS player.')
+      } catch (reason) {
+        failed('Could not start the HLS player.', false, { cause: diagnosticMessage(reason) })
       }
     }
     await nextSource()
@@ -1158,6 +1211,7 @@
     } catch (reason) {
       if (!signal.aborted) {
         error = reason instanceof Error ? reason.message : 'Could not open the player.'
+        console.error('[Kinome player] Could not open media', { itemId: item.id, reason: diagnosticMessage(error) })
         loadQueue()
         loading = false
       }
@@ -1216,9 +1270,18 @@
       clearTimeout(slow)
       subtitleNotice = ''
     }
-    const onError = () => {
+    let warned = false
+    const onError = (reason?: unknown) => {
+      if (controller.signal.aborted) return
       clearTimeout(slow)
-      if (!controller.signal.aborted) subtitleNotice = 'This subtitle track could not be displayed.'
+      subtitleNotice = 'This subtitle track could not be displayed.'
+      if (!warned) {
+        warned = true
+        console.warn('[Kinome player] Subtitle track failed', {
+          itemId: item.id, format: track.format, language: track.language,
+          position: video.currentTime, reason: diagnosticMessage(reason)
+        })
+      }
     }
     void openSubtitle({
       itemId: item.id, track, video, container: surface,

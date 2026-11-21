@@ -20,7 +20,7 @@ interface SubtitleOptions {
   delay: number
   signal: AbortSignal
   onReady: () => void
-  onError: () => void
+  onError: (reason?: unknown) => void
 }
 
 export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRenderer> {
@@ -117,7 +117,7 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
     // range probe and one round trip per half megabyte on remote connections.
     rangeRequests: false,
     onLoaded: () => { if (!signal.aborted) onReady() },
-    onError: () => { if (!signal.aborted) onError() }
+    onError: (error: Error) => { if (!signal.aborted) onError(error) }
   }
   if (track.format === 'vobsub' && windows && initial) {
     let renderer: InstanceType<typeof VobSubRenderer> | undefined
@@ -203,7 +203,7 @@ const subtitleWindow = (seconds: number) => Math.floor(Math.max(0, seconds) / SU
 
 async function fetchWindow<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>) {
   const response = await fetch(url, { signal })
-  if (!response.ok) throw new Error('Could not load subtitles')
+  if (!response.ok) throw new Error(`Subtitle request failed (HTTP ${response.status})`)
   return { content: await read(response), windowed: response.headers.has(SUBTITLE_WINDOW_HEADER) }
 }
 
@@ -240,7 +240,7 @@ function subtitleWindows<T>(url: string, signal: AbortSignal, read: (response: R
 function followWindows<T>(
   video: HTMLVideoElement, canvas: HTMLCanvasElement | undefined, windows: ReturnType<typeof subtitleWindows<T>>,
   firstWindow: number, signal: AbortSignal, offset: () => number, apply: (content: T) => Promise<void>,
-  onReady: () => void, onError: () => void
+  onReady: () => void, onError: (reason?: unknown) => void
 ) {
   let displayed = firstWindow
   let wanted = firstWindow
@@ -261,10 +261,10 @@ function followWindows<T>(
         if (canvas) canvas.hidden = false
         onReady()
       }
-    } catch {
+    } catch (error) {
       if (!signal.aborted && window === wanted) {
         failed = window
-        onError()
+        onError(error)
       }
     } finally {
       applying = false
@@ -297,7 +297,7 @@ function followWindows<T>(
 
 async function textTrack(
   video: HTMLVideoElement, url: string, track: WebSubtitle, delay: number,
-  signal: AbortSignal, onReady: () => void, onError: () => void
+  signal: AbortSignal, onReady: () => void, onError: (reason?: unknown) => void
 ): Promise<SubtitleRenderer> {
   // Fetch before attaching a native track. A pending track can hold the
   // media element below HAVE_FUTURE_DATA even while it presents frames.
