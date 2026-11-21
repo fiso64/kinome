@@ -75,6 +75,7 @@
 
   let info = $state<WebPlaybackInfo>()
   let timelineDuration = $state(0)
+  let bufferedRanges = $state.raw<[number, number][]>([])
   let playbackPosition = $state(0)
   let requestedPosition = $state<number>()
   let committedPosition: number | undefined
@@ -262,6 +263,7 @@
 
   function clearSource() {
     nativeAudio = undefined
+    bufferedRanges = []
     retryTransport = undefined
     resetFrameStep()
     clearSeek()
@@ -341,6 +343,7 @@
       if (attempt) {
         attempt.abort()
         nativeAudio = undefined
+        bufferedRanges = []
         clearSeek()
         hls?.destroy()
         hls = undefined
@@ -425,8 +428,11 @@
       listen('durationchange', () => {
         timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
       })
+      listen('progress', updateBufferedRanges)
+      listen('loadeddata', updateBufferedRanges, true)
       listen('seeked', () => {
         if (video.seeking) return
+        updateBufferedRanges()
         updatePlaybackPosition()
         if (committedPosition !== undefined) {
           const settledPosition = committedPosition
@@ -626,6 +632,9 @@
         if (Hls.isSupported()) {
           const player = prepared ?? createPlaybackHls(Hls, resumeAt)
           hls = player
+          const updateBuffer = () => { if (!signal.aborted) updateBufferedRanges() }
+          player.on(Hls.Events.BUFFER_APPENDED, updateBuffer)
+          player.on(Hls.Events.BUFFER_FLUSHED, updateBuffer)
           if (adaptiveStats) player.on(Hls.Events.FRAG_LOADED, (_event, { frag }) => {
             if (frag.sn !== 'initSegment') {
               const { loaded, loading } = frag.stats
@@ -722,6 +731,13 @@
     const { language, title } = trackLabels(track)
     const detail = title && title.toLowerCase() !== language.toLowerCase() ? `${title} (${language})` : language
     return `Subtitles: ${detail}`
+  }
+
+  function updateBufferedRanges() {
+    const ranges = video.buffered
+    if (ranges.length === bufferedRanges.length && bufferedRanges.every(([start, end], i) =>
+      start === ranges.start(i) && end === ranges.end(i))) return
+    bufferedRanges = Array.from({ length: ranges.length }, (_, i) => [ranges.start(i), ranges.end(i)])
   }
 
   function updatePlaybackPosition() {
@@ -1608,6 +1624,13 @@
                     style:right={`${(1 - Math.min(range.endSeconds ?? timelineDuration, timelineDuration) / timelineDuration) * 100}%`}></span>
                 {/if}
               {/each}
+              {#each bufferedRanges as [start, end]}
+                {#if start < timelineDuration}
+                  <span class="buffered-range" aria-hidden="true"
+                    style:left={`${Math.max(0, start) / timelineDuration * 100}%`}
+                    style:right={`${(1 - Math.min(end, timelineDuration) / timelineDuration) * 100}%`}></span>
+                {/if}
+              {/each}
             {/if}
             <span class="slider-thumb" aria-hidden="true" style:left={`${timelineDuration ? playhead / timelineDuration * 100 : 0}%`}></span>
             <span class="time-elapsed" aria-hidden="true">{clockTime(playhead)}</span>
@@ -1902,6 +1925,13 @@
   .chapter-range {
     position: absolute;
     inset-block: 0;
+    pointer-events: none;
+  }
+  .buffered-range {
+    position: absolute;
+    inset-block-end: 0;
+    height: 3px;
+    background: #ffffff70;
     pointer-events: none;
   }
   .chapter-marker {
