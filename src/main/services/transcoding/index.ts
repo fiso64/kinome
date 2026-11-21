@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises'
+import { isMp4Container } from '@shared/local-media'
 import { avcFormat, type PlaybackEncodingPreferences, type PlaybackOutput } from '@shared/playback-quality'
 import { probeMedia } from '../probe-media'
 import { readMatroskaCueTimes, type MatroskaSubtitleIndex } from './matroska-cues'
@@ -82,6 +83,11 @@ async function readX264Build(path: string, videoIndex: number) {
   return build ? Number(build[1]) : undefined
 }
 
+export function keyframeReaderFor(container?: string) {
+  if (container === 'matroska' || container === 'mkv' || container === 'webm') return readMatroskaCueTimes
+  if (isMp4Container(container)) return readMp4Keyframes
+}
+
 export async function openPlaybackSource(
   probe: string, path: string, quality: SegmentQuality, encoding: PlaybackEncodingPreferences,
   audioIndex?: number, browser = false, output: PlaybackOutput = {}
@@ -98,12 +104,9 @@ export async function openPlaybackSource(
 
   let keyframes: number[] | undefined
   if (copiesVideo(quality)) {
-    if (media.container === 'matroska' || media.container === 'mkv' || media.container === 'webm') {
-      record.cues ??= readMatroskaCueTimes(path)
-    } else if (media.container && ['mov', 'mp4', 'm4v', '3gp', '3g2', 'mj2'].includes(media.container)) {
-      record.cues ??= readMp4Keyframes(path)
-    }
-    if (!record.cues) throw new Error('This container has no supported remux seek index')
+    const readIndex = keyframeReaderFor(media.container)
+    if (!readIndex) throw new Error('This container has no supported remux seek index')
+    record.cues ??= readIndex(path)
     const start = media.startSeconds ?? 0
     keyframes = await record.cues
     if (start) keyframes = keyframes.map((time) => time - start)
@@ -148,6 +151,9 @@ export async function openPlaybackSource(
   const tsAudio = browser ? browserTransportAudio : transportAudio
   const audioNeedsMp4 = audioTracks.some(track => {
     const copy = copyAudio.has(track.index)
+    // Keep MP3 packet timestamps. Progressive TS is appended as raw
+    // audio/mpeg in Chromium and can leave a hole at every segment.
+    if (browser && copy && track.codec === 'mp3') return true
     if (copy && !tsAudio.has(track.codec ?? '')) return true
     // ADTS cannot represent all AAC channel configurations above 5.1.
     const channels = track.channels ?? 2

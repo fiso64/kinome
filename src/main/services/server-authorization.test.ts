@@ -289,6 +289,21 @@ describe('HTTP authorization — capability enforcement', () => {
         { stdin: await firstFragment(converted) })
       expect(surround.exitCode).toBe(0)
       expect(surround.stdout.toString().trim()).toBe('aac,8')
+      // Browsers need timestamped MP3 packets, including audio before
+      // the first video keyframe. Check the bytes the player receives.
+      const delayed = Bun.spawnSync([ffmpeg!, '-v', 'error', '-itsoffset', '1', '-i', join(directory, 'movie.mkv'),
+        '-i', join(directory, 'movie.mkv'), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
+        '-c:a', 'libmp3lame', '-ac', '1', '-t', '4', join(directory, 'lead.mp4')])
+      expect(delayed.exitCode).toBe(0)
+      ctx.seedItems([{ id: 'delayed-movie', sourceId: 'hls-source', path: 'lead.mp4' }])
+      const lead = new URL('/api/hls/delayed-movie/remux/master.m3u8', master)
+      lead.search = new URLSearchParams({ token: adminToken, web: '1', audio: '1' }).toString()
+      const timing = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=codec_name,start_time',
+        '-of', 'json', 'pipe:0'], { stdin: await firstFragment(lead) })
+      expect(timing.exitCode).toBe(0)
+      const [picture, sound] = JSON.parse(timing.stdout.toString()).streams
+      expect(sound.codec_name).toBe('mp3')
+      expect(Number(picture.start_time) - Number(sound.start_time)).toBeCloseTo(1, 1)
       const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
       expect(initialization.status).toBe(206)
       expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')

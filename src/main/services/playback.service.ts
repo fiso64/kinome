@@ -1,4 +1,6 @@
 import type { PlaybackQuality } from '@shared/playback-quality'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
@@ -199,13 +201,14 @@ function parseByteRange(header: string | null, fileSize: number): { start: numbe
   return { start: Number(start), end: end === undefined || end >= size ? fileSize - 1 : Number(end) }
 }
 
-/** Serves the requested bytes from a file-backed Blob. */
+/** Read original media off the event loop. Generated segments can use their cached Blob slices. */
 export function handleFileStreamFast(
-  file: { slice(start: number, end: number): Blob },
+  file: string | { slice(start: number, end: number): Blob },
   fileSize: number,
   contentType: string,
   rangeHeader: string | null,
-  logContext?: StreamRequestLogContext
+  logContext?: StreamRequestLogContext,
+  signal?: AbortSignal
 ): Response {
   const head = logContext?.method === 'HEAD'
   const range = head ? null : parseByteRange(rangeHeader, fileSize)
@@ -227,7 +230,12 @@ export function handleFileStreamFast(
     })
   }
 
-  return new Response(head ? null : file.slice(start, end), { status, headers })
+  if (head || start === end) return new Response(null, { status, headers })
+  if (typeof file !== 'string') return new Response(file.slice(start, end), { status, headers })
+  // Bun can spend hundreds of milliseconds sending a cold file slice on the
+  // HTTP thread, delaying every viewer. Bound read-ahead for slow clients.
+  const stream = createReadStream(file, { start, end: end - 1, highWaterMark: 256 * 1024, signal })
+  return new Response(stream, { status, headers })
 }
 
 /**
@@ -241,7 +249,8 @@ export function handleFileStreamFast(
 export async function handleCachedStream(
   itemId: string,
   rangeHeader: string | null,
-  logContext: Omit<StreamRequestLogContext, 'itemId' | 'cacheHit'> = {}
+  logContext: Omit<StreamRequestLogContext, 'itemId' | 'cacheHit'> = {},
+  signal?: AbortSignal
 ): Promise<Response | null> {
   const safeLogContext = getSafeLogContext(logContext)
   const cacheKey = getStreamCacheKey(itemId, logContext.userId)
@@ -270,9 +279,8 @@ export async function handleCachedStream(
   }
 
   // Get LIVE file size for every request to support growing files (e.g. active torrents)
-  const file = Bun.file(cacheEntry.absolutePath)
-  const fileSize = file.size
-  if (fileSize === 0 && !await file.exists()) {
+  const file = await stat(cacheEntry.absolutePath).catch(() => null)
+  if (!file?.isFile()) {
     // Clear stale locations while allowing empty files to return their actual length.
     streamCache.delete(cacheKey)
     logVerbose('Stream request failed because the file is unavailable.', {
@@ -286,15 +294,16 @@ export async function handleCachedStream(
   }
 
   return handleFileStreamFast(
-    file,
-    fileSize,
+    cacheEntry.absolutePath,
+    file.size,
     cacheEntry.contentType,
     rangeHeader,
     {
       ...safeLogContext,
       ...getItemLogInfo(itemId),
       cacheHit
-    }
+    },
+    signal
   )
 }
 

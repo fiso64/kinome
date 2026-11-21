@@ -12,6 +12,7 @@ interface Sample {
   end: number
   frames: number
   dropped: number
+  offline?: boolean
 }
 
 export class AdaptivePlaybackStats {
@@ -59,6 +60,12 @@ export class AdaptivePlaybackStats {
     const first = this.samples[0]
     const seconds = (time - first.time) / 1000
     if (seconds < 3 || (duration - position) / rate < 5) return
+    // A local media server can still deliver bytes while the browser
+    // reports offline. Keep the current rendition through an actual outage.
+    if (sample.offline && end <= first.end) {
+      this.headroomSince = undefined
+      return
+    }
     const ahead = (end - position) / rate
     const mid = this.samples[Math.floor(this.samples.length / 2)]
     const recentRate = (end - mid.end) * 1000 / (time - mid.time)
@@ -123,11 +130,12 @@ export function monitorAdaptivePlayback(
   document.addEventListener('visibilitychange', reset, { signal })
   window.addEventListener('offline', reset, { signal })
   const timer = window.setInterval(() => {
-    if (!started || document.hidden || !navigator.onLine || video.seeking || video.paused || video.ended) return reset()
+    if (!started || document.hidden || video.seeking || video.paused || video.ended) return reset()
     const position = video.currentTime
     const frames = video.getVideoPlaybackQuality?.()
     const decision = stats.sample({
-      time: performance.now(), end: bufferedEnd(video), frames: frames?.totalVideoFrames ?? 0, dropped: frames?.droppedVideoFrames ?? 0
+      time: performance.now(), end: bufferedEnd(video), frames: frames?.totalVideoFrames ?? 0,
+      dropped: frames?.droppedVideoFrames ?? 0, offline: !navigator.onLine
     }, position, video.duration, video.playbackRate, video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA,
     previousRenditions.at(-1), recoverySeconds)
     if (decision === 'lower') switchDown(stats.bitrate, stats.deliveryRatio)
@@ -138,6 +146,59 @@ export function monitorAdaptivePlayback(
 }
 
 type HlsClass = typeof import('hls.js').default
+
+export function watchHlsSeeks(
+  Hls: HlsClass, player: InstanceType<HlsClass>, video: HTMLVideoElement, signal: AbortSignal,
+  stalled: (detail: string) => void
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let lastSegment: number | undefined
+  let unhelpfulFragments = 0
+  function clear() {
+    clearTimeout(timer)
+    timer = undefined
+    lastSegment = undefined
+    unhelpfulFragments = 0
+  }
+  function check() {
+    if (!video.seeking || signal.aborted) return
+    const { state } = player.inFlightFragments.main
+    // An active transfer has its own timeout and retries. An idle loader
+    // can wait forever when MSE reports a buffered but unplayable range.
+    if (state === 'IDLE' || state === 'STOPPED' || state === 'ENDED') stalled('HLS stopped loading during the seek.')
+    else timer = setTimeout(check, 8000)
+  }
+  video.addEventListener('seeking', () => {
+    clear()
+    timer = setTimeout(check, 8000)
+    if (!player.config.progressive) return
+    const { frag } = player.inFlightFragments.main
+    const target = video.currentTime
+    // Abandoning a partly transmuxed TS fragment can carry samples across
+    // the seek. Reset the parser while keeping completed media buffers.
+    // Parsed audio/video timestamps can move a playlist cut by a few
+    // frames. HLS still considers that fragment a match for the target.
+    const tolerance = player.config.maxFragLookUpTolerance
+    if (frag && frag.stats.chunkCount && !frag.stats.buffering.end &&
+      (target < frag.start - tolerance || target > frag.end + tolerance)) player.startLoad(target, true)
+  }, { signal })
+  player.on(Hls.Events.FRAG_BUFFERED, (_event, { frag }) => {
+    if (timer === undefined || !video.seeking || typeof frag.sn !== 'number') return
+    // One neighbouring fragment can legitimately supply decode preroll.
+    const margin = player.latestLevelDetails?.targetduration ?? frag.duration
+    const outside = video.currentTime < frag.start - margin || video.currentTime > frag.end + margin
+    if (lastSegment === frag.sn || outside) {
+      if (++unhelpfulFragments >= 2) stalled('HLS buffered segments without reaching the seek target.')
+    } else {
+      unhelpfulFragments = 0
+      clearTimeout(timer)
+      timer = setTimeout(check, 8000)
+    }
+    lastSegment = frag.sn
+  })
+  video.addEventListener('seeked', () => { if (!video.seeking) clear() }, { signal })
+  signal.addEventListener('abort', clear, { once: true })
+}
 
 export function createPlaybackHls(Hls: HlsClass, position: number, prefetch = false) {
   const player = new Hls({

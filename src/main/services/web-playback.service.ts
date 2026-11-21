@@ -11,7 +11,7 @@ import { recordPlayback } from './library.service'
 import { getPlaybackSequence, handleFileStreamFast, resolveStreamPath } from './playback.service'
 import { getItemById } from './repository.service'
 import { readSettings } from './settings.service'
-import { playbackMetadata } from './transcoding'
+import { keyframeReaderFor, playbackMetadata } from './transcoding'
 import { readMatroskaSubtitleIndexes, readMatroskaAssWindow, readMatroskaPgsWindow, readMatroskaPacketWindow } from './transcoding/matroska-cues'
 import { indexSupWindows } from './transcoding/sup-windows'
 import { ffmpeg, ffprobe } from './transcoding/runtime'
@@ -176,7 +176,8 @@ export async function getWebPlaybackInfo(itemId: string, accountId: string): Pro
   const media = await record?.media ?? null
   // A failed live probe can still allow original playback and locally stored track descriptions.
   const description = media ?? (getItemById(itemId) as { localMedia?: LocalMedia } | null)?.localMedia ?? null
-  const qualities = availablePlaybackQualities(settings)
+  const qualities = availablePlaybackQualities(settings).filter((quality) =>
+    quality !== 'remux' || !media?.container || keyframeReaderFor(media.container))
   const embedded = ffmpeg && media ? embeddedTracks(media) : []
   return {
     fontRevision: media?.fonts?.length ? record?.revision : undefined,
@@ -309,8 +310,8 @@ export async function serveSubtitle(
     }
     const file = await lstat(asset).catch(() => null)
     if (!file?.isFile() || !file.size) return missing()
-    const response = handleFileStreamFast(Bun.file(asset), file.size, type, request.headers.get('range'),
-      { method: request.method })
+    const response = handleFileStreamFast(asset, file.size, type, request.headers.get('range'),
+      { method: request.method }, request.signal)
     response.headers.set('Cache-Control', cacheControl)
     if (id === 'font') response.headers.set('Vary', 'Origin')
     response.headers.set('X-Content-Type-Options', 'nosniff')

@@ -117,3 +117,73 @@ A fixed-rendition control on the 1.2 Mbit/s trace incurred 10.63 s of waiting at
 Firefox exposed a background session recheck unmounting the player when the WebSocket repeatedly failed. The app now keeps an authenticated session mounted during revalidation. In the rerun Firefox switched from 540p to 480p and back, passed the old restart point and reached 81.7 s after 85 s of wall time. Five fresh Chromium LAN launches per mode measured median click-to-first-frame times of 156 ms for Prefer original and 168 ms for Automatic.
 
 These checks used real media, shaped delivery and CPU throttling. Switching between direct playback and HLS can still interrupt presentation. Physical low-power devices and Safari native HLS require separate validation.
+
+## November 21 reliability retest
+
+Firefox 158 reproduced the production freeze on `The.Hunger.Games.2012.BDRemux.1080p.mkv` using the deployed player bundle. DTS remux failed, then AAC conversion played the original H.264 picture. At 1664.417 s the player needed segment 713. The logged abort of segment 593 was an expected cancellation. Interrupting a partly parsed MPEG-TS segment could leave Firefox reporting a continuous 479–7606 s buffer after short, disjoint downloads. HLS went idle or kept loading the old position. The media element never completed the seek.
+
+| Reproduced failure | Fix and verification |
+| --- | --- |
+| Firefox hangs after dragging across partial TS downloads | Reset the parser when leaving a partly processed fragment. Reopen the same rendition if a seek stops making progress. The final build passed 64 seek bursts at 25 Mbit/s with 65 ms added media-request latency. Each required a presented picture over 1.2 s past the target. A stopped loader recovered while paused, and a 9.5 s active transfer completed without a restart. |
+| Fresh HLS resume at an exact segment cut can unnecessarily transcode video | Let HLS place its initial seek after both tracks have appended. The audio-conversion route kept the original picture at all five previously failing cuts in the AAC fixture. |
+| Chrome repeatedly fetches the same segment when seeking AVI with copied MP3 | In three constrained runs, Chrome lost audio coverage between 42.710 and 43 s. Timestamped fragmented MP4 passed all 15 repeat seek checks. All 1,149 MP3 packets in a 30 s extract matched the source in order. The server omits an unavailable remux attempt on containers without a supported seek index. |
+| Firefox shows a still on a valid delayed-video MP4 | The correct first picture was at 4 s. Firefox stamped it at 500 s and retained that clock across source reloads. Kinome checks the opening picture before applying a saved position, keeps any intentional audio lead-in, then opens a remux on a fresh element if the clock is wrong. Removing FFmpeg's input seek at zero preserves leading audio. Resumes at 0, 2, 20, 305 and 525 s passed. A matching-timescale control stayed in direct play. [Mozilla bug 2082877](https://bugzilla.mozilla.org/show_bug.cgi?id=2082877) |
+| Switching audio immediately after pausing restarts playback | Read the current pause state before replacing the source. Both browsers stayed paused. Switching reference tracks produced the expected 440/880 Hz tones. Three Firefox soundtrack changes on the movie took 1.13–1.31 s. |
+| Temporary HTTP 503 leaves the player at an error until manual retry | Reopen the same rendition with bounded backoff and retain the requested position. Chrome resumed direct MP4 after 6 and 16 s outages, and HLS after 35 and 90 s outages, without a browser online event. |
+| Automatic stays at source quality on a reachable server when the browser reports offline | Use measured buffer growth as evidence of delivery. With a 65 → 5 → 95 Mbit/s packet-shaped route, the old build waited 7.90 s. Two patched runs waited 2.07 and 1.94 s and restored 1080p. A real offline/online transition also recovered direct, remuxed and transcoded playback, including a paused seek. |
+
+Median click-to-first-picture time in Google Chrome 155, alternating production builds in fresh browser contexts. Five trials per cell, seven for AVI. The constrained profile used 4× CPU throttling, 85 ms latency and 10 Mbit/s downstream.
+
+| Source and active mode | LAN, before → after | Constrained, before → after |
+| --- | ---: | ---: |
+| H.264/AAC MP4, original | 94 → 93 ms | 586 → 603 ms |
+| MKV with alternate AAC, remux | 177 → 177 ms | 1193 → 1220 ms |
+| AVI, 360p with copied MP3 | 275 → 485 ms | 2146 → 2413 ms |
+| Hunger Games, 1080p with converted audio | 626 → 544 ms | 4537 → 4375 ms |
+
+- At 18 Mbit/s with 40 ± 12 ms egress latency and 0.35% packet loss, Firefox on one CPU completed all 35 target checks across seven files. Chrome completed 30 across six. On the movie, all 30 Firefox and 24 Chrome real pointer-drag trials passed, including while paused.
+- Across two extracts around the reported seek positions, all 1,556 decoded video frames matched the source hashes in order. All 271 sampled 200 ms audio windows correlated above 0.8 with the source, with median alignment errors of 0.1 and 0.5 ms. mpv and VLC independently decoded the same HLS audio conversion and sought to both positions.
+- Ten paused subtitle comparisons per browser showed visible pixels at expected cues across text, ASS, PGS and VobSub. Delaying five subtitle requests by 4.2 s left pictures advancing. Switching subtitles off during the delay left no stale overlay. Concurrent direct reads from the SSD and HDD matched local bytes in all 112 checks.
+- Firefox and Chrome each completed five seek checks on each of 16 files, covering H.264, HEVC, AV1, VP9, MPEG-2 and MPEG-4 Part 2. In a separate queue test each browser opened 12 selections while seeks were outstanding, including two selections deliberately replaced before playback. The ten retained selections all presented moving pictures.
+- On the delayed-video MP4, Firefox sometimes omitted the opening frame callback entirely under load. The player now keeps watching after startup and recovers if a visible, buffered video is past its first picture for two seconds without presenting it. Across 25 observed element replacements, the selected subtitle, volume, mute, speed and requested pause state survived. A Chrome control stayed in direct play. With callbacks deliberately withheld, Chrome recovered visibly and waited through a simulated hidden-tab interval before attempting recovery.
+- For cold starts, the same 49 MiB MP4 had zero resident file pages before each of 24 trials. Median SSD/HDD click-to-picture times were 169/719 ms for original playback and 597/963 ms for remux in Chrome. Firefox measured 416/294 ms and 552/624 ms respectively. Four concurrent HLS viewers completed all 20 pairs of duplicate segment requests while cancelling obsolete reads. The idle sessions expired after roughly one minute.
+- Direct AAC, remuxed AAC and copied MP3 playback produced no PCM silence lasting 16 ms or more in ordinary 48 s tone runs. Under a one-core limit, Chrome dropped frames and output measurable silence despite buffered data. Across four Firefox replays of the movie at 1644–1689 s, drops varied from 1 to 155. In two separate comparisons of the same scene, Kinome HLS dropped one and zero frames. Bare HLS dropped zero in both. The tests used headless browsers with simulated device constraints.
+- Two 30-minute playbacks shared the host with the other stress tests. Firefox advanced 1,794 s through the reported movie with its original H.264 picture. Chrome advanced 1,782 s through the 4K Reze conversion in Automatic. Every 30 s sample showed advancing pictures. Under load the longest individual presentation gaps were 3.74 s and 2.12 s respectively. Chrome reached 240p during contention and ended at 360p.
+- The rotating endurance run completed 55 sessions across 12 files with seeks, pauses and track switches. Across 93.6 minutes of sampling, the harness detected zero sustained freezes. Two earlier Firefox attempts failed to open the library in the harness. Both files were rerun successfully. The final production build, type checks and all 634 tests passed. The redeployed local test instance played and sought the direct MP4, the AVI conversion and the reported movie.
+
+Raw browser traces, packet hashes, screenshots and timing records are under `/mnt/storage/kinome-playback-audit/reliability-nov21`.
+
+## November 21 server contention
+
+The local production-build comparison used four cores of an Intel i5-8500 for Kinome and its FFmpeg workers and the other two for clients. Both the database and transcode directory were on SSD. Chrome 155 measured item click to first presented frame and seek to the first picture at the target, then checked that pictures advanced at least another 0.7 s. Each normal workload ran twice in opposite file order, with three seeks per file. The direct-play comparison used identical 49 MiB MP4s on SSD and HDD, evicted from the file cache before each trial. The network was local.
+
+The initial workload comparison used the build from the reliability retest. Background hardware sessions independently transcoded the same 1080p HEVC episode at disjoint positions, each consuming segments in real time with about 9 s of reserve. In the disk stress case, four competing readers issued uncached random 64 KiB reads across two movies on the same HDD. Median HDD utilization reached 100%.
+
+| Foreground seek, median ms | Idle | Two VA-API clients | Four VA-API clients | Random HDD reads | Four VA-API + random HDD reads |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original MP4 on SSD | 55 | 59 | 60 | 58 | 65 |
+| Original MP4 on HDD | 64 | 61 | 64 | 474 | 444 |
+| HDD MP4 with alternate AAC, remux | 146 | 138 | 137 | 506 | 539 |
+| Hunger Games, copy H.264 and convert DTS | 554 | 653 | 729 | 1,393 | 619 |
+| 1080p HEVC episode, full video transcode | 320 | 462 | 903 | 615 | 316 |
+
+- All 180 Chrome seek checks across these workloads and the idle recovery run passed. Firefox 158 completed 30 additional seek checks on the movie and an AVI conversion across disk contention, combined load and recovery. All four background VA-API timelines kept their buffers in the combined test.
+- On the high-bitrate Hunger Games remux, three 30 s observations immediately after seeking under combined load advanced 5.6, 15.6 and 29.4 s. In the first two, the audio-conversion route repeatedly ran out of buffered media while the next segment loaded. The third reached full video conversion. Under that load, the original movie's three audio switches took 1.0–2.8 s, Reze's took 1.9–4.1 s, and four embedded subtitle requests completed in 0.12–1.15 s.
+- A cold original-file response could block unrelated requests on the HTTP thread. In eight alternating trials per build, reading four 4 MiB HDD ranges drove an independent authenticated endpoint's p95 to 574–691 ms. Serving original files and subtitle assets with asynchronous reads reduced that to 3.3–3.6 ms. The 16 MiB transfers took 2.23–2.55 s with the fix and 2.38–2.87 s before. All 80 byte comparisons, including full-file and final-byte requests, matched. Freshly generated HLS segments retain their existing fast path.
+- The final implementation passes Bun's `node:fs.createReadStream` directly to `Response`. Returning a sliced `Bun.file`, its stream, or that stream through a Web Stream adapter all delayed the HTTP thread on cold reads. The change costs peak cached loopback throughput. The median for one reader went from 5,154 to 2,750 MiB/s and the total for four readers went from 8,470 to 2,824 MiB/s. Eight clients paced at 4 MiB/s each completed in 12.0 s on both builds. Server CPU time rose from 0.10–0.11 to 0.82–0.90 core-seconds for the combined 384 MiB. Eight stalled clients stopped reading ahead and released all eight file descriptors within 7 ms of disconnect.
+
+Software encoding of the same episode gave a different capacity limit. These are foreground full-video-transcode times. With zero background sessions there was one launch and three seeks. With two or four background sessions there were two launches and six seeks per cell.
+
+| Background software transcodes | Median server-core utilization | Click to picture | Median seek | Buffer exhaustion across background viewers |
+| --- | ---: | ---: | ---: | --- |
+| 0 | 13% | 0.78 s | 0.76 s | — |
+| 2 | 85% | 1.41 s | 1.02 s | 0 s each |
+| 4 | 99.5% | 2.04 s | 2.25 s | 0, 0, 0.99 and 7.33 s |
+
+- Two browser viewers started independent 1080p software encodes in 1.31 and 1.50 s with two additional HLS clients active. Both passed three simultaneous seeks at different positions. After closing one browser, the other presented another 10.01 s of video in 10 s.
+- Four unrelated CPU busy loops and a separate 40 MiB/s sequential HDD scan each passed all 15 foreground seek checks. Median direct HDD seeks were 48 and 58 ms respectively. The sequential scan exercised a much lighter disk workload than the random reads.
+- Six software 1080p peers saturated all four cores. In two paired 100 s browser runs with peers stopped partway through, Prefer original advanced 89.2 and 87.9 s. Automatic advanced 85.6 and 88.8 s. Automatic reached 480p on the first run and 720p on the second, then returned to 1080p both times. Preparing and attaching lower renditions took time on the overloaded encoder. Automatic showed no consistent playback-time advantage here.
+- Four clients independently requested four different titles, including the 4K HDR Reze movie converted to 1080p. All four delivered 97–98 s of media without exhausting their buffers while a fifth browser played Hunger Games. With another four random HDD readers active for the first 38 s, that browser advanced normally at a previously exercised position and kept the original H.264 picture.
+- In a separate recovery run, three previously untested seek positions on Hunger Games took 2.29, 2.55 and 3.10 s to reach a moving picture under combined contention. The browser played through the following 70 s, including the removal of disk and transcode load halfway through. Across the runs, storage contention produced intermittent, scene-dependent underruns.
+
+Raw workload drivers, per-viewer segment delivery, host samples, browser presentation timings and before/after measurements are under `/mnt/storage/kinome-playback-audit/server-load`.

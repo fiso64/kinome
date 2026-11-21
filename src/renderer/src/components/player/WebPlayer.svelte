@@ -21,9 +21,9 @@
   } from '@lib/services/web-playback.service'
   import { isVideoQuality } from '@shared/playback-quality'
   import { webQualityChoices, webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
-  import type { MediaChapter } from '@shared/local-media'
+  import { isMp4Container, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
-  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, type RenditionTarget } from './adaptive-playback'
+  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
   let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
@@ -42,8 +42,10 @@
   let opening: AbortController | undefined
 
   let dialog: HTMLDialogElement
+  let videoGeneration = $state(0)
   type BrowserAudioTracks = ArrayLike<{ enabled: boolean }> & EventTarget
-  let video: HTMLVideoElement & { audioTracks?: BrowserAudioTracks; mozHasAudio?: boolean; captureStream?: () => MediaStream }
+  type PlayerVideo = HTMLVideoElement & { audioTracks?: BrowserAudioTracks; mozHasAudio?: boolean; captureStream?: () => MediaStream }
+  let video: PlayerVideo = $state(null!)
   let nativeAudio = $state.raw<BrowserAudioTracks>()
   let surface: HTMLDivElement
   let fullscreenButton: HTMLElement
@@ -309,7 +311,9 @@
     if (remember && mediaReady) {
       persist(true)
       resumeAt = video.ended ? 0 : requestedPosition ?? video.currentTime
-      if (video.ended) wantPlayback = true
+      // paused changes synchronously. Its queued event may still belong
+      // to the old source when the viewer switches tracks.
+      if (!video.error) wantPlayback = video.ended || !video.paused
     }
     clearSource()
     loading = true
@@ -333,11 +337,18 @@
     const incompatible = new Set<number>()
     let recoverySeconds = 20
     let lastUpgrade = -Infinity
+    let retriedSeek: { source: number; position: number } | undefined
+    let transportRetries = 0
+    let reconnectTimer: ReturnType<typeof setTimeout>
     let attempt: AbortController | undefined
-    controller.signal.addEventListener('abort', () => attempt?.abort(), { once: true })
+    controller.signal.addEventListener('abort', () => {
+      clearTimeout(reconnectTimer)
+      attempt?.abort()
+    }, { once: true })
 
-    async function nextSource(prepared?: HlsType) {
+    async function nextSource(prepared?: HlsType, resetVideoClock = false) {
       if (controller.signal.aborted) return
+      clearTimeout(reconnectTimer)
       const candidate = candidates[index++]
       const mode = candidate?.mode
       if (attempt) {
@@ -349,6 +360,18 @@
         hls = undefined
         video.removeAttribute('src')
         video.load()
+        if (resetVideoClock) {
+          // Firefox keeps the last presented timestamp across load(). An
+          // out-of-range timestamp suppresses frame callbacks on the next
+          // source too, including those used by the subtitle renderer.
+          const { volume, muted } = video
+          subtitleReady = false
+          videoGeneration++
+          await tick()
+          if (controller.signal.aborted) return
+          video.volume = volume
+          video.muted = muted
+        }
       }
       if (!mode) {
         loading = false
@@ -367,14 +390,21 @@
         itemId: item.id, mode, sourceVideo: sourceVideo?.codec, sourceAudio: audio?.codec, audioIndex,
         videoCodec: candidate.videoCodec, sound: candidate.sound, position: mediaReady ? video.currentTime : resumeAt
       })
-      function failed(message: string, transport = false, details?: object) {
+      function failed(message: string, transport = false, details?: { status?: number; [key: string]: unknown }, resetVideoClock = false) {
         if (signal.aborted) return
         const next = transport ? undefined : candidates[index]
+        const status = details?.status
+        // A proxy or server can recover without any browser online event.
+        // HLS has already used its per-request retries at this point.
+        const transient = transport && (!status || status < 400 || [408, 500, 502, 503, 504].includes(status))
+        const retryDelay = transient ? [2000, 5000, 10000, 20000, 30000][transportRetries] : undefined
         const failure = {
           ...context(), reason: diagnosticMessage(message), ...details,
           mediaCode: video.error?.code, mediaMessage: diagnosticMessage(video.error?.message)
         }
-        if (next) {
+        if (retryDelay) {
+          console.warn('[Kinome player] Connection interrupted, retrying source', { ...failure, retryInMs: retryDelay })
+        } else if (next) {
           console.warn('[Kinome player] Source failed, trying fallback', { ...failure, next })
         } else {
           console.error('[Kinome player] Playback failed', failure)
@@ -383,6 +413,7 @@
         if (mediaReady) {
           persist(true)
           resumeAt = requestedPosition ?? video.currentTime
+          if (resetVideoClock) wantPlayback = !video.paused
         }
         mediaReady = false
         if (transport) {
@@ -390,12 +421,16 @@
           hls?.destroy()
           hls = undefined
           loading = false
-          error = message
+          error = retryDelay ? `${message} Retrying in ${retryDelay / 1000} seconds.` : message
+          if (retryDelay) {
+            transportRetries++
+            reconnectTimer = setTimeout(() => retryTransport?.(), retryDelay)
+          }
           loadQueue()
           return
         }
         if (index < candidates.length) {
-          void nextSource()
+          void nextSource(undefined, resetVideoClock)
         } else {
           loading = false
           activeQuality = undefined
@@ -432,6 +467,7 @@
       listen('loadeddata', updateBufferedRanges, true)
       listen('seeked', () => {
         if (video.seeking) return
+        if (retriedSeek?.source === index && Math.abs(video.currentTime - retriedSeek.position) < 1) retriedSeek = undefined
         updateBufferedRanges()
         updatePlaybackPosition()
         if (committedPosition !== undefined) {
@@ -448,7 +484,24 @@
         paused = false
         resetFrameStep()
       })
-      listen('loadedmetadata', () => {
+      const firstPicture = sourceVideo?.startSeconds ?? 0
+      // A cached MP4 can present its opening frame before loadedmetadata
+      // runs. Register before assigning src so that timestamp is retained.
+      const openingPicture = mode === 'original' && candidates[index] && firstPicture > 0 &&
+        isMp4Container(info?.media?.container) && typeof video.requestVideoFrameCallback === 'function'
+        ? checkOpeningPicture(video, signal, firstPicture, (pictureTime) => {
+          if (pictureTime !== undefined && pictureTime <= Math.max(firstPicture, video.currentTime) + 0.5) return
+          const recover = () => failed(pictureTime === undefined ? 'The browser did not present the opening picture.'
+            : 'The browser placed the picture outside the playback timeline.',
+            false, { pictureTime, firstPicture }, true)
+          if (Math.max(resumeAt, video.currentTime) >= firstPicture) { recover(); return }
+          // Let the viewer hear the intentional audio lead-in.
+          const afterLead = () => { if (video.currentTime >= firstPicture) recover() }
+          listen('timeupdate', afterLead)
+          listen('seeking', afterLead)
+        }) : undefined
+      const deferPlay = !!openingPicture && resumeAt > 0
+      listen('loadedmetadata', async () => {
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
           failed('The browser could decode the audio but could not decode the video.')
           return
@@ -487,12 +540,23 @@
             return
           }
         }
-        if (resumeAt > 0 && Number.isFinite(video.duration)) {
+        if (openingPicture) {
+          // Inspect the opening frame before seeking. Firefox can interpret an
+          // empty MP4 edit in track ticks, then present no pictures on resume.
+          await openingPicture
+          if (signal.aborted) return
+        }
+        // A fresh HLS loader seeks to its configured start after it has
+        // appended both tracks. Seeking earlier can strand the element just
+        // before the first playable sample at a segment boundary. A prepared
+        // rendition still needs the position reached during prefetch.
+        if (resumeAt > 0 && Number.isFinite(video.duration) && (!hls || prepared || resumeAt >= video.duration)) {
           video.currentTime = Math.min(resumeAt, Math.max(0, video.duration - 0.1))
         }
         timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
         updatePlaybackPosition()
         observePresentedFrames(signal)
+        if (deferPlay) play()
         width = video.videoWidth
         height = video.videoHeight
         mediaReady = true
@@ -596,6 +660,7 @@
         if (!video.ended) persist(true)
       })
       listen('timeupdate', () => {
+        if (transportRetries && !video.seeking && video.currentTime >= resumeAt + 5) transportRetries = 0
         updatePlaybackPosition()
         persist()
       })
@@ -608,13 +673,12 @@
       listen('error', async () => {
         let network = video.error?.code === MediaError.MEDIA_ERR_NETWORK
         let status: number | undefined
-        // Native playback can report HTTP errors as unsupported formats.
-        // Probe only this ambiguous failure, leaving successful starts untouched.
-        if (video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && video.getAttribute('src') === url) {
+        // Native media errors hide the status of a failed range request.
+        if ((network || video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) && video.getAttribute('src') === url) {
           try {
             const response = await fetch(url, { method: 'HEAD', signal })
             status = response.status
-            network = !response.ok && status !== 422
+            network ||= !response.ok && status !== 422
           } catch {
             network = true
           }
@@ -623,7 +687,7 @@
       })
       if (mode === 'original' || (video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.')) {
         video.src = url
-        play()
+        if (!deferPlay) play()
         return
       }
       try {
@@ -632,6 +696,19 @@
         if (Hls.isSupported()) {
           const player = prepared ?? createPlaybackHls(Hls, resumeAt)
           hls = player
+          watchHlsSeeks(Hls, player, video, signal, (reason) => {
+            const position = video.currentTime
+            const { state, frag } = player.inFlightFragments.main
+            const details = { state, segment: frag?.sn, readyState: video.readyState, bufferedAhead: bufferedEnd(video) - position }
+            if (retriedSeek?.source === index && Math.abs(retriedSeek.position - position) < 1) {
+              failed(reason, false, details)
+              return
+            }
+            console.warn('[Kinome player] Seek stalled, reopening source', { ...context(), reason, ...details })
+            retriedSeek = { source: index, position }
+            reportRecovery = true
+            retryTransport?.()
+          })
           const updateBuffer = () => { if (!signal.aborted) updateBufferedRanges() }
           player.on(Hls.Events.BUFFER_APPENDED, updateBuffer)
           player.on(Hls.Events.BUFFER_FLUSHED, updateBuffer)
@@ -645,6 +722,7 @@
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (signal.aborted) return
             if (!data.fatal) {
+              if (data.details === Hls.ErrorDetails.INTERNAL_ABORTED) return
               // Ordinary buffer management can emit events on healthy playback.
               // Report actionable errors immediately, once per kind per attempt.
               if (!warned.has(data.details) && (data.type === Hls.ErrorTypes.NETWORK_ERROR ||
@@ -844,6 +922,54 @@
 
   function resetFrameStep() {
     pendingFrameTime = steppedFrameTime = undefined
+  }
+
+  function checkOpeningPicture(
+    element: HTMLVideoElement, signal: AbortSignal, firstPicture: number, inspect: (time?: number) => void
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const listeners = new AbortController()
+      let timer: ReturnType<typeof setTimeout>
+      let missing: ReturnType<typeof setTimeout> | undefined
+      const frame = element.requestVideoFrameCallback((_now, { mediaTime }) => {
+        finish()
+        inspect(mediaTime)
+      })
+      function finish() {
+        listeners.abort()
+        clearTimeout(timer)
+        clearTimeout(missing)
+        element.cancelVideoFrameCallback(frame)
+        resolve()
+      }
+      signal.addEventListener('abort', () => finish(), { once: true, signal: listeners.signal })
+      // A background tab or a decoder without a drawable opening frame can
+      // still play. Continue startup, but inspect the frame when it arrives.
+      const shouldPresent = () => !document.hidden && !element.seeking && element.currentTime >= firstPicture &&
+        element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      function watchPresentation() {
+        if (shouldPresent()) {
+          missing ??= setTimeout(() => {
+            missing = undefined
+            if (shouldPresent()) { finish(); inspect() }
+          }, 2000)
+          return
+        }
+        clearTimeout(missing)
+        missing = undefined
+      }
+      function continueStartup() {
+        resolve()
+        for (const event of ['timeupdate', 'seeking', 'seeked', 'waiting']) {
+          element.addEventListener(event, watchPresentation, { signal: listeners.signal })
+        }
+        document.addEventListener('visibilitychange', watchPresentation, { signal: listeners.signal })
+        watchPresentation()
+      }
+      const ready = () => { timer = setTimeout(continueStartup, 300) }
+      if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) ready()
+      else element.addEventListener('loadeddata', ready, { once: true, signal: listeners.signal })
+    })
   }
 
   function observePresentedFrames(signal: AbortSignal) {
@@ -1372,8 +1498,10 @@
       aria-label={title}>
       <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}
         style:--subtitle-scale={subtitleScale / 100} style:--subtitle-position={`${subtitlePosition}%`}>
-        <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
-          onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
+        {#key videoGeneration}
+          <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
+            onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
+        {/key}
         {#if error}
           <div class="playback-error" role="alert">
             <h2>Couldn't play this video</h2>

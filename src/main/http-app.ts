@@ -175,7 +175,7 @@ async function handleDirectStreamRequest({ params, query, request, session }: {
     userAgent: request.headers.get('user-agent'),
     watchRequested,
     userId
-  })
+  }, request.signal)
   if (!response) return new Response(request.method === 'HEAD' ? null : 'File not found', { status: 404 })
   if (watchRequested && response.ok) {
     playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))

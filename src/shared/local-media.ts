@@ -42,6 +42,10 @@ export interface LocalMedia {
   chapters?: MediaChapter[]
 }
 
+export function isMp4Container(container?: string): boolean {
+  return !!container && ['mov', 'mp4', 'm4v', '3gp', '3g2', 'mj2'].includes(container)
+}
+
 export const VIDEO_EXTENSIONS = [
   '.mp4',
   '.mkv',

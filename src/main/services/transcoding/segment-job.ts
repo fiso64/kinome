@@ -75,7 +75,9 @@ export function startSegmentJob(
     // Keep the corresponding decoded audio preroll instead of trimming it to
     // that later timestamp when only the audio is being converted.
     ...(quality === 'audio' ? ['-noaccurate_seek'] : []),
-    '-ss', inputStart.toFixed(6),
+    // Seeking even to zero can jump to a delayed first video keyframe
+    // and discard the audio that precedes it in the container.
+    ...(inputStart > 0 ? ['-ss', inputStart.toFixed(6)] : []),
     ...(!remux && source.x264Build !== undefined ? ['-x264_build', String(source.x264Build)] : []),
     '-threads', '2', '-protocol_whitelist', 'file', '-i', path,
     '-map', `0:${video.index}`, ...audioTracks.flatMap((track) => ['-map', `0:${track.index}`]),
