@@ -51,7 +51,7 @@ export function updateUserState(
 
 /**
  * Bulk-sets watched state for many items in a single SQL statement.
- * Use for folder mark-watched where every file gets the same value.
+ * A manual watched or unwatched action also clears saved playback positions.
  */
 export function bulkSetWatched(itemIds: string[], userId: string, watched: boolean, lastWatchedAt: number): void {
     if (itemIds.length === 0) return
@@ -63,7 +63,8 @@ export function bulkSetWatched(itemIds: string[], userId: string, watched: boole
         SELECT id, ?, ?, ? FROM media_items WHERE id IN (${placeholders})
         ON CONFLICT(item_id, user_id) DO UPDATE SET
           watched = excluded.watched,
-          last_watched_at = excluded.last_watched_at
+          last_watched_at = excluded.last_watched_at,
+          playback_position = 0
     `).run(userId, watchedInt, lastWatchedAt, ...itemIds)
 }
 

@@ -83,7 +83,10 @@ describe('HTTP authorization — capability enforcement', () => {
         Bun.write(join(directory, 'film.en.forced.vtt'), 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n'),
         Bun.write(join(directory, 'other.en.vtt'), 'WEBVTT\n')
       ])
-      ctx.seedItems([{ id: 'web-movie', sourceId: 'web-source', path: 'film.mp4' }])
+      ctx.seedItems([
+        { id: 'web-folder', type: 'folder', sourceId: 'web-source' },
+        { id: 'web-movie', parentId: 'web-folder', sourceId: 'web-source', path: 'film.mp4' }
+      ])
       expect((await app.handle(new Request(`http://localhost${base}/info`))).status).toBe(401)
       const info = await (await app.handle(req('GET', base + '/info'))).json() as WebPlaybackInfo
       expect(info.position).toBe(0)
@@ -104,6 +107,19 @@ describe('HTTP authorization — capability enforcement', () => {
       expect((await app.handle(req('POST', base + '/progress', { position: 95, completed: true }))).status).toBe(200)
       expect(await (await app.handle(req('GET', base + '/info'))).json()).toMatchObject({ position: 0 })
       expect(await (await app.handle(req('GET', '/api/items/web-movie'))).json()).toMatchObject({ watched: true })
+      expect((await app.handle(req('POST', base + '/progress', { position: 24, completed: false }, adminToken))).status).toBe(200)
+      for (const itemId of ['web-movie', 'web-folder']) {
+        for (const watched of [false, true]) {
+          expect((await app.handle(req('POST', base + '/progress', { position: 35, completed: false }))).status).toBe(200)
+          expect((await app.handle(req('POST', watched ? '/api/mark-watched' : '/api/mark-unwatched', { itemId }))).status).toBe(200)
+          expect(await (await app.handle(req('GET', base + '/info'))).json()).toMatchObject({ position: 0 })
+          expect(await (await app.handle(req('GET', '/api/items/web-movie'))).json()).toMatchObject({ watched })
+        }
+      }
+      expect((await app.handle(req('POST', base + '/progress', { position: 15, completed: false }))).status).toBe(200)
+      expect(await (await app.handle(req('GET', base + '/info'))).json()).toMatchObject({ position: 15 })
+      expect(await (await app.handle(req('GET', '/api/items/web-movie'))).json()).toMatchObject({ watched: true })
+      expect(await (await app.handle(req('GET', base + '/info', undefined, adminToken))).json()).toMatchObject({ position: 24 })
     } finally {
       source.mockRestore()
       await rm(directory, { recursive: true, force: true })
