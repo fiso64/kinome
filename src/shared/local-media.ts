@@ -20,6 +20,12 @@ export interface LocalMediaTrack {
   hearingImpaired: boolean
 }
 
+export interface MediaChapter {
+  startSeconds: number
+  endSeconds?: number
+  title?: string
+}
+
 export interface LocalMedia {
   container?: string
   durationSeconds?: number
@@ -27,6 +33,7 @@ export interface LocalMedia {
   encoder?: string
   tracks: LocalMediaTrack[]
   fonts?: number[]
+  chapters?: MediaChapter[]
 }
 
 export const VIDEO_EXTENSIONS = [

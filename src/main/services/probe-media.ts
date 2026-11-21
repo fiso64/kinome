@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { isFontAttachment } from '@shared/web-playback'
-import type { LocalMedia, LocalMediaTrack } from '@shared/local-media'
+import type { LocalMedia, LocalMediaTrack, MediaChapter } from '@shared/local-media'
 
 interface ProbeStream {
   index: number
@@ -21,7 +21,14 @@ interface ProbeStream {
   disposition?: { attached_pic?: number; default?: number; forced?: number; hearing_impaired?: number }
 }
 
+interface ProbeChapter {
+  start_time?: string
+  end_time?: string
+  tags?: Record<string, string>
+}
+
 interface ProbeResult {
+  chapters?: ProbeChapter[]
   streams?: ProbeStream[]
   format?: { format_name?: string; duration?: string; bit_rate?: string; tags?: Record<string, string> }
 }
@@ -41,11 +48,27 @@ function tag(tags: Record<string, string> | undefined, key: string): string | un
   return tags[key] ?? Object.entries(tags).find(([name]) => name.toLowerCase() === key)?.[1]
 }
 
+function parseChapters(chapters: ProbeChapter[], duration?: number): MediaChapter[] {
+  const result = new Map<number, MediaChapter>()
+  for (const chapter of chapters) {
+    const startSeconds = Number(chapter.start_time?.trim() || NaN)
+    if (!Number.isFinite(startSeconds) || startSeconds < 0 ||
+      (duration !== undefined && startSeconds >= duration) || result.has(startSeconds)) continue
+
+    const end = Number(chapter.end_time?.trim() || NaN)
+    const endSeconds = Number.isFinite(end) && end > startSeconds ? Math.min(end, duration ?? end) : undefined
+    const title = tag(chapter.tags, 'title')?.trim() || undefined
+    result.set(startSeconds, { startSeconds, endSeconds, title })
+  }
+  return [...result.values()].sort((a, b) => a.startSeconds - b.startSeconds)
+}
+
 export async function probeMedia(executable: string, filePath: string): Promise<LocalMedia> {
   const process = Bun.spawn([
     executable, '-v', 'error', '-protocol_whitelist', 'file',
     '-show_entries', [
       'format=format_name,duration,bit_rate', 'format_tags=encoder',
+      'chapter=start_time,end_time', 'chapter_tags=title',
       'stream=index,codec_type,codec_name,profile,pix_fmt,color_transfer,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate,duration',
       'stream_tags=language,title,encoder,filename,mimetype,DURATION', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
     ].join(':'),
@@ -56,7 +79,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
   ])
   if (code !== 0 || errors.trim()) throw new Error(errors.trim().slice(0, 512) || `ffprobe exited with status ${code}`)
 
-  const { format, streams } = JSON.parse(json) as ProbeResult
+  const { format, streams, chapters = [] } = JSON.parse(json) as ProbeResult
   const tracks: LocalMediaTrack[] = []
   let avDuration = 0
   for (const stream of streams ?? []) {
@@ -98,6 +121,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     bitrate: positiveNumber(format?.bit_rate),
     encoder: tracks.find((track) => track.kind === 'video')?.encoder ?? tag(format?.tags, 'encoder'),
     tracks,
+    chapters: parseChapters(chapters, duration),
     fonts: streams?.filter((stream) => stream.codec_type === 'attachment' &&
       isFontAttachment(tag(stream.tags, 'filename'), tag(stream.tags, 'mimetype'))).map((stream) => stream.index)
   }

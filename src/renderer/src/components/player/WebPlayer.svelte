@@ -25,6 +25,7 @@
     matchesLanguage, preferredSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
   import { webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
+  import type { MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
@@ -54,15 +55,25 @@
   let keyboardNavigation = false
   let dismissedPanelOnVideo = false
 
-  type Panel = 'tracks' | 'queue' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
+  type Panel = 'tracks' | 'queue' | 'chapters' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
   const panelTitles: Record<Panel, string> = {
-    tracks: 'Audio & subtitles', queue: 'Playback queue', settings: 'Playback settings', quality: 'Video quality',
+    tracks: 'Audio & subtitles', queue: 'Playback queue', chapters: 'Chapters', settings: 'Playback settings', quality: 'Video quality',
     speed: 'Playback speed', external: 'Play with', shortcuts: 'Keyboard shortcuts'
   }
   let panel = $state<Panel>()
   const settingsOpen = $derived(Boolean(panel && panel !== 'tracks' && panel !== 'queue'))
 
   let info = $state<WebPlaybackInfo>()
+  let timelineDuration = $state(0)
+  let chapterIndex = $state(-1)
+  let pointedChapter = $state(-1)
+  let focusedChapter = $state(-1)
+  let previewChapterIndex = $state(-1)
+  const chapters = $derived(info?.media?.chapters ?? [])
+  const chapterHighlights = $derived(getChapterHighlights(chapters))
+  const chapterHintIndex = $derived(focusedChapter >= 0 ? focusedChapter : pointedChapter)
+  const chapterHint = $derived(chapters[chapterHintIndex])
+  const previewChapter = $derived(chapters[previewChapterIndex])
   let quality = $state<WebQualityChoice>('auto')
   let activeQuality = $state<WebPlaybackQuality>()
   let audioIndex = $state<number>()
@@ -115,6 +126,7 @@
     activeQuality = undefined
     mediaReady = false
     subtitleReady = false
+    chapterIndex = pointedChapter = focusedChapter = -1
     subtitleId = ''
     delay = 0
     paused = true
@@ -217,6 +229,8 @@
     playBlocked = false
     width = 0
     height = 0
+    timelineDuration = 0
+    previewChapterIndex = -1
     paused = true
     const controller = new AbortController()
     operation = controller
@@ -279,6 +293,9 @@
           else failed('This browser could not play the selected source.')
         })
       }
+      listen('durationchange', () => {
+        timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
+      })
       listen('loadedmetadata', () => {
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
           failed('The browser could decode the audio but could not decode the video.')
@@ -287,6 +304,8 @@
         if (resumeAt > 0 && Number.isFinite(video.duration)) {
           video.currentTime = Math.min(resumeAt, Math.max(0, video.duration - 0.1))
         }
+        timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
+        chapterIndex = chapterAfter(video.currentTime) - 1
         width = video.videoWidth
         height = video.videoHeight
         mediaReady = true
@@ -309,7 +328,10 @@
         loading = false
         if (!video.ended) persist(true)
       })
-      listen('timeupdate', () => persist())
+      listen('timeupdate', () => {
+        if (chapters.length) chapterIndex = chapterAfter(video.currentTime) - 1
+        persist()
+      })
       listen('ended', () => {
         completed = true
         resumeAt = 0
@@ -365,10 +387,94 @@
     setSubtitle(subtitleId ? '' : lastSubtitle || info?.subtitles[0]?.id || '')
   }
 
-  function seek(seconds: number) {
+  function seekTo(seconds: number) {
     if (mediaReady && Number.isFinite(video.duration)) {
-      video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + seconds))
+      video.currentTime = Math.min(video.duration, Math.max(0, seconds))
     }
+  }
+
+  function seek(seconds: number) {
+    seekTo(video.currentTime + seconds)
+  }
+
+  // Playback can report a seek a few milliseconds before the exact target.
+  function chapterAfter(seconds: number, tolerance = 0.01): number {
+    let left = 0
+    let right = chapters.length
+    while (left < right) {
+      const middle = Math.floor((left + right) / 2)
+      if (chapters[middle].startSeconds <= seconds + tolerance) left = middle + 1
+      else right = middle
+    }
+    return left
+  }
+
+  function previewChapterAtPointer(event: PointerEvent & { currentTarget: HTMLElement }) {
+    if (!mediaReady || !timelineDuration || !chapters.length) return
+    // Decorative slider children have pointer events disabled, so offsetX is relative to the slider.
+    const seconds = event.offsetX / event.currentTarget.clientWidth * timelineDuration
+    previewChapterIndex = chapterAfter(seconds, 0) - 1
+  }
+
+  function seekChapter(next: boolean) {
+    const index = chapterAfter(video.currentTime)
+    if (!next) seekTo(chapters[index - 2]?.startSeconds ?? 0)
+    else if (chapters[index]) seekTo(chapters[index].startSeconds)
+  }
+
+  function chapterTitle(chapter: MediaChapter, index: number): string {
+    return chapter.title ?? `Chapter ${index + 1}`
+  }
+
+  // uosc's default chapter patterns, including its Japanese aliases.
+  const creditsPattern = /^(?:op|ed)(?: |$)| (?:op|ed)$|(?:^| )(?:opening|intro|ending)$|^ending |^(?:avant|prologue)$|オープニング|エンディング/u
+  const closingPattern = /(?:^| )outro$|^closing(?: |$)|^(?:preview|pv)$/
+
+  function getChapterHighlights(chapters: readonly MediaChapter[]) {
+    const credits = { label: '#30abf9', range: '#30abf964' }
+    const sponsor = { label: '#c54e4e', range: '#c54e4e80' }
+    const sponsorStarts = new Map<string, number[]>()
+    const labels: (string | undefined)[] = []
+    const ranges: { startSeconds: number; endSeconds?: number; color: string }[] = []
+
+    function highlight(index: number, endSeconds: number | undefined, palette: typeof credits, extendToEnd: boolean) {
+      labels[index] = palette.label
+      if (endSeconds !== undefined || extendToEnd) {
+        ranges.push({ startSeconds: chapters[index].startSeconds, endSeconds, color: palette.range })
+      }
+    }
+
+    for (const [index, chapter] of chapters.entries()) {
+      const title = chapter.title?.trim().toLowerCase() ?? ''
+      const segment = /segment (start|end) *\(([a-z0-9]+)\)/.exec(title)
+      if (!segment) {
+        const nextStart = chapters[index + 1]?.startSeconds
+        if (/\[sponsorblock\]:|^sponsor/.test(title)) highlight(index, nextStart, sponsor, true)
+        else if (closingPattern.test(title)) highlight(index, nextStart, credits, true)
+        else if (creditsPattern.test(title)) highlight(index, nextStart, credits, false)
+        continue
+      }
+      const [, boundary, id] = segment
+      const starts = sponsorStarts.get(id)
+      if (boundary === 'start') {
+        if (starts) starts.push(index)
+        else sponsorStarts.set(id, [index])
+      } else if (starts) {
+        for (const start of starts) labels[start] = sponsor.label
+        labels[index] = sponsor.label
+        highlight(starts[0], chapter.startSeconds, sponsor, false)
+        sponsorStarts.delete(id)
+      }
+    }
+    return { labels, ranges }
+  }
+
+  function chapterTime(chapter: MediaChapter): string {
+    const time = Math.floor(chapter.startSeconds)
+    const hours = Math.floor(time / 3600)
+    const minutes = Math.floor(time / 60) % 60
+    const seconds = String(time % 60).padStart(2, '0')
+    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`
   }
 
   function setSpeed(rate: number) {
@@ -469,7 +575,7 @@
       const radio = target.closest('input[type="radio"]')
       const slider = target.closest('[role="slider"]')
       if (radio && (key === ' ' || key.startsWith('arrow'))) return
-      if (keyboardNavigation && slider && (key.startsWith('arrow') || ['home', 'end', 'pageup', 'pagedown'].includes(key))) return
+      if (keyboardNavigation && slider && (key.startsWith('arrow') || ['home', 'end'].includes(key))) return
       if ((keyboardNavigation || panel) && key === ' ' && target.closest('button, [role="button"]')) return
     }
     switch (key) {
@@ -481,12 +587,12 @@
       case 'm': video.muted = !video.muted; break
       case 'f': fullscreenButton.click(); break
       case 'pageup':
-        if (panel || !previous) return
-        navigate(previous)
+        if (event.shiftKey) navigate(previous)
+        else seekChapter(false)
         break
       case 'pagedown':
-        if (panel || !next) return
-        navigate(next)
+        if (event.shiftKey) navigate(next)
+        else seekChapter(true)
         break
       case '[': stepSpeed(-1); break
       case ']': stepSpeed(1); break
@@ -579,7 +685,7 @@
     subtitleNotice = ''
     if (!track || !subtitleReady) return
     const controller = new AbortController()
-    const slow = setTimeout(() => { subtitleNotice = 'Loading subtitle track…' }, 500)
+    const slow = setTimeout(() => { subtitleNotice = 'Loading subtitle track...' }, 500)
     const onReady = () => {
       clearTimeout(slow)
       subtitleNotice = ''
@@ -633,7 +739,7 @@
         <video bind:this={video} playsinline preload="auto" onclick={tapVideo} onvolumechange={saveVolume}></video>
         {#if error}
           <div class="playback-error" role="alert">
-            <h2>Couldn’t play this video</h2>
+            <h2>Couldn't play this video</h2>
             <p>{error}</p>
             <button class="primary" onclick={() => info ? loadSource(false) : openItem(quality)}>Retry playback</button>
           </div>
@@ -655,7 +761,7 @@
         <div class="title">
           <h1>{title}</h1>
           {#if streamDescription}
-            <p>{streamDescription}{width && height ? ` · ${width}×${height}` : ''}</p>
+            <p>{streamDescription}{width && height ? ` (${width} x ${height})` : ''}</p>
           {/if}
         </div>
       </header>
@@ -671,7 +777,11 @@
                 </button>
               {/if}
               <h2 id="player-panel-heading" tabindex="-1" bind:this={panelHeading}>{panelTitles[panel]}</h2>
-              <button type="button" class="control panel-close" aria-label="Close playback panel" onclick={() => closePanel()}>×</button>
+              <button type="button" class="control panel-close" aria-label="Close playback panel" onclick={() => closePanel()}>
+                <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
             </header>
             {#if panel === 'tracks'}
               <div class="panel-body">
@@ -682,7 +792,7 @@
                       {#if canSwitchAudio}
                         {#each audioCapability as track (track.index)}
                           {@render choice('player-audio', track.title || languageName(track.language), track.index === audioIndex,
-                            () => selectAudio(track.index), [track.codec?.toUpperCase(), track.channels ? `${track.channels} ch` : ''].filter(Boolean).join(' · '))}
+                            () => selectAudio(track.index), [track.codec?.toUpperCase(), track.channels ? `${track.channels} ch` : ''].filter(Boolean).join(', '))}
                         {/each}
                       {:else if audioCapability.length > 1}
                         <p class="panel-note">Audio switching requires playback conversion.</p>
@@ -702,7 +812,7 @@
                           () => setSubtitle(track.id), [
                             track.format === 'text' ? 'Text' : track.format.toUpperCase(),
                             track.forced ? 'Forced' : '', track.hearingImpaired ? 'SDH' : ''
-                          ].filter(Boolean).join(' · '))}
+                          ].filter(Boolean).join(', '))}
                       {/each}
                     {:else}
                       <p class="panel-note">No subtitle tracks available</p>
@@ -713,7 +823,7 @@
                   <div class="delay-row" role="group" aria-label="Subtitle delay">
                     <span>Subtitle delay</span>
                     <div class="delay-controls">
-                      <button type="button" class="control" aria-label="Show subtitles earlier" onclick={() => changeDelay(-0.1)}>−</button>
+                      <button type="button" class="control" aria-label="Show subtitles earlier" onclick={() => changeDelay(-0.1)}>-</button>
                       <output aria-label="Subtitle delay">{delay > 0 ? '+' : ''}{delay.toFixed(1)} s</output>
                       <button type="button" class="control" aria-label="Show subtitles later" onclick={() => changeDelay(0.1)}>+</button>
                       {#if delay}<button type="button" class="control reset-delay" onclick={() => (delay = 0)}>Reset</button>{/if}
@@ -737,9 +847,20 @@
             {:else if panel === 'settings'}
               <div class="panel-body">
                 {@render settingsLink('quality', 'Video quality', 'quality', webQualityLabel(quality))}
-                {@render settingsLink('speed', 'Playback speed', 'speed', `${speed}×`)}
+                {#if chapters.length}{@render settingsLink('switches', 'Chapters', 'chapters')}{/if}
+                {@render settingsLink('speed', 'Playback speed', 'speed', `${speed}x`)}
                 {#if availablePlayers.length}{@render settingsLink('play', 'Play with', 'external')}{/if}
                 {@render settingsLink('switches', 'Keyboard shortcuts', 'shortcuts')}
+              </div>
+            {:else if panel === 'chapters'}
+              <div class="panel-body">
+                {#each chapters as chapter, index (chapter.startSeconds)}
+                  <button type="button" class="settings-link queue-entry" aria-current={index === chapterIndex ? 'true' : undefined}
+                    onclick={() => { seekTo(chapter.startSeconds); closePanel() }}>
+                    <span class="choice-copy chapter-title" style:--chapter-color={chapterHighlights.labels[index]}>{chapterTitle(chapter, index)}</span>
+                    <span class="setting-value">{chapterTime(chapter)}</span>
+                  </button>
+                {/each}
               </div>
             {:else if panel === 'quality'}
               <fieldset class="panel-body" aria-label="Video quality">
@@ -754,7 +875,7 @@
             {:else if panel === 'speed'}
               <fieldset class="panel-body speed-choices" aria-label="Playback speed">
                 {#each speeds as rate (rate)}
-                  {@render choice('player-speed', rate === 1 ? 'Normal · 1×' : `${rate}×`, speed === rate, () => setSpeed(rate))}
+                  {@render choice('player-speed', rate === 1 ? 'Normal (1x)' : `${rate}x`, speed === rate, () => setSpeed(rate))}
                 {/each}
               </fieldset>
             {:else if panel === 'external'}
@@ -766,12 +887,13 @@
             {:else}
               <dl class="panel-body shortcuts">
                 <dt><kbd>Space</kbd> / <kbd>K</kbd></dt><dd>Play or pause</dd>
-                <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 seconds (Shift for 30)</dd>
-                <dt><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>M</kbd></dt><dd>Volume or mute</dd>
+                <dt><kbd>Left</kbd> <kbd>Right</kbd></dt><dd>Seek 5 seconds (Shift for 30)</dd>
+                <dt><kbd>Up</kbd> <kbd>Down</kbd> / <kbd>M</kbd></dt><dd>Volume or mute</dd>
                 <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Playback speed</dd>
                 <dt><kbd>J</kbd> / <kbd>V</kbd></dt><dd>Cycle or toggle subtitles</dd>
                 <dt><kbd>Z</kbd> <kbd>X</kbd></dt><dd>Subtitle delay</dd>
-                <dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next video</dd>
+                <dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next chapter</dd>
+                <dt><kbd>Shift</kbd> + <kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next video</dd>
                 <dt><kbd>F</kbd> / <kbd>Esc</kbd></dt><dd>Fullscreen or close</dd>
               </dl>
             {/if}
@@ -793,7 +915,7 @@
             {/if}
             <div class="jump-buttons">
               <button class="control jump" type="button" aria-label="Back 10 seconds" title="Back 10 seconds" disabled={!mediaReady} onclick={() => seek(-10)}>
-                <span aria-hidden="true">−10</span>
+                <span aria-hidden="true">-10</span>
               </button>
               <button class="control jump" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled={!mediaReady} onclick={() => seek(10)}>
                 <span aria-hidden="true">+10</span>
@@ -816,7 +938,7 @@
             </button>
           </div>
           <div class="transport-group tools">
-            <button class="control previous" type="button" aria-label="Previous video"
+            <button class="control playlist-step previous" type="button" aria-label="Previous video"
               title={previous ? `Previous: ${previous.title || previous.name}` : 'Previous video'}
               disabled={!previous} onclick={() => navigate(previous)}>
               <media-icon name="chevron" aria-hidden="true"></media-icon>
@@ -825,9 +947,12 @@
               data-panel-trigger disabled={(queue?.length ?? 0) < 2} aria-expanded={panel === 'queue'}
               aria-controls={panel === 'queue' ? 'player-control-panel' : undefined}
               onclick={(event) => panel === 'queue' ? closePanel() : openPanel('queue', event.currentTarget)}>
-              <span class="queue-icon" aria-hidden="true">≡</span>
+              <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <path d="M8 8h8M8 12h8M8 16h8" />
+              </svg>
             </button>
-            <button class="control" type="button" aria-label="Next video"
+            <button class="control playlist-step" type="button" aria-label="Next video"
               title={next ? `Next: ${next.title || next.name}` : 'Next video'}
               disabled={!next} onclick={() => navigate(next)}>
               <media-icon name="chevron" aria-hidden="true"></media-icon>
@@ -838,14 +963,51 @@
             </media-fullscreen-button>
           </div>
         </div>
-        <media-time-slider class="seek-slider" disabled={!mediaReady}>
-          <media-slider-thumb class="slider-thumb"></media-slider-thumb>
-          <media-time class="time-elapsed" type="current"></media-time>
-          <media-time class="time-remaining" type="remaining"></media-time>
-          <media-slider-preview class="seek-preview" aria-hidden="true">
-            <media-slider-value type="pointer"></media-slider-value>
-          </media-slider-preview>
-        </media-time-slider>
+        <div class="timeline">
+          <media-time-slider class="seek-slider" disabled={!mediaReady}
+            onpointermove={previewChapterAtPointer} onpointerleave={() => (previewChapterIndex = -1)}>
+            {#if mediaReady && timelineDuration > 0}
+              {#each chapterHighlights.ranges as range}
+                {#if range.startSeconds < timelineDuration}
+                  <span class="chapter-range" aria-hidden="true" style:background={range.color}
+                    style:left={`${range.startSeconds / timelineDuration * 100}%`}
+                    style:right={`${(1 - Math.min(range.endSeconds ?? timelineDuration, timelineDuration) / timelineDuration) * 100}%`}></span>
+                {/if}
+              {/each}
+            {/if}
+            <media-slider-thumb class="slider-thumb"></media-slider-thumb>
+            <media-time class="time-elapsed" type="current"></media-time>
+            <media-time class="time-remaining" type="remaining"></media-time>
+            <media-slider-preview class="seek-preview" aria-hidden="true">
+              <div class="timeline-tip">
+                {#if previewChapter}
+                  <span class="timeline-tip-title">{chapterTitle(previewChapter, previewChapterIndex)}</span>
+                {/if}
+                <media-slider-value class="timeline-tip-time" type="pointer"></media-slider-value>
+              </div>
+            </media-slider-preview>
+          </media-time-slider>
+          {#if mediaReady && timelineDuration > 0}
+            {#each chapters as chapter, index (chapter.startSeconds)}
+              {#if chapter.startSeconds < timelineDuration}
+                <button type="button" class="chapter-marker" data-testid="chapter-marker"
+                  style:--chapter-position={`${chapter.startSeconds / timelineDuration * 100}%`}
+                  aria-label={`${chapterTitle(chapter, index)} at ${chapterTime(chapter)}`}
+                  onpointerenter={() => (pointedChapter = index)} onpointerleave={() => (pointedChapter = -1)}
+                  onfocus={(event) => { if (event.currentTarget.matches(':focus-visible')) focusedChapter = index }}
+                  onblur={() => (focusedChapter = -1)}
+                  onclick={() => seekTo(chapter.startSeconds)}></button>
+              {/if}
+            {/each}
+            {#if chapterHint}
+              <div class="chapter-hint timeline-tip" class:align-right={chapterHint.startSeconds >= timelineDuration / 2} aria-hidden="true"
+                style:--chapter-position={`${chapterHint.startSeconds / timelineDuration * 100}%`}>
+                <span class="timeline-tip-title">{chapterTitle(chapterHint, chapterHintIndex)}</span>
+                <time class="timeline-tip-time">{chapterTime(chapterHint)}</time>
+              </div>
+            {/if}
+          {/if}
+        </div>
       </footer>
       <NotificationContainer />
     </media-container>
@@ -875,7 +1037,7 @@
     --label-muted: #bbbcc6;
     --panel-bg: #18191f;
     --edge: clamp(0.75rem, 3.2vw, 2.8rem);
-    --transport-height: 2.75rem;
+    --transport-height: 2.875rem;
     position: relative;
     isolation: isolate;
     -webkit-tap-highlight-color: transparent;
@@ -935,6 +1097,9 @@
   }
   @media (hover: hover) {
     .player:not(:fullscreen) .player-footer { bottom: 24px; }
+    .player:not(:fullscreen) .seek-slider { border-bottom: 1px solid var(--timeline-edge); }
+    .player-footer:has(.timeline:hover) .transport { visibility: hidden; }
+    .timeline:hover .chapter-hint { bottom: calc(100% + 0.4rem); }
   }
   .transport, .transport-group, .jump-buttons, .delay-controls { display: flex; align-items: center; }
   .transport {
@@ -944,7 +1109,7 @@
     padding-inline: max(0.4rem, env(safe-area-inset-left)) max(0.4rem, env(safe-area-inset-right));
   }
   .transport-group { gap: clamp(0.1rem, 0.55vw, 0.5rem); }
-  .transport .control > :is(media-icon, span), .transport .volume-slider {
+  .transport .control > :is(media-icon, svg, span), .transport .volume-slider {
     filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000);
   }
   .tools { margin-inline-start: auto; }
@@ -954,8 +1119,8 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    width: 2.75rem;
-    height: 2.75rem;
+    width: var(--transport-height);
+    height: var(--transport-height);
     padding: 0;
     border: 0;
     border-radius: 0.65rem;
@@ -966,12 +1131,21 @@
   }
   .control:hover:not(:disabled), .control[aria-expanded="true"] { background: #ffffff22; }
   .control:global([aria-disabled="true"]) { cursor: default; opacity: 0.45; }
+  .playlist-step:disabled { cursor: default; opacity: 1; }
   .control:focus-visible, .center-play:focus-visible, .settings-link:focus-visible,
   .choice:has(:focus-visible), :is(.seek-slider, .volume-slider):has(.slider-thumb:focus-visible) {
     outline: 2px solid var(--player-accent);
     outline-offset: 1px;
   }
   media-icon { display: inline-flex; width: 1em; height: 1em; flex: none; font-size: 1.25rem; }
+  .control-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
   .back-button media-icon { transform: rotate(180deg); }
   .back-button { border-radius: 50%; background: #15151bbd; }
   .play-button media-icon { font-size: 1.45rem; }
@@ -1010,18 +1184,8 @@
     background: var(--panel-bg);
   }
   .playback-error p { color: var(--label-muted); margin: 0.5rem 0 1rem; }
-  .jump { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .jump { font-size: 0.85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .previous media-icon { transform: rotate(180deg); }
-  .queue-icon {
-    display: grid;
-    place-items: center;
-    width: 1.05rem;
-    height: 1.05rem;
-    border: 1px solid currentColor;
-    border-radius: 0.16rem;
-    font-size: 1rem;
-    line-height: 0.65;
-  }
   .play-icon, .mute-icon, .fullscreen-exit,
   media-play-button:global([data-paused]) .pause-icon,
   media-mute-button:global([data-muted]) .volume-icon,
@@ -1038,13 +1202,15 @@
     touch-action: none;
   }
   .seek-slider {
+    --timeline-edge: #ffffff23;
     height: clamp(1.85rem, 4.25vh, 2.65rem);
-    border-top: 1px solid #ffffff23;
+    border-top: 1px solid var(--timeline-edge);
     background: #000;
   }
   .time-elapsed, .time-remaining {
     position: absolute;
     font-size: 0.8rem;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     text-shadow: 0 1px 2px #000;
     pointer-events: none;
@@ -1052,6 +1218,60 @@
   .time-elapsed { inset-inline-start: max(0.65rem, env(safe-area-inset-left)); }
   .time-remaining { inset-inline-end: max(0.65rem, env(safe-area-inset-right)); }
 
+  .timeline { position: relative; }
+  .chapter-range {
+    position: absolute;
+    inset-block: 0;
+    pointer-events: none;
+  }
+  .chapter-marker {
+    --marker-width: 1.5rem;
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: clamp(var(--marker-width) / 2, var(--chapter-position), 100% - var(--marker-width) / 2);
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    width: var(--marker-width);
+    height: 1.6rem;
+    padding: 0;
+    background: transparent;
+    border-radius: 0.25rem;
+  }
+  .chapter-marker:hover:not(:disabled), .chapter-marker:active:not(:disabled) {
+    background: transparent;
+    transform: translate(-50%, -50%);
+  }
+  .chapter-marker::after {
+    content: '';
+    width: 0.46rem;
+    height: 0.46rem;
+    transform: rotate(45deg);
+    background: #e8e9ed;
+    border: 1px solid #000;
+  }
+  .chapter-marker:hover::after, .chapter-marker:focus-visible::after {
+    background: white;
+    transform: rotate(45deg) scale(1.35);
+  }
+  .chapter-hint {
+    position: absolute;
+    z-index: 2;
+    bottom: calc(100% + var(--transport-height));
+    width: max-content;
+    max-width: min(18rem, calc(100% - var(--chapter-position) - 0.7rem));
+    left: max(0.45rem, calc(var(--chapter-position) - 0.6rem));
+    pointer-events: none;
+  }
+  .chapter-hint.align-right {
+    left: auto;
+    right: max(0.45rem, calc(100% - var(--chapter-position) - 0.6rem));
+    max-width: min(18rem, calc(var(--chapter-position) - 0.7rem));
+  }
+  .seek-slider:global([data-pointing]) ~ .chapter-hint,
+  .seek-slider:global([data-dragging]) ~ .chapter-hint { visibility: hidden; }
+  .chapter-title { color: var(--chapter-color, inherit); }
   .seek-slider:global([data-disabled]) { opacity: 0.5; cursor: default; }
   .volume-slider { width: clamp(3.25rem, 7vw, 5.25rem); }
   .slider-track { position: relative; display: block; height: 4px; border-radius: 5px; background: #ffffff4a; }
@@ -1072,19 +1292,41 @@
     height: 100%;
     border-radius: 0;
     background: #fff;
+    pointer-events: none;
   }
   .seek-slider:global([data-interactive]) .slider-thumb { width: 3px; }
   .seek-preview {
     position: absolute;
-    bottom: calc(100% + var(--transport-height));
+    bottom: calc(100% + 0.4rem);
+    max-width: min(18rem, 100%);
     visibility: hidden;
-    border: 1px solid #ffffff33;
-    border-radius: 0.4rem;
-    padding: 0.24rem 0.5rem;
-    background: var(--panel-bg);
-    color: white;
-    font-size: 0.78rem;
     pointer-events: none;
+  }
+  .timeline-tip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: #fff;
+    text-align: center;
+  }
+  .timeline-tip-title, .timeline-tip-time {
+    background: #000;
+    border-radius: 0.25rem;
+    padding: 0.3rem 0.55rem;
+  }
+  .timeline-tip-title {
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    font-size: 1.05rem;
+    font-weight: 650;
+  }
+  .timeline-tip-time {
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
   .seek-preview:global([data-pointing]), .seek-preview:global([data-dragging]) { visibility: visible; }
   .control-panel {
@@ -1123,7 +1365,7 @@
   h2 { margin: 0; font-size: 1.025rem; font-weight: 650; }
   .panel-header h2:focus { outline: none; }
   .panel-header .back-button { margin-inline-start: -0.5rem; background: transparent; }
-  .panel-close { margin-inline-start: auto; font-size: 1.45rem; color: var(--label-muted); }
+  .panel-close { margin-inline-start: auto; color: var(--label-muted); }
   .panel-body { margin: 0; padding: 0.6rem; }
   fieldset { min-width: 0; margin: 0; border: 0; }
   .track-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
@@ -1138,7 +1380,7 @@
     padding: 0.42rem 0.6rem;
     border-radius: 0.55rem;
     font-size: 0.87rem;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
   }
   .choice input { position: absolute; inset-inline-start: 0.65rem; opacity: 0; pointer-events: none; }
@@ -1169,7 +1411,7 @@
   .delay-controls { gap: 0.2rem; }
   .delay-controls .control { width: 2.25rem; height: 2.45rem; }
   .delay-controls .reset-delay { width: auto; padding-inline: 0.55rem; }
-  .delay-controls output { min-width: 3rem; text-align: center; font-variant-numeric: tabular-nums; }
+  .delay-controls output { min-width: 3rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
   .subtitle-notice {
     position: absolute;
     inset-inline-start: max(var(--edge), env(safe-area-inset-left));
@@ -1202,6 +1444,7 @@
 
   }
   @media (max-width: 370px) {
+    .player { --transport-height: 2.75rem; }
     .transport-group { gap: 0; }
     .mute-button { display: none; }
   }

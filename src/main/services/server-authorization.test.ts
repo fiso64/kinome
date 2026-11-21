@@ -119,14 +119,27 @@ describe('HTTP authorization — capability enforcement', () => {
     })
     const logging = (['log', 'info', 'warn'] as const).map((method) => spyOn(console, method).mockImplementation(() => {}))
     try {
+      const chapterFile = join(directory, 'chapters.ffmeta')
+      await Bun.write(chapterFile, [
+        ';FFMETADATA1', '[CHAPTER]', 'TIMEBASE=1/1000', 'START=0', 'END=2000', 'title=Opening',
+        '[CHAPTER]', 'TIMEBASE=1/1000', 'START=2000', 'END=5000', 'title=Scene', ''
+      ].join('\n'))
       const fixture = Bun.spawnSync([
         ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:rate=24',
-        '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-t', '5',
+        '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-f', 'ffmetadata', '-i', chapterFile,
+        '-map_chapters', '2', '-t', '5',
         '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', join(directory, 'movie.mkv')
       ])
       expect(fixture.stderr.toString()).toBe('')
       expect(fixture.exitCode).toBe(0)
       ctx.seedItems([{ id: 'fragmented-movie', sourceId: 'hls-source', path: 'movie.mkv' }])
+      const info = await app.handle(req('GET', '/api/playback/fragmented-movie/info', undefined, adminToken))
+      expect(info.status).toBe(200)
+      const { media: sourceInfo } = (await info.json()) as WebPlaybackInfo
+      expect(sourceInfo?.chapters).toEqual([
+        { startSeconds: 0, endSeconds: 2, title: 'Opening' },
+        { startSeconds: 2, endSeconds: 5, title: 'Scene' }
+      ])
       const master = new URL('http://localhost/api/hls/fragmented-movie/remux/master.m3u8')
       master.searchParams.set('token', adminToken)
       const playlist = await app.handle(new Request(master.href))

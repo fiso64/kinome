@@ -7,8 +7,8 @@ export type WebQualityChoice = 'auto' | WebPlaybackQuality
 export function webQualityLabel(quality: WebQualityChoice): string {
   if (quality === 'auto') return 'Automatic compatibility'
   if (quality === 'original') return 'Force direct play'
-  if (quality === 'remux') return 'Original video · HLS remux'
-  if (quality === 'audio') return 'Original video · Convert audio'
+  if (quality === 'remux') return 'Original video (HLS remux)'
+  if (quality === 'audio') return 'Original video (convert audio)'
   return qualityLabel(quality)
 }
 
