@@ -21,7 +21,7 @@
     knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
   import { hlsMime, isVideoQuality, videoQualityHeights } from '@shared/playback-quality'
-  import { webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
+  import { resolveWebQuality, webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
   import { defaultAudioTrack, isMp4Container, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
@@ -165,6 +165,7 @@
   let presentedFrameTime: number | undefined
   let audioCapability = $derived(info?.media?.tracks.filter((track) => track.kind === 'audio') ?? [])
   let defaultAudio = $derived(defaultAudioTrack(audioCapability))
+  const qualityChoices = $derived(info ? webQualityChoices(info.qualities) : [])
   let availablePlayers = $derived(resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
     .filter((player) => player.id !== BUILTIN_WEB_PLAYER.id))
   const canSwitchAudio = $derived(audioCapability.length > 1 && (nativeAudio || (info?.qualities.length ?? 0) > 1))
@@ -337,7 +338,7 @@
     operation = controller
     const audio = audioCapability.find((track) => track.index === audioIndex)
     const sourceVideo = info.media?.tracks.find((track) => track.kind === 'video')
-    const candidates = playbackAttempts(video, info, audio, defaultAudio)
+    const candidates = playbackAttempts(video, info, audio, defaultAudio, quality)
     let index = 0
     let reportRecovery = false
     // Keep intermediate rungs available for a gradual recovery.
@@ -1209,7 +1210,7 @@
   function launchExternal(id: string) {
     const player = availablePlayers.find((entry) => entry.id === id)
     if (!player) return
-    const selected = quality === 'source' ? 'original' : resolvePlaybackQuality(settings)
+    const selected = quality === 'source' ? 'original' : quality === 'auto' ? resolvePlaybackQuality(settings) : quality
     void playerLauncherService.launchExternal(item, player, selected)
     closePanel()
   }
@@ -1383,7 +1384,7 @@
       if (signal.aborted) return
       info = result
       const preferences = clientSettingsStore.settings
-      quality = chosenQuality ?? preferences.webQuality
+      quality = resolveWebQuality(qualityChoices, chosenQuality ?? preferences.webQuality)
       audioIndex = (selectPlaybackAudio(audioCapability, result.languageDefaults, preferences.audioLanguage) ?? defaultAudio)?.index
       subtitleId = selectPlaybackSubtitle(result.subtitles, result.languageDefaults, preferences.subtitleLanguage, preferences.subtitles)
       lastSubtitle = subtitleId
@@ -1702,7 +1703,7 @@
             {:else if panel === 'quality'}
               <fieldset class="panel-body" aria-label="Video quality">
                 {#if info}
-                  {#each webQualityChoices as value (value)}
+                  {#each qualityChoices as value (value)}
                     {@render choice('player-quality', webQualityLabel(value), quality === value, () => selectQuality(value))}
                   {/each}
                 {:else}

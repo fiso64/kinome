@@ -5,7 +5,7 @@
     type PlaybackVideoBackend, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
   } from '@shared/playback-quality'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
+  import { isWebQualityChoice, resolveWebQuality, webQualityChoices, webQualityLabel } from '@shared/web-playback'
   import Icon from '@components/ui/Icon.svelte'
   import { api } from '@lib/api'
 
@@ -36,6 +36,8 @@
   const qualityChoices = $derived(availablePlaybackQualities({
     playbackConversionAvailable: conversionAvailable, playbackConversion: conversion, playbackQualities: qualities
   }))
+  const browserQualities = $derived(webQualityChoices(qualityChoices))
+  const browserQuality = $derived(resolveWebQuality(browserQualities, clientSettingsStore.settings.webQuality))
   const transcodingEnabled = $derived(conversionAvailable && conversion === 'full')
   let worker = $state<PlaybackWorkerHealth | null>(null)
   let checking = $state(true)
@@ -69,9 +71,12 @@
       <div class="encoding-grid">
         <div class="form-field">
           <label for="browser-quality">Default playback mode</label>
-          <select id="browser-quality" value={clientSettingsStore.settings.webQuality}
-            onchange={(event) => clientSettingsStore.update({ webQuality: event.currentTarget.value as WebQualityChoice })}>
-            {#each webQualityChoices as quality (quality)}
+          <select id="browser-quality" value={browserQuality}
+            onchange={(event) => {
+              const webQuality = event.currentTarget.value
+              if (isWebQualityChoice(webQuality)) clientSettingsStore.update({ webQuality })
+            }}>
+            {#each browserQualities as quality (quality)}
               <option value={quality}>{webQualityLabel(quality)}</option>
             {/each}
           </select>

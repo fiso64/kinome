@@ -1,9 +1,9 @@
 import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
 import type { LocalMediaTrack } from '@shared/local-media'
-import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput } from '@shared/playback-quality'
+import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput, type VideoQuality } from '@shared/playback-quality'
 import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
-import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQueueItem, WebSubtitle } from '@shared/web-playback'
+import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQualityChoice, WebQueueItem, WebSubtitle } from '@shared/web-playback'
 
 const videoCodecs: Record<string, string> = {
   h264: 'avc1.640028', hevc: 'hvc1.1.6.L120.B0', av1: 'av01', vp9: 'vp9', vp8: 'vp8'
@@ -124,38 +124,47 @@ interface PlaybackAttempt extends PlaybackOutput {
 
 export function playbackAttempts(
   player: HTMLVideoElement, info: WebPlaybackInfo, audio: LocalMediaTrack | undefined,
-  defaultAudio: LocalMediaTrack | undefined
+  defaultAudio: LocalMediaTrack | undefined, quality: WebQualityChoice
 ): PlaybackAttempt[] {
+  const explicit = isVideoQuality(quality)
   const source = info.media
   const video = source?.tracks.find(track => track.kind === 'video')
   const audioCodec = audio && codecsFor(audio)
   const copyAudio = audioCodec && supportsHlsCodec(player, `audio/mp4; codecs="${audioCodec}"`)
-  const original: PlaybackAttempt = { mode: 'original', checkAudio: !!audio &&
-    (!audioCodec || !player.canPlayType(`audio/mp4; codecs="${audioCodec}"`)) }
   const attempts: PlaybackAttempt[] = []
   function withEncodedAudio(mode: WebPlaybackQuality, videoCodec?: PlaybackOutput['videoCodec']) {
     attempts.push({ mode, videoCodec })
     if ((audio?.channels ?? 0) > 2) attempts.push({ mode, videoCodec, sound: 'stereo' })
   }
-  const videoCodec = video && codecsFor(video)
-  const audioTracks = source?.tracks.filter(track => track.kind === 'audio') ?? []
-  const mixedCodecs = audioTracks.some(track => codecsFor(track) !== audioCodec)
-  const couldSubstituteAudio = audioTracks.length > 1 &&
-    (audio?.index !== audioTracks[0].index || (mixedCodecs && !copyAudio))
-  const direct = 'audioTracks' in player || (audio?.index === defaultAudio?.index && !couldSubstituteAudio)
-  const remux = info.qualities.includes('remux') && videoCodec &&
-    supportsHlsCodec(player, `video/mp4; codecs="${videoCodec}"`)
-  if (direct) attempts.push(original)
-  if (info.qualities.includes('remux')) {
-    attempts.push({ mode: 'remux', checkAudio: !!audio && !copyAudio })
+  if (!explicit) {
+    const audioTracks = source?.tracks.filter(track => track.kind === 'audio') ?? []
+    const mixedCodecs = audioTracks.some(track => codecsFor(track) !== audioCodec)
+    const couldSubstituteAudio = audioTracks.length > 1 &&
+      (audio?.index !== audioTracks[0].index || (mixedCodecs && !copyAudio))
+    if ('audioTracks' in player || (audio?.index === defaultAudio?.index && !couldSubstituteAudio)) {
+      attempts.push({ mode: 'original', checkAudio: !!audio &&
+        (!audioCodec || !player.canPlayType(`audio/mp4; codecs="${audioCodec}"`)) })
+    }
+    if (info.qualities.includes('remux')) {
+      attempts.push({ mode: 'remux', checkAudio: !!audio && !copyAudio })
+      const videoCodec = video && codecsFor(video)
+      if (info.audioConversion && audio && videoCodec && supportsHlsCodec(player, `video/mp4; codecs="${videoCodec}"`)) {
+        withEncodedAudio('audio')
+      }
+    }
   }
-  if (remux && audio && info.audioConversion) withEncodedAudio('audio')
-  const encode = info.qualities.filter(isVideoQuality).sort((a, b) => videoQualityHeights[b] - videoQualityHeights[a])
-  const first = encode.findLastIndex(mode => videoQualityHeights[mode] >= (video?.height ?? Infinity))
+  let renditions: readonly VideoQuality[]
+  if (explicit) {
+    renditions = info.qualities.includes(quality) ? [quality] : []
+  } else {
+    const encode = info.qualities.filter(isVideoQuality).sort((a, b) => videoQualityHeights[b] - videoQualityHeights[a])
+    const first = encode.findLastIndex(mode => videoQualityHeights[mode] >= (video?.height ?? Infinity))
+    renditions = encode.slice(Math.max(0, first))
+  }
   const hdrSource = isHdrTransfer(video?.colorTransfer)
   const format = avcFormat(video?.pixelFormat)
   const preserveRange = !hdrSource || window.matchMedia('(dynamic-range: high)').matches
-  for (const mode of encode.slice(Math.max(0, first))) {
+  for (const mode of renditions) {
     const formats: PlaybackOutput['videoCodec'][] = []
     if (preserveRange && (hdrSource || format.tenBit || format.wideChroma)) {
       const uhd = Math.min(videoQualityHeights[mode], video?.height ?? Infinity) > 1080

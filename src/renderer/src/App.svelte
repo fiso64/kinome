@@ -23,7 +23,7 @@
   } from '@lib/services/player-launcher.service'
   import { isPlaybackQuality, type PlaybackQuality } from '@shared/playback-quality'
   import { getWebPlaybackInfo } from '@lib/services/web-playback.service'
-  import type { WebPlaybackInfo, WebQualityChoice } from '@shared/web-playback'
+  import { isWebQualityChoice, type WebPlaybackInfo, type WebQualityChoice } from '@shared/web-playback'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { authStore } from '@lib/auth-store.svelte'
@@ -576,7 +576,7 @@
       const info = getWebPlaybackInfo(item.id, controller.signal)
       // The player handles the rejection when its lazy module has loaded.
       void info.catch(() => {})
-      playback = { item, quality: quality === 'auto' || quality === 'source' ? quality : undefined, info, controller }
+      playback = { item, quality: isWebQualityChoice(quality) ? quality : undefined, info, controller }
     } else {
       void playerLauncherService.launchExternal(item, player,
         isPlaybackQuality(quality) ? quality : resolvePlaybackQuality(settings))

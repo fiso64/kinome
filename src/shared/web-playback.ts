@@ -1,13 +1,26 @@
 import type { MediaFile } from './types'
 import type { LocalMedia } from './local-media'
-import type { PlaybackQuality } from './playback-quality'
+import { isVideoQuality, qualityLabel, type PlaybackQuality, type VideoQuality } from './playback-quality'
 
 export type WebPlaybackQuality = PlaybackQuality | 'audio'
-export const webQualityChoices = ['source', 'auto'] as const
-export type WebQualityChoice = typeof webQualityChoices[number]
+export type WebQualityChoice = 'source' | 'auto' | VideoQuality
+
+export function isWebQualityChoice(value: unknown): value is WebQualityChoice {
+  return value === 'source' || value === 'auto' || isVideoQuality(value)
+}
+
+export function webQualityChoices(qualities: readonly PlaybackQuality[]): WebQualityChoice[] {
+  return ['source', 'auto', ...qualities.filter(isVideoQuality)]
+}
+
+export function resolveWebQuality(choices: readonly WebQualityChoice[], preferred: WebQualityChoice): WebQualityChoice {
+  return choices.includes(preferred) ? preferred : 'source'
+}
 
 export function webQualityLabel(quality: WebQualityChoice): string {
-  return quality === 'auto' ? 'Automatic quality' : 'Prefer original'
+  if (quality === 'source') return 'Prefer original'
+  if (quality === 'auto') return 'Automatic quality'
+  return qualityLabel(quality)
 }
 
 export type SubtitleFormat = 'text' | 'ass' | 'pgs' | 'vobsub'

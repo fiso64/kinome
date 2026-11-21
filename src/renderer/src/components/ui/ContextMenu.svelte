@@ -8,7 +8,7 @@
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
   import { availablePlaybackQualities, qualityLabel, type PlaybackQuality } from '@shared/playback-quality'
-  import { webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
+  import { resolveWebQuality, webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import type {
     LibraryItem,
     MediaFolder,
@@ -82,6 +82,8 @@
   let submenuElement = $state<HTMLDivElement>()
   let activeSubmenu = $state<string | null>(null)
   const playbackQualities = $derived(availablePlaybackQualities(globalSettings))
+  const browserQualities = $derived(webQualityChoices(playbackQualities))
+  const browserQuality = $derived(resolveWebQuality(browserQualities, clientSettingsStore.settings.webQuality))
   const defaultQuality = $derived(resolvePlaybackQuality(globalSettings))
   let workerNotice = $state('')
   let activePlayerQuality = $state<string | null>(null)
@@ -433,8 +435,8 @@
                 {@const isWeb = player.id === BUILTIN_WEB_PLAYER.id}
                 <div class="context-menu submenu quality-menu" bind:this={qualityMenu} style={qualityMenuPosition}>
                   {#if isWeb}
-                    {#each webQualityChoices as quality (quality)}
-                      <button class="context-menu-item" aria-current={quality === clientSettingsStore.settings.webQuality}
+                    {#each browserQualities as quality (quality)}
+                      <button class="context-menu-item" aria-current={quality === browserQuality}
                         onclick={() => handlePlayWith(player, quality)}>{webQualityLabel(quality)}</button>
                     {/each}
                   {:else}

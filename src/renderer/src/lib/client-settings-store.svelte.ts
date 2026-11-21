@@ -1,4 +1,4 @@
-import type { WebQualityChoice } from '@shared/web-playback'
+import { isWebQualityChoice, type WebQualityChoice } from '@shared/web-playback'
 
 const STORAGE_KEY = 'kinome:client-settings'
 
@@ -35,7 +35,7 @@ function load(): ClientSettings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULTS }
     const saved = JSON.parse(raw)
-    return { ...DEFAULTS, ...saved, webQuality: saved.webQuality === 'auto' ? 'auto' : 'source' }
+    return { ...DEFAULTS, ...saved, webQuality: isWebQualityChoice(saved.webQuality) ? saved.webQuality : DEFAULTS.webQuality }
   } catch {
     return { ...DEFAULTS }
   }

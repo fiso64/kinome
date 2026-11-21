@@ -2,8 +2,8 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
-  import type { PlaybackQuality } from '@shared/playback-quality'
   import type { WebQualityChoice } from '@shared/web-playback'
+  import type { PlaybackQuality } from '@shared/playback-quality'
   import type { LibraryItem, MediaFile, PlayerCommandConfig, Settings } from '@shared/types'
 
   let { settings, actions, onItemClick, onOpenMatchingFile, onPlay } = $props<{

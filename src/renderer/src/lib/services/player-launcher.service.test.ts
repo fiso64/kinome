@@ -160,9 +160,9 @@ test('tries the original before lossy fallback and preserves compatible audio at
   }
   const player = { canPlayType: (type: string) =>
     type.includes('mpegurl') || type.includes('mp4a') ? 'probably' : '' } as HTMLVideoElement
-  expect(playbackAttempts(player, { ...info, qualities: ['original'], audioConversion: false }, audio, audio)
+  expect(playbackAttempts(player, { ...info, qualities: ['original'], audioConversion: false }, audio, audio, 'source')
     .map(attempt => attempt.mode)).toEqual(['original'])
-  const attempts = playbackAttempts(player, info, audio, audio)
+  const attempts = playbackAttempts(player, info, audio, audio, 'source')
   expect(attempts.map(attempt => attempt.mode).slice(0, 2)).toEqual(['original', 'remux'])
   expect(attempts[2]).toMatchObject({ mode: '4k', sound: 'copy' })
   expect(attempts.findIndex(attempt => attempt.mode === '1080p')).toBeGreaterThan(1)
@@ -170,7 +170,16 @@ test('tries the original before lossy fallback and preserves compatible audio at
   const unsupported = { ...audio, codec: 'dts' }
   info.media = { container: 'avi', tracks: [video, unsupported, { ...audio, index: 2, default: false }] }
   // This client cannot identify or select the track that its native demuxer picked.
-  expect(playbackAttempts(player, info, unsupported, unsupported).some(attempt => attempt.mode === 'original')).toBe(false)
+  expect(playbackAttempts(player, info, unsupported, unsupported, 'auto').some(attempt => attempt.mode === 'original')).toBe(false)
+  const h264 = { ...video, codec: 'h264' }
+  const hlsPlayer = { canPlayType: (type: string) => type.includes('avc1') ? 'probably' : player.canPlayType(type) } as HTMLVideoElement
+  const compatibleVideo = { ...info, media: { container: 'matroska', tracks: [h264, unsupported, { ...audio, index: 2 }] } }
+  expect(playbackAttempts(hlsPlayer, compatibleVideo, unsupported, unsupported, 'source').slice(0, 3)
+    .map(attempt => attempt.mode)).toEqual(['remux', 'audio', 'audio'])
+  expect(playbackAttempts(player, info, audio, audio, '1080p').map(attempt => attempt.mode)).toEqual(['1080p', '1080p', '1080p'])
+  const hd = { ...info, media: { container: 'avi', tracks: [{ ...video, height: 720 }, audio] } }
+  expect(playbackAttempts(player, hd, audio, audio, 'auto').some(attempt => attempt.mode === '4k')).toBe(false)
+  expect(playbackAttempts(player, hd, audio, audio, '4k').map(attempt => attempt.mode)).toEqual(['4k', '4k', '4k'])
 })
 
 test('resolves audio and subtitle defaults independently and falls through unavailable languages', async () => {
