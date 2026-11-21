@@ -115,3 +115,18 @@ export function overlayUserState(items: any[], userId: string): void {
         item.nextUpEpisodeId = s.next_up_episode_id ?? undefined
     }
 }
+
+export function getPlaybackPosition(itemId: string, accountId: string): number {
+    const row = getDb().query<{ playback_position: number }, [string, string]>(
+        'SELECT playback_position FROM user_state WHERE item_id = ? AND user_id = ?'
+    ).get(itemId, accountId)
+    return row?.playback_position ?? 0
+}
+
+export function savePlaybackPosition(itemId: string, accountId: string, position: number): void {
+    getDb().query(
+        `INSERT INTO user_state (item_id, user_id, playback_position) VALUES (?, ?, ?)
+         ON CONFLICT(item_id, user_id) DO UPDATE SET playback_position = excluded.playback_position
+         WHERE playback_position <> excluded.playback_position`
+    ).run(itemId, accountId, position)
+}

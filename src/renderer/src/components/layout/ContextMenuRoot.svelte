@@ -2,13 +2,15 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
-  import type { LibraryItem, Settings } from '@shared/types'
+  import type { WebQualityChoice } from '@shared/web-playback'
+  import type { LibraryItem, MediaFile, PlayerCommandConfig, Settings } from '@shared/types'
 
-  let { settings, actions, onItemClick, onOpenMatchingFile } = $props<{
+  let { settings, actions, onItemClick, onOpenMatchingFile, onPlay } = $props<{
     settings: Settings | null
     actions: any
     onItemClick: (item: LibraryItem) => Promise<void>
     onOpenMatchingFile: (id: string) => void
+    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice) => void
   }>()
 
   const item = $derived(contextMenuStore.item)
@@ -26,6 +28,7 @@
     globalSettings={settings}
     matchingFiles={contextMenuStore.matchingFiles}
     {onOpenMatchingFile}
+    {onPlay}
     onClose={() => contextMenuStore.close()}
     onOpen={() => onItemClick(item)}
     onEditMetadata={() => actions.editMetadata(item)}

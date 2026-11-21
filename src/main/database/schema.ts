@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS user_state (
     continue_watching_dismissed INTEGER DEFAULT 0, -- Boolean
     next_up_dismissed INTEGER DEFAULT 0, -- Boolean
     next_up_episode_id TEXT, -- UUID of the next episode to watch (for shows)
+    playback_position REAL NOT NULL DEFAULT 0,
     
     PRIMARY KEY (item_id, user_id),
     FOREIGN KEY(item_id) REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE

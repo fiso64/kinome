@@ -349,7 +349,6 @@
               bind:defaultQuality={defaultPlaybackQuality}
               bind:qualities={playbackQualities}
               bind:encoding={playbackEncoding}
-              playerCommandCount={playerCommands.length}
               onManagePlayers={() => (activePlayerCommandsModal = true)}
             />
           {:else if activeTab === 'general'}

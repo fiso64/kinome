@@ -1,4 +1,5 @@
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
+import { getWebPlaybackInfo, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
@@ -187,10 +188,11 @@ async function handleHlsRequest({ params, request, session, server }: {
   session: { accountId: string }
   server: { timeout(request: Request, seconds: number): void } | null
 }): Promise<Response> {
-  if (!isPlaybackQuality(params.quality)) return new Response('Invalid quality', { status: 400 })
+  if (params.quality !== 'audio' && !isPlaybackQuality(params.quality)) return new Response('Invalid quality', { status: 400 })
   server?.timeout(request, 100)
   const response = await serveHls(request, params.id, params.quality, params['*'], session.accountId)
-  if (response.ok && request.method === 'GET' && hlsSegmentPattern.test(params['*'])) {
+  if (response.ok && request.method === 'GET' && hlsSegmentPattern.test(params['*']) &&
+    new URL(request.url).searchParams.get('web') !== '1') {
     const userId = session.accountId
     playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))
   }
@@ -554,6 +556,24 @@ export function buildApp() {
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
         .get('/playback/worker-status', getWorkerStatus)
+        .get('/playback/:id/info', async ({ params, session, set }) => {
+          const info = await getWebPlaybackInfo(params.id, session.accountId)
+          if (!info) { set.status = 404; return 'File not found' }
+          return info
+        })
+        .post('/playback/:id/progress', async ({ params, body, session, set }) => {
+          const ok = await updateWebPlayback(params.id, session.accountId, body.position, body.completed)
+          if (!ok) set.status = 404
+          return { success: ok }
+        }, { body: t.Object({ position: t.Number({ minimum: 0 }), completed: t.Boolean() }) })
+        .get('/playback/:id/subtitle/:track/:part', ({ params, request, session, server }) => {
+          server?.timeout(request, 0)
+          return serveSubtitle(request, params.id, params.track, params.part, session.accountId)
+        })
+        .head('/playback/:id/subtitle/:track/:part', ({ params, request, session, server }) => {
+          server?.timeout(request, 0)
+          return serveSubtitle(request, params.id, params.track, params.part, session.accountId)
+        })
         .get('/stream/:id', handleDirectStreamRequest)
         .head('/stream/:id', handleDirectStreamRequest)
         .get('/stream/:id/:filename', handleDirectStreamRequest)

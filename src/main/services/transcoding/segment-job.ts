@@ -7,11 +7,17 @@ const heights: Record<VideoQuality, number> = {
   '4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240
 }
 
+export type SegmentQuality = VideoQuality | 'remux' | 'audio'
+
+export function copiesVideo(quality: SegmentQuality): quality is 'remux' | 'audio' {
+  return quality === 'remux' || quality === 'audio'
+}
+
 export interface SegmentSource {
   path: string
   video: LocalMediaTrack
   audioTracks: readonly LocalMediaTrack[]
-  quality: VideoQuality | 'remux'
+  quality: SegmentQuality
   fragmented: boolean
   encoding: PlaybackEncodingPreferences
   timeline: PlaybackTimeline
@@ -25,7 +31,7 @@ const segmentName = /^segment-(\d+)\.(?:ts|mp4),/
 const transportStreamPreroll = 1.4
 
 export function lastSegmentInJob(source: SegmentSource, first: number): number {
-  const segmentCount = source.quality === 'remux' ? 4 : 12 / transcodeSegmentSeconds
+  const segmentCount = copiesVideo(source.quality) ? 4 : 12 / transcodeSegmentSeconds
   return Math.min(source.timeline.starts.length - 1, first + segmentCount - 1)
 }
 
@@ -39,13 +45,13 @@ export function startSegmentJob(
   const start = timeline.starts[first]
   const end = endOfSegment(timeline, last)
   const interior = timeline.starts.slice(first + 1, last + 1).map((time) => (time - start).toFixed(6))
-  const remux = quality === 'remux'
+  const remux = copiesVideo(quality)
   const hardware = !remux && mode !== 'software' ? source.vaapiDevice : undefined
   // TrueHD needs a Blu-ray stream type and an AC-3 compatibility stream.
   const mpegtsFormat = [
     'mpegts_copyts=1', 'mpegts_flags=initial_discontinuity',
     ...(remux ? ['avoid_negative_ts=disabled'] : []),
-    ...(remux && audioTracks.some((track) => track.codec === 'truehd') ? ['mpegts_m2ts_mode=1'] : [])
+    ...(quality === 'remux' && audioTracks.some((track) => track.codec === 'truehd') ? ['mpegts_m2ts_mode=1'] : [])
   ].join(':')
   // frag_discont keeps the source's decode times in tfdt across independently
   // opened MP4 muxers. default_base_moof makes media readable without its moov.
@@ -66,7 +72,8 @@ export function startSegmentJob(
     args.push(`-disposition:a:${index}`, index === 0 ? 'default' : '0')
   }
   if (remux) {
-    args.push('-c', 'copy', '-avoid_negative_ts', 'disabled')
+    args.push('-c:v', 'copy', '-avoid_negative_ts', 'disabled')
+    if (fragmented && video.codec === 'hevc') args.push('-tag:v', 'hvc1')
     if (end < timeline.duration) interior.push((end - start).toFixed(6))
   } else {
     const height = Math.floor(Math.min(video.height!, heights[quality]) / 2) * 2
@@ -98,8 +105,13 @@ export function startSegmentJob(
     }
     args.push(
       '-vf', filters.join(','), '-filter_threads', '2', ...encoder, '-bf', '0', '-flags:v', '+cgop',
-      '-force_key_frames', `expr:gte(t,n_forced*${transcodeSegmentSeconds})`, '-c:a', 'aac'
+      '-force_key_frames', `expr:gte(t,n_forced*${transcodeSegmentSeconds})`
     )
+  }
+  if (quality === 'remux') {
+    args.push('-c:a', 'copy')
+  } else {
+    args.push('-c:a', 'aac')
     for (const [index, track] of audioTracks.entries()) {
       const channels = encoding.audioChannels === 'surround' ? Math.min(track.channels || 2, 6) : 2
       args.push(`-ac:a:${index}`, String(channels), `-b:a:${index}`, `${Math.min(channels * 96, 384)}k`)

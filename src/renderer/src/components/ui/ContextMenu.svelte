@@ -1,11 +1,12 @@
 <script lang="ts">
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { api, getDownloadUrl } from '@lib/api'
-  import { playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
+  import { BUILTIN_WEB_PLAYER, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
-  import { availablePlaybackQualities, qualityLabel, type PlaybackQuality } from '@shared/playback-quality'
+  import { availablePlaybackQualities, qualityLabel } from '@shared/playback-quality'
+  import { webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import type {
     LibraryItem,
     MediaFolder,
@@ -21,6 +22,7 @@
     globalSettings,
     matchingFiles,
     onOpenMatchingFile,
+    onPlay,
     onClose,
     onOpen,
     onEditMetadata,
@@ -45,6 +47,7 @@
     globalSettings: Settings | null
     matchingFiles?: SearchIndexEntry['matchingFiles']
     onOpenMatchingFile: (id: string) => void
+    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice) => void
     onClose: () => void
     onOpen: () => void
     onEditMetadata: () => void
@@ -77,6 +80,8 @@
   let activeSubmenu = $state<string | null>(null)
   const playbackQualities = $derived(availablePlaybackQualities(globalSettings))
   const defaultQuality = $derived(resolvePlaybackQuality(globalSettings))
+  const webQuality = $derived(playbackQualities.some((entry) => entry === clientSettingsStore.settings.webQuality)
+    ? clientSettingsStore.settings.webQuality : 'auto')
   let workerNotice = $state('')
   let activePlayerQuality = $state<string | null>(null)
   let qualityMenu = $state<HTMLDivElement>()
@@ -258,8 +263,8 @@
   }
 
 
-  function handlePlayWith(player: PlayerCommandConfig, quality: PlaybackQuality = defaultQuality) {
-    playerLauncherService.playItem(item as MediaFile, availablePlayers, player, quality)
+  function handlePlayWith(player: PlayerCommandConfig, quality?: WebQualityChoice) {
+    onPlay(item as MediaFile, player, quality)
     onClose()
   }
 
@@ -429,10 +434,15 @@
                 onclick={() => (activePlayerQuality = activePlayerQuality === player.id ? null : player.id)}
               >▸</button>
               {#if activePlayerQuality === player.id}
+                {@const isWeb = player.id === BUILTIN_WEB_PLAYER.id}
                 <div class="context-menu submenu quality-menu" bind:this={qualityMenu} style={qualityMenuPosition}>
+                  {#if isWeb}
+                    <button class="context-menu-item" aria-current={webQuality === 'auto'}
+                      onclick={() => handlePlayWith(player, 'auto')}>{webQualityLabel('auto')}</button>
+                  {/if}
                   {#each playbackQualities as quality (quality)}
-                    <button class="context-menu-item" aria-current={quality === defaultQuality}
-                      onclick={() => handlePlayWith(player, quality)}>{qualityLabel(quality)}</button>
+                    <button class="context-menu-item" aria-current={quality === (isWeb ? webQuality : defaultQuality)}
+                      onclick={() => handlePlayWith(player, quality)}>{isWeb ? webQualityLabel(quality) : qualityLabel(quality)}</button>
                   {/each}
                 </div>
               {/if}

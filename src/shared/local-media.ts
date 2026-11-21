@@ -26,4 +26,23 @@ export interface LocalMedia {
   bitrate?: number
   encoder?: string
   tracks: LocalMediaTrack[]
+  fonts?: number[]
+}
+
+export const VIDEO_EXTENSIONS = [
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.mov',
+  '.wmv',
+  '.flv',
+  '.webm',
+  '.m4v',
+  '.mpg',
+  '.mpeg'
+]
+
+export function isSupportedVideoFile(fileName: string): boolean {
+  const ext = fileName.toLowerCase().slice(Math.max(0, fileName.lastIndexOf('.')) || Infinity)
+  return VIDEO_EXTENSIONS.includes(ext)
 }

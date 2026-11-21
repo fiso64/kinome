@@ -7,6 +7,7 @@ import * as accountFilters from './account-filter.service'
 import { readSettings } from './settings.service'
 import { handleFileStreamFast, resolveStreamPath } from './playback.service'
 import { openPlaybackSource, PlaybackSession, segmentPlaylist } from './transcoding'
+import { copiesVideo, type SegmentQuality } from './transcoding/segment-job'
 import { conversionAvailable, conversionEnabled, ffmpeg, ffprobe, getVaapiDevice } from './transcoding/runtime'
 
 const hlsType = 'application/vnd.apple.mpegurl'
@@ -53,14 +54,14 @@ export async function getWorkerStatus(): Promise<PlaybackWorkerHealth> {
   }
 }
 
-function getViewer(path: string, accountId: string, itemId: string, quality: Exclude<PlaybackQuality, 'original'>,
-  client: string, encoding: PlaybackEncodingPreferences, audioIndex?: number): Promise<Viewer> {
-  const key = JSON.stringify([accountId, itemId, path, quality, client, audioIndex])
+function getViewer(path: string, accountId: string, itemId: string, quality: SegmentQuality,
+  client: string, encoding: PlaybackEncodingPreferences, audioIndex?: number, browser = false): Promise<Viewer> {
+  const key = JSON.stringify([accountId, itemId, path, quality, client, audioIndex, browser])
   let viewer = viewers.get(key)
   if (viewer) return viewer
   viewer = Promise.all([
-    openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex),
-    quality !== 'remux' && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
+    openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex, browser),
+    !copiesVideo(quality) && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
   ]).then(([source, vaapiDevice]) => {
     source.vaapiDevice = vaapiDevice
     const session = new PlaybackSession(ffmpeg!, source, () => {
@@ -83,18 +84,23 @@ function hlsError(status: number, detail: string): Response {
 }
 
 export async function serveHls(
-  request: Request, itemId: string, quality: PlaybackQuality, resource: string, accountId: string
+  request: Request, itemId: string, quality: PlaybackQuality | 'audio', resource: string, accountId: string
 ): Promise<Response> {
   if (!conversionAvailable) return hlsError(503, (await getWorkerStatus()).detail)
   const isPlaylist = resource === 'master.m3u8'
   const isInit = resource === 'init.mp4'
   const segment = hlsSegmentPattern.exec(resource)
   const settings = await readSettings()
-  if (quality === 'original' || (!isPlaylist && !isInit && !segment) || !availablePlaybackQualities(settings).includes(quality)) {
+  const params = new URL(request.url).searchParams
+  const browser = params.get('web') === '1'
+  const available = availablePlaybackQualities(settings)
+  const qualityAllowed = quality === 'audio'
+    ? browser && available.includes('remux') && settings.playbackConversion !== 'remux'
+    : quality !== 'original' && available.includes(quality)
+  if (!qualityAllowed || quality === 'original' || (!isPlaylist && !isInit && !segment)) {
     return hlsError(404, 'This playback quality or resource is unavailable.')
   }
 
-  const params = new URL(request.url).searchParams
   const client = isPlaylist ? crypto.randomUUID() : params.get('clientId')
   const audio = params.get('audio')
   const audioIndex = audio === null ? undefined : Number(audio)
@@ -109,16 +115,17 @@ export async function serveHls(
 
   try {
     const encoding = settings.playbackEncoding ?? normalizePlaybackEncoding()
-    const { session, timeline, fragmented } = await getViewer(path, accountId, itemId, quality, client, encoding, audioIndex)
+    const { session, timeline, fragmented } = await getViewer(path, accountId, itemId, quality, client, encoding, audioIndex, browser)
     const extension = fragmented ? 'm4s' : 'ts'
     if (isPlaylist) {
       const query = new URLSearchParams({ clientId: client })
       const token = params.get('token')
       if (token) query.set('token', token)
       if (audio !== null) query.set('audio', audio)
+      if (browser) query.set('web', '1')
       const suffix = query.toString()
       const playlist = request.method === 'HEAD' ? null : segmentPlaylist(
-        timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined
+        timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined, browser
       )
       return new Response(playlist, { headers: { 'Content-Type': hlsType, 'Cache-Control': 'private, no-store' } })
     }

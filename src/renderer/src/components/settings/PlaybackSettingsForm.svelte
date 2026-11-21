@@ -4,6 +4,8 @@
     type PlaybackConversion, type PlaybackEncodingPreferences, type PlaybackQuality,
     type PlaybackVideoBackend, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
   } from '@shared/playback-quality'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import { webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import { api } from '@lib/api'
 
   let {
@@ -12,7 +14,6 @@
     defaultQuality = $bindable(),
     qualities = $bindable(),
     encoding = $bindable(),
-    playerCommandCount,
     onManagePlayers
   }: {
     conversionAvailable: boolean
@@ -20,7 +21,6 @@
     defaultQuality: PlaybackQuality
     qualities: VideoQuality[]
     encoding: PlaybackEncodingPreferences
-    playerCommandCount: number
     onManagePlayers: () => void
   } = $props()
 
@@ -33,6 +33,8 @@
   const qualityChoices = $derived(availablePlaybackQualities({
     playbackConversionAvailable: conversionAvailable, playbackConversion: conversion, playbackQualities: qualities
   }))
+  const browserQuality = $derived(qualityChoices.some((quality) => quality === clientSettingsStore.settings.webQuality)
+    ? clientSettingsStore.settings.webQuality : 'auto')
   const transcodingEnabled = $derived(conversionAvailable && conversion === 'full')
   let worker = $state<PlaybackWorkerHealth | null>(null)
   let checking = $state(true)
@@ -52,17 +54,61 @@
 </script>
 
 <div class="playback-settings">
-  <section aria-labelledby="playback-defaults" class="settings-panel">
-    <h3 id="playback-defaults">Playback defaults</h3>
-    <div class="default-rows">
+  <section aria-labelledby="players-heading" class="settings-panel">
+    <div class="setting-row">
+      <h3 id="players-heading">Players</h3>
+      <button class="primary" onclick={onManagePlayers}>Manage players</button>
+    </div>
+
+    <section aria-labelledby="browser-playback-heading" class="player-preferences">
+      <div>
+        <h4 id="browser-playback-heading">Web player</h4>
+        <p>Preferences for this browser</p>
+      </div>
+      <div class="encoding-grid">
+        <div class="field">
+          <label for="browser-quality">Startup quality</label>
+          <select id="browser-quality" value={browserQuality}
+            onchange={(event) => clientSettingsStore.update({ webQuality: event.currentTarget.value as WebQualityChoice })}>
+            <option value="auto">{webQualityLabel('auto')}</option>
+            {#each qualityChoices as quality (quality)}
+              <option value={quality}>{webQualityLabel(quality)}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="field">
+          <label for="browser-subtitles">Subtitles</label>
+          <select id="browser-subtitles" value={clientSettingsStore.settings.subtitles}
+            onchange={(event) => clientSettingsStore.update({ subtitles: event.currentTarget.value as 'default' | 'forced' | 'off' })}>
+            <option value="default">Preferred language or default track</option>
+            <option value="forced">Forced tracks only</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="browser-audio-language">Preferred audio language</label>
+          <input id="browser-audio-language" value={clientSettingsStore.settings.audioLanguage}
+            placeholder="Track default" aria-describedby="browser-language-help"
+            onchange={(event) => clientSettingsStore.update({ audioLanguage: event.currentTarget.value.trim().toLowerCase() })} />
+        </div>
+        <div class="field">
+          <label for="browser-subtitle-language">Preferred subtitle language</label>
+          <input id="browser-subtitle-language" value={clientSettingsStore.settings.subtitleLanguage}
+            placeholder="Track default" aria-describedby="browser-language-help"
+            onchange={(event) => clientSettingsStore.update({ subtitleLanguage: event.currentTarget.value.trim().toLowerCase() })} />
+        </div>
+      </div>
+      <p id="browser-language-help">Use a language code such as en, ja, or fr.</p>
+    </section>
+
+    <section aria-labelledby="external-playback-heading" class="player-preferences">
       <div class="setting-row">
         <div>
-          <label for="default-playback-quality">Default quality</label>
-          <p id="default-quality-help">Used when you click a player name. Its arrow opens the quality menu.</p>
+          <h4 id="external-playback-heading">External players and links</h4>
+          <p><label class="quality-label" for="default-playback-quality">Default quality</label></p>
         </div>
         <select
           id="default-playback-quality"
-          aria-describedby="default-quality-help"
           value={qualityChoices.includes(defaultQuality) ? defaultQuality : 'original'}
           onchange={(event) => { defaultQuality = qualityChoices.find((quality) => quality === event.currentTarget.value) ?? 'original' }}
         >
@@ -71,14 +117,7 @@
           {/each}
         </select>
       </div>
-      <div class="setting-row">
-        <div>
-          <span class="setting-label">Players</span>
-          <p>{playerCommandCount ? `${playerCommandCount} custom ${playerCommandCount === 1 ? 'command' : 'commands'} configured` : 'Player order and custom launch commands'}</p>
-        </div>
-        <button class="primary" onclick={onManagePlayers}>Manage players</button>
-      </div>
-    </div>
+    </section>
   </section>
 
   <section aria-labelledby="playback-conversion-heading" class="settings-panel">
@@ -191,7 +230,9 @@
   }
   h3 { margin: 0; font-size: 1.04rem; font-weight: 650; }
   p, dt { margin: 0; color: var(--color-text-soft); font-size: 0.85rem; }
-  label, .setting-label { font-weight: 600; }
+  h4 { margin: 0; font-size: 0.95rem; font-weight: 650; }
+  label { font-weight: 600; }
+  .quality-label { font-weight: 400; }
   .setting-row {
     display: flex;
     flex-wrap: wrap;
@@ -202,8 +243,13 @@
   .setting-row p { margin-top: 0.25rem; }
   .setting-row select { min-width: min(100%, 12rem); }
   .panel-header { padding-bottom: 1rem; border-bottom: 1px solid var(--color-border-soft); }
-  .default-rows { display: grid; gap: 0.8rem; }
-  .default-rows > div + div { border-top: 1px solid var(--color-border-soft); padding-top: 0.8rem; }
+  .player-preferences {
+    display: grid;
+    gap: 0.8rem;
+    border-top: 1px solid var(--color-border-soft);
+    padding-top: 1rem;
+  }
+  .player-preferences h4 + p { margin-top: 0.25rem; }
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
   fieldset:disabled { opacity: 0.6; }
   legend { padding: 0; font-weight: 600; font-size: 0.92rem; margin-bottom: 0.5rem; }

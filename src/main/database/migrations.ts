@@ -16,6 +16,7 @@ import { migration as locationIdentityIndex } from './migrations/0014_location_i
 import { migration as tmdbMetadata } from './migrations/0015_tmdb_metadata'
 import { migration as localMedia } from './migrations/0016_local_media'
 import { migration as fileMatchVisibility } from './migrations/0017_file_match_visibility'
+import { migration as playbackPosition } from './migrations/0018_playback_position'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -44,7 +45,8 @@ const MIGRATIONS: Migration[] = [
   locationIdentityIndex,
   tmdbMetadata,
   localMedia,
-  fileMatchVisibility
+  fileMatchVisibility,
+  playbackPosition
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

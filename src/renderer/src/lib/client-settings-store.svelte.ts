@@ -1,3 +1,5 @@
+import type { WebQualityChoice } from '@shared/web-playback'
+
 const STORAGE_KEY = 'kinome:client-settings'
 
 /**
@@ -10,10 +12,22 @@ export interface ClientSettings {
    * Must reference valid built-in or server-side player definition IDs.
    */
   enabledPlayerIds: string[]
+  webQuality: WebQualityChoice
+  audioLanguage: string
+  subtitleLanguage: string
+  subtitles: 'default' | 'forced' | 'off'
+  playerVolume: number
+  playerMuted: boolean
 }
 
 const DEFAULTS: ClientSettings = {
-  enabledPlayerIds: []
+  enabledPlayerIds: [],
+  webQuality: 'auto',
+  audioLanguage: '',
+  subtitleLanguage: '',
+  subtitles: 'default',
+  playerVolume: 1,
+  playerMuted: false
 }
 
 function load(): ClientSettings {

@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { isFontAttachment } from '@shared/web-playback'
 import type { LocalMedia, LocalMediaTrack } from '@shared/local-media'
 
 interface ProbeStream {
@@ -10,6 +11,7 @@ interface ProbeStream {
   color_transfer?: string
   avg_frame_rate?: string
   bit_rate?: string
+  duration?: string
   width?: number
   height?: number
   channels?: number
@@ -29,6 +31,11 @@ function positiveNumber(value: string | number | undefined): number | undefined 
   return Number.isFinite(number) && number > 0 ? number : undefined
 }
 
+function clockSeconds(value: string | undefined): number | undefined {
+  const match = value?.match(/^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/)
+  return match ? positiveNumber(Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) : undefined
+}
+
 function tag(tags: Record<string, string> | undefined, key: string): string | undefined {
   if (!tags) return
   return tags[key] ?? Object.entries(tags).find(([name]) => name.toLowerCase() === key)?.[1]
@@ -39,8 +46,8 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     executable, '-v', 'error', '-protocol_whitelist', 'file',
     '-show_entries', [
       'format=format_name,duration,bit_rate', 'format_tags=encoder',
-      'stream=index,codec_type,codec_name,profile,pix_fmt,color_transfer,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate',
-      'stream_tags=language,title,encoder', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
+      'stream=index,codec_type,codec_name,profile,pix_fmt,color_transfer,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate,duration',
+      'stream_tags=language,title,encoder,filename,mimetype,DURATION', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
     ].join(':'),
     '-of', 'json', '-i', filePath
   ], { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', signal: AbortSignal.timeout(30_000) })
@@ -51,9 +58,14 @@ export async function probeMedia(executable: string, filePath: string): Promise<
 
   const { format, streams } = JSON.parse(json) as ProbeResult
   const tracks: LocalMediaTrack[] = []
+  let avDuration = 0
   for (const stream of streams ?? []) {
     const kind = stream.codec_type
     if ((kind !== 'video' && kind !== 'audio' && kind !== 'subtitle') || stream.disposition?.attached_pic) continue
+    if (kind !== 'subtitle') {
+      const duration = positiveNumber(stream.duration) ?? clockSeconds(tag(stream.tags, 'duration'))
+      avDuration = Math.max(avDuration, duration ?? 0)
+    }
     tracks.push({
       index: stream.index, kind, codec: stream.codec_name, profile: stream.profile,
       language: tag(stream.tags, 'language')?.trim().toLowerCase() || undefined,
@@ -73,13 +85,20 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     throw new Error('ffprobe did not find a usable video stream')
   }
 
+  const containerDuration = positiveNumber(format?.duration)
+  // A broken subtitle end timestamp can extend the container by days. Use
+  // the playable streams to measure the duration when they disagree.
+  const duration = avDuration && (!containerDuration || containerDuration > avDuration + 2)
+    ? avDuration : containerDuration
   const formats = format?.format_name?.split(',') ?? []
   const extension = path.extname(filePath).slice(1).toLowerCase()
   return {
     container: formats.includes(extension) ? extension : formats[0],
-    durationSeconds: positiveNumber(format?.duration),
+    durationSeconds: duration,
     bitrate: positiveNumber(format?.bit_rate),
     encoder: tracks.find((track) => track.kind === 'video')?.encoder ?? tag(format?.tags, 'encoder'),
-    tracks
+    tracks,
+    fonts: streams?.filter((stream) => stream.codec_type === 'attachment' &&
+      isFontAttachment(tag(stream.tags, 'filename'), tag(stream.tags, 'mimetype'))).map((stream) => stream.index)
   }
 }

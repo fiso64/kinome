@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inspectMp4Segment } from './mp4-keyframes'
 import type { PlaybackVideoBackend } from '@shared/playback-quality'
-import { lastSegmentInJob, startSegmentJob, type SegmentSource } from './segment-job'
+import { copiesVideo, lastSegmentInJob, startSegmentJob, type SegmentSource } from './segment-job'
 import { transcodeSegmentSeconds } from './timeline'
 
 const retentionMs = 60_000
@@ -52,7 +52,7 @@ export class PlaybackSession {
     this.#source = source
     this.#onIdle = onIdle
     this.#onVideoBackend = onVideoBackend
-    this.#videoMode = source.quality !== 'remux' && source.vaapiDevice ? 'vaapi' : 'software'
+    this.#videoMode = !copiesVideo(source.quality) && source.vaapiDevice ? 'vaapi' : 'software'
     this.touch()
   }
 
@@ -149,7 +149,7 @@ export class PlaybackSession {
     try {
       await mkdir(directory)
       if (this.#closed || this.#job !== job) throw new Error('Playback moved to another segment')
-      const segmentLimit = this.#source.quality === 'remux'
+      const segmentLimit = copiesVideo(this.#source.quality)
         ? retainedRemuxSegments
         : retainedTranscodeSeconds / transcodeSegmentSeconds
       const publish = async (segment: number, path: string) => {
@@ -179,7 +179,7 @@ export class PlaybackSession {
         let emitted = false
         const process = startSegmentJob(this.#executable, directory, this.#source, index, mode, async (segment, path) => {
           await publish(segment, path)
-          if (!emitted && this.#source.quality !== 'remux' && this.#job === job) this.#onVideoBackend(mode)
+          if (!emitted && !copiesVideo(this.#source.quality) && this.#job === job) this.#onVideoBackend(mode)
           emitted = true
           if (this.#job === job) this.#videoMode = mode
         })

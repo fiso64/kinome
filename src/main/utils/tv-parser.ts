@@ -1,20 +1,5 @@
-export const VIDEO_EXTENSIONS = [
-  '.mp4',
-  '.mkv',
-  '.avi',
-  '.mov',
-  '.wmv',
-  '.flv',
-  '.webm',
-  '.m4v',
-  '.mpg',
-  '.mpeg'
-]
-
-export function isSupportedVideoFile(fileName: string): boolean {
-  const ext = fileName.toLowerCase().slice(Math.max(0, fileName.lastIndexOf('.')) || Infinity)
-  return VIDEO_EXTENSIONS.includes(ext)
-}
+import { isSupportedVideoFile } from '@shared/local-media'
+export { isSupportedVideoFile } from '@shared/local-media'
 
 const EPISODE_PATTERNS = [
   'sxxexx', 'episode_xx', 'exx', 'absolute'

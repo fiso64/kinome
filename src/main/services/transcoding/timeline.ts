@@ -41,11 +41,15 @@ export function endOfSegment(timeline: PlaybackTimeline, index: number): number 
   return timeline.starts[index + 1] ?? timeline.duration
 }
 
-export function segmentPlaylist(timeline: PlaybackTimeline, urlForSegment: (index: number) => string, initUrl?: string): string {
+export function segmentPlaylist(
+  timeline: PlaybackTimeline, urlForSegment: (index: number) => string, initUrl?: string, browser = false
+): string {
   const startOf = (index: number) => {
     const start = timeline.starts[index]
     if (start === undefined) return timeline.duration
-    return timeline.seekStarts && index > 0 ? start - remuxSeekLead : start
+    // Browser HLS players need the actual boundaries to choose the segment
+    // that contains the requested position before the first frame is decoded.
+    return !browser && timeline.seekStarts && index > 0 ? start - remuxSeekLead : start
   }
   let targetDuration = 1
   const durations = timeline.starts.map((_, index) => startOf(index + 1) - startOf(index))

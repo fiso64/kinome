@@ -39,18 +39,20 @@ describe('resolveClientPlayers', () => {
     command: 'vlc <url>'
   }
 
-  test('enables built-in copy players by default in playlist-then-link order', () => {
+  test('puts the web player first on a new device', () => {
     expect(launcher.resolveClientPlayers([], []).map((p) => p.id)).toEqual([
+      launcher.BUILTIN_WEB_PLAYER.id,
       launcher.BUILTIN_COPY_PLAYLIST_LINK.id,
       launcher.BUILTIN_COPY_LINK.id
     ])
   })
 
-  test('appends missing built-ins after configured players in default order', () => {
-    expect(launcher.resolveClientPlayers([mpv], [mpv.id]).map((p) => p.id)).toEqual([
+  test('adds the web player first while preserving the saved order of existing players', () => {
+    expect(launcher.resolveClientPlayers([mpv], [mpv.id, launcher.BUILTIN_COPY_LINK.id]).map((p) => p.id)).toEqual([
+      launcher.BUILTIN_WEB_PLAYER.id,
       mpv.id,
-      launcher.BUILTIN_COPY_PLAYLIST_LINK.id,
-      launcher.BUILTIN_COPY_LINK.id
+      launcher.BUILTIN_COPY_LINK.id,
+      launcher.BUILTIN_COPY_PLAYLIST_LINK.id
     ])
   })
 
@@ -59,14 +61,15 @@ describe('resolveClientPlayers', () => {
       launcher
         .resolveClientPlayers(
           [mpv, vlc],
-          [launcher.BUILTIN_COPY_LINK.id, vlc.id, launcher.BUILTIN_COPY_PLAYLIST_LINK.id]
+          [launcher.BUILTIN_COPY_LINK.id, launcher.BUILTIN_WEB_PLAYER.id, vlc.id, launcher.BUILTIN_COPY_PLAYLIST_LINK.id]
         )
         .map((p) => p.id)
-    ).toEqual([launcher.BUILTIN_COPY_LINK.id, vlc.id, launcher.BUILTIN_COPY_PLAYLIST_LINK.id])
+    ).toEqual([launcher.BUILTIN_COPY_LINK.id, launcher.BUILTIN_WEB_PLAYER.id, vlc.id, launcher.BUILTIN_COPY_PLAYLIST_LINK.id])
   })
 
   test('drops stale custom player ids while keeping built-ins available', () => {
     expect(launcher.resolveClientPlayers([mpv], ['deleted', mpv.id]).map((p) => p.id)).toEqual([
+      launcher.BUILTIN_WEB_PLAYER.id,
       mpv.id,
       launcher.BUILTIN_COPY_PLAYLIST_LINK.id,
       launcher.BUILTIN_COPY_LINK.id
@@ -93,10 +96,9 @@ test.each([
         headers: { 'Content-Type': 'application/vnd.apple.mpegurl' }
       })
     })
-    await launcher.playerLauncherService.playItem(
+    await launcher.playerLauncherService.launchExternal(
       { id: 'movie', type: 'file', name: 'movie.mkv' },
-      [{ id: 'test-player', name: 'Test Player', command: template }],
-      undefined,
+      { id: 'test-player', name: 'Test Player', command: template },
       '480p'
     )
     const launch = new URL(location.href)

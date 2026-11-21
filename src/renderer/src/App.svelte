@@ -14,11 +14,16 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore, withPending } from '@lib/modal-store.svelte'
-  import { playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
-  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
-  import { getPlaylistUrl, api } from '@lib/api'
+  import { api } from '@lib/api'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import {
+    BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality
+  } from '@lib/services/player-launcher.service'
+  import { isPlaybackQuality } from '@shared/playback-quality'
+  import type { WebQualityChoice } from '@shared/web-playback'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import { resolveViewSettings } from '@shared/settings-helpers'
   import { authStore } from '@lib/auth-store.svelte'
   import LoginPage from '@components/layout/LoginPage.svelte'
@@ -30,6 +35,7 @@
     Settings,
     MediaFolder,
     MediaFile,
+    PlayerCommandConfig,
     LibraryItem,
     AutocompleteSuggestions,
     SearchIndexEntry,
@@ -58,6 +64,9 @@
   })
 
   let settings = $state<Settings | null>(null)
+  let playbackItem = $state<MediaFile | null>(null)
+  let initialPlaybackQuality = $state<WebQualityChoice>()
+  let webPlayer = $state<Promise<typeof import('@components/player/WebPlayer.svelte')>>()
 
   let groupByKeys = $state<string[]>([])
 
@@ -150,6 +159,7 @@
       log('User logged out. Resetting initialization state.')
       hasInitialized = false
       isInitializing = true
+      playbackItem = null
       queryClient.clear()
     }
   })
@@ -519,13 +529,18 @@
       })
   }
 
-  async function handlePlayFile(item: MediaFile): Promise<void> {
-    await playerLauncherService.playItem(
-      item,
-      resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds),
-      undefined,
-      resolvePlaybackQuality(settings)
-    )
+  function handlePlayFile(item: MediaFile, preferred?: PlayerCommandConfig, quality?: WebQualityChoice): void {
+    if (!itemCapabilities(item).canPlay) return
+    const players = resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
+    const player = preferred ?? players[0]
+    if (player.id === BUILTIN_WEB_PLAYER.id) {
+      webPlayer ??= import('@components/player/WebPlayer.svelte')
+      initialPlaybackQuality = quality
+      playbackItem = item
+    } else {
+      void playerLauncherService.launchExternal(item, player,
+        isPlaybackQuality(quality) ? quality : resolvePlaybackQuality(settings))
+    }
   }
 
   function handleDismissContinueWatching(showId: string) {
@@ -551,7 +566,7 @@
       if ('mediaType' in item && item.mediaType === 'movie') {
         navStore.openDetail(item.id)
       } else {
-        await handlePlayFile(item as MediaFile)
+        handlePlayFile(item as MediaFile)
       }
       return
     }
@@ -687,8 +702,8 @@
   <QueryClientProvider client={queryClient}>
     <ModalRoot bind:settings {groupByKeys} onRefresh={handleRefresh} />
 
-    <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} onOpenMatchingFile={(id) => navStore.openDetail(id)} />
-    <NotificationContainer />
+    <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} onOpenMatchingFile={(id) => navStore.openDetail(id)} onPlay={handlePlayFile} />
+    {#if !playbackItem}<NotificationContainer />{/if}
 
     {#if $autocompleteState.show}
       <AutocompleteMenu
@@ -746,6 +761,23 @@
         />
       {/if}
     </main>
+
+    {#if playbackItem && webPlayer}
+      {#key playbackItem.id}
+        {#await webPlayer}
+          <div class="loading-screen" role="status" aria-label="Opening player"><div class="spinner"></div></div>
+        {:then { default: WebPlayer }}
+          <WebPlayer item={playbackItem} {settings} initialQuality={initialPlaybackQuality} onClose={() => (playbackItem = null)} />
+        {:catch}
+          <Dialog
+            title="Player could not open"
+            message="Reload the page to load the latest player."
+            buttons={[{ label: 'Close', value: 'close' }]}
+            onClose={() => { playbackItem = null; webPlayer = undefined }}
+          />
+        {/await}
+      {/key}
+    {/if}
   </QueryClientProvider>
 {/if}
 

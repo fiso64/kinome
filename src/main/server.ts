@@ -10,6 +10,7 @@ import { setTransport } from './transport.registry'
 import * as authService from './services/auth.service'
 import { buildApp, getPublicRequestUrl } from './http-app'
 import * as handlerService from './services/handler.service'
+import { closeSubtitleExtractions } from './services/web-playback.service'
 import { closeTranscodingSessions } from './services/transcoding.service'
 import * as accountRepo from './database/repositories/account.repo'
 import bcrypt from 'bcryptjs'
@@ -196,17 +197,21 @@ if (process.env.NODE_ENV === 'production') {
   app.use(
     staticPlugin({
       assets: distPath,
-      prefix: '/'
+      prefix: '/',
+      indexHTML: false,
+      ignorePatterns: [/(^|[/\\])index\.html$/]
     })
   )
 
-  app.get('*', () => {
-    const indexPath = path.join(distPath, 'index.html')
-    if (fs.existsSync(indexPath)) {
-      return Bun.file(indexPath)
-    }
-    return new Response('Frontend not found', { status: 404 })
-  })
+  // Serve Vite's HTML as built. Bun's HTML bundler rewrites its dynamic
+  // imports and worker URLs if the static plugin imports the entry point.
+  const indexPath = path.join(distPath, 'index.html')
+  const serveIndex = () => fs.existsSync(indexPath)
+    ? new Response(Bun.file(indexPath), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }
+    })
+    : new Response('Frontend not found', { status: 404 })
+  app.get('/', serveIndex).get('/index.html', serveIndex).get('*', serveIndex)
 } else {
   app.get('/', () => {
     return `
@@ -252,7 +257,7 @@ async function start() {
 
 function shutdownPlayback(): void {
   app.server?.stop(true)
-  void closeTranscodingSessions().finally(() => process.exit(0))
+  void Promise.allSettled([closeTranscodingSessions(), closeSubtitleExtractions()]).finally(() => process.exit(0))
 }
 
 process.once('SIGTERM', shutdownPlayback)

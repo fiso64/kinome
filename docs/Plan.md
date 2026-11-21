@@ -20,14 +20,16 @@
 
 - [x] [P1] Transcoding and transmuxing support.
 - [ ] [P1] Refine players.
-  - [ ] Look at the percentage watched to determine if an item is watched or not, instead of setting immediately on play. Look into how jellyfin does it.
+  - [x] Track actual playback position and completion in the web player.
+  - [ ] Use playback progress to track watched state in external players.
   - [ ] Add a better integration for mpv (and vlc if possible) that reports accurate progress and allows navigating to the previous item in a playlist. E.g. using ipc+wrapper or lua scripts. Should be as easy to set up/run as possible. 
   - [x] Re-enable custom player feature by adding a custom protocol (supports calling the defined player with the defined commands).
     - [x] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
-  - [ ] Web player, Capabilities detection decision engine. (Requires transmuxing/transcoding support) (libs: hls.js, vidstack, JavascriptSubtitlesOctopus)
+  - [x] Web player with capability-based playback, manual quality selection, and embedded and sidecar subtitles.
+    - [ ] Adaptive bitrate switching across aligned HLS renditions.
     - [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
-- [ ] [P1] Default audio and sub language option. Requires: Metadata extraction to display available options. Allow passing chosen default to custom players.
-  - [ ] Somehow support external sub files near videos, in both web and external players.
+- [x] Web player preferences for audio language, subtitle language, and forced subtitles.
+- [ ] Pass language preferences and sidecar subtitles to external players.
 
 ### 🎨 UI/UX, Customization
 

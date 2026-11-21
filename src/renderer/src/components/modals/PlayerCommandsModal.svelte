@@ -6,7 +6,7 @@
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { BUILTIN_COPY_LINK, resolveClientPlayers } from '@lib/services/player-launcher.service'
+  import { BUILTIN_COPY_LINK, BUILTIN_WEB_PLAYER, resolveClientPlayers } from '@lib/services/player-launcher.service'
 
   let {
     playerCommands = $bindable(),
@@ -329,6 +329,8 @@
         {#if editor}
           <p>Launch commands are shared across devices.</p>
           {@render commandEditor(editor)}
+        {:else if selectedPlayer?.id === BUILTIN_WEB_PLAYER.id}
+          <p>Plays in this browser. Set startup quality and languages under Web player in Playback settings.</p>
         {:else if selectedPlayer?.isBuiltIn}
           <p>{selectedPlayer.id === BUILTIN_COPY_LINK.id
             ? 'Copies the playback link to your clipboard.'

@@ -6,6 +6,7 @@
  * - Admin-user tests: one clean representative per capability group, sufficient
  *   to prove the guard is two-directional without noisy service errors.
  */
+import type { WebPlaybackInfo } from '@shared/web-playback'
 import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,7 +18,7 @@ import * as accountRepo from '../database/repositories/account.repo'
 import * as authService from './auth.service'
 import * as settingsService from './settings.service'
 import { closeTranscodingSessions } from './transcoding.service'
-import { conversionAvailable, ffmpeg } from './transcoding/runtime'
+import { conversionAvailable, ffmpeg, ffprobe } from './transcoding/runtime'
 
 describe('HTTP authorization — capability enforcement', () => {
   let ctx: ServiceTestContext
@@ -72,6 +73,43 @@ describe('HTTP authorization — capability enforcement', () => {
     )
   })
 
+  it('serves matching subtitle sidecars and saves playback progress per account', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kinome-web-playback-'))
+    const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
+    const base = '/api/playback/web-movie'
+    try {
+      await Promise.all([
+        Bun.write(join(directory, 'film.mp4'), ''),
+        Bun.write(join(directory, 'film.en.forced.vtt'), 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n'),
+        Bun.write(join(directory, 'other.en.vtt'), 'WEBVTT\n')
+      ])
+      ctx.seedItems([{ id: 'web-movie', sourceId: 'web-source', path: 'film.mp4' }])
+      expect((await app.handle(new Request(`http://localhost${base}/info`))).status).toBe(401)
+      const info = await (await app.handle(req('GET', base + '/info'))).json() as WebPlaybackInfo
+      expect(info.position).toBe(0)
+      expect(info.subtitles).toEqual([
+        expect.objectContaining({ format: 'text', language: 'en', forced: true, sidecar: true })
+      ])
+      const track = base + '/subtitle/' + info.subtitles[0].id + '/track'
+      const response = await app.handle(req('GET', track))
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toStartWith('text/vtt')
+      expect(await response.text()).toContain('Hello')
+      const unrelated = 's-' + Buffer.from('other.en.vtt').toString('base64url')
+      expect((await app.handle(req('GET', base + '/subtitle/' + unrelated + '/track'))).status).toBe(404)
+      expect((await app.handle(req('POST', base + '/progress', { position: 75, completed: false }))).status).toBe(200)
+      expect(await (await app.handle(req('GET', base + '/info'))).json()).toMatchObject({ position: 75 })
+      expect(await (await app.handle(req('GET', base + '/info', undefined, adminToken))).json()).toMatchObject({ position: 0 })
+      expect(await (await app.handle(req('GET', '/api/items/web-movie'))).json()).not.toMatchObject({ watched: true })
+      expect((await app.handle(req('POST', base + '/progress', { position: 95, completed: true }))).status).toBe(200)
+      expect(await (await app.handle(req('GET', base + '/info'))).json()).toMatchObject({ position: 0 })
+      expect(await (await app.handle(req('GET', '/api/items/web-movie'))).json()).toMatchObject({ watched: true })
+    } finally {
+      source.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it.skipIf(!conversionAvailable)('serves authenticated byte ranges from seekable fragmented MP4 remuxes', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'kinome-hls-'))
     const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
@@ -105,6 +143,23 @@ describe('HTTP authorization — capability enforcement', () => {
       expect(segment.status).toBe(200)
       expect(Number(segment.headers.get('Content-Length'))).toBe(data.byteLength)
       expect(Buffer.from(data).toString('ascii', 4, 8)).toBe('moof')
+      const webMaster = new URL(master)
+      webMaster.searchParams.set('web', '1')
+      webMaster.pathname = webMaster.pathname.replace('/remux/', '/audio/')
+      const audioPlaylist = await app.handle(new Request(webMaster.href))
+      expect(audioPlaylist.status).toBe(200)
+      const audioText = await audioPlaylist.text()
+      expect(Number(audioText.match(/#EXTINF:([^,]+),/)?.[1])).toBeCloseTo(2, 3)
+      const audioSegmentUrl = new URL(audioText.split('\n').find((line) => line.startsWith('segment-'))!, webMaster)
+      expect(audioSegmentUrl.searchParams.get('web')).toBe('1')
+      const audioSegment = await app.handle(new Request(audioSegmentUrl.href))
+      expect(audioSegment.status).toBe(200)
+      const audioData = await audioSegment.arrayBuffer()
+      const codecs = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=codec_name',
+        '-of', 'csv=p=0', '-i', 'pipe:0'], { stdin: Buffer.from(audioData) })
+      expect(codecs.exitCode).toBe(0)
+      expect(codecs.stdout.toString()).toContain('mpeg4')
+      expect(codecs.stdout.toString()).toContain('aac')
       const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
       expect(initialization.status).toBe(206)
       expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')

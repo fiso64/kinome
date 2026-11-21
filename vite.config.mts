@@ -5,6 +5,13 @@ import path from 'path'
 export default defineConfig({
   root: 'src/renderer',
   base: './',
+  optimizeDeps: {
+    // Vite's dependency cache does not preserve the subtitle packages' worker/WASM paths.
+    entries: ['index.html', 'src/components/player/WebPlayer.svelte'],
+    exclude: ['jassub', 'libbitsub'],
+    include: ['jassub > throughput', 'jassub > rvfc-polyfill']
+  },
+  worker: { format: 'es' },
   build: {
     outDir: path.resolve(__dirname, 'out/renderer'),
     emptyOutDir: true

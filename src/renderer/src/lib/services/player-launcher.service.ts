@@ -19,15 +19,22 @@ export const BUILTIN_COPY_LINK: PlayerCommandConfig = {
   isBuiltIn: true
 }
 
-export const BUILTIN_PLAYER_COMMANDS = [BUILTIN_COPY_PLAYLIST_LINK, BUILTIN_COPY_LINK]
+export const BUILTIN_WEB_PLAYER: PlayerCommandConfig = {
+  id: 'builtin:web',
+  name: 'Web Player',
+  command: 'builtin:web',
+  isBuiltIn: true
+}
+
+export const BUILTIN_PLAYER_COMMANDS = [BUILTIN_WEB_PLAYER, BUILTIN_COPY_PLAYLIST_LINK, BUILTIN_COPY_LINK]
 
 /**
  * Resolves the ordered list of players available on this device.
  *
  * - `enabledPlayerIds` is the client-local ordered list (from clientSettingsStore).
  * - `serverDefs` is the server-side catalog of custom player definitions.
- * - Built-in players are always included, appended in default order if not
- *   explicitly positioned in `enabledPlayerIds`.
+ * - The web player starts first on devices that have yet to position it.
+ * - Missing link actions are appended in their default order.
  * - Stale IDs (referring to deleted server definitions) are silently dropped.
  */
 export function resolveClientPlayers(
@@ -51,6 +58,11 @@ export function resolveClientPlayers(
         seen.add(id)
       }
     }
+  }
+
+  if (!seen.has(BUILTIN_WEB_PLAYER.id)) {
+    result.unshift(BUILTIN_WEB_PLAYER)
+    seen.add(BUILTIN_WEB_PLAYER.id)
   }
 
   // Built-ins are always available even if omitted from enabledPlayerIds.
@@ -117,18 +129,11 @@ async function copyPlaybackLink(url: string, ready?: Promise<void>): Promise<voi
 }
 
 export const playerLauncherService = {
-  /**
-   * Executes the default player or a specific command for a media item.
-   * Pass the resolved client player list (from resolveClientPlayers) as `commands`.
-   * The first entry in the list is the implicit default.
-   */
-  async playItem(
+  async launchExternal(
     file: MediaFile,
-    commands: PlayerCommandConfig[],
-    preferredCommand?: PlayerCommandConfig,
+    commandToExecute: PlayerCommandConfig,
     quality: PlaybackQuality = 'original'
   ): Promise<void> {
-    const commandToExecute = preferredCommand ?? commands[0] ?? BUILTIN_COPY_PLAYLIST_LINK
     const direct = commandToExecute.command === BUILTIN_COPY_LINK.command
     const copy = direct || commandToExecute.command === BUILTIN_COPY_PLAYLIST_LINK.command
     try {

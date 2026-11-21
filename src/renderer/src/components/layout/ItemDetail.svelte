@@ -6,6 +6,8 @@
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide, fade, fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
+  import { isSupportedVideoFile } from '@shared/local-media'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
   import { notificationStore } from '@lib/notification-store.svelte'
 
@@ -138,7 +140,7 @@
   // 2. Fetch structural children separately with isDetailView: true
   // This allows the children endpoint to handle structural bundling (Season -> Episode)
   const childrenQuery = libraryDataService.getChildrenQuery(() => initialItem.id, {
-    fields: () => requiredFields,
+    fields: () => item.mediaType === 'movie' ? [...new Set([...requiredFields, 'size'])] : requiredFields,
     isDetailView: () => true,
     enabled: () => initialItem.type === 'folder' && item.viewHierarchy != null
   })
@@ -147,6 +149,13 @@
   const children = $derived(
     childrenQuery.data || (initialItem.type === 'folder' ? initialItem.children || [] : [])
   )
+
+  const movieFile = $derived(item.type === 'folder' && item.mediaType === 'movie'
+    ? children.filter((child): child is LibraryItem & MediaFile => child.type === 'file' && !child.isHidden &&
+      !child.isIgnored && itemCapabilities(child).canPlay && isSupportedVideoFile(child.name))
+      .sort((a, b) => Number(b.mediaType === 'movie') - Number(a.mediaType === 'movie') ||
+        (b.size ?? 0) - (a.size ?? 0) || a.name.localeCompare(b.name, undefined, { numeric: true }))[0]
+    : undefined)
 
   // -- 3. Derived Template Properties --
 
@@ -373,8 +382,10 @@
                 </div>
               {/if}
             </div>
-            {#if item.type === 'file' && !item.opensAsFolder}
-              <button class="play-button" onclick={() => onPlay(item)}> ▶ Play </button>
+            {#if item.type === 'file' && itemCapabilities(item).canPlay}
+              <button class="play-button" onclick={() => onPlay(item)}>▶ Play</button>
+            {:else if movieFile}
+              <button class="play-button" onclick={() => onPlay({ ...movieFile!, title: item.title ?? item.name })}>▶ Play</button>
             {/if}
           </div>
 
