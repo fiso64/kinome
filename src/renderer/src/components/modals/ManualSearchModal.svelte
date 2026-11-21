@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import type { LibraryItem, TmdbSearchResult, TmdbImage } from '@shared/types'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { parseTitle } from '@shared/title-parser'
   import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
   import Icon from '@components/ui/Icon.svelte'
@@ -34,11 +35,12 @@
   let applyingResultId = $state<number | null>(null)
 
   // Match tab state
-  let searchQuery = $state(item.title ?? item.name)
+  const guessedTitle = parseTitle(item.name, item.type)
+  let searchQuery = $state(guessedTitle.title)
   let searchTmdbId = $state('')
   let searchBy = $state<'title' | 'id'>('title')
   let searched = $state(false)
-  let searchYear = $state(item.year?.toString() ?? '')
+  let searchYear = $state(guessedTitle.year?.toString() ?? '')
 
   function initialSearchType(): 'movie' | 'tv' | 'season' {
     if (item.mediaType === 'season') return 'season'

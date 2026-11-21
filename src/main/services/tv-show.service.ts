@@ -8,7 +8,7 @@ import {
   ParsedTvInfo,
   TvParserDiagnosticSink
 } from '../utils/tv-parser'
-import { parseTitle } from '../utils/title-parser'
+import { parseTitle } from '@shared/title-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { syncVirtualSeasonFolders } from './grouping.service'

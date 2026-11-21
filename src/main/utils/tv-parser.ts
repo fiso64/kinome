@@ -1,7 +1,7 @@
 import { isSupportedVideoFile } from '@shared/local-media'
 export { isSupportedVideoFile } from '@shared/local-media'
 
-import { comparableTitle, isExtraVideoName, readSeasonNotation, videoStem } from './title-parser'
+import { comparableTitle, isExtraVideoName, readSeasonNotation, videoStem } from '@shared/title-parser'
 
 const EPISODE_NUMBER = String.raw`(\d{1,3}(?:\.\d(?!\d))?)`
 const SXXEXX_PATTERNS = [

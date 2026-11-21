@@ -1,6 +1,6 @@
 import type { LibraryItem, Person, TmdbEpisode, TmdbSeason } from '@shared/types'
 import type { TmdbMetadata } from '@shared/metadata-fields'
-import { comparableTitle, type TitleQuery } from '../utils/title-parser'
+import { comparableTitle, type TitleQuery } from '@shared/title-parser'
 import * as tmdb from './retriever.service'
 
 export type ProviderMediaType = 'movie' | 'tv'

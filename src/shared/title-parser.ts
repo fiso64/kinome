@@ -1,4 +1,4 @@
-import { isSupportedVideoFile } from '@shared/local-media'
+import { isSupportedVideoFile } from './local-media'
 
 export interface TitleQuery {
   title: string
