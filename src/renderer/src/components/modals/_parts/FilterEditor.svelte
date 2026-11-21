@@ -7,7 +7,7 @@
   import { getMetadataField, isBuiltinMetadataField, metadataSuggestionLookup, METADATA_RULE_FIELDS } from '@shared/metadata-fields'
   import { getMetadataSuggestions } from '@lib/metadata-autocomplete'
   import type { LibraryCondition, LibraryConditionOp, AutocompleteSuggestions } from '@shared/types'
-  import IconX from '@components/ui/IconX.svelte'
+  import Icon from '@components/ui/Icon.svelte'
 
   let {
     groups = $bindable(),
@@ -32,15 +32,17 @@
     return result
   })
 
+  const knownFields = $derived(new Set(fields.map((field) => field.value)))
+
   const operators: { value: LibraryConditionOp; label: string }[] =[
     { value: 'eq', label: '=' },
-    { value: 'ne', label: '≠' },
+    { value: 'ne', label: '!=' },
     { value: 'contains', label: 'contains' },
     { value: 'notContains', label: 'does not contain' },
     { value: 'gt', label: '>' },
-    { value: 'gte', label: '≥' },
+    { value: 'gte', label: '>=' },
     { value: 'lt', label: '<' },
-    { value: 'lte', label: '≤' },
+    { value: 'lte', label: '<=' },
     { value: 'isEmpty', label: 'is empty' },
     { value: 'isNotEmpty', label: 'is not empty' }
   ]
@@ -114,12 +116,12 @@
 </script>
 
 <div class="filter-editor">
-  {#each groups as group, gi}
+  {#each groups as group, gi (group)}
     {#if gi > 0}
       <div class="or-separator"><span>OR</span></div>
     {/if}
-    <div class="and-group">
-      {#each group as cond, ci}
+    <div class="and-group" role="group" aria-label={`Condition group ${gi + 1}`}>
+      {#each group as cond, ci (cond)}
         <div class="condition-row">
           {#if ci > 0}
             <span class="and-label">AND</span>
@@ -127,7 +129,7 @@
           <select
             value={getTarget(cond.field)}
             onchange={(e) => setTarget(cond, e.currentTarget.value as 'item' | 'parent')}
-            class="target-select"
+            class="target-select" aria-label="Match item or parent"
           >
             <option value="item">Item</option>
             <option value="parent">Parent</option>
@@ -135,16 +137,16 @@
           <select
             value={getBaseField(cond.field)}
             onchange={(e) => setField(cond, e.currentTarget.value)}
-            class="field-select"
+            class="field-select" aria-label="Metadata field"
           >
             {#each fields as f}
               <option value={f.value}>{f.label}</option>
             {/each}
-            {#if !fields.some((f) => f.value === getBaseField(cond.field))}
+            {#if !knownFields.has(getBaseField(cond.field))}
               <option value={getBaseField(cond.field)}>{getBaseField(cond.field)}</option>
             {/if}
           </select>
-          <select bind:value={cond.op} class="op-select">
+          <select bind:value={cond.op} class="op-select" aria-label="Comparison">
             {#each operators as op}
               {#if getMetadataField(getBaseField(cond.field))?.kind !== 'list' || !orderedOperators.has(op.value)}
                 <option value={op.value}>{op.label}</option>
@@ -160,116 +162,85 @@
               <input
                 type="text"
                 bind:value={cond.value}
-                placeholder="value"
+                placeholder="Value" aria-label="Comparison value"
                 class="value-input"
                 use:autocomplete={makeAutocompleteConfig(cond)}
               />
             {:else}
-              <input type="text" bind:value={cond.value} placeholder="value" class="value-input" />
+              <input type="text" bind:value={cond.value} placeholder="Value" aria-label="Comparison value" class="value-input" />
             {/if}
           {/if}
           <button
-            class="remove-btn"
+            type="button" class="icon-button remove-btn" aria-label="Remove condition"
             onclick={() => removeCondition(gi, ci)}
-            title="Remove condition"><IconX size={12} /></button
+            title="Remove condition"><Icon name="close" size={16} /></button
           >
         </div>
       {/each}
-      <button class="add-link" onclick={() => addCondition(gi)}>+ AND</button>
+      <button type="button" class="add-link" onclick={() => addCondition(gi)}><Icon name="plus" size={15} /> Add AND condition</button>
     </div>
   {/each}
-  <button class="add-link add-or" onclick={addGroup}>
-    {groups.length === 0 ? '+ Add condition' : '+ OR group'}
+  <button type="button" class="add-link add-or" onclick={addGroup}>
+    <Icon name="plus" size={15} /> {groups.length === 0 ? 'Add condition' : 'Add OR group'}
   </button>
 </div>
 
 <style>
   .filter-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    display: grid;
+    gap: .45rem;
+    min-width: 0;
+    container-type: inline-size;
   }
   .and-group {
-    background: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    padding: 0.4rem 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
+    display: grid;
+    gap: .4rem;
+    min-width: 0;
+    padding: .55rem;
+    background: var(--color-inset);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-field);
   }
   .condition-row {
-    display: flex;
-    gap: 0.4rem;
+    display: grid;
+    grid-template-columns: minmax(3.65rem, 1fr) minmax(0, 1.6fr) minmax(0, 1.55fr) minmax(0, 1.75fr) auto;
+    gap: .32rem;
     align-items: center;
+    min-width: 0;
   }
-  .and-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--ev-c-text-3);
-    text-transform: uppercase;
-    width: 2rem;
-    flex-shrink: 0;
-  }
-  .target-select {
-    min-width: 4.5rem;
-  }
-  .field-select {
-    min-width: 7rem;
-  }
-  .op-select {
-    min-width: 4.5rem;
-  }
-  .value-input {
-    flex: 1;
-    min-width: 5rem;
-  }
-  .or-separator {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.15rem 0;
-  }
-  .or-separator span {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--ev-c-text-3);
-    text-transform: uppercase;
-  }
-  .or-separator::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--color-background-mute);
-  }
-  .remove-btn {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    padding: 0 0.2rem;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .remove-btn:hover {
-    color: #e81123;
-  }
+  .condition-row :is(input, select) { width: 100%; font-size: .81rem; padding: .39rem .44rem; }
+  .condition-row .remove-btn { grid-column: -2; width: 28px; height: 28px; }
+  .remove-btn:hover { color: var(--color-danger-soft); }
+  .and-label, .or-separator { color: var(--color-primary-soft); font-size: .7rem; font-weight: 680; }
+  .and-label { grid-column: 1 / -1; margin-top: .15rem; }
+  .or-separator { display: flex; gap: .5rem; align-items: center; }
+  .or-separator::after { content: ''; background: var(--section-rule); height: 1px; flex: 1; }
   .add-link {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    font-size: 0.8rem;
-    padding: 0.15rem 0;
-    text-align: left;
-    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    justify-self: start;
+    padding: .28rem .45rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-text-soft);
+    font-size: .8rem;
   }
-  .add-link:hover {
-    color: var(--ev-c-text-1);
+  .add-link:hover { color: var(--color-primary-soft); background: var(--color-hover); }
+  .add-or { border-color: var(--color-border); }
+
+  @container (max-width: 540px) {
+    .condition-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto; }
+    .target-select { grid-row: auto; }
+    .condition-row .remove-btn { grid-column: 3; grid-row: 1; }
+    .condition-row:has(.and-label) .remove-btn { grid-row: 2; }
+    .value-input { grid-column: 2 / 4; }
   }
-  .add-or {
-    margin-top: 0.15rem;
+
+  @container (max-width: 285px) {
+    .condition-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .condition-row .remove-btn { grid-column: 2; }
+    .field-select, .op-select, .value-input { grid-column: 1 / -1; }
   }
 </style>

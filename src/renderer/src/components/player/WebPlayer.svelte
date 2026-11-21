@@ -1546,7 +1546,7 @@
               {#if panel === 'queue' && queue.length > queuePageSize}
                 <select aria-label="Playback queue range" bind:value={queuePage} onchange={() => panelElement?.scrollTo(0, 0)}>
                   {#each Array(Math.ceil(queue.length / queuePageSize)) as _, page}
-                    <option value={page}>{page * queuePageSize + 1}–{Math.min((page + 1) * queuePageSize, queue.length)}</option>
+                    <option value={page}>{page * queuePageSize + 1}-{Math.min((page + 1) * queuePageSize, queue.length)}</option>
                   {/each}
                 </select>
               {/if}
@@ -1593,7 +1593,7 @@
                     {#if selectedSubtitle?.format === 'ass' && fontPermission === 'prompt'}
                       <button type="button" class="settings-link" onclick={allowSubtitleFonts}>Allow local subtitle fonts</button>
                     {:else if selectedSubtitle?.format === 'ass' && fontPermission === 'denied'}
-                      <p class="panel-note">Local subtitle fonts are blocked in your browser’s site settings.</p>
+                      <p class="panel-note">Local subtitle fonts are blocked in your browser's site settings.</p>
                     {/if}
                   </fieldset>
                 </div>

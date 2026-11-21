@@ -3,11 +3,13 @@
 
   import MediaView from '../layout/MediaView.svelte'
   import ViewContextProvider from '../layout/ViewContextProvider.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import { viewStateStore, getViewKey } from '@lib/view-state-store.svelte'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import type { AutocompleteSuggestions, Settings } from '@shared/types'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { fade } from 'svelte/transition'
 
   type DisplayableItem = LibraryItem | SearchIndexEntry
@@ -34,6 +36,7 @@
     viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
+  const tabGroupId = $props.id()
   const stateKey = getViewKey('tabs')
   const persistentState = viewStateStore.get<{ activeTabId: string | null }>(stateKey, { activeTabId: null })
   const isTvShow = $derived(container?.mediaType === 'tv')
@@ -50,7 +53,7 @@
 
   const activeTabId = $derived.by(() => {
     if (intentFolder) return intentFolder.id
-    if (persistentState.activeTabId) return persistentState.activeTabId
+    if (folders.some((folder) => folder.id === persistentState.activeTabId)) return persistentState.activeTabId
     if (isTvShow && nextUpQuery.isPending) return null
 
     const info = nextUpQuery.data
@@ -120,9 +123,24 @@
   $effect(() => {
     if (activeTabId && tabListElement) {
       const activeTabElement = tabListElement.querySelector('.tab.active')
-      activeTabElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+      activeTabElement?.scrollIntoView({ behavior: prefersReducedMotion.current ? 'instant' : 'smooth', block: 'nearest', inline: 'center' })
     }
   })
+
+  function handleTabKeys(event: KeyboardEvent, tabIndex: number) {
+    let index: number
+    switch (event.key) {
+      case 'ArrowLeft': index = (tabIndex - 1 + folders.length) % folders.length; break
+      case 'ArrowRight': index = (tabIndex + 1) % folders.length; break
+      case 'Home': index = 0; break
+      case 'End': index = folders.length - 1; break
+      default: return
+    }
+    event.preventDefault()
+    const tabId = folders[index].id
+    selectTab(tabId)
+    document.getElementById(`${tabGroupId}-${tabId}`)?.focus({ preventScroll: true })
+  }
 
   function scrollTabs(direction: 'left' | 'right') {
     tabListElement?.dispatchEvent(new CustomEvent('smooth-scroll', { detail: { direction } }))
@@ -130,61 +148,41 @@
 </script>
 
 <div class="tabs-view">
-  <div
-    class="tabs-view-header"
-    class:can-scroll-left={canScrollLeft}
-    class:can-scroll-right={canScrollRight}
-  >
-    <button
-      class="scroll-button left"
-      class:visible={canScrollLeft}
-      onclick={() => scrollTabs('left')}
-      aria-label="Scroll left"
-    >
-      <svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
-        ><path
-          d="M8.5 15L1.5 8L8.5 1"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          fill="none"
-        /></svg
-      >
-    </button>
-    <div class="tab-list" bind:this={tabListElement} use:horizontalScroller={scrollState}>
-      {#each folders as folder (folder.id)}
-        <button
-          class="tab"
-          class:active={activeTabId === folder.id}
-          onclick={() => selectTab(folder.id)}
-          oncontextmenu={(e) =>
-            onShowContextMenu(folder, e, { layout: 'tabs', parentItem: container as LibraryItem })}
-        >
-          {folder.title ?? (folder.mediaType === 'season' && folder.seasonNumber != null
-            ? `Season ${folder.seasonNumber}`
-            : folder.name)}
-        </button>
-      {/each}
+  {#if folders.length > 0}
+    <div class="tabs-view-header">
+      <div class="tab-list" role="tablist" aria-label={isTvShow ? 'Seasons' : 'Folders'}
+        bind:this={tabListElement} use:horizontalScroller={scrollState}>
+        {#each folders as folder, i (folder.id)}
+          <button
+            type="button"
+            role="tab"
+            class="tab"
+            class:active={activeTabId === folder.id}
+            id={`${tabGroupId}-${folder.id}`}
+            aria-controls={activeTabId === folder.id ? `${tabGroupId}-panel` : undefined}
+            aria-selected={activeTabId === folder.id}
+            tabindex={(activeTabId ? activeTabId === folder.id : i === 0) ? 0 : -1}
+            onclick={() => selectTab(folder.id)}
+            onkeydown={(event) => handleTabKeys(event, i)}
+            oncontextmenu={(e) =>
+              onShowContextMenu(folder, e, { layout: 'tabs', parentItem: container as LibraryItem })}
+          >
+            {folder.title ?? (folder.mediaType === 'season' && folder.seasonNumber != null
+              ? `Season ${folder.seasonNumber}`
+              : folder.name)}
+          </button>
+        {/each}
+      </div>
+      {#if canScrollLeft || canScrollRight}
+        <div class="scroll-buttons">
+          <button type="button" class="icon-button" disabled={!canScrollLeft}
+            onclick={() => scrollTabs('left')} aria-label="Scroll left"><Icon name="left" size={16} /></button>
+          <button type="button" class="icon-button" disabled={!canScrollRight}
+            onclick={() => scrollTabs('right')} aria-label="Scroll right"><Icon name="right" size={16} /></button>
+        </div>
+      {/if}
     </div>
-    <button
-      class="scroll-button right"
-      class:visible={canScrollRight}
-      onclick={() => scrollTabs('right')}
-      aria-label="Scroll right"
-    >
-      <svg width="8" height="13" viewBox="0 0 10 16" fill="none" xmlns="http://www.w3.org/2000/svg"
-        ><path
-          d="M1.5 1L8.5 8L1.5 15"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          fill="none"
-        /></svg
-      >
-    </button>
-  </div>
+  {/if}
   <div class="tab-content" use:scrollPersistence={{ key: getViewKey('vertical') }}>
     {#if folders.length > 0 && activeTabId === null}
       <div class="tab-loading" role="status" aria-label="Loading season">
@@ -194,7 +192,8 @@
       {#each folders as folder (folder.id)}
         {#if activeTabId === folder.id}
           {@const childNode = viewNode?.children?.[folder.id]}
-          <div class="tab-pane-wrapper" transition:fade={{ duration: 150 }}>
+          <div class="tab-pane-wrapper" role="tabpanel" id={`${tabGroupId}-panel`}
+            aria-labelledby={`${tabGroupId}-${folder.id}`} in:fade={{ duration: prefersReducedMotion.current ? 0 : 130 }}>
             <ViewContextProvider id={folder.id} extend={true}>
               <MediaView
                 parentItem={folder}
@@ -217,13 +216,9 @@
 </div>
 
 <style>
-  .tab-loading {
-    padding: 1.5rem;
-  }
-  .empty-message {
-    padding: 1.5rem;
-    color: var(--ev-c-text-2);
-  }
+  .tab-loading, .empty-message { padding: 1.25rem; }
+  .empty-message { color: var(--color-text-soft); }
+
   .tabs-view {
     display: flex;
     flex-direction: column;
@@ -231,151 +226,52 @@
   }
 
   .tabs-view-header {
-    position: relative;
     display: flex;
     align-items: center;
-    flex-shrink: 0;
+    flex: none;
+    width: fit-content;
+    max-width: calc(100% - 2rem);
+    margin: .4rem auto .8rem;
+    border-radius: var(--radius-panel);
+    background: var(--color-inset);
+    border: 1px solid var(--color-border-soft);
+    box-shadow: inset 0 2px 5px #03050866;
+  }
+
+  :global(.full-backdrop-mode) .tabs-view-header {
+    background: var(--surface-over-artwork);
+    border-color: var(--artwork-edge);
+    backdrop-filter: blur(14px);
+    box-shadow: var(--edge-light);
   }
 
   .tab-list {
     display: flex;
-    flex-wrap: nowrap;
     overflow-x: auto;
-    padding: 1rem 1.5rem;
-    margin: 0 1rem;
-    gap: 1rem;
-    -ms-overflow-style: none; /* for Internet Explorer, Edge */
-    scrollbar-width: none; /* for Firefox */
-    flex-grow: 1;
-  }
-
-  .tab-list::before,
-  .tab-list::after {
-    content: '';
-    flex: 1;
-  }
-
-  .tab-list::-webkit-scrollbar {
-    display: none; /* for Chrome, Safari, and Opera */
+    padding: .35rem;
+    gap: .25rem;
+    scrollbar-width: none;
   }
 
   .tab {
-    padding: 0.75rem 1.5rem;
-    cursor: pointer;
-    background-color: var(--color-background-soft);
-    border: 1px solid transparent;
-    border-radius: 20px;
-    color: var(--ev-c-text-2);
-    font-size: 0.9rem;
-    font-weight: 600;
-    transition:
-      color 0.2s,
-      background-color 0.2s,
-      border-color 0.2s;
-    white-space: nowrap; /* Prevent tab text from wrapping */
+    flex: none;
+    padding: .45rem .95rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    white-space: nowrap;
+    color: var(--color-text-soft);
   }
-  .tab:hover {
-    color: var(--ev-c-text-1);
-    background-color: var(--ev-c-gray-3);
-  }
+
+  .tab:hover { color: var(--color-text); background: var(--color-hover); }
   .tab.active {
-    color: var(--ev-c-text-1);
-    background-color: var(--ev-c-gray-2);
-    border-color: var(--ev-c-gray-1);
+    color: var(--color-primary-soft);
+    background: var(--accent-surface);
+    border-color: var(--accent-border);
+    box-shadow: var(--edge-light);
   }
 
-  .scroll-button {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 2;
-    background-color: rgba(30, 30, 30, 0.9);
-    backdrop-filter: blur(2px);
-    color: var(--ev-c-text-2);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-    line-height: 1;
-    padding: 0;
-    opacity: 0;
-    visibility: hidden;
-    transition:
-      opacity 0.2s ease,
-      visibility 0.2s ease,
-      color 0.2s ease;
-  }
-  .scroll-button.left {
-    left: 1rem;
-  }
-  .scroll-button.right {
-    right: 1rem;
-  }
-  .tabs-view-header:hover .scroll-button.visible {
-    opacity: 1;
-    visibility: visible;
-  }
-  .scroll-button:hover {
-    background-color: var(--ev-c-gray-2);
-    color: var(--ev-c-text-1);
-  }
-
-  .tabs-view-header.can-scroll-left .tab-list {
-    -webkit-mask-image: linear-gradient(to right, transparent, black 40px);
-    mask-image: linear-gradient(to right, transparent, black 40px);
-  }
-  .tabs-view-header.can-scroll-right .tab-list {
-    -webkit-mask-image: linear-gradient(to left, transparent, black 40px);
-    mask-image: linear-gradient(to left, transparent, black 40px);
-  }
-  .tabs-view-header.can-scroll-left.can-scroll-right .tab-list {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      transparent,
-      black 40px,
-      black calc(100% - 40px),
-      transparent
-    );
-    mask-image: linear-gradient(
-      to right,
-      transparent,
-      black 40px,
-      black calc(100% - 40px),
-      transparent
-    );
-  }
-
-  .tab-content {
-    flex-grow: 1;
-    overflow-y: auto;
-    display: grid;
-    grid-template-columns: 100%;
-    align-items: start;
-  }
-
-  .tab-pane-wrapper {
-    grid-area: 1 / 1;
-    width: 100%;
-  }
-
-  /* --- Full Backdrop Mode Styles --- */
-  :global(.full-backdrop-mode) .tab {
-    background-color: rgba(30, 30, 33, 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  :global(.full-backdrop-mode) .tab:hover {
-    background-color: rgba(50, 50, 55, 0.8);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-  :global(.full-backdrop-mode) .tab.active {
-    background-color: rgba(80, 80, 85, 0.85);
-    border-color: rgba(255, 255, 255, 0.2);
-  }
+  .scroll-buttons { display: flex; padding-right: .25rem; }
+  .scroll-buttons button { width: 30px; min-height: 30px; }
+  .tab-content { flex: 1; min-height: 0; overflow-y: auto; }
 </style>

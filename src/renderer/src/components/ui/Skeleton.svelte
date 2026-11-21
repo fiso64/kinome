@@ -2,7 +2,7 @@
   let {
     width = '100%',
     height = '1em',
-    radius = '6px'
+    radius = 'var(--radius-field)'
   }: {
     width?: string
     height?: string
@@ -10,7 +10,7 @@
   } = $props()
 </script>
 
-<div class="skeleton" style:width style:height style:border-radius={radius}></div>
+<div class="skeleton" aria-hidden="true" style:width style:height style:border-radius={radius}></div>
 
 <style>
   .skeleton {
@@ -18,13 +18,16 @@
     flex-shrink: 0;
     background: linear-gradient(
       90deg,
-      var(--color-background-mute) 25%,
-      var(--color-background-soft) 50%,
-      var(--color-background-mute) 75%
+      var(--color-background-soft) 28%,
+      var(--color-border-soft) 49%,
+      var(--color-background-soft) 70%
     );
     background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s infinite;
+    animation: skeleton-shimmer 2s linear infinite;
+    box-shadow: var(--edge-light);
   }
+
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
 
   @keyframes skeleton-shimmer {
     0% {

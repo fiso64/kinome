@@ -12,8 +12,13 @@ import type {
   AppCapabilities,
   LibraryStatus,
   ScanStatus,
-  MediaSource
+  MediaSource,
+  FolderSettings
 } from '@shared/types'
+
+export type LibraryItemUpdate = Omit<Partial<LibraryItem>, 'folderSettings'> & {
+  folderSettings?: Partial<FolderSettings>
+}
 
 export interface ApiClient {
   readonly capabilities: AppCapabilities
@@ -132,7 +137,7 @@ export interface ApiClient {
   getAccountFilter(accountId: string): Promise<{ rule: import('@shared/types').AccountFilterRule | null }>
   setAccountFilter(accountId: string, mode: 'allow' | 'deny', filter: import('@shared/types').LibraryFilter): Promise<void>
   deleteAccountFilter(accountId: string): Promise<void>
-  userUpdateItem(item: Partial<LibraryItem>): Promise<void>
+  userUpdateItem(item: LibraryItemUpdate): Promise<void>
   setGrouping(folderId: string, groupByKey: string | null): Promise<void>
   resolveMediaSourcePath(args: {
     path: string

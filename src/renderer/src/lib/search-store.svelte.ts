@@ -9,11 +9,13 @@ import { serializeSearchQuery } from './search-query-helpers'
 let searchResults = $state<SearchIndexEntry[]>([])
 let highlightedGlobalIndex = $state<number | null>(null)
 let isPerformingGlobalSearch = $state(false)
+let globalSearchError = $state(false)
 
 let detailQuery = $state<SearchQuery>({ text: '', tags: [] })
 let detailResults = $state<SearchIndexEntry[]>([])
 let highlightedDetailIndex = $state<number | null>(null)
 let isPerformingDetailSearch = $state(false)
+let detailSearchError = $state(false)
 
 let filterQuery = $state<SearchQuery>({ text: '', tags: [] })
 let isFilterBarVisible = $state(false)
@@ -30,13 +32,33 @@ const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 // --- Search Helpers ---
 
 async function runSearch(query: SearchQuery): Promise<SearchIndexEntry[]> {
-  const results = await api.performSearch(JSON.parse(JSON.stringify(query)))
+  const results = await api.performSearch(query)
   const seen = new Set<string>()
   return results.filter((r) => {
     if (seen.has(r.id)) return false
     seen.add(r.id)
     return true
   })
+}
+
+function scheduleSearch(
+  query: SearchQuery,
+  onSuccess: (results: SearchIndexEntry[]) => void,
+  onError: () => void
+) {
+  let cancelled = false
+  const timer = setTimeout(async () => {
+    try {
+      const results = await runSearch(query)
+      if (!cancelled) onSuccess(results)
+    } catch {
+      if (!cancelled) onError()
+    }
+  }, 100)
+  return () => {
+    cancelled = true
+    clearTimeout(timer)
+  }
 }
 
 // --- Search Effects ---
@@ -66,46 +88,56 @@ export function initializeSearchEffects() {
       }
     }
 
-    // Perform the actual search
-    if (isGlobalActive && !isTypingGlobalTag) {
-      if (serialized === lastSerializedQuery && searchResults.length > 0) {
-        // Skip re-fetch if query is identical and we already have results
-        return
-      }
-      lastSerializedQuery = serialized
-
-      isPerformingGlobalSearch = true
-      runSearch(query).then((results) => {
-        searchResults = results
-        isPerformingGlobalSearch = false
-        // Only auto-highlight if we don't already have a valid highlight
-        if (highlightedGlobalIndex === null || highlightedGlobalIndex >= results.length) {
-          highlightedGlobalIndex = results.length > 0 ? 0 : null
-        }
-      })
-    } else if (!isGlobalActive) {
+    if (!isGlobalActive) {
       searchResults = []
       isPerformingGlobalSearch = false
+      globalSearchError = false
       highlightedGlobalIndex = null
       lastSerializedQuery = ''
+      return
     }
+    if (isTypingGlobalTag || serialized === lastSerializedQuery) {
+      isPerformingGlobalSearch = false
+      return
+    }
+
+    isPerformingGlobalSearch = true
+    globalSearchError = false
+    return scheduleSearch($state.snapshot(query), (results) => {
+      lastSerializedQuery = serialized
+      searchResults = results
+      isPerformingGlobalSearch = false
+    }, () => {
+      searchResults = []
+      isPerformingGlobalSearch = false
+      globalSearchError = true
+      lastSerializedQuery = ''
+    })
   })
 
-  // --- Detail View Search Effect ---
   $effect(() => {
-    const query = detailQuery
-    if (navStore.selectedItemId && isDetailActive && !isTypingDetailTag) {
-      isPerformingDetailSearch = true
-      runSearch(query).then((results) => {
-        detailResults = results
-        isPerformingDetailSearch = false
-        highlightedDetailIndex = results.length > 0 ? 0 : null
-      })
-    } else if (!isDetailActive) {
-      detailResults = []
+    if (!navStore.selectedItemId || !isDetailActive || isTypingDetailTag) {
       isPerformingDetailSearch = false
-      highlightedDetailIndex = null
+      if (!isDetailActive) {
+        detailResults = []
+        highlightedDetailIndex = null
+        detailSearchError = false
+      }
+      return
     }
+
+    isPerformingDetailSearch = true
+    detailSearchError = false
+    return scheduleSearch($state.snapshot(detailQuery), (results) => {
+      detailResults = results
+      isPerformingDetailSearch = false
+      highlightedDetailIndex = results.length > 0 ? 0 : null
+    }, () => {
+      detailResults = []
+      highlightedDetailIndex = null
+      isPerformingDetailSearch = false
+      detailSearchError = true
+    })
   })
 
   // --- Auto-highlight First Result ---
@@ -198,6 +230,30 @@ function handleLibraryUpdates(updatedItems: any[]) {
 
 // --- Exported Store Object ---
 
+
+function handleResultKeys(event: KeyboardEvent, scope: 'library' | 'title', onSelect: (item: SearchIndexEntry) => void) {
+  if (event.defaultPrevented || !(event.target instanceof HTMLInputElement)) return
+  const global = scope === 'library'
+  const items = global ? searchResults : detailResults
+  if (items.length === 0) return
+  const index = global ? highlightedGlobalIndex : highlightedDetailIndex
+
+  if (event.key === 'Enter') {
+    if (index !== null && items[index]) {
+      event.preventDefault()
+      onSelect(items[index])
+    }
+    return
+  }
+
+  const direction = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
+  if (direction === 0) return
+  event.preventDefault()
+  const next = index === null ? (direction > 0 ? 0 : items.length - 1) : (index + direction + items.length) % items.length
+  if (global) highlightedGlobalIndex = next
+  else highlightedDetailIndex = next
+}
+
 export const searchStore = {
   get globalQuery() {
     return navStore.globalQuery
@@ -220,6 +276,9 @@ export const searchStore = {
   },
   set highlightedGlobalIndex(v) {
     highlightedGlobalIndex = v
+  },
+  get globalSearchError() {
+    return globalSearchError
   },
   get isPerformingGlobalSearch() {
     return isPerformingGlobalSearch
@@ -246,6 +305,9 @@ export const searchStore = {
   set highlightedDetailIndex(v) {
     highlightedDetailIndex = v
   },
+  get detailSearchError() {
+    return detailSearchError
+  },
   get isPerformingDetailSearch() {
     return isPerformingDetailSearch
   },
@@ -269,6 +331,7 @@ export const searchStore = {
     filterFocusKey = v
   },
 
+  handleResultKeys,
   clearGlobal,
   clearDetail,
   clearFilter,

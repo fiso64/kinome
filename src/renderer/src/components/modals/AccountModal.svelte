@@ -19,6 +19,7 @@
   } = $props()
 
   let selectedRole = $state<AccountRole>(account.role)
+  let savedRole = $state<AccountRole>(account.role)
   let newPassword = $state('')
   let confirmPassword = $state('')
   let passwordMessage = $state({ text: '', type: '' })
@@ -30,7 +31,7 @@
   let showFilterModal = $state(false)
 
   const canManage = $derived(authStore.can.manageAccounts)
-  const isAdmin = $derived(selectedRole === 'admin')
+  const isAdmin = $derived(savedRole === 'admin')
 
   onMount(async () => {
     if (!canManage || isSelf) return
@@ -40,11 +41,13 @@
   })
 
   async function handleSaveRole() {
-    if (selectedRole === account.role) return
+    if (!canManage || isSelf || selectedRole === savedRole) return
     saving = true
     roleMessage = { text: '', type: '' }
     try {
       await api.updateAccountRole(account.id, selectedRole)
+      savedRole = selectedRole
+      if (savedRole === 'admin') filterRule = null
       roleMessage = { text: 'Role updated.', type: 'success' }
       onSaved()
     } catch (err: any) {
@@ -55,6 +58,7 @@
   }
 
   async function handleChangePassword() {
+    if (!isSelf && !canManage) return
     passwordMessage = { text: '', type: '' }
     if (!newPassword) {
       passwordMessage = { text: 'Password cannot be empty.', type: 'error' }
@@ -97,73 +101,76 @@
 </script>
 
 <ModalWindow title={isSelf ? 'Your Account' : 'Edit Account'} {onClose} cancelText="Close" maxWidth="480px">
-  <div class="modal-body">
-    <div class="account-header">
+  <div class="form-stack">
+    <div class="account-header raised-surface">
       <div class="avatar">{account.username[0].toUpperCase()}</div>
       <div class="account-meta">
         <span class="username">{account.username}</span>
-        <span class="role-badge" class:admin={account.role === 'admin'}>{account.role === 'admin' ? 'Administrator' : 'Normal'}</span>
+        <span class="role-badge" class:admin={isAdmin}>{isAdmin ? 'Administrator' : 'Normal'}</span>
       </div>
     </div>
 
     {#if canManage && !isSelf}
-      <div class="section">
+      <div class="section raised-surface">
         <h3>Role</h3>
         <div class="role-row">
-          <select bind:value={selectedRole} disabled={saving}>
+          <select aria-label="Account role" bind:value={selectedRole} disabled={saving}>
             <option value="admin">Administrator</option>
             <option value="normal">Normal</option>
           </select>
-          <button class="secondary" onclick={handleSaveRole} disabled={saving || selectedRole === account.role}>
-            Save Role
+          <button class="secondary" onclick={handleSaveRole} disabled={saving || selectedRole === savedRole}>
+            Update Role
           </button>
         </div>
         {#if roleMessage.text}
-          <p class="message" class:success={roleMessage.type === 'success'} class:error={roleMessage.type === 'error'}>
+          <p class="message" role="status" class:success={roleMessage.type === 'success'} class:error={roleMessage.type === 'error'}>
             {roleMessage.text}
           </p>
         {/if}
       </div>
     {/if}
 
-    <div class="section">
+    <div class="section raised-surface">
       <h3>Change Password</h3>
-      <div class="form-group">
+      <div class="form-field">
         <label for="new-pw">New Password</label>
-        <input type="password" id="new-pw" bind:value={newPassword} placeholder="Enter new password" disabled={saving} />
+        <input type="password" autocomplete="new-password" id="new-pw" bind:value={newPassword} placeholder="Enter new password" disabled={saving} />
       </div>
-      <div class="form-group">
+      <div class="form-field">
         <label for="confirm-pw">Confirm Password</label>
-        <input type="password" id="confirm-pw" bind:value={confirmPassword} placeholder="Confirm new password" disabled={saving}
+        <input type="password" autocomplete="new-password" id="confirm-pw" bind:value={confirmPassword} placeholder="Confirm new password" disabled={saving}
           onkeydown={(e) => e.key === 'Enter' && handleChangePassword()} />
       </div>
       {#if passwordMessage.text}
-        <p class="message" class:success={passwordMessage.type === 'success'} class:error={passwordMessage.type === 'error'}>
+        <p class="message" role="status" class:success={passwordMessage.type === 'success'} class:error={passwordMessage.type === 'error'}>
           {passwordMessage.text}
         </p>
       {/if}
       <button class="secondary" onclick={handleChangePassword} disabled={saving}>Update Password</button>
     </div>
 
-    {#if canManage && !isSelf && !isAdmin && filterLoaded}
-      <div class="section">
+    {#if canManage && !isSelf && filterLoaded}
+      <div class="section raised-surface">
         <h3>Library Filter</h3>
         <div class="filter-row">
           <span class="filter-status">
-            {#if filterRule}
+            {#if isAdmin}
+              Administrators have full access
+            {:else if filterRule}
               {filterRule.mode === 'allow' ? 'Allow' : 'Deny'} filter active
             {:else}
-              No filter — full access
+              No filter - full access
             {/if}
           </span>
-          <button class="secondary" onclick={() => (showFilterModal = true)}>Configure Filter</button>
+          <button class="secondary" disabled={isAdmin || saving} title={isAdmin ? 'Library filters apply to regular accounts' : undefined}
+            onclick={() => (showFilterModal = true)}>Configure Filter</button>
         </div>
       </div>
     {/if}
 
     {#if canManage && !isSelf}
-      <div class="section danger-section">
-        <h3>Danger Zone</h3>
+      <div class="section danger-section raised-surface">
+        <h3>Remove account</h3>
         <button class="danger" onclick={handleDelete} disabled={saving}>Delete Account</button>
       </div>
     {/if}
@@ -182,144 +189,21 @@
 {/if}
 
 <style>
-  .modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    padding: 1.5rem;
-  }
-
-  .account-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem;
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-  }
-
-  .avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background-color: var(--color-primary);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 1.4rem;
-    flex-shrink: 0;
-  }
-
-  .account-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .username {
-    font-weight: 600;
-    font-size: 1.05rem;
-  }
-
-  .role-badge {
-    font-size: 0.8rem;
-    color: var(--color-text-dim);
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    background-color: var(--color-background-mute);
-    border: 1px solid var(--color-border);
-    width: fit-content;
-  }
-
-  .role-badge.admin {
-    color: var(--color-primary);
-    border-color: var(--color-primary);
-    background-color: transparent;
-  }
-
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-border-soft);
-  }
-
-  .section h3 {
-    margin: 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--color-text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .role-row {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-  }
-
-  .role-row select {
-    flex: 1;
-    padding: 0.6rem 0.75rem;
-    background-color: var(--color-background-mute);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    color: var(--color-text);
-    font-size: 0.95rem;
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .form-group label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--color-text-soft);
-  }
-
-  input[type='password'] {
-    padding: 0.6rem 0.75rem;
-    background-color: var(--color-background-mute);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    color: var(--color-text);
-    font-size: 0.95rem;
-    width: 100%;
-  }
-
-  .message {
-    font-size: 0.85rem;
-    margin: 0;
-  }
-
-  .message.success { color: var(--color-success); }
-  .message.error { color: var(--color-danger); }
-
-  .filter-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .filter-status {
-    font-size: 0.9rem;
-    color: var(--color-text-soft);
-  }
-
-  .danger-section {
-    border-color: rgba(239, 68, 68, 0.2);
-  }
-
-  .danger-section h3 {
-    color: var(--color-danger);
-  }
+  .account-header, .role-row, .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; }
+  .account-header { padding: .7rem; }
+  .avatar { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: var(--radius-field);
+    color: var(--color-primary-soft); border: 1px solid var(--accent-border); background: var(--accent-surface); font-size: 1.2rem; font-weight: 690; }
+  .account-meta, .section { display: grid; min-width: 0; gap: .5rem; }
+  .account-meta { gap: .1rem; }
+  .username { font-weight: 670; overflow-wrap: anywhere; }
+  .role-badge, .filter-status, .message { color: var(--color-text-soft); font-size: .82rem; }
+  .role-badge.admin { color: var(--color-primary-soft); }
+  .section { padding: .75rem; }
+  .section h3 { font-size: .95rem; font-weight: 660; }
+  .role-row select { flex: 1; }
+  .section > button { justify-self: start; }
+  .message.success { color: var(--color-success-soft); }
+  .message.error, .danger-section h3 { color: var(--color-danger-soft); }
+  .filter-row { justify-content: space-between; }
+  .danger-section { border-color: #7a4345; }
 </style>

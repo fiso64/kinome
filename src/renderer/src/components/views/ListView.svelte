@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { prefersReducedMotion } from 'svelte/motion'
+  import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import { shouldBeGreyedOut } from '@lib/view-helpers'
   import { getAssetUrl } from '@lib/api'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
@@ -64,7 +67,7 @@
       listElement.children.length > highlightedIndex
     ) {
       const itemElement = listElement.children[highlightedIndex] as HTMLElement
-      itemElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      itemElement?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion.current ? 'instant' : 'smooth' })
     }
   })
 </script>
@@ -81,8 +84,9 @@
       <button
         type="button"
         class="list-item"
+        class:thumbnail-action={item.mediaType === 'episode'}
         class:single-line={listDescriptionRows === 0}
-        style:height={itemHeightRem}
+        style:--row-height={itemHeightRem}
         class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
         class:highlighted={highlightedIndex === i}
         class:missing={item.isMissing}
@@ -92,7 +96,7 @@
       >
         {#if !item.posterPath && listDescriptionRows === 0}
           <div class="icon-only">
-            {item.type === 'folder' ? '📁' : '🎬'}
+            <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
           </div>
         {:else}
           <div
@@ -104,12 +108,12 @@
             {#if item.posterPath}
               <img
                 src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
-                alt={displayTitle}
+                alt=""
                 loading="lazy"
               />
             {:else}
               <div class="icon">
-                {item.type === 'folder' ? '📁' : '🎬'}
+                <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
               </div>
             {/if}
           </div>
@@ -117,9 +121,10 @@
         <div class="info">
           <div class="title-line">
             <h3 class="title" title={displayTitle}>
-              {#if item.isMissing}<span class="missing-icon">⚠️</span>{/if}
+              {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
               {displayTitle}
             </h3>
+            {#if item.mediaType === 'episode' && item.watched}<WatchedIndicator />{/if}
             {#if item.year}
               <span class="year">({item.year})</span>
             {/if}
@@ -152,15 +157,16 @@
   .media-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem;
+    gap: .5rem;
+    padding: .3rem 0;
     width: 100%;
     align-content: start;
     flex: 1;
   }
   .list-item {
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
+    background: var(--collection-row-background, var(--surface-raised));
+    border: 1px solid var(--collection-row-border, var(--color-border-soft));
+    box-shadow: var(--collection-row-shadow, var(--edge-light));
     padding: 0.75rem;
     font: inherit;
     color: inherit;
@@ -169,18 +175,18 @@
     display: flex;
     gap: 1rem;
     width: 100%;
-    border-radius: 8px;
+    border-radius: 11px;
     transition:
       background-color 0.2s ease,
       transform 0.2s ease;
-    align-items: flex-start; /* Align children (poster, info) to the top */
+    align-items: flex-start;
+    height: var(--row-height, auto);
   }
   .list-item.single-line {
     align-items: center;
   }
   .list-item:hover {
-    background-color: var(--color-background-mute);
-    transform: translateY(-2px);
+    border-color: #907c6c;
   }
 
   /* --- Base Poster & Image Styles --- */
@@ -189,8 +195,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--color-background);
-    border-radius: 4px;
+    background: var(--color-inset);
+    border-radius: var(--radius-field);
     flex-shrink: 0;
     overflow: hidden;
     align-self: stretch; /* Take full height of the parent row */
@@ -225,7 +231,6 @@
     width: auto;
     aspect-ratio: 2 / 3 !important;
     align-self: center;
-    container-type: size; /* Enable container queries */
     display: flex;
     background-color: var(--color-background);
   }
@@ -234,20 +239,13 @@
     object-fit: cover;
   }
 
-  /* --- Icon Specific Styles --- */
-  .icon {
-    font-size: 2.5rem; /* Fallback font size */
-  }
+  .icon { display: grid; place-items: center; color: var(--color-text-dim); }
   .icon-only {
     font-size: 1.2rem; /* Match title font size */
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-  }
-  /* Only apply container query scaling to icons inside the fixed-ratio box */
-  .poster.fixed-aspect-ratio .icon {
-    font-size: 40cqh;
   }
 
   /* --- Info & Text Styles --- */
@@ -264,15 +262,15 @@
     gap: 0.5rem;
   }
   .title {
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: clamp(.9rem, 2vw, 1.1rem);
+    font-weight: 670;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .year {
     color: var(--ev-c-text-2);
-    font-size: 1rem;
+    font-size: .8rem;
     flex-shrink: 0;
   }
   .overview {
@@ -288,17 +286,12 @@
   }
 
   /* --- State-based Styles --- */
-  .list-item.watched {
-    opacity: 0.6;
-    transition: opacity 0.2s ease;
-  }
-  .list-item.watched:hover {
-    opacity: 1;
+  .list-item.watched:not(:is(:hover, :focus-visible)) :is(.poster, .title, .overview, .year, .icon-only) {
+    opacity: .6;
   }
   .list-item.highlighted {
-    background-color: var(--ev-c-gray-2);
-    border-color: var(--ev-c-gray-1);
-    transform: translateY(-2px) scale(1.01);
+    background: var(--accent-surface);
+    border-color: var(--accent-border);
   }
   .list-item.missing {
     opacity: 0.6;
@@ -313,24 +306,34 @@
     opacity: 0.8;
   }
   .missing-icon {
-    display: inline-block;
-    margin-right: 0.5rem;
-    font-size: 1rem;
+    display: inline-flex;
+    margin-inline-end: .4rem;
+    color: var(--color-danger-soft);
+    vertical-align: middle;
   }
 
   /* --- Full Backdrop Mode Styles --- */
   :global(.full-backdrop-mode) .list-item {
-    background-color: rgba(30, 30, 33, 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--collection-row-background, var(--surface-over-artwork));
+    border-color: var(--collection-row-border, rgba(255, 255, 255, 0.1));
   }
   :global(.full-backdrop-mode) .list-item:hover {
-    background-color: rgba(50, 50, 55, 0.8);
+    background: var(--surface-raised);
     border-color: rgba(255, 255, 255, 0.2);
   }
   :global(.full-backdrop-mode) .list-item.highlighted {
-    background-color: rgba(80, 80, 85, 0.8);
+    background: var(--accent-surface);
     border-color: rgba(255, 255, 255, 0.25);
+  }
+  @media (max-width: 620px) {
+    .list-item { height: auto; padding: .55rem; gap: .65rem; align-items: center; }
+    .poster, .poster.has-image, .poster.fixed-aspect-ratio { width: clamp(48px, 17vw, 72px); height: auto; align-self: start; }
+    .poster:not(.has-image) { aspect-ratio: 2 / 3; }
+    .poster.has-image.landscape:not(.fixed-aspect-ratio) { width: clamp(60px, 24vw, 112px); }
+    .single-line .poster, .single-line .poster.has-image { width: 29px; }
+    .title-line { flex-wrap: wrap; gap: .15rem .4rem; }
+    .title { white-space: normal; overflow-wrap: anywhere; }
+    .info { gap: .25rem; }
+    .overview { font-size: .82rem; }
   }
 </style>

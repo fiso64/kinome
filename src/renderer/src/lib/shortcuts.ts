@@ -14,6 +14,7 @@ interface ShortcutActions {
 
 export function initializeShortcuts(actions: ShortcutActions): () => void {
   const handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented) return
     const target = event.target as HTMLElement
     const isInput =
       target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable

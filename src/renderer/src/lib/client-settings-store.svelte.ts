@@ -49,8 +49,9 @@ class ClientSettingsStore {
   }
 
   update(patch: Partial<ClientSettings>): void {
-    this._settings = { ...this._settings, ...patch }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._settings))
+    const next = { ...this._settings, ...patch }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    this._settings = next
   }
 }
 

@@ -9,7 +9,8 @@
     selectedGroupBy = $bindable(),
     inheritedSettings,
     inheritedLabel,
-    settings
+    settings,
+    pins = $bindable()
   }: {
     item: MediaFolder
     groupByKeys: string[]
@@ -18,12 +19,14 @@
     inheritedSettings?: import('@shared/types').CascadableViewSettings
     inheritedLabel?: string
     settings: Settings | null
+    pins: { top: string[]; bottom: string[] }
   } = $props()
 </script>
 
 <ViewConfigurator
   {item}
   {settings}
+  bind:pins
   bind:viewSettings
   bind:selectedGroupBy
   {inheritedSettings}

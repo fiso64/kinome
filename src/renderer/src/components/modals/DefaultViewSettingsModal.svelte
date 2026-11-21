@@ -5,40 +5,43 @@
 
   let {
     typeKey,
+    editCapability = 'editSettings',
     title,
     initialSettings,
     onClose,
-    onSave,
+    onDone,
     groupByKeys,
     availableLayouts,
     showClickAction,
     settings
   }: {
     typeKey: '_default' | 'movie' | 'tv' | 'season'
+    editCapability?: 'editSettings' | 'editMetadata'
     title: string
     initialSettings: CascadableViewSettings
     onClose: () => void
-    onSave: (newSettings: CascadableViewSettings) => void
+    onDone: (newSettings: CascadableViewSettings) => void
     groupByKeys: string[]
     availableLayouts?: ViewLayout[]
     showClickAction?: boolean
     settings: Settings | null
   } = $props()
 
-  let viewSettings = $state<EditableViewSettings>({ ...initialSettings })
+  let viewSettings = $state<EditableViewSettings>($state.snapshot(initialSettings))
 
-  function handleSave() {
+  function handleDone() {
     const cleaned = Object.fromEntries(
       Object.entries(viewSettings).filter(([, v]) => v != null)
     ) as CascadableViewSettings
-    onSave(cleaned)
+    onDone(cleaned)
     onClose()
   }
 </script>
 
-<ModalWindow {title} {onClose} onSave={handleSave} maxWidth="700px" zIndex={101}>
+<ModalWindow {title} {onClose} onDone={handleDone} maxWidth="700px" zIndex={101}>
   <ViewConfigurator
     {typeKey}
+    {editCapability}
     {settings}
     bind:viewSettings
     {groupByKeys}

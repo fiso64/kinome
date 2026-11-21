@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Skeleton from '@components/ui/Skeleton.svelte'
+  import { prefersReducedMotion } from 'svelte/motion'
+  import Icon from '@components/ui/Icon.svelte'
   import { onMount } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
@@ -11,13 +14,13 @@
     initialSortTop,
     initialSortBottom,
     onClose,
-    onSaved
+    onDone
   }: {
     item: MediaFolder
     initialSortTop?: string[]
     initialSortBottom?: string[]
     onClose: () => void
-    onSaved?: (sortTop: string[], sortBottom: string[]) => void
+    onDone: (sortTop: string[], sortBottom: string[]) => void
   } = $props()
 
   let loading = $state(true)
@@ -28,19 +31,9 @@
   const topSet = $derived(new Set(sortTopIds))
   const bottomSet = $derived(new Set(sortBottomIds))
 
-  const sortTopItems = $derived(
-    sortTopIds.flatMap((id) => {
-      const found = allChildren.find((c) => c.id === id)
-      return found ? [found] : []
-    })
-  )
-
-  const sortBottomItems = $derived(
-    sortBottomIds.flatMap((id) => {
-      const found = allChildren.find((c) => c.id === id)
-      return found ? [found] : []
-    })
-  )
+  const childrenById = $derived(new Map(allChildren.map((child) => [child.id, child])))
+  const sortTopItems = $derived(sortTopIds.flatMap((id) => childrenById.get(id) ?? []))
+  const sortBottomItems = $derived(sortBottomIds.flatMap((id) => childrenById.get(id) ?? []))
 
   const middleItems = $derived(
     allChildren.filter((c) => !topSet.has(c.id) && !bottomSet.has(c.id))
@@ -94,24 +87,9 @@
     sortBottomIds = sortBottomIds.filter((x) => x !== id)
   }
 
-  // --- Save ---
-
-  async function handleSave() {
-    const top = sortTopIds.length ? sortTopIds : null
-    const bottom = sortBottomIds.length ? sortBottomIds : null
-    try {
-      await window.api.userUpdateItem({
-        id: item.id,
-        viewSettings: {
-          sortTop: top,
-          sortBottom: bottom
-        }
-      })
-    } catch (err: any) {
-      notificationStore.add(err.message || 'Failed to save sort order.', 'error')
-      return
-    }
-    onSaved?.(top ?? [], bottom ?? [])
+  function handleDone() {
+    if (loading) return
+    onDone([...sortTopIds], [...sortBottomIds])
     onClose()
   }
 
@@ -120,21 +98,21 @@
   }
 </script>
 
-<ModalWindow title="Sort Order" {onClose} onSave={handleSave} maxWidth="480px">
+<ModalWindow title="Sort Order" {onClose} onDone={handleDone} maxWidth="480px">
   {#if loading}
-    <div class="loading">Loading...</div>
+    <div class="form-stack" role="status" aria-label="Loading sort order"><Skeleton height="3rem" /><Skeleton height="3rem" /></div>
   {:else}
     <div class="sort-editor">
       <!-- Sort Top -->
-      <div class="pin-section">
-        <div class="section-header">
-          <span class="section-label">Always First</span>
+      <div class="pin-section raised-surface">
+        <header class="section-header">
+          <h3 class="section-label">Always first</h3>
           {#if sortTopItems.length > 0}
             <span class="count">{sortTopItems.length}</span>
           {/if}
-        </div>
+        </header>
         {#if sortTopItems.length === 0}
-          <div class="empty-state">No items pinned — use ↑ below to pin items to the top</div>
+          <div class="empty-state">No items pinned to the top</div>
         {:else}
           {#each sortTopItems as child, i (child.id)}
             <div
@@ -142,65 +120,61 @@
               use:topDrag.item={i}
               use:topDrag.handle={i}
               class:drag-placeholder={topDrag.draggedIndex === i}
-              animate:flip={{ duration: 200 }}
+              animate:flip={{ duration: prefersReducedMotion.current ? 0 : 155 }}
             >
-              <span class="drag-handle" title="Drag to reorder">⠿</span>
-              <span class="item-name">{displayName(child)}</span>
+              <span class="drag-handle" title="Drag to reorder"><Icon name="grip" size={15} /></span>
+              <span class="item-name" title={displayName(child)}>{displayName(child)}</span>
               <button
-                class="action-btn"
+                class="icon-button action-btn" type="button"
                 title="Unpin (move to default order)"
                 onclick={() => unpinFromTop(child.id)}
-              >↓</button>
+              ><Icon name="down" size={15} /></button>
             </div>
           {/each}
         {/if}
       </div>
 
-      <div class="section-divider"></div>
-
       <!-- Middle (default order) -->
-      <div class="middle-section">
-        <div class="section-header">
-          <span class="section-label">Default Order</span>
+      <div class="middle-section raised-surface">
+        <header class="section-header">
+          <h3 class="section-label">Default order</h3>
           {#if middleItems.length > 0}
             <span class="count">{middleItems.length}</span>
           {/if}
-        </div>
+        </header>
         {#if middleItems.length === 0}
           <div class="empty-state">All items are pinned</div>
         {:else}
           {#each middleItems as child (child.id)}
             <div class="item">
-              <span class="item-name middle-name">{displayName(child)}</span>
+              <span class="item-name" title={displayName(child)}>{displayName(child)}</span>
               <div class="middle-actions">
                 <button
-                  class="action-btn"
+                  class="icon-button action-btn" type="button"
                   title="Pin to top"
                   onclick={() => pinToTop(child.id)}
-                >↑</button>
+                ><Icon name="up" size={15} /></button>
                 <button
-                  class="action-btn"
+                  class="icon-button action-btn" type="button"
                   title="Pin to bottom"
                   onclick={() => pinToBottom(child.id)}
-                >↓</button>
+                ><Icon name="down" size={15} /></button>
               </div>
             </div>
           {/each}
         {/if}
       </div>
 
-      <div class="section-divider"></div>
-
       <!-- Sort Bottom -->
-      <div class="pin-section">
-        <div class="section-header">
-          <span class="section-label">Always Last</span>
+      <div class="pin-section raised-surface">
+        <header class="section-header">
+          <h3 class="section-label">Always last</h3>
           {#if sortBottomItems.length > 0}
             <span class="count">{sortBottomItems.length}</span>
           {/if}
-        </div>
+        </header>
         {#if sortBottomItems.length === 0}
-          <div class="empty-state">No items pinned — use ↓ above to pin items to the bottom</div>
+          <div class="empty-state">No items pinned to the bottom</div>
         {:else}
           {#each sortBottomItems as child, i (child.id)}
             <div
@@ -208,15 +182,15 @@
               use:bottomDrag.item={i}
               use:bottomDrag.handle={i}
               class:drag-placeholder={bottomDrag.draggedIndex === i}
-              animate:flip={{ duration: 200 }}
+              animate:flip={{ duration: prefersReducedMotion.current ? 0 : 155 }}
             >
-              <span class="drag-handle" title="Drag to reorder">⠿</span>
-              <span class="item-name">{displayName(child)}</span>
+              <span class="drag-handle" title="Drag to reorder"><Icon name="grip" size={15} /></span>
+              <span class="item-name" title={displayName(child)}>{displayName(child)}</span>
               <button
-                class="action-btn"
+                class="icon-button action-btn" type="button"
                 title="Unpin (move to default order)"
                 onclick={() => unpinFromBottom(child.id)}
-              >↑</button>
+              ><Icon name="up" size={15} /></button>
             </div>
           {/each}
         {/if}
@@ -226,129 +200,17 @@
 </ModalWindow>
 
 <style>
-  .loading {
-    padding: 2rem;
-    text-align: center;
-    color: var(--ev-c-text-2);
-  }
-
-  .sort-editor {
-    display: flex;
-    flex-direction: column;
-    padding: 0.75rem 0;
-  }
-
-  .pin-section,
-  .middle-section {
-    padding: 0.75rem 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.35rem;
-  }
-
-  .section-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ev-c-text-2);
-  }
-
-  .count {
-    font-size: 0.75rem;
-    background: var(--color-background-mute);
-    color: var(--ev-c-text-2);
-    border-radius: 10px;
-    padding: 0 0.4rem;
-    line-height: 1.4;
-  }
-
-  .section-divider {
-    height: 1px;
-    background: var(--color-background-mute);
-    margin: 0.25rem 0;
-  }
-
-  .empty-state {
-    font-size: 0.85rem;
-    color: var(--ev-c-text-3);
-    font-style: italic;
-    padding: 0.4rem 0;
-    border: 1px dashed var(--color-background-mute);
-    border-radius: 4px;
-    text-align: center;
-  }
-
-  .item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid transparent;
-  }
-
-  .item.draggable {
-    cursor: default;
-  }
-
-  .item.drag-placeholder {
-    opacity: 0.25;
-    pointer-events: none;
-  }
-
-  .drag-handle {
-    color: var(--ev-c-text-3);
-    font-size: 1rem;
-    user-select: none;
-    flex-shrink: 0;
-  }
-
-  .item-name {
-    flex: 1;
-    font-size: 0.9rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .middle-name {
-    color: var(--ev-c-text-2);
-  }
-
-  .middle-actions {
-    display: flex;
-    gap: 0.2rem;
-    flex-shrink: 0;
-  }
-
-  .action-btn {
-    background: none;
-    border: 1px solid var(--color-background-mute);
-    border-radius: 3px;
-    color: var(--ev-c-text-2);
-    font-size: 0.8rem;
-    width: 1.6rem;
-    height: 1.6rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-    padding: 0;
-    transition: background-color 0.1s, color 0.1s;
-  }
-
-  .action-btn:hover {
-    background: var(--color-background-mute);
-    color: var(--ev-c-text-1);
-  }
+  .sort-editor { display: grid; min-width: 0; gap: .65rem; padding: clamp(.85rem, 2.7vw, 1.35rem); }
+  .pin-section, .middle-section { padding: .55rem; }
+  .section-header { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; padding: .15rem .25rem .45rem; }
+  .section-label { font-size: .88rem; font-weight: 675; }
+  .count, .empty-state { color: var(--color-text-soft); font-size: .79rem; }
+  .empty-state { padding: .35rem .25rem; }
+  .item { display: flex; align-items: center; gap: .4rem; min-width: 0; margin-block: .16rem; padding: .15rem .25rem;
+    border: 1px solid var(--color-border-soft); border-radius: var(--radius-field); background: var(--color-inset); }
+  .item-name { flex: 1; min-width: 0; padding: .15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .83rem; }
+  .drag-handle, .middle-actions { display: flex; flex: none; color: var(--color-text-soft); }
+  .drag-placeholder { opacity: .25; }
+  .action-btn { width: 27px; height: 27px; }
+  .action-btn:hover { color: var(--color-primary-soft); }
 </style>

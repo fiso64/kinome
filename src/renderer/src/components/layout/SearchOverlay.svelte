@@ -5,16 +5,20 @@
   import { getViewKey } from '@lib/view-state-store.svelte'
   import ViewContextProvider from './ViewContextProvider.svelte'
   import MediaView from './MediaView.svelte'
+  import Icon from '@components/ui/Icon.svelte'
+  import SearchInput from '@components/ui/SearchInput.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
-  import type { Settings, LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
+  import type { AutocompleteSuggestions, Settings, LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
 
   let {
     settings,
     suggestions,
+    onClose,
     disabled = false
   }: {
     settings: Settings | null
-    suggestions: any
+    suggestions: AutocompleteSuggestions
+    onClose: () => void
     disabled?: boolean
   } = $props()
 
@@ -26,6 +30,13 @@
       options?: { layout?: string }
     }
   }>()
+
+  let inputElement = $state<HTMLInputElement>()
+
+  export function focusSearchInput() {
+    inputElement?.focus({ preventScroll: true })
+    inputElement?.select()
+  }
 
   const searchResults = $derived(searchStore.searchResults)
   const isPerformingSearch = $derived(searchStore.isPerformingGlobalSearch)
@@ -48,20 +59,37 @@
 <ViewContextProvider id="search">
   <div
     class="view-wrapper"
+    id="library-search"
     use:scrollPersistence={{
       key: getViewKey('vertical'),
       resetOn: searchStore.globalQuery.text,
       disabled
     }}
   >
-    <div class="search-header">
-      {#if isPerformingSearch && searchResults.length === 0}
-        <span>Searching...</span>
-      {:else}
-        <span>Found {searchResults.length} results.</span>
+    <header class="search-header">
+      <div class="search-heading">
+        <h1>Search library</h1>
+        <button class="icon-button" type="button" aria-label="Close search" title="Close search" onclick={onClose}>
+          <Icon name="close" size={20} />
+        </button>
+      </div>
+      <div class="search-field" role="search"
+        onkeydown={(event) => searchStore.handleResultKeys(event, 'library', (item) => dispatch('itemClick', { item }))}>
+        <SearchInput bind:query={searchStore.globalQuery} {suggestions} bind:element={inputElement} />
+      </div>
+      {#if searchStore.isGlobalActive}
+        <span class="result-count" role="status">
+          {#if isPerformingSearch}
+            Searching...
+          {:else if searchStore.globalSearchError}
+            Search failed
+          {:else}
+            {searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}
+          {/if}
+        </span>
       {/if}
-    </div>
-    <div class="search-content-wrapper">
+    </header>
+    <div class="search-content-wrapper" aria-busy={isPerformingSearch}>
       {#if searchResults.length > 0}
         <MediaView
           items={searchResults}
@@ -86,9 +114,11 @@
             </div>
           {/each}
         </div>
-      {:else}
+      {:else if searchStore.globalSearchError}
+        <p class="status-text">Could not load results. Edit the search to try again.</p>
+      {:else if searchStore.isGlobalActive}
         <div class="status-text">
-          <p>No results found for "{searchStore.globalQuery.text}"</p>
+          <p>{searchStore.globalQuery.text.trim() ? `No results for "${searchStore.globalQuery.text}"` : 'No results match these filters.'}</p>
         </div>
       {/if}
     </div>
@@ -98,74 +128,27 @@
 <style>
   .view-wrapper {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
+    inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-gutter: stable;
-    background-color: var(--color-background);
+    background: var(--color-background);
     z-index: 2;
+    padding: clamp(1.1rem, 3vw, 2.6rem) clamp(.9rem, 3.2vw, 3rem) 4rem;
   }
-
-  .search-content-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 4rem 4rem 4rem;
-  }
-
+  .search-header, .search-content-wrapper { width: min(100%, 70rem); margin-inline: auto; }
   .search-header {
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 1.5rem 4rem;
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--ev-c-text-1);
-    border-bottom: 1px solid var(--color-background-mute);
-    margin-bottom: 2rem;
-    flex-shrink: 0;
+    display: grid;
+    gap: .8rem;
+    border-bottom: 1px solid var(--color-border-soft);
+    padding-bottom: .8rem;
+    margin-bottom: .9rem;
   }
-
-  .status-text {
-    flex-grow: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: var(--ev-c-text-2);
-    font-size: 1.1rem;
-  }
-
-
-  .skeleton-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem;
-    width: 100%;
-  }
-
-  .skeleton-row {
-    display: flex;
-    gap: 1rem;
-    align-items: flex-start;
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 8px;
-    padding: 0.75rem;
-  }
-
-  .skeleton-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    flex: 1;
-    padding-top: 0.25rem;
-  }
+  .search-heading { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
+  .search-heading h1 { font-size: clamp(1.55rem, 3.7vw, 2.85rem); font-weight: 710; letter-spacing: -.04em; line-height: 1.1; }
+  .result-count, .status-text { color: var(--color-text-soft); font-size: .875rem; }
+  .status-text { padding: 2rem 0; overflow-wrap: anywhere; }
+  .skeleton-list { display: grid; gap: .5rem; }
+  .skeleton-row { display: flex; gap: .9rem; align-items: flex-start; padding: .7rem; background: var(--surface-raised); border: 1px solid var(--color-border-soft); border-radius: 11px; }
+  .skeleton-text { display: grid; align-content: start; flex: 1; gap: .55rem; padding-top: .3rem; }
 </style>

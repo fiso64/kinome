@@ -48,12 +48,13 @@
 <style>
   .empty-message {
     padding: 1.5rem;
-    color: var(--ev-c-text-2);
+    color: var(--color-text-soft);
   }
   .media-tree {
     display: flex;
     flex-direction: column;
-    padding: 0 0.5rem;
+    gap: .2rem;
+    padding: .2rem clamp(.5rem, 2.8vw, 1.6rem) 1rem;
     flex: 1;
   }
 </style>

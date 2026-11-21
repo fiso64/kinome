@@ -1,42 +1,20 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
-  import type {
-    MediaFolder,
-    MediaFile,
-    LibraryItem,
-    SearchIndexEntry,
-    AutocompleteSuggestions,
-    Settings
-  } from '@shared/types'
+  import { createEventDispatcher, type Snippet } from 'svelte'
+  import type { MediaFolder, MediaFile, LibraryItem, Settings } from '@shared/types'
   import ContinueWatching from './ContinueWatching.svelte'
-  import MediaView from './MediaView.svelte'
-
-  type ContinueWatchingItem = {
-    show: MediaFolder
-    nextEpisode: MediaFile
-  }
-  type DisplayableItem = LibraryItem | SearchIndexEntry
 
   let {
     continueWatchingItems,
-    parentItem,
-    items = [],
     onItemClick,
     onShowContextMenu,
-    suggestions,
-    settings
+    settings,
+    children
   }: {
-    continueWatchingItems: ContinueWatchingItem[]
-    parentItem: (LibraryItem & MediaFolder) | undefined
-    items: DisplayableItem[]
-    onItemClick: (item: DisplayableItem) => void
-    onShowContextMenu: (
-      item: DisplayableItem,
-      event: MouseEvent,
-      options?: { layout?: string }
-    ) => void
-    suggestions: AutocompleteSuggestions
+    continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[]
+    onItemClick: (item: LibraryItem) => void
+    onShowContextMenu: (item: LibraryItem, event: MouseEvent) => void
     settings: Settings | null
+    children: Snippet
   } = $props()
 
   const dispatch = createEventDispatcher<{
@@ -49,20 +27,13 @@
 
   const isGlassActive = $derived(!!latestBackdrop)
 
-  // NOTE: The Continue Watching section below uses native horizontal scrolling.
-
-  // We are deliberately not intercepting the vertical mouse wheel to scroll horizontally,
-  // as it can feel jarring and interfere with page scrolling. A visible scrollbar is used instead.
-
-  $effect(() => {
-    console.log(`[HomeView] parentItem:`, parentItem?.name, `items:`, items.length)
-  })
 </script>
 
 <div class="home-view-container">
+  <h1>Library</h1>
   {#if settings?.showContinueWatching && continueWatchingItems.length > 0}
     <section class="home-section">
-      <h2 class="home-section-title">Continue Watching</h2>
+      <h2 class="home-section-title">Continue watching</h2>
       <ContinueWatching
         items={continueWatchingItems}
         glass={isGlassActive}
@@ -73,45 +44,34 @@
     </section>
   {/if}
 
-  {#if parentItem}
-    <section class="home-section">
-      <h2 class="home-section-title">Library</h2>
-      <MediaView
-        {parentItem}
-        {items}
-        {onItemClick}
-        {onShowContextMenu}
-        {suggestions}
-        {settings}
-        viewNode={parentItem.viewHierarchy}
-      />
-    </section>
-  {/if}
+  {@render children()}
 </div>
 
 <style>
   .home-view-container {
     position: relative;
-    padding-top: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    width: 100%;
-    max-width: 1800px;
-    margin: 0 auto;
-    padding-left: 2.5rem;
-    padding-right: 2.5rem;
+    display: grid;
+    align-content: start;
+    gap: clamp(1.1rem, 2.4vw, 2rem);
+    width: min(100%, 108rem);
+    margin-inline: auto;
+    padding: clamp(1.25rem, 3.2vw, 2.75rem) clamp(.9rem, 3.2vw, 3rem) 4rem;
   }
 
-  .home-section {
-    position: relative;
-    z-index: 1;
+  h1 {
+    font-size: clamp(2.1rem, 4vw, 3.5rem);
+    font-weight: 720;
+    letter-spacing: -.045em;
+    line-height: 1.03;
+    text-shadow: 0 4px 20px #03060ba6;
   }
 
+  .home-section { min-width: 0; }
   .home-section-title {
-    font-size: 1.8rem;
-    font-weight: bold;
-    padding: 0;
-    margin-bottom: 1rem;
+    margin-bottom: .45rem;
+    color: var(--color-text);
+    font-size: clamp(1.05rem, 1.7vw, 1.35rem);
+    font-weight: 650;
+    letter-spacing: -.016em;
   }
 </style>

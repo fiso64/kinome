@@ -1,3 +1,4 @@
+import { ROLE_CAPABILITIES, type AccountRole, type Capability } from '@shared/types'
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
 import { textResponse } from './http-compression'
 import { getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
@@ -151,7 +152,7 @@ class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
 
 /** Returns a guard config that enforces a single capability on a route group. */
-function guardCap(cap: string) {
+function guardCap(cap: Capability) {
   return {
     beforeHandle: (ctx: any) => {
       if (!ctx.session?.capabilities?.has(cap)) throw new ForbiddenError()
@@ -636,7 +637,7 @@ export function buildApp() {
               }
             })
             .put('/accounts/:id/role', ({ params, body, set }: { params: any; body: any; set: any }) => {
-              const { role } = body as any
+              const { role } = body as { role: AccountRole }
               if (!role) { set.status = 400; return { error: 'role is required' } }
               authService.updateAccountRole(params.id, role)
               // Admins cannot be filtered — remove any existing filter rule on promotion
@@ -644,6 +645,7 @@ export function buildApp() {
                 accountFilterRepo.deleteFilterRule(params.id)
                 accountFilterRepo.replaceVisibleItems(params.id, [])
               }
+              getTransport().broadcast('account-permissions-changed', { role, capabilities: ROLE_CAPABILITIES[role] }, params.id)
               return { success: true }
             })
             .delete('/accounts/:id', ({ params, session, set }: { params: any; session: any; set: any }) => {

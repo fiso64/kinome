@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   let isMaximized = $state(false)
 
   $effect(() => {
@@ -31,63 +32,45 @@
 
 <div class="window-controls">
   <button title="Minimize" aria-label="Minimize" onclick={handleMinimize}>
-    <svg width="12" height="12" viewBox="0 0 12 12"
-      ><rect fill="currentColor" width="10" height="1" x="1" y="6"></rect></svg
-    >
+    <Icon name="minus" size={15} />
   </button>
   <button
     title={isMaximized ? 'Restore' : 'Maximize'}
     aria-label={isMaximized ? 'Restore' : 'Maximize'}
     onclick={handleToggleMaximize}
   >
-    {#if isMaximized}
-      <svg width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M2 3v7h7V3H2zm6 6H3V4h5v5zM4 1h5v1H4V1zM3 2h1V1h5v2H3V2z"
-        ></path>
-      </svg>
-    {:else}
-      <svg width="12" height="12" viewBox="0 0 12 12"
-        ><path fill="currentColor" d="M3 3v6h6V3H3zm5 5H4V4h4v4z"></path></svg
-      >
-    {/if}
+    <Icon name={isMaximized ? 'restore' : 'maximize'} size={15} />
   </button>
   <button title="Close" aria-label="Close" class="close-button" onclick={handleClose}>
-    <svg width="12" height="12" viewBox="0 0 12 12"
-      ><polygon
-        fill="currentColor"
-        fill-rule="evenodd"
-        points="11 1.576 6.583 6 11 10.424 10.424 11 6 6.583 1.576 11 1 10.424 5.417 6 1 1.576 1.576 1 6 5.417 10.424 1"
-      ></polygon></svg
-    >
+    <Icon name="close" size={15} />
   </button>
 </div>
 
 <style>
   .window-controls {
-    display: flex;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    padding-top: .45rem;
     -webkit-app-region: no-drag;
-    height: 100%;
   }
+
   button {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    width: 46px;
-    height: 100%;
-    border: none;
-    background-color: transparent;
-    color: var(--color-text);
-    cursor: pointer;
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    min-height: 23px;
     padding: 0;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-text-soft);
   }
-  button:hover {
-    background-color: var(--color-background-soft);
-  }
-  .close-button {
-    border-top-right-radius: 0;
-  }
-  .close-button:hover {
-    background-color: #e81123;
-    color: white;
+
+  button:hover { background: var(--color-hover); color: var(--color-text); }
+  .close-button:hover { background: var(--color-danger); color: white; }
+
+  @media (max-width: 620px) {
+    button :global(svg) { width: 11px; height: 11px; }
   }
 </style>

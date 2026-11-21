@@ -57,7 +57,7 @@ function getUrlParams(): URLSearchParams {
   return new URLSearchParams(window.location.search)
 }
 
-function parseUrl() {
+function readRoute(): NavigationState {
   const params = getUrlParams()
   const folder = params.get('folder')?.trim() || 'home'
   const item = params.get('item')?.trim() || null
@@ -69,7 +69,7 @@ function parseUrl() {
     pathParam = '/' + pathParam
   }
 
-  currentState = {
+  return {
     currentFolderId: folder,
     selectedItemId: item,
     path: pathParam,
@@ -100,9 +100,9 @@ function updateUrl(replace = false) {
   const url = str ? `?${str}` : '/'
 
   if (replace) {
-    history.replaceState({}, '', url)
+    history.replaceState({ ...history.state, kinomePosition: historyPosition }, '', url)
   } else {
-    history.pushState({}, '', url)
+    history.pushState({ kinomePosition: ++historyPosition }, '', url)
   }
 }
 
@@ -163,20 +163,71 @@ function navigateToSettings() {
 function goBack() {
   // If we have history to go back to, use it. This preserves all context (folder, item, page).
   // Otherwise (e.g. direct link), go to the home screen.
-  if (window.history.length > 1) {
+  if (historyPosition > 0) {
     history.back()
   } else {
-    navigateToHome()
+    allowSettingsExit(navigateToHome)
   }
 }
 
-// --- Init ---
+// Settings keeps its draft mounted until the user accepts navigation.
+type SettingsExitGuard = () => boolean | Promise<boolean>
+let settingsExitGuard: SettingsExitGuard | undefined
+let navigationPending = false
+let historyPosition = 0
+
+function guardSettingsExit(guard: SettingsExitGuard) {
+  settingsExitGuard = guard
+  return () => {
+    if (settingsExitGuard === guard) settingsExitGuard = undefined
+  }
+}
+
+function allowSettingsExit(navigate: () => void) {
+  if (navigationPending) return
+  const decision = isSettingsRoute(currentState) ? settingsExitGuard?.() ?? true : true
+  if (typeof decision === 'boolean') {
+    if (decision) navigate()
+    else restoreHistory()
+    return
+  }
+
+  navigationPending = true
+  void decision.then((allowed) => {
+    navigationPending = false
+    if (!allowed) restoreHistory()
+    else if (history.state?.kinomePosition !== historyPosition) applyHistory()
+    else navigate()
+  })
+}
+
+function applyHistory() {
+  currentState = readRoute()
+  historyPosition = history.state?.kinomePosition ?? 0
+  if (history.state?.kinomePosition === undefined) {
+    history.replaceState({ ...history.state, kinomePosition: historyPosition }, '')
+  }
+}
+
+function restoreHistory() {
+  const target = history.state?.kinomePosition
+  // An older entry created before Kinome tracked positions can lack a position.
+  if (target === undefined) updateUrl()
+  else if (target !== historyPosition) history.go(historyPosition - target)
+}
+
+function syncHistory() {
+  if (navigationPending) return
+  if (isSettingsRoute(currentState) && !isSettingsRoute(readRoute())) {
+    allowSettingsExit(applyHistory)
+  } else {
+    applyHistory()
+  }
+}
 
 function init() {
-  window.addEventListener('popstate', () => {
-    parseUrl()
-  })
-  parseUrl()
+  applyHistory()
+  window.addEventListener('popstate', syncHistory)
 }
 
 export const navStore = {
@@ -214,23 +265,24 @@ export const navStore = {
     return canNavigateBack(currentState)
   },
   init,
+  guardSettingsExit,
   navigateToFolder: (folderId: string) => {
-    navigateToFolder(folderId)
+    allowSettingsExit(() => navigateToFolder(folderId))
   },
   navigateToHome: () => {
-    navigateToHome()
+    allowSettingsExit(navigateToHome)
   },
   navigateToSettings: () => {
-    navigateToSettings()
+    if (!isSettingsRoute(currentState) && !navigationPending) navigateToSettings()
   },
   openDetail: (itemId: string) => {
-    openDetail(itemId)
+    allowSettingsExit(() => openDetail(itemId))
   },
   closeDetail: () => {
-    closeDetail()
+    if (!navigationPending) closeDetail()
   },
   goBack: () => {
-    goBack()
+    if (!navigationPending) goBack()
   },
   /**
    * Updates the global search query.
@@ -241,6 +293,7 @@ export const navStore = {
     query: SearchQuery,
     options: { replace?: boolean; closeDetail?: boolean } = {}
   ) => {
+    if (navigationPending) return
     const params = getUrlParams()
     const hasSearchInUrl = params.has('q')
 

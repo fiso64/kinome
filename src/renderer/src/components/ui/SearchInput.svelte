@@ -9,16 +9,18 @@
     getFuzzySuggestions,
     type AutocompleteItem
   } from '@lib/autocomplete-manager'
-  import IconX from './IconX.svelte'
+  import Icon from './Icon.svelte'
 
   let {
     query = $bindable({ text: '', tags: [] }),
     suggestions,
+    label = 'Search library',
     element = $bindable(),
     onfocus,
     onblur
   }: {
     query: { text: string; tags: { key: string; value: string }[] }
+    label?: string
     suggestions: AutocompleteSuggestions
     element?: HTMLInputElement
     onfocus?: (event: FocusEvent) => void
@@ -113,17 +115,17 @@
 </script>
 
 <div class="search-input-wrapper">
-  <div class="search-box" onclick={() => element?.focus()}>
+  <div class="chip-field" onclick={() => element?.focus()}>
     {#each query.tags as tag, i (i)}
-      <div class="pill">
-        <span class="pill-key">{tag.key}:</span>
-        <span class="pill-value">{tag.value}</span>
+      <div class="field-chip">
+        <span class="field-chip-key">{tag.key}:</span>
+        <span class="field-chip-value">{tag.value}</span>
         <button
-          class="remove-pill"
+          type="button" class="field-chip-remove" aria-label={`Remove ${tag.key + ': '+ tag.value}`}
           onclick={(e) => {
             e.stopPropagation()
             removePill(i)
-          }}><IconX /></button
+          }}><Icon name="close" size={14} /></button
         >
       </div>
     {/each}
@@ -132,110 +134,11 @@
       bind:value={query.text}
       use:autocomplete={autocompleteConfig}
       onkeydown={handleKeyDown}
-      placeholder={query.tags.length > 0 ? '' : 'Search • Type > for tags'}
-      class="search-input-field"
-      aria-label="Search current folder"
+      placeholder={query.tags.length > 0 ? '' : 'Search or type > for tags'}
+      class="chip-input"
+      aria-label={label}
       {onfocus}
       {onblur}
     />
   </div>
 </div>
-
-<style>
-  .search-input-wrapper {
-    position: relative;
-    width: 100%;
-    /* min/max width is now handled by the parent grid container in App.svelte */
-  }
-
-  .search-box {
-    -webkit-app-region: no-drag;
-    width: 100%;
-    padding: 0.3rem 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    color: var(--color-text);
-    border-radius: 5px;
-    font-size: 1rem;
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 0.4rem;
-    cursor: text;
-    overflow-x: auto;
-  }
-
-  .search-box::-webkit-scrollbar {
-    height: 3px;
-  }
-  .search-box::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .search-box::-webkit-scrollbar-thumb {
-    background-color: var(--ev-c-gray-3);
-    border-radius: 3px;
-  }
-  .search-box::-webkit-scrollbar-thumb:hover {
-    background-color: var(--ev-c-gray-2);
-  }
-  .search-box:focus-within {
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    background-color: var(--ev-c-gray-3);
-    padding: 0.1rem 0.3rem 0.1rem 0.6rem;
-    border-radius: 12px;
-    font-size: 0.9rem;
-    cursor: default;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .pill-key {
-    color: var(--ev-c-text-2);
-    margin-right: 2px;
-  }
-
-  .pill-value {
-    font-weight: 600;
-  }
-
-  .remove-pill {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    padding: 0 0 0 0.3rem;
-    border-radius: 50%;
-    width: 1.2rem;
-    height: 1.2rem;
-    transition: color 0.2s;
-  }
-  .remove-pill:hover {
-    color: var(--ev-c-text-1);
-  }
-
-  .search-input-field {
-    flex-grow: 1;
-    background: none;
-    border: none;
-    outline: none;
-    color: var(--color-text);
-    padding: 0.2rem 0.4rem;
-    min-width: 150px;
-    font-size: 1rem;
-    font-weight: 550;
-  }
-
-  .search-input-field::placeholder {
-    color: var(--ev-c-text-2);
-    opacity: 0.6;
-    font-weight: 550;
-  }
-</style>

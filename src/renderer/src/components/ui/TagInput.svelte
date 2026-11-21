@@ -8,7 +8,7 @@
   } from '@lib/autocomplete-manager'
 
   import { api } from '@lib/api'
-  import IconX from './IconX.svelte'
+  import Icon from './Icon.svelte'
 
   type Tag = { id: string; key: string; value: string }
 
@@ -93,24 +93,25 @@
   }
 </script>
 
-<div class="pills-input-container" onclick={() => inputElement?.focus()}>
+<div class="chip-field" onclick={() => inputElement?.focus()}>
   {#each tags as tag (tag.id)}
-    <div class="pill">
-      <span class="pill-key">{tag.key}:</span>
-      <span class="pill-value">{tag.value}</span>
+    <div class="field-chip">
+      <span class="field-chip-key">{tag.key}:</span>
+      <span class="field-chip-value">{tag.value}</span>
       <button
         type="button"
-        class="remove-pill"
+        class="field-chip-remove" aria-label={`Remove ${tag.key + ': '+ tag.value}`}
         onclick={(e) => {
           e.stopPropagation()
           removeTag(tag.id)
-        }}><IconX /></button
+        }}><Icon name="close" size={14} /></button
       >
     </div>
   {/each}
   <input
     type="text"
-    class="pills-input-field"
+    aria-label="Custom tag"
+    class="chip-input"
     bind:this={inputElement}
     bind:value={currentInput}
     use:autocomplete={autocompleteConfig}
@@ -123,67 +124,3 @@
     data-enter-pill="true"
   />
 </div>
-
-<style>
-  /* --- Pills Input --- */
-  .pills-input-container {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    cursor: text;
-  }
-  .pills-input-container:focus-within {
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    background-color: var(--ev-c-gray-3);
-    padding: 0.2rem 0.3rem 0.2rem 0.8rem;
-    border-radius: 12px;
-    font-size: 0.8rem;
-  }
-  .pill-key {
-    color: var(--ev-c-text-2);
-  }
-  .pill-value {
-    font-weight: 600;
-  }
-  .remove-pill {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    padding: 0;
-    border-radius: 50%;
-    width: 1.1rem;
-    height: 1.1rem;
-    transition: background-color 0.2s;
-  }
-  .remove-pill:hover {
-    background-color: rgba(0, 0, 0, 0.2);
-    color: var(--ev-c-text-1);
-  }
-
-  .pills-input-field {
-    flex-grow: 1;
-    background: none;
-    border: none;
-    outline: none;
-    padding: 0.1rem; /* Align with pill text */
-    min-width: 120px;
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 1rem;
-  }
-</style>

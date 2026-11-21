@@ -5,7 +5,7 @@
     getFuzzySuggestions,
     type AutocompleteItem
   } from '@lib/autocomplete-manager'
-  import IconX from './IconX.svelte'
+  import Icon from './Icon.svelte'
 
   let { genres = $bindable(), suggestions }: { genres: string[]; suggestions: string[] } = $props()
 
@@ -47,24 +47,24 @@
   }
 </script>
 
-<div class="pills-input-container" onclick={() => genreInputElement?.focus()}>
+<div class="chip-field" onclick={() => genreInputElement?.focus()}>
   {#each genres as genre, i (genre)}
-    <div class="pill">
+    <div class="field-chip">
       {genre}
       <button
         type="button"
-        class="remove-pill"
+        class="field-chip-remove" aria-label={`Remove ${genre}`}
         onclick={(e) => {
           e.stopPropagation()
           removeGenre(i)
-        }}><IconX /></button
+        }}><Icon name="close" size={14} /></button
       >
     </div>
   {/each}
   <input
     type="text"
     id="genres-input"
-    class="pills-input-field"
+    class="chip-input"
     bind:this={genreInputElement}
     bind:value={currentGenreInput}
     use:autocomplete={autocompleteConfig}
@@ -74,61 +74,3 @@
     data-enter-pill="true"
   />
 </div>
-
-<style>
-  /* --- Pills Input --- */
-  .pills-input-container {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    cursor: text;
-  }
-  .pills-input-container:focus-within {
-    border-color: var(--ev-c-gray-1);
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 0.2rem 0.3rem 0.2rem 0.8rem;
-    border-radius: 12px;
-    font-size: 0.8rem;
-  }
-  .remove-pill {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    padding: 0;
-    border-radius: 50%;
-    width: 1.1rem;
-    height: 1.1rem;
-    transition: background-color 0.2s;
-  }
-  .remove-pill:hover {
-    background-color: rgba(0, 0, 0, 0.2);
-    color: var(--ev-c-text-1);
-  }
-
-  .pills-input-field {
-    flex-grow: 1;
-    background: none;
-    border: none;
-    outline: none;
-    padding: 0.1rem; /* Align with pill text */
-    min-width: 120px;
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 1rem;
-  }
-</style>

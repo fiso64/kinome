@@ -1,6 +1,9 @@
 <script lang="ts" generics="T extends { isExpanded: boolean; children: T[] | null; isLoading: boolean }">
-  import { slide } from 'svelte/transition'
   import type { Snippet } from 'svelte'
+  import { prefersReducedMotion } from 'svelte/motion'
+  import { slide } from 'svelte/transition'
+  import Icon from './Icon.svelte'
+  import Skeleton from './Skeleton.svelte'
 
   let {
     nodes,
@@ -25,68 +28,43 @@
 
 {#snippet treeItem(node: T)}
   <li class="tree-item">
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="item-content" onclick={() => onToggle(node)}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="expand-chevron transition-transform {node.isExpanded ? 'rotate-90' : ''}">
-        <path d="m9 18 6-6-6-6" />
-      </svg>
-
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="folder-icon">
-        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-      </svg>
-
-      {@render label(node)}
-
+    <div class="folder-row">
+      <button type="button" class="folder-toggle" aria-expanded={node.isExpanded} onclick={() => onToggle(node)}>
+        <Icon name={node.isExpanded ? 'down' : 'right'} size={15} />
+        <span class="folder-icon"><Icon name="folder" size={18} /></span>
+        {@render label(node)}
+      </button>
       {#if controls}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="controls" onclick={(e) => e.stopPropagation()}>
-          {@render controls(node)}
-        </div>
+        <div class="folder-controls">{@render controls(node)}</div>
       {/if}
     </div>
 
     {#if node.isExpanded}
-      <div transition:slide>
+      <div class="branch" in:slide={{ duration: prefersReducedMotion.current ? 0 : 110 }}>
         {#if node.isLoading}
-          <div class="indent loading-sub">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="animate-spin">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-          </div>
-        {:else if node.children && node.children.length > 0}
-          <ul class="indent">
-            {#each node.children as child}
+          <div class="status" role="status" aria-label="Loading folders"><Skeleton width="55%" height="1.25rem" /></div>
+        {:else if node.children?.length}
+          <ul>
+            {#each node.children as child (child)}
               {@render treeItem(child)}
             {/each}
           </ul>
         {:else if node.children && emptyChildrenText}
-          <div class="indent empty-sub">{emptyChildrenText}</div>
+          <p class="status">{emptyChildrenText}</p>
         {/if}
       </div>
     {/if}
   </li>
 {/snippet}
 
-<div class="tree-container">
+<div class="tree-container" aria-busy={isInitializing}>
   {#if isInitializing}
-    <div class="loading">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="animate-spin">
-        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-      </svg>
-      <span>{loadingText}</span>
-    </div>
+    <div class="status" role="status" aria-label={loadingText}><Skeleton width="75%" height="1.65rem" /></div>
   {:else if nodes.length === 0}
-    <div class="empty">{emptyText}</div>
+    <p class="status">{emptyText}</p>
   {:else}
-    <ul class="tree">
-      {#each nodes as node}
+    <ul>
+      {#each nodes as node (node)}
         {@render treeItem(node)}
       {/each}
     </ul>
@@ -95,54 +73,64 @@
 
 <style>
   .tree-container {
-    max-height: 400px;
-    overflow-y: auto;
-    border: 1px solid var(--color-background-mute, rgba(255, 255, 255, 0.1));
-    border-radius: 8px;
-    padding: 12px;
-    background: rgba(0, 0, 0, 0.2);
+    max-height: min(26rem, 55dvh);
+    overflow: auto;
+    min-width: 0;
+    padding: .45rem;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-panel);
+    background: var(--color-inset);
+    box-shadow: inset 0 2px 6px #0005;
+    overscroll-behavior: contain;
   }
-  .loading, .empty {
+  ul { display: grid; gap: .25rem; list-style: none; padding: 0; }
+  .tree-item { min-width: 0; }
+  .status { padding: .5rem; color: var(--color-text-soft); font-size: .85rem; }
+  .folder-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    color: var(--ev-c-text-3, var(--text-muted, #888));
-    padding: 20px;
-    justify-content: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .3rem;
+    min-width: 0;
+    border-radius: var(--radius-field);
+    border: 1px solid var(--color-border-soft);
+    background: var(--surface-raised);
   }
-  .tree { list-style: none; padding: 0; margin: 0; }
-  .tree-item { margin-bottom: 4px; }
-  .item-content {
+  .folder-toggle {
     display: flex;
+    flex: 1;
     align-items: center;
-    gap: 8px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: background 0.2s;
-    cursor: pointer;
+    gap: .35rem;
+    min-width: 0;
+    padding: .4rem .55rem;
+    text-align: left;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
   }
-  .item-content:hover { background: rgba(255, 255, 255, 0.05); }
-  .expand-chevron {
-    color: var(--ev-c-text-3, var(--text-muted, #888));
-    flex-shrink: 0;
+  .folder-toggle:hover { background: var(--color-hover); }
+  .folder-toggle[aria-expanded='true'], .folder-icon { color: var(--color-primary-soft); }
+  .folder-toggle :global(svg) { flex: none; }
+  .folder-icon { display: flex; }
+  .folder-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem .55rem; padding: .35rem .55rem; }
+  .branch { margin: .25rem 0 .25rem .65rem; border-left: 1px solid var(--color-border); padding-left: .4rem; }
+
+  .folder-toggle :global(.folder-name) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
   }
-  .folder-icon { color: #4a9eff; flex-shrink: 0; }
-  .controls {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-shrink: 0;
+  .folder-toggle :global(.folder-kind) { font-size: .72rem; color: var(--color-text-soft); }
+  .folder-controls :global(.folder-type) { padding: .23rem .42rem; font-size: .78rem; }
+  .folder-controls :global(.folder-fetch) { display: flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--color-text-soft); }
+
+  @media (max-width: 600px) {
+    .folder-toggle { flex-basis: 100%; }
+    .folder-controls { padding: 0 .45rem .4rem; }
+    .branch { margin-left: .3rem; }
   }
-  .indent {
-    margin-left: 20px;
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
-    list-style: none;
-    padding-left: 8px;
-  }
-  .loading-sub { padding: 4px 0; color: var(--ev-c-text-3, var(--text-muted, #888)); }
-  .empty-sub { padding: 4px 0; color: var(--ev-c-text-3, var(--text-muted, #888)); font-size: 0.8rem; }
-  .transition-transform { transition: transform 0.2s; }
-  .rotate-90 { transform: rotate(90deg); }
-  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-  .animate-spin { animation: spin 1s linear infinite; }
 </style>

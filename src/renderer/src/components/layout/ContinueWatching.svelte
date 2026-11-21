@@ -25,13 +25,15 @@
 
 <div class="continue-watching-list">
   {#each items as item (item.show.id)}
-    <ContinueWatchingItem
-      {item}
-      {glass}
-      on:dismiss={(e) => dispatch('dismiss', e.detail)}
-      on:itemClick={(e) => dispatch('itemClick', e.detail)}
-      on:showContextMenu={(e) => dispatch('showContextMenu', e.detail)}
-    />
+    <div class="card-hover-area">
+      <ContinueWatchingItem
+        {item}
+        {glass}
+        on:dismiss={(e) => dispatch('dismiss', e.detail)}
+        on:itemClick={(e) => dispatch('itemClick', e.detail)}
+        on:showContextMenu={(e) => dispatch('showContextMenu', e.detail)}
+      />
+    </div>
   {/each}
 </div>
 
@@ -39,12 +41,12 @@
   .continue-watching-list {
     display: flex;
     overflow-x: auto;
-    overflow-y: visible; /* Allow popups to be visible outside the list's initial bounds */
-    gap: 1.5rem;
-    /* Increase bottom padding to make space for the popup to appear without being clipped */
-    padding: 0.5rem 0 1rem 0;
+    gap: .85rem;
+    padding: var(--card-hover-gutter);
     align-items: flex-start;
   }
+
+  .card-hover-area { flex: none; }
 
   .continue-watching-list::-webkit-scrollbar {
     height: 8px;

@@ -1,25 +1,33 @@
 <script lang="ts">
+  import { authStore } from '@lib/auth-store.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import { onDestroy, tick, untrack } from 'svelte'
+  import equal from 'fast-deep-equal'
   import { flip } from 'svelte/animate'
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { PlayerCommandConfig } from '@shared/types'
   import { api } from '@lib/api'
-  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { BUILTIN_COPY_LINK, BUILTIN_WEB_PLAYER, resolveClientPlayers } from '@lib/services/player-launcher.service'
 
   let {
-    playerCommands = $bindable(),
+    playerCommands,
+    canEditDefinitions,
+    enabledPlayerIds,
+    onDone,
     onClose
   }: {
     playerCommands: PlayerCommandConfig[]
+    canEditDefinitions: boolean
+    enabledPlayerIds: string[]
+    onDone: (players: PlayerCommandConfig[], enabledIds: string[]) => void
     onClose: () => void
   } = $props()
 
   let definitions = $state(untrack(() => playerCommands
     .filter((command) => !command.isBuiltIn)
     .map((command) => ({ ...command }))))
-  let enabledIds = $state(untrack(() => [...clientSettingsStore.settings.enabledPlayerIds]))
+  let enabledIds = $state(untrack(() => [...enabledPlayerIds]))
   type CommandDraft = { id?: string; name: string; command: string }
   let editor = $state<CommandDraft | null>(null)
   let editorForm = $state<HTMLFormElement>()
@@ -107,7 +115,7 @@
     if (player.id !== selectedId) {
       if (!applyPendingEdit()) return
       selectedId = player.id
-      editor = player.isBuiltIn ? null : { ...player }
+      editor = canEditDefinitions && !player.isBuiltIn ? { ...player } : null
     }
     void revealEditor()
   }
@@ -124,10 +132,11 @@
     editor = originalCommand ? { ...originalCommand } : null
   }
 
-  function handleSave() {
-    if (!applyPendingEdit()) return
-    playerCommands = definitions.map((command) => ({ ...command }))
-    clientSettingsStore.update({ enabledPlayerIds: devicePlayers.map((player) => player.id) })
+  function handleDone() {
+    if (canEditDefinitions && !applyPendingEdit()) return
+    const ids = devicePlayers.map((player) => player.id)
+    const initialOrder = resolveClientPlayers(playerCommands, enabledPlayerIds).map((player) => player.id)
+    onDone(canEditDefinitions ? $state.snapshot(definitions) : playerCommands.map((player) => ({ ...player })), equal(ids, initialOrder) ? [...enabledPlayerIds] : ids)
     onClose()
   }
 
@@ -157,7 +166,7 @@
   }
 
   const handlerStatus = $derived(
-    isTesting ? 'Waiting for the handler…'
+    isTesting ? 'Waiting for the handler...'
     : testError || (handlerTested ? 'Handler verified on this device.' : 'Handler setup has not been verified.')
   )
 
@@ -257,7 +266,7 @@
     aria-label={`Select ${player.name}`}
     onclick={() => selectPlayer(player)}
   >
-    <span class="drag-handle" aria-hidden="true">⠿</span>
+    <span class="drag-handle" aria-hidden="true"><Icon name="grip" size={15} /></span>
     <span class="player-name">
       <strong>{player.name}</strong>
       {#if index === 0}<span class="default-tag">Default</span>{/if}
@@ -271,14 +280,14 @@
         <button class="quiet-button compact" aria-label={`Disable ${player.name} on this device`} onclick={() => disablePlayer(player.id)}>Disable</button>
       {/if}
       <div class="order-controls">
-        <button class="quiet-button icon-button" aria-label={`Move ${player.name} up`} disabled={index === 0} onclick={() => movePlayer(index, -1)}>↑</button>
-        <button class="quiet-button icon-button" aria-label={`Move ${player.name} down`} disabled={index === devicePlayers.length - 1} onclick={() => movePlayer(index, 1)}>↓</button>
+        <button class="quiet-button icon-button" aria-label={`Move ${player.name} up`} disabled={index === 0} onclick={() => movePlayer(index, -1)}><Icon name="up" size={15} /></button>
+        <button class="quiet-button icon-button" aria-label={`Move ${player.name} down`} disabled={index === devicePlayers.length - 1} onclick={() => movePlayer(index, 1)}><Icon name="down" size={15} /></button>
       </div>
     {/if}
   </div>
 {/snippet}
 
-<ModalWindow title="Manage Players" {onClose} onSave={handleSave} maxWidth="860px" zIndex={101}>
+<ModalWindow title="Manage Players" {onClose} onDone={handleDone} maxWidth="860px" zIndex={101}>
   <div class="content">
     <div class="player-grid">
       <section class="panel" aria-labelledby="player-order-heading">
@@ -324,9 +333,11 @@
       <section class="panel" aria-labelledby="player-details-heading" bind:this={editorPanel}>
         <header class="panel-header editor-header">
           <h3 id="player-details-heading">{selectedPlayer?.name ?? (editor ? 'New player' : 'Player details')}</h3>
-          <button class="secondary compact" bind:this={addPlayerButton} disabled={!!editor && !editor.id} onclick={addPlayer}>Add player</button>
+          <button class="secondary compact" bind:this={addPlayerButton}
+            title={authStore.control('editSettings').title}
+            disabled={!canEditDefinitions || (!!editor && !editor.id)} onclick={addPlayer}>Add player</button>
         </header>
-        {#if editor}
+        {#if canEditDefinitions && editor}
           <p>Launch commands are shared across devices.</p>
           {@render commandEditor(editor)}
         {:else if selectedPlayer?.id === BUILTIN_WEB_PLAYER.id}
@@ -335,8 +346,10 @@
           <p>{selectedPlayer.id === BUILTIN_COPY_LINK.id
             ? 'Copies the playback link to your clipboard.'
             : 'Copies a playlist link to your clipboard.'}</p>
+        {:else if selectedPlayer}
+          <p>This launch command is managed by the server administrator.</p>
         {:else}
-          <p>Select a player to view or edit it.</p>
+          <p>{canEditDefinitions ? 'Select a player to view or edit it.' : 'Choose a player to see its details.'}</p>
         {/if}
       </section>
     </div>

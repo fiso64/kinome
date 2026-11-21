@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { authStore } from '@lib/auth-store.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { api, getDownloadUrl } from '@lib/api'
   import { BUILTIN_WEB_PLAYER, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
@@ -67,6 +69,7 @@
     onLogout?: () => void
   } = $props()
 
+  const canEdit = $derived(authStore.can.editMetadata)
   const caps = $derived(itemCapabilities(item))
   const availablePlayers = $derived(
     resolveClientPlayers(
@@ -105,8 +108,7 @@
     const top = Math.max(4, Math.min(parent.top - 4, window.innerHeight - menu.height - 4)) - parent.top
     qualityMenuPosition = `left: ${Math.max(4 - parent.left, left)}px; top: ${top}px;`
   })
-  let submenuOnLeft = $state(false)
-  let submenuTop = $state(0) // For vertical adjustment
+  let submenuStyle = $state('visibility: hidden')
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
 
   type WatchedState =
@@ -116,7 +118,7 @@
     | 'none'
     | 'file_watched'
     | 'file_unwatched'
-  let watchedState: WatchedState = $state('none')
+  let watchedState = $state<WatchedState | null>(null)
 
   $effect(() => {
     if (activeSubmenu !== 'actions') return
@@ -157,36 +159,34 @@
     }
   })
 
-  // This effect checks if the submenu would go off-screen and flips its position if needed.
   $effect(() => {
-    if (activeSubmenu && menuElement && submenuElement) {
-      const mainRect = menuElement.getBoundingClientRect()
-      const subRect = submenuElement.getBoundingClientRect()
-      const parentRect = submenuElement.parentElement!.getBoundingClientRect()
-      const { innerWidth: windowWidth, innerHeight: windowHeight } = window
+    const sub = submenuElement
+    const parent = sub?.parentElement
+    const main = menuElement
+    if (!activeSubmenu || !sub || !parent || !main) return
+
+    const positionSubmenu = () => {
+      const mainRect = main.getBoundingClientRect()
+      const subRect = sub.getBoundingClientRect()
+      const anchor = parent.getBoundingClientRect()
       const margin = 5
+      const right = window.innerWidth - mainRect.right
+      const left = mainRect.left
+      const candidate = right >= subRect.width || right >= left
+        ? mainRect.right - margin
+        : mainRect.left - subRect.width + margin
+      const x = Math.max(margin, Math.min(candidate, window.innerWidth - subRect.width - margin))
+      const y = Math.max(margin, Math.min(anchor.top - margin, window.innerHeight - subRect.height - margin))
+      submenuStyle = `left: ${x - anchor.left}px; top: ${y - anchor.top}px;`
+    }
 
-      // --- Horizontal Positioning ---
-      // Check if there's enough space on the right. If not, flip it to the left.
-      submenuOnLeft = mainRect.right + subRect.width > windowWidth
-
-      // --- Vertical Positioning ---
-      // Default top position (aligns with parent button, considering main menu's padding)
-      const defaultTop = -5
-
-      // Calculate where the bottom of the submenu would be in the viewport with default positioning
-      const potentialBottom = parentRect.top + defaultTop + subRect.height
-
-      if (potentialBottom > windowHeight - margin) {
-        // It overflows. Align bottom of submenu with bottom of viewport.
-        const newBottomInViewport = windowHeight - margin
-        const newTopInViewport = newBottomInViewport - subRect.height
-        // Convert the desired viewport 'top' to be relative to the submenu's parent container
-        submenuTop = newTopInViewport - parentRect.top
-      } else {
-        // No overflow, use the default top position.
-        submenuTop = defaultTop
-      }
+    const size = new ResizeObserver(positionSubmenu)
+    size.observe(sub)
+    window.addEventListener('resize', positionSubmenu)
+    positionSubmenu()
+    return () => {
+      window.removeEventListener('resize', positionSubmenu)
+      size.disconnect()
     }
   })
 
@@ -378,16 +378,15 @@
       onmouseenter={() => (activeSubmenu = 'matches')}
       onmouseleave={() => (activeSubmenu = null)}
     >
-      <button class="context-menu-item has-submenu" onclick={() => (activeSubmenu = 'matches')}>
+      <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'matches'} onclick={() => (activeSubmenu = 'matches')}>
         <span>Matching files ({matchingFiles.length})</span>
-        <span class="submenu-arrow">▸</span>
+        <span class="submenu-arrow"><Icon name="right" size={15} /></span>
       </button>
       {#if activeSubmenu === 'matches'}
         <div
           bind:this={submenuElement}
           class="context-menu submenu matching-files"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
+          style={submenuStyle}
         >
           {#each matchingFiles as file (file.id)}
             <button class="context-menu-item" onclick={() => { onClose(); onOpenMatchingFile(file.id) }}>
@@ -406,17 +405,16 @@
       onmouseleave={() => { activeSubmenu = null; activePlayerQuality = null }}
     >
       <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'play'} onclick={() => (activeSubmenu = 'play')}>
-        <span class="icon">▶️</span>
+        <span class="icon"><Icon name="play" size={17} /></span>
         <span>Play with...</span>
-        <span class="submenu-arrow">▸</span>
+        <span class="submenu-arrow"><Icon name="right" size={15} /></span>
       </button>
 
       {#if activeSubmenu === 'play'}
         <div
           bind:this={submenuElement}
           class="context-menu submenu"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
+          style={submenuStyle}
           onclick={(e) => e.stopPropagation()}
         >
           {#each availablePlayers as player (player.id)}
@@ -430,7 +428,7 @@
                 title="Playback quality"
                 aria-expanded={activePlayerQuality === player.id}
                 onclick={() => (activePlayerQuality = activePlayerQuality === player.id ? null : player.id)}
-              >▸</button>
+              ><Icon name="right" size={15} /></button>
               {#if activePlayerQuality === player.id}
                 {@const isWeb = player.id === BUILTIN_WEB_PLAYER.id}
                 <div class="context-menu submenu quality-menu" bind:this={qualityMenu} style={qualityMenuPosition}>
@@ -471,29 +469,31 @@
     onclick={handleEdit}
     onmouseenter={() => (activeSubmenu = null)}
   >
-    <span class="icon">✏️</span>
-    <span>Edit Metadata</span>
+    <span class="icon"><Icon name={canEdit ? 'edit' : 'info'} size={17} /></span>
+    <span>{canEdit ? 'Edit Metadata' : 'View Metadata'}</span>
   </button>
-  {#if caps.canManualSearch}
+  {#if canEdit && caps.canManualSearch}
     <button
       class="context-menu-item"
       onclick={handleManualSearch}
       onmouseenter={() => (activeSubmenu = null)}
     >
-      <span class="icon">🔍</span>
+      <span class="icon"><Icon name="search" size={17} /></span>
       <span>Manual Search...</span>
     </button>
   {/if}
-  <button
-    class="context-menu-item"
-    onclick={handleArtwork}
-    onmouseenter={() => (activeSubmenu = null)}
-  >
-    <span class="icon">🖼️</span>
-    <span>Artwork...</span>
-  </button>
+  {#if canEdit}
+    <button
+      class="context-menu-item"
+      onclick={handleArtwork}
+      onmouseenter={() => (activeSubmenu = null)}
+    >
+      <span class="icon"><Icon name="image" size={17} /></span>
+      <span>Artwork...</span>
+    </button>
+  {/if}
 
-  {#if caps.canEditView}
+  {#if canEdit && caps.canEditView}
     <button
       class="context-menu-item"
       onclick={handleLayout}
@@ -520,99 +520,101 @@
       <span>Set View...</span>
     </button>
   {/if}
-  {#if caps.canEditFolderSettings || caps.canEditVirtualFolder}
+  {#if canEdit && (caps.canEditFolderSettings || caps.canEditVirtualFolder)}
     <button
       class="context-menu-item"
       onclick={handleFolderSettings}
       onmouseenter={() => (activeSubmenu = null)}
     >
-      <span class="icon">⚙️</span>
+      <span class="icon"><Icon name="settings" size={17} /></span>
       <span>Folder Settings...</span>
     </button>
   {/if}
-  <div
-    class="submenu-container"
-    onmouseenter={() => (activeSubmenu = 'actions')}
-    onmouseleave={() => (activeSubmenu = null)}
-  >
-    <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-      <span class="icon">⚡️</span>
-      <span>Actions</span>
-      <span class="submenu-arrow">▸</span>
-    </button>
+  {#if canEdit || watchedState !== 'none'}
+    <div
+      class="submenu-container"
+      onmouseenter={() => (activeSubmenu = 'actions')}
+      onmouseleave={() => (activeSubmenu = null)}
+    >
+      <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'actions'} onclick={() => (activeSubmenu = 'actions')}>
+        <span class="icon"><Icon name="bolt" size={17} /></span>
+        <span>Actions</span>
+        <span class="submenu-arrow"><Icon name="right" size={15} /></span>
+      </button>
 
-    {#if activeSubmenu === 'actions'}
-      <div
-        bind:this={submenuElement}
-        class="context-menu submenu"
-        class:on-left={submenuOnLeft}
-        style="top: {submenuTop}px;"
-        onclick={(e) => e.stopPropagation()}
-      >
-        {#if ['file_unwatched', 'unwatched', 'partially'].includes(watchedState)}
-          <button class="context-menu-item" onclick={handleMarkAsWatched}>
-            <span class="icon">👓</span>
-            <span>Mark as Watched</span>
-          </button>
-        {/if}
-        {#if ['file_watched', 'fully', 'partially'].includes(watchedState)}
-          <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
-            <span class="icon">🕶️</span>
-            <span>Mark as Unwatched</span>
-          </button>
-        {/if}
-        {#if caps.canAssignSeasons}
-          <button class="context-menu-item" onclick={handleAssignSeasons}>
-            <span class="icon">🔢</span>
-            <span>Assign Seasons & Episodes...</span>
-          </button>
-        {/if}
-        {#if caps.canCreateVirtualFolder}
-          <button class="context-menu-item" onclick={handleCreateVirtualFolder}>
-            <span class="icon">📂</span>
-            <span>Create Virtual Folder...</span>
-          </button>
-        {/if}
-        <div class="separator"></div>
-        <button class="context-menu-item danger" onclick={handleClearMetadata}>
-          <span class="icon">🔥</span>
-          <span>Clear Metadata...</span>
-        </button>
-        {#if caps.canHide}
-          <button class="context-menu-item danger" onclick={handleHideItem}>
-            <span class="icon">🚫</span>
-            <span>Hide Item...</span>
-          </button>
-        {/if}
-        {#if caps.canDelete}
-          <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
-            <span class="icon">🗑️</span>
-            <span>Delete from Database...</span>
-          </button>
-        {/if}
-      </div>
-    {/if}
-  </div>
+      {#if activeSubmenu === 'actions' && (canEdit || (watchedState && watchedState !== 'none'))}
+        <div
+          bind:this={submenuElement}
+          class="context-menu submenu"
+          style={submenuStyle}
+          onclick={(e) => e.stopPropagation()}
+        >
+          {#if ['file_unwatched', 'unwatched', 'partially'].includes(watchedState ?? '')}
+            <button class="context-menu-item" onclick={handleMarkAsWatched}>
+              <span class="icon"><Icon name="eye" size={17} /></span>
+              <span>Mark as Watched</span>
+            </button>
+          {/if}
+          {#if ['file_watched', 'fully', 'partially'].includes(watchedState ?? '')}
+            <button class="context-menu-item" onclick={handleMarkAsUnwatched}>
+              <span class="icon"><Icon name="eyeOff" size={17} /></span>
+              <span>Mark as Unwatched</span>
+            </button>
+          {/if}
+          {#if canEdit}
+            {#if caps.canAssignSeasons}
+              <button class="context-menu-item" onclick={handleAssignSeasons}>
+                <span class="icon"><Icon name="sort" size={17} /></span>
+                <span>Assign Seasons & Episodes...</span>
+              </button>
+            {/if}
+            {#if caps.canCreateVirtualFolder}
+              <button class="context-menu-item" onclick={handleCreateVirtualFolder}>
+                <span class="icon"><Icon name="folder" size={17} /></span>
+                <span>Create Virtual Folder...</span>
+              </button>
+            {/if}
+            <div class="separator"></div>
+            <button class="context-menu-item danger" onclick={handleClearMetadata}>
+              <span class="icon"><Icon name="warning" size={17} /></span>
+              <span>Clear Metadata...</span>
+            </button>
+            {#if caps.canHide}
+              <button class="context-menu-item danger" onclick={handleHideItem}>
+                <span class="icon"><Icon name="block" size={17} /></span>
+                <span>Hide Item...</span>
+              </button>
+            {/if}
+            {#if caps.canDelete}
+              <button class="context-menu-item danger" onclick={handleDeleteItemFromDb}>
+                <span class="icon"><Icon name="trash" size={17} /></span>
+                <span>Delete from Database...</span>
+              </button>
+            {/if}
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
-  {#if caps.canCustomActions && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
+  {#if canEdit && caps.canCustomActions && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
     <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
     <div
       class="submenu-container"
       onmouseenter={() => (activeSubmenu = 'custom')}
       onmouseleave={() => (activeSubmenu = null)}
     >
-      <button class="context-menu-item has-submenu" onclick={(e) => e.preventDefault()}>
-        <span class="icon">🛠️</span>
+      <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'custom'} onclick={() => (activeSubmenu = 'custom')}>
+        <span class="icon"><Icon name="tool" size={17} /></span>
         <span>Custom Actions</span>
-        <span class="submenu-arrow">▸</span>
+        <span class="submenu-arrow"><Icon name="right" size={15} /></span>
       </button>
 
       {#if activeSubmenu === 'custom'}
         <div
           bind:this={submenuElement}
           class="context-menu submenu"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
+          style={submenuStyle}
           onclick={(e) => e.stopPropagation()}
         >
           {#each globalSettings.customActions as action (action.id)}
@@ -634,46 +636,49 @@
     >
       <button
         class="context-menu-item has-submenu"
-        onclick={(e) => e.preventDefault()}
+        aria-expanded={activeSubmenu === 'file'} onclick={() => (activeSubmenu = 'file')}
       >
-        <span class="icon">📄</span>
+        <span class="icon"><Icon name="file" size={17} /></span>
         <span>File</span>
-        <span class="submenu-arrow">▸</span>
+        <span class="submenu-arrow"><Icon name="right" size={15} /></span>
       </button>
 
       {#if activeSubmenu === 'file'}
         <div
           bind:this={submenuElement}
           class="context-menu submenu"
-          class:on-left={submenuOnLeft}
-          style="top: {submenuTop}px;"
+          style={submenuStyle}
           onclick={(e) => e.stopPropagation()}
         >
-          {#if window.api.capabilities.supportsLocalPlayback}
+          {#if authStore.can.editSettings && window.api.capabilities.supportsLocalPlayback}
             <button class="context-menu-item" onclick={handleReveal}>
-              <span class="icon">📁</span>
+              <span class="icon"><Icon name="folder" size={17} /></span>
               <span>Show in Explorer</span>
             </button>
           {/if}
           {#if caps.canDownload}
             <button class="context-menu-item" onclick={handleDownload}>
-              <span class="icon">⬇️</span>
+              <span class="icon"><Icon name="download" size={17} /></span>
               <span>Download</span>
             </button>
           {/if}
-          <button class="context-menu-item" onclick={handleRename}>
-            <span class="icon">✏️</span>
-            <span>Rename...</span>
-          </button>
+          {#if canEdit}
+            <button class="context-menu-item" onclick={handleRename}>
+              <span class="icon"><Icon name="edit" size={17} /></span>
+              <span>Rename...</span>
+            </button>
+          {/if}
           <button class="context-menu-item" onclick={handleShowProperties}>
-            <span class="icon">ℹ️</span>
+            <span class="icon"><Icon name="info" size={17} /></span>
             <span>Properties...</span>
           </button>
-          <div class="separator"></div>
-          <button class="context-menu-item danger" onclick={handleDelete}>
-            <span class="icon">🗑️</span>
-            <span>Move to Trash...</span>
-          </button>
+          {#if canEdit}
+            <div class="separator"></div>
+            <button class="context-menu-item danger" onclick={handleDelete}>
+              <span class="icon"><Icon name="trash" size={17} /></span>
+              <span>Move to Trash...</span>
+            </button>
+          {/if}
         </div>
       {/if}
     </div>
@@ -688,14 +693,15 @@
 
   .context-menu {
     position: fixed; /* Position relative to the viewport */
-    background-color: var(--ev-c-black-soft);
-    border: 1px solid var(--ev-c-black-mute);
-    border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    background: var(--surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: var(--edge-light), var(--shadow-standard);
     z-index: 1000; /* Ensure it's on top of everything */
     width: max-content;
+    max-width: calc(100dvw - 10px);
     overflow: visible; /* Allow submenu to overflow */
-    padding: 0.25rem;
+    padding: .31rem;
     animation: fadeIn 0.15s ease-out;
   }
 
@@ -704,42 +710,42 @@
     align-items: center;
     gap: 0.75rem;
     width: 100%;
-    padding: 0.75rem 1.25rem;
+    padding: .46rem .66rem;
+    min-height: 2.22rem;
     background: none;
     border: none;
     color: var(--color-text);
     text-align: left;
     cursor: pointer;
     font-size: 0.9rem;
-    border-radius: 4px;
+    border-radius: 7px;
   }
 
   .icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.2em;
-    font-size: 1.1em;
+    width: 1.15rem;
+    color: var(--color-text-soft);
   }
 
-  .context-menu-item:hover {
-    background-color: var(--ev-c-gray-2);
-  }
+  .context-menu-item:is(:hover, :focus-visible) { background: var(--color-hover); }
+  .context-menu-item[aria-current="true"] { color: var(--color-primary-soft); }
 
   .separator {
     height: 1px;
-    background-color: var(--ev-c-black-mute);
+    background-color: var(--color-border-soft);
     margin: 0.25rem 0.5rem;
   }
 
   .context-menu-item.danger:hover {
-    background-color: #c50f1f;
-    color: var(--ev-c-white);
+    background-color: #9a414533;
+    color: var(--color-danger-soft);
   }
 
   .context-menu-item.has-submenu .submenu-arrow {
-    margin-left: auto;
-    font-size: 0.8em;
+    margin-inline-start: auto;
+    display: flex;
     color: var(--ev-c-text-2);
   }
 
@@ -784,12 +790,7 @@
     position: relative;
   }
 
-  .submenu.on-left {
-    left: auto;
-    right: 100%;
-    margin-left: 0;
-    margin-right: -1px;
-  }
+  @media (prefers-reduced-motion: reduce) { .context-menu { animation: none; } }
 
   @keyframes fadeIn {
     from {

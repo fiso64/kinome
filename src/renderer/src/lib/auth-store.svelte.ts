@@ -1,5 +1,12 @@
 import type { Account, Capability } from '@shared/types'
 
+const CAPABILITY_TITLES: Record<Capability, string> = {
+  editMetadata: 'Requires permission to edit the library',
+  editSettings: 'Requires permission to change server settings',
+  manageAccounts: 'Requires permission to manage accounts',
+  triggerLibraryScan: 'Requires permission to scan the library'
+}
+
 type AccountWithCaps = Account & { capabilities: Capability[] }
 
 class AuthStore {
@@ -9,14 +16,26 @@ class AuthStore {
   isChecking = $state(true)
   account = $state<AccountWithCaps | null>(null)
 
-  get can() {
-    const caps = new Set(this.account?.capabilities ?? [])
+  get can(): Record<Capability, boolean> {
+    const caps = this.account?.capabilities ?? []
     return {
-      editMetadata: caps.has('editMetadata'),
-      editSettings: caps.has('editSettings'),
-      manageAccounts: caps.has('manageAccounts'),
-      triggerLibraryScan: caps.has('triggerLibraryScan'),
+      editMetadata: caps.includes('editMetadata'),
+      editSettings: caps.includes('editSettings'),
+      manageAccounts: caps.includes('manageAccounts'),
+      triggerLibraryScan: caps.includes('triggerLibraryScan'),
     }
+  }
+
+  control(capability: Capability, title?: string): { disabled: boolean; title: string | undefined } {
+    const disabled = !this.account?.capabilities.includes(capability)
+    return { disabled, title: disabled ? CAPABILITY_TITLES[capability] : title }
+  }
+
+  updatePermissions({ role, capabilities }: Pick<AccountWithCaps, 'role' | 'capabilities'>) {
+    const account = this.account
+    if (!account || (account.role === role && account.capabilities.length === capabilities.length &&
+      account.capabilities.every((capability) => capabilities.includes(capability)))) return
+    this.account = { ...account, role, capabilities }
   }
 
   constructor() {

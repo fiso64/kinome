@@ -58,20 +58,20 @@
   saveText={isSaving ? 'Assigning...' : 'Assign'}
   maxWidth="600px"
 >
-  <div class="content">
-    <div class="settings-group">
-      <h4>Assign Seasons</h4>
-      <div class="layout-options vertical">
-        <label class="layout-option vertical-item">
+  <div class="form-stack">
+    <fieldset class="settings-group">
+      <legend>Season numbering</legend>
+      <div class="choice-grid">
+        <label class="choice-card">
           <input type="radio" name="season-strategy" value="smart" bind:group={seasonStrategy} />
           <div class="option-details">
-            <div class="option-label">Smart</div>
-            <div class="option-description">
+            <strong>From names</strong>
+            <div class="form-hint">
               Parses folder names like "Season 1" or "S01". Falls back to alphabetical sort.
             </div>
           </div>
         </label>
-        <label class="layout-option vertical-item">
+        <label class="choice-card">
           <input
             type="radio"
             name="season-strategy"
@@ -79,26 +79,26 @@
             bind:group={seasonStrategy}
           />
           <div class="option-details">
-            <div class="option-label">Alphabetic</div>
-            <div class="option-description">Sorts all season folders alphabetically.</div>
+            <strong>Alphabetical</strong>
+            <div class="form-hint">Assigns numbers in folder name order.</div>
           </div>
         </label>
       </div>
-    </div>
+    </fieldset>
 
-    <div class="settings-group">
-      <h4>Assign Episodes</h4>
-      <div class="layout-options vertical">
-        <label class="layout-option vertical-item">
+    <fieldset class="settings-group">
+      <legend>Episode numbering</legend>
+      <div class="choice-grid">
+        <label class="choice-card">
           <input type="radio" name="episode-strategy" value="smart" bind:group={episodeStrategy} />
           <div class="option-details">
-            <div class="option-label">Smart</div>
-            <div class="option-description">
+            <strong>From names</strong>
+            <div class="form-hint">
               Parses filenames like "S01E01". Falls back to alphabetical sort.
             </div>
           </div>
         </label>
-        <label class="layout-option vertical-item">
+        <label class="choice-card">
           <input
             type="radio"
             name="episode-strategy"
@@ -106,12 +106,12 @@
             bind:group={episodeStrategy}
           />
           <div class="option-details">
-            <div class="option-label">Alphabetic</div>
-            <div class="option-description">Sorts all episode files alphabetically.</div>
+            <strong>Alphabetical</strong>
+            <div class="form-hint">Assigns numbers in file name order.</div>
           </div>
         </label>
       </div>
-    </div>
+    </fieldset>
 
     <div class="settings-group" class:disabled={isTvProcessingEnabled}>
       <label class="checkbox-label">
@@ -119,7 +119,7 @@
         <span>Fetch season details after assignment</span>
       </label>
       {#if isTvProcessingEnabled}
-        <p class="help-text">
+        <p class="form-hint">
           This is always enabled because "Enable TV show processing" is active for this item.
         </p>
       {/if}
@@ -128,76 +128,9 @@
 </ModalWindow>
 
 <style>
-  .content {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-  h4 {
-    font-weight: bold;
-  }
-  .settings-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .settings-group.disabled {
-    opacity: 0.6;
-  }
-  .layout-options {
-    display: flex;
-    gap: 1rem;
-    flex-direction: column;
-  }
-  .layout-option {
-    cursor: pointer;
-    transition:
-      border-color 0.2s,
-      background-color 0.2s;
-  }
-
-  .vertical-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 1rem;
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-  }
-  .vertical-item:hover {
-    background-color: var(--color-background);
-  }
-  .vertical-item input[type='radio'] {
-    margin-top: 0.2rem;
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
-  }
-  .option-label {
-    font-weight: bold;
-  }
-  .option-description {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-  }
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 1rem;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  .checkbox-label input {
-    width: 1.1rem;
-    height: 1.1rem;
-    flex-shrink: 0;
-  }
-  .help-text {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-    margin-left: 1.85rem;
-    margin-top: -0.5rem;
-  }
+  .settings-group { min-width: 0; border: 0; padding: 0; }
+  legend { font-size: .9rem; font-weight: 650; margin-bottom: .45rem; }
+  .settings-group.disabled { opacity: .7; }
+  .checkbox-label { display: flex; align-items: center; gap: .55rem; font-size: .9rem; }
+  .settings-group > .form-hint { margin: .25rem 0 0 1.5rem; }
 </style>

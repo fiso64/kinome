@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LocalMedia } from '@shared/local-media'
+  import TmdbMetadataSummary from '@components/ui/TmdbMetadataSummary.svelte'
   import type { TmdbMetadata } from '@shared/metadata-fields'
   import GenreInput from '@ui/GenreInput.svelte'
   import TagInput from '@ui/TagInput.svelte'
@@ -7,6 +8,7 @@
 
   let {
     item,
+    readOnly,
     tmdbMetadata,
     localMedia,
     title = $bindable(),
@@ -21,6 +23,7 @@
     suggestions
   }: {
     item: LibraryItem
+    readOnly: boolean
     tmdbMetadata?: TmdbMetadata | null
     localMedia?: LocalMedia | null
     title: string
@@ -36,22 +39,25 @@
   } = $props()
 </script>
 
-<div class="content">
-  <div class="form-group">
+<div class="form-stack" class:read-only={readOnly}>
+  {#if readOnly}
+    <p class="form-hint">Only accounts with permission to edit the library can change metadata.</p>
+  {/if}
+  <div class="form-field">
     <label for="filename">{item.type === 'folder' ? 'Folder Name' : 'Filename'}</label>
     <input type="text" id="filename" value={item.name} readonly class="readonly-input" />
   </div>
 
   <div class="form-row">
-    <div class="form-group" style="flex-grow: 1;">
+    <div class="form-field title-field">
       <label for="title">Title</label>
-      <input type="text" id="title" bind:value={title} placeholder={item.name} />
+      <input type="text" id="title" bind:value={title} readonly={readOnly} placeholder={item.name} />
     </div>
-    <div class="form-group">
+    <div class="form-field">
       <div class="media-type-group">
-        <div class="number-input-group">
+        <div class="form-field compact-field">
           <label for="media-type">Type</label>
-          <select id="media-type" bind:value={mediaType}>
+          <select id="media-type" bind:value={mediaType} disabled={readOnly}>
             <option value={null}>Unknown</option>
             <option value="movie">Movie</option>
             <option value="tv">TV Show</option>
@@ -64,34 +70,34 @@
           </select>
         </div>
         {#if mediaType === 'season' && item.type === 'folder'}
-          <div class="number-input-group">
+          <div class="form-field compact-field">
             <label for="season-number">Season</label>
             <input
               id="season-number"
               type="number"
-              bind:value={seasonNumber}
+              bind:value={seasonNumber} readonly={readOnly}
               class="number-input"
               min="0"
             />
           </div>
         {/if}
         {#if mediaType === 'episode' && item.type === 'file'}
-          <div class="number-input-group">
+          <div class="form-field compact-field">
             <label for="episode-season-number">Season</label>
             <input
               id="episode-season-number"
               type="number"
-              bind:value={episodeSeasonNumber}
+              bind:value={episodeSeasonNumber} readonly={readOnly}
               class="number-input"
               min="0"
             />
           </div>
-          <div class="number-input-group">
+          <div class="form-field compact-field">
             <label for="episode-number">Episode</label>
             <input
               id="episode-number"
               type="number"
-              bind:value={episodeNumber}
+              bind:value={episodeNumber} readonly={readOnly}
               class="number-input"
               min="1"
               step="0.1"
@@ -101,28 +107,28 @@
       </div>
     </div>
   </div>
-  <div class="form-group">
+  <div class="form-field">
     <label for="year">Year</label>
-    <input type="text" id="year" bind:value={year} />
+    <input type="text" id="year" bind:value={year} readonly={readOnly} />
   </div>
-  <div class="form-group">
+  <div class="form-field">
     <label for="overview">Overview</label>
-    <textarea id="overview" bind:value={overview} rows="5"></textarea>
+    <textarea id="overview" bind:value={overview} readonly={readOnly} rows="5"></textarea>
   </div>
-  <div class="form-group">
-    <label for="genres-input">Genres</label>
-    <GenreInput bind:genres suggestions={suggestions.genre} />
-  </div>
+  <fieldset class="tag-fields" disabled={readOnly}>
+    <div class="form-field">
+      <label for="genres-input">Genres</label>
+      <GenreInput bind:genres suggestions={suggestions.genre} />
+    </div>
 
-  <div class="divider"></div>
-
-  <div class="form-group">
-    <h3>Custom Tags</h3>
-    <TagInput bind:tags {suggestions} />
-  </div>
+    <div class="form-field">
+      <h3>Custom tags</h3>
+      <TagInput bind:tags {suggestions} />
+    </div>
+  </fieldset>
 
   {#if localMedia}
-    <section class="metadata-summary">
+    <section class="metadata-summary raised-surface">
       <h3>File metadata</h3>
       <dl class="metadata-facts">
         {#if localMedia.container}
@@ -142,12 +148,12 @@
           <dt>{track.kind[0].toUpperCase() + track.kind.slice(1)} #{track.index}</dt>
           <dd>
             {[
-              track.codec, track.profile, track.width && track.height && `${track.width} × ${track.height}`,
+              track.codec, track.profile, track.width && track.height && `${track.width} x ${track.height}`,
               track.channelLayout ?? (track.channels && `${track.channels} channels`),
               track.pixelFormat, track.sampleRate && `${track.sampleRate} Hz`, track.bitrate && `${Math.round(track.bitrate / 1000)} kb/s`,
               track.language, track.title, track.encoder !== localMedia.encoder && track.encoder,
               track.default && 'Default', track.forced && 'Forced', track.hearingImpaired && 'Hearing impaired'
-            ].filter(Boolean).join(' · ')}
+            ].filter(Boolean).join(', ')}
           </dd>
         {/each}
       </dl>
@@ -155,135 +161,34 @@
   {/if}
 
   {#if tmdbMetadata}
-    {@const score = tmdbMetadata.tmdbRating}
-    {@const facts = [
-      ['Status', tmdbMetadata.status],
-      ['US content rating', tmdbMetadata.contentRating],
-      ['TMDB score', score == null ? undefined : `${score.toFixed(1)}/10 (${tmdbMetadata.tmdbVoteCount} votes)`],
-      ['Next air date', tmdbMetadata.nextAirDate],
-      ['In production', tmdbMetadata.inProduction === undefined ? undefined : tmdbMetadata.inProduction ? 'Yes' : 'No'],
-      ['Production companies', tmdbMetadata.studios?.join(', ')],
-      ['TV networks', tmdbMetadata.networks?.join(', ')],
-      ['Production countries', tmdbMetadata.productionCountries?.join(', ')],
-      ['Original language', tmdbMetadata.originalLanguage]
-    ].filter(([, value]) => value)}
-    <section class="metadata-summary">
+    <section class="metadata-summary raised-surface">
       <h3>TMDB metadata</h3>
-      <dl class="metadata-facts">
-        {#each facts as [label, value] (label)}
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        {/each}
-        {#if tmdbMetadata.imdbId}
-          <dt>IMDb</dt>
-          <dd>
-            <a href={`https://www.imdb.com/title/${tmdbMetadata.imdbId}/`} target="_blank" rel="noopener noreferrer">
-              {tmdbMetadata.imdbId}
-            </a>
-          </dd>
-        {/if}
-        {#if tmdbMetadata.homepage}
-          <dt>Website</dt>
-          <dd><a href={tmdbMetadata.homepage} target="_blank" rel="noopener noreferrer">Official website</a></dd>
-        {/if}
-        {#if item.tmdbId && (item.mediaType === 'tv' || item.mediaType === 'movie')}
-          <dt>TMDB</dt>
-          <dd>
-            <a href={`https://www.themoviedb.org/${item.mediaType}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer">
-              View on TMDB
-            </a>
-          </dd>
-        {/if}
-      </dl>
+      <TmdbMetadataSummary metadata={tmdbMetadata} tmdbId={item.tmdbId} mediaType={item.mediaType} />
     </section>
   {/if}
 </div>
 
 <style>
-  .content {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-  .form-row {
-    display: flex;
-    gap: 1rem;
-    align-items: flex-end;
-  }
-  .form-row .form-group {
-    margin-bottom: 0;
-  }
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  label,
-  h3 {
-    font-weight: bold;
-  }
-  .metadata-summary {
-    display: grid;
-    gap: 0.75rem;
-    border-top: 1px solid var(--color-border);
-    padding-top: 1rem;
-    user-select: text;
-  }
+  .form-row, .media-type-group { display: flex; flex-wrap: wrap; align-items: end; gap: .55rem; }
+  .title-field { flex: 1 0 min(12rem, 100%); }
+  .compact-field .number-input { width: 5rem; }
+  .tag-fields { display: grid; gap: .75rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .read-only :is(input, textarea)[readonly]:not(.readonly-input) { opacity: .65; cursor: text; }
+  .readonly-input { color: var(--color-text-soft); cursor: text; }
+  #year { width: min(100%, 7rem); }
+  textarea { min-height: 6rem; resize: vertical; }
+  .metadata-summary { display: grid; gap: .6rem; padding: .75rem; user-select: text; }
+  h3 { font-size: .92rem; font-weight: 670; }
   .metadata-facts {
     display: grid;
-    grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
-    gap: 0.45rem 1rem;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    margin: 0;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+    align-items: start;
+    gap: .42rem .7rem;
+    font-size: .86rem;
   }
-  .metadata-facts dt {
-    color: var(--color-text-soft);
-  }
-  .metadata-facts a {
-    color: var(--color-primary-soft);
-    text-underline-offset: 0.2em;
-  }
-  .metadata-facts dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
-  .divider {
-    border-bottom: 1px solid var(--color-background-mute);
-    margin: -0.5rem 0;
-  }
-  .media-type-group {
-    display: flex;
-    gap: 0.5rem;
-    align-items: flex-end;
-  }
-  .number-input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .number-input-group label {
-    font-size: 0.8rem;
-    font-weight: normal;
-    color: var(--ev-c-text-2);
-    padding-left: 2px;
-  }
-  .number-input {
-    width: 60px;
-    appearance: textfield;
-    -moz-appearance: textfield; /* Firefox */
-  }
-  .number-input::-webkit-outer-spin-button,
-  .number-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-  .readonly-input {
-    background-color: var(--color-background-mute);
-    cursor: default;
-    color: var(--ev-c-text-2);
-    border-color: transparent;
-    opacity: 0.8;
+  .metadata-facts dt { color: var(--color-text-soft); }
+  .metadata-facts dd { overflow-wrap: anywhere; }
+  @media (max-width: 480px) {
+    .metadata-facts { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); font-size: .82rem; }
   }
 </style>

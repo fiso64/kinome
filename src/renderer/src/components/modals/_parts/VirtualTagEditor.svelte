@@ -1,18 +1,14 @@
 <script lang="ts">
-  import type { VirtualTagConfig, LibraryCondition, AutocompleteSuggestions } from '@shared/types'
+  import Icon from '@components/ui/Icon.svelte'
+  import type { VirtualTagConfig, AutocompleteSuggestions } from '@shared/types'
   import FilterEditor from './FilterEditor.svelte'
-  import IconX from '@components/ui/IconX.svelte'
 
   let {
     tag = $bindable(),
-    booleanOnly = false,
-    suggestions,
-    onDelete
+    suggestions
   }: {
     tag: VirtualTagConfig
-    booleanOnly?: boolean
     suggestions?: AutocompleteSuggestions
-    onDelete: () => void
   } = $props()
 
   // Normalize all cases to use conditionGroups (migrate legacy conditions format)
@@ -26,14 +22,6 @@
         vtCase.filter.conditions = undefined
         changed = true
       }
-      if (booleanOnly && vtCase.result !== 'true') {
-        vtCase.result = 'true'
-        changed = true
-      }
-    }
-    if (booleanOnly && tag.defaultResult !== 'false') {
-      tag.defaultResult = 'false'
-      changed = true
     }
     if (changed) tag.cases = [...tag.cases]
   })
@@ -43,7 +31,7 @@
       ...tag.cases,
       {
         filter: { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] },
-        result: booleanOnly ? 'true' : ''
+        result: ''
       }
     ]
   }
@@ -53,163 +41,45 @@
   }
 </script>
 
-<div class="virtual-tag-editor">
-  <div class="header">
-    <input
-      type="text"
-      bind:value={tag.name}
-      placeholder="Tag name (e.g. is_animated)"
-      class="tag-name-input"
-    />
-    <button class="delete-btn" onclick={onDelete} title="Remove Virtual Tag"><IconX size={14} /></button>
+<div class="form-stack">
+  <div class="form-field">
+    <label for="virtual-tag-name">Tag name</label>
+    <input id="virtual-tag-name" type="text" bind:value={tag.name} placeholder="e.g. is_animated" />
   </div>
 
   <div class="cases-list">
-    {#each tag.cases as vtCase, i}
-      <div class="case-block">
-        <div class="case-header">
-          <span class="case-label">{i === 0 ? 'If' : 'Else if'}</span>
-          <button class="remove-case-btn" onclick={() => removeCase(i)} title="Remove case"><IconX size={12} /></button>
-        </div>
+    {#each tag.cases as vtCase, i (vtCase)}
+      <section class="case-block raised-surface">
+        <header class="case-header">
+          <h3>{i === 0 ? 'If' : 'Else if'}</h3>
+          <button type="button" class="icon-button remove-case" onclick={() => removeCase(i)}
+            aria-label={`Remove case ${i + 1}`}><Icon name="trash" size={16} /></button>
+        </header>
         {#if vtCase.filter.conditionGroups}
           <FilterEditor bind:groups={vtCase.filter.conditionGroups} {suggestions} />
         {/if}
-        {#if !booleanOnly}
-          <div class="result-row">
-            <span class="result-label">→</span>
-            <input type="text" bind:value={vtCase.result} placeholder="Result value" class="result-input" />
-          </div>
-        {/if}
-      </div>
+        <div class="form-field">
+          <label for={`virtual-tag-result-${i}`}>Result</label>
+          <input id={`virtual-tag-result-${i}`} type="text" bind:value={vtCase.result} />
+        </div>
+      </section>
     {/each}
   </div>
 
-  <div class="footer">
-    <button class="add-link" onclick={addCase}>+ Add case</button>
-    {#if !booleanOnly}
-      <div class="default-row">
-        <span class="else-label">Else →</span>
-        <input type="text" bind:value={tag.defaultResult} placeholder="Default" class="default-input" />
-      </div>
-    {/if}
+  <button class="add-case" type="button" onclick={addCase}><Icon name="plus" size={16} /> Add case</button>
+
+  <div class="form-field">
+    <label for="virtual-tag-default">Default result</label>
+    <input id="virtual-tag-default" type="text" bind:value={tag.defaultResult} />
   </div>
 </div>
 
 <style>
-  .virtual-tag-editor {
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-    padding: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
-  }
-  .tag-name-input {
-    font-weight: bold;
-    flex: 1;
-    margin-right: 0.5rem;
-    font-size: 0.95rem;
-  }
-  .delete-btn {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.15rem;
-  }
-  .delete-btn:hover {
-    color: #e81123;
-  }
-  .cases-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-  .case-block {
-    border: 1px solid var(--color-background-mute);
-    border-radius: 4px;
-    padding: 0.5rem;
-    background: var(--color-background);
-  }
-  .case-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.35rem;
-  }
-  .case-label {
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: var(--ev-c-text-2);
-    text-transform: uppercase;
-  }
-  .remove-case-btn {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-  .remove-case-btn:hover {
-    color: #e81123;
-  }
-  .result-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-    padding-top: 0.35rem;
-    border-top: 1px solid var(--color-background-mute);
-  }
-  .result-label {
-    font-weight: 600;
-    color: var(--ev-c-text-2);
-    font-size: 0.9rem;
-  }
-  .result-input {
-    flex: 1;
-  }
-  .footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 0.25rem;
-  }
-  .add-link {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    font-size: 0.85rem;
-    padding: 0.2rem 0;
-  }
-  .add-link:hover {
-    color: var(--ev-c-text-1);
-  }
-  .default-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .else-label {
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: var(--ev-c-text-2);
-    white-space: nowrap;
-  }
-  .default-input {
-    width: 8rem;
-  }
+  .cases-list, .case-block { display: grid; gap: .6rem; min-width: 0; }
+  .case-block { padding: .65rem; }
+  .case-header { display: flex; justify-content: space-between; align-items: center; gap: .35rem; }
+  .case-header h3 { color: var(--color-primary-soft); font-size: .88rem; font-weight: 670; }
+  .remove-case { width: 29px; height: 29px; }
+  .remove-case:hover { color: var(--color-danger-soft); }
+  .add-case { display: inline-flex; align-items: center; gap: .3rem; justify-self: start; }
 </style>

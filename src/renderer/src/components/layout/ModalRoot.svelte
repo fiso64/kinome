@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { modalStore } from '@lib/modal-store.svelte'
   import ItemSettingsModal from '../modals/ItemSettingsModal.svelte'
   import ManualSearchModal from '../modals/ManualSearchModal.svelte'
@@ -23,11 +24,14 @@
 
   const stack = $derived(modalStore.stack)
   const isPending = $derived(modalStore.isPending)
+
+  $effect(() => { modalStore.closeUnauthorized() })
 </script>
 
 {#if isPending && stack.length === 0}
-  <div class="modal-pending-backdrop" transition:fade={{ duration: 150 }}>
-    <div class="modal-pending-spinner"></div>
+  <div class="modal-pending-backdrop" role="status" aria-label="Opening dialog"
+    transition:fade={{ duration: prefersReducedMotion.current ? 0 : 120 }}>
+    <div class="busy-wheel"></div>
   </div>
 {/if}
 
@@ -73,7 +77,8 @@
       title={props.title}
       initialSettings={props.initialSettings}
       typeKey={props.typeKey}
-      onSave={props.onSave}
+      editCapability={props.editCapability}
+      onDone={props.onDone}
       onClose={() => modalStore.close()}
       {groupByKeys}
       {settings}
@@ -82,7 +87,7 @@
     />
   {:else if active.type === 'sortPinning'}
     {@const sp = active.props}
-    <SortPinningModal item={sp.item} initialSortTop={sp.initialSortTop} initialSortBottom={sp.initialSortBottom} onClose={() => modalStore.close()} onSaved={sp.onSaved} />
+    <SortPinningModal item={sp.item} initialSortTop={sp.initialSortTop} initialSortBottom={sp.initialSortBottom} onClose={() => modalStore.close()} onDone={sp.onDone} />
   {/if}
 {/each}
 
@@ -95,20 +100,5 @@
     align-items: center;
     justify-content: center;
     z-index: 100;
-  }
-
-  .modal-pending-spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid rgba(255, 255, 255, 0.15);
-    border-top-color: var(--color-primary);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 </style>

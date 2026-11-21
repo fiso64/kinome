@@ -1,4 +1,7 @@
 <script lang="ts">
+  import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
+  import Icon from '@components/ui/Icon.svelte'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { slide } from 'svelte/transition'
   import TreeItem from './TreeItem.svelte'
   import { getAssetUrl } from '@lib/api'
@@ -61,36 +64,39 @@
   <button
     type="button"
     class="tree-item"
+    class:thumbnail-action={item.mediaType === 'episode'}
+    aria-expanded={item.type === 'folder' ? isExpanded : undefined}
     class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
     class:missing={item.isMissing}
     onclick={handleItemClick}
     oncontextmenu={(e) => showContextMenu(item, e, { parentItem: parentItem as LibraryItem })}
   >
-    <div class="poster" style:margin-left={`${level * 24}px`}>
+    <div class="poster" style:--tree-depth={level}>
       {#if item.type === 'folder'}
-        <span class="chevron">{isExpanded ? '▾' : '▸'}</span>
+        <span class="chevron"><Icon name={isExpanded ? 'down' : 'right'} size={15} /></span>
       {/if}
       <div class="icon">
         {#if item.posterPath}
           <img
             src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
-            alt={item.title ?? item.name}
+            alt="" loading="lazy" decoding="async"
             class="tree-poster"
           />
         {:else}
-          {item.type === 'folder' ? '📁' : '🎬'}
+          <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
         {/if}
       </div>
     </div>
 
     <div class="name" title={displayTitle}>
-      {#if item.isMissing}<span class="missing-icon">⚠️</span>{/if}
+      {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
       {displayTitle}
     </div>
+    {#if item.mediaType === 'episode' && item.watched}<WatchedIndicator />{/if}
   </button>
 
   {#if item.type === 'folder' && isExpanded}
-    <div class="children" transition:slide={{ duration: 200 }}>
+    <div class="children" in:slide={{ duration: prefersReducedMotion.current ? 0 : 125 }}>
       {#each effectiveChildren as child (child.id)}
         <TreeItem
           item={child}
@@ -109,10 +115,10 @@
   .tree-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: .65rem;
     width: 100%;
-    padding: 0.5rem;
-    border-radius: 6px;
+    padding: .42rem;
+    border-radius: var(--radius-field);
     background: none;
     border: none;
     color: inherit;
@@ -124,6 +130,7 @@
     background-color: var(--color-background-soft);
   }
   .poster {
+    margin-inline-start: min(21%, calc(var(--tree-depth, 0) * .95rem));
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -142,7 +149,8 @@
     align-items: center;
     justify-content: center;
     border-radius: 4px;
-    background-color: var(--color-background-soft);
+    background-color: var(--color-inset);
+    color: var(--color-primary-soft);
     font-size: 1.5rem;
     overflow: hidden; /* To ensure the image respects the border-radius */
   }
@@ -153,18 +161,13 @@
   }
   .name {
     flex-grow: 1;
+    min-width: 0;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .tree-item.watched {
-    opacity: 0.6;
-    transition: opacity 0.2s ease;
-  }
-  .tree-item.watched:hover {
-    opacity: 1;
-  }
+  .tree-item.watched:not(:is(:hover, :focus-visible)) :is(.poster, .name) { opacity: .6; }
   .tree-item.missing {
     opacity: 0.6;
   }
@@ -188,13 +191,11 @@
 
   /* --- Full Backdrop Mode Styles --- */
   :global(.full-backdrop-mode) .tree-item {
-    background-color: rgba(20, 20, 22, 0.5); /* More translucent */
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--collection-row-background, var(--surface-over-artwork));
+    border: 1px solid var(--collection-row-border, #ffffff1a);
   }
   :global(.full-backdrop-mode) .tree-item:hover {
-    background-color: rgba(40, 40, 44, 0.7); /* More subtle hover */
+    background: var(--collection-row-hover, var(--surface-raised));
     border-color: rgba(255, 255, 255, 0.15);
   }
 </style>

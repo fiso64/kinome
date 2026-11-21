@@ -6,21 +6,21 @@
   let {
     initialSettings,
     onClose,
-    onSave,
+    onDone,
     settings
   }: {
     initialSettings: Settings['defaultLayoutSettings'] | null
     onClose: () => void
-    onSave: (newSettings: Settings['defaultLayoutSettings']) => void
+    onDone: (newSettings: Settings['defaultLayoutSettings']) => void
     settings: Settings | null
   } = $props()
 
   let localSettings = $state($state.snapshot(initialSettings))
   let activeLayout = $state<keyof Settings['defaultLayoutSettings']>('grid')
 
-  function handleSave() {
+  function handleDone() {
     if (localSettings) {
-      onSave(localSettings)
+      onDone($state.snapshot(localSettings))
     }
     onClose()
   }
@@ -29,7 +29,7 @@
 <ModalWindow
   title="Default Layout Values"
   {onClose}
-  onSave={handleSave}
+  onDone={handleDone}
   maxWidth="700px"
   zIndex={101}
 >

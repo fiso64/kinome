@@ -44,7 +44,7 @@ export function isPlaybackQuality(value: unknown): value is PlaybackQuality {
 
 export function qualityLabel(quality: PlaybackQuality): string {
   if (quality === 'original') return 'Original'
-  if (quality === 'remux') return 'Original · HLS remux'
+  if (quality === 'remux') return 'Original (HLS remux)'
   return `Up to ${quality === '4k' ? '4K' : quality}`
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import { untrack, type Snippet } from 'svelte'
   import { writable } from 'svelte/store'
   import { horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
@@ -48,10 +49,7 @@
     aria-label={`Scroll ${direction}`}
     onclick={() => scroll(direction)}
   >
-    <svg width="8" height="13" viewBox="0 0 10 16" fill="none" aria-hidden="true">
-      <path d={direction === 'left' ? 'M8.5 15L1.5 8L8.5 1' : 'M1.5 1L8.5 8L1.5 15'}
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
+    <Icon name={direction} size={18} />
   </button>
 {/snippet}
 
@@ -84,6 +82,8 @@
 <style>
   .grid-container {
     position: relative;
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
   }
@@ -93,15 +93,16 @@
   .grid-container.horizontal {
     flex-direction: row;
     align-items: center;
-    padding: 1.5rem 0;
+    padding: 0;
   }
   .empty-message {
-    padding: 1.5rem;
-    color: var(--ev-c-text-2);
+    padding: .7rem 0;
+    color: var(--color-text-soft);
+    font-size: .875rem;
   }
   .grid-container:not(.horizontal) .media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(var(--column-width, var(--grid-poster-size)), 1fr));
-    padding: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--column-width, var(--grid-poster-size, 150px))), 1fr));
+    padding: .3rem 0 .6rem;
     align-content: start;
     flex: 1;
   }
@@ -111,15 +112,21 @@
   }
   .media-grid {
     display: grid;
-    gap: 1.5rem;
+    gap: clamp(.55rem, 1.2vw, 1rem);
+    min-width: 0;
     width: 100%;
   }
   .horizontal .media-grid {
     grid-auto-flow: column;
-    grid-auto-columns: var(--column-width, 250px);
-    padding: 0.5rem 1.5rem;
+    grid-auto-columns: min(82%, var(--column-width, 220px));
+    padding: .35rem .12rem .7rem;
     overflow-x: auto;
     scrollbar-width: none;
+  }
+  .horizontal .media-grid:has(> :global(.interactive-card)) {
+    /* Leave room for the hover transform at the tight edges. */
+    padding-block-start: var(--card-hover-gutter);
+    padding-inline: var(--card-hover-gutter);
   }
   .media-grid::-webkit-scrollbar {
     display: none;
@@ -147,10 +154,10 @@
     top: 50%;
     transform: translateY(-50%);
     z-index: 3;
-    background-color: rgba(30, 30, 30, 0.9);
-    backdrop-filter: blur(2px);
+    background: var(--surface-glass);
+    box-shadow: var(--edge-light), 0 4px 15px #0006;
     color: var(--ev-c-text-2);
-    border: 1px solid var(--color-background-mute);
+    border: 1px solid var(--color-border);
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -188,29 +195,13 @@
     transform: translateY(-50%) scale(0.95);
   }
 
-  /* Fade Gradients */
-  .grid-container.horizontal::before,
-  .grid-container.horizontal::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 80px;
-    z-index: 2;
-    pointer-events: none;
-    opacity: 0;
+  .grid-container.can-scroll-left .media-grid {
+    mask-image: linear-gradient(90deg, transparent, #000 20px);
   }
-
-  .grid-container.horizontal::before {
-    left: 0;
-    background: linear-gradient(to right, var(--color-background) 20%, transparent);
+  .grid-container.can-scroll-right .media-grid {
+    mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent);
   }
-  .grid-container.horizontal::after {
-    right: 0;
-    background: linear-gradient(to left, var(--color-background) 20%, transparent);
-  }
-  .grid-container.can-scroll-left::before,
-  .grid-container.can-scroll-right::after {
-    opacity: 1;
+  .grid-container.can-scroll-left.can-scroll-right .media-grid {
+    mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
   }
 </style>

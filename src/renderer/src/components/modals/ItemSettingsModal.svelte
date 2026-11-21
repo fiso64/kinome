@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { authStore } from '@lib/auth-store.svelte'
   import equal from 'fast-deep-equal'
   import ModalWindow from './_base/ModalWindow.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
@@ -49,9 +50,10 @@
   const _isFolder = item.type === 'folder' // Local constant for one-time state initialization
   const isFolder = $derived(item.type === 'folder') // Reactive derived value for the template
   const caps = $derived(itemCapabilities(item))
+  const editControl = $derived(authStore.control('editMetadata'))
 
   // Redirect to a valid tab if the requested one isn't available for this item
-  let activeTab = $state<'metadata' | 'view' | 'folder' | 'virtualFolder'>(
+  let selectedTab = $state<'metadata' | 'view' | 'folder' | 'virtualFolder'>(
     (() => {
       const c = itemCapabilities(item)
       if (initialTab === 'virtualFolder' && !c.canEditVirtualFolder) return 'metadata'
@@ -60,6 +62,8 @@
       return initialTab as any
     })()
   )
+
+  const activeTab = $derived(editControl.disabled ? 'metadata' : selectedTab)
 
   // --- Shared Autocomplete Suggestions ---
   let suggestions = $state<AutocompleteSuggestions>({
@@ -98,7 +102,8 @@
       seasonNumber: parseOptionalInt(seasonNumber),
       episodeNumber: episodeNumber ?? null,
       episodeSeasonNumber: parseOptionalInt(episodeSeasonNumber),
-      viewSettings: cleanNulls(viewSettings),
+      viewSettings: $state.snapshot(cleanNulls(viewSettings)),
+      pins: $state.snapshot(pins),
       selectedGroupBy,
       retrieveChildrenMetadata,
       childrenTypeHint,
@@ -109,13 +114,15 @@
 
   // --- Loading State ---
   let isRefreshing = $state(true)
+  let refreshRequest = 0
 
   // --- Metadata State ---
-  async function refreshItemDetails() {
-    if (!item.id) return
+  async function refreshItemDetails(id: string, canEdit: boolean) {
+    const request = ++refreshRequest
+    isRefreshing = true
     try {
-      const freshItem = await window.api.getItem(item.id)
-      if (freshItem) {
+      const freshItem = await window.api.getItem(id)
+      if (request === refreshRequest && freshItem) {
         // Update local state with fresh data to correct any stale props
         title = freshItem.title ?? ''
         year = freshItem.year?.toString() ?? ''
@@ -134,19 +141,22 @@
           const folder = freshItem as MediaFolder
 
           seasonNumber = folder.seasonNumber?.toString() ?? ''
-          selectedGroupBy = folder.viewSettings?.appliedGrouping ?? null
-          viewSettings = readEditableViewSettings(folder)
+          if (canEdit) {
+            selectedGroupBy = folder.viewSettings?.appliedGrouping ?? null
+            viewSettings = readEditableViewSettings(folder)
+            pins = readPins(folder)
 
-          // Refresh Folder Settings
-          retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
-          childrenTypeHint = folder.folderSettings?.childrenTypeHint ?? 'auto'
-          processTvChildren = folder.folderSettings?.processTvChildren ?? true
+            // Refresh Folder Settings
+            retrieveChildrenMetadata = folder.folderSettings?.retrieveChildrenMetadata ?? false
+            childrenTypeHint = folder.folderSettings?.childrenTypeHint ?? 'auto'
+            processTvChildren = folder.folderSettings?.processTvChildren ?? true
 
-          // Refresh Virtual Folder Filter State
-          if (folder.isVirtual) {
-            vfolderFilter = folder.filter
-              ? JSON.parse(JSON.stringify(folder.filter))
-              : { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }
+            // Refresh Virtual Folder Filter State
+            if (folder.isVirtual) {
+              vfolderFilter = folder.filter
+                ? JSON.parse(JSON.stringify(folder.filter))
+                : { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }
+            }
           }
         } else if (freshItem.mediaType === 'episode') {
           episodeSeasonNumber = (freshItem as MediaFile).seasonNumber?.toString() ?? ''
@@ -159,16 +169,14 @@
     } catch (e) {
       console.error('Failed to refresh details', e)
     } finally {
-      isRefreshing = false
+      if (request === refreshRequest) isRefreshing = false
     }
   }
 
   $effect(() => {
-    // Only track item change (e.g. ID or refreshed object from parent)
     const id = item.id
-    untrack(() => {
-      refreshItemDetails()
-    })
+    const canEdit = !editControl.disabled
+    if (id) untrack(() => { void refreshItemDetails(id, canEdit) })
   })
 
   let title = $state(item.title ?? '')
@@ -194,12 +202,25 @@
     const parentStored = overrideParent?.viewSettings ?? overrideParent?.viewHierarchy?.stored
     const resolution = resolveViewSettings(folder, settings, new Set(), parentStored?.childViewSettings)
     const keys = [...ALL_VIEW_OVERRIDE_KEYS, 'sortBy', 'sortDescending'] as const
-    return Object.fromEntries(keys.map((key) => {
+    const editable = Object.fromEntries(keys.map((key) => {
       const source = resolution.sources[key]?.source
       return [key, source === 'item' || source === 'override' ? resolution.settings[key] ?? null : null]
-    }))
+    })) as EditableViewSettings
+    const stored = overrideParent
+      ? parentStored?.childViewSettings?.overrides?.[folder.id] ?? parentStored?.overrides?.[folder.id]
+      : folder.viewSettings
+    if (stored?.childViewSettings) editable.childViewSettings = $state.snapshot(stored.childViewSettings)
+    return editable
   }
 
+  function readPins(folder?: MediaFolder) {
+    return {
+      top: [...(folder?.viewSettings?.sortTop ?? [])],
+      bottom: [...(folder?.viewSettings?.sortBottom ?? [])]
+    }
+  }
+
+  let pins = $state(readPins(item.type === 'folder' ? item : undefined))
   let selectedGroupBy = $state(_isFolder ? item.viewSettings?.appliedGrouping ?? null : null)
   let viewSettings = $state<EditableViewSettings>(
     item.type === 'folder' ? readEditableViewSettings(item) : {}
@@ -356,6 +377,11 @@
         }
       }
 
+      if (hasChanged(pins, initialValues.pins)) {
+        updates.viewSettings = { ...updates.viewSettings, sortTop: [...pins.top], sortBottom: [...pins.bottom] }
+        changed = true
+      }
+
       // 3. Folder Behavior Settings
       const folderSettingsUpdate: Record<string, any> = {}
       if (hasChanged(retrieveChildrenMetadata, initialValues.retrieveChildrenMetadata)) {
@@ -390,6 +416,7 @@
   }
 
   async function handleSave() {
+    if (editControl.disabled || isRefreshing) return
     if (
       !isFolder &&
       mediaType === 'episode' &&
@@ -464,6 +491,7 @@
   }
 
   $effect(() => {
+    if (editControl.disabled) return
     window.api.getAutocompleteSuggestions().then((data) => (suggestions = data)).catch(() => {})
   })
 </script>
@@ -472,27 +500,29 @@
   title={overrideParent && activeTab === 'view' ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
   onClose={handleClose}
   onSave={handleSave}
+  submitDisabled={editControl.disabled || isRefreshing}
+  cancelText={editControl.disabled ? 'Close' : 'Cancel'}
   maxWidth="700px"
 >
   {#snippet header()}
-    <div class="tabs">
+    <div class="selection-bar" role="group" aria-label="Item settings sections">
       {#if caps.canEditMetadata}
-        <button class:active={activeTab === 'metadata'} onclick={() => (activeTab = 'metadata')}>
+        <button type="button" aria-pressed={activeTab === 'metadata'} onclick={() => (selectedTab = 'metadata')}>
           Metadata
         </button>
       {/if}
       {#if caps.canEditView}
-        <button class:active={activeTab === 'view'} onclick={() => (activeTab = 'view')}>
+        <button type="button" aria-pressed={activeTab === 'view'} {...editControl} onclick={() => (selectedTab = 'view')}>
           View
         </button>
       {/if}
       {#if caps.canEditFolderSettings}
-        <button class:active={activeTab === 'folder'} onclick={() => (activeTab = 'folder')}>
+        <button type="button" aria-pressed={activeTab === 'folder'} {...editControl} onclick={() => (selectedTab = 'folder')}>
           Settings
         </button>
       {/if}
       {#if caps.canEditVirtualFolder}
-        <button class:active={activeTab === 'virtualFolder'} onclick={() => (activeTab = 'virtualFolder')}>
+        <button type="button" aria-pressed={activeTab === 'virtualFolder'} {...editControl} onclick={() => (selectedTab = 'virtualFolder')}>
           Virtual Folder
         </button>
       {/if}
@@ -508,6 +538,7 @@
       </div>
     {:else if activeTab === 'metadata' && caps.canEditMetadata}
       <MetadataTab
+        readOnly={editControl.disabled}
         {item}
         {tmdbMetadata}
         {localMedia}
@@ -534,6 +565,7 @@
           {settings}
           {inheritedSettings}
           {inheritedLabel}
+          bind:pins
           bind:viewSettings
           bind:selectedGroupBy
         />
@@ -558,26 +590,5 @@
     flex-direction: column;
     gap: 0.75rem;
     padding: 1.5rem;
-  }
-
-  .tabs {
-    display: flex;
-  }
-  .tabs button {
-    padding: 0.8rem 1.2rem;
-    background: none;
-    color: var(--ev-c-text-2);
-    font-size: 1rem;
-    font-weight: 600;
-    border-bottom: 3px solid transparent;
-    transition: all 0.2s;
-  }
-  .tabs button:hover:not(:disabled) {
-    color: var(--ev-c-text-1);
-    background: none;
-  }
-  .tabs button.active {
-    color: var(--ev-c-text-1);
-    border-bottom-color: var(--ev-c-white-soft);
   }
 </style>

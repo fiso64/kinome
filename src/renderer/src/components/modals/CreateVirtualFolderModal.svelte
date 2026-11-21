@@ -46,8 +46,8 @@
 </script>
 
 <ModalWindow title="Create Virtual Folder" {onClose} onSave={handleCreate} saveText="Create">
-  <div class="content">
-    <div class="form-group">
+  <div class="form-stack">
+    <div class="form-field">
       <label for="vf-name">Name</label>
       <input
         type="text"
@@ -58,23 +58,6 @@
       />
     </div>
 
-    <VirtualFolderTab bind:filter parentId={parentItem.id} {suggestions} />
+    <VirtualFolderTab bind:filter embedded parentId={parentItem.id} {suggestions} />
   </div>
 </ModalWindow>
-
-<style>
-  .content {
-    display: flex;
-    flex-direction: column;
-  }
-  .form-group {
-    padding: 1.5rem 1.5rem 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  label {
-    font-weight: bold;
-    font-size: 0.9rem;
-  }
-</style>

@@ -33,7 +33,8 @@
         top = Math.max(margin, topAbove)
       }
 
-      style = `top: ${top}px; left: ${position.left}px; visibility: visible;`
+      const left = Math.max(margin, Math.min(position.left, window.innerWidth - menuRect.width - margin))
+      style = `top: ${top}px; left: ${left}px; visibility: visible;`
     }
   })
 
@@ -72,7 +73,7 @@
 
 <div
   bind:this={menuElement}
-  class="autocomplete-menu"
+  class="autocomplete-menu glass-surface"
   {style}
   onmousedown={(e) => e.preventDefault()}
 >
@@ -105,28 +106,26 @@
 <style>
   .autocomplete-menu {
     position: fixed;
-    background-color: var(--ev-c-black-soft);
-    border: 1px solid var(--ev-c-black-mute);
-    border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    padding: .3rem;
     z-index: 300; /* Higher than modal */
-    max-height: 200px;
+    max-height: min(20rem, 55dvh);
     overflow-y: auto;
     width: max-content;
     min-width: 150px;
-    max-width: 400px;
+    max-width: min(28rem, calc(100dvw - 10px));
   }
   .suggestion-item {
     display: block;
     width: 100%;
-    padding: 0.5rem 1rem;
+    padding: .48rem .65rem;
+    border-radius: 7px;
     background: none;
     border: none;
     color: var(--color-text);
     text-align: left;
     cursor: pointer;
     font-size: 0.9rem;
-    font-weight: 400; /* Ensure thin by default */
+    font-weight: 520;
 
     white-space: nowrap;
     overflow: hidden;
@@ -138,7 +137,7 @@
   }
 
   .highlight {
-    color: var(--ev-c-brand-light, #646cff); /* Brighter brand color */
+    color: var(--color-primary-soft); /* Brighter brand color */
     font-weight: 800; /* Make it pop more */
   }
 
@@ -157,7 +156,7 @@
     width: 16px;
     height: 16px;
     border: 2px solid var(--ev-c-black-mute);
-    border-top: 2px solid var(--ev-c-brand-light, #646cff);
+    border-top: 2px solid var(--color-primary-soft);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }

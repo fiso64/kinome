@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
   import MediaView from '../layout/MediaView.svelte'
@@ -30,30 +31,21 @@
     viewNode?: import('@shared/types').ViewHierarchyNode
   } = $props()
 
-  // When the view is rendered, trigger fetches for all visible season folders.
-  $effect(() => {
-    for (const folder of folders) {
-      // triggerSeasonEpisodeFetch(folder)
-    }
-  })
+  const visibleFolders = $derived(folders.filter((folder) => folder.children?.length))
 </script>
 
 <div class="sections-view">
-  {#if folders.length > 0}
-    {#each folders as folder (folder.id)}
+  {#if visibleFolders.length > 0}
+    {#each visibleFolders as folder (folder.id)}
       {@const childNode = viewNode?.children?.[folder.id]}
       <ViewContextProvider id={folder.id} extend={true}>
         <section class="content-section">
-          <h2
-            class="section-title"
-            onclick={() => onItemClick(folder)}
-            oncontextmenu={(e) =>
-              onShowContextMenu(folder, e, {
-                layout: 'sections',
-                parentItem: container as LibraryItem
-              })}
-          >
-            {folder.title ?? folder.name}
+          <h2 class="section-title">
+            <button type="button" onclick={() => onItemClick(folder)}
+              oncontextmenu={(event) => onShowContextMenu(folder, event, { layout: 'sections', parentItem: container })}>
+              <span>{folder.title ?? folder.name}</span>
+              <Icon name="right" size={17} />
+            </button>
           </h2>
           <MediaView
             parentItem={folder}
@@ -74,42 +66,25 @@
 </div>
 
 <style>
-  .empty-message {
-    padding: 1.5rem;
-    color: var(--ev-c-text-2);
+  .sections-view { display: grid; flex: 1; gap: clamp(1.3rem, 2.5vw, 2.15rem); min-width: 0; }
+  .content-section { min-width: 0; padding-top: .65rem; background: var(--section-rule) 0 0 / 100% 1px no-repeat; }
+  .section-title { margin-bottom: .45rem; }
+  .section-title button {
+    max-width: 100%;
+    display: inline-flex;
+    align-items: center;
+    gap: .46rem;
+    padding: .16rem .32rem .16rem 0;
+    border: 0;
+    color: var(--color-text);
+    background: transparent;
+    text-align: start;
+    font-size: clamp(1.2rem, 1.8vw, 1.5rem);
+    font-weight: 660;
+    line-height: 1.25;
   }
-  .sections-view {
-    padding: 1rem 0;
-    flex: 1;
-  }
-  .content-section {
-    margin-bottom: 2rem;
-  }
-  .section-title {
-    font-size: 1.5rem;
-    font-weight: bold;
-    margin: 0 1.5rem 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--color-background-mute);
-    cursor: pointer;
-  }
-  .section-title:hover {
-    color: var(--ev-c-white-soft);
-  }
-  .section-title:hover {
-    color: var(--ev-c-white-soft);
-  }
-  :global(.full-backdrop-mode) .section-title {
-    background-color: rgba(30, 30, 33, 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-color: rgba(255, 255, 255, 0.1);
-    padding-left: 1rem;
-    padding-right: 1rem;
-    padding-top: 0.5rem;
-    margin-left: 0.5rem;
-    margin-right: 0.5rem;
-    border-radius: 6px;
-    border-bottom-style: solid;
-  }
+  .section-title button:is(:hover, :focus-visible) { color: var(--color-primary-soft); background: transparent; }
+  .section-title button span { overflow-wrap: anywhere; }
+  .section-title button :global(svg) { flex: none; color: var(--color-text-dim); }
+  .empty-message { padding: .75rem 0; color: var(--color-text-soft); font-size: .875rem; }
 </style>

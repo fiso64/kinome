@@ -1,9 +1,9 @@
 <script lang="ts">
-  import {
-    DEFAULT_VIDEO_QUALITIES, normalizePlaybackEncoding,
-    type PlaybackConversion, type PlaybackQuality, type VideoQuality
-  } from '@shared/playback-quality'
+  import equal from 'fast-deep-equal'
+  import { DEFAULT_VIDEO_QUALITIES, normalizePlaybackEncoding } from '@shared/playback-quality'
+  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { api } from '@lib/api'
+  import Icon, { type IconName } from '@components/ui/Icon.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import { formatLayoutString } from '@shared/settings-helpers'
   import { dialogStore } from '@lib/dialog-store'
@@ -15,72 +15,111 @@
   import AccountModal from '@modals/AccountModal.svelte'
   import LibrarySettingsForm from '@components/settings/LibrarySettingsForm.svelte'
   import PlaybackSettingsForm from '@components/settings/PlaybackSettingsForm.svelte'
-  import LibraryTreeBrowser from '@components/settings/LibraryTreeBrowser.svelte'
-  import { DEFAULT_LAYOUTS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
+  import LibraryTreeBrowser, { type FolderDrafts } from '@components/settings/LibraryTreeBrowser.svelte'
+  import type { DefaultLayoutKey } from '@shared/types'
+  import { DEFAULT_LAYOUTS_CONFIG } from '@shared/types'
   import type {
-    PlayerCommandConfig,
-    CustomActionConfig,
     Settings,
     AutocompleteSuggestions,
     MediaSource,
-    MediaFolder,
+    VirtualTagConfig,
     Account,
-    AccountRole
+    AccountRole,
+    Capability
   } from '@shared/types'
   import { navStore } from '@lib/navigation-store.svelte'
-  import { modalStore } from '@lib/modal-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
 
-  let { settings = $bindable() }: { settings: Settings | null } = $props()
+  let { settings }: { settings: Settings | null } = $props()
 
-  const TAB_LABELS = {
-    general: 'General',
-    accounts: 'Accounts',
-    library: 'Library',
-    playback: 'Playback',
-    view: 'View',
-    virtualTags: 'Virtual Tags'
+  const TABS = {
+    general: { label: 'General', icon: 'settings', capability: 'editSettings' },
+    accounts: { label: 'Accounts', icon: 'user', capability: null },
+    library: { label: 'Library', icon: 'folder', capability: 'editSettings' },
+    playback: { label: 'Playback', icon: 'play', capability: null },
+    view: { label: 'View', icon: 'grid', capability: 'editSettings' },
+    virtualTags: { label: 'Virtual Tags', icon: 'filter', capability: 'editSettings' }
+  } satisfies Record<string, { label: string; icon: IconName; capability: Capability | null }>
+
+  type SettingsTab = keyof typeof TABS
+  const tabIds = Object.keys(TABS) as SettingsTab[]
+  const layoutKeys = Object.keys(DEFAULT_LAYOUTS_CONFIG) as DefaultLayoutKey[]
+
+  function tabControl(tab: SettingsTab) {
+    const capability = TABS[tab].capability
+    return capability ? authStore.control(capability) : { disabled: false }
   }
 
-  type SettingsTab = keyof typeof TAB_LABELS
-  const TABS = Object.keys(TAB_LABELS) as SettingsTab[]
+  const availableTabs = $derived(tabIds.filter((tab) => !tabControl(tab).disabled))
+  let selectedTab = $state<SettingsTab>('general')
+  const activeTab = $derived(availableTabs.includes(selectedTab) ? selectedTab : 'playback')
+  let editor = $state<
+    | { type: 'view'; key: DefaultLayoutKey }
+    | { type: 'layout' | 'players' | 'actions' }
+    | { type: 'tag'; tag: VirtualTagConfig }
+    | null
+  >(null)
 
-  type ActiveViewSettingsModal = '_default' | 'movie' | 'tv' | 'season' | null
+  function closeEditor() {
+    editor = null
+  }
 
-  let activeTab = $state<SettingsTab>('general')
-  let activeViewSettingsModal = $state<ActiveViewSettingsModal>(null)
-  let activeLayoutSettingsModal = $state(false)
-  let activePlayerCommandsModal = $state(false)
-  let activeCustomActionsModal = $state(false)
-  let editingVtagIndex = $state<number | null>(null)
+  function editableSettings(settings: Settings) {
+    return {
+      playerCommands: settings.playerCommands ?? [],
+      playbackConversion: settings.playbackConversion ?? 'full',
+      defaultPlaybackQuality: settings.defaultPlaybackQuality ?? 'original',
+      playbackQualities: settings.playbackQualities ?? [...DEFAULT_VIDEO_QUALITIES],
+      playbackEncoding: normalizePlaybackEncoding(settings.playbackEncoding),
+      customActions: settings.customActions ?? [],
+      tmdbApiKey: settings.tmdbApiKey,
+      useLogos: settings.useLogos,
+      creditsDisplay: settings.creditsDisplay,
+      grayOutWatched: settings.grayOutWatched,
+      showContinueWatching: settings.showContinueWatching,
+      showNextUp: settings.showNextUp,
+      itemDetailBackdropSize: settings.itemDetailBackdropSize,
+      itemDetailBackdropBlur: settings.itemDetailBackdropBlur,
+      virtualTags: (settings.virtualTags ?? []).map((tag) => ({
+        ...tag, id: tag.id || crypto.randomUUID(), cases: tag.cases ?? []
+      })),
+      libraryLocation: settings.libraryLocation,
+      mediaSources: settings.mediaSources?.length
+        ? settings.mediaSources
+        : [{ id: crypto.randomUUID(), path: '', isRelative: false }],
+      shadowSources: settings.shadowSources ?? false,
+      refetchRemoteMetadataOnFileChange: settings.refetchRemoteMetadataOnFileChange ?? true,
+      shadowMinDepth: settings.shadowMinDepth ?? 1,
+      serverPort: settings.serverPort ?? 3000,
+      serverHost: settings.serverHost ?? '::',
+      defaultLayoutSettings: settings.defaultLayoutSettings,
+      defaultLayouts: settings.defaultLayouts
+    } satisfies Partial<Settings>
+  }
 
-  // --- Form State ---
-  let playerCommands = $state<PlayerCommandConfig[]>([])
-  let playbackConversion = $state<PlaybackConversion>('full')
-  let defaultPlaybackQuality = $state<PlaybackQuality>('original')
-  let playbackQualities = $state<VideoQuality[]>([...DEFAULT_VIDEO_QUALITIES])
-  let playbackEncoding = $state(normalizePlaybackEncoding())
+  let draft = $state<ReturnType<typeof editableSettings> | null>(null)
+  let saved = $state.raw<ReturnType<typeof editableSettings> | null>(null)
+  const previewSettings = $derived(settings && draft ? { ...settings, ...draft } : settings)
+  let enabledPlayerIds = $state<string[]>([])
   let playbackConversionAvailable = $state(false)
-  const defaultQualityChoices = $derived<PlaybackQuality[]>(['original', 'remux', ...playbackQualities])
-
-  let customActions = $state<CustomActionConfig[]>([])
-  let tmdbApiKey = $state('')
-  let useLogos = $state(true)
-  let creditsDisplay = $state<'shown' | 'collapsed' | 'hidden' | 'tab'>('tab')
-  let grayOutWatched = $state(true)
-  let showContinueWatching = $state(true)
-  let showNextUp = $state(true)
-  let itemDetailBackdropSize = $state<'small' | 'full'>('small')
-  let itemDetailBackdropBlur = $state(4)
-  let libraryDataLocation = $state('')
-  let mediaSources = $state<MediaSource[]>([])
-  let shadowSources = $state(false)
-  let refetchRemoteMetadataOnFileChange = $state(true)
-  let shadowMinDepth = $state(1)
-  let serverPort = $state(3000)
-  let serverHost = $state('::')
-
-  let virtualTags = $state<Settings['virtualTags']>([])
+  let folderDrafts = $state<FolderDrafts>({})
+  const changedFolders = $derived(Object.entries(folderDrafts).filter(([, folder]) =>
+    !equal(folder.saved, folder.current)
+  ))
+  let saving = $state(false)
+  let switchingLibrary = $state(false)
+  let didSave = $state(false)
+  const hasServerChanges = $derived(!equal(draft, saved))
+  const savePermission = $derived(
+    hasServerChanges && !authStore.can.editSettings ? 'editSettings'
+      : changedFolders.length > 0 && !authStore.can.editMetadata ? 'editMetadata'
+      : null
+  )
+  const hasChanges = $derived(
+    hasServerChanges ||
+    !equal(enabledPlayerIds, clientSettingsStore.settings.enabledPlayerIds) ||
+    changedFolders.length > 0
+  )
 
   // Accounts tab
   let allAccounts = $state<Account[]>([])
@@ -92,9 +131,6 @@
   let newAccountRole = $state<AccountRole>('normal')
   let createAccountMessage = $state({ text: '', type: '' })
   let creatingAccount = $state(false)
-
-  let defaultLayoutSettings = $state<Settings['defaultLayoutSettings'] | null>(null)
-  let defaultLayouts = $state<Settings['defaultLayouts'] | null>(null)
 
   let isSettingsLoading = $state(true)
 
@@ -116,39 +152,25 @@
   ])
 
   $effect(() => {
-    api.getSettings().then((s) => {
-      playerCommands = JSON.parse(JSON.stringify(s.playerCommands ?? []))
-      playbackConversion = s.playbackConversion ?? 'full'
-      playbackConversionAvailable = s.playbackConversionAvailable ?? false
-      playbackEncoding = normalizePlaybackEncoding(s.playbackEncoding)
-      defaultPlaybackQuality = s.defaultPlaybackQuality ?? 'original'
-      playbackQualities = [...(s.playbackQualities ?? DEFAULT_VIDEO_QUALITIES)]
-      customActions = JSON.parse(JSON.stringify(s.customActions ?? []))
-      tmdbApiKey = s.tmdbApiKey
-      useLogos = s.useLogos
-      creditsDisplay = s.creditsDisplay
-      grayOutWatched = s.grayOutWatched
-      showContinueWatching = s.showContinueWatching
-      showNextUp = s.showNextUp
-      itemDetailBackdropSize = s.itemDetailBackdropSize
-      itemDetailBackdropBlur = s.itemDetailBackdropBlur
-      virtualTags = (s.virtualTags ?? []).map((vt) => ({
-        ...vt,
-        id: vt.id || crypto.randomUUID(),
-        cases: vt.cases || []
-      }))
-      libraryDataLocation = s.libraryLocation
-      mediaSources = s.mediaSources?.length
-        ? JSON.parse(JSON.stringify(s.mediaSources))
-        : [{ id: crypto.randomUUID(), path: '', isRelative: false }]
-      shadowSources = s.shadowSources ?? false
-      refetchRemoteMetadataOnFileChange = s.refetchRemoteMetadataOnFileChange ?? true
-      shadowMinDepth = s.shadowMinDepth ?? 1
-      serverPort = s.serverPort ?? 3000
-      serverHost = s.serverHost ?? '::'
+    return navStore.guardSettingsExit(confirmLeave)
+  })
 
-      defaultLayoutSettings = JSON.parse(JSON.stringify(s.defaultLayoutSettings))
-      defaultLayouts = JSON.parse(JSON.stringify(s.defaultLayouts))
+  $effect(() => {
+    if (switchingLibrary || (!hasChanges && !editor && !saving)) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  })
+
+  $effect(() => {
+    api.getSettings().then((s) => {
+      saved = editableSettings(s)
+      draft = structuredClone(saved)
+      playbackConversionAvailable = s.playbackConversionAvailable ?? false
+      enabledPlayerIds = [...clientSettingsStore.settings.enabledPlayerIds]
     }).catch((err: any) => {
       dialogStore.showError({ title: 'Failed to Load Settings', message: err.message || 'Could not load settings.' })
     }).finally(() => {
@@ -157,18 +179,16 @@
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
 
-    loadAccounts()
-
     const handleKeydown = (event: KeyboardEvent): void => {
-      if (activeViewSettingsModal || activeLayoutSettingsModal) return
+      if (editor || editingAccount || saving) return
 
       if (event.ctrlKey && event.key === 'Tab') {
         event.preventDefault()
-        const currentIndex = TABS.indexOf(activeTab)
+        const currentIndex = availableTabs.indexOf(activeTab)
         const nextIndex = event.shiftKey
-          ? (currentIndex - 1 + TABS.length) % TABS.length
-          : (currentIndex + 1) % TABS.length
-        activeTab = TABS[nextIndex]
+          ? (currentIndex - 1 + availableTabs.length) % availableTabs.length
+          : (currentIndex + 1) % availableTabs.length
+        selectedTab = availableTabs[nextIndex]
       }
     }
     window.addEventListener('keydown', handleKeydown)
@@ -177,111 +197,152 @@
     }
   })
 
-  function handleBack() {
-    navStore.goBack()
+  $effect(() => {
+    if (authStore.can.manageAccounts) void loadAccounts()
+    else {
+      allAccounts = []
+      if (!editingAccountIsSelf) editingAccount = null
+      showCreateAccount = false
+    }
+    if (!authStore.can.editSettings && editor?.type !== 'players') editor = null
+  })
+
+  function confirmLeave(): boolean | Promise<boolean> {
+    if (saving) return false
+    if (!hasChanges && !editor) return true
+    return promptToLeave()
   }
 
-  function prepareTagsForSave(tags: typeof virtualTags) {
-    return JSON.parse(JSON.stringify(tags || []))
-      .map((vt) => ({ ...vt, name: vt.name.trim() }))
-      .filter((vt) => vt.name && vt.cases?.length > 0)
+  async function promptToLeave(): Promise<boolean> {
+    const choice = await dialogStore.showDialog({
+      title: 'Unsaved Settings',
+      message: editor
+        ? 'Leaving Settings will discard pending changes and close the open editor.'
+        : savePermission
+          ? 'You no longer have permission to save these changes.'
+          : 'Save your changes before leaving Settings?',
+      buttons: [
+        { label: 'Keep Editing', value: 'stay', class: 'secondary' },
+        { label: 'Discard Changes', value: 'discard', class: 'danger' },
+        ...(!editor && !savePermission ? [{ label: 'Save Changes', value: 'save', class: 'primary' as const }] : [])
+      ]
+    })
+    if (choice === 'save') return handleSave()
+    return choice === 'discard'
   }
 
-  async function saveTagsNow() {
-    try {
-      await api.saveSettings({ virtualTags: prepareTagsForSave(virtualTags) })
-    } catch (err: any) {
-      dialogStore.showError({ title: 'Error Saving Tags', message: err.message || 'Failed to save tags.' })
-    }
+  function changedValues<T extends object>(current: T, previous: T): Partial<T> {
+    return Object.fromEntries(Object.entries(current).filter(([key, value]) =>
+      !equal(value, previous[key as keyof T])
+    )) as Partial<T>
   }
 
-  async function handleSave(): Promise<void> {
-    const wasLibLocationChanged = libraryDataLocation !== settings?.libraryLocation
-    const prevSources = settings?.mediaSources ?? []
-    const toKey = (s: { id: string; path: string; isRelative: boolean }) =>
-      `${s.id}|${s.path}|${s.isRelative}`
-    const mediaPathChanged =
-      mediaSources.length !== prevSources.length ||
-      mediaSources.some((s) => !prevSources.some((p) => toKey(p) === toKey(s)))
-
-    const tagsToSave = prepareTagsForSave(virtualTags)
-
-    try {
-      await api.saveSettings({
-        playerCommands: JSON.parse(JSON.stringify(playerCommands)),
-        playbackConversion,
-        playbackEncoding,
-        playbackQualities,
-        defaultPlaybackQuality: defaultQualityChoices.includes(defaultPlaybackQuality) ? defaultPlaybackQuality : 'original',
-        customActions: JSON.parse(JSON.stringify(customActions)),
-        tmdbApiKey,
-        useLogos,
-        creditsDisplay,
-        grayOutWatched,
-        showContinueWatching,
-        showNextUp,
-        itemDetailBackdropSize,
-        itemDetailBackdropBlur,
-        virtualTags: tagsToSave,
-        libraryLocation: libraryDataLocation,
-        mediaSources,
-        shadowSources,
-        refetchRemoteMetadataOnFileChange,
-        shadowMinDepth,
-        serverPort,
-        serverHost,
-        defaultLayoutSettings: defaultLayoutSettings
-          ? JSON.parse(JSON.stringify(defaultLayoutSettings))
-          : undefined,
-        defaultLayouts: defaultLayouts ? JSON.parse(JSON.stringify(defaultLayouts)) : undefined
-      })
-    } catch (err: any) {
-      dialogStore.showError({ title: 'Error Saving Settings', message: err.message || 'Failed to save settings.' })
-      return
+  async function handleSave(): Promise<boolean> {
+    if (!draft || !saved || saving) return false
+    const pending = $state.snapshot(draft)
+    const { libraryLocation, ...patch } = changedValues(pending, saved)
+    if (savePermission) {
+      dialogStore.showError({ title: 'Permission Required', message: 'Your account cannot save these server changes.' })
+      return false
     }
-
-    if (wasLibLocationChanged) {
-      return
+    if (pending.serverPort !== saved.serverPort &&
+      (!Number.isInteger(pending.serverPort) || pending.serverPort < 1 || pending.serverPort > 65535)) {
+      dialogStore.showError({ title: 'Invalid Server Port', message: 'Enter a port from 1 to 65535.' })
+      return false
     }
-
-    if (mediaPathChanged) {
-      const choice = await dialogStore.showDialog({
-        title: 'Media Source Path Changed',
-        message: 'How do you want to proceed?',
-        detail:
-          'A "Full Rescan" is for new libraries and wipes all metadata. A "Refresh" syncs changes for the existing library.',
-        buttons: [
-          { label: 'Do Nothing', value: 'nothing', class: 'secondary' },
-          { label: 'Full Rescan (Wipe)', value: 'full_rescan', class: 'danger' },
-          { label: 'Refresh (Sync)', value: 'rescan', class: 'primary' }
-        ]
-      })
-      try {
-        if (choice === 'full_rescan') {
-          for (const source of mediaSources) {
-            await api.saveSource(source)
-          }
-          await api.performScan()
-          const rootItem = await api.getItem(LIBRARY_ROOT_ID, {})
-          if (rootItem) {
-            modalStore.open('initialFolderSettings', { root: rootItem as MediaFolder })
-          }
-        } else if (choice === 'rescan') {
-          await api.performScan()
-        }
-      } catch (err: any) {
-        dialogStore.showError({ title: 'Error', message: err.message || 'Failed to perform scan.' })
-        return
+    if (patch.defaultPlaybackQuality !== undefined || patch.playbackQualities !== undefined) {
+      const qualities = ['original', 'remux', ...pending.playbackQualities]
+      if (!qualities.includes(pending.defaultPlaybackQuality)) {
+        patch.defaultPlaybackQuality = 'original'
+        pending.defaultPlaybackQuality = 'original'
       }
     }
 
-    handleBack()
+    const wasLibLocationChanged = libraryLocation !== undefined
+    const prevSources = saved.mediaSources
+    const mediaSources = pending.mediaSources
+    const prevSourcesById = new Map(prevSources.map((source) => [source.id, source]))
+    const mediaPathChanged = mediaSources.length !== prevSources.length || mediaSources.some((source) => {
+      const previous = prevSourcesById.get(source.id)
+      return source.path !== previous?.path || source.isRelative !== previous?.isRelative
+    })
+
+    saving = true
+    didSave = false
+    let committedChanges = false
+    try {
+      // Folder IDs belong to the current library, so finish these edits before switching libraries.
+      for (const [id, folder] of changedFolders) {
+        const folderSettings = changedValues(folder.current, folder.saved)
+        await api.userUpdateItem({ id, folderSettings })
+        folder.saved = { ...folder.current }
+        committedChanges = true
+      }
+      if (Object.keys(patch).length > 0) {
+        await api.saveSettings(patch)
+        committedChanges = true
+        saved = { ...pending, libraryLocation: saved.libraryLocation }
+        draft.defaultPlaybackQuality = pending.defaultPlaybackQuality
+      }
+      // A new custom player must exist on the server before its ID is saved on this browser.
+      if (!equal(enabledPlayerIds, clientSettingsStore.settings.enabledPlayerIds)) {
+        clientSettingsStore.update({ enabledPlayerIds: [...enabledPlayerIds] })
+        committedChanges = true
+      }
+      if (wasLibLocationChanged) {
+        switchingLibrary = true
+        await api.saveSettings({ libraryLocation })
+        saved = { ...pending }
+        return true
+      }
+      if (mediaPathChanged && authStore.can.triggerLibraryScan) await chooseScan(mediaSources)
+      didSave = true
+      return true
+    } catch (err: any) {
+      dialogStore.showError({
+        title: 'Error Saving Settings',
+        message: err.message || 'Failed to save settings.',
+        detail: committedChanges ? 'Some changes were saved. You can retry the remaining changes.' : undefined
+      })
+      return false
+    } finally {
+      switchingLibrary = false
+      saving = false
+    }
+  }
+
+  async function chooseScan(mediaSources: MediaSource[]) {
+    const choice = await dialogStore.showDialog({
+      title: 'Scan Updated Media Sources?',
+      message: 'Your media source changes were saved. Choose whether to scan them now.',
+      detail:
+        'A "Full Rescan" is for new libraries and wipes all metadata. A "Refresh" syncs changes for the existing library.',
+      buttons: [
+        { label: 'Skip Scan', value: 'nothing', class: 'secondary' },
+        { label: 'Full Rescan (Wipe)', value: 'full_rescan', class: 'danger' },
+        { label: 'Refresh (Sync)', value: 'rescan', class: 'primary' }
+      ]
+    })
+    try {
+      if (choice === 'full_rescan') {
+        for (const source of mediaSources) {
+          await api.saveSource(source)
+        }
+        await api.performScan()
+      } else if (choice === 'rescan') {
+        await api.performScan()
+      }
+    } catch (err: any) {
+      dialogStore.showError({ title: 'Error', message: err.message || 'Failed to perform scan.' })
+      return
+    }
   }
 
   async function loadAccounts() {
     if (!authStore.can.manageAccounts) return
     try {
-      allAccounts = await api.getAccounts()
+      const accounts = await api.getAccounts()
+      if (authStore.can.manageAccounts) allAccounts = accounts
     } catch { /* silently ignore */ }
   }
 
@@ -291,6 +352,7 @@
   }
 
   async function handleCreateAccount() {
+    if (!authStore.can.manageAccounts) return
     createAccountMessage = { text: '', type: '' }
     if (!newAccountUsername.trim()) {
       createAccountMessage = { text: 'Username is required.', type: 'error' }
@@ -319,21 +381,28 @@
 
 <div class="settings-view">
   <div class="settings-container">
-    <div class="sidebar">
-      <div class="tabs">
-        {#each TABS as tab (tab)}
-          <button class:active={activeTab === tab} onclick={() => (activeTab = tab)}>
-            {TAB_LABELS[tab]}
-          </button>
-        {/each}
+    <header class="settings-header">
+      <h1>Settings</h1>
+      <div class="settings-save">
+        <span class="help-text" role="status">{saving ? 'Saving…' : hasChanges ? 'Unsaved changes' : didSave ? 'Changes saved' : ''}</span>
+        <button class="primary save-button" disabled={!draft || !hasChanges || saving || !!savePermission}
+          title={savePermission ? authStore.control(savePermission).title : undefined} onclick={handleSave}>Save Changes</button>
       </div>
-    </div>
+    </header>
 
-    <div class="right-column">
-      <div class="content-header">
-        <h2>{activeTab === 'view' ? 'Display Preferences' : TAB_LABELS[activeTab]}</h2>
-        <button class="primary save-button" onclick={handleSave}>Save Changes</button>
-      </div>
+    <nav class="tabs" aria-label="Settings categories">
+      {#each tabIds as tab (tab)}
+        <button type="button" aria-current={activeTab === tab ? 'page' : undefined}
+          {...tabControl(tab)}
+          onclick={() => (selectedTab = tab)}>
+          <Icon name={TABS[tab].icon} size={17} />
+          {TABS[tab].label}
+        </button>
+      {/each}
+    </nav>
+
+    <section class="right-column" inert={saving} aria-labelledby="settings-section">
+      <h2 id="settings-section" class="content-heading">{activeTab === 'view' ? 'Display Preferences' : TABS[activeTab].label}</h2>
       <div class="content scroll-area">
         <div class="content-limit">
           {#if isSettingsLoading}
@@ -342,42 +411,34 @@
                 <Skeleton width={w} height={h} />
               {/each}
             </div>
+          {:else if !draft}
+            <p role="status">Settings could not be loaded. Reopen Settings to retry.</p>
           {:else if activeTab === 'playback'}
             <PlaybackSettingsForm
+              canEditServer={authStore.can.editSettings}
               conversionAvailable={playbackConversionAvailable}
-              bind:conversion={playbackConversion}
-              bind:defaultQuality={defaultPlaybackQuality}
-              bind:qualities={playbackQualities}
-              bind:encoding={playbackEncoding}
-              onManagePlayers={() => (activePlayerCommandsModal = true)}
+              bind:conversion={draft.playbackConversion}
+              bind:defaultQuality={draft.defaultPlaybackQuality}
+              bind:qualities={draft.playbackQualities}
+              bind:encoding={draft.playbackEncoding}
+              onManagePlayers={() => (editor = { type: 'players' })}
             />
           {:else if activeTab === 'general'}
             <div class="form-section">
-              <div class="form-group start-group">
-                <span id="custom-actions-label" class="label">Custom Actions</span>
-                <div class="path-display-container">
-                  <div
-                    id="custom-actions"
-                    class="path-display"
-                    aria-labelledby="custom-actions-label"
-                  >
-                    {customActions.length} action(s) configured
-                  </div>
-                  <button class="secondary" onclick={() => (activeCustomActionsModal = true)}
-                    >Manage...</button
-                  >
+              <div class="settings-action-row">
+                <div>
+                  <h2>Custom actions</h2>
+                  <p class="help-text">{draft.customActions.length === 0 ? 'No actions configured' :
+                    `${draft.customActions.length} ${draft.customActions.length === 1 ? 'action' : 'actions'} configured`}</p>
                 </div>
-                <p class="help-text">
-                  Define custom scripts or commands that can be triggered from the context menu of
-                  items.
-                </p>
+                <button class="secondary" onclick={() => (editor = { type: 'actions' })}>Manage actions</button>
               </div>
               <div class="form-group">
                 <label for="tmdb-api-key">TMDB API Key</label>
                 <input
                   type="password"
                   id="tmdb-api-key"
-                  bind:value={tmdbApiKey}
+                  bind:value={draft.tmdbApiKey}
                   placeholder="Enter your TMDB API Key"
                 />
                 <p class="help-text">
@@ -394,7 +455,7 @@
                 <input
                   type="text"
                   id="server-host"
-                  bind:value={serverHost}
+                  bind:value={draft.serverHost}
                   placeholder="e.g. 0.0.0.0 or localhost"
                 />
                 <p class="help-text">
@@ -405,7 +466,7 @@
               </div>
               <div class="form-group">
                 <label for="server-port">Server Port</label>
-                <input type="number" id="server-port" bind:value={serverPort} min="1" max="65535" />
+                <input type="number" id="server-port" bind:value={draft.serverPort} min="1" max="65535" />
                 <p class="help-text">
                   The network port the server will listen on. Default is 3000. Changes require a
                   restart.
@@ -415,39 +476,39 @@
           {:else if activeTab === 'library'}
             <div class="form-section">
               <LibrarySettingsForm
-                bind:mediaSources
-                bind:libraryLocation={libraryDataLocation}
-                bind:shadowSources
-                bind:shadowMinDepth
+                bind:mediaSources={draft.mediaSources}
+                bind:libraryLocation={draft.libraryLocation}
+                bind:shadowSources={draft.shadowSources}
+                bind:shadowMinDepth={draft.shadowMinDepth}
               />
             </div>
             <div class="form-section">
               <div class="form-group checkbox-group">
                 <label>
-                  <input type="checkbox" bind:checked={refetchRemoteMetadataOnFileChange} />
+                  <input type="checkbox" bind:checked={draft.refetchRemoteMetadataOnFileChange} />
                   Refetch remote metadata on file change
                 </label>
                 <p class="help-text">Refresh TMDB metadata for the affected movie, show, and season on rescan.</p>
               </div>
               <h3>Folder Settings</h3>
               <p class="help-text">Configure metadata retrieval for each folder in your library.</p>
-              <LibraryTreeBrowser />
+              <LibraryTreeBrowser bind:folderDrafts />
             </div>
           {:else if activeTab === 'view'}
             <div class="form-section">
               <div class="form-group checkbox-group">
                 <label class="checkbox-label" for="show-logos">
-                  <input type="checkbox" id="show-logos" bind:checked={useLogos} />
+                  <input type="checkbox" id="show-logos" bind:checked={draft.useLogos} />
                   <span>Show title logos instead of text where possible</span>
                 </label>
                 <label class="checkbox-label" for="gray-watched">
-                  <input type="checkbox" id="gray-watched" bind:checked={grayOutWatched} />
+                  <input type="checkbox" id="gray-watched" bind:checked={draft.grayOutWatched} />
                   <span>Gray out watched items in lists</span>
                 </label>
               </div>
               <div class="form-group">
                 <label for="credits-display">Cast & Crew Display</label>
-                <select id="credits-display" bind:value={creditsDisplay}>
+                <select id="credits-display" bind:value={draft.creditsDisplay}>
                   <option value="shown">Show Expanded</option>
                   <option value="collapsed">Show Collapsed</option>
                   <option value="tab">Separate Tab</option>
@@ -459,33 +520,33 @@
               </div>
               <div class="form-group">
                 <label for="backdrop-size">Backdrop Size</label>
-                <select id="backdrop-size" bind:value={itemDetailBackdropSize}>
+                <select id="backdrop-size" bind:value={draft.itemDetailBackdropSize}>
                   <option value="small">Standard (Top Header)</option>
                   <option value="full">Full Screen Overflow</option>
                 </select>
                 <p class="help-text">Sets the layout of the background image in item details.</p>
               </div>
               <div class="form-group">
-                <label for="backdrop-blur">Detail Backdrop Blur ({itemDetailBackdropBlur}px)</label>
+                <label for="backdrop-blur">Detail Backdrop Blur ({draft.itemDetailBackdropBlur}px)</label>
                 <div class="slider-container">
                   <input
                     type="range"
                     id="backdrop-blur"
-                    bind:value={itemDetailBackdropBlur}
+                    bind:value={draft.itemDetailBackdropBlur}
                     min="0"
                     max="50"
                   />
-                  <span class="value-display">{itemDetailBackdropBlur}px</span>
+                  <span class="value-display">{draft.itemDetailBackdropBlur}px</span>
                 </div>
                 <p class="help-text">Controls the amount of blur applied to background images.</p>
               </div>
               <div class="form-group checkbox-group">
                 <label class="checkbox-label" for="show-continue">
-                  <input type="checkbox" id="show-continue" bind:checked={showContinueWatching} />
+                  <input type="checkbox" id="show-continue" bind:checked={draft.showContinueWatching} />
                   <span>Show "Continue Watching" on library screens</span>
                 </label>
                 <label class="checkbox-label" for="show-next-up">
-                  <input type="checkbox" id="show-next-up" bind:checked={showNextUp} />
+                  <input type="checkbox" id="show-next-up" bind:checked={draft.showNextUp} />
                   <span>Show "Next Up" in TV show details</span>
                 </label>
               </div>
@@ -493,31 +554,31 @@
 
             <div class="form-section">
               <h2>Layout Defaults</h2>
-              <p class="help-text">
-                Configure global default values for specific views and layouts. These can still be
-                overridden per-folder.
-              </p>
-              <button
-                class="view-config-row"
-                onclick={() => (activeLayoutSettingsModal = true)}
-                title="Configure Global Layout Defaults"
-              >
-                <span>Global Layout Settings</span>
-                <span class="secondary">Configure...</span>
-              </button>
-              {#if defaultLayouts}
-                {#each Object.entries(DEFAULT_LAYOUTS_CONFIG) as [key, config] (key)}
-                  <button
-                    class="view-config-row"
-                    onclick={() => (activeViewSettingsModal = key as any)}
-                    title={`Configure ${config.label} default layout`}
-                  >
-                    <span>{config.label}</span>
-                    <span class="layout-badge">{formatLayoutString(defaultLayouts[key])}</span>
-                    <span class="secondary">Edit...</span>
-                  </button>
-                {/each}
-              {/if}
+              <p class="help-text">Folders can override these defaults.</p>
+              <div class="layout-options-list">
+                <button
+                  class="view-config-row"
+                  onclick={() => (editor = { type: 'layout' })}
+                  title="Configure Global Layout Defaults"
+                >
+                  <span>Global Layout Settings</span>
+                  <span class="layout-row-arrow"><Icon name="right" size={16} /></span>
+                </button>
+                {#if draft.defaultLayouts}
+                  {#each layoutKeys as key (key)}
+                    {@const config = DEFAULT_LAYOUTS_CONFIG[key]}
+                    <button
+                      class="view-config-row"
+                      onclick={() => (editor = { type: 'view', key })}
+                      title={`Configure ${config.label} default layout`}
+                    >
+                      <span>{config.label}</span>
+                      <span class="layout-value">{formatLayoutString(draft.defaultLayouts[key])}</span>
+                      <span class="layout-row-arrow"><Icon name="right" size={16} /></span>
+                    </button>
+                  {/each}
+                {/if}
+              </div>
             </div>
           {:else if activeTab === 'virtualTags'}
             <div class="form-section">
@@ -526,34 +587,26 @@
                 filter, and group items.
               </p>
               <div class="virtual-tags-list">
-                {#each virtualTags as tag, i (tag.id)}
+                {#each draft.virtualTags as tag (tag.id)}
                   <div class="vtag-row">
-                    <span class="vtag-name">{tag.name || '(unnamed)'}</span>
+                    <span class="vtag-name">{tag.name}</span>
                     <div class="vtag-actions">
-                      <button class="secondary" onclick={() => (editingVtagIndex = i)}>Edit</button>
-                      <button class="danger" onclick={() => { virtualTags = virtualTags.filter((t) => t.id !== tag.id) }}>Delete</button>
+                      <button class="secondary" onclick={() => (editor = { type: 'tag', tag })}>Edit</button>
+                      <button class="danger" onclick={() => {
+                        if (draft) draft.virtualTags = draft.virtualTags.filter((entry) => entry.id !== tag.id)
+                      }}>Delete</button>
                     </div>
                   </div>
                 {/each}
               </div>
-              <button
-                class="secondary"
-                onclick={() => {
-                  virtualTags = [
-                    ...virtualTags,
-                    {
-                      id: crypto.randomUUID(),
-                      name: '',
-                      cases: [
-                        { filter: { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }, result: '' }
-                      ]
-                    }
-                  ]
-                  editingVtagIndex = virtualTags.length - 1
-                }}
-              >
-                + Add Virtual Tag
-              </button>
+              <button class="secondary" onclick={() => (editor = {
+                type: 'tag',
+                tag: {
+                  id: crypto.randomUUID(),
+                  name: '',
+                  cases: [{ filter: { conditionGroups: [[{ field: 'genre', op: 'contains', value: '' }]] }, result: '' }]
+                }
+              })}>+ Add Virtual Tag</button>
             </div>
           {:else if activeTab === 'accounts'}
             <div class="form-section">
@@ -631,53 +684,70 @@
                   <button class="secondary" onclick={() => (showCreateAccount = true)}>+ Add Account</button>
                 {/if}
               </div>
+            {:else}
+              <div class="form-section">
+                <h2>Account Management</h2>
+                <button class="secondary" {...authStore.control('manageAccounts')}>+ Add Account</button>
+              </div>
             {/if}
           {/if}
         </div>
       </div>
-    </div>
+    </section>
   </div>
 </div>
 
-{#if activeViewSettingsModal && defaultLayouts}
-  {@const t = activeViewSettingsModal}
+{#if draft && editor?.type === 'view'}
+  {@const t = editor.key}
   {@const c = DEFAULT_LAYOUTS_CONFIG[t]}
   <DefaultViewSettingsModal
     typeKey={t}
     title={c.label}
-    initialSettings={defaultLayouts[t]}
+    initialSettings={draft.defaultLayouts[t]}
     {groupByKeys}
     availableLayouts={c.availableLayouts}
     showClickAction={c.showClickAction}
-    {settings}
-    onClose={() => (activeViewSettingsModal = null)}
-    onSave={(s) => {
-      if (defaultLayouts) defaultLayouts[t] = s
+    settings={previewSettings}
+    onClose={closeEditor}
+    onDone={(s) => {
+      if (draft) draft.defaultLayouts[t] = s
     }}
   />
-{/if}
-
-{#if activePlayerCommandsModal}
-  <PlayerCommandsModal bind:playerCommands onClose={() => (activePlayerCommandsModal = false)} />
-{/if}
-{#if activeCustomActionsModal}
-  <CustomActionsModal bind:customActions onClose={() => (activeCustomActionsModal = false)} />
-{/if}
-{#if editingVtagIndex !== null && virtualTags[editingVtagIndex]}
-  {@const idx = editingVtagIndex}
-  <VirtualTagModal
-    tag={virtualTags[idx]}
-    {suggestions}
-    onClose={() => (editingVtagIndex = null)}
-    onSave={(updated) => { virtualTags[idx] = updated; saveTagsNow() }}
+{:else if draft && editor?.type === 'players'}
+  <PlayerCommandsModal
+    playerCommands={draft.playerCommands}
+    canEditDefinitions={authStore.can.editSettings}
+    {enabledPlayerIds}
+    onDone={(players, ids) => {
+      if (draft) draft.playerCommands = players
+      enabledPlayerIds = ids
+    }}
+    onClose={closeEditor}
   />
-{/if}
-{#if activeLayoutSettingsModal}
+{:else if draft && editor?.type === 'actions'}
+  <CustomActionsModal
+    customActions={draft.customActions}
+    onDone={(actions) => { if (draft) draft.customActions = actions }}
+    onClose={closeEditor}
+  />
+{:else if draft && editor?.type === 'tag'}
+  <VirtualTagModal
+    tag={editor.tag}
+    {suggestions}
+    onClose={closeEditor}
+    onDone={(updated) => {
+      if (!draft) return
+      const index = draft.virtualTags.findIndex((tag) => tag.id === updated.id)
+      if (index === -1) draft.virtualTags.push(updated)
+      else draft.virtualTags[index] = updated
+    }}
+  />
+{:else if draft && editor?.type === 'layout'}
   <DefaultLayoutSettingsModal
-    initialSettings={defaultLayoutSettings}
-    {settings}
-    onClose={() => (activeLayoutSettingsModal = false)}
-    onSave={(s) => (defaultLayoutSettings = s)}
+    initialSettings={draft.defaultLayoutSettings}
+    settings={previewSettings}
+    onClose={closeEditor}
+    onDone={(s) => { if (draft) draft.defaultLayoutSettings = s }}
   />
 {/if}
 {#if editingAccount}
@@ -691,126 +761,127 @@
 
 <style>
   .settings-view {
-    display: flex;
-    flex-direction: column;
     height: 100%;
-    background-color: var(--color-background);
-    color: var(--color-text);
+    background: var(--color-background);
   }
 
   .settings-container {
-    display: flex;
-    flex-grow: 1;
-    overflow: hidden;
-    max-width: 1200px;
-    margin: 0 auto;
-    width: 100%;
-    padding-top: 5rem;
-  }
-
-  .sidebar {
-    width: 250px;
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-    flex-shrink: 0;
-  }
-
-  .tabs {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding-right: 1rem;
-    align-items: flex-end;
-  }
-
-  .tabs button {
-    padding: 0.75rem 1.5rem;
-    text-align: right;
-    background: none;
-    border: none;
-    color: var(--color-text-soft);
-    font-size: 1.1rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    border-radius: 8px;
-  }
-
-  .tabs button:hover {
-    color: var(--color-text);
-    background-color: var(--color-background-soft);
-  }
-
-  .tabs button.active {
-    color: var(--color-text);
-    background-color: var(--color-background-soft);
-  }
-
-  .right-column {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
+    --settings-margin: clamp(1rem, 3.2vw, 3.25rem);
+    display: grid;
+    grid-template-columns: 10.75rem minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    column-gap: var(--settings-margin);
     height: 100%;
-    min-width: 0;
+    max-width: 1290px;
+    margin-inline: auto;
+    padding-inline: var(--settings-margin);
   }
 
-  .content-header {
+  .settings-header {
+    grid-column: 1 / -1;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem 3rem;
-    border-bottom: 1px solid var(--color-border);
-    background-color: var(--color-background);
+    gap: .5rem 1rem;
+    flex-wrap: wrap;
+    padding-block: clamp(1.5rem, 4.5vw, 3.75rem) 1.35rem;
+    border-bottom: 1px solid var(--color-border-soft);
+    margin-bottom: 1.5rem;
   }
 
-  .content-header h2 {
-    font-size: 1.5rem;
-    margin: 0;
-    font-weight: 600;
+  .settings-save {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+  }
+
+  .settings-header h1 {
+    font-size: clamp(1.65rem, 3.5vw, 2.5rem);
+    font-weight: 680;
+    letter-spacing: -.04em;
+  }
+
+  .tabs {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    align-self: start;
+    overflow: auto;
+    max-height: 100%;
+    padding: 2px;
+  }
+
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    padding: .6rem .75rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-text-soft);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .tabs button:enabled:hover {
+    background: var(--color-background-soft);
+    color: var(--color-text);
+  }
+
+  .tabs button[aria-current="page"] {
+    color: var(--color-primary-soft);
+    background: var(--accent-surface);
+    border-color: var(--accent-border);
+    box-shadow: var(--edge-light);
+  }
+
+  .right-column {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .content-heading {
+    font-size: 1.35rem;
+    font-weight: 650;
+    margin-block: .25rem .9rem;
   }
 
   .content {
-    flex-grow: 1;
     overflow-y: auto;
-    padding: 2rem 3rem;
-  }
-
-  .save-button {
-    padding: 0.5rem 1.5rem;
-    font-size: 0.95rem;
+    padding: .15rem .35rem 2rem .15rem;
   }
 
   .content-limit {
-    max-width: 800px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3rem;
+    max-width: 884px;
+    display: grid;
+    gap: .9rem;
   }
 
-  @media (max-width: 700px) {
-    .settings-container { flex-direction: column; padding-top: 1rem; }
-    .sidebar { width: 100%; }
-    .tabs { flex-direction: row; overflow-x: auto; padding: 0.25rem 0.75rem; align-items: center; }
-    .tabs button { padding: 0.5rem 0.75rem; white-space: nowrap; }
-    .right-column { flex: 1; height: auto; min-height: 0; }
-    .content-header, .content { padding: 1rem; }
+  @media (max-width: 800px) {
+    .settings-container { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+    .settings-header { margin-bottom: .75rem; }
+    .tabs { flex-direction: row; margin-bottom: .65rem; }
+    .tabs button { flex: none; }
   }
 
   .form-section {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
+    padding: clamp(.8rem, 2vw, 1.35rem);
+    background: var(--surface-raised);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--edge-light);
   }
 
-  .form-section h2 {
-    font-size: 1.25rem;
-    margin: 0;
-    color: var(--color-text-dim);
-    border-bottom: 1px solid var(--color-border-soft);
-    padding-bottom: 0.5rem;
+  .form-section h2, .form-section h3 {
+    font-size: 1.05rem;
+    font-weight: 650;
   }
 
   .form-group {
@@ -845,19 +916,12 @@
     font-size: 1rem;
   }
 
-  .path-display-container {
+  .settings-action-row {
     display: flex;
-    gap: 1rem;
     align-items: center;
-  }
-
-  .path-display {
-    flex-grow: 1;
-    padding: 0.75rem;
-    background-color: var(--color-background-mute);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    font-family: monospace;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .5rem;
   }
 
   .help-text {
@@ -866,25 +930,26 @@
     margin: 0;
   }
 
+  .layout-options-list { display: grid; gap: .45rem; }
+
   .view-config-row {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto) 16px;
     align-items: center;
-    padding: 1rem;
-    background-color: var(--color-background-soft);
+    gap: .55rem;
+    padding: .68rem .85rem;
+    background: var(--control-face);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-    width: 100%;
-    color: inherit;
-    font-size: inherit;
-    text-align: left;
+    border-radius: var(--radius-field);
+    box-shadow: var(--control-shadow);
+    text-align: start;
   }
 
-  .view-config-row:hover {
-    background-color: var(--color-background-mute);
-  }
+  .view-config-row:hover { border-color: var(--accent-border); }
+  .view-config-row:active { box-shadow: var(--control-pressed); }
+  .layout-value { max-width: 10rem; color: var(--color-text-soft); font-weight: 500; text-align: end; overflow-wrap: anywhere; }
+  .layout-row-arrow { grid-column: 3; display: flex; color: var(--color-text-dim); }
+  .view-config-row:hover .layout-row-arrow { color: var(--color-primary-soft); }
 
   .virtual-tags-list {
     display: flex;
@@ -932,9 +997,9 @@
   .account-avatar {
     width: 40px;
     height: 40px;
-    border-radius: 50%;
-    background-color: var(--color-primary);
-    color: white;
+    border-radius: var(--radius-field);
+    background: var(--accent-surface);
+    color: var(--color-primary-soft);
     display: flex;
     align-items: center;
     justify-content: center;

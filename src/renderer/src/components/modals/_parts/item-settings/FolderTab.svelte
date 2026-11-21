@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import type { MediaFolder, LibraryItem } from '@shared/types'
   import { notificationStore } from '@lib/notification-store.svelte'
   let {
@@ -40,57 +41,55 @@
   })
 </script>
 
-<div class="content">
-  <div class="settings-group">
+<div class="form-stack">
+  <div class="settings-group raised-surface">
     <label class="checkbox-label">
       <input type="checkbox" bind:checked={retrieveChildrenMetadata} />
-      <span>This folder directly contains media items (e.g., movies or TV shows)</span>
+      <span>Fetch metadata for direct children</span>
     </label>
-    <p class="help-text">
-      Enable this to fetch movie or TV show metadata for direct children of this folder.
+    <p class="form-hint">
+      Enable for folders that directly contain movies or shows.
     </p>
   </div>
 
-  <div class="settings-group" class:disabled={!retrieveChildrenMetadata}>
-    <label for="children-type-hint">Children Type Hint</label>
+  <div class="settings-group raised-surface" class:disabled={!retrieveChildrenMetadata}>
+    <label class="field-label" for="children-type-hint">Media type</label>
     <select
       id="children-type-hint"
       bind:value={childrenTypeHint}
       disabled={!retrieveChildrenMetadata}
     >
-      <option value="auto">Automatic Detection</option>
+      <option value="auto">Auto-detect</option>
       <option value="movie">Movie</option>
       <option value="tv">TV Show</option>
     </select>
-    <p class="help-text">Improves matching accuracy by telling the retriever what to look for.</p>
+    <p class="form-hint">Improves matching accuracy by telling the retriever what to look for.</p>
   </div>
 
   {#if item.mediaType === 'tv'}
-    <div class="settings-group">
+    <div class="settings-group raised-surface">
       <label class="checkbox-label">
         <input type="checkbox" bind:checked={processTvChildren} />
-        <span>Enable TV show processing (seasons & episodes)</span>
+        <span>Detect seasons and episodes</span>
       </label>
-      <p class="help-text">
-        If enabled, the app will analyze file/folder names to identify seasons and episodes, and
-        fetch their specific metadata. Disable this for folders that contain TV shows but should
-        be treated as simple folders.
+      <p class="form-hint">
+        Identify seasons and episodes from file and folder names and fetch their metadata.
       </p>
     </div>
   {/if}
 
   {#if hiddenChildren.length > 0}
-    <div class="settings-group">
-      <h4>Hidden Items in this Folder</h4>
-      <p class="help-text">
-        The following direct children are hidden. Unhiding them will make them visible again.
+    <div class="settings-group raised-surface">
+      <h3>Hidden items</h3>
+      <p class="form-hint">
+        These items will reappear when you save your changes.
       </p>
       <ul class="hidden-items-list">
         {#each hiddenChildren as child (child.id)}
           {@const isPending = itemsToUnhide.includes(child.id)}
           <li class="hidden-item">
-            <span class:strikethrough={isPending}>
-              {child.type === 'folder' ? '📁' : '📄'}
+            <span class:pending={isPending}>
+              <Icon name={child.type === 'folder' ? 'folder' : 'file'} size={20} />
               {child.name}
             </span>
             <button class="secondary" onclick={() => toggleUnhide(child)}>
@@ -104,69 +103,18 @@
 </div>
 
 <style>
-  .content {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-  .settings-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    transition: opacity 0.2s ease-in-out;
-  }
-  .settings-group.disabled {
-    opacity: 0.5;
-    pointer-events: none;
-  }
-  .help-text {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-  }
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 1rem;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  .checkbox-label input {
-    width: 1rem;
-    height: 1rem;
-  }
-  label {
-    font-weight: bold;
-  }
-
-  .hidden-items-list {
-    background-color: var(--color-background);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-    padding: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-height: 200px;
-    overflow-y: auto;
-  }
+  .settings-group { display: grid; gap: .5rem; padding: .7rem .8rem; }
+  .settings-group.disabled { opacity: .65; }
+  .settings-group select { justify-self: start; max-width: 100%; }
+  .checkbox-label { display: flex; align-items: center; gap: .5rem; font-size: .9rem; font-weight: 650; cursor: pointer; }
+  .checkbox-label input { flex: none; }
+  h3 { font-size: .93rem; font-weight: 650; }
+  .hidden-items-list { display: grid; gap: .35rem; max-height: 15rem; overflow: auto; padding: 0; }
   .hidden-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem;
-    border-radius: 4px;
+    display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+    background: var(--color-inset); border-radius: var(--radius-field); padding: .4rem .5rem;
   }
-  .hidden-item:hover {
-    background-color: var(--color-background-soft);
-  }
-  .hidden-item span {
-    word-break: break-all;
-    padding-right: 1rem;
-  }
-  .strikethrough {
-    text-decoration: line-through;
-    opacity: 0.6;
-  }
+  .hidden-item span { display: flex; align-items: center; gap: .4rem; min-width: 0; overflow-wrap: anywhere; font-size: .84rem; }
+  .hidden-item span :global(svg) { flex: none; color: var(--color-primary-soft); }
+  .hidden-item span.pending { opacity: .65; }
 </style>

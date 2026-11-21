@@ -1,24 +1,22 @@
 <script lang="ts">
   import MediaView from './MediaView.svelte'
   import HomeView from './HomeView.svelte'
-  import { createEventDispatcher, untrack } from 'svelte'
+  import { createEventDispatcher } from 'svelte'
   import { fade } from 'svelte/transition'
-  import { cubicOut } from 'svelte/easing'
+  import { prefersReducedMotion } from 'svelte/motion'
+  import Skeleton from '@components/ui/Skeleton.svelte'
   import { navStore } from '@lib/navigation-store.svelte'
-  import { api } from '@lib/api'
 
-  import { resolveViewSettings } from '@shared/settings-helpers'
   import { getAllRequiredFields } from '@lib/view-requirements'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
-  import { authStore } from '@lib/auth-store.svelte'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import { getViewKey } from '@lib/view-state-store.svelte'
-  import { getAssetUrl } from '@lib/api'
   import ViewContextProvider from './ViewContextProvider.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
 
   import type {
     Settings,
+    AutocompleteSuggestions,
     LibraryItem,
     MediaFolder,
     MediaFile,
@@ -28,27 +26,21 @@
 
   let {
     settings,
-    isScanning,
+    continueWatchingItems,
     libraryStatus,
     suggestions,
-    onStatusUpdate,
     disabled = false,
-    hasBackdrop = false,
     onScroll
   }: {
     settings: Settings | null
-    isScanning: boolean
+    continueWatchingItems: { show: MediaFolder; nextEpisode: MediaFile }[]
     libraryStatus: LibraryStatus | null
-    suggestions: any
-    onStatusUpdate?: () => void
+    suggestions: AutocompleteSuggestions
     disabled?: boolean
-    hasBackdrop?: boolean
     onScroll?: (top: number) => void
   } = $props()
 
   const dispatch = createEventDispatcher<{
-    scanLibrary: void
-    openLibrary: void
     itemClick: { item: LibraryItem | SearchIndexEntry }
     play: { item: LibraryItem }
     dismissContinueWatching: { showId: string }
@@ -65,185 +57,145 @@
 
   const currentFolderQuery = libraryDataService.getItemDetailsQuery(() => currentFolderId, {
     enabled: () => libraryStatus?.status === 'ready' && !disabled,
-    include: () => ['viewHierarchy'],
-    keepPreviousData: true
+    include: () => ['viewHierarchy']
   })
   const currentFolder = $derived(currentFolderQuery.data as (LibraryItem & MediaFolder) | undefined)
 
-  const resolvedSettings = $derived(resolveViewSettings(currentFolder, settings).settings)
   const requiredFields = $derived.by(() => getAllRequiredFields(currentFolder?.viewHierarchy))
 
   const childrenQuery = libraryDataService.getChildrenQuery(() => currentFolderId, {
     fields: () => requiredFields,
-    enabled: () => libraryStatus?.status === 'ready' && currentFolder?.viewHierarchy != null && !disabled
+    enabled: () => libraryStatus?.status === 'ready' && currentFolder != null && !disabled
   })
   const children = $derived((childrenQuery.data as LibraryItem[]) ?? [])
 
-  // DEBUG: trace blank list cause
+  const isHome = $derived(currentFolderId === 'home')
+  const contentsPending = $derived(!!currentFolder && (childrenQuery.isPending || childrenQuery.isPlaceholderData))
+  const viewPending = $derived(!disabled && (currentFolderQuery.isPending || contentsPending))
+  let placeholderFolderId = $state<string | null>(null)
+  const showPlaceholders = $derived(viewPending && placeholderFolderId === currentFolderId)
+
   $effect(() => {
-    const count = childrenQuery.data ? (childrenQuery.data as LibraryItem[]).length : -1
-    const vh = currentFolder?.viewHierarchy ? 'present' : 'ABSENT'
-    const enabled = libraryStatus?.status === 'ready' && currentFolder?.viewHierarchy != null
-    console.log(`[MainView] children=${count} status=${childrenQuery.status} fetching=${childrenQuery.isFetching} vh=${vh} enabled=${enabled}`)
+    const folderId = currentFolderId
+    placeholderFolderId = null
+    if (!viewPending) return
+
+    const timer = setTimeout(() => { placeholderFolderId = folderId }, 160)
+    return () => clearTimeout(timer)
   })
 
-  const continueWatchingQuery = libraryDataService.getContinueWatchingQuery({
-    enabled: () =>
-      !!settings?.showContinueWatching &&
-      !!authStore.isAuthenticated &&
-      libraryStatus?.status === 'ready'
-  })
-  const continueWatchingItems = $derived(continueWatchingQuery.data ?? [])
-
-  const isHome = $derived(currentFolderId === 'home' || currentFolder?.id === 'virtual-home')
-  const latestBackdrop = $derived(
-    isHome && settings?.showContinueWatching ? continueWatchingItems[0]?.show?.backdropPath : null
-  )
   function handleScroll(e: Event) {
     const target = e.target as HTMLElement
     onScroll?.(target.scrollTop)
   }
 </script>
 
-{#if currentFolder}
-  <div
-    class="view-wrapper"
-    class:is-loading={currentFolderQuery.isFetching}
-    class:has-backdrop={hasBackdrop}
-    onscroll={handleScroll}
-    oncontextmenu={(e) => {
-      // Catch any right-click that bubbles up from an unhandled area
-      // (padding, section titles, CW background, gaps between grid items, etc.).
-      // Item-level handlers call stopPropagation(), so this only fires for
-      // genuine "empty space" clicks — show the current folder's menu.
-      if (currentFolder) {
-        contextMenuStore.openForBackground(currentFolder, e)
-      } else {
-        e.preventDefault()
-      }
-    }}
-    use:scrollPersistence={{
-      key: `${getViewKey('vertical')}:${currentFolderId}`,
-      disabled
-    }}
-  >
-    {#if currentFolderQuery.isFetching}
-      <div class="folder-loading-bar"></div>
-    {/if}
+{#snippet placeholders()}
+  <div class="loading-posters" role="status" aria-label="Loading library items">
+    {#each [1, 2, 3, 4, 5] as index (index)}
+      <div><Skeleton height="100%" /></div>
+    {/each}
+  </div>
+{/snippet}
 
+{#snippet folderContents()}
+  {#if currentFolder}
+    {#if contentsPending}
+      {#if showPlaceholders}{@render placeholders()}{/if}
+    {:else if childrenQuery.isError && !childrenQuery.data}
+      <div class="folder-status" role="status">
+        <p>Could not load this folder's contents.</p>
+        <button type="button" onclick={() => childrenQuery.refetch()}>Try again</button>
+      </div>
+    {:else}
+      <MediaView parentItem={currentFolder} items={children}
+        onItemClick={(item) => dispatch('itemClick', { item })}
+        onShowContextMenu={(item, event, options) => dispatch('showContextMenu', { item, event, options })}
+        {suggestions} {settings} viewNode={currentFolder.viewHierarchy} />
+    {/if}
+  {/if}
+{/snippet}
+
+<div
+  class="view-wrapper"
+  aria-busy={viewPending}
+  onscroll={handleScroll}
+  oncontextmenu={(event) => {
+    if (currentFolder) contextMenuStore.openForBackground(currentFolder, event)
+    else event.preventDefault()
+  }}
+  use:scrollPersistence={{ key: `${getViewKey('vertical')}:${currentFolderId}`, disabled }}
+>
+  {#if currentFolder}
     {#key currentFolder.id}
-      <div class="view-transition-inner">
+      <div class="view-transition-inner" in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}>
         <ViewContextProvider id={currentFolder.id}>
           {#if isHome}
-            <HomeView
-              {continueWatchingItems}
-              parentItem={currentFolder}
-              items={children}
+            <HomeView {continueWatchingItems}
               onItemClick={(item) => dispatch('itemClick', { item })}
-              onShowContextMenu={(item, event, options) =>
-                dispatch('showContextMenu', { item, event, options })}
-              on:dismissContinueWatching={(e) =>
-                dispatch('dismissContinueWatching', { showId: e.detail.showId })}
-              {suggestions}
-              {settings}
-              on:scanLibrary={() => dispatch('scanLibrary')}
-              on:openLibrary={() => dispatch('openLibrary')}
-            />
+              onShowContextMenu={(item, event) => dispatch('showContextMenu', { item, event })}
+              on:dismissContinueWatching={(event) => dispatch('dismissContinueWatching', event.detail)}
+              {settings}>
+              {@render folderContents()}
+            </HomeView>
           {:else}
             <div class="folder-content-wrapper">
-              <h2 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h2>
-              <MediaView
-                parentItem={currentFolder}
-                items={children}
-                onItemClick={(item) => dispatch('itemClick', { item })}
-                onShowContextMenu={(item, e, options) =>
-                  dispatch('showContextMenu', { item, event: e, options })}
-                {suggestions}
-                {settings}
-                viewNode={currentFolder.viewHierarchy}
-              />
+              <h1 class="folder-header-title">{currentFolder.title ?? currentFolder.name}</h1>
+              {@render folderContents()}
             </div>
           {/if}
         </ViewContextProvider>
       </div>
     {/key}
-  </div>
-{/if}
+  {:else}
+    <div class="folder-content-wrapper">
+      {#if isHome}<h1 class="folder-header-title">Library</h1>{/if}
+      {#if currentFolderQuery.isError}
+        <div class="folder-status" role="status">
+          <p>Could not load the library view.</p>
+          <button type="button" onclick={() => currentFolderQuery.refetch()}>Try again</button>
+        </div>
+      {:else if showPlaceholders}
+        {#if !isHome}<Skeleton width="35%" height="2.4rem" />{/if}
+        {@render placeholders()}
+      {/if}
+    </div>
+  {/if}
+</div>
 
 <style>
   .view-wrapper {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-gutter: stable;
-    background-color: var(--color-background);
+    background: transparent;
   }
-
-  .view-wrapper.has-backdrop {
-    background-color: transparent;
-  }
-
-  .view-transition-inner {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
-  }
-
+  .view-transition-inner { position: relative; display: flex; flex-direction: column; min-height: 100%; }
   .folder-content-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    padding-top: 1.5rem;
-    width: 100%;
-    max-width: 1800px;
-    margin: 0 auto;
-    padding-left: 2.5rem;
-    padding-right: 2.5rem;
-    padding-bottom: 4rem;
+    display: grid;
+    align-content: start;
+    min-width: 0;
+    width: min(100%, 108rem);
+    margin-inline: auto;
+    padding: clamp(1.25rem, 3.2vw, 2.75rem) clamp(.9rem, 3.2vw, 3rem) 4rem;
+    gap: clamp(1.1rem, 2.4vw, 2rem);
   }
-
   .folder-header-title {
-    width: 100%;
-    max-width: 1800px;
-    margin: 0 auto;
-    font-size: 1.8rem;
-    font-weight: bold;
-    padding: 0 2.5rem;
-    margin-bottom: 1rem;
-    flex-shrink: 0;
+    font-size: clamp(2.1rem, 4vw, 3.5rem);
+    font-weight: 720;
+    letter-spacing: -.045em;
+    line-height: 1.03;
+    overflow-wrap: anywhere;
   }
-
-  .folder-loading-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    z-index: 10;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--color-primary) 50%,
-      transparent 100%
-    );
-    background-size: 200% 100%;
-    animation: loading-sweep 1.2s linear infinite;
+  .loading-posters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 10rem));
+    gap: .8rem;
   }
-
-  @keyframes loading-sweep {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
-  }
+  .loading-posters > div { width: 100%; aspect-ratio: 2 / 3; }
+  .folder-status { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .6rem; color: var(--color-text-soft); }
 </style>

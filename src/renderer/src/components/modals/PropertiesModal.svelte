@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Skeleton from '@components/ui/Skeleton.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { LibraryItem } from '@shared/types'
 
@@ -62,95 +64,57 @@
   })
 </script>
 
-<ModalWindow title="Properties" {onClose} saveText="OK" onSave={onClose} cancelText={null}>
-  <div class="content">
+<ModalWindow title="Properties" {onClose} cancelText="Close" maxWidth="535px">
+  <div class="form-stack" aria-busy={isLoading}>
     {#if isLoading}
-      <p>Loading properties...</p>
-    {:else if error}
-      <p class="error-text">{error}</p>
-    {:else if properties}
-      <div class="prop-grid">
-        <div class="prop-icon">
-          {properties.type === 'Folder' ? '📁' : '📄'}
-        </div>
-        <div class="prop-name">
-          {properties.name}
-        </div>
-
-        <div class="separator"></div>
-
-        <div class="prop-label">Type:</div>
-        <div class="prop-value">{properties.type}</div>
-
-        <div class="prop-label">Path:</div>
-        <div class="prop-value path">{properties.path}</div>
-
-        <div class="separator"></div>
-
-        <div class="prop-label">Size:</div>
-        <div class="prop-value">
-          {formatBytes(properties.size)} ({properties.size.toLocaleString()} bytes)
-        </div>
-
-        {#if properties.contains}
-          <div class="prop-label">Contains:</div>
-          <div class="prop-value">
-            {properties.contains.files.toLocaleString()} Files, {properties.contains.folders.toLocaleString()}
-            Folders
-          </div>
-        {/if}
-
-        <div class="separator"></div>
-
-        <div class="prop-label">Created:</div>
-        <div class="prop-value">{new Date(properties.created).toLocaleString()}</div>
-
-        <div class="prop-label">Modified:</div>
-        <div class="prop-value">{new Date(properties.modified).toLocaleString()}</div>
+      <div class="loading-properties" role="status" aria-label="Loading properties">
+        <Skeleton height="2.25rem" />
+        <Skeleton width="55%" />
+        <Skeleton width="80%" />
       </div>
+    {:else if error}
+      <p class="error-text" role="alert">{error}</p>
+    {:else if properties}
+      <div class="property-title">
+        <span class="property-icon"><Icon name={properties.type === 'Folder' ? 'folder' : 'file'} size={22} /></span>
+        <div>
+          <h3>{properties.name}</h3>
+          <p class="form-hint">{properties.type}</p>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <span class="field-label">Path</span>
+        <code>{properties.path}</code>
+      </div>
+
+      <dl class="property-list">
+        <dt>Size</dt>
+        <dd>{formatBytes(properties.size)} <span class="form-hint">({properties.size.toLocaleString()} bytes)</span></dd>
+        {#if properties.contains}
+          <dt>Contents</dt>
+          <dd>{properties.contains.files.toLocaleString()} files, {properties.contains.folders.toLocaleString()} folders</dd>
+        {/if}
+        <dt>Created</dt>
+        <dd>{new Date(properties.created).toLocaleString()}</dd>
+        <dt>Modified</dt>
+        <dd>{new Date(properties.modified).toLocaleString()}</dd>
+      </dl>
     {/if}
   </div>
 </ModalWindow>
 
 <style>
-  .content {
-    padding: 1.5rem;
-    min-height: 200px;
-  }
-  .error-text {
-    color: #e81123;
-  }
-  .prop-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.75rem 1rem;
-    align-items: center;
-  }
-  .prop-icon {
-    grid-column: 1;
-    font-size: 2.5rem;
-  }
-  .prop-name {
-    grid-column: 2;
-    font-size: 1.2rem;
-    font-weight: bold;
-    word-break: break-all;
-  }
-  .separator {
-    grid-column: 1 / -1;
-    height: 1px;
-    background-color: var(--color-background-mute);
-    margin: 0.5rem 0;
-  }
-  .prop-label {
-    font-weight: bold;
-    text-align: right;
-  }
-  .prop-value {
-    word-break: break-all;
-  }
-  .prop-value.path {
-    font-family: monospace;
-    font-size: 0.9em;
-  }
+  .loading-properties { display: grid; gap: .6rem; }
+  .error-text { color: var(--color-danger-soft); font-size: .9rem; }
+  .property-title { display: flex; align-items: center; gap: .65rem; min-width: 0; overflow-wrap: anywhere; }
+  .property-title h3 { font-size: 1rem; font-weight: 650; }
+  .property-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px;
+    background: var(--accent-surface); border: 1px solid var(--accent-border); border-radius: var(--radius-field); color: var(--color-primary-soft); }
+  code { padding: .55rem .65rem; background: var(--color-inset); border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-field); font-size: .84rem; overflow-wrap: anywhere; }
+  .property-list { display: grid; grid-template-columns: max-content minmax(0, 1fr);
+    gap: .45rem .85rem; padding-top: .65rem; font-size: .86rem; background: var(--section-rule) 0 0 / 100% 1px no-repeat; }
+  dt { color: var(--color-text-soft); font-weight: 600; }
+  dd { min-width: 0; overflow-wrap: anywhere; }
 </style>

@@ -127,13 +127,13 @@
   onToggle={toggleExpand}
 >
   {#snippet label(entry: DirectoryEntry)}
-    <span class="name">{entry.name}</span>
+    <span class="folder-name">{entry.name}</span>
   {/snippet}
 
   {#snippet controls(entry: DirectoryEntry)}
     <select
       bind:value={entry.settings.children_type_hint}
-      class="type-select"
+      class="folder-type" aria-label={`Media type for ${entry.name}`}
       disabled={!entry.settings.retrieve_children_metadata}
     >
       <option value={null}>Auto-detect</option>
@@ -141,59 +141,9 @@
       <option value="tv">TV Shows</option>
     </select>
 
-    <label class="checkbox-label">
+    <label class="folder-fetch">
       <input type="checkbox" bind:checked={entry.settings.retrieve_children_metadata} />
       <span>Fetch for children</span>
     </label>
   {/snippet}
 </FolderTree>
-
-<style>
-  .name {
-    flex: 1;
-    font-size: 0.9rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .type-select {
-    background: #2a2a2e;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #e0e0e0;
-    font-size: 0.8rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-    outline: none;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 4px center;
-    background-size: 10px;
-    padding-right: 20px;
-  }
-  .type-select:hover {
-    background-color: #35353a;
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-  .type-select option {
-    background: #1a1a1e;
-    color: #e0e0e0;
-  }
-  .type-select:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .checkbox-label input {
-    cursor: pointer;
-  }
-</style>

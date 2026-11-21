@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { LibraryItem, TmdbSearchResult, TmdbImage } from '@shared/types'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
   import ModalWindow from './_base/ModalWindow.svelte'
-  import IconX from '@components/ui/IconX.svelte'
+  import Icon from '@components/ui/Icon.svelte'
   import { notificationStore } from '@lib/notification-store.svelte'
 
   let {
@@ -16,6 +17,13 @@
     initialTab?: 'match' | 'artwork'
   } = $props()
 
+  const artworkTypes = [
+    { type: 'poster', label: 'Poster', pathField: 'posterPath', imageSize: 'w154' },
+    { type: 'logo', label: 'Logo', pathField: 'logoPath', imageSize: 'w154' },
+    { type: 'backdrop', label: 'Backdrop', pathField: 'backdropPath', imageSize: 'w300' }
+  ] as const
+  type ArtworkType = (typeof artworkTypes)[number]['type']
+
   const caps = itemCapabilities(item)
   let activeTab: 'match' | 'artwork' = $state(caps.canManualSearch ? initialTab : 'artwork')
 
@@ -26,34 +34,27 @@
   let applyingResultId = $state<number | null>(null)
 
   // Match tab state
-  let searchQuery = $state('') // Start empty to allow for async initialization
+  let searchQuery = $state(item.title ?? item.name)
   let searchTmdbId = $state('')
-  let searchYear = $state('')
+  let searchBy = $state<'title' | 'id'>('title')
+  let searched = $state(false)
+  let searchYear = $state(item.year?.toString() ?? '')
 
-  async function getInitialSearchType(): Promise<'movie' | 'tv' | 'season'> {
+  function initialSearchType(): 'movie' | 'tv' | 'season' {
     if (item.mediaType === 'season') return 'season'
     if (item.mediaType === 'tv' || item.mediaType === 'episode') return 'tv'
     if (item.mediaType === 'movie') return 'movie'
-
-    // If type is unknown, check the parent
-    const parent = await window.api.getParent(item.id)
-    if (parent?.mediaType === 'tv') {
-      return 'season'
-    }
-
-    if (item.type === 'folder') return 'tv'
-    return 'movie'
+    return item.type === 'folder' ? 'tv' : 'movie'
   }
 
-  let searchType: 'movie' | 'tv' | 'season' = $state('movie')
+  let searchType = $state(initialSearchType())
+  let resultType = $state<'movie' | 'tv' | 'season'>('movie')
   let searchResults = $state<TmdbSearchResult[]>([])
   let searchInput = $state<HTMLInputElement | undefined>(undefined)
 
   // Artwork tab state
   let imageLang = $state('en')
-  let posters = $state<TmdbImage[]>([])
-  let backdrops = $state<TmdbImage[]>([])
-  let logos = $state<TmdbImage[]>([])
+  let artwork = $state<Record<ArtworkType, TmdbImage[]>>({ poster: [], logo: [], backdrop: [] })
 
   // --- Hydration & Refresh Logic ---
   // The 'item' prop is static. We use localOverrides to store:
@@ -99,10 +100,15 @@
   })
 
   async function performSearch() {
-    if ((!searchQuery.trim() && !searchTmdbId.trim()) || isSearching) return
+    if (!(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim()) || isSearching) return
     isSearching = true
+    const type = searchType
     try {
-      searchResults = await window.api.manualSearch(searchQuery, searchType, searchYear, searchTmdbId)
+      searchResults = await window.api.manualSearch(
+        searchBy === 'title' ? searchQuery : '', type, searchBy === 'title' ? searchYear : '', searchBy === 'id' ? searchTmdbId : ''
+      )
+      resultType = type
+      searched = true
     } catch (err: any) {
       notificationStore.add(err.message || 'Search failed.', 'error')
     } finally {
@@ -115,10 +121,7 @@
     try {
       // De-proxy the reactive Svelte object before sending it over IPC
       const plainResult = JSON.parse(JSON.stringify(result))
-      // If we searched for a season, the result is a season object. The type to apply is 'season'.
-      // Otherwise, it's the type we searched for.
-      const mediaTypeToApply = searchType === 'season' ? 'season' : searchType
-      await window.api.applyManualMatch(localItem.id, plainResult, mediaTypeToApply)
+      await window.api.applyManualMatch(localItem.id, plainResult, resultType)
       // The modal will be closed automatically when the parent receives the item update.
       onClose()
     } catch (err: any) {
@@ -138,9 +141,7 @@
     if (!localItem.tmdbId || !localItem.mediaType || isFetchingArtwork) return
     isFetchingArtwork = true
     // Clear old results before fetching new ones
-    posters = []
-    backdrops = []
-    logos = []
+    artwork = { poster: [], logo: [], backdrop: [] }
     try {
       const tmdbMediaType = (localItem.mediaType === 'movie' ? 'movie' : 'tv') as 'movie' | 'tv'
       const images = await window.api.getTmdbImages(
@@ -148,25 +149,28 @@
         tmdbMediaType,
         imageLang
       )
-      posters = images.posters
-      backdrops = images.backdrops
-      logos = images.logos
+      artwork = { poster: images.posters, logo: images.logos, backdrop: images.backdrops }
     } catch (err) {
-      console.error('Failed to fetch TMDB images:', err)
+      notificationStore.add(err instanceof Error ? err.message : 'Could not load artwork.', 'error')
     } finally {
       isFetchingArtwork = false
     }
   }
 
-  async function handleRemoveImage(imageType: 'poster' | 'backdrop' | 'logo') {
+  async function handleRemoveImage(imageType: ArtworkType) {
     isSettingImage = true
-    await window.api.removeImage(localItem.id, imageType)
-    await refreshLocalItem()
-    isSettingImage = false
+    try {
+      await window.api.removeImage(localItem.id, imageType)
+      await refreshLocalItem()
+    } catch (err) {
+      notificationStore.add(err instanceof Error ? err.message : 'Could not remove artwork.', 'error')
+    } finally {
+      isSettingImage = false
+    }
   }
 
   async function handleSetImage(
-    imageType: 'poster' | 'backdrop' | 'logo',
+    imageType: ArtworkType,
     source: { type: 'tmdb'; path: string } | { type: 'local' }
   ) {
     isSettingImage = true
@@ -182,6 +186,8 @@
             try {
               await window.api.uploadImage(localItem.id, imageType, file)
               await refreshLocalItem()
+            } catch (err) {
+              notificationStore.add(err instanceof Error ? err.message : 'Could not upload artwork.', 'error')
             } finally {
               isSettingImage = false
             }
@@ -192,8 +198,8 @@
         await window.api.setImage(localItem.id, imageType, JSON.parse(JSON.stringify(source)))
         await refreshLocalItem()
       }
-      // The global onLibraryItemUpdated listener in App.svelte will now
-      // update the 'item' prop, and this modal's view will update reactively.
+    } catch (err) {
+      notificationStore.add(err instanceof Error ? err.message : 'Could not apply artwork.', 'error')
     } finally {
       isSettingImage = false
     }
@@ -225,48 +231,35 @@
     element.scrollLeft += event.deltaY
   }
 
-  // Keyboard shortcut and initial focus
-  $effect(() => {
-    // Set initial query and type based on item and its context
-    async function setInitialState() {
-      const initialType = await getInitialSearchType()
-      searchType = initialType
+  onMount(() => {
+    if (!caps.canManualSearch || item.mediaType === 'movie' || item.mediaType === 'tv' || item.mediaType === 'episode') return
 
-      // 1. Always prefill the title as the default.
-      searchQuery = localItem.title ?? localItem.name
-      // Ensure ID field is empty by default.
-      searchTmdbId = ''
-
-      // 2. Special case for seasons: if parent has TMDB ID, use it and clear the title.
-      if (initialType === 'season') {
-        const parent = await window.api.getParent(localItem.id)
-        if (parent?.tmdbId) {
-          searchTmdbId = parent.tmdbId.toString()
-          searchQuery = '' // Clear text query because we are searching by ID
-        }
+    let active = true
+    void window.api.getParent(item.id).then((parent) => {
+      if (!active) return
+      if (parent?.mediaType === 'tv') searchType = 'season'
+      if (searchType === 'season' && parent?.tmdbId) {
+        searchTmdbId = parent.tmdbId.toString()
+        searchBy = 'id'
       }
+    }).catch(() => {})
+    return () => { active = false }
+  })
 
-      // 3. Pre-fill Year if available
-      searchYear = localItem.year ? localItem.year.toString() : ''
-    }
-    setInitialState()
-
-    // Focus the input when the modal opens and the input is rendered
-    if (searchInput) {
-      searchInput.focus()
-    }
+  $effect(() => {
+    searchInput?.focus()
   })
 </script>
 
-<ModalWindow title="Manual Search" {onClose} cancelText="Close" maxWidth="900px">
+<ModalWindow title="Match metadata" {onClose} cancelText="Close" maxWidth="900px">
   {#snippet header()}
-    <div class="tabs">
+    <div class="selection-bar" role="group" aria-label="Metadata sections">
       {#if caps.canManualSearch}
-        <button class:active={activeTab === 'match'} onclick={() => (activeTab = 'match')}
+        <button type="button" aria-pressed={activeTab === 'match'} onclick={() => (activeTab = 'match')}
           >Match</button
         >
       {/if}
-      <button class:active={activeTab === 'artwork'} onclick={() => (activeTab = 'artwork')}
+      <button type="button" aria-pressed={activeTab === 'artwork'} onclick={() => (activeTab = 'artwork')}
         >Artwork</button
       >
     </div>
@@ -274,60 +267,53 @@
 
   <div class="modal-body-content">
     {#if activeTab === 'match'}
-      <form
-        class="search-form"
-        onsubmit={(e) => {
-          e.preventDefault()
-          performSearch()
-        }}
-      >
-        <input
-          type="text"
-          bind:this={searchInput}
-          bind:value={searchQuery}
-          placeholder="Enter title to search..."
-          class="title-input"
-          disabled={!!searchTmdbId.trim()}
-        />
-        <span class="or-divider">OR</span>
-        <input
-          type="text"
-          bind:value={searchTmdbId}
-          placeholder="TMDB ID"
-          class="id-input"
-          disabled={!!searchQuery.trim()}
-        />
-        <input
-          type="text"
-          bind:value={searchYear}
-          placeholder="Year"
-          class="year-input"
-          maxlength="4"
-        />
-        <select bind:value={searchType}>
-          <option value="movie">Movie</option>
-          <option value="tv">TV</option>
-          <option value="season">Seasons</option>
-        </select>
-        <button
-          class="primary"
-          type="submit"
-          disabled={isSearching || (!searchQuery.trim() && !searchTmdbId.trim())}
-        >
-          {#if isSearching}Searching...{:else}Search{/if}
-        </button>
+      <form class="search-form raised-surface"
+        onsubmit={(event) => { event.preventDefault(); void performSearch() }}>
+        <div class="selection-bar" role="group" aria-label="Match by">
+          <button type="button" aria-pressed={searchBy === 'title'} onclick={() => (searchBy = 'title')}>By title</button>
+          <button type="button" aria-pressed={searchBy === 'id'} onclick={() => (searchBy = 'id')}>By TMDB ID</button>
+        </div>
+        <div class="search-fields">
+          {#if searchBy === 'title'}
+            <div class="form-field search-name">
+              <label for="match-title">Title</label>
+              <input id="match-title" type="text" bind:this={searchInput} bind:value={searchQuery} />
+            </div>
+            <div class="form-field search-year">
+              <label for="match-year">Year</label>
+              <input id="match-year" type="text" inputmode="numeric" bind:value={searchYear} maxlength="4" />
+            </div>
+          {:else}
+            <div class="form-field search-name">
+              <label for="match-id">TMDB ID</label>
+              <input id="match-id" type="text" inputmode="numeric" bind:this={searchInput} bind:value={searchTmdbId} />
+            </div>
+          {/if}
+          <div class="form-field">
+            <label for="match-type">Type</label>
+            <select id="match-type" bind:value={searchType}>
+              <option value="movie">Movie</option>
+              <option value="tv">TV show</option>
+              <option value="season">Season</option>
+            </select>
+          </div>
+          <button class="primary" type="submit"
+            disabled={isSearching || !(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim())}>
+            <Icon name="search" size={17} /> {isSearching ? 'Searching...' : 'Search'}
+          </button>
+        </div>
       </form>
-      <div class="search-results">
+      <div class="search-results" aria-busy={isSearching}>
         {#each searchResults as result (result.id)}
-          <div class="result-item">
+          <div class="result-item raised-surface">
             <div class="result-poster">
               {#if result.poster_path}
-                <img src="https://image.tmdb.org/t/p/w154{result.poster_path}" alt="Poster" />
+                <img src="https://image.tmdb.org/t/p/w154{result.poster_path}" alt="" loading="lazy" />
               {/if}
             </div>
             <div class="result-info">
               <h3>
-                {#if searchType === 'season' && typeof result.season_number !== 'undefined'}
+                {#if resultType === 'season' && typeof result.season_number !== 'undefined'}
                   {result.season_number}. {result.name ?? result.title} ({getYear(result)})
                   {#if typeof result.episode_count !== 'undefined'}
                     <span class="episode-count">({result.episode_count} episodes)</span>
@@ -345,15 +331,15 @@
             </div>
           </div>
         {:else}
-          {#if !isSearching}
-            <p class="empty-text">No results. Try searching above.</p>
+          {#if searched && !isSearching}
+            <p class="form-hint">No matches found.</p>
           {/if}
         {/each}
       </div>
     {:else if activeTab === 'artwork'}
       <div class="artwork-controls">
         <div>
-          <label for="lang-select">Image Language:</label>
+          <label class="field-label" for="lang-select">Image language</label>
           <select id="lang-select" bind:value={imageLang} disabled={isFetchingArtwork}>
             <option value="en">English</option>
             <option value="ja">Japanese</option>
@@ -372,406 +358,102 @@
         </button>
       </div>
 
-      <div class="image-sections">
-        <section>
-          <h4>Poster</h4>
-          <div class="artwork-container">
-            <div class="current-artwork-wrapper">
-              <div class="current-image-container">
-                <div class="current-image">
-                  {#if localItem.posterPath}
-                    <img
-                      src={getAssetUrl(
-                        localItem.posterPath + (localItem._v ? `?v=${localItem._v}` : '')
-                      )}
-                      alt="Current Poster"
-                    />
-                    <button
-                      class="remove-image-btn"
-                      title="Remove Poster"
-                      onclick={() => handleRemoveImage('poster')}><IconX size={14} /></button
-                    >
-                  {:else}
-                    <div class="image-placeholder">No Poster</div>
-                  {/if}
-                </div>
+      <div class="image-sections" aria-busy={isFetchingArtwork || isSettingImage}>
+        {#each artworkTypes as entry (entry.type)}
+          {@const current = localItem[entry.pathField]}
+          <section class="artwork-section raised-surface" class:poster={entry.type === 'poster'}>
+            <div class="artwork-heading">
+              <h3>{entry.label}</h3>
+              <button class="secondary" type="button" disabled={isSettingImage}
+                onclick={() => handleSetImage(entry.type, { type: 'local' })}>Upload</button>
+            </div>
+            <div class="artwork-strip">
+              <div class="current-image">
+                {#if current}
+                  <img src={getAssetUrl(current + (localItem._v ? `?v=${localItem._v}` : ''))}
+                    alt={`Current ${entry.label.toLowerCase()}`} />
+                  <button class="icon-button remove-image" title={`Remove ${entry.label.toLowerCase()}`}
+                    disabled={isSettingImage} onclick={() => handleRemoveImage(entry.type)}>
+                    <Icon name="close" size={15} />
+                  </button>
+                {:else}
+                  <span class="form-hint">No {entry.label.toLowerCase()}</span>
+                {/if}
               </div>
-              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('poster', { type: 'local' })}
-                >Upload File</button
-              >
-            </div>
-            <div class="image-list" onwheel={horizontalScroll}>
-              {#each posters as image (image.file_path)}
-                <button
-                  class="image-thumb"
-                  onclick={() => handleSetImage('poster', { type: 'tmdb', path: image.file_path })}
-                  disabled={isSettingImage}
-                >
-                  <img
-                    src="https://image.tmdb.org/t/p/w154{image.file_path}"
-                    alt="Poster option"
-                    loading="lazy"
-                  />
-                </button>
-              {/each}
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h4>Logo</h4>
-          <div class="artwork-container">
-            <div class="current-artwork-wrapper">
-              <div class="current-image-container">
-                <div class="current-image logo">
-                  {#if localItem.logoPath}
-                    <img
-                      src={getAssetUrl(
-                        localItem.logoPath + (localItem._v ? `?v=${localItem._v}` : '')
-                      )}
-                      alt="Current Logo"
-                    />
-                    <button
-                      class="remove-image-btn"
-                      title="Remove Logo"
-                      onclick={() => handleRemoveImage('logo')}><IconX size={14} /></button
-                    >
-                  {:else}
-                    <div class="image-placeholder">No Logo</div>
-                  {/if}
+              {#if artwork[entry.type].length}
+                <div class="image-list" aria-label={`${entry.label} options`} role="group"
+                  onwheel={horizontalScroll}>
+                  {#each artwork[entry.type] as image, i (image.file_path)}
+                    <button type="button" class="image-thumb" disabled={isSettingImage}
+                      aria-label={`Use ${entry.label.toLowerCase()} ${i + 1}`}
+                      onclick={() => handleSetImage(entry.type, { type: 'tmdb', path: image.file_path })}>
+                      <img src={`https://image.tmdb.org/t/p/${entry.imageSize}${image.file_path}`} alt="" loading="lazy" />
+                    </button>
+                  {/each}
                 </div>
-              </div>
-              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('logo', { type: 'local' })}
-                >Upload File</button
-              >
+              {/if}
             </div>
-            <div class="image-list" onwheel={horizontalScroll}>
-              {#each logos as image (image.file_path)}
-                <button
-                  class="image-thumb logo"
-                  onclick={() => handleSetImage('logo', { type: 'tmdb', path: image.file_path })}
-                  disabled={isSettingImage}
-                >
-                  <img
-                    src="https://image.tmdb.org/t/p/w154{image.file_path}"
-                    alt="Logo option"
-                    loading="lazy"
-                  />
-                </button>
-              {/each}
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h4>Backdrop</h4>
-          <div class="artwork-container backdrop">
-            <div class="current-artwork-wrapper backdrop">
-              <div class="current-image-container">
-                <div class="current-image backdrop">
-                  {#if localItem.backdropPath}
-                    <img
-                      src={getAssetUrl(
-                        localItem.backdropPath + (localItem._v ? `?v=${localItem._v}` : '')
-                      )}
-                      alt="Current Backdrop"
-                    />
-                    <button
-                      class="remove-image-btn"
-                      title="Remove Backdrop"
-                      onclick={() => handleRemoveImage('backdrop')}><IconX size={14} /></button
-                    >
-                  {:else}
-                    <div class="image-placeholder">No Backdrop</div>
-                  {/if}
-                </div>
-              </div>
-              <button class="secondary" disabled={isSettingImage} onclick={() => handleSetImage('backdrop', { type: 'local' })}
-                >Upload File</button
-              >
-            </div>
-            <div class="image-list backdrop" onwheel={horizontalScroll}>
-              {#each backdrops as image (image.file_path)}
-                <button
-                  class="image-thumb backdrop"
-                  onclick={() =>
-                    handleSetImage('backdrop', { type: 'tmdb', path: image.file_path })}
-                  disabled={isSettingImage}
-                >
-                  <img
-                    src="https://image.tmdb.org/t/p/w300{image.file_path}"
-                    alt="Backdrop option"
-                    loading="lazy"
-                  />
-                </button>
-              {/each}
-            </div>
-          </div>
-        </section>
+          </section>
+        {/each}
       </div>
     {/if}
   </div>
 </ModalWindow>
 
 <style>
-  .tabs {
-    display: flex;
-  }
-  .tabs button {
-    padding: 0.8rem 1.2rem;
-    background: none;
-    color: var(--ev-c-text-2);
-    font-size: 1rem;
-    font-weight: 600;
-    border-bottom: 3px solid transparent;
-    transition: all 0.2s;
-  }
-  .tabs button:hover:not(:disabled) {
-    color: var(--ev-c-text-1);
-    background: none;
-  }
-  .tabs button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .tabs button.active {
-    color: var(--ev-c-text-1);
-    border-bottom-color: var(--ev-c-white-soft);
-  }
+  .modal-body-content { padding: clamp(.8rem, 2.8vw, 1.3rem); }
+  .search-form { display: grid; gap: .75rem; padding: .75rem; margin-bottom: .85rem; }
+  .search-form .selection-bar { justify-self: start; }
+  .search-fields { display: flex; align-items: end; flex-wrap: wrap; gap: .55rem; }
+  .search-name { flex: 1 1 12rem; }
+  .search-year { flex: 0 1 5.5rem; min-width: 4.3rem; }
+  .search-fields > button { display: inline-flex; align-items: center; gap: .35rem; }
 
-  .modal-body-content {
-    padding: 1.5rem;
-  }
-
-  /* Match Tab */
-  .search-form {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    margin-bottom: 1.5rem;
-  }
-  .search-form .title-input {
-    flex-grow: 1;
-  }
-  .search-form .year-input {
-    flex-grow: 0;
-    width: 70px;
-  }
-  .search-form .id-input {
-    flex-grow: 0;
-    width: 100px;
-  }
-  .search-form input:disabled {
-    background-color: var(--color-background);
-    color: var(--ev-c-text-3);
-    cursor: not-allowed;
-  }
-  .or-divider {
-    color: var(--ev-c-text-2);
-    font-size: 0.9rem;
-    font-weight: bold;
-  }
-
-  .search-results {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .result-item {
-    display: flex;
-    gap: 1rem;
-    background-color: var(--color-background);
-    padding: 1rem;
-    border-radius: 6px;
-  }
+  .search-results { display: grid; gap: .55rem; }
+  .result-item { display: flex; align-items: flex-start; gap: .75rem; padding: .65rem; }
   .result-poster {
-    width: 100px;
+    flex: 0 0 clamp(48px, 9vw, 84px);
     aspect-ratio: 2 / 3;
-    flex-shrink: 0;
-    background-color: var(--color-background-soft);
-    border-radius: 4px;
+    border-radius: var(--radius-field);
+    background: var(--color-inset);
     overflow: hidden;
   }
-  .result-poster img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .result-info {
-    flex-grow: 1;
-  }
-  .result-info h3 {
-    margin: 0 0 0.5rem;
-    font-size: 1.2rem;
-  }
-  .episode-count {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-    font-weight: normal;
-    margin-left: 0.5rem;
-  }
-  .result-info p {
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
-    max-height: 7em;
-    overflow: hidden;
-  }
-  .result-actions {
-    display: flex;
-    align-items: center;
-  }
+  .result-poster img { width: 100%; height: 100%; object-fit: cover; }
+  .result-info { flex: 1; min-width: 0; }
+  .result-info h3 { font-size: 1rem; font-weight: 650; }
+  .episode-count, .result-info p { color: var(--color-text-soft); font-size: .84rem; }
+  .result-info p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 
-  /* Artwork Tab */
-  .artwork-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  .artwork-controls > div {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .image-sections {
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
-    min-height: 400px; /* Give it some space */
-  }
-
-  .artwork-container {
-    display: flex;
-    gap: 1rem;
-    height: 100%;
-  }
-
-  .current-artwork-wrapper {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .current-artwork-wrapper:not(.backdrop) {
-    flex-basis: 154px; /* Poster thumb width */
-  }
-  .current-artwork-wrapper.backdrop {
-    flex-basis: 300px; /* Backdrop thumb width */
-  }
-
-  .current-image {
-    width: 100%;
-    background-color: var(--color-background);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .current-image.backdrop,
-  .current-image.logo {
-    aspect-ratio: 16/9;
-  }
-  .current-image:not(.backdrop):not(.logo) {
-    aspect-ratio: 2/3;
-  }
-  .current-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .current-image.logo img {
-    object-fit: contain;
-    background-color: var(--color-background); /* For letterboxing */
-    padding: 0.5rem;
-  }
-  .image-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: var(--ev-c-text-3);
-    font-style: italic;
-  }
-
-  .image-list {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: row;
-    gap: 0.75rem;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 10px; /* Space for scrollbar */
-    align-items: flex-start;
-  }
-
-  .image-thumb {
-    background: none;
-    border: 2px solid transparent;
-    padding: 0;
-    cursor: pointer;
-    border-radius: 6px;
-    overflow: hidden;
-    flex-shrink: 0; /* Prevent items from shrinking in flex container */
-  }
-  .image-thumb:hover {
-    border-color: var(--ev-c-white-soft);
-  }
-  .image-thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .current-image.backdrop img,
-  .image-thumb.backdrop img,
-  .image-thumb.logo img {
-    object-fit: contain;
-    background-color: var(--color-background); /* For letterboxing */
-  }
-  .image-thumb.logo img {
-    padding: 0.5rem;
-  }
-
-  .current-image-container {
+  .artwork-controls, .artwork-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .55rem; }
+  .artwork-controls { margin-bottom: .9rem; }
+  .artwork-controls > div { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  .image-sections { display: grid; gap: .65rem; }
+  .artwork-section { display: grid; gap: .55rem; min-width: 0; padding: .65rem; --artwork-width: clamp(108px, 21vw, 210px); --artwork-aspect: 16 / 9; }
+  .artwork-section.poster { --artwork-width: clamp(68px, 14vw, 110px); --artwork-aspect: 2 / 3; }
+  .artwork-heading h3 { font-size: .95rem; font-weight: 650; }
+  .artwork-strip { display: flex; align-items: flex-start; gap: .6rem; min-width: 0; }
+  .current-image, .image-thumb {
     position: relative;
-    width: 100%;
-    height: 100%;
-  }
-
-  .remove-image-btn {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background-color: rgba(0, 0, 0, 0.6);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: grid;
+    place-items: center;
+    flex: 0 0 var(--artwork-width);
+    width: var(--artwork-width);
+    aspect-ratio: var(--artwork-aspect);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-field);
+    background: var(--color-inset);
+    overflow: hidden;
     padding: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    opacity: 0;
-    transition: all 0.2s;
-    z-index: 5; /* Above the image */
   }
+  .current-image img, .image-thumb img { width: 100%; height: 100%; display: block; object-fit: contain; }
+  .image-thumb:hover { border-color: var(--accent-border); }
+  .image-list { display: flex; min-width: 0; gap: .45rem; overflow-x: auto; padding-bottom: .25rem; }
+  .remove-image { position: absolute; top: .3rem; right: .3rem; width: 26px; height: 26px; background: var(--color-inset); }
+  .remove-image:hover { color: var(--color-danger-soft); }
 
-  .current-image-container:hover .remove-image-btn {
-    opacity: 1;
-  }
-
-  .remove-image-btn:hover {
-    background-color: #e81123;
-    border-color: #e81123;
-    transform: scale(1.1);
-  }
-
-  .empty-text {
-    color: var(--ev-c-text-2);
-    padding: 2rem;
-    text-align: center;
+  @media (max-width: 520px) {
+    .result-item { display: grid; grid-template-columns: 55px minmax(0, 1fr); }
+    .result-actions { grid-column: 2; }
+    .result-info p { -webkit-line-clamp: 2; line-clamp: 2; }
   }
 </style>

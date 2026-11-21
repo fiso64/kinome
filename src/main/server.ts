@@ -97,6 +97,10 @@ app.ws('/ws', {
       const session = authService.validateToken(token)
       if (session) {
         ws.subscribe(`broadcast:${session.accountId}`)
+        ws.send(JSON.stringify({
+          type: 'account-permissions-changed',
+          data: { role: session.role, capabilities: [...session.capabilities] }
+        }))
         console.log(`[WebTransport] Client ${ws.id} subscribed to broadcast:${session.accountId}`)
       }
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import type { LibraryItem } from '@shared/types'
   import { notificationStore } from '@lib/notification-store.svelte'
@@ -42,25 +43,30 @@
   })
 </script>
 
-<ModalWindow title="Rename Item" {onClose} onSave={handleSave}>
-  <div class="content">
-    <div class="form-group">
-      <label for="item-name">New name for "{item.name}"</label>
+<ModalWindow title="Rename item" {onClose} onSave={handleSave} saveText="Rename" maxWidth="480px">
+  <div class="form-stack">
+    <div class="current-name raised-surface">
+      <Icon name={item.type === 'folder' ? 'folder' : 'file'} size={18} />
+      <span>{item.name}</span>
+    </div>
+    <div class="form-field">
+      <label for="item-name">New name</label>
       <input type="text" id="item-name" bind:value={newName} bind:this={inputElement} />
     </div>
   </div>
 </ModalWindow>
 
 <style>
-  .content {
-    padding: 1.5rem;
-  }
-  .form-group {
+  .current-name {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    align-items: center;
+    gap: .65rem;
+    min-width: 0;
+    padding: .55rem .7rem;
+    color: var(--color-text-soft);
+    font-size: .85rem;
+    overflow-wrap: anywhere;
   }
-  label {
-    font-weight: bold;
-  }
+
+  .current-name :global(svg) { flex: none; color: var(--color-primary-soft); }
 </style>

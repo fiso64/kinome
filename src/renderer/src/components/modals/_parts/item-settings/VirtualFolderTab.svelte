@@ -5,11 +5,13 @@
 
   let {
     filter = $bindable(),
+    embedded = false,
     folderId,
     parentId,
     suggestions
   }: {
     filter: LibraryFilter
+    embedded?: boolean
     folderId?: string
     parentId: string
     suggestions?: AutocompleteSuggestions
@@ -58,8 +60,8 @@
   })
 </script>
 
-<div class="virtual-folder-tab">
-  <div class="form-group">
+<div class="form-stack" class:embedded>
+  <div class="form-field">
     <label for="vf-scope">Scope</label>
     <select id="vf-scope" bind:value={scope}>
       <option value="none">None (Manual)</option>
@@ -68,35 +70,19 @@
         <option value="home">Home Folder</option>
       {/if}
       <option value="root">Root Folder</option>
-      <option value="library">Full Library — all files and folders</option>
+      <option value="library">Full Library - all files and folders</option>
     </select>
   </div>
 
   {#if scope !== 'none'}
-    <div class="form-group">
-      <label>Conditions</label>
+    <div class="form-field">
+      <span class="field-label">Conditions</span>
       <FilterEditor bind:groups={conditionGroups} {suggestions} />
     </div>
   {/if}
 </div>
 
 <style>
-  .virtual-folder-tab {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  label {
-    font-weight: bold;
-    font-size: 0.9rem;
-  }
-  select {
-    max-width: 16rem;
-  }
+  .embedded { padding: 0; }
+  select { width: 100%; max-width: 20rem; }
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import { resolveViewSettings, formatLayoutString } from '@shared/settings-helpers'
   import {
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
@@ -62,6 +63,7 @@
     // Context props
     item,
     typeKey,
+    editCapability = 'editMetadata',
     settings,
     // Config props
     availableLayouts = [...ALL_VIEW_LAYOUTS],
@@ -73,11 +75,13 @@
     viewSettings = $bindable<EditableViewSettings>({}),
     selectedGroupBy = $bindable(),
     inheritedSettings,
-    inheritedLabel
+    inheritedLabel,
+    pins = $bindable()
   }: {
     // Context props
     item?: MediaFolder
     typeKey?: DefaultLayoutKey
+    editCapability?: 'editSettings' | 'editMetadata'
     settings: Settings | null
     // Config props
     availableLayouts?: ViewLayout[]
@@ -90,10 +94,9 @@
     selectedGroupBy?: string | null
     inheritedSettings?: CascadableViewSettings
     inheritedLabel?: string
+    pins?: { top: string[]; bottom: string[] }
   } = $props()
 
-  let localSortTop = $state<string[] | null>(null)
-  let localSortBottom = $state<string[] | null>(null)
   let showLayoutOptions = $state(false)
 
   const filteredLayouts = $derived(layouts.filter((l) => availableLayouts.includes(l.value)))
@@ -224,23 +227,19 @@
   }
 
   function openChildSettings() {
-    // Strip overrides — they are per-item settings managed through the item's own settings modal,
+    // Strip overrides - they are per-item settings managed through the item's own settings modal,
     // not part of the generic child layout. Passing them in would risk clobbering them on save.
     const { overrides: _ignored, ...childWithoutOverrides } = viewSettings.childViewSettings ?? {}
     modalStore.open('viewSettings', {
       title: 'Configure Child Layout',
       initialSettings: childWithoutOverrides,
       typeKey: '_default',
+      editCapability,
       settings,
-      onSave: (newSettings) => {
-        const { overrides: _ignored, ...newWithoutOverrides } = newSettings
-        const merged = { ...(viewSettings.childViewSettings ?? {}), ...newWithoutOverrides }
-        Object.keys(merged).forEach((key) => {
-          if (merged[key as keyof StoredViewSettings] === null) {
-            delete merged[key as keyof StoredViewSettings]
-          }
-        })
-        viewSettings.childViewSettings = merged
+      onDone: (newSettings) => {
+        const overrides = viewSettings.childViewSettings?.overrides
+        const next = overrides ? { ...newSettings, overrides } : newSettings
+        if (Object.keys(next).length || viewSettings.childViewSettings) viewSettings.childViewSettings = next
       },
       groupByKeys,
       availableLayouts: [...ALL_VIEW_LAYOUTS],
@@ -249,7 +248,7 @@
   }
 </script>
 
-<div class="content">
+<div class="form-stack">
   <!-- View As / Configure Defaults For -->
   {#if !configMode}
     <div class="heading-with-action">
@@ -260,14 +259,14 @@
         {/if}
         {#if hasLayoutOptions}
           <button class="link-button" onclick={() => (showLayoutOptions = !showLayoutOptions)}>
-            Options{showLayoutOptions ? ' ▴' : ' ▾'}
+            Options <Icon name={showLayoutOptions ? 'up' : 'down'} size={15} />
           </button>
         {/if}
       </div>
     </div>
-    <div class="layout-options horizontal">
+    <div class="selection-bar">
       {#each filteredLayouts as layout}
-        <label class="layout-option horizontal-item">
+        <label>
           <input
             type="radio"
             name="layout"
@@ -281,10 +280,10 @@
     </div>
   {:else}
     <h3>Configure Defaults For</h3>
-    <div class="layout-options horizontal">
+    <div class="selection-bar">
       {#each layouts as layout}
         {#if layout.value !== 'tree' && Object.keys(LAYOUT_SPECIFIC_SETTINGS_CONFIG[layout.value]).length > 0}
-          <label class="layout-option horizontal-item">
+          <label>
             <input
               type="radio"
               name="config-layout"
@@ -304,9 +303,10 @@
     <div class="options-panel">
       {#each layoutOptions as key (key)}
         {@const control = controls[key]}
+        {@const title = key === 'gridPosterSize' && layoutToShowOptionsFor === 'button-grid' ? 'Button Size' : control.title}
         {@const value = viewSettings[key] ?? inheritedInfo.settings[key] ?? optionDefaults[key]}
         <div class="heading-with-action">
-          <h4>{control.title}</h4>
+          <h4>{title}</h4>
           {#if !configMode}
             {#if viewSettings[key] != null}
               <button class="link-button" onclick={() => setLayoutOption(key, null)}>Reset to default</button>
@@ -325,7 +325,7 @@
           </label>
         {:else}
           <label class="slider-container">
-            <input type="range" aria-label={control.title}
+            <input type="range" aria-label={title}
               min={control.min} max={control.max} step={control.step} {value}
               oninput={(event) => setLayoutOption(key, event.currentTarget.valueAsNumber)} />
             <span>{value}{control.unit ?? ''}</span>
@@ -339,7 +339,7 @@
   {#if !configMode}
     <div class="divider"></div>
     <h4>Group By</h4>
-    <select value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
+    <select aria-label="Group by" value={effectiveGroupBy} onchange={(e) => (selectedGroupBy = e.currentTarget.value)}>
       {#if groupByKeys}
         {#each groupByKeys as key (key)}
           <option value={key}>{formatKey(key)}</option>
@@ -359,6 +359,7 @@
     </div>
     <div class="sort-controls">
       <select
+        aria-label="Sort by"
         value={effectiveSortBy}
         onchange={(e) => (viewSettings.sortBy = e.currentTarget.value as SortBy)}
       >
@@ -376,11 +377,11 @@
         />
         <span>Descending</span>
       </label>
-      {#if item}
-        {@const pinnedCount = (localSortTop ?? item.viewSettings?.sortTop ?? []).length + (localSortBottom ?? item.viewSettings?.sortBottom ?? []).length}
+      {#if item && pins}
+        {@const pinnedCount = pins.top.length + pins.bottom.length}
         <button
           class="secondary pin-btn"
-          onclick={() => modalStore.open('sortPinning', { item, initialSortTop: localSortTop ?? undefined, initialSortBottom: localSortBottom ?? undefined, onSaved: (top: string[], bottom: string[]) => { localSortTop = top; localSortBottom = bottom } })}
+          onclick={() => modalStore.open('sortPinning', { item, initialSortTop: pins?.top, initialSortBottom: pins?.bottom, onDone: (top, bottom) => (pins = { top, bottom }) })}
         >
           {#if pinnedCount > 0}Pinned ({pinnedCount})...{:else}Pin items...{/if}
         </button>
@@ -397,21 +398,14 @@
         <button class="link-button" onclick={() => (viewSettings.childViewSettings = null)}>Reset</button>
       {/if}
     </div>
-    <div class="view-config-row" onclick={openChildSettings}>
+    <button type="button" class="view-config-row" onclick={openChildSettings}>
       <span>{formatLayoutString(viewSettings.childViewSettings)}</span>
-      <button class="secondary" tabindex="-1">Configure...</button>
-    </div>
+      <span>Configure <Icon name="right" size={15} /></span>
+    </button>
   {/if}
 </div>
 
 <style>
-  .content {
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
   .inherited-value-text-inline {
     font-size: 0.8rem;
     color: var(--ev-c-text-2);
@@ -419,81 +413,37 @@
   }
   .inherited-value-text-inline strong {
     font-weight: 600;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    text-decoration: underline;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-primary-soft);
     font-size: 0.8rem;
     padding: 0;
   }
 
-  .layout-options {
-    display: flex;
-    gap: 1rem;
-  }
-  .layout-options.horizontal {
-    flex-direction: row;
-    overflow-x: auto;
-    gap: 0.5rem;
-    background: var(--color-background);
-    border-radius: 6px;
-    padding: 0.5rem;
-    border: 1px solid var(--color-background-mute);
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .layout-options.horizontal::-webkit-scrollbar {
-    display: none;
-  }
-
-  .layout-option {
-    cursor: pointer;
-    transition:
-      border-color 0.2s,
-      background-color 0.2s;
-  }
-  .horizontal-item {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    white-space: nowrap;
-  }
-  .horizontal-item:hover {
-    background-color: var(--color-background-soft);
-  }
-  .horizontal-item input[type='radio'] {
-    position: absolute;
-    opacity: 0;
-  }
-  .horizontal-item span {
-    font-weight: 600;
-  }
-  .horizontal-item:has(input:checked) {
-    background-color: var(--ev-c-gray-2);
-  }
-  .horizontal-item:has(input:checked) span {
-    color: var(--ev-c-text-1);
-  }
-
-  /* Options panel for layout-specific settings */
   .options-panel {
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    padding: 1rem 1.25rem;
-    background: var(--color-background);
-    border-radius: 6px;
-    border: 1px solid var(--color-background-mute);
-    margin-top: -0.5rem;
+    padding: .75rem .85rem;
+    background: var(--surface-raised);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--color-border-soft);
   }
 
   .divider {
     border-bottom: 1px solid var(--color-background-mute);
-    margin-top: -0.5rem;
+
   }
   .heading-with-action {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    gap: .4rem;
+    flex-wrap: wrap;
   }
   .heading-actions {
     display: flex;
@@ -507,7 +457,7 @@
     font-weight: bold;
   }
   h3 {
-    margin-bottom: -0.75rem;
+    font-size: 1.05rem;
   }
 
   .slider-container {
@@ -521,11 +471,12 @@
 
   .sort-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 1rem;
   }
   .sort-controls select {
-    flex: 1;
+    flex: 1 0 7rem;
   }
   .pin-btn {
     margin-left: auto;
@@ -541,10 +492,13 @@
   }
 
   .link-button {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    text-decoration: underline;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-primary-soft);
     cursor: pointer;
     font-size: 0.8rem;
     padding: 0;
@@ -562,9 +516,11 @@
     border-radius: 6px;
     background: var(--color-background);
     border: 1px solid var(--color-background-mute);
-    font-size: 0.9rem;
-    color: var(--ev-c-text-2);
+    text-align: left;
+    font-size: .9rem;
+    color: var(--color-text-soft);
   }
+  .view-config-row span:last-child { display: inline-flex; align-items: center; gap: .3rem; color: var(--color-primary-soft); }
   .view-config-row:hover {
     background: var(--color-background-soft);
   }

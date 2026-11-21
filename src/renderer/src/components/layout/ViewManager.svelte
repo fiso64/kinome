@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import { fade } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { cubicOut } from 'svelte/easing'
   import MainView from './MainView.svelte'
   import SearchOverlay from './SearchOverlay.svelte'
@@ -22,13 +23,15 @@
 
   let {
     settings = $bindable(),
-    isScanning,
     libraryStatus,
+    librarySearchOpen,
+    closeLibrarySearch,
     suggestions
   }: {
     settings: Settings | null
-    isScanning: boolean
     libraryStatus: LibraryStatus | null
+    librarySearchOpen: boolean
+    closeLibrarySearch: () => void
     suggestions: AutocompleteSuggestions
   } = $props()
 
@@ -42,12 +45,16 @@
     }
     searchByTag: { key: string; value: string }
     dismissContinueWatching: { showId: string }
-    statusUpdate: void
   }>()
 
   // Derived State
   const selectedItemId = $derived(navStore.selectedItemId)
-  const isGlobalSearchActive = $derived(searchStore.isGlobalActive)
+  const isGlobalSearchActive = $derived(librarySearchOpen || searchStore.isGlobalActive)
+  let searchOverlay = $state<SearchOverlay>()
+
+  export function focusLibrarySearch() {
+    searchOverlay?.focusSearchInput()
+  }
   const isSettingsActive = $derived(navStore.isSettingsActive)
 
   // Search/Detail Visibility Logic
@@ -83,7 +90,7 @@
     <div
       class="home-static-backdrop"
       style="transform: translateY(-{scrollTop}px)"
-      transition:fade={{ duration: 100 }}
+      transition:fade={{ duration: prefersReducedMotion.current ? 0 : 100 }}
     >
       <img src={getAssetUrl(latestBackdrop)} alt="" />
       <div class="home-static-backdrop-overlay"></div>
@@ -94,18 +101,17 @@
 
   <div
     class="view-layer"
+    inert={effectivelySearchActive || isSettingsActive || !!selectedItemId}
     class:hidden={effectivelySearchActive || isSettingsActive}
     class:background={!!selectedItemId}
   >
     <MainView
-      {isScanning}
+      {continueWatchingItems}
       {libraryStatus}
       {settings}
       {suggestions}
-      hasBackdrop={!!latestBackdrop}
       onScroll={(top) => (scrollTop = top)}
       disabled={!!selectedItemId}
-      onStatusUpdate={() => dispatch('statusUpdate')}
       on:itemClick={(e) => dispatch('itemClick', { item: e.detail.item })}
       on:play={(e) => dispatch('play', { item: e.detail.item as MediaFile })}
       on:showContextMenu={(e) =>
@@ -124,10 +130,13 @@
   {#if isGlobalSearchActive || effectivelySearchActive}
     <div
       class="view-layer search-layer"
+      inert={!effectivelySearchActive || isSettingsActive || !!selectedItemId}
       class:hidden={!effectivelySearchActive || isSettingsActive}
       class:background={!!selectedItemId}
     >
       <SearchOverlay
+        bind:this={searchOverlay}
+        onClose={closeLibrarySearch}
         {settings}
         {suggestions}
         disabled={!!selectedItemId}
@@ -144,9 +153,9 @@
 
   <!-- Layer 2: Detail View Overlay -->
   {#if selectedItemId && settings}
-    <div class="view-layer detail-layer" transition:fade={{ duration: 300, easing: cubicOut }}>
+    <div class="view-layer detail-layer" inert={isSettingsActive}>
       {#key selectedItemId}
-        <div class="detail-switch-container" transition:fade={{ duration: 250, easing: cubicOut }}>
+        <div class="detail-switch-container" in:fade={{ duration: prefersReducedMotion.current ? 0 : 145, easing: cubicOut }}>
           <ItemDetail
             item={{ id: selectedItemId, type: 'folder', name: '', path: '' } as LibraryItem}
             onItemClick={(item) => dispatch('itemClick', { item })}
@@ -163,8 +172,8 @@
 
   <!-- Layer 3: Settings View -->
   {#if isSettingsActive}
-    <div class="view-layer settings-layer" transition:fade={{ duration: 300, easing: cubicOut }}>
-      <SettingsView bind:settings />
+    <div class="view-layer settings-layer">
+      <SettingsView {settings} />
     </div>
   {/if}
 </div>
@@ -180,34 +189,32 @@
 
   .view-layer {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0 0 0 var(--content-inset, 0px);
     display: flex;
     flex-direction: column;
-    transition:
-      opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-      transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity .2s ease;
   }
+
+  @media (prefers-reduced-motion: reduce) { .view-layer { transition: none; } }
 
   .view-layer.hidden {
     opacity: 0;
     pointer-events: none;
-    transform: scale(0.99);
   }
 
   .view-layer.background {
-    transform: scale(0.98);
     pointer-events: none;
   }
 
   .detail-layer {
+    inset-inline-start: 0;
     z-index: 10;
     background-color: var(--color-background);
   }
 
   .settings-layer {
+    inset-inline-start: 0;
+    padding-inline-start: var(--content-inset, 0px);
     z-index: 20;
     background-color: var(--color-background);
   }
@@ -225,7 +232,7 @@
     top: 0;
     left: 0;
     width: 100%;
-    height: 450px;
+    height: min(440px, 62dvh);
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
@@ -236,8 +243,8 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: blur(10px);
-    opacity: 0.55;
+    filter: blur(9px) saturate(.7);
+    opacity: .53;
     transform: scale(1.05);
   }
 
@@ -247,6 +254,6 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, var(--color-background) 85%);
+    background: linear-gradient(0deg, var(--color-background), color-mix(in srgb, var(--color-background) 40%, transparent) 61%, transparent);
   }
 </style>

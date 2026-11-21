@@ -1,4 +1,5 @@
-import type { LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter, ViewLayout } from '@shared/types'
+import { authStore } from './auth-store.svelte'
+import type { Capability, LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter, ViewLayout } from '@shared/types'
 
 // --- Types ---
 
@@ -22,7 +23,6 @@ export type ModalConfig =
     }
   | { type: 'properties'; props: { item: LibraryItem } }
   | { type: 'rename'; props: { item: LibraryItem } }
-  | { type: 'initialFolderSettings'; props: { root: MediaFolder } }
   | { type: 'assignSeasons'; props: { item: MediaFolder } }
   | {
       type: 'createVirtualFolder'
@@ -37,16 +37,29 @@ export type ModalConfig =
         title: string
         initialSettings: StoredViewSettings
         typeKey: '_default' | 'movie' | 'tv' | 'season'
-        onSave: (settings: StoredViewSettings) => void
+        editCapability: 'editSettings' | 'editMetadata'
+        onDone: (settings: StoredViewSettings) => void
         availableLayouts?: ViewLayout[]
         showClickAction?: boolean
         settings: any
         groupByKeys: string[]
       }
     }
-  | { type: 'sortPinning'; props: { item: MediaFolder; initialSortTop?: string[]; initialSortBottom?: string[]; onSaved?: (sortTop: string[], sortBottom: string[]) => void } }
+  | { type: 'sortPinning'; props: { item: MediaFolder; initialSortTop?: string[]; initialSortBottom?: string[]; onDone: (sortTop: string[], sortBottom: string[]) => void } }
 
 export type ModalType = ModalConfig['type']
+
+const REQUIRED_CAPABILITY: Record<ModalType, Capability | null> = {
+  settings: null,
+  itemSettings: 'editMetadata',
+  manualSearch: 'editMetadata',
+  properties: null,
+  rename: 'editMetadata',
+  assignSeasons: 'editMetadata',
+  createVirtualFolder: 'editMetadata',
+  viewSettings: null, // Inherits the capability of the parent draft.
+  sortPinning: 'editMetadata'
+}
 
 // --- State ---
 
@@ -61,7 +74,19 @@ function open<T extends ModalType>(
 ): void
 function open(type: 'settings'): void
 function open(type: ModalType, props?: any) {
-  modalStack.push({ type, props } as ModalConfig)
+  const modal = { type, props } as ModalConfig
+  if (canOpen(modal)) modalStack.push(modal)
+}
+
+function canOpen(modal: ModalConfig): boolean {
+  if (modal.type === 'itemSettings' && modal.props.initialTab === 'metadata') return true
+  const capability = modal.type === 'viewSettings' ? modal.props.editCapability : REQUIRED_CAPABILITY[modal.type]
+  return !capability || authStore.can[capability]
+}
+
+function closeUnauthorized() {
+  const index = modalStack.findIndex((entry) => !canOpen(entry))
+  if (index !== -1) modalStack.splice(index)
 }
 
 function close() {
@@ -94,5 +119,6 @@ export const modalStore = {
     return pendingCount > 0
   },
   open,
+  closeUnauthorized,
   close
 }

@@ -1,19 +1,23 @@
 <script lang="ts">
+  import { dialogStore } from '@lib/dialog-store'
+  import Icon from '@components/ui/Icon.svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
   import { useDragSort } from '@lib/drag-sort.svelte'
   import type { CustomActionConfig } from '@shared/types'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { flip } from 'svelte/animate'
-  import IconX from '@components/ui/IconX.svelte'
 
   let {
-    customActions = $bindable(),
+    customActions,
+    onDone,
     onClose
   }: {
     customActions: CustomActionConfig[]
+    onDone: (actions: CustomActionConfig[]) => void
     onClose: () => void
   } = $props()
 
-  let localCustomActions = $state<CustomActionConfig[]>(JSON.parse(JSON.stringify(customActions)))
+  let localCustomActions = $state<CustomActionConfig[]>(customActions.map((action) => ({ ...action })))
   let editCommandId = $state<string | null>(null)
   let formCommandNameForNew = $state('')
   let formCommandStringForNew = $state('')
@@ -32,244 +36,116 @@
 
   function handleAddCommand() {
     if (formCommandNameForNew.trim() && formCommandStringForNew.trim()) {
-      localCustomActions.push({
+      localCustomActions = [...localCustomActions, {
         id: crypto.randomUUID(),
         name: formCommandNameForNew.trim(),
         command: formCommandStringForNew.trim()
-      })
-      localCustomActions = [...localCustomActions]
+      }]
       formCommandNameForNew = ''
       formCommandStringForNew = ''
     }
   }
 
-  function handleSave() {
-    customActions = JSON.parse(JSON.stringify(localCustomActions))
+  function handleDone() {
+    if (formCommandNameForNew.trim() || formCommandStringForNew.trim()) {
+      if (!formCommandNameForNew.trim() || !formCommandStringForNew.trim()) {
+        dialogStore.showError({ title: 'Incomplete Action', message: 'Enter a name and command for the new action.' })
+        return
+      }
+      handleAddCommand()
+    }
+    onDone($state.snapshot(localCustomActions))
     onClose()
   }
 
 </script>
 
-<ModalWindow
-  title="Manage Custom Actions"
-  {onClose}
-  onSave={handleSave}
-  maxWidth="700px"
-  zIndex={101}
->
-  <div class="content">
+<ModalWindow title="Custom actions" {onClose} onDone={handleDone} maxWidth="680px" zIndex={101}>
+  <div class="form-stack">
     <div class="command-list">
-      {#if localCustomActions.length === 0}
-        <p class="empty-list-text">No custom actions configured. Add one below.</p>
-      {:else}
-        {#each localCustomActions as cmd, i (cmd.id)}
-          <div
-            class="command-item"
-            use:drag.item={i}
-            use:drag.handle={i}
-            class:drag-placeholder={drag.draggedIndex === i}
-            class:editing={editCommandId === cmd.id}
-            animate:flip={{ duration: 200 }}
-            onclick={() => {
-              if (editCommandId === cmd.id) {
-                editCommandId = null
-              } else {
-                editCommandId = cmd.id
-              }
-            }}
-          >
-            <div class="drag-handle">⠿</div>
-            {#if editCommandId === cmd.id}
-              <div class="command-edit-inputs">
-                <input
-                  type="text"
-                  bind:value={cmd.name}
-                  placeholder="Action Name"
-                  onclick={(e) => e.stopPropagation()}
-                  oninput={(e) => {
-                    e.stopPropagation()
-                    localCustomActions = localCustomActions
-                  }}
-                />
-                <input
-                  type="text"
-                  bind:value={cmd.command}
-                  placeholder="Command"
-                  onclick={(e) => e.stopPropagation()}
-                  oninput={(e) => {
-                    e.stopPropagation()
-                    localCustomActions = localCustomActions
-                  }}
-                />
-              </div>
-            {:else}
-              <div class="command-details">
-                <div class="command-name">{cmd.name}</div>
-                <div class="command-string">{cmd.command}</div>
-              </div>
-            {/if}
-            <button
-              class="remove-btn"
-              onclick={(e) => {
-                e.stopPropagation()
-                removeCommand(cmd.id)
-              }}><IconX size={14} /></button
-            >
+      {#each localCustomActions as action, i (action.id)}
+        <div class="command-card raised-surface" class:drag-placeholder={drag.draggedIndex === i}
+          use:drag.item={i} animate:flip={{ duration: prefersReducedMotion.current ? 0 : 145 }}>
+          <div class="command-header">
+            <span class="drag-handle" use:drag.handle={i} title="Drag to reorder"><Icon name="grip" size={16} /></span>
+            <button type="button" class="action-toggle" aria-expanded={editCommandId === action.id}
+              onclick={() => (editCommandId = editCommandId === action.id ? null : action.id)}>
+              <span>{action.name || 'Unnamed action'}</span>
+              <Icon name={editCommandId === action.id ? 'up' : 'edit'} size={16} />
+            </button>
+            <button type="button" class="icon-button remove-action" aria-label={`Remove ${action.name || 'action'}`}
+              onclick={() => removeCommand(action.id)}><Icon name="trash" size={17} /></button>
           </div>
-        {/each}
-      {/if}
+          {#if editCommandId === action.id}
+            <div class="edit-fields">
+              <div class="form-field">
+                <label for={`action-name-${action.id}`}>Name</label>
+                <input type="text" id={`action-name-${action.id}`} bind:value={action.name} />
+              </div>
+              <div class="form-field">
+                <label for={`action-command-${action.id}`}>Command</label>
+                <input type="text" class="command" id={`action-command-${action.id}`} bind:value={action.command} />
+              </div>
+            </div>
+          {:else}
+            <code>{action.command}</code>
+          {/if}
+        </div>
+      {:else}
+        <p class="form-hint">No custom actions configured.</p>
+      {/each}
     </div>
 
-    <div class="help-text">
-      <p>
-        Available variables: <code>{'{path}'}</code> <code>{'{title}'}</code>
-        <code>{'{type}'}</code> <code>{'{year}'}</code>
-      </p>
-      <p>
-        Be sure to wrap variables like <code>{'{path}'}</code> in quotes (e.g.,
-        <code>&quot;{'{path}'}&quot;</code>) to handle spaces correctly in your command.
-      </p>
-    </div>
-
-    <div class="add-command-form">
-      <h4>Add New Action</h4>
-      <input
-        type="text"
-        bind:value={formCommandNameForNew}
-        placeholder="Action Name (e.g., Convert to MP4)"
-      />
-      <input
-        type="text"
-        bind:value={formCommandStringForNew}
-        placeholder="Command (e.g., ffmpeg -i &quot;{'{path}'}&quot; &quot;{'{path}'}.mp4&quot;)"
-      />
-      <div class="form-actions">
-        <button
-          class="primary add-btn"
-          onclick={handleAddCommand}
-          disabled={!formCommandNameForNew.trim() || !formCommandStringForNew.trim()}
-        >
-          Add Action
-        </button>
+    <form class="add-command raised-surface"
+      onsubmit={(event) => { event.preventDefault(); handleAddCommand() }}>
+      <h3>Add action</h3>
+      <div class="form-field">
+        <label for="new-action-name">Name</label>
+        <input type="text" id="new-action-name" bind:value={formCommandNameForNew} required />
       </div>
-    </div>
+      <div class="form-field">
+        <label for="new-action-command">Command</label>
+        <input type="text" id="new-action-command" class="command" bind:value={formCommandStringForNew} required />
+      </div>
+      <p class="form-hint">
+        Variables are <code>{'{path}'}</code>, <code>{'{title}'}</code>, <code>{'{type}'}</code>, and <code>{'{year}'}</code>.
+        Quote variables that may contain spaces.
+      </p>
+      <button type="submit" class="secondary"
+        disabled={!formCommandNameForNew.trim() || !formCommandStringForNew.trim()}>
+        <Icon name="plus" size={16} /> Add action
+      </button>
+    </form>
   </div>
 </ModalWindow>
 
 <style>
-  .content {
-    padding: 1.5rem;
+  .command-list, .edit-fields, .add-command { display: grid; min-width: 0; gap: .55rem; }
+  .command-card, .add-command { padding: .55rem .65rem; }
+  .command-card.drag-placeholder { opacity: .28; }
+  .command-header { display: flex; min-width: 0; align-items: center; gap: .3rem; }
+  .drag-handle { display: flex; color: var(--color-text-soft); align-items: center; align-self: stretch; cursor: grab; }
+  .action-toggle {
+    flex: 1;
+    min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-  .command-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-height: 40vh;
-    overflow-y: auto;
-    border: 1px solid var(--color-background-mute);
-    border-radius: 6px;
-    padding: 0.5rem;
-    background-color: var(--color-background);
-  }
-  .empty-list-text {
-    text-align: center;
-    color: var(--ev-c-text-2);
-    padding: 1rem;
-  }
-  .command-item {
-    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background-color: var(--color-background-soft);
-    border-radius: 4px;
-    border: 1px solid transparent;
+    gap: .4rem;
+    padding: .32rem;
+    text-align: left;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    overflow-wrap: anywhere;
   }
-  .command-item.drag-placeholder {
-    opacity: 0.25;
-    pointer-events: none;
-  }
-  .command-item.editing {
-    background-color: var(--ev-c-gray-3);
-    border-color: var(--ev-c-gray-1);
-    cursor: default;
-  }
-  .drag-handle {
-    color: var(--ev-c-text-2);
-    font-size: 1.2rem;
-    padding: 0 0.25rem;
-  }
-  .command-details {
-    flex-grow: 1;
-  }
-  .command-name {
-    font-weight: bold;
-  }
-  .command-string {
-    font-size: 0.85rem;
-    color: var(--ev-c-text-2);
-    word-break: break-all;
-  }
-  .command-edit-inputs {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  .command-edit-inputs input {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.9rem;
-  }
-  .remove-btn {
-    background: none;
-    color: var(--ev-c-text-2);
-    padding: 0;
-    cursor: pointer;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .remove-btn:hover {
-    color: #e81123;
-    background-color: var(--ev-c-gray-3);
-  }
-  .help-text {
-    font-size: 0.8rem;
-    color: var(--ev-c-text-2);
-    line-height: 1.5;
-    padding: 1rem;
-    background: var(--color-background);
-    border-radius: 6px;
-  }
-  .help-text code {
-    font-size: 0.8rem;
-    padding: 2px 4px;
-    background-color: var(--color-background-mute);
-    border-radius: 3px;
-  }
-  .add-command-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-background-mute);
-  }
-  .add-command-form h4 {
-    font-weight: bold;
-    margin-bottom: 0.25rem;
-  }
-  .form-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-  .add-btn {
-    align-self: flex-start;
-  }
+  .action-toggle:hover, .action-toggle[aria-expanded='true'] { color: var(--color-primary-soft); }
+  .remove-action:hover { color: var(--color-danger-soft); }
+  .edit-fields { padding: .35rem; }
+  code, .command { font-family: ui-monospace, monospace; }
+  code { color: var(--color-primary-soft); overflow-wrap: anywhere; }
+  .command-card > code { display: block; color: var(--color-text-soft); margin: .25rem .4rem; font-size: .8rem; }
+  .add-command { padding: .85rem; }
+  .add-command h3 { font-size: .95rem; }
+  .add-command button { justify-self: start; display: inline-flex; align-items: center; gap: .25rem; }
 </style>

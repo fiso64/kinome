@@ -1,4 +1,12 @@
+<script module lang="ts">
+  import type { FolderSettings } from '@shared/types'
+
+  type FolderMetadata = Pick<FolderSettings, 'retrieveChildrenMetadata' | 'childrenTypeHint'>
+  export type FolderDrafts = Record<string, { saved: FolderMetadata; current: FolderMetadata }>
+</script>
+
 <script lang="ts">
+  import { authStore } from '@lib/auth-store.svelte'
   import FolderTree from '@components/ui/FolderTree.svelte'
   import { LIBRARY_ROOT_ID, type LibraryItem } from '@shared/types'
   import { notificationStore } from '@lib/notification-store.svelte'
@@ -11,9 +19,10 @@
     isExpanded: boolean
     children: FolderNode[] | null
     isLoading: boolean
-    retrieveChildrenMetadata: boolean
-    childrenTypeHint: 'auto' | 'movie' | 'tv'
+    metadata: FolderMetadata
   }
+
+  let { folderDrafts = $bindable() }: { folderDrafts: FolderDrafts } = $props()
 
   let rootNodes = $state<FolderNode[]>([])
   let isInitializing = $state(true)
@@ -27,8 +36,10 @@
       isExpanded: false,
       children: null,
       isLoading: false,
-      retrieveChildrenMetadata: (item as any).folderSettings?.retrieveChildrenMetadata ?? false,
-      childrenTypeHint: (item as any).folderSettings?.childrenTypeHint ?? 'auto'
+      metadata: {
+        retrieveChildrenMetadata: item.folderSettings?.retrieveChildrenMetadata ?? false,
+        childrenTypeHint: item.folderSettings?.childrenTypeHint === 'auto' ? null : item.folderSettings?.childrenTypeHint ?? null
+      }
     }
   }
 
@@ -71,18 +82,9 @@
     }
   }
 
-  async function saveSettings(node: FolderNode) {
-    try {
-      await window.api.userUpdateItem({
-        id: node.id,
-        folderSettings: {
-          retrieveChildrenMetadata: node.retrieveChildrenMetadata,
-          childrenTypeHint: node.childrenTypeHint === 'auto' ? null : node.childrenTypeHint,
-        },
-      } as any)
-    } catch (err: any) {
-      notificationStore.add(err.message || 'Failed to save folder settings.', 'error')
-    }
+  function editMetadata(node: FolderNode, patch: Partial<FolderMetadata>) {
+    const { saved, current } = folderDrafts[node.id] ?? { saved: node.metadata, current: node.metadata }
+    folderDrafts[node.id] = { saved, current: { ...current, ...patch } }
   }
 
   $effect(() => {
@@ -99,62 +101,33 @@
   onToggle={toggleExpand}
 >
   {#snippet label(node: FolderNode)}
-    <span class="name">{node.title || node.name}</span>
+    <span class="folder-name">{node.title || node.name}</span>
     {#if node.mediaType}
-      <span class="media-type-badge">{node.mediaType}</span>
+      <span class="folder-kind">{node.mediaType}</span>
     {/if}
   {/snippet}
 
   {#snippet controls(node: FolderNode)}
+    {@const metadata = folderDrafts[node.id]?.current ?? node.metadata}
     <select
-      bind:value={node.childrenTypeHint}
-      class="type-select"
-      disabled={!node.retrieveChildrenMetadata}
-      onchange={() => saveSettings(node)}
+      value={metadata.childrenTypeHint ?? 'auto'}
+      class="folder-type" aria-label={`Media type for ${node.title || node.name}`}
+      {...authStore.control('editMetadata')}
+      disabled={!authStore.can.editMetadata || !metadata.retrieveChildrenMetadata}
+      onchange={(event) => {
+        const value = event.currentTarget.value
+        editMetadata(node, { childrenTypeHint: value === 'movie' || value === 'tv' ? value : null })
+      }}
     >
       <option value="auto">Auto-detect</option>
       <option value="movie">Movies</option>
       <option value="tv">TV Shows</option>
     </select>
 
-    <label class="checkbox-label">
-      <input type="checkbox" bind:checked={node.retrieveChildrenMetadata}
-        onchange={() => saveSettings(node)} />
+    <label class="folder-fetch">
+      <input type="checkbox" checked={metadata.retrieveChildrenMetadata} {...authStore.control('editMetadata')}
+        onchange={(event) => editMetadata(node, { retrieveChildrenMetadata: event.currentTarget.checked })} />
       <span>Fetch for children</span>
     </label>
   {/snippet}
 </FolderTree>
-
-<style>
-  .name {
-    flex: 1;
-    font-size: 0.9rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .media-type-badge {
-    font-size: 0.7rem;
-    padding: 1px 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--ev-c-text-3);
-    flex-shrink: 0;
-  }
-  .type-select {
-    font-size: 0.8rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-  .type-select:disabled { opacity: 0.5; cursor: not-allowed; }
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    color: var(--ev-c-text-3);
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .checkbox-label input { cursor: pointer; }
-</style>

@@ -48,11 +48,11 @@ export interface ITransport {
   notifyScanStatusChanged(status: Partial<ScanStatus>): void
 
   /**
-   * Broadcasts a generic event to all connected clients.
+   * Broadcasts a generic event to all connected clients or a single account.
    * @param event The event name.
    * @param payload The data payload.
    */
-  broadcast(event: string, payload: any): void
+  broadcast(event: string, payload: any, accountId?: string): void
 
   /**
    * Notifies clients that a handler test succeeded.

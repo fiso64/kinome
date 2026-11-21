@@ -71,24 +71,23 @@
 </script>
 
 <ModalWindow
-  title="Library Filter — {account.username}"
+  title="Library Filter - {account.username}"
   {onClose}
-  cancelText="Close"
   maxWidth="600px"
 >
-  <div class="content">
+  <div class="form-stack">
     <p class="description">
       Restrict which library items this account can see. Leave conditions empty for full access.
     </p>
 
-    <div class="mode-row">
-      <label>
+    <div class="choice-grid">
+      <label class="choice-card">
         <input type="radio" bind:group={filterMode} value="allow" disabled={saving} />
-        Allow only matching items (+ their contents and parent folders)
+        <span><strong>Allow matches</strong><span class="form-hint">Includes their contents and parent folders.</span></span>
       </label>
-      <label>
+      <label class="choice-card">
         <input type="radio" bind:group={filterMode} value="deny" disabled={saving} />
-        Deny matching items (+ their contents)
+        <span><strong>Deny matches</strong><span class="form-hint">Also hides their contents.</span></span>
       </label>
     </div>
 
@@ -107,55 +106,18 @@
       </p>
     {/if}
 
-    <div class="buttons">
-      <button class="secondary" onclick={handleSave} disabled={saving}>Save Filter</button>
-      {#if filterRule}
-        <button class="secondary" onclick={handleClear} disabled={saving}>Remove Filter</button>
-      {/if}
-    </div>
   </div>
+  {#snippet actions()}
+    {#if filterRule}
+      <button class="danger" onclick={handleClear} disabled={saving}>Remove filter</button>
+    {/if}
+    <button class="secondary" onclick={onClose}>Close</button>
+    <button class="primary" onclick={handleSave} disabled={saving}>Save filter</button>
+  {/snippet}
 </ModalWindow>
 
 <style>
-  .content {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem;
-  }
-
-  .description {
-    font-size: 0.85rem;
-    color: var(--color-text-soft);
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .mode-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    font-size: 0.9rem;
-    color: var(--color-text-soft);
-  }
-
-  .mode-row label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-  }
-
-  .message {
-    font-size: 0.85rem;
-    margin: 0;
-  }
-
-  .message.success { color: var(--color-success); }
-  .message.error { color: var(--color-danger); }
-
-  .buttons {
-    display: flex;
-    gap: 0.75rem;
-  }
+  .description, .message { font-size: .855rem; color: var(--color-text-soft); }
+  .message.success { color: var(--color-success-soft); }
+  .message.error { color: var(--color-danger-soft); }
 </style>

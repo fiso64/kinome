@@ -1,5 +1,5 @@
 <script lang="ts">
-  import AppHeader from '@components/layout/AppHeader.svelte'
+  import AppSidebar from '@components/layout/AppSidebar.svelte'
   import ViewManager from '@components/layout/ViewManager.svelte'
   import FilterBar from '@ui/FilterBar.svelte'
   import ModalRoot from '@components/layout/ModalRoot.svelte'
@@ -29,7 +29,7 @@
   import { authStore } from '@lib/auth-store.svelte'
   import LoginPage from '@components/layout/LoginPage.svelte'
   import SetupScreen from '@components/layout/SetupScreen.svelte'
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { QueryClientProvider } from '@tanstack/svelte-query'
   import { LIBRARY_ROOT_ID } from '@shared/types'
   import type {
@@ -85,7 +85,28 @@
   })
   // ---
 
-  let appHeaderComponent = $state<any>()
+  let appSidebarComponent = $state<AppSidebar>()
+  let viewManager = $state<ViewManager>()
+  let librarySearchOpen = $state(false)
+  const librarySearchVisible = $derived(!navStore.isSettingsActive && !navStore.isDetailViewActive &&
+    (librarySearchOpen || searchStore.isGlobalActive))
+
+  async function openSearch() {
+    if (navStore.isSettingsActive) return
+    if (navStore.isDetailViewActive) {
+      await appSidebarComponent?.focusSearchInput()
+      return
+    }
+    librarySearchOpen = true
+    await tick()
+    viewManager?.focusLibrarySearch()
+  }
+
+  function closeLibrarySearch() {
+    librarySearchOpen = false
+    if (searchStore.isGlobalActive) searchStore.clearGlobal()
+    appSidebarComponent?.focusSearchTrigger()
+  }
 
   // Initialize V2 Search Effects
   initializeSearchEffects()
@@ -266,7 +287,7 @@
   })
 
   async function handleRefresh(): Promise<void> {
-    if (isWaitingForScan || isScanning || isInitializing) return
+    if (!authStore.can.triggerLibraryScan || isWaitingForScan || isScanning || isInitializing) return
     isWaitingForScan = true
     // clearItemCache() // Removed in V2
     try {
@@ -384,6 +405,7 @@
     },
 
     revealInExplorer: async (itemOrId: LibraryItem | string) => {
+      if (!authStore.can.editSettings) return
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['path'])
       if (targetItem?.path) {
         api.revealInExplorer(targetItem.path)
@@ -391,6 +413,7 @@
     },
 
     trashItem: async (itemOrId: LibraryItem | string) => {
+      if (!authStore.can.editMetadata) return
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
         'path',
         'name',
@@ -416,6 +439,7 @@
     },
 
     clearMetadata: async (itemOrId: LibraryItem | string) => {
+      if (!authStore.can.editMetadata) return
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, [
         'path',
         'name',
@@ -480,6 +504,7 @@
       }),
 
     hideItem: async (itemOrId: LibraryItem | string) => {
+      if (!authStore.can.editMetadata) return
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name', 'title'])
       if (!targetItem) return
 
@@ -498,6 +523,7 @@
     },
 
     deleteFromDb: async (itemOrId: LibraryItem | string) => {
+      if (!authStore.can.editMetadata) return
       const targetItem = await libraryDataService.ensureItemWithFields(itemOrId, ['name', 'title'])
       if (!targetItem) return
 
@@ -563,12 +589,6 @@
     libraryDataService.optimisticDismissContinueWatching(showId)
   }
 
-  async function handleApplyInitialSettings(
-    settings: { id: string; retrieve: boolean; hint?: 'movie' | 'tv' }[]
-  ) {
-    // Legacy removed
-  }
-
   async function handleItemClick(
     item: LibraryItem | SearchIndexEntry,
     source?: 'global' | 'detail'
@@ -607,7 +627,8 @@
         }
       }
 
-      appHeaderComponent?.blurSearchInput()
+      appSidebarComponent?.blurSearchInput()
+      librarySearchOpen = false
 
       if (source === 'detail' || (navStore.isDetailViewActive && !searchStore.isGlobalActive)) {
         searchStore.clearDetail()
@@ -621,17 +642,25 @@
   }
 
   function goBack(): void {
-    appHeaderComponent?.blurSearchInput()
+    appSidebarComponent?.blurSearchInput()
+    if (librarySearchOpen && !searchStore.isGlobalActive) {
+      closeLibrarySearch()
+      return
+    }
+    librarySearchOpen = false
     if (navStore.canGoBack) {
       navStore.goBack()
     }
   }
 
   function handleEscape(): void {
-    appHeaderComponent?.blurSearchInput()
+    if (appSidebarComponent?.closeTitleSearch()) {
+      searchStore.clearDetail()
+      return
+    }
 
-    if (searchStore.isGlobalActive) {
-      searchStore.clearGlobal()
+    if (librarySearchVisible) {
+      closeLibrarySearch()
       return
     }
 
@@ -662,7 +691,7 @@
       navigateBack: () => goBack(),
       navigateForward: () => goForward(),
       escapeAction: () => handleEscape(),
-      focusSearch: () => appHeaderComponent?.focusSearchInput(),
+      focusSearch: openSearch,
       rescan: actions.rescan,
       toggleFullscreen: actions.toggleFullscreen,
       openSettings: actions.openSettings,
@@ -707,8 +736,8 @@
 {/if}
 
 {#if authStore.isAuthenticated ? isInitializing : authStore.isChecking}
-  <div class="loading-screen">
-    <div class="spinner"></div>
+  <div class="loading-screen" role="status" aria-label="Opening Kinome">
+    <div class="busy-wheel"></div>
   </div>
 {:else if !authStore.isAuthenticated}
   <LoginPage />
@@ -728,58 +757,62 @@
       />
     {/if}
 
-    <main>
+    <main class="application-shell">
       {#if libraryStatus?.status !== 'ready'}
-        <SetupScreen onStatusUpdate={refreshLibraryStatus} />
+        <div class="setup-content"><SetupScreen onStatusUpdate={refreshLibraryStatus} /></div>
       {:else}
-        <AppHeader
-          bind:this={appHeaderComponent}
+        <AppSidebar
+          bind:this={appSidebarComponent}
           {isWaitingForScan}
           {isScanning}
-          isContextMenuVisible={contextMenuStore.isVisible}
+          {librarySearchVisible}
           on:refresh={handleRefresh}
-          on:openSettings={() => navStore.navigateToSettings()}
+          on:openSettings={() => { librarySearchOpen = false; navStore.navigateToSettings() }}
+          on:home={() => { librarySearchOpen = false; navStore.navigateToHome() }}
+          on:back={goBack}
+          on:librarySearch={openSearch}
           on:openLayoutSelector={openLayoutSelector}
           on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-          on:globalSearchItemClick={(e) => handleItemClick(e.detail.item, 'global')}
           on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}
           {settings}
           suggestions={allAutocompleteSuggestions}
         />
 
-        <ViewManager
-          {isScanning}
-          {libraryStatus}
-          bind:settings
-          suggestions={allAutocompleteSuggestions}
-          on:statusUpdate={refreshLibraryStatus}
-          on:itemClick={(e) => handleItemClick(e.detail.item)}
-          on:play={(e) => handlePlayFile(e.detail.item)}
-          on:showContextMenu={(e) =>
-            handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
-          on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
-          on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
-        />
-      {/if}
-
-      {#if searchStore.isFilterBarVisible}
-        <FilterBar
-          suggestions={allAutocompleteSuggestions}
-          bind:query={searchStore.filterQuery}
-          focusKey={searchStore.filterFocusKey}
-          onClose={() => {
-            searchStore.isFilterBarVisible = false
-            // Clear the filter state when it's manually closed.
-            searchStore.clearFilter()
-          }}
-        />
+        <div class="application-content">
+          <ViewManager
+            bind:this={viewManager}
+            {librarySearchOpen}
+            {closeLibrarySearch}
+            {libraryStatus}
+            bind:settings
+            suggestions={allAutocompleteSuggestions}
+            on:itemClick={(e) => handleItemClick(e.detail.item)}
+            on:play={(e) => handlePlayFile(e.detail.item)}
+            on:showContextMenu={(e) =>
+              handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
+            on:searchByTag={(e) => handleSearchByTag(e.detail.key, e.detail.value)}
+            on:dismissContinueWatching={(e) => handleDismissContinueWatching(e.detail.showId)}
+          />
+          {#if searchStore.isFilterBarVisible}
+            <FilterBar
+              suggestions={allAutocompleteSuggestions}
+              bind:query={searchStore.filterQuery}
+              focusKey={searchStore.filterFocusKey}
+              onClose={() => {
+                searchStore.isFilterBarVisible = false
+                // Clear the filter state when it's manually closed.
+                searchStore.clearFilter()
+              }}
+            />
+          {/if}
+        </div>
       {/if}
     </main>
 
     {#if playback && webPlayer}
       {#key playback}
         {#await webPlayer}
-          <div class="loading-screen" role="status" aria-label="Opening player"><div class="spinner"></div></div>
+          <div class="loading-screen" role="status" aria-label="Opening player"><div class="busy-wheel"></div></div>
         {:then { default: WebPlayer }}
           <WebPlayer item={playback.item} {settings} initialQuality={playback.quality} initialInfo={playback.info} onClose={closeWebPlayer} />
         {:catch}
@@ -796,6 +829,7 @@
 {/if}
 
 <svelte:window
+  onpopstate={() => { librarySearchOpen = false; appSidebarComponent?.blurSearchInput() }}
   ondragstart={(e) => {
     if ((e.target as HTMLElement).tagName === 'IMG') {
       e.preventDefault()
@@ -804,13 +838,38 @@
 />
 
 <style>
-  main {
-    --header-height: 54px;
+  .application-shell {
+    --sidebar-width: 72px;
+    /* Set relative, 0px, and 0px to return to an inset rail. */
+    --rail-position: absolute;
+    --content-inset: var(--sidebar-width);
+    --rail-fade-overhang: 22px;
+    position: relative;
+    display: flex;
+    isolation: isolate;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--color-background);
+  }
+
+  .setup-content { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+
+  .application-content {
+    position: relative;
+    min-width: 0;
+    flex: 1;
     display: flex;
     flex-direction: column;
-    width: 100vw;
-    height: 100vh;
-    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .application-shell:has(:global(.modal-backdrop)) .application-content {
+    z-index: 51;
+  }
+
+  @media (max-width: 600px) {
+    .application-shell { --sidebar-width: 56px; }
   }
 
   .loading-screen {
@@ -826,18 +885,4 @@
     z-index: 9999;
   }
 
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    border-top-color: var(--color-primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
 </style>

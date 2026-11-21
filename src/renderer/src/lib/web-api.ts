@@ -14,7 +14,7 @@ import type {
   ScanStatus,
   MediaSource
 } from '@shared/types'
-import type { ApiClient } from './api'
+import type { ApiClient, LibraryItemUpdate } from './api'
 import { authStore } from './auth-store.svelte'
 
 const BASE_URL = ''
@@ -78,6 +78,10 @@ class WebApiClient implements ApiClient {
     this.ws.onmessage = (event) => {
       try {
         const { type, data } = JSON.parse(event.data)
+        if (type === 'account-permissions-changed') {
+          if (token === authStore.token) authStore.updatePermissions(data)
+          return
+        }
 
         // Log library updates specifically for debugging
         if (type === 'library-items-updated') {
@@ -281,7 +285,7 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/items/${encodeURIComponent(parentId)}/children?${params.toString()}`)
   }
 
-  async userUpdateItem(item: Partial<LibraryItem>): Promise<void> {
+  async userUpdateItem(item: LibraryItemUpdate): Promise<void> {
     await this.request('/api/items', {
       method: 'PATCH',
       body: JSON.stringify(item)

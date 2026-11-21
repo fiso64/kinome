@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AutocompleteSuggestions } from '@shared/types'
   import SearchInput from './SearchInput.svelte'
-  import IconX from './IconX.svelte'
+  import Icon from './Icon.svelte'
 
   let {
     query = $bindable(),
@@ -25,7 +25,7 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !(event.target instanceof Element && event.target.closest('dialog[open]'))) {
+      if (event.key === 'Escape' && !(event.target instanceof Element && event.target.closest('dialog[open], [aria-modal="true"]'))) {
         event.preventDefault()
         event.stopPropagation()
         onClose()
@@ -39,71 +39,27 @@
   })
 </script>
 
-<div class="filter-bar-container">
-  <SearchInput bind:query {suggestions} bind:element={searchInput} />
-  <button class="close-btn" onclick={onClose} title="Close (Esc)"><IconX size={14} /></button>
+<div class="filter-bar-container glass-surface">
+  <span class="filter-icon"><Icon name="filter" size={17} /></span>
+  <SearchInput label="Filter current view" bind:query {suggestions} bind:element={searchInput} />
+  <button class="icon-button" type="button" onclick={onClose} aria-label="Close filter" title="Close filter (Esc)"><Icon name="close" size={17} /></button>
 </div>
 
 <style>
   .filter-bar-container {
-    position: fixed;
-    bottom: 2rem;
-    left: 50%;
+    position: absolute;
+    inset-block-end: max(.85rem, env(safe-area-inset-bottom));
+    inset-inline-start: 50%;
     transform: translateX(-50%);
-    z-index: 50; /* Above content, below modals */
-
+    z-index: 30;
+    width: min(34rem, calc(100% - 1.2rem));
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background-color: hsla(225, 8%, 15%, 0.9);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--ev-c-black-mute);
-    border-radius: 25px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-    transition:
-      opacity 0.2s,
-      transform 0.2s;
-    animation: slide-in 0.2s ease-out;
+    gap: .4rem;
+    padding: .4rem;
+    animation: slide-in .15s ease-out;
   }
-
-  @keyframes slide-in {
-    from {
-      opacity: 0;
-      transform: translate(-50%, 1rem);
-    }
-    to {
-      opacity: 1;
-      transform: translate(-50%, 0);
-    }
-  }
-
-  /* Style SearchInput when inside filter bar */
-  .filter-bar-container :global(.search-box) {
-    max-width: 500px;
-    min-width: 300px;
-    height: 38px;
-    background-color: transparent;
-    border: none;
-  }
-
-  .close-btn {
-    flex-shrink: 0;
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    padding: 0;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .close-btn:hover {
-    background-color: var(--ev-c-gray-3);
-    color: var(--ev-c-text-1);
-  }
+  .filter-icon { flex: none; display: flex; align-items: center; padding: 0 .18rem 0 .45rem; color: var(--color-primary-soft); }
+  @keyframes slide-in { from { opacity: 0; transform: translate(-50%, .5rem); } }
+  @media (prefers-reduced-motion: reduce) { .filter-bar-container { animation: none; } }
 </style>

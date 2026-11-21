@@ -1,11 +1,14 @@
 <script lang="ts">
+  import Icon from '@components/ui/Icon.svelte'
   import MediaView from './MediaView.svelte'
+  import TmdbMetadataSummary from '@components/ui/TmdbMetadataSummary.svelte'
+  import { authStore } from '@lib/auth-store.svelte'
   import CreditsView from './CreditsView.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
 
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
-  import { slide, fade, fly } from 'svelte/transition'
-  import { cubicOut } from 'svelte/easing'
+  import { slide, fade } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
   import { isSupportedVideoFile } from '@shared/local-media'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
@@ -38,15 +41,20 @@
 
   // -- 1. Local Component State (Moved up for query dependencies) --
 
-  let activeInfoTab = $state<'overview' | 'credits'>('overview')
+  type InfoTab = 'overview' | 'credits' | 'metadata'
+  const infoTabLabels: Record<InfoTab, string> = { overview: 'Overview', credits: 'Cast & Crew', metadata: 'Metadata' }
+  let activeInfoTab = $state<InfoTab>('overview')
   let isCreditsExpanded = $state(settings?.creditsDisplay === 'shown')
   let lastSeenItemId = $state(initialItem.id)
-  let overviewContainerElement = $state<HTMLDivElement>()
+  let infoContainer = $state<HTMLElement>()
+  let detailScroll = $state<HTMLDivElement>()
+  let infoTabs = $state<HTMLDivElement>()
+  let infoPanel = $state<HTMLDivElement>()
+  let infoPanelContent = $state<HTMLDivElement>()
   let isOverviewExpanded = $state(false)
   let isOverviewOverflowing = $state(false)
   let isBackdropLoaded = $state(false)
   let isLogoLoaded = $state(false)
-  let isUserToggling = $state(false)
   let isPosterLoaded = $state(false)
 
   // References for safety checks
@@ -58,10 +66,6 @@
   let lastBackdrop = $state<string | undefined>()
   let lastLogo = $state<string | undefined>()
   let lastPoster = $state<string | undefined>()
-
-  // Timing for adaptive fades
-  let backdropStartTime = $state(performance.now())
-  let backdropFadeDuration = $state(400)
 
   // -- 2. Reactive Data Fetching (Lean Bundling) --
 
@@ -78,7 +82,7 @@
 
   // 1a. Fetch Credits lazily (Before item derivation)
   const creditsQuery = libraryDataService.getCreditsQuery(() => initialItem.id, {
-    enabled: () => activeInfoTab === 'credits' || isCreditsExpanded
+    enabled: () => settings.creditsDisplay !== 'hidden' && (activeInfoTab === 'credits' || isCreditsExpanded)
   })
 
   // The authoritative reactive item for metadata (header, background)
@@ -107,7 +111,6 @@
     if (item.backdropPath !== lastBackdrop) {
       lastBackdrop = item.backdropPath
       isBackdropLoaded = false
-      backdropStartTime = performance.now()
     }
     if (item.logoPath !== lastLogo) {
       lastLogo = item.logoPath
@@ -127,7 +130,6 @@
     item.posterPath
 
     if (backdropImg?.complete && backdropImg.src && !isBackdropLoaded) {
-      backdropFadeDuration = 300 // Snappy for ultra-fast cache
       isBackdropLoaded = true
     }
     if (logoImg?.complete && logoImg.src) isLogoLoaded = true
@@ -142,7 +144,7 @@
   const childrenQuery = libraryDataService.getChildrenQuery(() => initialItem.id, {
     fields: () => item.mediaType === 'movie' ? [...new Set([...requiredFields, 'size'])] : requiredFields,
     isDetailView: () => true,
-    enabled: () => initialItem.type === 'folder' && item.viewHierarchy != null
+    enabled: () => item.type === 'folder' && item.viewHierarchy != null
   })
 
   // Structural children for the content list/tabs
@@ -150,12 +152,22 @@
     childrenQuery.data || (initialItem.type === 'folder' ? initialItem.children || [] : [])
   )
 
-  const movieFile = $derived(item.type === 'folder' && item.mediaType === 'movie'
-    ? children.filter((child): child is LibraryItem & MediaFile => child.type === 'file' && !child.isHidden &&
-      !child.isIgnored && itemCapabilities(child).canPlay && isSupportedVideoFile(child.name))
-      .sort((a, b) => Number(b.mediaType === 'movie') - Number(a.mediaType === 'movie') ||
-        (b.size ?? 0) - (a.size ?? 0) || a.name.localeCompare(b.name, undefined, { numeric: true }))[0]
-    : undefined)
+  const movieFile = $derived.by(() => {
+    if (item.type !== 'folder' || item.mediaType !== 'movie') return undefined
+
+    let selected: (LibraryItem & MediaFile) | undefined
+    for (const child of children) {
+      if (child.type !== 'file' || child.isHidden || child.isIgnored ||
+        !isSupportedVideoFile(child.name) || !itemCapabilities(child).canPlay) continue
+
+      const priority = !selected ? -1 :
+        Number(selected.mediaType === 'movie') - Number(child.mediaType === 'movie') ||
+        (selected.size ?? 0) - (child.size ?? 0) ||
+        child.name.localeCompare(selected.name, undefined, { numeric: true })
+      if (priority < 0) selected = child
+    }
+    return selected
+  })
 
   // -- 3. Derived Template Properties --
 
@@ -177,15 +189,23 @@
     isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
+  const availableInfoTabs = $derived.by(() => {
+    const tabs: InfoTab[] = []
+    if (showOverviewTab) tabs.push('overview')
+    if (settings.creditsDisplay === 'tab' && showCreditsSection) tabs.push('credits')
+    if (item.tmdbMetadata) tabs.push('metadata')
+    return tabs
+  })
+  const popupTab = $derived(activeInfoTab !== 'overview' && availableInfoTabs.includes(activeInfoTab) ? activeInfoTab : null)
+  const infoPanelId = $props.id()
+
   const contentsLayout = $derived(
     item.viewHierarchy?.effective?.layout ?? resolvedSettings?.layout ?? 'grid'
   )
-  const showRegularContents = $derived(item.type === 'folder' && children.length > 0)
+  const loadingContents = $derived(childrenQuery.isPending && childrenQuery.isFetching)
 
   // -- 4. Additional Queries --
 
-  let posterColumnElement = $state<HTMLDivElement>()
-  let infoColumnElement = $state<HTMLDivElement>()
   let overviewWrapperElement = $state<HTMLDivElement>()
   let overviewParagraphElement = $state<HTMLParagraphElement>()
 
@@ -211,14 +231,14 @@
         overviewWrapperElement.style.maxHeight = ''
       }
     }
-    if (!showOverviewTab && activeInfoTab === 'overview' && item.lastRefreshedAt) {
+    if (!showOverviewTab && !item.tmdbMetadata && showCreditsSection && settings.creditsDisplay === 'tab') {
       activeInfoTab = 'credits'
     }
   })
 
   $effect(() => {
     // Wait for the lazy-load query to finish before deciding we need to scrape
-    if (creditsQuery.isFetching) return
+    if (!authStore.can.editMetadata || !item.tmdbId || creditsQuery.isFetching || settings.creditsDisplay === 'hidden') return
 
     if (settings?.creditsDisplay === 'tab') {
       if (activeInfoTab === 'credits' && !item.tmdbCredits) {
@@ -236,83 +256,89 @@
   })
 
   $effect(() => {
-    if (activeInfoTab !== 'credits') return undefined
-    const handleClickOutside = (event: MouseEvent) => {
-      if (overviewContainerElement && !overviewContainerElement.contains(event.target as Node)) {
-        const targetElement = event.target as HTMLElement
-        if (targetElement.closest('.modal-window, .context-menu, .dialog-window')) return
-        activeInfoTab = 'overview'
-      }
+    const wrapper = overviewWrapperElement
+    const paragraph = overviewParagraphElement
+    if (!wrapper || !paragraph) return
+
+    const measure = () => {
+      const lineHeight = Number.parseFloat(getComputedStyle(wrapper).lineHeight)
+      isOverviewOverflowing = paragraph.scrollHeight > lineHeight * 5 + 1
     }
-    queueMicrotask(() => window.addEventListener('mousedown', handleClickOutside))
-    return () => window.removeEventListener('mousedown', handleClickOutside)
-  })
-
-  function handleToggleOverview() {
-    isUserToggling = true
-    isOverviewExpanded = !isOverviewExpanded
-    setTimeout(() => {
-      isUserToggling = false
-    }, 300) // Match transition duration
-  }
-
-  $effect(() => {
-    const isExpanded = isOverviewExpanded
-    const currentTab = activeInfoTab
-    const currentSettings = settings
-
-    const posterCol = posterColumnElement
-    const infoCol = infoColumnElement
-    const overviewWrapper = overviewWrapperElement
-    const overviewP = overviewParagraphElement
-
-    if (!item.overview || !posterCol || !infoCol || !overviewWrapper || !overviewP) {
-      isOverviewOverflowing = false
-      return undefined
-    }
-
-    const checkOverflow = () => {
-      if (currentSettings?.creditsDisplay === 'tab' && currentTab !== 'overview') {
-        isOverviewOverflowing = false
-        return
-      }
-
-      const posterHeight = posterCol.offsetHeight
-      const currentWrapperHeight = overviewWrapper.offsetHeight
-      const infoHeight = infoCol.offsetHeight
-      const otherContentHeight = infoHeight - currentWrapperHeight
-
-      // Calculate available space for overview to align with poster bottom
-      // We ensure a minimum of 0 to avoid negative values
-      const availableSpace = Math.max(0, posterHeight - otherContentHeight)
-      const fullHeight = overviewWrapper.scrollHeight
-
-      // Check if content significantly exceeds available space
-      const isOverflowing = fullHeight > availableSpace + 20
-      isOverviewOverflowing = isOverflowing
-
-      const targetHeight = isOverflowing && !isExpanded ? Math.max(60, availableSpace) : fullHeight
-
-      overviewWrapper.style.maxHeight = `${targetHeight}px`
-    }
-
-    const observer = new ResizeObserver(checkOverflow)
-    observer.observe(posterCol)
-
-    observer.observe(infoCol)
-    observer.observe(overviewP)
-    // Important: checkOverflow will set initial pixel height
-    queueMicrotask(checkOverflow)
-
+    const observer = new ResizeObserver(measure)
+    observer.observe(paragraph)
     return () => observer.disconnect()
   })
 
-  let previousV = $state<number | undefined>(undefined)
-
   $effect(() => {
-    previousV = item._v
+    const viewport = detailScroll
+    const tabs = infoTabs
+    const panel = infoPanel
+    const content = infoPanelContent
+    const anchor = panel?.parentElement
+    if (!viewport || !tabs || !panel || !content || !anchor) return
+
+    let frame = 0
+    const measure = () => {
+      const bounds = viewport.getBoundingClientRect()
+      const tabBounds = tabs.getBoundingClientRect()
+      const anchorTop = anchor.getBoundingClientRect().top
+      const below = bounds.bottom - anchorTop - 12
+      const above = tabBounds.top - bounds.top - 12
+      const naturalHeight = content.getBoundingClientRect().height + 24
+      const placeAbove = below < naturalHeight && above > below
+      panel.classList.toggle('above-tabs', placeAbove)
+      panel.style.setProperty('--info-panel-room', `${Math.max(0, placeAbove ? above : below)}px`)
+      panel.style.setProperty('--info-panel-above-offset', `${Math.ceil(anchorTop - tabBounds.top + 6)}px`)
+    }
+
+    function scheduleMeasure() {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
+
+    const sizes = new ResizeObserver(scheduleMeasure)
+    sizes.observe(viewport)
+    sizes.observe(tabs)
+    sizes.observe(content)
+    viewport.addEventListener('scroll', scheduleMeasure, { passive: true })
+    measure()
+    return () => {
+      viewport.removeEventListener('scroll', scheduleMeasure)
+      sizes.disconnect()
+      cancelAnimationFrame(frame)
+    }
   })
+
+  function handleInfoTabKeys(event: KeyboardEvent, index: number) {
+    const tabs = availableInfoTabs
+    let next: number
+    switch (event.key) {
+      case 'ArrowLeft': next = (index + tabs.length - 1) % tabs.length; break
+      case 'ArrowRight': next = (index + 1) % tabs.length; break
+      case 'Home': next = 0; break
+      case 'End': next = tabs.length - 1; break
+      default: return
+    }
+    event.preventDefault()
+    activeInfoTab = tabs[next]
+    document.getElementById(`${infoPanelId}-${activeInfoTab}`)?.focus()
+  }
+
+  function closeInfoPopup(restoreFocus: boolean) {
+    const trigger = showOverviewTab ? 'overview' : activeInfoTab
+    activeInfoTab = 'overview'
+    if (restoreFocus) document.getElementById(`${infoPanelId}-${trigger}`)?.focus()
+  }
+
+  function dismissInfoPopup(event: PointerEvent) {
+    if (!popupTab || !(event.target instanceof Element)) return
+    if (!infoContainer?.contains(event.target) && !event.target.closest('.context-menu, .modal-backdrop')) {
+      closeInfoPopup(false)
+    }
+  }
 </script>
+
+<svelte:window onpointerdown={dismissInfoPopup} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -322,12 +348,12 @@
 >
   {#if item.isMissing}
     <div class="missing-banner">
-      <span class="icon">⚠️</span>
+      <span class="icon"><Icon name="warning" size={17} /></span>
       <span>File or folder missing from disk.</span>
     </div>
   {/if}
   <ViewContextProvider id={item.id}>
-    <div class="scroll-container" use:scrollPersistence={{ key: getViewKey('detail') }}>
+    <div class="scroll-container" bind:this={detailScroll} use:scrollPersistence={{ key: getViewKey('detail') }}>
       <div class="backdrop-container" class:full-size={settings.itemDetailBackdropSize === 'full'}>
         {#if item.backdropPath}
           <img
@@ -336,32 +362,17 @@
             class:show={isBackdropLoaded}
             src={getAssetUrl(item.backdropPath + (item._v ? `?v=${item._v}` : ''))}
             alt=""
-            onload={async (e) => {
-              const img = e.currentTarget as HTMLImageElement
-              try {
-                await img.decode() // Ensure GPU is ready before showing
-                const loadTime = performance.now() - backdropStartTime
-                backdropFadeDuration = loadTime > 150 ? 1000 : 300
-                isBackdropLoaded = true
-              } catch (err) {
-                isBackdropLoaded = true
-              }
-            }}
-            onerror={() => {
-              backdropFadeDuration = 300
-              isBackdropLoaded = true
-            }}
+            onload={() => (isBackdropLoaded = true)}
+            onerror={() => (isBackdropLoaded = true)}
             style:--backdrop-blur="{settings.itemDetailBackdropBlur}px"
-            style="transition-duration: {backdropFadeDuration}ms"
           />
         {/if}
         <div class="backdrop-overlay"></div>
       </div>
 
-      <div class="fade-shroud"></div>
-      <div class="detail-content animate-arrival">
+      <div class="detail-content" aria-busy={isHeaderLoading}>
         <div class="info-grid">
-          <div class="poster-column" bind:this={posterColumnElement}>
+          <div class="poster-column">
             <div class="poster">
               {#if isHeaderLoading}
                 <Skeleton width="100%" height="100%" radius="8px" />
@@ -378,18 +389,14 @@
                 </div>
               {:else}
                 <div class="icon">
-                  {item.type === 'folder' ? '📁' : '📄'}
+                  <Icon name={item.type === 'folder' ? 'folder' : 'file'} size={20} />
                 </div>
               {/if}
             </div>
-            {#if item.type === 'file' && itemCapabilities(item).canPlay}
-              <button class="play-button" onclick={() => onPlay(item)}>▶ Play</button>
-            {:else if movieFile}
-              <button class="play-button" onclick={() => onPlay({ ...movieFile!, title: item.title ?? item.name })}>▶ Play</button>
-            {/if}
+
           </div>
 
-          <div class="info-column" bind:this={infoColumnElement}>
+          <div class="info-column">
             <div class="title-and-meta">
               {#if isHeaderLoading}
                 <Skeleton width="65%" height="2.5rem" radius="6px" />
@@ -401,21 +408,21 @@
               {:else}
                 {#if item.mediaType === 'season' && parentShow}
                   <button class="parent-show-link" onclick={() => onItemClick(parentShow)}>
-                    <span class="breadcrumb-arrow">‹</span>{parentShow.title ?? parentShow.name}
+                    <span class="breadcrumb-arrow"><Icon name="left" size={17} /></span>{parentShow.title ?? parentShow.name}
                   </button>
                 {/if}
                 {#if (settings.useLogos ?? true) && item.logoPath}
-                  <div class="logo-container">
+                  <h1 class="logo-container">
                     <img
                       bind:this={logoImg}
                       src={getAssetUrl(item.logoPath + (item._v ? `?v=${item._v}` : ''))}
-                      alt="{item.title ?? item.name} Logo"
+                      alt={displayTitle}
                       class="logo-image"
                       class:show={isLogoLoaded}
                       onload={() => (isLogoLoaded = true)}
                       onerror={() => (isLogoLoaded = true)}
                     />
-                  </div>
+                  </h1>
                 {:else}
                   <h1>{displayTitle}</h1>
                 {/if}
@@ -443,112 +450,89 @@
                     </div>
                   {/if}
                 </div>
+                {#if item.type === 'file' && itemCapabilities(item).canPlay}
+                  <button class="primary play-button" onclick={() => onPlay(item)}><Icon name="play" size={18} /> Play</button>
+                {:else if movieFile}
+                  {@const playableFile = movieFile}
+                  <button class="primary play-button" onclick={() => onPlay({ ...playableFile, title: item.title ?? item.name })}>
+                    <Icon name="play" size={18} /> Play
+                  </button>
+                {/if}
               {/if}
             </div>
-            {#if settings?.creditsDisplay === 'tab'}
-              <div class="overview-container" bind:this={overviewContainerElement}>
-                {#if showOverviewTab || showCreditsSection}
-                  <div class="info-tabs">
-                    {#if showOverviewTab}
-                      <button
-                        class:active={activeInfoTab === 'overview'}
-                        onclick={() => (activeInfoTab = 'overview')}
-                      >
-                        <h2 class="section-title">Overview</h2>
-                      </button>
-                    {/if}
-                    {#if showCreditsSection}
-                      <button
-                        class:active={activeInfoTab === 'credits'}
-                        onclick={() => (activeInfoTab = 'credits')}
-                      >
-                        <h2 class="section-title">Cast & Crew</h2>
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
 
-                <div class="content-holder">
-                  <!-- Overview is always present to maintain content height -->
-                  <div class="overview-content" class:hidden={activeInfoTab === 'credits'}>
-                    {#if item.overview}
-                      <div class="overview-expandable-area">
-                        <div
-                          class="overview-wrapper"
-                          bind:this={overviewWrapperElement}
-                          class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-                          class:expanded={isOverviewExpanded}
-                          style:transition={isUserToggling ? 'max-height 0.25s ease-out' : 'none'}
-                        >
-                          <p class="overview" bind:this={overviewParagraphElement}>
-                            {item.overview}
-                          </p>
+            {#if isHeaderLoading}
+              <div class="overview-container overview-loading" aria-hidden="true">
+                <Skeleton width="25%" height="1.15rem" />
+                <Skeleton width="95%" />
+                <Skeleton width="85%" />
+                <Skeleton width="70%" />
+              </div>
+            {:else if availableInfoTabs.some((tab) => tab !== 'overview')}
+              <section class="overview-container" bind:this={infoContainer} aria-label="Title information"
+                onkeydown={(event) => {
+                  if (event.key === 'Escape' && popupTab && !event.defaultPrevented) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    closeInfoPopup(true)
+                  }
+                }}>
+                <div class="info-tabs" role="tablist" aria-label="Title information" bind:this={infoTabs}>
+                  {#each availableInfoTabs as tab, index (tab)}
+                    {@const selected = tab === 'overview' ? !popupTab : popupTab === tab}
+                    <button type="button" role="tab" id={`${infoPanelId}-${tab}`} aria-selected={selected}
+                      aria-controls={tab === 'overview' || selected ? `${infoPanelId}-${tab}-panel` : undefined}
+                      tabindex={selected || (!popupTab && !showOverviewTab && index === 0) ? 0 : -1}
+                      onkeydown={(event) => handleInfoTabKeys(event, index)}
+                      onclick={() => {
+                        if (tab === popupTab) closeInfoPopup(true)
+                        else activeInfoTab = tab
+                      }}>{infoTabLabels[tab]}</button>
+                  {/each}
+                </div>
+
+                <div class="info-panels">
+                  {#if showOverviewTab}
+                    <div role="tabpanel" id={`${infoPanelId}-overview-panel`} aria-labelledby={`${infoPanelId}-overview`}
+                      class="overview-panel" class:covered={!!popupTab} inert={!!popupTab}>
+                      {@render overview()}
+                    </div>
+                  {/if}
+                  {#if popupTab}
+                    <div class="info-popout glass-surface" class:credits-popout={popupTab === 'credits'}
+                      class:metadata-popout={popupTab === 'metadata'} role="tabpanel"
+                      id={`${infoPanelId}-${popupTab}-panel`} aria-labelledby={`${infoPanelId}-${popupTab}`}
+                      bind:this={infoPanel} in:fade={{ duration: prefersReducedMotion.current ? 0 : 135 }}>
+                      <div bind:this={infoPanelContent}>
+                        <div class="info-popout-heading">
+                          <h2>{popupTab === 'credits' ? 'Cast & Crew' : 'TMDB metadata'}</h2>
+                          <button class="icon-button" type="button" aria-label={popupTab === 'credits' ? 'Close cast and crew' : 'Close metadata'}
+                            onclick={() => closeInfoPopup(true)}><Icon name="close" size={18} /></button>
                         </div>
-                        {#if isOverviewOverflowing}
-                          <div class="expand-button-wrapper">
-                            <button
-                              class="expand-overview-btn"
-                              onclick={handleToggleOverview}
-                              aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-                            >
-                              <span class="chevron" class:up={isOverviewExpanded}></span>
-                            </button>
-                          </div>
-                        {/if}
-                      </div>
-                    {/if}
-                  </div>
-
-                  <!-- Credits "pop out" on top of the overview area -->
-                  {#if activeInfoTab === 'credits' && showCreditsSection}
-                    <div class="credits-popout">
-                      <div class="tab-content-wrapper">
-                        {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-                          <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                        {:else if !item.tmdbCredits}
-                          <div class="loading-credits">Loading...</div>
-                        {:else}
-                          <p class="overview no-overview">No credits available for this item.</p>
+                        {#if popupTab === 'credits'}
+                          {@render credits()}
+                        {:else if item.tmdbMetadata}
+                          <TmdbMetadataSummary metadata={item.tmdbMetadata} tmdbId={item.tmdbId} mediaType={item.mediaType} />
                         {/if}
                       </div>
                     </div>
                   {/if}
                 </div>
-              </div>
+              </section>
             {:else if item.overview}
               <div class="overview-container">
                 <h2 class="section-title">Overview</h2>
-                <div class="overview-expandable-area">
-                  <div
-                    class="overview-wrapper"
-                    bind:this={overviewWrapperElement}
-                    class:collapsed={isOverviewOverflowing && !isOverviewExpanded}
-                    class:expanded={isOverviewExpanded}
-                    style:transition={isUserToggling ? 'max-height 0.25s ease-out' : 'none'}
-                  >
-                    <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
-                  </div>
-                  {#if isOverviewOverflowing}
-                    <div class="expand-button-wrapper">
-                      <button
-                        class="expand-overview-btn"
-                        onclick={handleToggleOverview}
-                        aria-label={isOverviewExpanded ? 'Show Less' : 'Show More'}
-                      >
-                        <span class="chevron" class:up={isOverviewExpanded}></span>
-                      </button>
-                    </div>
-                  {/if}
-                </div>
+                {@render overview()}
               </div>
             {/if}
           </div>
         </div>
 
         {#if settings.showNextUp && continueWatchingInfo}
-          <section class="hero-banner-section">
+          <section class="hero-banner-section media-panel">
             <h2 class="section-title">Next Up</h2>
             <ContinueWatchingItem
+              embedded
               item={continueWatchingInfo!}
               layout="horizontal"
               on:itemClick={(e) => onItemClick(e.detail.item)}
@@ -564,25 +548,37 @@
           </section>
         {/if}
 
-        {#if showRegularContents && item.type === 'folder'}
-          <div class="children-section">
-            {#if !CONTAINER_LAYOUTS.includes(contentsLayout as any)}
+        {#if item.type === 'folder' && (children.length || loadingContents || childrenQuery.isError)}
+          <section class="children-section media-panel" aria-busy={loadingContents}>
+            {#if !CONTAINER_LAYOUTS.includes(contentsLayout as any) || loadingContents}
               <h2 class="section-title">Contents</h2>
             {/if}
-            <MediaView
-              parentItem={item}
-              items={children}
-              {onItemClick}
-              layout={contentsLayout}
-              onShowContextMenu={showContextMenu}
-              {settings}
-              viewNode={item.viewHierarchy}
-            />
-          </div>
+            {#if loadingContents}
+              <div class="overview-loading" role="status" aria-label="Loading contents">
+                <Skeleton height="2.2rem" />
+                <Skeleton height="2.2rem" width="85%" />
+              </div>
+            {:else if childrenQuery.isError && !children.length}
+              <div class="contents-status" role="status">
+                <p>Could not load this title's contents.</p>
+                <button type="button" onclick={() => childrenQuery.refetch()}>Try again</button>
+              </div>
+            {:else}
+              <MediaView
+                parentItem={item}
+                items={children}
+                {onItemClick}
+                layout={contentsLayout}
+                onShowContextMenu={showContextMenu}
+                {settings}
+                viewNode={item.viewHierarchy}
+              />
+            {/if}
+          </section>
         {/if}
 
         {#if isSpecialFile}
-          <div class="children-section">
+          <section class="children-section media-panel">
             <h2 class="section-title">Contents</h2>
             <MediaView
               parentItem={item as MediaFolder}
@@ -592,26 +588,22 @@
               onShowContextMenu={showContextMenu}
               {settings}
             />
-          </div>
+          </section>
         {/if}
 
         {#if settings?.creditsDisplay !== 'hidden' && settings?.creditsDisplay !== 'tab'}
           {#if showCreditsSection}
             <div class="collapsible-section">
               <button
-                class="section-title-button"
+                class="section-title-button" aria-expanded={isCreditsExpanded}
                 onclick={() => (isCreditsExpanded = !isCreditsExpanded)}
               >
                 <h2 class="section-title">Cast & Crew</h2>
-                <span class="chevron">{isCreditsExpanded ? '▾' : '▸'}</span>
+                <span class="chevron"><Icon name={isCreditsExpanded ? 'down' : 'right'} size={15} /></span>
               </button>
               {#if isCreditsExpanded}
-                <div class="collapsible-content" transition:slide|local={{ duration: 200 }}>
-                  {#if item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0)}
-                    <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
-                  {:else if !item.tmdbCredits}
-                    <div class="loading-credits">Loading...</div>
-                  {/if}
+                <div class="collapsible-content" transition:slide|local={{ duration: prefersReducedMotion.current ? 0 : 180 }}>
+                  {@render credits()}
                 </div>
               {/if}
             </div>
@@ -622,612 +614,261 @@
   </ViewContextProvider>
 </div>
 
-<style>
-  .scroll-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-  }
+{#snippet overview()}
+  <div class="overview-wrapper" bind:this={overviewWrapperElement}
+    class:clamped={!isOverviewExpanded} class:fade-text={!isOverviewExpanded && isOverviewOverflowing}>
+    <p class="overview" bind:this={overviewParagraphElement}>{item.overview}</p>
+  </div>
+  {#if isOverviewOverflowing}
+    <button type="button" class="expand-overview" aria-expanded={isOverviewExpanded}
+      onclick={() => (isOverviewExpanded = !isOverviewExpanded)}>
+      {isOverviewExpanded ? 'Show less' : 'Read more'} <Icon name={isOverviewExpanded ? 'up' : 'down'} size={15} />
+    </button>
+  {/if}
+{/snippet}
 
-  .detail-view {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    color: var(--color-text);
-    background-color: var(--color-background);
-    z-index: 1;
-    overflow: hidden; /* Prevent this container from scrolling */
-  }
+{#snippet credits()}
+  {#if item.tmdbCredits && (item.tmdbCredits.cast.length || item.tmdbCredits.crew.length)}
+    <div in:fade={{ duration: prefersReducedMotion.current ? 0 : 135 }}>
+      <CreditsView {item} credits={item.tmdbCredits} {onSearchByTag} />
+    </div>
+  {:else if !item.tmdbCredits && item.tmdbId && (creditsQuery.isPending || creditsQuery.isFetching)}
+    <div class="overview-loading" role="status" aria-label="Loading credits">
+      <Skeleton width="70%" />
+      <Skeleton width="45%" />
+    </div>
+  {:else}
+    <p class="overview">No credits available.</p>
+  {/if}
+{/snippet}
+
+<style>
+  .detail-view { position: absolute; inset: 0; background: var(--color-background); overflow: hidden; }
+  .scroll-container { position: absolute; inset: 0; overflow-y: auto; }
 
   .backdrop-container {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 50vh;
-    max-height: 400px;
+    inset: 0 0 auto;
+    height: min(69dvh, 720px);
     overflow: hidden;
-    z-index: 0;
     pointer-events: none;
-    transition:
-      height 0.3s ease-in-out,
-      max-height 0.3s ease-in-out;
   }
-  .backdrop-container.full-size {
-    position: sticky;
-    height: 100vh;
-    max-height: none;
-    margin-bottom: -100vh;
-  }
-
-  .backdrop-image,
-  .logo-image {
-    /* opacity: 0; removed to fix visibility issue */
-    /* transition: opacity 0.4s ease-in-out; removed */
-    overflow: hidden;
-  }
-  /* .backdrop-image.loaded,
-  .logo-image.loaded {
-    opacity: 1;
-  } removed */
-
+  .backdrop-container.full-size { position: sticky; height: 100dvh; margin-bottom: -100dvh; }
   .backdrop-image {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
     filter: blur(var(--backdrop-blur, 4px));
     opacity: 0;
-    transition-property: opacity, filter;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity .26s ease;
   }
-
-  .backdrop-image.show {
-    opacity: 1;
-  }
-
+  .backdrop-image.show { opacity: .9; }
   .backdrop-overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      to top,
-      var(--color-background) 10%,
-      rgba(0, 0, 0, 0.6) 60%,
-      rgba(0, 0, 0, 0.2) 100%
-    );
+    inset: 0;
+    background: linear-gradient(0deg, var(--color-background) 2%, #0e0e0f9c 44%, #09090929 100%);
   }
 
   .detail-content {
     position: relative;
-    z-index: 1;
-    padding: 1.5rem;
-
-    padding-top: 10vh;
-    max-width: 1200px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3rem;
-    /* Ensure opacity is 1 so Firefox keeps backdrop-filter active */
-    opacity: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1.35rem, 3.8vw, 2.75rem);
+    --detail-max-width: 1320px;
+    width: min(calc(100% - var(--content-inset, 0px)), var(--detail-max-width));
+    margin-inline-start: max(var(--content-inset, 0px), calc((100% + var(--content-inset, 0px) - var(--detail-max-width)) / 2));
+    padding: clamp(1.25rem, 6vw, 5.35rem) clamp(.9rem, 4.25vw, 3.4rem) 4rem;
   }
-
-  .fade-shroud {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: var(--color-background);
-    z-index: 5;
-    pointer-events: none;
-    animation: shroud-fade-out 0.4s ease-out forwards;
-  }
-
-  .animate-arrival {
-    animation: ui-arrival-padding 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  }
-
-  @keyframes shroud-fade-out {
-    from {
-      opacity: 1;
-    }
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes ui-arrival-padding {
-    from {
-      padding-top: calc(10vh + 12px);
-    }
-    to {
-      padding-top: 10vh;
-    }
-  }
-
   .info-grid {
     display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 2.5rem;
+    grid-template-columns: clamp(150px, 25vw, 320px) minmax(0, 1fr);
+    gap: clamp(1rem, 4vw, 3rem);
     align-items: start;
-    position: relative; /* Create a stacking context */
-    z-index: 2; /* Lift this grid above subsequent siblings like .children-section */
-  }
-
-  .poster-column {
-    top: calc(var(--header-height) + 1.5rem);
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
   }
 
   .poster {
+    display: grid;
+    place-items: center;
     width: 100%;
-    flex-shrink: 0;
     aspect-ratio: 2 / 3;
-    background-color: var(--color-background-soft);
-    border-radius: 8px;
+    color: var(--color-primary-soft);
+    background: var(--surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-standard);
     overflow: hidden;
+  }
+  .poster-container, .poster img { width: 100%; height: 100%; }
+  .poster img { display: block; object-fit: cover; opacity: 0; transition: opacity .22s ease; }
+  .poster img.show { opacity: 1; }
+
+  .info-column, .title-and-meta, .overview-container { display: grid; min-width: 0; }
+  .info-column { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; padding-top: clamp(.45rem, 2.4vw, 1.85rem); }
+  .title-and-meta { gap: .65rem; justify-items: start; }
+  .parent-show-link {
     display: flex;
     align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow-standard);
-    border: 1px solid var(--color-border);
-  }
-
-  .poster-container {
-    width: 100%;
-    height: 100%;
-  }
-
-  .poster img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-    opacity: 0;
-    transition: opacity 0.4s ease-out;
-  }
-
-  .poster img.show {
-    opacity: 1;
-  }
-
-  .poster .icon {
-    font-size: 6rem;
-  }
-
-  .info-column {
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
-    min-width: 0; /* Prevent wide content from breaking the grid layout */
-  }
-
-  .title-and-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem; /* Reduced gap to accommodate parent link */
-  }
-
-  .parent-show-link {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
+    gap: .18rem;
+    padding: .1rem .2rem .1rem 0;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--color-text-soft);
     text-align: left;
-    transition: color 0.2s ease;
-    display: inline-block; /* Make button only as wide as its content */
-    align-self: flex-start; /* Prevent it from stretching if parent is flex column */
   }
-  .parent-show-link:hover {
-    color: var(--ev-c-text-1);
-    background: none; /* Explicitly remove background on hover */
-    /* text-decoration: underline; removed */
-  }
-  .breadcrumb-arrow {
-    margin-right: 0.4em; /* Space between arrow and text */
-    color: var(--ev-c-text-3);
-    transition: color 0.2s ease;
-    font-weight: normal; /* Make arrow less bold than the link text */
-  }
-  .parent-show-link:hover .breadcrumb-arrow {
-    color: var(--ev-c-text-1); /* Match text color on hover */
-  }
-
-  .logo-container {
-    max-width: 350px;
-  }
-
+  .parent-show-link:hover { color: var(--color-primary-soft); background: transparent; }
+  h1 { font-size: clamp(1.55rem, 4.7vw, 3.85rem); line-height: 1.06; font-weight: 740; letter-spacing: -.045em; overflow-wrap: anywhere; }
+  .logo-container { width: min(100%, 390px); }
   .logo-image {
+    display: block;
     max-width: 100%;
-    max-height: 202.5px; /* 45% of poster height (300px width * 1.5 aspect ratio * 0.45) */
+    max-height: 165px;
     object-fit: contain;
     object-position: left bottom;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
     opacity: 0;
-    transition: opacity 0.4s ease-out;
+    transition: opacity .22s ease;
+    filter: drop-shadow(0 4px 8px #0008);
   }
+  .logo-image.show { opacity: 1; }
 
-  .logo-image.show {
-    opacity: 1;
-  }
-
-  h1 {
-    font-size: 3.5rem;
-    font-weight: 800;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
-  }
-
-  .media-meta {
+  .media-meta, .release-facts, .genres {
     display: flex;
     align-items: center;
+    gap: .35rem .55rem;
     flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-  }
-
-  .release-facts {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
     min-width: 0;
-    font-size: 1.2rem;
-    line-height: 1.45;
-    color: var(--color-text-soft);
   }
+  .release-facts { color: var(--color-text-soft); font-size: clamp(.82rem, 1.4vw, 1.03rem); font-weight: 650; }
+  .fact-separator { width: .23em; height: .23em; border-radius: 50%; background: currentColor; }
+  .next-air-date { color: var(--color-text-soft); font-size: .85rem; }
+  .genre-tag { padding: .2rem .53rem; color: var(--color-text-soft); font-size: .78rem; }
+  .play-button { display: inline-flex; align-items: center; gap: .4rem; padding-inline: 1.05rem; margin-top: .25rem; }
 
-  .release-fact {
-    font-weight: 600;
-  }
-
-  .release-fact:not(:last-child) {
-    white-space: nowrap;
-  }
-
-  .fact-separator {
-    flex: none;
-    width: 0.22em;
-    height: 0.22em;
-    border-radius: 50%;
-    background: var(--color-text-soft);
-  }
-
-  .next-air-date {
-    font-size: 0.9rem;
-    color: var(--color-text-soft);
-  }
-
-  .genres {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .genre-tag {
-    background-color: color-mix(in srgb, var(--color-text) 10%, transparent);
-    padding: 0.3rem 0.8rem;
-    border-radius: 16px;
-    font-size: 0.9rem;
-    border: 1px solid transparent;
-    color: var(--color-text-soft);
-    font-family: inherit;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  .genre-tag:hover {
-    background-color: color-mix(in srgb, var(--color-text) 20%, transparent);
-    color: var(--color-text);
-  }
-
-  .play-button {
-    width: 100%;
-    background-color: var(--color-primary);
-    color: white;
-    border: none;
-    padding: 1rem;
-    border-radius: 8px; /* Match poster */
-    font-weight: bold;
-    cursor: pointer;
-    font-size: 1.2rem;
-    transition:
-      transform 0.2s ease,
-      background-color 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-  .play-button:hover {
-    background-color: var(--color-primary-soft);
-    transform: scale(1.03);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  }
-
-  .overview-container {
-    display: flex;
-    flex-direction: column;
-    position: relative; /* Anchor for the popout */
-  }
-
-  .overview {
-    line-height: 1.7;
-    color: var(--ev-c-text-2);
-  }
-
-  .hero-banner-section {
-    grid-column: 1 / -1;
-  }
-  .hero-banner-section .section-title {
-    margin-left: 0;
-    margin-right: 0;
-  }
-  .children-section {
-    grid-column: 1 / -1;
-    margin-top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .section-title {
-    font-size: 1.5rem;
-    font-weight: bold;
-    /* border-bottom: 1px solid var(--color-background-mute); */
-    padding-bottom: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .collapsible-section {
-    grid-column: 1 / -1; /* Span full width of the parent grid */
-  }
-
-  .section-title-button {
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    width: 100%;
-    justify-content: space-between;
+  .overview-container { grid-template-columns: minmax(0, 1fr); gap: .55rem; position: relative; z-index: 2; }
+  .overview-wrapper { line-height: 1.65; overflow: hidden; }
+  .overview-wrapper.clamped { max-block-size: 5lh; }
+  .overview-wrapper.fade-text { mask-image: linear-gradient(#000 77%, transparent); }
+  .overview { color: var(--color-text-soft); line-height: inherit; }
+  .overview-loading { display: grid; gap: .55rem; }
+  .expand-overview {
+    display: inline-flex;
     align-items: center;
+    gap: .2rem;
+    justify-self: start;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    padding: .15rem 0;
+    color: var(--color-primary-soft);
+    font-size: .84rem;
   }
+  .expand-overview:hover { background: transparent; color: var(--color-text); }
 
-  .section-title-button:hover .section-title {
-    color: var(--ev-c-white-soft);
+  .media-panel {
+    min-width: 0;
+    padding: clamp(.72rem, 1.65vw, 1.2rem);
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-background-soft) 60%, var(--color-background)),
+      color-mix(in srgb, var(--color-background-soft) 30%, var(--color-background)) 72%
+    );
+    border: 1px solid color-mix(in srgb, var(--color-border-soft) 72%, transparent);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--edge-light), var(--shadow-standard);
   }
-
-  .section-title-button .section-title {
-    margin: 0;
-    border-bottom: none;
-    padding-bottom: 0;
+  .hero-banner-section { position: relative; }
+  .hero-banner-section .section-title { padding-inline-end: 2rem; }
+  .children-section {
+    --collection-row-background: transparent;
+    --collection-row-border: #ffffff0c;
+    --collection-row-shadow: none;
+    --collection-row-hover: #ffffff0b;
   }
-
-  .section-title-button .chevron {
-    font-size: 1.5rem;
-    color: var(--ev-c-text-2);
+  .collapsible-section { min-width: 0; padding-top: .6rem; background: var(--section-rule) 0 0 / 100% 1px no-repeat; }
+  .contents-status { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; color: var(--color-text-soft); }
+  .section-title { font-size: clamp(1.05rem, 2vw, 1.3rem); font-weight: 675; margin-bottom: .55rem; }
+  .section-title-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    padding-inline: 0;
   }
-
-  .collapsible-content {
-    overflow: hidden;
-    padding-top: 1.5rem;
-  }
-
-  .loading-credits {
-    color: var(--ev-c-text-2);
-  }
-
+  .section-title-button .section-title { margin-bottom: 0; }
   .info-tabs {
     display: flex;
-    gap: 1.5rem;
-    border-bottom: 1px solid var(--color-background-mute);
-    margin-bottom: 0.75rem; /* This creates the gap between tabs and content */
-    flex-shrink: 0; /* Prevent tabs from shrinking */
+    gap: .28rem;
+    max-width: 100%;
+    padding: 2px 2px .28rem;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
-
-  .info-tabs button {
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    color: inherit;
-    font: inherit;
-    transition: opacity 0.2s ease;
-  }
-
-  .info-tabs button:not(.active) {
-    opacity: 0.4;
-  }
-
-  .info-tabs button:not(.active):hover {
-    opacity: 1;
-  }
-
-  .info-tabs button .section-title {
-    border-bottom: none;
-    padding-bottom: 0.5rem;
-    margin-bottom: 0;
-  }
-
-  .content-holder {
-    /* No longer needs to be a positioning context */
-    flex-grow: 1;
-  }
-
-  .overview-content {
-    transition: opacity 0.2s ease-in-out;
-  }
-  .overview-content.hidden {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .credits-popout {
-    /* Position relative to the .overview-container */
+  .info-tabs button { flex: none; white-space: nowrap; border-color: transparent; box-shadow: none; background: transparent; color: var(--color-text-soft); padding: .35rem .65rem; }
+  .info-tabs button:hover { color: var(--color-text); background: var(--color-hover); }
+  .info-tabs button[aria-selected='true'] { background: var(--accent-surface); color: var(--color-primary-soft); border-color: var(--accent-border); }
+  .info-panels { position: relative; min-width: 0; }
+  .overview-panel.covered { visibility: hidden; }
+  .info-popout {
     position: absolute;
-    /* Start right after the tabs */
-    top: 87px; /* Height of tabs + gap */
-    left: -1rem; /* Align with parent padding */
-    right: -1rem; /* Align with parent padding */
-
-    background-color: var(--color-background-soft);
-    border: 1px solid var(--color-background-mute);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    padding: 1rem;
-    overflow-y: hidden;
-    animation: fadeIn 0.2s ease-in-out;
-    scrollbar-gutter: stable; /* Prevent scrollbar from causing layout shift */
-    z-index: 10; /* Ensure it's on top */
+    inset: 0 0 auto;
+    z-index: 3;
+    max-height: var(--info-panel-room, calc(100dvh - 1.5rem));
+    min-width: 0;
+    padding: .6rem .72rem .75rem;
+    overflow: auto;
+    overscroll-behavior: contain;
   }
-
-  .tab-content-wrapper {
-    padding-top: 0.25rem;
+  .info-popout:global(.above-tabs) {
+    inset-block-start: auto;
+    inset-block-end: calc(100% + var(--info-panel-above-offset, 3rem));
   }
-
-  .no-overview {
-    color: var(--ev-c-text-2);
-    font-style: italic;
+  .info-popout-heading { display: flex; justify-content: space-between; align-items: center; gap: .45rem; margin-bottom: .35rem; }
+  .info-popout-heading h2 { font-size: .94rem; font-weight: 675; }
+  .collapsible-content { padding-block: .55rem; }
+  .full-backdrop-mode :is(.overview-container, .media-panel, .collapsible-section) {
+    padding: .75rem .85rem;
+    background: var(--surface-over-artwork);
+    border: 1px solid var(--artwork-edge);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--edge-light), 0 10px 35px #0005;
   }
-
+  /* The contents panel can be arbitrarily tall. Its artwork is already blurred. */
+  .full-backdrop-mode :is(.overview-container, .hero-banner-section, .collapsible-section) {
+    backdrop-filter: blur(14px);
+  }
+  .full-backdrop-mode .info-popout {
+    background: linear-gradient(150deg, #252832ec, #111218ed);
+    border-color: var(--artwork-edge);
+  }
   .missing-banner {
-    position: sticky; /* Sticks to the top of the scrollable container */
-    top: 0;
-    background-color: #c50f1f;
-    color: white;
-    padding: 0.75rem 1.5rem;
-    text-align: center;
-    z-index: 6; /* Above backdrop and content, below header */
-    font-weight: bold;
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+    gap: .45rem;
+    padding: .5rem 1rem .5rem calc(1rem + var(--content-inset, 0px));
+    background: var(--color-danger);
+    font-weight: 650;
+  }
+  .missing-banner .icon { display: flex; }
+  .skeleton-meta-row { display: flex; flex-wrap: wrap; gap: .45rem; }
+
+  @media (max-width: 700px) {
+    .info-grid { grid-template-columns: clamp(80px, 29vw, 155px) minmax(0, 1fr); gap: .9rem; }
+    .info-column { display: contents; }
+    .poster { border-radius: var(--radius-field); }
+    .title-and-meta { align-self: center; }
+    .logo-image { max-height: 92px; }
+    .overview-container { grid-column: 1 / -1; }
+    .info-tabs { gap: .22rem; }
+    .info-tabs button { padding-inline: .52rem; }
   }
 
-  /* --- Full Backdrop Mode Styles --- */
-  .detail-view.full-backdrop-mode {
-    background-color: transparent;
-  }
-  .full-backdrop-mode .overview-container {
-    background-color: rgba(30, 30, 33, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1.5rem;
-  }
-  .full-backdrop-mode .overview-container .section-title {
-    margin-bottom: 1rem;
-  }
-  .full-backdrop-mode .credits-popout {
-    background-color: var(--color-background); /* opaque for readability */
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-color: var(--color-border);
-  }
-  .full-backdrop-mode .collapsible-content {
-    background-color: rgba(30, 30, 33, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1.5rem;
-  }
-
-  .full-backdrop-mode .play-button {
-    background-color: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  }
-
-  .full-backdrop-mode .play-button:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.4);
-    transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
-
-  /* Overview Expansion Styles */
-  .overview-expandable-area {
-    position: relative;
-  }
-  .overview-wrapper {
-    overflow: hidden;
-    min-height: 1.2em; /* Ensure it's never 0 during first measurement */
-    max-height: 12rem; /* Cap by default to prevent layout jumps on arrival */
-  }
-
-  .overview-wrapper.expanded {
-    max-height: none;
-  }
-
-  .overview-wrapper.collapsed {
-    transition: none;
-
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
-    mask-image: linear-gradient(to bottom, black calc(100% - 3rem), transparent);
-  }
-
-  .expand-button-wrapper {
-    text-align: center;
-    margin-top: -1.5rem;
-    position: relative;
-    z-index: 1;
-    transition: margin-top 0.3s ease-in-out;
-  }
-  .overview-wrapper.expanded + .expand-button-wrapper {
-    margin-top: 0.5rem;
-  }
-  .expand-overview-btn {
-    background: none;
-    border: none;
-    color: var(--ev-c-text-2);
-    cursor: pointer;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-  }
-  .expand-overview-btn:hover {
-    color: var(--ev-c-text-1);
-    background-color: var(--color-background-soft);
-  }
-  .expand-overview-btn .chevron {
-    display: inline-block;
-    border: solid currentColor;
-    border-width: 0 2px 2px 0;
-    padding: 3px;
-    transform: rotate(45deg); /* Down arrow */
-    transition: transform 0.2s ease;
-  }
-  .expand-overview-btn .chevron.up {
-    transform: rotate(-135deg); /* Up arrow */
-  }
-
-  .skeleton-meta-row {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 0.75rem;
+  @media (prefers-reduced-motion: reduce) {
+    .backdrop-image, .poster img, .logo-image { transition: none; }
   }
 </style>
