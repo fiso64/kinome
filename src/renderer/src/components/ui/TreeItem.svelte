@@ -61,39 +61,46 @@
 </script>
 
 <div class="tree-item-container">
-  <button
-    type="button"
-    class="tree-item"
-    class:thumbnail-action={item.mediaType === 'episode'}
-    aria-expanded={item.type === 'folder' ? isExpanded : undefined}
-    class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
-    class:missing={item.isMissing}
-    onclick={handleItemClick}
-    oncontextmenu={(e) => showContextMenu(item, e, { parentItem: parentItem as LibraryItem })}
-  >
-    <div class="poster" style:--tree-depth={level}>
-      {#if item.type === 'folder'}
-        <span class="chevron"><Icon name={isExpanded ? 'down' : 'right'} size={15} /></span>
-      {/if}
-      <div class="icon">
-        {#if item.posterPath}
-          <img
-            src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
-            alt="" loading="lazy" decoding="async"
-            class="tree-poster"
-          />
-        {:else}
-          <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
+  <div class="tree-row">
+    <button
+      type="button"
+      class="tree-item collection-row"
+      class:has-watch-toggle={item.mediaType === 'episode'}
+      class:thumbnail-action={item.mediaType === 'episode'}
+      aria-expanded={item.type === 'folder' ? isExpanded : undefined}
+      class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+      class:missing={item.isMissing}
+      onclick={handleItemClick}
+      oncontextmenu={(e) => showContextMenu(item, e, { parentItem: parentItem as LibraryItem })}
+    >
+      <div class="poster" style:--tree-depth={level}>
+        {#if item.type === 'folder'}
+          <span class="chevron"><Icon name={isExpanded ? 'down' : 'right'} size={15} /></span>
         {/if}
+        <div class="icon">
+          {#if item.posterPath}
+            <img
+              src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
+              alt="" loading="lazy" decoding="async"
+              class="tree-poster"
+            />
+          {:else}
+            <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
+          {/if}
+        </div>
       </div>
-    </div>
 
-    <div class="name" title={displayTitle}>
-      {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
-      {displayTitle}
-    </div>
-    {#if item.mediaType === 'episode' && item.watched}<WatchedIndicator />{/if}
-  </button>
+      <div class="name" title={displayTitle}>
+        {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
+        {displayTitle}
+      </div>
+    </button>
+    {#if item.mediaType === 'episode'}
+      <div class="watch-toggle">
+        <WatchedIndicator itemId={item.id} title={displayTitle} watched={item.watched} />
+      </div>
+    {/if}
+  </div>
 
   {#if item.type === 'folder' && isExpanded}
     <div class="children" in:slide={{ duration: prefersReducedMotion.current ? 0 : 125 }}>
@@ -112,7 +119,11 @@
 </div>
 
 <style>
+  .tree-row { position: relative; }
+  .watch-toggle { position: absolute; inset-block-start: 50%; inset-inline-end: .2rem; translate: 0 -50%; }
+  .tree-item.has-watch-toggle { padding-inline-end: 2.6rem; }
   .tree-item {
+    --row-hover-surface: var(--color-background-soft);
     display: flex;
     align-items: center;
     gap: .65rem;
@@ -124,10 +135,6 @@
     color: inherit;
     font: inherit;
     cursor: pointer;
-    transition: background-color 0.2s ease;
-  }
-  .tree-item:hover {
-    background-color: var(--color-background-soft);
   }
   .poster {
     margin-inline-start: min(21%, calc(var(--tree-depth, 0) * .95rem));
@@ -167,6 +174,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .tree-item.watched :is(.poster, .name) { transition: opacity var(--row-highlight-motion); }
   .tree-item.watched:not(:is(:hover, :focus-visible)) :is(.poster, .name) { opacity: .6; }
   .tree-item.missing {
     opacity: 0.6;
@@ -191,11 +199,11 @@
 
   /* --- Full Backdrop Mode Styles --- */
   :global(.full-backdrop-mode) .tree-item {
+    --row-hover-surface: var(--collection-row-hover, var(--surface-raised));
     background: var(--collection-row-background, var(--surface-over-artwork));
     border: 1px solid var(--collection-row-border, #ffffff1a);
   }
-  :global(.full-backdrop-mode) .tree-item:hover {
-    background: var(--collection-row-hover, var(--surface-raised));
+  :global(.full-backdrop-mode) .tree-item:is(:hover, :focus-visible) {
     border-color: rgba(255, 255, 255, 0.15);
   }
 </style>

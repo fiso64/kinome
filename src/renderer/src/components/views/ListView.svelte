@@ -81,62 +81,69 @@
           ? `${item.episodeNumber}. ${baseTitle}`
           : baseTitle}
       {@const overview = 'overview' in item ? item.overview : ''}
-      <button
-        type="button"
-        class="list-item"
-        class:thumbnail-action={item.mediaType === 'episode'}
-        class:single-line={listDescriptionRows === 0}
-        style:--row-height={itemHeightRem}
-        class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
-        class:highlighted={highlightedIndex === i}
-        class:missing={item.isMissing}
-        onclick={() => onItemClick(item)}
-        oncontextmenu={(e) =>
-          onShowContextMenu(item, e, { layout: 'list', parentItem: parentItem as LibraryItem })}
-      >
-        {#if !item.posterPath && listDescriptionRows === 0}
-          <div class="icon-only">
-            <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
-          </div>
-        {:else}
-          <div
-            class="poster"
-            class:has-image={!!item.posterPath}
-            class:landscape={item.mediaType === 'episode'}
-            class:fixed-aspect-ratio={fixedAspectRatio || !item.posterPath}
-          >
-            {#if item.posterPath}
-              <img
-                src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
-                alt=""
-                loading="lazy"
-              />
-            {:else}
-              <div class="icon">
-                <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
-              </div>
+      <div class="list-row">
+        <button
+          type="button"
+          class="list-item collection-row"
+          class:thumbnail-action={item.mediaType === 'episode'}
+          class:single-line={listDescriptionRows === 0}
+          style:--row-height={itemHeightRem}
+          class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+          class:highlighted={highlightedIndex === i}
+          class:missing={item.isMissing}
+          onclick={() => onItemClick(item)}
+          oncontextmenu={(e) =>
+            onShowContextMenu(item, e, { layout: 'list', parentItem: parentItem as LibraryItem })}
+          class:has-watch-toggle={item.mediaType === 'episode'}
+        >
+          {#if !item.posterPath && listDescriptionRows === 0}
+            <div class="icon-only">
+              <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
+            </div>
+          {:else}
+            <div
+              class="poster"
+              class:has-image={!!item.posterPath}
+              class:landscape={item.mediaType === 'episode'}
+              class:fixed-aspect-ratio={fixedAspectRatio || !item.posterPath}
+            >
+              {#if item.posterPath}
+                <img
+                  src={getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : ''))}
+                  alt=""
+                  loading="lazy"
+                />
+              {:else}
+                <div class="icon">
+                  <Icon name={item.type === 'folder' ? 'folder' : 'film'} size={20} />
+                </div>
+              {/if}
+            </div>
+          {/if}
+          <div class="info">
+            <div class="title-line">
+              <h3 class="title" title={displayTitle}>
+                {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
+                {displayTitle}
+              </h3>
+              {#if item.year}
+                <span class="year">({item.year})</span>
+              {/if}
+              {#if item.type === 'folder' && 'matchingFiles' in item && item.matchingFiles?.length}
+                <span class="matching-files">{item.matchingFiles.length} matching {item.matchingFiles.length === 1 ? 'file' : 'files'}</span>
+              {/if}
+            </div>
+            {#if overview && listDescriptionRows > 0}
+              <p class="overview" style="--description-rows: {listDescriptionRows}">{overview}</p>
             {/if}
+          </div>
+        </button>
+        {#if item.mediaType === 'episode'}
+          <div class="watch-toggle">
+            <WatchedIndicator itemId={item.id} title={displayTitle} watched={item.watched} />
           </div>
         {/if}
-        <div class="info">
-          <div class="title-line">
-            <h3 class="title" title={displayTitle}>
-              {#if item.isMissing}<span class="missing-icon"><Icon name="warning" size={17} /></span>{/if}
-              {displayTitle}
-            </h3>
-            {#if item.mediaType === 'episode' && item.watched}<WatchedIndicator />{/if}
-            {#if item.year}
-              <span class="year">({item.year})</span>
-            {/if}
-            {#if item.type === 'folder' && 'matchingFiles' in item && item.matchingFiles?.length}
-              <span class="matching-files">{item.matchingFiles.length} matching {item.matchingFiles.length === 1 ? 'file' : 'files'}</span>
-            {/if}
-          </div>
-          {#if overview && listDescriptionRows > 0}
-            <p class="overview" style="--description-rows: {listDescriptionRows}">{overview}</p>
-          {/if}
-        </div>
-      </button>
+      </div>
     {/each}
   {:else}
     <p class="empty-message">No items match your filter.</p>
@@ -163,7 +170,11 @@
     align-content: start;
     flex: 1;
   }
+  .list-row { position: relative; min-width: 0; }
+  .watch-toggle { position: absolute; inset-block-start: .5rem; inset-inline-end: .4rem; }
+  .list-item.single-line + .watch-toggle { inset-block-start: 50%; translate: 0 -50%; }
   .list-item {
+    --row-hover-surface: var(--collection-row-hover, color-mix(in srgb, var(--color-hover) 25%, transparent));
     background: var(--collection-row-background, var(--surface-raised));
     border: 1px solid var(--collection-row-border, var(--color-border-soft));
     box-shadow: var(--collection-row-shadow, var(--edge-light));
@@ -176,18 +187,28 @@
     gap: 1rem;
     width: 100%;
     border-radius: 11px;
-    transition:
-      background-color 0.2s ease,
-      transform 0.2s ease;
     align-items: flex-start;
     height: var(--row-height, auto);
   }
+  .list-item.has-watch-toggle { padding-inline-end: 2.7rem; }
   .list-item.single-line {
     align-items: center;
   }
-  .list-item:hover {
+  .list-item:is(:hover, :focus-visible) {
     border-color: #907c6c;
   }
+  .list-item::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--accent-surface);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--row-highlight-motion);
+  }
+  .list-item.highlighted::after { opacity: 1; }
 
   /* --- Base Poster & Image Styles --- */
   .poster {
@@ -204,16 +225,15 @@
   }
   .poster img {
     display: block;
-    height: 100%;
-    width: 100%; /* Fill the container which is sized by aspect-ratio */
-    object-fit: contain;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: inherit;
   }
   /* By default, poster with image has explicit aspect ratio based on content type */
   .poster.has-image {
     width: auto;
     height: 100%;
     aspect-ratio: 2 / 3; /* Default to vertical */
-    display: block;
     background-color: transparent;
   }
   .poster.has-image.landscape {
@@ -236,6 +256,7 @@
   }
   .poster.fixed-aspect-ratio img {
     width: 100%;
+    height: 100%;
     object-fit: cover;
   }
 
@@ -286,11 +307,13 @@
   }
 
   /* --- State-based Styles --- */
+  .list-item.watched :is(.poster, .title, .overview, .year, .icon-only) {
+    transition: opacity var(--row-highlight-motion);
+  }
   .list-item.watched:not(:is(:hover, :focus-visible)) :is(.poster, .title, .overview, .year, .icon-only) {
     opacity: .6;
   }
   .list-item.highlighted {
-    background: var(--accent-surface);
     border-color: var(--accent-border);
   }
   .list-item.missing {
@@ -314,19 +337,20 @@
 
   /* --- Full Backdrop Mode Styles --- */
   :global(.full-backdrop-mode) .list-item {
+    --row-hover-surface: var(--surface-raised);
     background: var(--collection-row-background, var(--surface-over-artwork));
     border-color: var(--collection-row-border, rgba(255, 255, 255, 0.1));
   }
-  :global(.full-backdrop-mode) .list-item:hover {
-    background: var(--surface-raised);
+  :global(.full-backdrop-mode) .list-item:is(:hover, :focus-visible) {
     border-color: rgba(255, 255, 255, 0.2);
   }
   :global(.full-backdrop-mode) .list-item.highlighted {
-    background: var(--accent-surface);
     border-color: rgba(255, 255, 255, 0.25);
   }
   @media (max-width: 620px) {
     .list-item { height: auto; padding: .55rem; gap: .65rem; align-items: center; }
+    .list-item.has-watch-toggle { padding-inline-end: 2.55rem; }
+    .watch-toggle { inset-block-start: .25rem; inset-inline-end: .25rem; }
     .poster, .poster.has-image, .poster.fixed-aspect-ratio { width: clamp(48px, 17vw, 72px); height: auto; align-self: start; }
     .poster:not(.has-image) { aspect-ratio: 2 / 3; }
     .poster.has-image.landscape:not(.fixed-aspect-ratio) { width: clamp(60px, 24vw, 112px); }

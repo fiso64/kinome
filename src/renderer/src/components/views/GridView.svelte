@@ -38,8 +38,8 @@
         'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
           ? `${item.episodeNumber}. ${baseTitle}`
           : baseTitle}
-      <PosterCard title={displayTitle} folder={item.type === 'folder'}
-        episode={item.mediaType === 'episode'} showWatched={item.mediaType === 'episode' && !!item.watched}
+      <PosterCard itemId={item.id} title={displayTitle} folder={item.type === 'folder'}
+        episode={item.mediaType === 'episode'} episodeWatched={item.watched}
         src={item.posterPath ? getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : '')) : undefined}
         watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)} missing={item.isMissing}
         onOpen={() => onItemClick(item)}

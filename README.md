@@ -20,20 +20,9 @@ Media server and manager. Fetches metadata from TMDB and displays it nice, strea
 ### Some unavailable features
 Kinome is under development and is missing some important features which one would expect to find in a media server. These are planned, but not yet available in the latest version:
 
-- web player
 - automatic library rescans
 - scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
 - percentage based progress (just binary watched state)
-- any semblance of a polished webui
-
-Kinome uses `ffprobe` for local media metadata and `ffmpeg` for playback conversion.
-The Nix package provides both tools. For other installs, make them available on Kinome's PATH.
-Probe results are cached per file. The metadata modal, virtual rules, and search can use the saved facts.
-
-In search and virtual rules, fields such as `mediaType` apply to the media item. Conditions on
-`file.*` fields within the same AND group must match one playable file associated with that item.
-For example, `>mediaType:movie` with `>file.videoHeight:1080` finds movies with a 1080-pixel-high
-feature file. Search results show the matching files in their context menu. Extras can match as files.
 
 See [**Plan.md**](./docs/Plan.md) for more details.
 

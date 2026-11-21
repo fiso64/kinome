@@ -42,46 +42,51 @@
     {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
     {@const bgImage = ('backdropPath' in item && item.backdropPath) ? item.backdropPath : item.posterPath}
     {@const hasImage = !!bgImage}
-    <button
-      type="button"
-      class="category-card interactive-card"
-      class:artwork-free={!hasImage}
-      class:thumbnail-action={item.mediaType === 'episode'}
-      class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
-      class:missing={item.isMissing}
-      onclick={() => onItemClick(item)}
-      oncontextmenu={(e) =>
-        onShowContextMenu(item, e, {
-          layout: 'button-grid',
-          parentItem: parentItem as LibraryItem
-        })}
-    >
-      {#if hasImage}
-        <div class="artwork">
-          <img
-            src={getAssetUrl(bgImage + (item._v ? `?v=${item._v}` : ''))}
-            alt=""
-            loading="lazy"
-          />
-          <div class="overlay"></div>
-        </div>
-      {/if}
+    <div class="category-card-shell interactive-card" class:episode={item.mediaType === 'episode'}>
+      <button
+        type="button"
+        class="category-card"
+        class:artwork-free={!hasImage}
+        class:thumbnail-action={item.mediaType === 'episode'}
+        class:watched={shouldBeGreyedOut(item, parentItem, grayOutWatched)}
+        class:missing={item.isMissing}
+        onclick={() => onItemClick(item)}
+        oncontextmenu={(e) =>
+          onShowContextMenu(item, e, {
+            layout: 'button-grid',
+            parentItem: parentItem as LibraryItem
+          })}
+      >
+        {#if hasImage}
+          <div class="artwork">
+            <img
+              src={getAssetUrl(bgImage + (item._v ? `?v=${item._v}` : ''))}
+              alt=""
+              loading="lazy"
+            />
+            <div class="overlay"></div>
+          </div>
+        {/if}
 
-      <div class="name" title={displayTitle}>
-        {displayTitle}
-      </div>
-
-      {#if item.mediaType === 'episode' && item.watched}<WatchedIndicator />{/if}
-      {#if item.isMissing}
-        <div class="missing-overlay">
-          <span class="missing-icon"><Icon name="warning" size={17} /></span>
+        <div class="name" title={displayTitle}>
+          {displayTitle}
         </div>
+
+        {#if item.isMissing}
+          <div class="missing-overlay">
+            <span class="missing-icon"><Icon name="warning" size={17} /></span>
+          </div>
+        {/if}
+      </button>
+      {#if item.mediaType === 'episode'}
+        <div class="watched-mark"><WatchedIndicator itemId={item.id} title={displayTitle} watched={item.watched} /></div>
       {/if}
-    </button>
+    </div>
   {/each}
 </ScrollableGrid>
 
 <style>
+  .category-card-shell { position: relative; min-width: 0; }
   .category-card {
     position: relative;
     display: flex;
@@ -121,8 +126,9 @@
     font-weight: 680;
     overflow-wrap: anywhere;
   }
-  .missing-overlay { position: absolute; right: .55rem; top: 50%; transform: translateY(-50%); display: flex; }
-  .category-card :global(.watched-indicator) { position: absolute; left: .5rem; top: .5rem; }
+  .missing-overlay { position: absolute; inset-inline-end: .55rem; top: 50%; transform: translateY(-50%); display: flex; }
+  .watched-mark { position: absolute; inset-inline-end: .2rem; inset-block-start: .2rem; }
+  .category-card-shell.episode .missing-overlay { inset-inline: .55rem auto; }
   .category-card.watched:not(:is(:hover, :focus-visible)) :is(.artwork, .name) { opacity: .66; }
   .category-card.missing .artwork { filter: grayscale(1); }
   .missing-overlay { color: var(--color-danger-soft); }

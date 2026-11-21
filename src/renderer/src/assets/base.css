@@ -356,6 +356,32 @@
 .selection-bar > label:has(:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .selection-bar > label > input { position: absolute; opacity: 0; pointer-events: none; }
 
+.collection-row {
+  --row-highlight-motion: 135ms ease-out;
+  position: relative;
+  isolation: isolate;
+  transition: border-color var(--row-highlight-motion), transform 100ms ease-out;
+}
+
+/* Fade an overlay so both solid and gradient highlights transition smoothly. */
+.collection-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--row-hover-surface);
+  opacity: 0;
+  transition: opacity var(--row-highlight-motion);
+}
+
+.collection-row:where(:hover, :focus-visible)::before { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .collection-row { --row-highlight-motion: 0ms; transition: none; }
+}
+
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .interactive-card {
     transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
