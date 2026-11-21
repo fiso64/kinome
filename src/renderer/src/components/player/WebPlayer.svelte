@@ -15,6 +15,7 @@
   import { authStore } from '@lib/auth-store.svelte'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { formatClockTime } from '@lib/view-helpers'
+  import { notificationStore } from '@lib/notification-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
     playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
@@ -118,7 +119,7 @@
   let mediaReady = $state(false)
   let error = $state('')
   let subtitleReady = $state(false)
-  let subtitleNotice = $state('')
+  let subtitleLoading = $state(false)
   let fontPermission = $state<PermissionState>()
   const localFonts = window as Window & { queryLocalFonts?: () => Promise<unknown[]> }
   const selectedSubtitle = $derived(info?.subtitles.find(track => track.id === subtitleId))
@@ -1445,26 +1446,25 @@
 
   $effect(() => {
     const track = selectedSubtitle
-    subtitleNotice = ''
+    subtitleLoading = false
     if (!track || !subtitleReady) return
     const controller = new AbortController()
-    const slow = setTimeout(() => { subtitleNotice = 'Loading subtitle track...' }, 500)
+    const slow = setTimeout(() => { subtitleLoading = true }, 500)
     const onReady = () => {
       clearTimeout(slow)
-      subtitleNotice = ''
+      if (!controller.signal.aborted) subtitleLoading = false
     }
     let warned = false
     const onError = (reason?: unknown) => {
       if (controller.signal.aborted) return
-      clearTimeout(slow)
-      subtitleNotice = 'This subtitle track could not be displayed.'
-      if (!warned) {
-        warned = true
-        console.warn('[Kinome player] Subtitle track failed', {
-          itemId: item.id, format: track.format, language: track.language,
-          position: video.currentTime, reason: diagnosticMessage(reason)
-        })
-      }
+      onReady()
+      if (warned) return
+      warned = true
+      notificationStore.add('This subtitle track could not be displayed.', 'error')
+      console.warn('[Kinome player] Subtitle track failed', {
+        itemId: item.id, format: track.format, language: track.language,
+        position: video.currentTime, reason: diagnosticMessage(reason)
+      })
     }
     void openSubtitle({
       itemId: item.id, track, video, container: surface,
@@ -1486,11 +1486,17 @@
 {#snippet choice(group: string, label: string, selected: boolean, choose: () => void, detail?: string, disabled = false, language?: string)}
   <label class="choice" class:selected class:unavailable={disabled}>
     <input type="radio" name={group} checked={selected} {disabled} onchange={choose} />
-    <span class="choice-copy">
+    <span class="choice-copy" class:track-copy={!!language}>
       <span>{label}</span>
-      {#if detail}<small>{detail}</small>{/if}
+      {#if language}
+        <span class="track-details">
+          {#if detail}<small>{detail}</small>{/if}
+          <small class="track-language" title={language}>{language}</small>
+        </span>
+      {:else if detail}
+        <small>{detail}</small>
+      {/if}
     </span>
-    {#if language}<span class="track-language" title={language}>{language}</span>{/if}
     {#if selected || language}
       <media-icon name="check" class="check" class:unselected={!selected} aria-hidden="true"></media-icon>
     {/if}
@@ -1528,7 +1534,7 @@
   oncancel={(event) => { event.preventDefault(); if (panel) closePanel(); else onClose() }}>
   <video-player>
     <media-container class="player" class:cursor-idle={cursorIdle}
-      class:keep-controls={Boolean(panel || loading || error || playBlocked || subtitleNotice || showTimelineForShortcut || requestedPosition !== undefined)}
+      class:keep-controls={Boolean(panel || loading || error || playBlocked || showTimelineForShortcut || requestedPosition !== undefined)}
       aria-label={title}>
       <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}
         style:--subtitle-scale={subtitleScale / 100} style:--subtitle-position={`${subtitlePosition}%`}>
@@ -1567,7 +1573,6 @@
       </header>
 
       <footer class="player-footer chrome" bind:this={chromeFooter}>
-        {#if subtitleNotice}<p class="subtitle-notice" role="status">{subtitleNotice}</p>{/if}
         {#if panel}
           <section class="control-panel" id="player-control-panel" aria-labelledby="player-panel-heading" bind:this={panelElement}>
             <header class="panel-header">
@@ -1623,6 +1628,7 @@
                             track.forced ? 'Forced' : '', track.hearingImpaired ? 'SDH' : ''
                           ].filter(Boolean).join(', '), false, labels.language)}
                       {/each}
+                      {#if subtitleLoading}<p class="panel-note" role="status">Loading subtitle track…</p>{/if}
                     {:else}
                       <p class="panel-note">No subtitle tracks available</p>
                     {/if}
@@ -2295,18 +2301,15 @@
   .panel-note { margin: 0.55rem 0.6rem; }
   .check { margin-inline-start: auto; color: var(--player-accent); font-size: 1rem; }
   .check.unselected { visibility: hidden; }
+  .track-copy { flex: 1; grid-template-columns: minmax(0, 1fr); overflow-wrap: break-word; }
+  .track-details { display: flex; align-items: baseline; gap: 0.55rem; }
   .track-language {
-    flex: none;
-    max-inline-size: 45%;
     margin-inline-start: auto;
-    color: var(--label-muted);
-    font-size: 0.76rem;
     text-align: end;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .track-language + .check { margin-inline-start: 0; }
   .settings-link { width: 100%; background: transparent; text-align: start; color: inherit; }
   .settings-link .forward { color: var(--label-muted); margin-inline-start: auto; font-size: 0.9rem; }
   .setting-value { margin-inline-start: auto; color: var(--label-muted); text-align: end; font-size: 0.79rem; }
@@ -2340,18 +2343,6 @@
     width: 5.9rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-  }
-  .subtitle-notice {
-    position: absolute;
-    inset-inline-start: max(var(--edge), env(safe-area-inset-left));
-    bottom: calc(100% + 0.4rem);
-    max-width: min(24rem, calc(100vw - 2 * var(--edge)));
-    margin: 0;
-    padding: 0.5rem 0.7rem;
-    border-radius: 0.5rem;
-    color: white;
-    background: var(--panel-bg);
-    font-size: 0.83rem;
   }
   .shortcuts {
     display: grid;
