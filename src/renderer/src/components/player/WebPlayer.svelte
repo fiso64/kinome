@@ -6,7 +6,6 @@
   import '@videojs/html/ui/container'
   import '@videojs/html/ui/fullscreen-button'
   import '@videojs/html/ui/mute-button'
-  import '@videojs/html/ui/play-button'
   import '@videojs/html/ui/slider-track'
   import '@videojs/html/ui/slider-fill'
   import '@videojs/html/ui/slider-thumb'
@@ -55,6 +54,7 @@
   let panelOrigin = $state<HTMLElement>()
   let panelElement = $state<HTMLElement>()
   let keyboardNavigation = false
+  let playbackSpace = false
   let dismissedPanelOnVideo = false
 
   type Panel = 'tracks' | 'queue' | 'chapters' | 'settings' | 'quality' | 'speed' | 'external' | 'shortcuts'
@@ -347,7 +347,10 @@
         }
         applyFrameStep()
       })
-      listen('play', resetFrameStep)
+      listen('play', () => {
+        paused = false
+        resetFrameStep()
+      })
       listen('loadedmetadata', () => {
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
           failed('The browser could decode the audio but could not decode the video.')
@@ -369,7 +372,6 @@
       listen('playing', () => {
         hasPlayed = true
         playBlocked = false
-        paused = false
         loading = false
         if (completed) {
           completed = false
@@ -386,6 +388,7 @@
         persist()
       })
       listen('ended', () => {
+        paused = true
         completed = true
         resumeAt = 0
         persist(true, true)
@@ -443,15 +446,17 @@
   function changeSubtitleTrack(direction: number) {
     const tracks = info?.subtitles ?? []
     if (!tracks.length) return
-    const current = tracks.findIndex((track) => track.id === subtitleId)
-    const index = current < 0 ? (direction > 0 ? 0 : tracks.length - 1) : (current + direction + tracks.length) % tracks.length
-    setSubtitle(tracks[index].id)
+    // Slot zero is Off, followed by the tracks in display order.
+    const slots = tracks.length + 1
+    const current = tracks.findIndex((track) => track.id === subtitleId) + 1
+    const next = (current + direction + slots) % slots
+    setSubtitle(tracks[next - 1]?.id ?? '')
   }
 
-  function subtitleFeedback() {
+  function subtitleFeedback(offLabel = 'Subtitles hidden') {
     if (!info?.subtitles.length) return 'No subtitle tracks'
     const track = info.subtitles.find((track) => track.id === subtitleId)
-    return track ? `Subtitles: ${track.title || languageName(track.language)}` : 'Subtitles hidden'
+    return track ? `Subtitles: ${track.title || languageName(track.language)}` : offLabel
   }
 
   function updatePlaybackPosition() {
@@ -540,7 +545,7 @@
   }
 
   function stepFrame(direction: number) {
-    if (!mediaReady || !Number.isFinite(video.duration)) return false
+    if (!mediaReady || !Number.isFinite(video.duration)) return
     if (scrubPointer === undefined) commitSeek()
     video.pause()
     const [frames, seconds = 1] = (info?.media?.tracks.find((track) => track.kind === 'video')?.frameRate ?? '').split('/').map(Number)
@@ -554,7 +559,6 @@
     steppedFrameTime = Math.min(video.duration, Math.max(0, base + direction * step))
     pendingFrameTime = steppedFrameTime
     applyFrameStep()
-    return true
   }
 
   function resetFrameStep() {
@@ -596,15 +600,9 @@
 
   function seekChapter(next: boolean) {
     const index = chapterAfter(requestedPosition ?? video.currentTime)
-    const target = next ? index : index - 2
-    const chapter = chapters[target]
-    if (chapter) {
-      seekTo(chapter.startSeconds)
-      return chapterTitle(chapter, target)
-    }
-    if (next) return 'No next chapter'
-    seekTo(0)
-    return 'Start of video'
+    const chapter = chapters[next ? index : index - 2]
+    if (chapter) seekTo(chapter.startSeconds)
+    else if (!next) seekTo(0)
   }
 
   function chapterTitle(chapter: MediaChapter, index: number): string {
@@ -673,6 +671,8 @@
   }
 
   function togglePlayback() {
+    clearTimeout(videoClickTimer)
+    videoClickTimer = undefined
     if (video.paused) void video.play().catch(() => {})
     else video.pause()
   }
@@ -774,13 +774,14 @@
   }
 
   function handleKey(event: KeyboardEvent) {
+    if (event.key === ' ' && !event.repeat) playbackSpace = false
     if (event.defaultPrevented) return
     if (event.key === 'Escape') {
       if (panel || !document.fullscreenElement) {
         event.preventDefault()
         event.stopPropagation()
         if (panel) {
-          showShortcutFeedback(`${panelTitles[panel]} closed`)
+          if (panel !== 'tracks') showShortcutFeedback(`${panelTitles[panel]} closed`)
           closePanel()
         }
         else onClose()
@@ -802,9 +803,20 @@
       const slider = target.closest('[role="slider"]')
       if (radio && (key === ' ' || (!event.shiftKey && key.startsWith('arrow')))) return
       if (keyboardNavigation && slider && !onSeekInput && !event.shiftKey && (key.startsWith('arrow') || ['home', 'end'].includes(key))) return
-      if ((keyboardNavigation || panel) && key === ' ' && target.closest('button, [role="button"]')) return
+      const button = target.closest('button, [role="button"]')
+      if ((keyboardNavigation || panel) && key === ' ' && button && !button.matches('.play-button, .center-play')) return
     }
-    let feedback: string
+    if (key === ' ' || key === 'k' || key === 'f') {
+      event.preventDefault()
+      event.stopPropagation()
+      if (key === ' ') playbackSpace = true
+      if (!event.repeat) {
+        if (key === 'f') fullscreenButton.click()
+        else togglePlayback()
+      }
+      return
+    }
+    let feedback = ''
     let revealTimeline = false
     if (subtitleModifier) {
       if (key === 'arrowup' || key === 'arrowdown') {
@@ -815,19 +827,13 @@
         feedback = `Subtitle delay: ${delayLabel}`
       }
     } else switch (key) {
-      case ' ': case 'k':
-        if (event.repeat) return
-        feedback = video.paused ? 'Playing' : 'Paused'
-        togglePlayback()
-        break
       case ',': case '.':
-        feedback = stepFrame(key === '.' ? 1 : -1) ? (key === '.' ? 'Next frame' : 'Previous frame') : 'Video is still loading'
+        stepFrame(key === '.' ? 1 : -1)
         revealTimeline = true
         break
       case 'arrowleft': case 'arrowright': {
         const seconds = event.shiftKey ? 30 : onSeekInput && keyboardNavigation ? 1 : 5
         seek(key === 'arrowright' ? seconds : -seconds, event.repeat)
-        feedback = `Seek ${key === 'arrowright' ? 'forward' : 'back'} ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
         revealTimeline = true
         break
       }
@@ -835,10 +841,9 @@
         const up = key === 'arrowup'
         if (event.shiftKey) {
           changeSubtitleTrack(up ? -1 : 1)
-          feedback = subtitleFeedback()
+          feedback = subtitleFeedback('Subtitles: no')
         } else if (onSeekInput && keyboardNavigation) {
           seek(up ? 1 : -1, event.repeat)
-          feedback = `Seek ${up ? 'forward' : 'back'} 1 second`
           revealTimeline = true
         } else {
           video.volume = Math.min(1, Math.max(0, video.volume + (up ? 0.05 : -0.05)))
@@ -849,18 +854,12 @@
       case 'home': case 'end':
         if (!onSeekInput) return
         seekTo(key === 'end' ? timelineDuration : 0)
-        feedback = key === 'end' ? 'End of video' : 'Start of video'
         revealTimeline = true
         break
       case 'm':
         if (event.repeat) return
         video.muted = !video.muted
         feedback = video.muted ? 'Muted' : 'Unmuted'
-        break
-      case 'f':
-        if (event.repeat) return
-        feedback = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'
-        fullscreenButton.click()
         break
       case 'pageup':
       case 'pagedown': {
@@ -870,7 +869,7 @@
           feedback = entry ? `Playing: ${entry.title || entry.name}` : `No ${forward ? 'next' : 'previous'} video`
           navigate(entry)
         } else {
-          feedback = seekChapter(forward)
+          seekChapter(forward)
           revealTimeline = true
         }
         break
@@ -887,7 +886,7 @@
       case 'a': case 'p': case 'q':
       case '?':
         if (event.repeat) return
-        if (key === 'a') feedback = toggleKeyboardPanel('tracks', tracksButton ?? settingsButton)
+        if (key === 'a') toggleKeyboardPanel('tracks', tracksButton ?? settingsButton)
         else if (key === 'p') feedback = toggleKeyboardPanel('queue', queueButton)
         else feedback = toggleKeyboardPanel(key === 'q' ? 'quality' : 'shortcuts', settingsButton)
         break
@@ -895,11 +894,23 @@
     }
     event.preventDefault()
     event.stopPropagation()
-    showShortcutFeedback(feedback, revealTimeline)
+    if (feedback || revealTimeline) showShortcutFeedback(feedback, revealTimeline)
   }
 
-  function finishKeyboardSeek(event: KeyboardEvent) {
+  function handleKeyRelease(event: KeyboardEvent) {
+    if (event.key === ' ' && playbackSpace) {
+      playbackSpace = false
+      // Some media controls activate on Space release even when keydown was handled.
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     if (scrubPointer === undefined && event.key.startsWith('Arrow')) commitSeek()
+  }
+
+  function playerLostFocus(event: KeyboardEvent) {
+    // Removing a focused control can leave focus on the document while the modal remains open.
+    return dialog?.open && (event.target === document.body || event.target === document.documentElement)
   }
 
   function showShortcutFeedback(text: string, revealTimeline = false) {
@@ -1037,9 +1048,11 @@
   </div>
 {/snippet}
 
-<svelte:window onpointerup={finishScrub} onpointercancel={finishScrub} />
+<svelte:window onpointerup={finishScrub} onpointercancel={finishScrub}
+  onkeydowncapture={(event) => { if (playerLostFocus(event)) handleKey(event) }}
+  onkeyupcapture={(event) => { if (playerLostFocus(event)) handleKeyRelease(event) }} />
 
-<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydowncapture={handleKey} onkeyup={finishKeyboardSeek}
+<dialog bind:this={dialog} class="player-dialog" aria-label={title} onkeydowncapture={handleKey} onkeyupcapture={handleKeyRelease}
   onkeydown={(event) => event.stopPropagation()}
   onpointerdown={dismissPanelOnPointerDown} onpointerenter={revealNearPointer} onpointermove={revealNearPointer} onpointerleave={resetProximity}
   oncancel={(event) => { event.preventDefault(); if (panel) closePanel(); else onClose() }}>
@@ -1218,10 +1231,10 @@
 
         <div class="transport">
           <div class="transport-group">
-            <media-play-button class="control play-button" title="Play or pause (Space)" disabled={!mediaReady}>
-              <media-icon name="play" class="play-icon" aria-hidden="true"></media-icon>
-              <media-icon name="pause" class="pause-icon" aria-hidden="true"></media-icon>
-            </media-play-button>
+            <button type="button" class="control play-button" title="Play or pause (Space)"
+              aria-label={paused ? 'Play' : 'Pause'} aria-keyshortcuts="Space K" disabled={!mediaReady} onclick={togglePlayback}>
+              <media-icon name={paused ? 'play' : 'pause'} aria-hidden="true"></media-icon>
+            </button>
             {#if audioCapability.length || info?.subtitles.length}
               <button type="button" class="control" aria-label="Audio & subtitles" title="Audio & subtitles (A)" bind:this={tracksButton}
                 data-panel-trigger aria-expanded={panel === 'tracks'} aria-controls={panel === 'tracks' ? 'player-control-panel' : undefined}
@@ -1392,7 +1405,7 @@
     border-radius: 0.35rem;
     background: #000d;
     color: #fff;
-    font-size: 0.91rem;
+    font-size: clamp(1.05rem, 2vw, 1.3rem);
     font-weight: 600;
     overflow-wrap: anywhere;
     pointer-events: none;
@@ -1530,11 +1543,9 @@
   .playback-error p { color: var(--label-muted); margin: 0.5rem 0 1rem; }
   .jump { font-size: 0.85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .previous media-icon { transform: rotate(180deg); }
-  .play-icon, .mute-icon, .fullscreen-exit,
-  media-play-button:global([data-paused]) .pause-icon,
+  .mute-icon, .fullscreen-exit,
   media-mute-button:global([data-muted]) .volume-icon,
   media-fullscreen-button:global([data-fullscreen]) .fullscreen-enter { display: none; }
-  media-play-button:global([data-paused]) .play-icon,
   media-mute-button:global([data-muted]) .mute-icon,
   media-fullscreen-button:global([data-fullscreen]) .fullscreen-exit { display: inline-flex; }
   .seek-slider, .volume-slider {
