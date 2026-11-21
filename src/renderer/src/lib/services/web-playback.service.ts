@@ -1,11 +1,9 @@
 import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
 import type { LocalMediaTrack } from '@shared/local-media'
-import { avcFormat, isVideoQuality, type PlaybackOutput } from '@shared/playback-quality'
+import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput } from '@shared/playback-quality'
 import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
 import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQueueItem, WebSubtitle } from '@shared/web-playback'
-
-export const hlsMime = 'application/vnd.apple.mpegurl'
 
 const videoCodecs: Record<string, string> = {
   h264: 'avc1.640028', hevc: 'hvc1.1.6.L120.B0', av1: 'av01', vp9: 'vp9', vp8: 'vp8'
@@ -14,7 +12,6 @@ const audioCodecs: Record<string, string> = {
   aac: 'mp4a.40.2', mp3: 'mp3', opus: 'opus', vorbis: 'vorbis', ac3: 'ac-3', eac3: 'ec-3',
   flac: 'flac', alac: 'alac'
 }
-export const videoQualityHeights = { '4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240 }
 const avcProfiles: Record<string, string> = {
   Baseline: '4200', 'Constrained Baseline': '42e0', Main: '4d00', High: '6400',
   'High 10': '6e00', 'High 4:2:2': '7a00', 'High 4:4:4 Predictive': 'f400'
@@ -155,7 +152,7 @@ export function playbackAttempts(
   if (remux && audio && info.audioConversion) withEncodedAudio('audio')
   const encode = info.qualities.filter(isVideoQuality).sort((a, b) => videoQualityHeights[b] - videoQualityHeights[a])
   const first = encode.findLastIndex(mode => videoQualityHeights[mode] >= (video?.height ?? Infinity))
-  const hdrSource = video?.colorTransfer === 'smpte2084' || video?.colorTransfer === 'arib-std-b67'
+  const hdrSource = isHdrTransfer(video?.colorTransfer)
   const format = avcFormat(video?.pixelFormat)
   const preserveRange = !hdrSource || window.matchMedia('(dynamic-range: high)').matches
   for (const mode of encode.slice(Math.max(0, first))) {

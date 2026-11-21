@@ -153,10 +153,10 @@
         {:else}
           <div class="user-grid">
             {#each users as user (user.id)}
-              <button type="button" class="user-card" onclick={() => selectUser(user)}>
+              <button type="button" class="user-card secondary" onclick={() => selectUser(user)}>
                 {@render avatar(user.username)}
                 <span class="username">{user.username}</span>
-                <Icon name="right" size={16} />
+                <span class="account-arrow"><Icon name="right" size={16} /></span>
               </button>
             {:else}
               <p class="form-hint">No accounts found.</p>
@@ -179,18 +179,25 @@
     display: grid;
     place-items: center;
     min-height: 100dvh;
-    padding: 1rem;
-    background: radial-gradient(ellipse at 50% 0%, #1c1a17, transparent min(68vh, 620px)), var(--color-background);
+    padding: clamp(1rem, 5vw, 2.25rem);
+    background: radial-gradient(ellipse at 50% 32%, var(--color-background-mute), transparent 67%),
+      var(--color-background);
   }
-  .auth-card { width: min(100%, 27rem); padding: clamp(1rem, 4.5vw, 2.15rem); border-radius: var(--radius-window); }
+  .auth-card {
+    width: min(100%, 28rem);
+    padding: clamp(1.1rem, 5vw, 2.25rem);
+    border-radius: var(--radius-window);
+    box-shadow: var(--edge-light), var(--shadow-window);
+  }
   .brand {
     display: flex;
     align-items: center;
-    gap: .6rem;
-    margin-bottom: 1.45rem;
-    color: var(--color-primary-soft);
-    font-size: .92rem;
-    font-weight: 650;
+    gap: .75rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    background: var(--section-rule) 0 100% / 100% 1px no-repeat;
+    font-size: 1.05rem;
+    font-weight: 680;
   }
   .brand-icon, .avatar {
     display: grid;
@@ -203,9 +210,13 @@
     border-radius: var(--radius-field);
   }
   .brand-icon {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
     color: var(--color-primary-soft);
-    background: var(--accent-surface);
-    border-color: var(--accent-border);
+    background: var(--surface-raised);
+    border-color: var(--color-border);
+    box-shadow: var(--control-shadow);
   }
   .avatar {
     color: oklch(0.96 0.025 var(--avatar-hue));
@@ -213,11 +224,23 @@
     border-color: oklch(0.56 0.09 var(--avatar-hue));
     font-weight: 700;
   }
-  .auth-flow, .user-grid { display: grid; gap: .75rem; }
-  .auth-flow h1 { font-size: clamp(1.35rem, 5vw, 1.8rem); font-weight: 705; letter-spacing: -.03em; overflow-wrap: anywhere; }
-  .user-card, .sign-in-heading { display: flex; align-items: center; gap: .65rem; min-width: 0; }
-  .user-card { padding: .45rem .6rem; text-align: left; }
-  .username { flex: 1; overflow-wrap: anywhere; }
+  .auth-flow, .user-grid { display: grid; }
+  .auth-flow { gap: .9rem; }
+  .user-grid { gap: .55rem; }
+  .auth-flow h1 {
+    font-size: clamp(1.4rem, 5vw, 1.9rem);
+    font-weight: 705;
+    line-height: 1.2;
+    letter-spacing: -.035em;
+    overflow-wrap: anywhere;
+  }
+  .user-card, .sign-in-heading { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+  .user-card { padding: .55rem .75rem .55rem .6rem; text-align: start; }
+  .username { flex: 1; min-width: 0; font-size: .95rem; overflow-wrap: anywhere; }
+  .account-arrow { display: flex; flex: none; color: var(--color-text-dim); }
+  .user-card:is(:hover, :focus-visible) { border-color: var(--accent-border); }
+  .user-card:is(:hover, :focus-visible) .account-arrow { color: var(--color-primary-soft); }
+  .auth-flow > .primary { min-height: 2.65rem; }
   .back-btn { display: flex; align-items: center; gap: .35rem; justify-self: start; padding: .2rem 0;
     background: transparent; border-color: transparent; box-shadow: none; color: var(--color-text-soft); }
   .back-btn:hover { background: transparent; color: var(--color-primary-soft); }

@@ -129,7 +129,6 @@
       aria-current={navStore.isHomeLocation && !librarySearchVisible ? 'page' : undefined}
       onclick={() => { blurSearchInput(); dispatch('home') }}>
       <Icon name="home" />
-      <span>Home</span>
     </button>
     {#if !navStore.isSettingsActive}
       <div class="search-anchor">
@@ -144,7 +143,6 @@
             else void focusSearchInput()
           }}>
           <Icon name="search" />
-          <span>Search</span>
         </button>
 
         {#if searchOpen && navStore.isDetailViewActive}
@@ -182,7 +180,6 @@
       <button class="rail-button" type="button" aria-label="Back" title="Back"
         onclick={() => { blurSearchInput(); dispatch('back') }}>
         <Icon name="back" />
-        <span>Back</span>
       </button>
     {/if}
   </nav>
@@ -216,7 +213,6 @@
       aria-current={navStore.isSettingsActive ? 'page' : undefined}
       onclick={() => { blurSearchInput(); dispatch('openSettings') }}>
       <Icon name="settings" />
-      <span>Settings</span>
     </button>
     {#if api.capabilities.hasWindowControls}<WindowControls />{/if}
   </div>
@@ -264,19 +260,14 @@
     width: 100%;
     min-height: 51px;
     display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: .2rem;
+    place-items: center;
     padding: .3rem 0;
     border: 1px solid transparent;
     border-radius: 11px;
     color: var(--color-text-soft);
     background: transparent;
     box-shadow: none;
-    line-height: 1.1;
-    font-size: .66rem;
   }
-  .rail-button span { text-shadow: 0 1px 3px #000c; }
   .rail-button:is([aria-current="page"], [aria-expanded="true"]) {
     color: var(--color-primary-soft);
     border-color: #efbd8f28;
@@ -302,7 +293,7 @@
   @media (max-width: 600px) {
     .sidebar { padding: .65rem .3rem; gap: .75rem; }
     .brand { width: 36px; height: 36px; }
-    .rail-button { font-size: .62rem; min-height: 46px; }
+    .rail-button { min-height: 46px; }
     .search-panel { inset-inline-start: calc(100% + .6rem); }
   }
   @media (prefers-reduced-motion: reduce) { .reloading { animation: none; } }

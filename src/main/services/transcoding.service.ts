@@ -1,17 +1,15 @@
 import { textResponse } from '../http-compression'
 import { Blob as BufferBlob } from 'node:buffer'
 import {
-  availablePlaybackQualities, normalizePlaybackEncoding, type PlaybackEncodingPreferences,
+  availablePlaybackQualities, canConvertPlaybackAudio, hlsMime, normalizePlaybackEncoding, type PlaybackEncodingPreferences,
   type PlaybackOutput, type PlaybackQuality, type PlaybackVideoBackend, type PlaybackWorkerHealth
 } from '@shared/playback-quality'
-import * as accountFilters from './account-filter.service'
 import { readSettings } from './settings.service'
 import { handleFileStreamFast, resolveStreamPath } from './playback.service'
 import { openPlaybackSource, PlaybackSession, segmentPlaylist } from './transcoding'
 import { copiesVideo, type SegmentQuality } from './transcoding/segment-job'
 import { conversionAvailable, conversionEnabled, ffmpeg, ffprobe, getVaapiDevice } from './transcoding/runtime'
 
-const hlsType = 'application/vnd.apple.mpegurl'
 const clientPattern = /^[a-zA-Z0-9_-]{1,128}$/
 export const hlsSegmentPattern = /^segment-(\d+)\.(ts|m4s)$/
 
@@ -102,7 +100,7 @@ export async function serveHls(
   }
   const available = availablePlaybackQualities(settings)
   const qualityAllowed = quality === 'audio'
-    ? browser && available.includes('remux') && settings.playbackConversion !== 'remux'
+    ? browser && canConvertPlaybackAudio(available, settings.playbackConversion)
     : quality !== 'original' && available.includes(quality)
   if (!qualityAllowed || quality === 'original' || (!isPlaylist && !isInit && !segment)) {
     return hlsError(404, 'This playback quality or resource is unavailable.')
@@ -116,7 +114,6 @@ export async function serveHls(
     return hlsError(400, 'Invalid playback parameters.')
   }
 
-  accountFilters.ensureUpToDate(accountId)
   const path = await resolveStreamPath(itemId, accountId)
   if (!path) return hlsError(404, 'File not found.')
 
@@ -136,7 +133,7 @@ export async function serveHls(
       const playlist = request.method === 'HEAD' ? null : segmentPlaylist(
         timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined, browser
       )
-      return textResponse(request, playlist, hlsType)
+      return textResponse(request, playlist, hlsMime)
     }
 
     let data: BufferBlob | Bun.BunFile
@@ -152,8 +149,7 @@ export async function serveHls(
       const file = Bun.file(cached.path)
       data = cached.offset ? file.slice(cached.offset, cached.bytes) : file
     }
-    const response = handleFileStreamFast(data, data.size, fragmented ? 'video/mp4' : 'video/mp2t',
-      request.headers.get('range'), { method: request.method })
+    const response = handleFileStreamFast(request, data, data.size, fragmented ? 'video/mp4' : 'video/mp2t')
     response.headers.set('Cache-Control', 'private, no-store')
     return response
   } catch (error) {

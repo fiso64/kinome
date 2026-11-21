@@ -157,6 +157,12 @@ describe('direct media streaming', () => {
   let directory: string
   let filePath: string
 
+  function streamRequest(range: string | null, init?: RequestInit) {
+    const headers = new Headers(init?.headers)
+    if (range !== null) headers.set('Range', range)
+    return new Request('http://localhost/stream', { ...init, headers })
+  }
+
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'kinome-range-'))
     filePath = join(directory, 'video.mp4')
@@ -180,7 +186,7 @@ describe('direct media streaming', () => {
     ['bytes=0-1,4-5', 200, null, '0123456789'],
     ['frames=0-1', 200, null, '0123456789']
   ])('serves direct media for Range %s', async (range, status, contentRange, body) => {
-    const response = handleFileStreamFast(filePath, 10, 'video/mp4', range)
+    const response = handleFileStreamFast(streamRequest(range), filePath, 10, 'video/mp4')
     expect(response.status).toBe(status)
     expect(response.headers.get('Content-Range')).toBe(contentRange)
     expect(response.headers.get('Accept-Ranges')).toBe('bytes')
@@ -189,7 +195,7 @@ describe('direct media streaming', () => {
   })
 
   it('returns full representation headers and no body for a HEAD request with Range', () => {
-    const response = handleFileStreamFast(filePath, 10, 'video/mp4', 'bytes=2-4', { method: 'HEAD' })
+    const response = handleFileStreamFast(streamRequest('bytes=2-4', { method: 'HEAD' }), filePath, 10, 'video/mp4')
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Length')).toBe('10')
     expect(response.headers.has('Content-Range')).toBe(false)
@@ -199,7 +205,7 @@ describe('direct media streaming', () => {
   it('serves empty media without opening a read stream', async () => {
     const empty = join(directory, 'empty.mp4')
     await Bun.write(empty, '')
-    const response = handleFileStreamFast(empty, 0, 'video/mp4', null)
+    const response = handleFileStreamFast(streamRequest(null), empty, 0, 'video/mp4')
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Length')).toBe('0')
     expect(response.body).toBeNull()
@@ -207,7 +213,7 @@ describe('direct media streaming', () => {
 
   it('stops a direct read when the request is aborted', async () => {
     const controller = new AbortController()
-    const response = handleFileStreamFast(filePath, 10, 'video/mp4', null, undefined, controller.signal)
+    const response = handleFileStreamFast(streamRequest(null, { signal: controller.signal }), filePath, 10, 'video/mp4')
     controller.abort()
     await expect(response.arrayBuffer()).rejects.toThrow()
   })

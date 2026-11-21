@@ -213,18 +213,20 @@ function subtitleWindows<T>(url: string, signal: AbortSignal, read: (response: R
     content: ReturnType<typeof fetchWindow<T>>
   }>()
   return {
-    load(window: number) {
-      const existing = requests.get(window)
+    load(index: number) {
+      const existing = requests.get(index)
       if (existing) return existing.content
       const controller = new AbortController()
+      const target = new URL(url, location.origin)
+      target.searchParams.set('window', String(index))
       const request = {
         controller,
-        content: fetchWindow(`${url}&window=${window}`, AbortSignal.any([signal, controller.signal]), read).catch((error) => {
-          if (requests.get(window) === request) requests.delete(window)
+        content: fetchWindow(target.href, AbortSignal.any([signal, controller.signal]), read).catch((error) => {
+          if (requests.get(index) === request) requests.delete(index)
           throw error
         })
       }
-      requests.set(window, request)
+      requests.set(index, request)
       return request.content
     },
     keep(window: number) {

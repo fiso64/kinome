@@ -73,6 +73,30 @@ describe('HTTP authorization — capability enforcement', () => {
     )
   })
 
+  it('refreshes direct playback paths after account visibility changes', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kinome-filtered-playback-'))
+    const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
+    const rule = '/api/accounts/normal-1/filter'
+    const stream = '/api/stream/filtered-playback'
+    try {
+      await Bun.write(join(directory, 'filtered.mp4'), 'source bytes')
+      ctx.seedItems([{ id: 'filtered-playback', name: 'filtered.mp4', sourceId: 'filtered-source', path: 'filtered.mp4' }])
+      expect(await (await app.handle(req('GET', stream))).text()).toBe('source bytes')
+
+      const filter = { conditions: [{ field: 'name', op: 'eq', value: 'filtered.mp4' }] }
+      expect((await app.handle(req('PUT', rule, { mode: 'deny', filter }, adminToken))).status).toBe(200)
+      expect((await app.handle(req('GET', stream))).status).toBe(404)
+      expect((await app.handle(req('GET', '/api/playback/filtered-playback/info'))).status).toBe(404)
+
+      expect((await app.handle(req('DELETE', rule, undefined, adminToken))).status).toBe(200)
+      expect(await (await app.handle(req('GET', stream))).text()).toBe('source bytes')
+    } finally {
+      await app.handle(req('DELETE', rule, undefined, adminToken))
+      source.mockRestore()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('shares personal season defaults between physical and virtual seasons without inheriting browsing folders', async () => {
     ctx.seedEntities([
       { id: 'defaults-show-entity', mediaType: 'tv' },
@@ -170,6 +194,13 @@ describe('HTTP authorization — capability enforcement', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toStartWith('text/vtt')
       expect(await response.text()).toContain('Hello')
+      const conditional = req('GET', track)
+      conditional.headers.set('Range', 'bytes=0-5')
+      conditional.headers.set('If-Range', '"previous-version"')
+      const fullTrack = await app.handle(conditional)
+      expect(fullTrack.status).toBe(200)
+      expect(fullTrack.headers.has('Content-Range')).toBe(false)
+      expect(await fullTrack.text()).toContain('Hello')
       const unrelated = 's-' + Buffer.from('other.en.vtt').toString('base64url')
       expect((await app.handle(req('GET', base + '/subtitle/' + unrelated + '/track'))).status).toBe(404)
       expect((await app.handle(req('POST', base + '/progress', { position: 75, completed: false }))).status).toBe(200)
@@ -379,6 +410,12 @@ describe('HTTP authorization — capability enforcement', () => {
       const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
       expect(initialization.status).toBe(206)
       expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')
+      const fullInit = await app.handle(new Request(init.href, {
+        headers: { Range: 'bytes=0-7', 'If-Range': '"previous-version"' }
+      }))
+      expect(fullInit.status).toBe(200)
+      expect(fullInit.headers.has('Content-Range')).toBe(false)
+      expect((await fullInit.arrayBuffer()).byteLength).toBeGreaterThan(8)
     } finally {
       source.mockRestore()
       settings.mockRestore()

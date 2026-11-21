@@ -1,5 +1,5 @@
 import type { PlaybackConversion, PlaybackEncodingPreferences, PlaybackQuality, VideoQuality } from './playback-quality'
-import type { LocalMedia } from './local-media'
+import type { LocalMedia, VideoSummary } from './local-media'
 import type { TmdbMetadata } from './metadata-fields'
 
 export const LIBRARY_ROOT_ID = 'virtual-library-root'
@@ -372,6 +372,7 @@ export interface MediaFile {
   name: string
   path?: string // Full path to the file (Optional/Lazy)
   type: 'file'
+  videoSummary?: VideoSummary | null
   watched?: boolean // User state, preserved
   lastWatched?: number // Timestamp of when the item was last played
 
@@ -623,9 +624,22 @@ export interface AutocompleteSuggestions {
   virtualTags: Record<string, string[]>
 }
 
+export const DEFAULT_SEARCH_LIMIT = 30
+
 export interface SearchQuery {
   text: string
   tags: { key: string; value: string }[]
+}
+
+export interface SearchRequest extends SearchQuery {
+  limit?: number
+  includeTotal?: boolean
+}
+
+export interface SearchPage {
+  items: SearchIndexEntry[]
+  /** Null when the search stopped at the result limit without an exact total. */
+  total: number | null
 }
 
 export interface SearchIndexEntry {

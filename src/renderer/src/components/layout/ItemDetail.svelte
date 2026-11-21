@@ -32,7 +32,7 @@
 
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
-  import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
+  import { getAllRequiredFields, DETAIL_HEADER_FIELDS, TREE_FILE_FIELDS } from '@lib/view-requirements'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import { getViewKey } from '@lib/view-state-store.svelte'
   import ViewContextProvider from './ViewContextProvider.svelte'
@@ -76,7 +76,9 @@
 
   // 1. Fetch metadata only (Fast, no large blobs) + Request View Settings Side-Channel
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
-    fields: () => DETAIL_HEADER_FIELDS,
+    fields: () => initialItem.type === 'file' && initialItem.opensAsFolder
+      ? [...DETAIL_HEADER_FIELDS, ...TREE_FILE_FIELDS]
+      : DETAIL_HEADER_FIELDS,
     include: () => ['viewHierarchy']
   })
 

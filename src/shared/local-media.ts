@@ -1,3 +1,10 @@
+export interface VideoSummary {
+  width: number | null
+  height: number | null
+  codec: string | null
+  durationSeconds: number | null
+}
+
 export interface LocalMediaTrack {
   index: number
   kind: 'video' | 'audio' | 'subtitle'
@@ -44,6 +51,14 @@ export interface LocalMedia {
 
 export function isMp4Container(container?: string): boolean {
   return !!container && ['mov', 'mp4', 'm4v', '3gp', '3g2', 'mj2'].includes(container)
+}
+
+export function isMatroskaContainer(container?: string): boolean {
+  return container === 'matroska' || container === 'mkv' || container === 'webm'
+}
+
+export function defaultAudioTrack(tracks: readonly LocalMediaTrack[]): LocalMediaTrack | undefined {
+  return tracks.find((track) => track.default) ?? tracks[0]
 }
 
 export const VIDEO_EXTENSIONS = [

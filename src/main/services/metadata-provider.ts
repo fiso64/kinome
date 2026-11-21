@@ -44,20 +44,20 @@ interface SearchResult {
 
 function exactTitleMatches(results: SearchResult[], query: string, type: ProviderMediaType | 'multi') {
   const title = comparableTitle(query)
-  const matches = new Map<string, ProviderMatch & { year: number }>()
+  const matches: (ProviderMatch & { year: number })[] = []
   for (const result of results) {
     const resultType = type === 'multi' ? result.media_type : type
     if (resultType !== 'movie' && resultType !== 'tv') continue
     if (![result.title, result.original_title, result.name, result.original_name]
       .some((name) => name && comparableTitle(name) === title)) continue
     const year = Number((resultType === 'movie' ? result.release_date : result.first_air_date)?.slice(0, 4))
-    matches.set(`${resultType}:${result.id}`, { id: result.id, type: resultType, year })
+    matches.push({ id: result.id, type: resultType, year })
   }
-  return [...matches.values()]
+  return matches
 }
 
-function uniqueMatch(matches: ProviderMatch[]): ProviderMatch | null {
-  return matches.length === 1 ? { id: matches[0].id, type: matches[0].type } : null
+function toProviderMatch(result?: ProviderMatch): ProviderMatch | null {
+  return result ? { id: result.id, type: result.type } : null
 }
 
 export function createTmdbProvider(apiKey: string): MetadataProvider {
@@ -77,19 +77,19 @@ export function createTmdbProvider(apiKey: string): MetadataProvider {
     const initial = await tmdb.search(query, type, apiKey, { year: year?.toString() })
     const candidates = exactTitleMatches(initial, query, type)
     if (year === undefined) {
-      if (candidates.length || !alternate) return uniqueMatch(candidates)
+      if (candidates.length || !alternate) return toProviderMatch(candidates[0])
       const results = await tmdb.search(alternate.title, type, apiKey)
       const alternatives = exactTitleMatches(results, alternate.title, type)
-      const exact = alternatives.filter((candidate) => candidate.year === alternate.year)
-      return uniqueMatch(exact.length ? exact : alternatives.filter((candidate) =>
+      const exact = alternatives.find((candidate) => candidate.year === alternate.year)
+      return toProviderMatch(exact ?? alternatives.find((candidate) =>
         alternate.year !== undefined && Math.abs(candidate.year - alternate.year) === 1))
     }
-    const exact = candidates.filter((candidate) => candidate.year === year)
-    if (exact.length) return uniqueMatch(exact)
+    const exact = candidates.find((candidate) => candidate.year === year)
+    if (exact) return toProviderMatch(exact)
     const expanded = type === 'multi' ? candidates
-      : exactTitleMatches([...initial, ...await tmdb.search(query, type, apiKey)], query, type)
-    const expandedExact = expanded.filter((candidate) => candidate.year === year)
-    return uniqueMatch(expandedExact.length ? expandedExact : expanded.filter((candidate) => Math.abs(candidate.year - year) === 1))
+      : [...candidates, ...exactTitleMatches(await tmdb.search(query, type, apiKey), query, type)]
+    const expandedExact = expanded.find((candidate) => candidate.year === year)
+    return toProviderMatch(expandedExact ?? expanded.find((candidate) => Math.abs(candidate.year - year) === 1))
   }
 
   return {

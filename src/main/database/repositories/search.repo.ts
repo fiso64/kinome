@@ -204,10 +204,11 @@ function hasDenseTitleSample(match: string, fileFilter: ReturnType<typeof search
     return row.dense === 1
 }
 
-function searchResultsSql(order: string, matchFiles: boolean): string {
+function searchResultsSql(order: string, matchFiles: boolean, includeTotal = false): string {
     return `
         SELECT ${SEARCH_SELECT}
                ${matchFiles ? ', fm.matching_files' : ''}
+               ${includeTotal ? ', count(*) OVER () AS total_count' : ''}
         FROM ranked
         ${matchFiles ? 'JOIN search_file_details fm ON fm.item_id = ranked.id' : ''}
         CROSS JOIN ${ITEM_READ_MODEL} i ON i.id = ranked.id
@@ -223,7 +224,8 @@ function readRankedPrefix(
     prefix: RankedItem[],
     fileFilter: ReturnType<typeof searchFileFilter>,
     params: SearchParams,
-    userId?: string
+    userId?: string,
+    includeTotal = false
 ): any[] {
     if (prefix.length === 0) return []
     const rows = prefix.map(({ id }, index) => {
@@ -238,10 +240,10 @@ function readRankedPrefix(
         })
         ctes.push(searchFileDetails(searchFileQuery(scoped, params)))
     }
-    return querySearch(searchResultsSql('ranked.position', !!fileFilter), params, userId, ctes)
+    return querySearch(searchResultsSql('ranked.position', !!fileFilter, includeTotal), params, userId, ctes)
 }
 
-function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userId?: string): any[] {
+function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
     const tags = inputTags.map(tag => ({ ...tag, field: getMetadataSearchField(tag.key) }))
     const watchParams = { '@watchUser': userId ?? null }
     const params = { ...query.params, ...watchParams, '@limit': limit }
@@ -292,8 +294,12 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
             && hasDenseTitleSample(query.ftsMatch, fileFilter, limit, probeSize)
         const prefix = querySearch<RankedItem>(`${rankCandidates(nativeTitles ? 'titles' : 'prefix')} LIMIT @probeSize`,
             { ...params, '@probeSize': probeSize }, undefined, baseCtes)
-        const results = readRankedPrefix(prefix, fileFilter, { ...watchParams, '@limit': limit }, userId)
-        if (results.length === limit || (!nativeTitles && prefix.length < probeSize)) return results
+        const exhausted = !nativeTitles && prefix.length < probeSize
+        // A complete prefix can yield an exact total without traversing any
+        // more candidates. The window counts only visible, matching rows.
+        const results = readRankedPrefix(prefix, fileFilter, { ...watchParams, '@limit': limit }, userId,
+            includeTotal && exhausted && prefix.length > limit)
+        if (results.length === limit || exhausted) return results
     }
 
     const ctes = [...baseCtes]
@@ -307,7 +313,7 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
 }
 
 /** Finds items matching a short text query (LIKE). */
-export function findByShortQuery(normalized: string, tags: SearchTag[], limit: number, userId?: string): any[] {
+export function findByShortQuery(normalized: string, tags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
     const params: SearchParams = {
         '@likeQuery': `%${normalized}%`,
         '@startQuery': `${normalized.toLowerCase()}%`
@@ -327,21 +333,21 @@ export function findByShortQuery(normalized: string, tags: SearchTag[], limit: n
         END`, EFFECTIVE_TITLE, 'i.name'],
         params,
         ctes: [candidates]
-    }, tags, limit, userId)
+    }, tags, limit, userId, includeTotal)
 }
 
 /** Finds items using FTS5 match query with tag filtering. */
-export function findByFtsQuery(matchQuery: string, tags: SearchTag[], limit: number, userId?: string): any[] {
+export function findByFtsQuery(matchQuery: string, tags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
     return search({
         from: `${FTS_TABLE} CROSS JOIN media_items i ON i.search_document_id = ${FTS_TABLE}.rowid`,
         where: `AND ${FTS_TABLE} MATCH @matchQuery`,
         order: [`bm25(${FTS_TABLE}, ${SEARCH_RANK_WEIGHTS})`],
         params: { '@matchQuery': matchQuery },
         ftsMatch: matchQuery
-    }, tags, limit, userId)
+    }, tags, limit, userId, includeTotal)
 }
 
 /** Finds items with no text query, only tag filtering. */
-export function findByTagsOnly(tags: SearchTag[], limit: number, userId?: string): any[] {
-    return search({ from: 'media_items i', order: [EFFECTIVE_TITLE, 'i.name'] }, tags, limit, userId)
+export function findByTagsOnly(tags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
+    return search({ from: 'media_items i', order: [EFFECTIVE_TITLE, 'i.name'] }, tags, limit, userId, includeTotal)
 }

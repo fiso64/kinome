@@ -8,7 +8,7 @@
     refresh: 'M20 7v5h-5m5 0a8 8 0 0 0-14-5m-2 10v-5h5m-5 0a8 8 0 0 0 14 5',
     grid: 'M3 3h7v7H3zm11 0h7v7h-7zm0 11h7v7h-7zm-11 0h7v7H3z',
     more: 'M5 12h.01M12 12h.01M19 12h.01',
-    settings: 'M4 7h16M4 17h16M8 4v6m8 4v6',
+    settings: 'M10.1 4.5 10.2 2.2 13.8 2.2 13.9 4.5 16 5.4 17.7 3.8 20.2 6.3 18.6 8 19.5 10.1 21.8 10.2 21.8 13.8 19.5 13.9 18.6 16 20.2 17.7 17.7 20.2 16 18.6 13.9 19.5 13.8 21.8 10.2 21.8 10.1 19.5 8 18.6 6.3 20.2 3.8 17.7 5.4 16 4.5 13.9 2.2 13.8 2.2 10.2 4.5 10.1 5.4 8 3.8 6.3 6.3 3.8 8 5.4ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
     close: 'm6 6 12 12M18 6 6 18',
     folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z',
     film: 'M4 4h16v16H4zM8 4v16M16 4v16M4 9h4m-4 6h4m8-6h4m-4 6h4',
@@ -50,5 +50,6 @@
 
 <svg aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 24 24" fill="none"
   stroke="currentColor" stroke-width={name === 'more' || name === 'grip' ? 3 : 1.65} stroke-linecap="round" stroke-linejoin="round">
+  {#if name === 'brand'}<path d="M15 7v10" opacity=".7" />{/if}
   <path d={paths[name]} />
 </svg>

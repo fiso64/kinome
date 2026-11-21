@@ -2,7 +2,7 @@ import * as searchRepo from '../database/repositories/search.repo'
 import { SEARCH_KEYWORD_COLUMNS } from '../database/item-metadata.sql'
 import { ensureUpToDate } from './account-filter.service'
 import { getCurrentAccountId } from '../request-context'
-import type { SearchIndexEntry } from '@shared/types'
+import { DEFAULT_SEARCH_LIMIT, type SearchIndexEntry, type SearchPage, type SearchRequest } from '@shared/types'
 
 // Rebuilds the FTS index from scratch. Useful for migration or corruption recovery.
 export function rebuildSearchIndex() {
@@ -45,16 +45,13 @@ function toTrigrams(text: string): string[] {
   return trigrams
 }
 
-export function performSearch(query: {
-  text: string
-  tags: { key: string; value: string }[]
-  limit?: number
-  userId?: string
-}): SearchIndexEntry[] {
+export function performSearch(query: SearchRequest & { userId?: string }): SearchPage {
   const { text, tags } = query
   const userId = getCurrentAccountId() ?? query.userId
   if (userId) ensureUpToDate(userId)
-  const limit = query.limit || 30
+  const limit = query.limit || DEFAULT_SEARCH_LIMIT
+  const includeTotal = query.includeTotal === true && Number.isSafeInteger(limit + 1) && limit > 0
+  const rowLimit = includeTotal ? limit + 1 : limit
 
   let rows: any[] = []
 
@@ -64,32 +61,34 @@ export function performSearch(query: {
 
     if (normalized.length < 3) {
       // --- Short Query Strategy (LIKE) ---
-      rows = searchRepo.findByShortQuery(normalized, tags, limit, userId)
+      rows = searchRepo.findByShortQuery(normalized, tags, rowLimit, userId, includeTotal)
     } else {
       // --- Long Query Strategy (FTS Trigram) ---
       try {
         const matchQuery = `${SEARCH_KEYWORD_COLUMNS} : "${normalized}"`
-        rows = searchRepo.findByFtsQuery(matchQuery, tags, limit, userId)
+        rows = searchRepo.findByFtsQuery(matchQuery, tags, rowLimit, userId, includeTotal)
 
         // Fuzzy Fallback
         if (rows.length === 0) {
           const trigrams = toTrigrams(normalized)
           if (trigrams.length > 0) {
             const fuzzyMatchQuery = `${SEARCH_KEYWORD_COLUMNS} : (${trigrams.map((t) => `"${t}"`).join(' OR ')})`
-            rows = searchRepo.findByFtsQuery(fuzzyMatchQuery, tags, limit, userId)
+            rows = searchRepo.findByFtsQuery(fuzzyMatchQuery, tags, rowLimit, userId, includeTotal)
           }
         }
       } catch (e) {
         console.error('[Search] Execution failed:', e)
-        return []
+        return { items: [], total: 0 }
       }
     }
   } else {
     // --- No Text Query ---
-    rows = searchRepo.findByTagsOnly(tags, limit, userId)
+    rows = searchRepo.findByTagsOnly(tags, rowLimit, userId, includeTotal)
   }
 
-  return rows.map(mapRowToEntry)
+  const total = rows[0]?.total_count ?? (rows.length < rowLimit || rowLimit < 0 ? rows.length : null)
+  if (includeTotal && rows.length > limit) rows.pop()
+  return { items: rows.map(mapRowToEntry), total }
 }
 
 function mapRowToEntry(row: any): SearchIndexEntry {
@@ -137,8 +136,4 @@ function mapRowToEntry(row: any): SearchIndexEntry {
     staticScore: 0
   }
   return entry
-}
-
-export function debugPerformSearch(query: any) {
-  return performSearch(query)
 }

@@ -128,11 +128,11 @@ function usesLocationFields(rule: AccountFilterRule): boolean {
     .some(({ field }) => /^(parent\.)*(path|sourceId|size|mtime|birthtime|inode|deviceId|isIgnored|file\..+)$/.test(field))
 }
 
-export function rebuildForAccount(accountId: string): void {
+export function rebuildForAccount(accountId: string): number {
   const rule = accountFilterRepo.getFilterRule(accountId)
   if (!rule) {
     accountFilterRepo.replaceVisibleItems(accountId, [])
-    return
+    return recordVisibilityRebuild(accountId)
   }
 
   const db = getDb()
@@ -178,10 +178,11 @@ export function rebuildForAccount(accountId: string): void {
 
   const ids = [...visible]
   accountFilterRepo.replaceVisibleItems(accountId, ids, excluded)
-  accountLastBuiltVersion.set(accountId, globalDirtyVersion)
+  const revision = recordVisibilityRebuild(accountId)
   console.log(
     `[${new Date().toISOString()}] [AccountFilter] Rebuilt visibility for account ${accountId}: ${ids.length} visible items (mode=${rule.mode})`
   )
+  return revision
 }
 
 export function rebuildAll(): void {
@@ -203,7 +204,18 @@ let globalDirtyVersion = 0
  * Per-account version at which visibility was last rebuilt.
  * Accounts not present in the map are treated as never built (version = -1).
  */
-const accountLastBuiltVersion = new Map<string, number>()
+const accountVisibility = new Map<string, { builtVersion: number; revision: number }>()
+
+function recordVisibilityRebuild(accountId: string): number {
+  const revision = (accountVisibility.get(accountId)?.revision ?? 0) + 1
+  accountVisibility.set(accountId, { builtVersion: globalDirtyVersion, revision })
+  return revision
+}
+
+export function removeRuleForAccount(accountId: string): void {
+  accountFilterRepo.deleteFilterRule(accountId)
+  recordVisibilityRebuild(accountId)
+}
 
 /**
  * Signal that visibility sets may be stale. O(1) — just bumps a counter.
@@ -217,12 +229,13 @@ export function markDirty(): void {
  * Rebuild visibility for a single account if it is stale.
  * Called on the hot path (every find/search with a userId), so it must be fast
  * in the common case (already up to date → single map lookup, no DB I/O).
+ * The revision changes when visibility is rebuilt or a rule is removed.
  */
-export function ensureUpToDate(accountId: string): void {
-  if ((accountLastBuiltVersion.get(accountId) ?? -1) >= globalDirtyVersion) return
-  // Mark as up to date first so concurrent calls don't pile up
-  accountLastBuiltVersion.set(accountId, globalDirtyVersion)
-  if (accountFilterRepo.hasFilterRule(accountId)) {
-    rebuildForAccount(accountId)
-  }
+export function ensureUpToDate(accountId: string): number {
+  const previous = accountVisibility.get(accountId)
+  if (previous?.builtVersion === globalDirtyVersion) return previous.revision
+  if (accountFilterRepo.hasFilterRule(accountId)) return rebuildForAccount(accountId)
+  const revision = previous?.revision ?? 0
+  accountVisibility.set(accountId, { builtVersion: globalDirtyVersion, revision })
+  return revision
 }

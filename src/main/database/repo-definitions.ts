@@ -1,4 +1,4 @@
-import { LOCAL_MEDIA_DETAIL_SQL } from './local-media.sql'
+import { LOCAL_MEDIA_DETAIL_SQL, VIDEO_SUMMARY_SQL } from './local-media.sql'
 import type { LibraryItem } from '@shared/types'
 
 export interface RepositoryFieldDef {
@@ -51,6 +51,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     releaseDate: { sql: 'e.release_date', table: 'e' },
     tmdbRuntime: { sql: 'e.tmdb_runtime', table: 'e' },
     localMedia: { sql: LOCAL_MEDIA_DETAIL_SQL, isJson: true },
+    videoSummary: { sql: VIDEO_SUMMARY_SQL, isJson: true },
     tmdbMetadata: { sql: 'e.tmdb_metadata_json', table: 'e', isJson: true },
     year: {
         sql: 'e.year',

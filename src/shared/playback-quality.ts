@@ -1,6 +1,11 @@
 export const VIDEO_QUALITIES = ['4k', '1440p', '1080p', '720p', '480p', '360p', '240p'] as const
 
 export type VideoQuality = (typeof VIDEO_QUALITIES)[number]
+export const videoQualityHeights: Readonly<Record<VideoQuality, number>> = {
+  '4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240
+}
+export const hlsMime = 'application/vnd.apple.mpegurl'
+
 export type PlaybackQuality = 'original' | 'remux' | VideoQuality
 export type PlaybackConversion = 'full' | 'remux' | 'off'
 export type PlaybackWorkerStatus = 'unconfigured' | 'ready' | 'unreachable' | 'unready'
@@ -61,6 +66,14 @@ export function availablePlaybackQualities(settings?: {
     }
   }
   return available
+}
+
+export function canConvertPlaybackAudio(qualities: readonly PlaybackQuality[], conversion: PlaybackConversion | undefined): boolean {
+  return qualities.includes('remux') && conversion !== 'remux'
+}
+
+export function isHdrTransfer(transfer?: string): boolean {
+  return transfer === 'smpte2084' || transfer === 'arib-std-b67'
 }
 
 /** Output negotiated for one conversion. Omitted fields use compatibility encoding. */

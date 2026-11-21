@@ -229,7 +229,7 @@ class LibraryDataService {
     return createQuery(
       () => {
         const parentId = parentIdFn()
-        const fields = (options.fields ? options.fields() : []).sort()
+        const fields = [...(options.fields?.() ?? [])].sort()
         const isDetailView = options.isDetailView ? options.isDetailView() : false
         const isEnabled = options.enabled ? options.enabled() : true
 

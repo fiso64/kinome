@@ -5,6 +5,7 @@ import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
+import { ensureUpToDate } from './account-filter.service'
 import { resolveSelectedLocationForItem } from '../database/repositories/media-location.repo'
 import * as itemsRepo from '../database/repositories/filesystem.repo'
 import type { LibraryItem, MediaFile } from '@shared/types'
@@ -57,14 +58,6 @@ function redactSensitiveUrl(url: string): string {
   }
 }
 
-function getSafeLogContext(context?: StreamRequestLogContext): StreamRequestLogContext | undefined {
-  if (!context) return undefined
-  return {
-    ...context,
-    url: context.url ? redactSensitiveUrl(context.url) : context.url
-  }
-}
-
 // Stream playback debounce to prevent DB spam on range requests
 const playbackDebounce = new Map<string, number>()
 const PLAYBACK_DEBOUNCE_WINDOW = 1 * 10 * 1000 // 10 seconds
@@ -98,6 +91,7 @@ export function recordPlaybackDebounced(
 }
 
 export async function resolvePlaybackSource(itemId: string, userId?: string | null) {
+  if (userId) ensureUpToDate(userId)
   const location = resolveSelectedLocationForItem(itemId, { requirePresent: true, type: 'file', userId })
   if (!location) return null
   const absSourcePath = await settingsService.getAbsoluteSourcePath(location.sourceId)
@@ -118,6 +112,7 @@ interface StreamCacheEntry {
   absolutePath: string
   contentType: string
   cachedAt: number
+  visibilityRevision: number
 }
 
 const streamCache = new Map<string, StreamCacheEntry>()
@@ -126,12 +121,12 @@ function getStreamCacheKey(itemId: string, userId?: string | null): string {
   return `${userId ?? 'anonymous'}:${itemId}`
 }
 
-function getStreamCacheEntry(cacheKey: string): StreamCacheEntry | null {
+function getStreamCacheEntry(cacheKey: string, visibilityRevision: number): StreamCacheEntry | null {
   const entry = streamCache.get(cacheKey)
   if (!entry) return null
 
   // Check TTL
-  if (Date.now() - entry.cachedAt > STREAM_CACHE_TTL) {
+  if (entry.visibilityRevision !== visibilityRevision || Date.now() - entry.cachedAt > STREAM_CACHE_TTL) {
     streamCache.delete(cacheKey)
     return null
   }
@@ -209,14 +204,15 @@ function parseByteRange(header: string | null, fileSize: number): { start: numbe
 
 /** Read original media off the event loop. Generated segments can use their cached Blob slices. */
 export function handleFileStreamFast(
+  request: Pick<Request, 'method' | 'headers' | 'signal'>,
   file: string | { slice(start: number, end: number): Blob },
   fileSize: number,
   contentType: string,
-  rangeHeader: string | null,
-  logContext?: StreamRequestLogContext,
-  signal?: AbortSignal
+  logContext?: StreamRequestLogContext
 ): Response {
-  const head = logContext?.method === 'HEAD'
+  const head = request.method === 'HEAD'
+  // Playback assets do not send a strong validator. If-Range falls back to the full representation.
+  const rangeHeader = request.headers.has('if-range') ? null : request.headers.get('range')
   const range = head ? null : parseByteRange(rangeHeader, fileSize)
   const headers = new Headers({ 'Accept-Ranges': 'bytes', 'Content-Type': contentType })
   if (range === 'unsatisfiable') {
@@ -231,7 +227,7 @@ export function handleFileStreamFast(
   headers.set('Content-Length', String(end - start))
   if (isVerbosePlaybackLoggingEnabled()) {
     logVerbose('Serving file stream.', {
-      ...getSafeLogContext(logContext), requestRange: rangeHeader, status,
+      ...logContext, requestRange: rangeHeader, status,
       contentRange: headers.get('Content-Range')
     })
   }
@@ -240,7 +236,7 @@ export function handleFileStreamFast(
   if (typeof file !== 'string') return new Response(file.slice(start, end), { status, headers })
   // Bun can spend hundreds of milliseconds sending a cold file slice on the
   // HTTP thread, delaying every viewer. Bound read-ahead for slow clients.
-  const stream = createReadStream(file, { start, end: end - 1, highWaterMark: 256 * 1024, signal })
+  const stream = createReadStream(file, { start, end: end - 1, highWaterMark: 256 * 1024, signal: request.signal })
   return new Response(stream, { status, headers })
 }
 
@@ -249,37 +245,41 @@ export function handleFileStreamFast(
  * Call this from the route handler for maximum speed.
  *
  * @param itemId The library item ID
- * @param rangeHeader HTTP Range header value
+ * @param request Original HTTP request
  * @returns Response object or null if item not found
  */
 export async function handleCachedStream(
   itemId: string,
-  rangeHeader: string | null,
-  logContext: Omit<StreamRequestLogContext, 'itemId' | 'cacheHit'> = {},
-  signal?: AbortSignal
+  request: Request,
+  userId: string,
+  watchRequested: boolean
 ): Promise<Response | null> {
-  const safeLogContext = getSafeLogContext(logContext)
-  const cacheKey = getStreamCacheKey(itemId, logContext.userId)
+  const safeLogContext = isVerbosePlaybackLoggingEnabled() ? {
+    method: request.method, url: redactSensitiveUrl(request.url),
+    userAgent: request.headers.get('user-agent'), watchRequested, userId
+  } : undefined
+  const cacheKey = getStreamCacheKey(itemId, userId)
+  const visibilityRevision = ensureUpToDate(userId)
 
   // Check cache first
-  let cacheEntry = getStreamCacheEntry(cacheKey)
+  let cacheEntry = getStreamCacheEntry(cacheKey, visibilityRevision)
   const cacheHit = !!cacheEntry
 
   if (!cacheEntry) {
     // Cache miss - do the expensive lookups
-    const absolutePath = await resolveStreamPath(itemId, logContext.userId)
+    const absolutePath = await resolveStreamPath(itemId, userId)
     if (!absolutePath) {
-      logVerbose('Stream request failed because absolute path could not be resolved.', {
+      if (safeLogContext) logVerbose('Stream request failed because absolute path could not be resolved.', {
         ...safeLogContext,
         ...getItemLogInfo(itemId),
-        requestRange: rangeHeader,
+        requestRange: request.headers.get('range'),
         cacheHit: false
       })
       return null
     }
 
     const contentType = getMimeType(absolutePath)
-    const newEntry = { absolutePath, contentType }
+    const newEntry = { absolutePath, contentType, visibilityRevision }
     setStreamCacheEntry(cacheKey, newEntry)
     cacheEntry = { ...newEntry, cachedAt: Date.now() }
   }
@@ -289,27 +289,26 @@ export async function handleCachedStream(
   if (!file?.isFile()) {
     // Clear stale locations while allowing empty files to return their actual length.
     streamCache.delete(cacheKey)
-    logVerbose('Stream request failed because the file is unavailable.', {
+    if (safeLogContext) logVerbose('Stream request failed because the file is unavailable.', {
       ...safeLogContext,
       ...getItemLogInfo(itemId),
       absolutePath: cacheEntry.absolutePath,
-      requestRange: rangeHeader,
+      requestRange: request.headers.get('range'),
       cacheHit
     })
     return null
   }
 
   return handleFileStreamFast(
+    request,
     cacheEntry.absolutePath,
     file.size,
     cacheEntry.contentType,
-    rangeHeader,
-    {
+    safeLogContext && {
       ...safeLogContext,
       ...getItemLogInfo(itemId),
       cacheHit
-    },
-    signal
+    }
   )
 }
 

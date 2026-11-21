@@ -117,6 +117,14 @@ describe('Search Repository (Integration)', () => {
             expect(results.length).toBe(0)
         })
 
+        it('counts visible matches in a complete prefix before limiting results', () => {
+            const all = searchRepo.findByShortQuery('i', [], 10)
+            expect(all.map(({ id }) => id).sort()).toEqual(['1', '2', '5'])
+            const page = searchRepo.findByShortQuery('i', [], 2, undefined, true)
+            expect(page.map(({ id, total_count }) => [id, total_count]))
+                .toEqual(all.slice(0, 2).map(({ id }) => [id, 3]))
+        })
+
         it('appends tag filters (AND logic)', () => {
             const tags = [{ key: 'genre', value: 'Action' }]
             const results = searchRepo.findByShortQuery('Mat', tags, 10)

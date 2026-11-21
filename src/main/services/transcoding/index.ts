@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises'
-import { isMp4Container } from '@shared/local-media'
-import { avcFormat, type PlaybackEncodingPreferences, type PlaybackOutput } from '@shared/playback-quality'
+import { defaultAudioTrack, isMatroskaContainer, isMp4Container } from '@shared/local-media'
+import { avcFormat, isHdrTransfer, type PlaybackEncodingPreferences, type PlaybackOutput } from '@shared/playback-quality'
 import { probeMedia } from '../probe-media'
 import { readMatroskaCueTimes, type MatroskaSubtitleIndex } from './matroska-cues'
 import { readMp4Keyframes } from './mp4-keyframes'
@@ -84,7 +84,7 @@ async function readX264Build(path: string, videoIndex: number) {
 }
 
 export function keyframeReaderFor(container?: string) {
-  if (container === 'matroska' || container === 'mkv' || container === 'webm') return readMatroskaCueTimes
+  if (isMatroskaContainer(container)) return readMatroskaCueTimes
   if (isMp4Container(container)) return readMp4Keyframes
 }
 
@@ -97,7 +97,7 @@ export async function openPlaybackSource(
   const video = media.tracks.find((track) => track.kind === 'video')!
   const audios = media.tracks.filter((track) => track.kind === 'audio')
   const audio = audioIndex === undefined
-    ? audios.find((track) => track.default) ?? audios[0]
+    ? defaultAudioTrack(audios)
     : audios.find((track) => track.index === audioIndex)
   if (audioIndex !== undefined && !audio) throw new Error('Audio track does not exist')
   const audioTracks = !audio ? [] : audioIndex === undefined ? [audio, ...audios.filter((track) => track !== audio)] : [audio]
@@ -135,7 +135,7 @@ export async function openPlaybackSource(
   }
   const x264Build = await record.x264Build
   const { wideChroma, tenBit } = avcFormat(video.pixelFormat)
-  const wideColor = wideChroma || tenBit || ['smpte2084', 'arib-std-b67'].includes(video.colorTransfer ?? '')
+  const wideColor = wideChroma || tenBit || isHdrTransfer(video.colorTransfer)
   const videoCodec = !copiesVideo(quality) && wideColor
     ? output.videoCodec ?? (browser ? undefined : wideChroma ? 'avc' : 'hevc') : undefined
   const channelLimit = output.sound === 'stereo' || encoding.audioChannels === 'stereo' ? 2 :

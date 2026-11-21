@@ -5,7 +5,8 @@ import type {
   MediaFolder,
   LibraryItem,
   AutocompleteSuggestions,
-  SearchIndexEntry,
+  SearchPage,
+  SearchRequest,
   TmdbSearchResult,
   TmdbImageResults,
   MediaProperties,
@@ -296,19 +297,7 @@ class WebApiClient implements ApiClient {
     return this.request(`/api/items/${encodeURIComponent(itemId)}/ancestors`)
   }
 
-  performSearch(query: {
-    text: string
-    tags: { key: string; value: string }[]
-    limit?: number
-  }): Promise<SearchIndexEntry[]> {
-    return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
-  }
-
-  debugPerformSearch(query: {
-    text: string
-    tags: { key: string; value: string }[]
-    limit?: number
-  }): Promise<Record<string, unknown>> {
+  performSearch(query: SearchRequest): Promise<SearchPage> {
     return this.request('/api/perform-search', { method: 'POST', body: JSON.stringify(query) })
   }
 

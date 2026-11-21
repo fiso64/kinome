@@ -4,6 +4,23 @@ import type { LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
 type DisplayableItem = LibraryItem | SearchIndexEntry
 type ParentItem = MediaFolder | (MediaFolder & { isVirtual?: boolean })
 
+const byteUnits = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+
+export function formatClockTime(seconds: number, guide = seconds): string {
+  const time = Math.floor(Math.max(0, seconds))
+  const hours = Math.floor(time / 3600)
+  const minutes = Math.floor(time / 60) % 60
+  const minutesText = String(minutes).padStart(guide >= 600 ? 2 : 1, '0')
+  const secondsText = String(time % 60).padStart(2, '0')
+  return guide >= 3600 ? `${hours}:${minutesText}:${secondsText}` : `${minutesText}:${secondsText}`
+}
+
+export function formatBytes(bytes: number, decimals = 2): string {
+  if (!bytes) return '0 Bytes'
+  const unit = Math.min(Math.floor(Math.log2(bytes) / 10), byteUnits.length - 1)
+  return `${Number((bytes / 1024 ** unit).toFixed(decimals))} ${byteUnits[unit]}`
+}
+
 /**
  * Determines if a given item should be visually greyed out as "watched".
  * @param item The item to check.

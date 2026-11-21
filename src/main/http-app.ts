@@ -161,28 +161,34 @@ function guardCap(cap: Capability) {
   }
 }
 
-async function handleDirectStreamRequest({ params, query, request, session }: {
+async function handleDirectStreamRequest({ params, query, request, session, server }: {
   params: { id: string }
   query: Record<string, unknown>
   request: Request
   session: { accountId: string }
+  server: { timeout(request: Request, seconds: number): void } | null
 }): Promise<Response> {
+  // Browsers can stop reading while buffered media plays. Keep the range
+  // response open and let disconnects cancel the read through request.signal.
+  server?.timeout(request, 0)
   const userId = session.accountId
   const watchRequested = request.method === 'GET' && (query.watch === '1' || query.watch === 'true')
-  // There is no strong validator for a live media file. An If-Range request gets the full representation.
-  const range = request.headers.has('if-range') ? null : request.headers.get('range')
-  const response = await playbackService.handleCachedStream(params.id, range, {
-    method: request.method,
-    url: request.url,
-    userAgent: request.headers.get('user-agent'),
-    watchRequested,
-    userId
-  }, request.signal)
+  const response = await playbackService.handleCachedStream(params.id, request, userId, watchRequested)
   if (!response) return new Response(request.method === 'HEAD' ? null : 'File not found', { status: 404 })
   if (watchRequested && response.ok) {
     playbackService.recordPlaybackDebounced(params.id, userId, (id) => libraryService.recordPlayback(id, userId))
   }
   return response
+}
+
+function handleSubtitleRequest({ params, request, session, server }: {
+  params: { id: string; track: string; part: string }
+  request: Request
+  session: { accountId: string }
+  server: { timeout(request: Request, seconds: number): void } | null
+}): Promise<Response> {
+  server?.timeout(request, 0)
+  return serveSubtitle(request, params.id, params.track, params.part, session.accountId)
 }
 
 async function handleHlsRequest({ params, request, session, server }: {
@@ -598,14 +604,8 @@ export function buildApp() {
           if (!ok) set.status = 404
           return { success: ok }
         }, { body: t.Object({ position: t.Number({ minimum: 0 }), completed: t.Boolean() }) })
-        .get('/playback/:id/subtitle/:track/:part', ({ params, request, session, server }) => {
-          server?.timeout(request, 0)
-          return serveSubtitle(request, params.id, params.track, params.part, session.accountId)
-        })
-        .head('/playback/:id/subtitle/:track/:part', ({ params, request, session, server }) => {
-          server?.timeout(request, 0)
-          return serveSubtitle(request, params.id, params.track, params.part, session.accountId)
-        })
+        .get('/playback/:id/subtitle/:track/:part', handleSubtitleRequest)
+        .head('/playback/:id/subtitle/:track/:part', handleSubtitleRequest)
         .get('/stream/:id', handleDirectStreamRequest)
         .head('/stream/:id', handleDirectStreamRequest)
         .get('/stream/:id/:filename', handleDirectStreamRequest)
@@ -695,7 +695,7 @@ export function buildApp() {
               return { success: true }
             })
             .delete('/accounts/:id/filter', ({ params }: { params: any }) => {
-              accountFilterRepo.deleteFilterRule(params.id)
+              accountFilterService.removeRuleForAccount(params.id)
               return { success: true }
             })
             .post('/accounts/:id/filter/rebuild', ({ params }: { params: any }) => {

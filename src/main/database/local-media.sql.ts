@@ -62,7 +62,16 @@ BEGIN
 END;
 `
 
-// Only detail requests project the track rows to an object for transport.
+// The tree uses the cached file duration and the first video stream.
+export const VIDEO_SUMMARY_SQL = `CASE WHEN i.type = 'file' AND i.location_is_present = 1 THEN (
+    SELECT json_object('width', t.width, 'height', t.height, 'codec', t.codec, 'durationSeconds', m.duration_seconds)
+    FROM local_media m
+    JOIN local_media_tracks t INDEXED BY sqlite_autoindex_local_media_tracks_1 ON t.location_id = m.location_id
+    WHERE m.location_id = i.selected_location_id AND t.kind = 'video'
+    ORDER BY t.stream_index LIMIT 1
+) END`
+
+// Only detail requests project all track rows to an object for transport.
 export const LOCAL_MEDIA_DETAIL_SQL = `(
     SELECT json_object(
         'container', m.container, 'durationSeconds', m.duration_seconds,

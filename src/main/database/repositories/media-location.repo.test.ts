@@ -7,6 +7,7 @@ import { suggestStoredMetadataValues } from './metadata-suggestions.repo'
 import { findByFtsQuery, findByTagsOnly } from './search.repo'
 import { replaceVirtualTags, upsertMetadata } from './metadata.repo'
 import { buildFindQuery, compileFilter } from '../query-builder'
+import { mapRowToLibraryItem } from '../mappers'
 import { replaceSourcePriorities, resolveSelectedLocationForItem } from './media-location.repo'
 
 let db: Database
@@ -73,28 +74,36 @@ describe('media location repository', () => {
     const candidates = findProbeCandidates(['source-a', 'source-b'], 2000)
     const [first, second] = candidates
     const media = { container: 'matroska', durationSeconds: 120, tracks: [{
-      index: 2, kind: 'video' as const, codec: 'h264', height: 1080,
+      index: 2, kind: 'video' as const, codec: 'h264', width: 1920, height: 1080,
       default: true, forced: false, hearingImpaired: false
     }] }
     expect(saveProbeResult(first, media, null)).toBe(true)
-    expect(saveProbeResult(second, { ...media, tracks: [{ ...media.tracks[0], codec: 'hevc', height: 2160 }] }, null)).toBe(true)
+    expect(saveProbeResult(second, { ...media, durationSeconds: 3900, tracks: [
+      { ...media.tracks[0], codec: 'hevc', width: 3840, height: 2160 },
+      { ...media.tracks[0], index: 3, codec: 'av1' }
+    ] }, null)).toBe(true)
     expect(findProbeCandidates(['source-a', 'source-b'], 2000)).toEqual([])
 
     const query = buildFindQuery({ ...compileFilter({
       conditions: [{ field: 'file.videoHeight', op: 'gte', value: '2160' }]
     }), fields: ['id', 'localMedia'] })
     const filter = () => db.query(query.query).all(...query.params) as { id: string; localMedia: string }[]
+    const summaryQuery = buildFindQuery({ where: { id: 'film' }, fields: ['type', 'size', 'videoSummary'] })
+    const readSummary = () => mapRowToLibraryItem(db.query(summaryQuery.query).get(...summaryQuery.params))
     replaceSourcePriorities(['source-a', 'source-b'])
+    expect(readSummary()).toMatchObject({ size: 100, videoSummary: { codec: 'h264', width: 1920, height: 1080, durationSeconds: 120 } })
     expect(suggestStoredMetadataValues('file.videoCodec', '', 20)).toEqual(['h264'])
     expect(filter()).toEqual([])
     expect(findByTagsOnly([{ key: 'file.videoCodec', value: 'h264' }], 10)).toHaveLength(1)
     replaceSourcePriorities(['source-b', 'source-a'])
+    expect(readSummary()).toMatchObject({ size: 200, videoSummary: { codec: 'hevc', width: 3840, height: 2160, durationSeconds: 3900 } })
     expect(suggestStoredMetadataValues('file.videoCodec', 'he', 20)).toEqual(['hevc'])
     expect(suggestStoredMetadataValues('file.videoHeight', '', 20)).toEqual(['2160'])
     expect(JSON.parse(filter()[0].localMedia).tracks[0]).toMatchObject({ codec: 'hevc', index: 2, default: true })
     expect(findByTagsOnly([{ key: 'file.videoCodec', value: 'h264' }], 10)).toEqual([])
 
     db.exec("UPDATE media_locations SET size = 201 WHERE id = 'b'")
+    expect(readSummary()).toMatchObject({ size: 201, videoSummary: null })
     expect(saveProbeResult(second, media, null)).toBe(false)
     expect(filter()).toEqual([])
     expect(suggestStoredMetadataValues('file.videoCodec', '', 20)).toEqual([])

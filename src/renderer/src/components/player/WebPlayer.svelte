@@ -14,14 +14,15 @@
   import NotificationContainer from '@ui/NotificationContainer.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import { formatClockTime } from '@lib/view-helpers'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
-    videoQualityHeights, playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, hlsMime, languageName,
+    playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
     knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
-  import { isVideoQuality } from '@shared/playback-quality'
+  import { hlsMime, isVideoQuality, videoQualityHeights } from '@shared/playback-quality'
   import { webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
-  import { isMp4Container, type MediaChapter } from '@shared/local-media'
+  import { defaultAudioTrack, isMp4Container, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
@@ -163,7 +164,7 @@
   let steppedFrameTime: number | undefined
   let presentedFrameTime: number | undefined
   let audioCapability = $derived(info?.media?.tracks.filter((track) => track.kind === 'audio') ?? [])
-  let defaultAudio = $derived(audioCapability.find((track) => track.default) ?? audioCapability[0])
+  let defaultAudio = $derived(defaultAudioTrack(audioCapability))
   let availablePlayers = $derived(resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
     .filter((player) => player.id !== BUILTIN_WEB_PLAYER.id))
   const canSwitchAudio = $derived(audioCapability.length > 1 && (nativeAudio || (info?.qualities.length ?? 0) > 1))
@@ -389,6 +390,7 @@
         return
       }
       activeQuality = mode
+      const nativeHls = video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.'
       const signal = (attempt = new AbortController()).signal
       const listen = <K extends keyof HTMLMediaElementEventMap>(event: K, handler: () => void, once = false) =>
         video.addEventListener(event, handler, { signal, once })
@@ -471,11 +473,11 @@
         timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
       })
       listen('progress', updateBufferedRanges)
+      listen('suspend', updateBufferedRanges)
       listen('loadeddata', updateBufferedRanges, true)
       listen('seeked', () => {
         if (video.seeking) return
         if (retriedSeek?.source === index && Math.abs(video.currentTime - retriedSeek.position) < 1) retriedSeek = undefined
-        updateBufferedRanges()
         updatePlaybackPosition()
         if (committedPosition !== undefined) {
           const settledPosition = committedPosition
@@ -583,7 +585,6 @@
         video.addEventListener('pause', cancel, { signal: controller.signal })
         const reserve = bufferedEnd(video) - video.currentTime
         try {
-          const nativeHls = video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.'
           const prepared = target.mode === 'original' || nativeHls ? undefined : await prefetchRendition(
             browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target), video.currentTime, controller.signal
           )
@@ -646,6 +647,7 @@
       ) : undefined
       listen('waiting', () => { if (!video.paused) loading = true })
       listen('playing', () => {
+        updateBufferedRanges()
         if (reportRecovery) {
           console.info('[Kinome player] Source playing after fallback or retry', context())
           reportRecovery = false
@@ -692,7 +694,7 @@
         }
         failed(network ? 'The video could not be loaded from the server.' : 'The browser could not decode the selected source.', network, { status })
       })
-      if (mode === 'original' || (video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.')) {
+      if (mode === 'original' || nativeHls) {
         video.src = url
         if (!deferPlay) play()
         return
@@ -853,6 +855,8 @@
 
   function updatePlaybackPosition() {
     playbackPosition = video.currentTime
+    // Native playback can update buffered ranges after a seek without a progress event.
+    updateBufferedRanges()
     if (chapters.length) chapterIndex = chapterAfter(playbackPosition) - 1
   }
 
@@ -1092,16 +1096,11 @@
   }
 
   function chapterTime(chapter: MediaChapter): string {
-    return clockTime(chapter.startSeconds, chapter.startSeconds)
+    return formatClockTime(chapter.startSeconds)
   }
 
-  function clockTime(seconds: number, guide = timelineDuration): string {
-    const time = Math.floor(Math.max(0, seconds))
-    const hours = Math.floor(time / 3600)
-    const minutes = Math.floor(time / 60) % 60
-    const minutesText = String(minutes).padStart(guide >= 600 ? 2 : 1, '0')
-    const secondsText = String(time % 60).padStart(2, '0')
-    return guide >= 3600 ? `${hours}:${minutesText}:${secondsText}` : `${minutesText}:${secondsText}`
+  function clockTime(seconds: number): string {
+    return formatClockTime(seconds, timelineDuration)
   }
 
   function setSpeed(rate: number) {

@@ -39,6 +39,7 @@
   }
 
   const searchResults = $derived(searchStore.searchResults)
+  const searchTotal = $derived(searchStore.globalSearchTotal)
   const isPerformingSearch = $derived(searchStore.isPerformingGlobalSearch)
   const highlightedSearchItemIndex = $derived(searchStore.highlightedGlobalIndex)
 
@@ -70,7 +71,7 @@
       disabled
     }}
   >
-    <header class="search-header">
+    <header class="search-header" class:has-query={searchStore.isGlobalActive}>
       <div class="search-heading">
         <h1 id="library-search-title">Search library</h1>
         <button class="icon-button" type="button" aria-label="Close search" title="Close search" onclick={onClose}>
@@ -86,13 +87,17 @@
             Searching...
           {:else if searchStore.globalSearchError}
             Search failed
+          {:else if searchTotal === null}
+            Showing the first {searchResults.length} results
+          {:else if searchTotal > searchResults.length}
+            Showing {searchResults.length} of {searchTotal} results
           {:else}
-            {searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}
+            {searchTotal} {searchTotal === 1 ? 'result' : 'results'}
           {/if}
         </span>
       {/if}
     </header>
-    <div class="search-content-wrapper" aria-busy={isPerformingSearch}>
+    <div class="search-content-wrapper" class:empty-search={!searchStore.isGlobalActive} aria-busy={isPerformingSearch}>
       {#if searchResults.length > 0}
         <MediaView
           items={searchResults}
@@ -123,6 +128,11 @@
         <div class="status-text">
           <p>{searchStore.globalQuery.text.trim() ? `No results for "${searchStore.globalQuery.text}"` : 'No results match these filters.'}</p>
         </div>
+      {:else}
+        <div class="search-intro">
+          <span class="search-intro-icon"><Icon name="search" size={26} /></span>
+          <p>Search by title or filename.</p>
+        </div>
       {/if}
     </div>
   </div>
@@ -132,6 +142,8 @@
   .view-wrapper {
     position: absolute;
     inset: 0;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-gutter: stable;
@@ -141,8 +153,11 @@
   }
   .search-header, .search-content-wrapper { width: min(100%, 70rem); margin-inline: auto; }
   .search-header {
+    flex: none;
     display: grid;
     gap: .8rem;
+  }
+  .search-header.has-query {
     border-bottom: 1px solid var(--color-border-soft);
     padding-bottom: .8rem;
     margin-bottom: .9rem;
@@ -151,6 +166,19 @@
   .search-heading h1 { font-size: clamp(1.55rem, 3.7vw, 2.85rem); font-weight: 710; letter-spacing: -.04em; line-height: 1.1; }
   .result-count, .status-text { color: var(--color-text-soft); font-size: .875rem; }
   .status-text { padding: 2rem 0; overflow-wrap: anywhere; }
+  .search-content-wrapper.empty-search { flex: 1; display: grid; place-items: center; padding-block: 2rem; }
+  .search-intro { display: grid; justify-items: center; gap: .8rem; color: var(--color-text-soft); text-align: center; }
+  .search-intro-icon {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    color: var(--color-text-dim);
+    background: var(--surface-raised);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--edge-light);
+  }
   .skeleton-list { display: grid; gap: .5rem; }
   .skeleton-row { display: flex; gap: .9rem; align-items: flex-start; padding: .7rem; background: var(--surface-raised); border: 1px solid var(--color-border-soft); border-radius: 11px; }
   .skeleton-text { display: grid; align-content: start; flex: 1; gap: .55rem; padding-top: .3rem; }

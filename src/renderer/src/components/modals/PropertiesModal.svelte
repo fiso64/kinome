@@ -2,6 +2,7 @@
   import Skeleton from '@components/ui/Skeleton.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import { formatBytes } from '@lib/view-helpers'
   import type { LibraryItem } from '@shared/types'
 
   type ItemProperties = {
@@ -25,18 +26,6 @@
   let properties = $state<ItemProperties | null>(null)
   let isLoading = $state(true)
   let error = $state<string | null>(null)
-
-  function formatBytes(bytes, decimals = 2) {
-    if (!+bytes) return '0 Bytes'
-
-    const k = 1024
-    const dm = decimals < 0 ? 0 : decimals
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
-  }
 
   $effect(() => {
     const fetchProperties = async () => {

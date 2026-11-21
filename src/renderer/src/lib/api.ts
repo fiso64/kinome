@@ -5,7 +5,8 @@ import type {
   MediaFolder,
   LibraryItem,
   AutocompleteSuggestions,
-  SearchIndexEntry,
+  SearchPage,
+  SearchRequest,
   TmdbSearchResult,
   TmdbImageResults,
   MediaProperties,
@@ -49,16 +50,7 @@ export interface ApiClient {
   ): Promise<LibraryItem[]>
   getAncestors(itemId: string): Promise<LibraryItem[]>
 
-  performSearch(query: {
-    text: string
-    tags: { key: string; value: string }[]
-    limit?: number
-  }): Promise<SearchIndexEntry[]>
-  debugPerformSearch(query: {
-    text: string
-    tags: { key: string; value: string }[]
-    limit?: number
-  }): Promise<Record<string, unknown>>
+  performSearch(query: SearchRequest): Promise<SearchPage>
   getLibraryStatus(path?: string): Promise<LibraryStatus>
   listDirectory(path: string): Promise<{ name: string; path: string; isDirectory: boolean }[]>
   saveSource(source: MediaSource): Promise<{ success: boolean }>

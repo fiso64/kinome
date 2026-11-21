@@ -1,6 +1,8 @@
 import type { ViewHierarchyNode } from '@shared/types'
 import { CORE_FIELDS } from '@shared/types'
 
+export const TREE_FILE_FIELDS = ['size', 'videoSummary']
+
 /**
  * Fields required for the ItemDetail header and primary metadata.
  */
@@ -25,7 +27,7 @@ export const VIEW_REQUIRED_FIELDS: Record<string, string[]> = {
   grid: [...CORE_FIELDS],
   'horizontal-grid': [...CORE_FIELDS],
   'button-grid': [...CORE_FIELDS, 'backdropPath'],
-  tree: [...CORE_FIELDS],
+  tree: [...CORE_FIELDS, ...TREE_FILE_FIELDS],
   tabs: [...CORE_FIELDS],
   sections: [...CORE_FIELDS]
 }

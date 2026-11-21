@@ -740,7 +740,6 @@ export async function getContinueWatchingItems(
 export { getAutocompleteSuggestions, getAutocompleteValues, getGroupByKeys }
 
 export const performSearch = searchService.performSearch
-export const debugPerformSearch = searchService.debugPerformSearch
 export const manualSearch = async (query: string, type: any, year?: string, tmdbId?: string) => {
   const { tmdbApiKey } = await settingsService.readSettings()
   return retrieverService.manualSearch(query, type, tmdbApiKey, { year, tmdbId })

@@ -1,11 +1,7 @@
 import { join } from 'node:path'
 import type { LocalMediaTrack } from '@shared/local-media'
-import { avcFormat, type PlaybackEncodingPreferences, type PlaybackOutput, type PlaybackVideoBackend, type VideoQuality } from '@shared/playback-quality'
+import { avcFormat, isHdrTransfer, videoQualityHeights, type PlaybackEncodingPreferences, type PlaybackOutput, type PlaybackVideoBackend, type VideoQuality } from '@shared/playback-quality'
 import { endOfSegment, transcodeSegmentSeconds, type PlaybackTimeline } from './timeline'
-
-const heights: Record<VideoQuality, number> = {
-  '4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240
-}
 
 export type SegmentQuality = VideoQuality | 'remux' | 'audio'
 
@@ -96,9 +92,9 @@ export function startSegmentJob(
     }
     if (fragmented && video.codec === 'hevc') args.push('-tag:v', 'hvc1')
   } else {
-    const height = Math.floor(Math.min(video.height!, heights[quality]) / 2) * 2
+    const height = Math.floor(Math.min(video.height!, videoQualityHeights[quality]) / 2) * 2
     const width = Math.round(height * video.width! / video.height! / 2) * 2
-    const hdr = video.colorTransfer === 'smpte2084' || video.colorTransfer === 'arib-std-b67'
+    const hdr = isHdrTransfer(video.colorTransfer)
     const toneMap = hdr && !source.videoCodec
     const tenBit = hdr || !!source.videoCodec
     const interlaced = ['tt', 'bb', 'tb', 'bt'].includes(video.fieldOrder ?? '')

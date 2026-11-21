@@ -24,19 +24,25 @@ describe('automatic TMDB matching', () => {
     expect(search).toHaveBeenCalledTimes(2)
   })
 
-  it('accepts a unique exact title one year away even when the year filter returns nothing', async () => {
+  it('takes the first matching title one year away when the year filter returns nothing', async () => {
     search = spyOn(tmdb, 'search').mockResolvedValueOnce([])
-      .mockResolvedValueOnce([film(1, 2011), film(2, 1983), film(3, 1982, 'The Other Thing')])
+      .mockResolvedValueOnce([film(1, 2011), film(2, 1983), film(3, 1982, 'The Other Thing'), film(4, 1981)])
     expect(await createTmdbProvider('test').match('The Thing', 'movie', 1982)).toEqual({ id: 2, type: 'movie' })
     expect(search).toHaveBeenCalledTimes(2)
   })
 
+  it('takes the first exact title and year match in TMDB order', async () => {
+    search = spyOn(tmdb, 'search').mockResolvedValue([
+      film(1, 1982, 'The Other Thing'), film(2, 1981), film(3, 1982), film(4, 1982)
+    ])
+    expect(await createTmdbProvider('test').match('The Thing', 'multi', 1982)).toEqual({ id: 3, type: 'movie' })
+    expect(search).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     [film(1, 2011)],
-    [film(1, 1981), film(2, 1983)],
-    [film(1, 1982), film(2, 1982)],
     [film(1, 1982, 'The Other Thing')]
-  ].map((results) => [results] as const))('leaves a mismatched or ambiguous result unresolved (%j)', async (results) => {
+  ].map((results) => [results] as const))('leaves a mismatched result unresolved (%j)', async (results) => {
     search = spyOn(tmdb, 'search').mockResolvedValue(results)
     expect(await createTmdbProvider('test').match('The Thing', 'movie', 1982)).toBeNull()
     expect(search.mock.calls.length).toBeLessThanOrEqual(2)

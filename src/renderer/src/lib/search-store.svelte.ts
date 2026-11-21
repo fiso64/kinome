@@ -1,12 +1,13 @@
 import { api } from './api'
 import { navStore } from './navigation-store.svelte'
 import { isTypingTag as isTypingTagHelper, resultButton } from './view-helpers'
-import type { SearchIndexEntry, SearchQuery } from '@shared/types'
+import type { SearchIndexEntry, SearchPage, SearchQuery, SearchRequest } from '@shared/types'
 import { serializeSearchQuery } from './search-query-helpers'
 
 // --- State (Local-only search views) ---
 
 let searchResults = $state<SearchIndexEntry[]>([])
+let globalSearchTotal = $state<number | null>(0)
 let highlightedGlobalIndex = $state<number | null>(null)
 let isPerformingGlobalSearch = $state(false)
 let globalSearchError = $state(false)
@@ -31,19 +32,20 @@ const isTypingDetailTag = $derived(isTypingTagHelper(detailQuery.text))
 
 // --- Search Helpers ---
 
-async function runSearch(query: SearchQuery): Promise<SearchIndexEntry[]> {
-  const results = await api.performSearch(query)
+async function runSearch(query: SearchRequest): Promise<SearchPage> {
+  const { items, total } = await api.performSearch(query)
   const seen = new Set<string>()
-  return results.filter((r) => {
+  const results = items.filter((r) => {
     if (seen.has(r.id)) return false
     seen.add(r.id)
     return true
   })
+  return { items: results, total }
 }
 
 function scheduleSearch(
-  query: SearchQuery,
-  onSuccess: (results: SearchIndexEntry[]) => void,
+  query: SearchRequest,
+  onSuccess: (page: SearchPage) => void,
   onError: () => void
 ) {
   let cancelled = false
@@ -90,6 +92,7 @@ export function initializeSearchEffects() {
 
     if (!isGlobalActive) {
       searchResults = []
+      globalSearchTotal = 0
       isPerformingGlobalSearch = false
       globalSearchError = false
       highlightedGlobalIndex = null
@@ -103,12 +106,14 @@ export function initializeSearchEffects() {
 
     isPerformingGlobalSearch = true
     globalSearchError = false
-    return scheduleSearch($state.snapshot(query), (results) => {
+    return scheduleSearch({ ...$state.snapshot(query), includeTotal: true }, ({ items, total }) => {
       lastSerializedQuery = serialized
-      searchResults = results
+      globalSearchTotal = total
+      searchResults = items
       isPerformingGlobalSearch = false
     }, () => {
       searchResults = []
+      globalSearchTotal = 0
       isPerformingGlobalSearch = false
       globalSearchError = true
       lastSerializedQuery = ''
@@ -128,7 +133,7 @@ export function initializeSearchEffects() {
 
     isPerformingDetailSearch = true
     detailSearchError = false
-    return scheduleSearch($state.snapshot(detailQuery), (results) => {
+    return scheduleSearch($state.snapshot(detailQuery), ({ items: results }) => {
       detailResults = results
       isPerformingDetailSearch = false
       highlightedDetailIndex = results.length > 0 ? 0 : null
@@ -285,8 +290,8 @@ export const searchStore = {
   get searchResults() {
     return searchResults
   },
-  set searchResults(v) {
-    searchResults = v
+  get globalSearchTotal() {
+    return globalSearchTotal
   },
   get highlightedGlobalIndex() {
     return highlightedGlobalIndex

@@ -177,6 +177,7 @@
   .view-transition-inner { position: relative; display: flex; flex-direction: column; min-height: 100%; }
   .folder-content-wrapper {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
     min-width: 0;
     width: min(100%, 108rem);
