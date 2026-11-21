@@ -1,7 +1,7 @@
 import type JassubRenderer from 'jassub'
 import { subtitleUrl } from '@lib/services/web-playback.service'
 import type { LocalMediaTrack } from '@shared/local-media'
-import { ASS_WINDOW_HEADER, ASS_WINDOW_SECONDS, type WebSubtitle } from '@shared/web-playback'
+import { SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type WebSubtitle } from '@shared/web-playback'
 
 export interface SubtitleRenderer {
   setDelay(seconds: number): void
@@ -14,7 +14,9 @@ interface SubtitleOptions {
   video: HTMLVideoElement
   container: HTMLElement
   source?: LocalMediaTrack
+  localFonts: boolean
   fonts: number[]
+  fontRevision?: string
   delay: number
   signal: AbortSignal
   onReady: () => void
@@ -26,10 +28,10 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
   const url = subtitleUrl(itemId, track.id)
   if (track.format === 'text') return textTrack(video, url, track.language, delay, signal, onReady, onError)
   if (track.format === 'ass') {
-    const firstWindow = assWindow(video.currentTime - delay)
-    const windows = track.sidecar ? undefined : assWindows(url, signal)
+    const firstWindow = subtitleWindow(video.currentTime - delay)
+    const windows = track.sidecar ? undefined : subtitleWindows(url, signal, (response) => response.text())
     const [{ default: JASSUB }, initial] = await Promise.all([
-      import('jassub'), windows?.load(firstWindow) ?? fetchAss(url, signal)
+      import('jassub'), windows?.load(firstWindow) ?? fetchWindow(url, signal, (response) => response.text())
     ])
     signal.throwIfAborted()
     // Give libass the source storage dimensions across resolution switches. The
@@ -48,8 +50,7 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
         if (!videoWidth || !videoHeight || !clientWidth || !clientHeight) return super.resize(repaint)
         const ratio = videoWidth / videoHeight
         const height = Math.round(Math.min(clientHeight, clientWidth / ratio) * devicePixelRatio)
-        const capped = Math.min(2160, height)
-        return super.resize(repaint, Math.round(capped * ratio), capped)
+        return super.resize(repaint, Math.round(height * ratio), height)
       }
     }
     const canvas = document.createElement('canvas')
@@ -63,8 +64,9 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
     signal.addEventListener('abort', close, { once: true })
     try {
       renderer = new StyledSubtitles({
-        video, canvas, subContent: initial.content, timeOffset: -delay, queryFonts: false,
-        fonts: fonts.map((index) => subtitleUrl(itemId, 'font', String(index)))
+        video, canvas, subContent: initial.content, timeOffset: -delay,
+        maxRenderHeight: 0, queryFonts: options.localFonts ? 'local' : false,
+        fonts: fonts.map((index) => subtitleUrl(itemId, 'font', String(index), options.fontRevision))
       })
       await renderer.ready
       signal.throwIfAborted()
@@ -83,7 +85,10 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
       }
     }
     const follow = windows && initial.windowed
-      ? followAssWindows(video, canvas, active, windows, firstWindow, signal, repaint, onReady, onError)
+      ? followWindows(video, canvas, windows, firstWindow, signal, () => active.timeOffset, async (content) => {
+          await active.renderer.setTrack(content)
+          repaint()
+        }, onReady, onError)
       : undefined
     video.addEventListener('seeked', repaint, { signal })
     const setDelay = (seconds: number) => {
@@ -96,17 +101,58 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
     return { setDelay }
   }
 
-  const { PgsRenderer, VobSubRenderer } = await import('libbitsub')
+  const firstWindow = subtitleWindow(video.currentTime - delay)
+  const windows = track.format === 'pgs' && !track.sidecar
+    ? subtitleWindows(url, signal, async (response) =>
+        response.headers.has(SUBTITLE_WINDOW_HEADER) ? await response.arrayBuffer() : response) : undefined
+  const [{ PgsRenderer, VobSubRenderer }, initial] = await Promise.all([
+    import('libbitsub'), windows?.load(firstWindow)
+  ])
   signal.throwIfAborted()
   const canvas = document.createElement('canvas')
   canvas.className = 'subtitle-canvas'
   const settings = {
-    video, container, canvas, subUrl: url, timeOffset: -delay,
+    video, container, canvas, timeOffset: -delay,
+    // These assets are consumed sequentially. A single streaming GET avoids a
+    // range probe and one round trip per half megabyte on remote connections.
+    rangeRequests: false,
     onLoaded: () => { if (!signal.aborted) onReady() },
     onError: () => { if (!signal.aborted) onError() }
   }
-  const renderer = track.format === 'pgs' ? new PgsRenderer(settings) : new VobSubRenderer({
-    ...settings, ...(track.sidecar
+  if (windows && initial) {
+    const renderer = new PgsRenderer({ ...settings, onLoaded: undefined })
+    signal.addEventListener('abort', () => { renderer.dispose(); canvas.remove() }, { once: true })
+    const apply = async (content: ArrayBuffer | Response) => {
+      await renderer.reset()
+      signal.throwIfAborted()
+      if (content instanceof Response && content.body) {
+        // Unindexed sources use the full SUP response. Display incoming cues
+        // while the rest downloads, including on a slow connection.
+        const reader = content.body.getReader()
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (await renderer.append(value)) onReady()
+          }
+        } finally {
+          reader.releaseLock()
+        }
+      } else if (content instanceof ArrayBuffer && content.byteLength) {
+        await renderer.append(content)
+      }
+      await renderer.flush()
+    }
+    await apply(initial.content)
+    signal.throwIfAborted()
+    const follow = initial.windowed
+      ? followWindows(video, canvas, windows, firstWindow, signal, () => renderer.timeOffset, apply, onReady, onError)
+      : undefined
+    onReady()
+    return { setDelay: (seconds) => { renderer.timeOffset = -seconds; follow?.() } }
+  }
+  const renderer = track.format === 'pgs' ? new PgsRenderer({ ...settings, subUrl: url }) : new VobSubRenderer({
+    ...settings, subUrl: url, ...(track.sidecar
       ? { idxUrl: subtitleUrl(itemId, track.id, 'idx') }
       : { fileName: 'subtitle.mks' })
   })
@@ -118,18 +164,18 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
   return { setDelay: (seconds) => { renderer.timeOffset = -seconds } }
 }
 
-const assWindow = (seconds: number) => Math.floor(Math.max(0, seconds) / ASS_WINDOW_SECONDS)
+const subtitleWindow = (seconds: number) => Math.floor(Math.max(0, seconds) / SUBTITLE_WINDOW_SECONDS)
 
-async function fetchAss(url: string, signal: AbortSignal) {
+async function fetchWindow<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>) {
   const response = await fetch(url, { signal })
-  if (!response.ok) throw new Error('Could not load ASS subtitles')
-  return { content: await response.text(), windowed: response.headers.has(ASS_WINDOW_HEADER) }
+  if (!response.ok) throw new Error('Could not load subtitles')
+  return { content: await read(response), windowed: response.headers.has(SUBTITLE_WINDOW_HEADER) }
 }
 
-function assWindows(url: string, signal: AbortSignal) {
+function subtitleWindows<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>) {
   const requests = new Map<number, {
     controller: AbortController
-    content: ReturnType<typeof fetchAss>
+    content: ReturnType<typeof fetchWindow<T>>
   }>()
   return {
     load(window: number) {
@@ -138,7 +184,7 @@ function assWindows(url: string, signal: AbortSignal) {
       const controller = new AbortController()
       const request = {
         controller,
-        content: fetchAss(`${url}&window=${window}`, AbortSignal.any([signal, controller.signal])).catch((error) => {
+        content: fetchWindow(`${url}&window=${window}`, AbortSignal.any([signal, controller.signal]), read).catch((error) => {
           if (requests.get(window) === request) requests.delete(window)
           throw error
         })
@@ -156,10 +202,10 @@ function assWindows(url: string, signal: AbortSignal) {
   }
 }
 
-function followAssWindows(
-  video: HTMLVideoElement, canvas: HTMLCanvasElement, renderer: JassubRenderer,
-  windows: ReturnType<typeof assWindows>, firstWindow: number, signal: AbortSignal,
-  repaint: () => void, onReady: () => void, onError: () => void
+function followWindows<T>(
+  video: HTMLVideoElement, canvas: HTMLCanvasElement, windows: ReturnType<typeof subtitleWindows<T>>,
+  firstWindow: number, signal: AbortSignal, offset: () => number, apply: (content: T) => Promise<void>,
+  onReady: () => void, onError: () => void
 ) {
   let displayed = firstWindow
   let wanted = firstWindow
@@ -173,12 +219,11 @@ function followAssWindows(
     try {
       const next = await windows.load(window)
       if (signal.aborted || window !== wanted) return
-      await renderer.renderer.setTrack(next.content)
+      await apply(next.content)
       displayed = window
       complete = !next.windowed
       if ((complete || window === wanted) && !signal.aborted) {
         canvas.hidden = false
-        repaint()
         onReady()
       }
     } catch {
@@ -194,8 +239,8 @@ function followAssWindows(
 
   function follow() {
     if (signal.aborted || complete) return
-    const time = video.currentTime + renderer.timeOffset
-    const window = assWindow(time)
+    const time = video.currentTime + offset()
+    const window = subtitleWindow(time)
     if (window !== wanted) {
       wanted = window
       failed = -1
@@ -204,7 +249,7 @@ function followAssWindows(
     }
     canvas.hidden = window !== displayed
     if (window !== displayed && !applying && window !== failed) void change(window)
-    const nextStart = (window + 1) * ASS_WINDOW_SECONDS
+    const nextStart = (window + 1) * SUBTITLE_WINDOW_SECONDS
     if (displayed === window && prefetched !== window && nextStart - time <= 5 && nextStart < video.duration) {
       prefetched = window
       void windows.load(window + 1).catch(() => {})

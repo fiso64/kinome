@@ -2,6 +2,7 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
+  import type { PlaybackQuality } from '@shared/playback-quality'
   import type { WebQualityChoice } from '@shared/web-playback'
   import type { LibraryItem, MediaFile, PlayerCommandConfig, Settings } from '@shared/types'
 
@@ -10,7 +11,7 @@
     actions: any
     onItemClick: (item: LibraryItem) => Promise<void>
     onOpenMatchingFile: (id: string) => void
-    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice) => void
+    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice | PlaybackQuality) => void
   }>()
 
   const item = $derived(contextMenuStore.item)

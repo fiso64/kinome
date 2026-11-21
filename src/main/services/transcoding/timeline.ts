@@ -10,19 +10,24 @@ const minimumTailSeconds = 0.15
 const remuxSeekLead = 0.25
 
 export interface PlaybackTimeline {
+  readonly firstPicture: number
   readonly duration: number
   readonly starts: readonly number[]
   readonly seekStarts?: readonly number[]
 }
 
-export function createTimeline(duration: number, keyframes?: readonly number[]): PlaybackTimeline {
+export function createTimeline(duration: number, keyframes?: readonly number[], videoEnd = duration, firstPicture = 0): PlaybackTimeline {
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('The file has no usable duration')
+  // The final video segment carries any remaining audio. A cut after the last
+  // picture cannot be produced by the video-referenced segment muxer.
+  const lastCut = Math.min(duration, videoEnd) - minimumTailSeconds
   const starts = [0]
   if (keyframes) {
     if (!keyframes.length) throw new Error('The file has no usable video seek index')
     const seekStarts = [0]
     for (const [index, keyframe] of keyframes.entries()) {
-      if (keyframe >= duration - minimumTailSeconds) break
+      if (keyframe >= lastCut) break
+      if (keyframe <= firstPicture) continue
       if (keyframe - starts[starts.length - 1] < targetRemuxSegmentSeconds) continue
       starts.push(keyframe)
       // Some demuxers back up across their seek preroll. Seek slightly beyond
@@ -30,11 +35,11 @@ export function createTimeline(duration: number, keyframes?: readonly number[]):
       const next = keyframes[index + 1] ?? duration
       seekStarts.push(keyframe + Math.min(0.25, (next - keyframe) / 2))
     }
-    return { duration, starts, seekStarts }
-  } else {
-    for (let time = transcodeSegmentSeconds; time < duration - minimumTailSeconds; time += transcodeSegmentSeconds) starts.push(time)
+    return { firstPicture, duration, starts, seekStarts }
   }
-  return { duration, starts }
+  const firstCut = Math.ceil((firstPicture + minimumTailSeconds) / transcodeSegmentSeconds) * transcodeSegmentSeconds
+  for (let time = firstCut; time < lastCut; time += transcodeSegmentSeconds) starts.push(time)
+  return { firstPicture, duration, starts }
 }
 
 export function endOfSegment(timeline: PlaybackTimeline, index: number): number {

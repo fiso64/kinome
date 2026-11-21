@@ -1,7 +1,8 @@
+import { textResponse } from '../http-compression'
 import { Blob as BufferBlob } from 'node:buffer'
 import {
   availablePlaybackQualities, normalizePlaybackEncoding, type PlaybackEncodingPreferences,
-  type PlaybackQuality, type PlaybackVideoBackend, type PlaybackWorkerHealth
+  type PlaybackOutput, type PlaybackQuality, type PlaybackVideoBackend, type PlaybackWorkerHealth
 } from '@shared/playback-quality'
 import * as accountFilters from './account-filter.service'
 import { readSettings } from './settings.service'
@@ -55,18 +56,18 @@ export async function getWorkerStatus(): Promise<PlaybackWorkerHealth> {
 }
 
 function getViewer(path: string, accountId: string, itemId: string, quality: SegmentQuality,
-  client: string, encoding: PlaybackEncodingPreferences, audioIndex?: number, browser = false): Promise<Viewer> {
-  const key = JSON.stringify([accountId, itemId, path, quality, client, audioIndex, browser])
+  client: string, encoding: PlaybackEncodingPreferences, output: PlaybackOutput, audioIndex?: number, browser = false): Promise<Viewer> {
+  const key = JSON.stringify([accountId, itemId, path, quality, client, audioIndex, browser, output])
   let viewer = viewers.get(key)
   if (viewer) return viewer
   viewer = Promise.all([
-    openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex, browser),
-    !copiesVideo(quality) && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
+    openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex, browser, output),
+    !copiesVideo(quality) && output.videoCodec !== 'avc' && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
   ]).then(([source, vaapiDevice]) => {
-    source.vaapiDevice = vaapiDevice
-    const session = new PlaybackSession(ffmpeg!, source, () => {
+    if (source.videoCodec !== 'avc') source.vaapiDevice = vaapiDevice
+    const session = new PlaybackSession(client, ffmpeg!, source, () => {
       if (viewers.get(key) === viewer) viewers.delete(key)
-      void session.close().catch((error) => console.warn('[Playback] Could not clean up a playback session', { itemId, error }))
+      void session.close('idle').catch((error) => console.warn('[Playback] Could not clean up a playback session', { itemId, error }))
     }, (mode) => {
       lastVideoBackend = mode
     })
@@ -93,6 +94,12 @@ export async function serveHls(
   const settings = await readSettings()
   const params = new URL(request.url).searchParams
   const browser = params.get('web') === '1'
+  const videoCodec = params.get('videoCodec')
+  const sound = params.get('sound')
+  const output: PlaybackOutput = {
+    videoCodec: videoCodec === 'avc' || videoCodec === 'hevc' || videoCodec === 'vp9' ? videoCodec : undefined,
+    sound: sound === 'copy' || sound === 'stereo' ? sound : undefined
+  }
   const available = availablePlaybackQualities(settings)
   const qualityAllowed = quality === 'audio'
     ? browser && available.includes('remux') && settings.playbackConversion !== 'remux'
@@ -115,7 +122,7 @@ export async function serveHls(
 
   try {
     const encoding = settings.playbackEncoding ?? normalizePlaybackEncoding()
-    const { session, timeline, fragmented } = await getViewer(path, accountId, itemId, quality, client, encoding, audioIndex, browser)
+    const { session, timeline, fragmented } = await getViewer(path, accountId, itemId, quality, client, encoding, output, audioIndex, browser)
     const extension = fragmented ? 'm4s' : 'ts'
     if (isPlaylist) {
       const query = new URLSearchParams({ clientId: client })
@@ -123,11 +130,13 @@ export async function serveHls(
       if (token) query.set('token', token)
       if (audio !== null) query.set('audio', audio)
       if (browser) query.set('web', '1')
+      if (output.videoCodec) query.set('videoCodec', output.videoCodec)
+      if (output.sound) query.set('sound', output.sound)
       const suffix = query.toString()
       const playlist = request.method === 'HEAD' ? null : segmentPlaylist(
         timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined, browser
       )
-      return new Response(playlist, { headers: { 'Content-Type': hlsType, 'Cache-Control': 'private, no-store' } })
+      return textResponse(request, playlist, hlsType)
     }
 
     let data: BufferBlob | Bun.BunFile
@@ -152,10 +161,10 @@ export async function serveHls(
     if (!request.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError') &&
       now - lastFailureLog >= 30_000) {
       lastFailureLog = now
-      console.warn('[Playback] Could not convert playback', { itemId, quality, resource, error })
+      console.warn('[Playback] Could not convert playback', { operationId: client, itemId, quality, resource, error })
     }
     return isPlaylist
       ? hlsError(422, 'Kinome could not prepare this file for the requested playback quality.')
-      : hlsError(503, 'Kinome could not generate this playback segment. Retry the request.')
+      : hlsError(request.signal.aborted ? 499 : 422, 'Kinome could not generate this playback segment.')
   }
 }

@@ -12,7 +12,7 @@ export interface PlaybackEncodingPreferences {
   hardwareAcceleration: 'auto' | 'software'
   videoQuality: 'balanced' | 'high'
   videoBitrateMbps: (typeof VIDEO_BITRATE_TARGETS)[number]
-  audioChannels: 'stereo' | 'surround'
+  audioChannels: 'auto' | 'stereo' | 'surround'
 }
 
 export function normalizePlaybackEncoding(value?: Partial<PlaybackEncodingPreferences>): PlaybackEncodingPreferences {
@@ -20,7 +20,7 @@ export function normalizePlaybackEncoding(value?: Partial<PlaybackEncodingPrefer
     hardwareAcceleration: value?.hardwareAcceleration === 'software' ? 'software' : 'auto',
     videoQuality: value?.videoQuality === 'high' ? 'high' : 'balanced',
     videoBitrateMbps: VIDEO_BITRATE_TARGETS.find((target) => target === value?.videoBitrateMbps) ?? 0,
-    audioChannels: value?.audioChannels === 'surround' ? 'surround' : 'stereo'
+    audioChannels: value?.audioChannels === 'stereo' || value?.audioChannels === 'surround' ? value.audioChannels : 'auto'
   }
 }
 
@@ -32,7 +32,7 @@ export interface PlaybackWorkerHealth {
   lastVideoBackend?: PlaybackVideoBackend
 }
 
-export const DEFAULT_VIDEO_QUALITIES: readonly VideoQuality[] = ['1080p', '720p', '480p']
+export const DEFAULT_VIDEO_QUALITIES: readonly VideoQuality[] = VIDEO_QUALITIES
 
 export function isVideoQuality(value: unknown): value is VideoQuality {
   return typeof value === 'string' && VIDEO_QUALITIES.some((quality) => quality === value)
@@ -61,4 +61,18 @@ export function availablePlaybackQualities(settings?: {
     }
   }
   return available
+}
+
+/** Output negotiated for one conversion. Omitted fields use compatibility encoding. */
+export interface PlaybackOutput {
+  sound?: 'copy' | 'stereo'
+  videoCodec?: 'avc' | 'hevc' | 'vp9'
+}
+
+/** Software AVC profiles can retain source chroma sampling and up to ten bits. */
+export function avcFormat(pixelFormat = '') {
+  const tenBit = /(?:10|12|14|16)(?:le|be)$/.test(pixelFormat)
+  const chroma = /444|gbr|rgb|bgr/.test(pixelFormat) ? '444' : /422|nv16|nv20/.test(pixelFormat) ? '422' : '420'
+  const profile = chroma === '444' ? 'f400' : chroma === '422' ? '7a00' : tenBit ? '6e00' : '6400'
+  return { pixelFormat: `yuv${chroma}p${tenBit ? '10le' : ''}`, profile, wideChroma: chroma !== '420', tenBit }
 }

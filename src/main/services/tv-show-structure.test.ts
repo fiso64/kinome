@@ -4,25 +4,6 @@
  * Verifies that Virtual Season Folders do not interfere with the
  * scanning of new physical episodes in a "flat" TV show.
  */
-import { mock } from 'bun:test'
-import path from 'path'
-
-// Mock I/O boundaries
-const RETRIEVER_PATH = path.resolve(__dirname, './retriever.service.ts')
-const SETTINGS_PATH = path.resolve(__dirname, './settings.service.ts')
-
-mock.module(RETRIEVER_PATH, () => ({
-    search: async () => [],
-    getDetails: async () => null,
-    getCredits: async () => ({ cast: [], crew: [] }),
-    getSeasonDetails: async () => null,
-    cacheGenreLists: async () => {}
-}))
-
-mock.module(SETTINGS_PATH, () => ({
-    readSettings: async () => ({ tmdbApiKey: 'fake-key' })
-}))
-
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { syncTvShowStructure } from './tv-show.service'

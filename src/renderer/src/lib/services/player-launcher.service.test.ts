@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
+import type { WebPlaybackInfo } from '@shared/web-playback'
 import type { PlayerCommandConfig } from '@shared/types'
 
 type PlayerLauncherModule = typeof import('./player-launcher.service')
@@ -113,4 +114,29 @@ test.each([
     authStore.token = originalToken
     Object.assign(globalThis, { fetch, localStorage, window })
   }
+})
+
+test('tries the original before lossy fallback and preserves compatible audio at source resolution', async () => {
+  const { playbackAttempts } = await import('./web-playback.service')
+  const flags = { default: true, forced: false, hearingImpaired: false }
+  const video = { index: 0, kind: 'video' as const, codec: 'mpeg4', height: 2160, ...flags }
+  const audio = { index: 1, kind: 'audio' as const, codec: 'aac', channels: 6, ...flags }
+  const info: WebPlaybackInfo = {
+    media: { container: 'avi', tracks: [video, audio] },
+    qualities: ['original', 'remux', '4k', '1080p'],
+    position: 0, subtitles: [], audioConversion: true
+  }
+  const player = { canPlayType: (type: string) =>
+    type.includes('mpegurl') || type.includes('mp4a') ? 'probably' : '' } as HTMLVideoElement
+  expect(playbackAttempts(player, { ...info, qualities: ['original'], audioConversion: false }, audio, audio)
+    .map(attempt => attempt.mode)).toEqual(['original'])
+  const attempts = playbackAttempts(player, info, audio, audio)
+  expect(attempts.map(attempt => attempt.mode).slice(0, 2)).toEqual(['original', 'remux'])
+  expect(attempts[2]).toMatchObject({ mode: '4k', sound: 'copy' })
+  expect(attempts.findIndex(attempt => attempt.mode === '1080p')).toBeGreaterThan(1)
+
+  const unsupported = { ...audio, codec: 'dts' }
+  info.media = { container: 'avi', tracks: [video, unsupported, { ...audio, index: 2, default: false }] }
+  // This client cannot identify or select the track that its native demuxer picked.
+  expect(playbackAttempts(player, info, unsupported, unsupported).some(attempt => attempt.mode === 'original')).toBe(false)
 })

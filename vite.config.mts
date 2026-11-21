@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import path from 'path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { gzipSync } from 'node:zlib'
 
 export default defineConfig({
   root: 'src/renderer',
@@ -20,6 +22,18 @@ export default defineConfig({
     emptyOutDir: true
   },
   plugins: [
+    {
+      name: 'gzip-assets',
+      apply: 'build',
+      async writeBundle({ dir }, bundle) {
+        if (!dir) return
+        for (const name of Object.keys(bundle)) {
+          if (!/\.(?:js|css|wasm)$/.test(name)) continue
+          const file = path.join(dir, name)
+          await writeFile(file + '.gz', gzipSync(await readFile(file)))
+        }
+      }
+    },
     svelte({
       onwarn: (warning, handler) => {
         if (warning.code.startsWith('a11y_')) return

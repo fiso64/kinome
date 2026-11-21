@@ -3,7 +3,7 @@ import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { availablePlaybackQualities } from '@shared/playback-quality'
 import { isSupportedVideoFile, type LocalMedia } from '@shared/local-media'
-import { ASS_WINDOW_HEADER, ASS_WINDOW_SECONDS, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
+import { SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
 import { getPresentItemLocation } from '../database/repositories/filesystem.repo'
 import { getPlaybackPosition, savePlaybackPosition } from '../database/repositories/user.repo'
 import { ensureUpToDate } from './account-filter.service'
@@ -12,7 +12,8 @@ import { getPlaybackSequence, handleFileStreamFast, resolveStreamPath } from './
 import { getItemById } from './repository.service'
 import { readSettings } from './settings.service'
 import { playbackMetadata } from './transcoding'
-import { readMatroskaAssIndexes, readMatroskaAssWindow } from './transcoding/matroska-cues'
+import { readMatroskaSubtitleIndexes, readMatroskaAssWindow, readMatroskaPgsWindow } from './transcoding/matroska-cues'
+import { indexSupWindows } from './transcoding/sup-windows'
 import { ffmpeg, ffprobe } from './transcoding/runtime'
 
 const sidecarFormats: Readonly<Record<string, SubtitleFormat>> = {
@@ -35,6 +36,7 @@ const mime: Record<SubtitleFormat, string> = {
 
 const retention = 10 * 60_000
 interface CachedExtraction {
+  supWindows?: ReturnType<typeof indexSupWindows>
   directory: Promise<string>
   controller: AbortController
   requests: number
@@ -127,7 +129,8 @@ function sidecarTrack(path: string, filename: string): WebSubtitle | undefined {
 
 async function sidecarTracks(path: string): Promise<WebSubtitle[]> {
   const entries = await readdir(dirname(path), { withFileTypes: true }).catch(() => [])
-  const files = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name))
+  const prefix = parse(path).name + '.'
+  const files = new Set(entries.filter((entry) => entry.name.startsWith(prefix) && entry.isFile()).map((entry) => entry.name))
   const subtitles = [...files].flatMap((filename) => {
     const track = sidecarTrack(path, filename)
     if (!track) return []
@@ -169,15 +172,17 @@ export function getWebPlaybackQueue(itemId: string, accountId: string): WebQueue
 export async function getWebPlaybackInfo(itemId: string, accountId: string): Promise<WebPlaybackInfo | null> {
   const path = await visibleSource(itemId, accountId)
   if (!path) return null
-  const [settings, sidecars, media] = await Promise.all([
+  const [settings, sidecars, record] = await Promise.all([
     readSettings(), sidecarTracks(path),
-    ffprobe ? playbackMetadata(ffprobe, path).then((record) => record.media).catch(() => null) : null
+    ffprobe ? playbackMetadata(ffprobe, path).catch(() => null) : null
   ])
+  const media = await record?.media ?? null
   // A failed live probe can still allow original playback and locally stored track descriptions.
   const description = media ?? (getItemById(itemId) as { localMedia?: LocalMedia } | null)?.localMedia ?? null
   const qualities = availablePlaybackQualities(settings)
   const embedded = ffmpeg && media ? embeddedTracks(media) : []
   return {
+    fontRevision: media?.fonts?.length ? record?.revision : undefined,
     media: description, subtitles: embedded.concat(sidecars.filter((track) => ffmpeg ||
       track.format !== 'text' || track.title!.toLowerCase().endsWith('.vtt'))),
     qualities, audioConversion: qualities.includes('remux') && settings.playbackConversion !== 'remux',
@@ -207,6 +212,7 @@ export async function serveSubtitle(
   try {
     let asset: string
     let type: string
+    let cacheControl = 'private, no-cache'
     if (/^s-[\w-]+$/.test(id)) {
       const filename = Buffer.from(id.slice(2), 'base64url').toString()
       const track = sidecarTrack(path, filename)
@@ -229,6 +235,9 @@ export async function serveSubtitle(
       const record = await playbackMetadata(ffprobe, path)
       const media = await record.media
       if (id === 'font' && /^\d+$/.test(part) && media.fonts?.includes(Number(part))) {
+        if (new URL(request.url).searchParams.get('v') === record.revision) {
+          cacheControl = 'private, max-age=31536000, immutable'
+        }
         const fonts = media.fonts
         const directory = await extract(record.key + ':fonts', request.signal, (dir, signal) =>
           ffmpegExtract([...fonts.flatMap((index) => [`-dump_attachment:${index}`, join(dir, String(index))]),
@@ -239,45 +248,59 @@ export async function serveSubtitle(
         const track = embeddedTracks(media).find((candidate) => candidate.id === id)
         if (!track) return missing()
         const window = new URL(request.url).searchParams.get('window')
-        if (track.format === 'ass' && window !== null && request.method === 'GET' && !request.headers.has('range') &&
+        if ((track.format === 'ass' || track.format === 'pgs') && media.startSeconds === 0 && window !== null && request.method === 'GET' && !request.headers.has('range') &&
             (media.container === 'mkv' || media.container === 'matroska')) {
-          const start = Number(window) * ASS_WINDOW_SECONDS * 1000
-          const end = start + ASS_WINDOW_SECONDS * 1000
+          const start = Number(window) * SUBTITLE_WINDOW_SECONDS * 1000
+          const end = start + SUBTITLE_WINDOW_SECONDS * 1000
           if (!/^\d+$/.test(window) || !Number.isSafeInteger(end)) return new Response(null, { status: 400 })
-          record.assIndexes ??= readMatroskaAssIndexes(path, media.tracks).catch(() => new Map())
-          const indexes = await record.assIndexes
+          record.subtitleIndexes ??= readMatroskaSubtitleIndexes(path, media.tracks).catch(() => new Map())
+          const indexes = await record.subtitleIndexes
           request.signal.throwIfAborted()
           const streamIndex = Number(id.slice(2))
           const index = indexes.get(streamIndex)
-          if (index) {
+          if (index?.format === track.format) {
             try {
-              const text = await readMatroskaAssWindow(path, index, start, end, request.signal)
-              return new Response(text, { headers: {
-                [ASS_WINDOW_HEADER]: window,
-                'Content-Type': mime.ass,
+              const body = index.format === 'ass' ? await readMatroskaAssWindow(path, index, start, end, request.signal)
+                : new Uint8Array(await readMatroskaPgsWindow(path, index, start, end, request.signal))
+              return new Response(body, { headers: {
+                [SUBTITLE_WINDOW_HEADER]: window,
+                'Content-Type': mime[track.format],
                 'Cache-Control': 'private, no-cache',
                 'X-Content-Type-Options': 'nosniff'
               } })
             } catch (error) {
               request.signal.throwIfAborted()
               indexes.delete(streamIndex)
-              console.debug('[Subtitles] Could not read indexed ASS cues, using extraction', { itemId, id, error })
+              console.debug('[Subtitles] Could not read indexed subtitle cues, using extraction', { itemId, id, error })
             }
           }
         }
         const { codec, muxer } = encodedSubtitles[track.format]
-        const directory = await extract(record.key + ':' + id, request.signal, (dir, signal) => ffmpegExtract([
+        const key = record.key + ':' + id
+        const directory = await extract(key, request.signal, (dir, signal) => ffmpegExtract([
           '-i', path, '-map', '0:' + id.slice(2), '-map_metadata', '-1', '-c:s', codec, '-f', muxer, join(dir, 'track')
         ], signal))
         asset = join(directory, 'track')
         type = mime[track.format]
+        const cached = extractions.get(key)
+        if (track.format === 'pgs' && cached && window !== null && /^\d+$/.test(window) &&
+            request.method === 'GET' && !request.headers.has('range')) {
+          cached.supWindows ??= indexSupWindows(asset).catch(() => undefined)
+          const range = await cached.supWindows
+          request.signal.throwIfAborted()
+          if (range) return new Response(Bun.file(asset).slice(...range(Number(window))), { headers: {
+            [SUBTITLE_WINDOW_HEADER]: window, 'Content-Type': type,
+            'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff'
+          } })
+        }
       } else return missing()
     }
     const file = await lstat(asset).catch(() => null)
     if (!file?.isFile() || !file.size) return missing()
     const response = handleFileStreamFast(Bun.file(asset), file.size, type, request.headers.get('range'),
       { method: request.method })
-    response.headers.set('Cache-Control', 'private, no-cache')
+    response.headers.set('Cache-Control', cacheControl)
+    if (id === 'font') response.headers.set('Vary', 'Origin')
     response.headers.set('X-Content-Type-Options', 'nosniff')
     return response
   } catch (error) {

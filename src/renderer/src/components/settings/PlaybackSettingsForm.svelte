@@ -5,7 +5,7 @@
     type PlaybackVideoBackend, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
   } from '@shared/playback-quality'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
+  import { webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import { api } from '@lib/api'
 
   let {
@@ -33,8 +33,6 @@
   const qualityChoices = $derived(availablePlaybackQualities({
     playbackConversionAvailable: conversionAvailable, playbackConversion: conversion, playbackQualities: qualities
   }))
-  const browserQuality = $derived(qualityChoices.some((quality) => quality === clientSettingsStore.settings.webQuality)
-    ? clientSettingsStore.settings.webQuality : 'auto')
   const transcodingEnabled = $derived(conversionAvailable && conversion === 'full')
   let worker = $state<PlaybackWorkerHealth | null>(null)
   let checking = $state(true)
@@ -67,11 +65,10 @@
       </div>
       <div class="encoding-grid">
         <div class="field">
-          <label for="browser-quality">Startup quality</label>
-          <select id="browser-quality" value={browserQuality}
+          <label for="browser-quality">Default playback mode</label>
+          <select id="browser-quality" value={clientSettingsStore.settings.webQuality}
             onchange={(event) => clientSettingsStore.update({ webQuality: event.currentTarget.value as WebQualityChoice })}>
-            <option value="auto">{webQualityLabel('auto')}</option>
-            {#each qualityChoices as quality (quality)}
+            {#each webQualityChoices as quality (quality)}
               <option value={quality}>{webQualityLabel(quality)}</option>
             {/each}
           </select>
@@ -172,6 +169,7 @@
       <div class="field">
         <label for="audio-channels">Audio channels</label>
         <select id="audio-channels" bind:value={encoding.audioChannels}>
+          <option value="auto">Preserve source channels</option>
           <option value="stereo">Stereo</option>
           <option value="surround">Keep surround (up to 5.1)</option>
         </select>

@@ -1,4 +1,5 @@
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
+import { textResponse } from './http-compression'
 import { getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
@@ -189,7 +190,9 @@ async function handleHlsRequest({ params, request, session, server }: {
   server: { timeout(request: Request, seconds: number): void } | null
 }): Promise<Response> {
   if (params.quality !== 'audio' && !isPlaybackQuality(params.quality)) return new Response('Invalid quality', { status: 400 })
-  server?.timeout(request, 100)
+  // A seek can need a long decode preroll on slow storage. Segment jobs
+  // already observe the client's abort signal while a request is pending.
+  server?.timeout(request, 0)
   const response = await serveHls(request, params.id, params.quality, params['*'], session.accountId)
   if (response.ok && request.method === 'GET' && hlsSegmentPattern.test(params['*']) &&
     new URL(request.url).searchParams.get('web') !== '1') {
@@ -556,7 +559,10 @@ export function buildApp() {
         .get('/item-properties/:itemId', ({ params }) => libraryService.getItemProperties(params.itemId))
         // Streaming
         .get('/playback/worker-status', getWorkerStatus)
-        .get('/playback/:id/queue', ({ params, session }) => getWebPlaybackQueue(params.id, session.accountId))
+        .get('/playback/:id/queue', ({ params, session, request }) => {
+          const queue = getWebPlaybackQueue(params.id, session.accountId)
+          return queue.length > 200 ? textResponse(request, JSON.stringify(queue), 'application/json') : queue
+        })
         .get('/playback/:id/info', async ({ params, session, set }) => {
           const info = await getWebPlaybackInfo(params.id, session.accountId)
           if (!info) { set.status = 404; return 'File not found' }

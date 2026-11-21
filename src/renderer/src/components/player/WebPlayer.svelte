@@ -16,27 +16,35 @@
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
-    automaticQualities, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, hlsMime, languageName,
+    videoQualityHeights, playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, hlsMime, languageName,
     matchesLanguage, preferredSubtitle, storePlaybackPosition
   } from '@lib/services/web-playback.service'
-  import { webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
+  import { isVideoQuality } from '@shared/playback-quality'
+  import { webQualityChoices, webQualityLabel, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
   import type { MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
+  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
-  let { item: startItem, settings, initialQuality, onClose }: {
+  let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
     item: MediaFile
     settings: Settings | null
+    initialInfo: Promise<WebPlaybackInfo>
     initialQuality?: WebQualityChoice
     onClose: () => void
   } = $props()
 
   let item = $state<MediaFile>(untrack(() => startItem))
   let queue = $state.raw<WebQueueItem[]>([])
+  const queuePageSize = 200
+  let queuePage = $state(0)
+  let queueRequested = false
   let opening: AbortController | undefined
 
   let dialog: HTMLDialogElement
-  let video: HTMLVideoElement
+  type BrowserAudioTracks = ArrayLike<{ enabled: boolean }> & EventTarget
+  let video: HTMLVideoElement & { audioTracks?: BrowserAudioTracks; mozHasAudio?: boolean; captureStream?: () => MediaStream }
+  let nativeAudio = $state.raw<BrowserAudioTracks>()
   let surface: HTMLDivElement
   let fullscreenButton: HTMLElement
   let chromeHeader: HTMLElement
@@ -86,7 +94,7 @@
   const chapterHint = $derived(chapters[chapterHintIndex])
   const previewChapterIndex = $derived(previewPosition === undefined ? -1 : chapterAfter(previewPosition, 0) - 1)
   const previewChapter = $derived(chapters[previewChapterIndex])
-  let quality = $state<WebQualityChoice>('auto')
+  let quality = $state<WebQualityChoice>('source')
   let activeQuality = $state<WebPlaybackQuality>()
   let audioIndex = $state<number>()
   let subtitleId = $state('')
@@ -101,6 +109,30 @@
   let error = $state('')
   let subtitleReady = $state(false)
   let subtitleNotice = $state('')
+  let fontPermission = $state<PermissionState>()
+  const localFonts = window as Window & { queryLocalFonts?: () => Promise<unknown[]> }
+  const selectedSubtitle = $derived(info?.subtitles.find(track => track.id === subtitleId))
+
+  async function allowSubtitleFonts() {
+    try {
+      await localFonts.queryLocalFonts?.()
+      fontPermission = 'granted'
+    } catch {
+      fontPermission = 'denied'
+    }
+  }
+
+  $effect(() => {
+    if (selectedSubtitle?.format !== 'ass' || !localFonts.queryLocalFonts) return
+    const controller = new AbortController()
+    if (!navigator.permissions) { fontPermission = 'prompt'; return }
+    void navigator.permissions.query({ name: 'local-fonts' as PermissionName }).then(permission => {
+      if (controller.signal.aborted) return
+      fontPermission = permission.state
+      permission.addEventListener('change', () => { fontPermission = permission.state }, { signal: controller.signal })
+    }).catch(() => { if (!controller.signal.aborted) fontPermission = 'prompt' })
+    return () => controller.abort()
+  })
   let playBlocked = $state(false)
   let shortcutFeedback = $state('')
   let showTimelineForShortcut = $state(false)
@@ -109,6 +141,7 @@
   let height = $state(0)
   let resumeAt = 0
   let wantPlayback = true
+  let retryTransport: (() => void) | undefined
   let operation: AbortController | undefined
   let hls: HlsType | undefined
   let renderer = $state.raw<SubtitleRenderer>()
@@ -124,10 +157,7 @@
   let defaultAudio = $derived(audioCapability.find((track) => track.default) ?? audioCapability[0])
   let availablePlayers = $derived(resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
     .filter((player) => player.id !== BUILTIN_WEB_PLAYER.id))
-  const qualityChoices = $derived<WebQualityChoice[]>([
-    'auto', ...(info?.qualities ?? []), ...(info?.audioConversion ? ['audio' as const] : [])
-  ])
-  const canSwitchAudio = $derived(audioCapability.length > 1 && (info?.qualities.length ?? 0) > 1)
+  const canSwitchAudio = $derived(audioCapability.length > 1 && (nativeAudio || (info?.qualities.length ?? 0) > 1))
   const speeds = [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
   const title = $derived(item.title || item.name)
   const queueIndex = $derived(queue?.findIndex((entry) => entry.id === item.id) ?? -1)
@@ -155,10 +185,10 @@
     openItem(quality)
   }
 
-  function openItem(preferredQuality?: WebQualityChoice) {
+  function openItem(preferredQuality?: WebQualityChoice, metadata?: Promise<WebPlaybackInfo>) {
     opening?.abort()
     opening = new AbortController()
-    void initialize(opening.signal, preferredQuality)
+    void initialize(opening.signal, preferredQuality, metadata)
   }
 
   function episodeLabel(entry: WebQueueItem): string {
@@ -231,6 +261,8 @@
   }
 
   function clearSource() {
+    nativeAudio = undefined
+    retryTransport = undefined
     resetFrameStep()
     clearSeek()
     clearTimeout(videoClickTimer)
@@ -257,8 +289,8 @@
     if (!info) return
     if (remember && mediaReady) {
       persist(true)
-      resumeAt = video.ended ? 0 : video.currentTime
-      wantPlayback = !video.paused || video.ended
+      resumeAt = video.ended ? 0 : requestedPosition ?? video.currentTime
+      if (video.ended) wantPlayback = true
     }
     clearSource()
     loading = true
@@ -273,19 +305,23 @@
     const controller = new AbortController()
     operation = controller
     const audio = audioCapability.find((track) => track.index === audioIndex)
-    const candidates = quality === 'auto'
-      ? await automaticQualities(video, info, audio, defaultAudio)
-      : [quality]
-    if (controller.signal.aborted) return
+    const candidates = playbackAttempts(video, info, audio, defaultAudio)
     let index = 0
+    // Keep intermediate rungs available for a gradual recovery.
+    const previousRenditions: RenditionTarget[] = []
+    const incompatible = new Set<number>()
+    let recoverySeconds = 20
+    let lastUpgrade = -Infinity
     let attempt: AbortController | undefined
     controller.signal.addEventListener('abort', () => attempt?.abort(), { once: true })
 
-    async function nextSource() {
+    async function nextSource(prepared?: HlsType) {
       if (controller.signal.aborted) return
-      const mode = candidates[index++]
+      const candidate = candidates[index++]
+      const mode = candidate?.mode
       if (attempt) {
         attempt.abort()
+        nativeAudio = undefined
         clearSeek()
         hls?.destroy()
         hls = undefined
@@ -296,6 +332,7 @@
         loading = false
         activeQuality = undefined
         error = 'The selected audio track requires playback conversion.'
+        loadQueue()
         return
       }
       activeQuality = mode
@@ -303,25 +340,42 @@
       const listen = <K extends keyof HTMLMediaElementEventMap>(event: K, handler: () => void, once = false) =>
         video.addEventListener(event, handler, { signal, once })
 
-      function failed(message: string) {
+      function failed(message: string, transport = false) {
         if (signal.aborted) return
         if (mediaReady) {
           persist(true)
           resumeAt = requestedPosition ?? video.currentTime
-          wantPlayback = !video.paused
         }
         mediaReady = false
+        if (transport) {
+          attempt?.abort()
+          hls?.destroy()
+          hls = undefined
+          loading = false
+          error = message
+          loadQueue()
+          return
+        }
         if (index < candidates.length) {
           void nextSource()
         } else {
           loading = false
           activeQuality = undefined
           error = message
+          loadQueue()
           clearSource()
         }
       }
 
-      const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex)
+      retryTransport = () => {
+        if (mediaReady) resumeAt = requestedPosition ?? video.currentTime
+        mediaReady = false
+        loading = true
+        error = ''
+        index--
+        void nextSource()
+      }
+      const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex, candidate)
       video.playbackRate = speed
       video.defaultPlaybackRate = speed
       const play = () => {
@@ -329,7 +383,7 @@
         void video.play().catch((reason: DOMException) => {
           if (signal.aborted || reason.name === 'AbortError') return
           if (reason.name === 'NotAllowedError') { playBlocked = true; loading = false }
-          else failed('This browser could not play the selected source.')
+          else if (!video.error) failed('This browser could not play the selected source.', reason.name === 'NetworkError')
         })
       }
       listen('durationchange', () => {
@@ -348,6 +402,7 @@
         applyFrameStep()
       })
       listen('play', () => {
+        wantPlayback = true
         paused = false
         resetFrameStep()
       })
@@ -355,6 +410,40 @@
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
           failed('The browser could decode the audio but could not decode the video.')
           return
+        }
+        if (mode === 'original' || candidate.checkAudio) {
+          // Some browsers play the picture and silently discard an unsupported soundtrack.
+          let hasAudio = video.audioTracks ? video.audioTracks.length > 0 : video.mozHasAudio
+          if (candidate.checkAudio && hasAudio === undefined && video.captureStream) {
+            // Chromium exposes decoded track presence here even before the first frame.
+            try {
+              const stream = video.captureStream()
+              hasAudio = stream.getAudioTracks().length > 0
+              stream.getTracks().forEach(track => track.stop())
+            } catch { /* The platform may restrict media capture. */ }
+          }
+          if (audio && hasAudio === false) {
+            failed('The browser could not decode the selected audio track.')
+            return
+          }
+        }
+        if (mode === 'original') {
+          const tracks = video.audioTracks
+          if (tracks && tracks.length !== audioCapability.length && audioCapability.length > 1) {
+            failed('The browser did not expose the selected soundtrack.')
+            return
+          }
+          if (tracks?.length && tracks.length === audioCapability.length) {
+            nativeAudio = tracks
+            tracks.addEventListener('change', () => {
+              const selected = Array.from(tracks).findIndex((track) => track.enabled)
+              if (selected >= 0) audioIndex = audioCapability[selected]?.index
+            }, { signal })
+          }
+          if (audioIndex !== undefined && !setNativeAudio(audioIndex) && audioIndex !== defaultAudio?.index) {
+            failed('The browser could not select the requested audio track.')
+            return
+          }
         }
         if (resumeAt > 0 && Number.isFinite(video.duration)) {
           video.currentTime = Math.min(resumeAt, Math.max(0, video.duration - 0.1))
@@ -368,6 +457,80 @@
         subtitleReady = true
       }, true)
       listen('canplay', () => { loading = false })
+      let preparing: AbortController | undefined
+      let retryAfter = 0
+      async function switchRendition(next: number, bandwidthDowngrade: boolean, commit: () => void) {
+        if (preparing || performance.now() < retryAfter) return
+        const target = candidates[next]
+        const controller = new AbortController()
+        preparing = controller
+        const cancel = () => controller.abort()
+        signal.addEventListener('abort', cancel, { once: true })
+        video.addEventListener('seeking', cancel, { signal: controller.signal })
+        video.addEventListener('pause', cancel, { signal: controller.signal })
+        const reserve = bufferedEnd(video) - video.currentTime
+        try {
+          const nativeHls = video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.'
+          const prepared = target.mode === 'original' || nativeHls ? undefined : await prefetchRendition(
+            browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target), video.currentTime, controller.signal
+          )
+          if (prepared === false) {
+            incompatible.add(next)
+            if (previousRenditions.at(-1)?.index === next) previousRenditions.pop()
+            retryAfter = performance.now() + 4000
+            return
+          }
+          const ahead = bufferedEnd(video) - video.currentTime
+          const recovered = bandwidthDowngrade && ahead > Math.max(reserve + 2, 6 * video.playbackRate)
+          if (controller.signal.aborted || video.ended || recovered) {
+            prepared?.destroy()
+            return
+          }
+          resumeAt = video.currentTime
+          mediaReady = false
+          loading = true
+          index = next
+          commit()
+          void nextSource(prepared)
+        } catch {
+          // A speculative conversion failure leaves the working source playing.
+          retryAfter = performance.now() + 10000
+        } finally {
+          signal.removeEventListener('abort', cancel)
+          controller.abort()
+          preparing = undefined
+        }
+      }
+      const adaptiveStats = quality === 'auto' ? monitorAdaptivePlayback(
+        video, signal, new AdaptivePlaybackStats(isVideoQuality(mode) ? undefined : info?.media?.bitrate, mode !== 'original'),
+        previousRenditions, recoverySeconds,
+        (bitrate, deliveryRatio) => {
+          const below = (height: number) => candidates.findIndex((entry, i) => i >= index &&
+            !incompatible.has(i) && isVideoQuality(entry.mode) && videoQualityHeights[entry.mode] < height)
+          const lower = below(video.videoHeight)
+          if (lower < 0) return
+          const nearest = candidates[lower].mode
+          if (!isVideoQuality(nearest)) return
+          const height = videoQualityHeights[nearest]
+          const pixelRatio = (height / video.videoHeight) ** 2
+          // Pixel count is only an estimate for an unencoded rendition. Skip
+          // at most one untried size, and only for a substantial deficit.
+          const smaller = deliveryRatio !== undefined && pixelRatio > deliveryRatio * 1.8 ? below(height) : -1
+          const current = index - 1
+          void switchRendition(smaller >= 0 ? smaller : lower, deliveryRatio !== undefined, () => {
+            if (performance.now() - lastUpgrade < 60000) recoverySeconds = Math.min(recoverySeconds * 2, 300)
+            if (deliveryRatio === undefined) recoverySeconds = Math.max(recoverySeconds, 60)
+            previousRenditions.push({ index: current, bitrate })
+            if (smaller >= 0) previousRenditions.push({ index: lower, bitrate: bitrate && bitrate * pixelRatio })
+          })
+        },
+        () => {
+          void switchRendition(previousRenditions.at(-1)!.index, false, () => {
+            lastUpgrade = performance.now()
+            previousRenditions.pop()
+          })
+        }
+      ) : undefined
       listen('waiting', () => { if (!video.paused) loading = true })
       listen('playing', () => {
         hasPlayed = true
@@ -379,6 +542,9 @@
         }
       })
       listen('pause', () => {
+        // A decoder failure also pauses the element. Carry the viewer's play
+        // intent through the next compatible source, including after a seek.
+        if (!video.error && !video.ended) wantPlayback = false
         paused = true
         loading = false
         if (!video.ended) persist(true)
@@ -393,8 +559,20 @@
         resumeAt = 0
         persist(true, true)
       })
-      listen('error', () => failed(video.error?.code === MediaError.MEDIA_ERR_NETWORK
-        ? 'The video could not be loaded from the server.' : 'The browser could not decode the selected source.'))
+      listen('error', async () => {
+        let network = video.error?.code === MediaError.MEDIA_ERR_NETWORK
+        // Native playback can report HTTP errors as unsupported formats.
+        // Probe only this ambiguous failure, leaving successful starts untouched.
+        if (video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && video.getAttribute('src') === url) {
+          try {
+            const response = await fetch(url, { method: 'HEAD', signal })
+            network = !response.ok && response.status !== 422
+          } catch {
+            network = true
+          }
+        }
+        failed(network ? 'The video could not be loaded from the server.' : 'The browser could not decode the selected source.', network)
+      })
       if (mode === 'original' || (video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.')) {
         video.src = url
         play()
@@ -402,13 +580,29 @@
       }
       try {
         const { default: Hls } = await import('hls.js')
-        if (signal.aborted) return
+        if (signal.aborted) { prepared?.destroy(); return }
         if (Hls.isSupported()) {
-          hls = new Hls({ maxBufferLength: 12, maxMaxBufferLength: 30, startPosition: resumeAt || -1 })
-          hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) failed(statusDetail(data)) })
-          hls.on(Hls.Events.MANIFEST_PARSED, play)
-          hls.loadSource(url)
+          const player = prepared ?? createPlaybackHls(Hls, resumeAt)
+          hls = player
+          if (adaptiveStats) player.on(Hls.Events.FRAG_LOADED, (_event, { frag }) => {
+            if (frag.sn !== 'initSegment') {
+              const { loaded, loading } = frag.stats
+              adaptiveStats.fragment(loaded, frag.duration, loading.end - loading.start)
+            }
+          })
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (!data.fatal) return
+            // HLS.js also classifies playlist parsing failures as network errors.
+            const transport = data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response?.code !== 422 &&
+              (data.details.endsWith('LoadError') || data.details.endsWith('LoadTimeOut'))
+            failed(statusDetail(data), transport)
+          })
+          if (!prepared) {
+            hls.on(Hls.Events.MANIFEST_PARSED, play)
+            hls.loadSource(url)
+          }
           hls.attachMedia(video)
+          if (prepared) play()
         } else if (video.canPlayType(hlsMime)) {
           video.src = url
           play()
@@ -423,14 +617,25 @@
   }
 
   function selectQuality(value: WebQualityChoice) {
-    if (value === 'original' && audioIndex !== defaultAudio?.index) audioIndex = defaultAudio?.index
     quality = value
     void loadSource()
   }
 
+  function setNativeAudio(index: number): boolean {
+    const tracks = nativeAudio
+    const position = audioCapability.findIndex((track) => track.index === index)
+    if (!tracks?.[position]) return false
+    tracks[position].enabled = true
+    if (!tracks[position].enabled) return false
+    for (let i = 0; i < tracks.length; i++) {
+      if (i !== position && tracks[i].enabled) tracks[i].enabled = false
+    }
+    return true
+  }
+
   function selectAudio(index: number) {
     audioIndex = index
-    if (quality === 'original') quality = 'auto'
+    if (setNativeAudio(index)) return
     void loadSource()
   }
 
@@ -699,6 +904,7 @@
     `${Math.abs(subtitlePosition)}% ${subtitlePosition < 0 ? 'higher' : 'lower'}`)
 
   function openPanel(next: Panel, origin?: HTMLElement) {
+    if (next === 'queue') queuePage = Math.max(0, Math.floor(queueIndex / queuePageSize))
     if (origin) panelOrigin = origin
     panel = next
     void tick().then(() => panelHeading?.focus({ preventScroll: true }))
@@ -768,7 +974,7 @@
   function launchExternal(id: string) {
     const player = availablePlayers.find((entry) => entry.id === id)
     if (!player) return
-    const selected = quality === 'auto' || quality === 'audio' ? resolvePlaybackQuality(settings) : quality
+    const selected = quality === 'source' ? 'original' : resolvePlaybackQuality(settings)
     void playerLauncherService.launchExternal(item, player, selected)
     closePanel()
   }
@@ -934,19 +1140,16 @@
     clientSettingsStore.update({ playerVolume: video.volume, playerMuted: video.muted })
   }
 
-  async function initialize(signal: AbortSignal, chosenQuality?: WebQualityChoice) {
+  async function initialize(signal: AbortSignal, chosenQuality?: WebQualityChoice, metadata?: Promise<WebPlaybackInfo>) {
     loading = true
     error = ''
     try {
-      const result = await getWebPlaybackInfo(item.id, signal)
+      const result = await (metadata ?? getWebPlaybackInfo(item.id, signal))
       if (signal.aborted) return
       info = result
       const preferences = clientSettingsStore.settings
-      const preferredQuality = chosenQuality ?? preferences.webQuality
-      quality = result.qualities.some((entry) => entry === preferredQuality) ||
-        (preferredQuality === 'audio' && result.audioConversion) ? preferredQuality : 'auto'
-      audioIndex = (quality === 'original' ? defaultAudio :
-        audioCapability.find((track) => matchesLanguage(track.language, preferences.audioLanguage)) ?? defaultAudio)?.index
+      quality = chosenQuality ?? preferences.webQuality
+      audioIndex = (audioCapability.find((track) => matchesLanguage(track.language, preferences.audioLanguage)) ?? defaultAudio)?.index
       subtitleId = preferredSubtitle(result.subtitles, preferences.subtitleLanguage, preferences.subtitles)
       lastSubtitle = subtitleId
       lastSaved = result.position
@@ -955,9 +1158,18 @@
     } catch (reason) {
       if (!signal.aborted) {
         error = reason instanceof Error ? reason.message : 'Could not open the player.'
+        loadQueue()
         loading = false
       }
     }
+  }
+
+  function loadQueue() {
+    if (queueRequested) return
+    queueRequested = true
+    void getWebPlaybackQueue(item.id, lifecycle.signal).then((files) => {
+      if (!lifecycle.signal.aborted) queue = files
+    }).catch(() => { queueRequested = false })
   }
 
   const lifecycle = new AbortController()
@@ -968,10 +1180,17 @@
     video.muted = preferences.playerMuted
     const pageHide = () => persist(true)
     window.addEventListener('pagehide', pageHide, { signal: lifecycle.signal })
-    void getWebPlaybackQueue(item.id, lifecycle.signal).then((files) => {
-      if (!lifecycle.signal.aborted) queue = files
-    }).catch(() => {})
-    openItem(initialQuality)
+    window.addEventListener('online', () => {
+      // Keep playing buffered media. A seek outside the buffer can leave
+      // the browser or HLS loader stopped after its network retries expire.
+      if (!video.ended && (error || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)) {
+        if (retryTransport) retryTransport()
+        else if (info) void loadSource()
+        else openItem(initialQuality)
+      }
+    }, { signal: lifecycle.signal })
+    video.addEventListener('loadeddata', loadQueue, { once: true, signal: lifecycle.signal })
+    openItem(initialQuality, initialInfo)
     return () => {
       persist(true)
       lifecycle.abort()
@@ -988,7 +1207,7 @@
   })
 
   $effect(() => {
-    const track = info?.subtitles.find((subtitle) => subtitle.id === subtitleId)
+    const track = selectedSubtitle
     subtitleNotice = ''
     if (!track || !subtitleReady) return
     const controller = new AbortController()
@@ -1004,7 +1223,9 @@
     void openSubtitle({
       itemId: item.id, track, video, container: surface,
       source: info?.media?.tracks.find((stream) => stream.kind === 'video'),
-      fonts: info?.media?.fonts ?? [], signal: controller.signal, delay: untrack(() => delay), onReady, onError
+      localFonts: track.format === 'ass' && fontPermission === 'granted',
+      fonts: info?.media?.fonts ?? [], fontRevision: info?.fontRevision,
+      signal: controller.signal, delay: untrack(() => delay), onReady, onError
     }).then((subtitle) => {
       if (controller.signal.aborted) return
       renderer = subtitle
@@ -1068,7 +1289,7 @@
           <div class="playback-error" role="alert">
             <h2>Couldn't play this video</h2>
             <p>{error}</p>
-            <button class="primary" onclick={() => info ? loadSource(false) : openItem(quality)}>Retry playback</button>
+            <button class="primary" onclick={() => retryTransport ? retryTransport() : info ? loadSource(false) : openItem(quality)}>Retry playback</button>
           </div>
         {:else if loading}
           <div class="buffering" role="status" aria-label={mediaReady ? 'Buffering' : 'Opening video'}>
@@ -1105,6 +1326,13 @@
                 </button>
               {/if}
               <h2 id="player-panel-heading" tabindex="-1" bind:this={panelHeading}>{panelTitles[panel]}</h2>
+              {#if panel === 'queue' && queue.length > queuePageSize}
+                <select aria-label="Playback queue range" bind:value={queuePage} onchange={() => panelElement?.scrollTo(0, 0)}>
+                  {#each Array(Math.ceil(queue.length / queuePageSize)) as _, page}
+                    <option value={page}>{page * queuePageSize + 1}–{Math.min((page + 1) * queuePageSize, queue.length)}</option>
+                  {/each}
+                </select>
+              {/if}
               <button type="button" class="control panel-close" aria-label="Close playback panel" onclick={() => closePanel()}>
                 <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m6 6 12 12M18 6 6 18" />
@@ -1145,6 +1373,11 @@
                     {:else}
                       <p class="panel-note">No subtitle tracks available</p>
                     {/if}
+                    {#if selectedSubtitle?.format === 'ass' && fontPermission === 'prompt'}
+                      <button type="button" class="settings-link" onclick={allowSubtitleFonts}>Allow local subtitle fonts</button>
+                    {:else if selectedSubtitle?.format === 'ass' && fontPermission === 'denied'}
+                      <p class="panel-note">Local subtitle fonts are blocked in your browser’s site settings.</p>
+                    {/if}
                   </fieldset>
                 </div>
                 {#if info?.subtitles.length}
@@ -1157,7 +1390,7 @@
               </div>
             {:else if panel === 'queue'}
               <div class="panel-body">
-                {#each queue ?? [] as entry (entry.id)}
+                {#each queue.slice(queuePage * queuePageSize, (queuePage + 1) * queuePageSize) as entry (entry.id)}
                   <button type="button" class="settings-link queue-entry" aria-current={entry.id === item.id ? 'true' : undefined}
                     onclick={() => navigate(entry)}>
                     <span class="choice-copy">
@@ -1189,7 +1422,7 @@
             {:else if panel === 'quality'}
               <fieldset class="panel-body" aria-label="Video quality">
                 {#if info}
-                  {#each qualityChoices as value (value)}
+                  {#each webQualityChoices as value (value)}
                     {@render choice('player-quality', webQualityLabel(value), quality === value, () => selectQuality(value))}
                   {/each}
                 {:else}

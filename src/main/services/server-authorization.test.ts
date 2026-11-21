@@ -130,8 +130,8 @@ describe('HTTP authorization — capability enforcement', () => {
         ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:rate=24',
         '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-f', 'ffmetadata', '-i', chapterFile,
         '-i', subtitleFile,
-        '-map_chapters', '2', '-t', '5',
-        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', '-c:s', 'ass', join(directory, 'movie.mkv')
+        '-map_chapters', '2', '-t', '12',
+        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', '-ac', '8', '-c:s', 'ass', join(directory, 'movie.mkv')
       ])
       expect(fixture.stderr.toString()).toBe('')
       expect(fixture.exitCode).toBe(0)
@@ -157,7 +157,7 @@ describe('HTTP authorization — capability enforcement', () => {
       const text = await playlist.text()
       const init = new URL(text.match(/#EXT-X-MAP:URI="([^"]+)"/)![1], master)
       const media = new URL(text.split('\n').filter((line) => line.startsWith('segment-')).at(-1)!, master)
-      expect(media.pathname).toEndWith('segment-2.m4s')
+      expect(media.pathname).toEndWith('segment-5.m4s')
       const unauthorized = new URL(media)
       unauthorized.searchParams.delete('token')
       expect((await app.handle(new Request(unauthorized.href))).status).toBe(401)
@@ -168,6 +168,7 @@ describe('HTTP authorization — capability enforcement', () => {
       expect(Buffer.from(data).toString('ascii', 4, 8)).toBe('moof')
       const webMaster = new URL(master)
       webMaster.searchParams.set('web', '1')
+      webMaster.searchParams.set('sound', 'stereo')
       webMaster.pathname = webMaster.pathname.replace('/remux/', '/audio/')
       const audioPlaylist = await app.handle(new Request(webMaster.href))
       expect(audioPlaylist.status).toBe(200)
@@ -183,6 +184,57 @@ describe('HTTP authorization — capability enforcement', () => {
       expect(codecs.exitCode).toBe(0)
       expect(codecs.stdout.toString()).toContain('mpeg4')
       expect(codecs.stdout.toString()).toContain('aac')
+      // The fifth two-second segment starts a new copy-video/AAC job.
+      // A continuous input tone must have adjacent AAC packet timestamps.
+      const audioSegments = audioText.split('\n').filter((line) => line.startsWith('segment-'))
+      const audioTimes = async (index: number) => {
+        const response = await app.handle(new Request(new URL(audioSegments[index], webMaster).href))
+        expect(response.status).toBe(200)
+        const probe = Bun.spawnSync([ffprobe!, '-v', 'error', '-select_streams', 'a:0',
+          '-show_entries', 'packet=pts_time,duration_time', '-of', 'json', '-i', 'pipe:0'],
+          { stdin: Buffer.from(await response.arrayBuffer()) })
+        expect(probe.exitCode).toBe(0)
+        return JSON.parse(probe.stdout.toString()).packets as { pts_time: string; duration_time: string }[]
+      }
+      const last = (await audioTimes(3)).at(-1)!
+      const first = (await audioTimes(4))[0]
+      expect(Math.abs(Number(first.pts_time) - Number(last.pts_time) - Number(last.duration_time))).toBeLessThan(1 / 48000)
+      // An independently encoded picture can still carry the exact source soundtrack.
+      const converted = new URL(webMaster)
+      converted.pathname = converted.pathname.replace('/audio/', '/480p/')
+      converted.searchParams.set('sound', 'copy')
+      converted.searchParams.set('audio', '1')
+      async function firstFragment(url: URL) {
+        const rendition = await app.handle(new Request(url.href))
+        expect(rendition.status).toBe(200)
+        const lines = (await rendition.text()).split('\n')
+        const initPath = lines.find(line => line.startsWith('#EXT-X-MAP:'))!.split('"')[1]
+        const segmentPath = lines.find(line => line.startsWith('segment-'))!
+        const buffers = await Promise.all([initPath, segmentPath].map(async path => {
+          const resource = new URL(path, url)
+          expect(resource.searchParams.get('sound')).toBe(url.searchParams.get('sound'))
+          const response = await app.handle(new Request(resource.href))
+          expect(response.status).toBe(200)
+          return Buffer.from(await response.arrayBuffer())
+        }))
+        return Buffer.concat(buffers)
+      }
+      const fragment = await firstFragment(converted)
+      const hashArgs = ['-v', 'error', '-select_streams', 'a:0', '-show_packets', '-show_data_hash', 'sha256',
+        '-show_entries', 'packet=data_hash', '-of', 'csv=p=0']
+      const originalHashes = Bun.spawnSync([ffprobe!, ...hashArgs, join(directory, 'movie.mkv')]).stdout.toString().trim().split('\n')
+      const copied = Bun.spawnSync([ffprobe!, ...hashArgs, 'pipe:0'], { stdin: fragment })
+      expect(copied.exitCode).toBe(0)
+      const copiedHashes = copied.stdout.toString().trim().split('\n')
+      expect(copiedHashes.length).toBeGreaterThan(1)
+      expect(copiedHashes).toEqual(originalHashes.slice(0, copiedHashes.length))
+      // AAC 7.1 needs an MP4 fragment for channel configurations unsupported by ADTS.
+      converted.searchParams.delete('sound')
+      const surround = Bun.spawnSync([ffprobe!, '-v', 'error', '-select_streams', 'a:0',
+        '-show_entries', 'stream=codec_name,channels', '-of', 'csv=p=0', 'pipe:0'],
+        { stdin: await firstFragment(converted) })
+      expect(surround.exitCode).toBe(0)
+      expect(surround.stdout.toString().trim()).toBe('aac,8')
       const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
       expect(initialization.status).toBe(206)
       expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')

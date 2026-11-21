@@ -1,3 +1,4 @@
+import { acceptsGzip } from './http-compression'
 import { staticPlugin } from '@elysiajs/static'
 import path from 'path'
 import fs from 'fs'
@@ -194,12 +195,30 @@ if (process.env.NODE_ENV === 'production') {
     distPath = pathSibling
   }
 
+  const assetDir = path.join(distPath, 'assets')
+  const bundledAsset = /[/\\]assets[/\\][^/\\]+-[\w-]{8}\.(?:css|js|wasm)$/
+  for (const name of fs.existsSync(assetDir) ? fs.readdirSync(assetDir) : []) {
+    const assetPath = path.join(assetDir, name)
+    if (!bundledAsset.test(assetPath)) continue
+    const file = Bun.file(assetPath)
+    const compressed = fs.existsSync(assetPath + '.gz') ? Bun.file(assetPath + '.gz') : undefined
+    app.get('/assets/' + name, ({ request }) => {
+      const gzip = compressed && acceptsGzip(request)
+      return new Response(gzip ? compressed : file, { headers: {
+        'Content-Type': file.type,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        Vary: 'Accept-Encoding',
+        ...(gzip ? { 'Content-Encoding': 'gzip' } : {})
+      } })
+    })
+  }
+
   app.use(
     staticPlugin({
       assets: distPath,
       prefix: '/',
       indexHTML: false,
-      ignorePatterns: [/(^|[/\\])index\.html$/]
+      ignorePatterns: [/(^|[/\\])index\.html$/, bundledAsset, /\.gz$/]
     })
   )
 

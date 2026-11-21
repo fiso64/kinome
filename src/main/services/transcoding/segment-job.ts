@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import type { LocalMediaTrack } from '@shared/local-media'
-import type { PlaybackEncodingPreferences, PlaybackVideoBackend, VideoQuality } from '@shared/playback-quality'
+import { avcFormat, type PlaybackEncodingPreferences, type PlaybackOutput, type PlaybackVideoBackend, type VideoQuality } from '@shared/playback-quality'
 import { endOfSegment, transcodeSegmentSeconds, type PlaybackTimeline } from './timeline'
 
 const heights: Record<VideoQuality, number> = {
@@ -19,6 +19,11 @@ export interface SegmentSource {
   audioTracks: readonly LocalMediaTrack[]
   quality: SegmentQuality
   fragmented: boolean
+  seekMpegInput?: (start: number, signal: AbortSignal) => Promise<number>
+  x264Build?: number
+  copyAudio: Set<number>
+  videoCodec?: PlaybackOutput['videoCodec']
+  channelLimit: number
   encoding: PlaybackEncodingPreferences
   timeline: PlaybackTimeline
   vaapiDevice?: string
@@ -37,20 +42,24 @@ export function lastSegmentInJob(source: SegmentSource, first: number): number {
 
 export function startSegmentJob(
   executable: string, directory: string, source: SegmentSource, first: number,
-  mode: PlaybackVideoBackend,
+  mode: PlaybackVideoBackend, encodeFrom: number, inputStart: number,
   onSegment: (index: number, path: string) => void | Promise<void>
 ) {
   const { quality, timeline, path, video, audioTracks, fragmented, encoding } = source
   const last = lastSegmentInJob(source, first)
-  const start = timeline.starts[first]
+  const start = timeline.starts[encodeFrom]
   const end = endOfSegment(timeline, last)
-  const interior = timeline.starts.slice(first + 1, last + 1).map((time) => (time - start).toFixed(6))
+  const boundaries = timeline.starts.slice(encodeFrom + 1, last + 2)
+  const firstPicture = Math.max(start, timeline.firstPicture)
+  const splitTimes = boundaries.map((time) => (time - firstPicture).toFixed(6))
   const remux = copiesVideo(quality)
   const hardware = !remux && mode !== 'software' ? source.vaapiDevice : undefined
   // TrueHD needs a Blu-ray stream type and an AC-3 compatibility stream.
   const mpegtsFormat = [
     'mpegts_copyts=1', 'mpegts_flags=initial_discontinuity',
-    ...(remux ? ['avoid_negative_ts=disabled'] : []),
+    'avoid_negative_ts=disabled',
+    // Emit copied audio early enough for progressive playback on slow links.
+    ...(!remux && source.copyAudio.size ? ['pes_payload_size=512'] : []),
     ...(quality === 'remux' && audioTracks.some((track) => track.codec === 'truehd') ? ['mpegts_m2ts_mode=1'] : [])
   ].join(':')
   // frag_discont keeps the source's decode times in tfdt across independently
@@ -59,74 +68,112 @@ export function startSegmentJob(
   const extension = fragmented ? 'mp4' : 'ts'
   const args = [
     executable, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-    ...(remux ? ['-copyts', '-start_at_zero'] : []),
+    '-copyts', '-start_at_zero',
     ...(hardware ? ['-vaapi_device', hardware] : []),
     ...(mode === 'vaapi' ? ['-hwaccel', 'vaapi', '-hwaccel_output_format', 'vaapi'] : []),
-    '-ss', (timeline.seekStarts?.[first] ?? start).toFixed(6),
+    // A copied video seeks just past its keyframe to select the correct cue.
+    // Keep the corresponding decoded audio preroll instead of trimming it to
+    // that later timestamp when only the audio is being converted.
+    ...(quality === 'audio' ? ['-noaccurate_seek'] : []),
+    '-ss', inputStart.toFixed(6),
+    ...(!remux && source.x264Build !== undefined ? ['-x264_build', String(source.x264Build)] : []),
     '-threads', '2', '-protocol_whitelist', 'file', '-i', path,
     '-map', `0:${video.index}`, ...audioTracks.flatMap((track) => ['-map', `0:${track.index}`]),
-    '-map_metadata', '-1', '-map_chapters', '-1'
+    '-map_metadata', '-1', '-map_chapters', '-1', '-avoid_negative_ts', 'disabled'
   ]
   for (const [index, track] of audioTracks.entries()) {
     if (track.language) args.push(`-metadata:s:a:${index}`, `language=${track.language}`)
     args.push(`-disposition:a:${index}`, index === 0 ? 'default' : '0')
   }
   if (remux) {
-    args.push('-c:v', 'copy', '-avoid_negative_ts', 'disabled')
+    args.push('-c:v', 'copy')
+    if (source.x264Build !== undefined && source.x264Build < 151) {
+      // Include the source encoder identity at each random-access point.
+      args.push('-bsf:v', 'h264_mp4toannexb,h264_metadata=sei_user_data=' +
+        `dc45e9bde6d948b7962cd820d923eeef+x264 - core ${source.x264Build}`)
+    }
     if (fragmented && video.codec === 'hevc') args.push('-tag:v', 'hvc1')
-    if (end < timeline.duration) interior.push((end - start).toFixed(6))
   } else {
     const height = Math.floor(Math.min(video.height!, heights[quality]) / 2) * 2
     const width = Math.round(height * video.width! / video.height! / 2) * 2
     const hdr = video.colorTransfer === 'smpte2084' || video.colorTransfer === 'arib-std-b67'
+    const toneMap = hdr && !source.videoCodec
+    const tenBit = hdr || !!source.videoCodec
+    const interlaced = ['tt', 'bb', 'tb', 'bt'].includes(video.fieldOrder ?? '')
     const filters = hardware
       ? [
-          ...(mode === 'vaapi-upload' ? [hdr ? 'format=p010le' : 'format=nv12', 'hwupload'] : []),
-          `scale_vaapi=w=${width}:h=${height}:format=${hdr ? 'p010' : 'nv12'}`,
-          ...(hdr ? ['tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709'] : [])
+          ...(mode === 'vaapi-upload' ? [tenBit ? 'format=p010le' : 'format=nv12', 'hwupload'] : []),
+          ...(interlaced ? ['deinterlace_vaapi=rate=field:auto=1'] : []),
+          `scale_vaapi=w=${width}:h=${height}:format=${tenBit ? 'p010' : 'nv12'}`,
+          ...(toneMap ? ['tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709'] : [])
         ]
       : [
+          ...(interlaced ? ['bwdif=mode=send_field:deint=interlaced'] : []),
           `scale=${width}:${height}`,
-          ...(hdr ? ['zscale=t=linear:npl=100', 'format=gbrpf32le', 'tonemap=tonemap=mobius',
+          ...(toneMap ? ['zscale=t=linear:npl=100', 'format=gbrpf32le', 'tonemap=tonemap=mobius',
             'zscale=p=bt709:t=bt709:m=bt709:r=tv', 'format=yuv420p'] : [])
         ]
+    const codec = source.videoCodec === 'avc' ? 'h264' : source.videoCodec ?? 'h264'
+    const pixelFormat = source.videoCodec === 'avc' ? avcFormat(video.pixelFormat).pixelFormat :
+      source.videoCodec ? 'yuv420p10le' : 'yuv420p'
+    const softwareCodecs = { h264: 'libx264', hevc: 'libx265', vp9: 'libvpx-vp9' }
     const encoder = hardware
-      ? ['-c:v', 'h264_vaapi', '-async_depth', '1']
-      : ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-threads:v', '2']
+      ? ['-c:v', codec + '_vaapi', '-async_depth', '1']
+      : ['-c:v', softwareCodecs[codec], '-pix_fmt', pixelFormat, '-threads:v', '2']
+    if (!hardware) {
+      if (codec === 'vp9') encoder.push('-deadline', 'realtime', '-cpu-used', '5', '-row-mt', '1', '-lag-in-frames', '0')
+      else encoder.push('-preset', 'veryfast')
+      if (codec === 'hevc') encoder.push('-x265-params', 'pools=2:open-gop=0', '-forced-idr', '1')
+    }
+    if (codec === 'hevc') encoder.push('-tag:v', 'hvc1')
+    if (source.videoCodec && video.colorTransfer) encoder.push('-color_trc', video.colorTransfer)
+    if (source.seekMpegInput && start) filters.unshift(`trim=start=${start}`)
     const bitrate = encoding.videoBitrateMbps
     const high = encoding.videoQuality === 'high'
     if (bitrate) {
       if (hardware) encoder.push('-rc_mode', 'VBR')
       encoder.push('-b:v', `${bitrate}M`, '-maxrate', `${bitrate}M`, '-bufsize', `${2 * bitrate}M`)
     } else if (hardware) {
-      encoder.push('-qp', high ? '20' : '23')
+      encoder.push(codec === 'vp9' ? '-global_quality' : '-qp', high ? '20' : '23')
     } else {
       encoder.push('-crf', high ? '18' : '21')
+      if (codec === 'vp9') encoder.push('-b:v', '0')
     }
     args.push(
       '-vf', filters.join(','), '-filter_threads', '2', ...encoder, '-bf', '0', '-flags:v', '+cgop',
-      '-force_key_frames', `expr:gte(t,n_forced*${transcodeSegmentSeconds})`
+      ...(boundaries.length ? ['-force_key_frames', boundaries.join(',')] : [])
     )
   }
-  if (quality === 'remux') {
-    args.push('-c:a', 'copy')
-  } else {
-    args.push('-c:a', 'aac')
-    for (const [index, track] of audioTracks.entries()) {
-      const channels = encoding.audioChannels === 'surround' ? Math.min(track.channels || 2, 6) : 2
-      args.push(`-ac:a:${index}`, String(channels), `-b:a:${index}`, `${Math.min(channels * 96, 384)}k`)
+  for (const [index, track] of audioTracks.entries()) {
+    if (source.copyAudio.has(track.index)) {
+      args.push(`-c:a:${index}`, 'copy')
+      if (!remux && start > 0) {
+        // Input seeking can return audio from the preceding video keyframe.
+        // Keep the packet crossing the cut but discard older copied packets.
+        args.push(`-bsf:a:${index}`, `noise=drop='lte((pts+duration)*tb,${start})'`)
+      }
+      continue
     }
+    const channels = Math.min(track.channels || 2, source.channelLimit)
+    args.push(`-c:a:${index}`, 'aac')
+    // Anchor AAC frames to the source clock across independent jobs.
+    if (track.sampleRate) {
+      const firstSample = Math.floor(start * track.sampleRate / 1024) * 1024
+      args.push(`-filter:a:${index}`, `aresample=first_pts=${firstSample}`)
+    }
+    args.push(`-ac:a:${index}`, String(channels), `-b:a:${index}`, `${Math.min(channels * 96, channels > 6 ? 512 : 384)}k`)
   }
   // Give every independently started job the same output timestamp origin.
   // FFmpeg writes one CSV row after the corresponding segment has been closed.
   args.push(
-    ...(remux ? ['-to', Math.min(timeline.duration, end + 0.5).toFixed(6)] : ['-t', (end - start).toFixed(6)]),
+    '-to', Math.min(timeline.duration, end + 0.5).toFixed(6),
     '-f', 'segment', '-segment_format', fragmented ? 'mp4' : 'mpegts',
     '-segment_format_options', fragmented ? mp4Format : mpegtsFormat,
-    '-segment_start_number', String(first), '-initial_offset',
-    (transportStreamPreroll + (remux ? 0 : start)).toFixed(6),
+    ...(!remux ? ['-segment_time_delta', '0.05'] : []),
+    '-segment_start_number', String(encodeFrom), '-initial_offset',
+    String(transportStreamPreroll),
     '-segment_list_type', 'csv', '-segment_list', 'pipe:1',
-    ...(interior.length ? ['-segment_times', interior.join(',')] : ['-segment_time', String(Math.ceil(end - start) + 1)]),
+    ...(splitTimes.length ? ['-segment_times', splitTimes.join(',')] : ['-segment_time', String(Math.ceil(end - start) + 1)]),
     `segment-%d.${extension}`
   )
   const process = Bun.spawn(args, { cwd: directory, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })

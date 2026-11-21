@@ -22,7 +22,7 @@ export interface ClientSettings {
 
 const DEFAULTS: ClientSettings = {
   enabledPlayerIds: [],
-  webQuality: 'auto',
+  webQuality: 'source',
   audioLanguage: '',
   subtitleLanguage: '',
   subtitles: 'default',
@@ -34,7 +34,8 @@ function load(): ClientSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULTS }
-    return { ...DEFAULTS, ...JSON.parse(raw) }
+    const saved = JSON.parse(raw)
+    return { ...DEFAULTS, ...saved, webQuality: saved.webQuality === 'auto' ? 'auto' : 'source' }
   } catch {
     return { ...DEFAULTS }
   }

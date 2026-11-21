@@ -8,21 +8,83 @@ import { setFilterRule } from '../database/repositories/account-filter.repo'
 import { runWithAccount } from '../request-context'
 import { getWebPlaybackQueue } from './web-playback.service'
 import { generateM3UPlaylist, generatePlaylist, handleFileStreamFast } from './playback.service'
-import { readMatroskaAssIndexes, readMatroskaAssWindow } from './transcoding/matroska-cues'
+import { readMatroskaSubtitleIndexes, readMatroskaAssWindow, readMatroskaPgsWindow } from './transcoding/matroska-cues'
 import { createTimeline, segmentPlaylist } from './transcoding/timeline'
+import { indexSupWindows } from './transcoding/sup-windows'
+import { inspectMp4Segment } from './transcoding/mp4-keyframes'
+
+it('publishes the legacy x264 decoder hint before the picture without shifting fragment offsets', async () => {
+  const word = (value: number) => {
+    const bytes = Buffer.alloc(4)
+    bytes.writeUInt32BE(value)
+    return bytes
+  }
+  const box = (type: string, ...parts: Buffer[]) => {
+    const payload = Buffer.concat(parts)
+    return Buffer.concat([word(payload.length + 8), Buffer.from(type), payload])
+  }
+  const nal = (type: number, data: string) => {
+    const payload = Buffer.from(data)
+    return Buffer.concat([word(payload.length + 1), Buffer.from([type]), payload])
+  }
+  const picture = nal(5, 'first picture')
+  const version = nal(6, 'x264 - core 142')
+  const next = nal(1, 'next picture')
+  const init = Buffer.concat([box('ftyp'), box('moov')])
+  const tfhd = box('tfhd', word(0x020010), word(1), word(picture.length + version.length))
+  const fragment = (dataOffset: number) => box('moof', box('traf', tfhd,
+    box('trun', word(1), word(2), word(dataOffset))))
+  const moof = fragment(fragment(0).length + 8)
+  const dir = await mkdtemp(join(tmpdir(), 'kinome-avc-fragment-'))
+  try {
+    const path = join(dir, 'segment.mp4')
+    await Bun.write(path, Buffer.concat([init, moof, box('mdat', picture, version, next)]))
+    expect(await inspectMp4Segment(path, true, 142)).toEqual({ offset: init.length, initialization: init })
+    expect(Buffer.from(await Bun.file(path).arrayBuffer())).toEqual(
+      Buffer.concat([init, moof, box('mdat', version, picture, next)]))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('replays bitmap state across empty SUP windows and preserves unordered tracks for full playback', async () => {
+  const packet = (seconds: number, state: number) => {
+    const bytes = Buffer.alloc(24)
+    bytes.write('PG')
+    bytes.writeUInt32BE(seconds * 90_000, 2)
+    bytes[10] = 0x16
+    bytes.writeUInt16BE(11, 11)
+    bytes[20] = state
+    return bytes
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'kinome-sup-'))
+  try {
+    const path = join(dir, 'track')
+    await Bun.write(path, Buffer.concat([packet(45, 128), packet(52, 0), packet(95, 128), packet(100, 0)]))
+    const range = await indexSupWindows(path)
+    expect(range?.(0)).toEqual([0, 0])
+    expect(range?.(2)).toEqual([0, 48])
+    expect(range?.(3)).toEqual([0, 96])
+    expect(range?.(4)).toEqual([48, 96])
+    await Bun.write(path, Buffer.concat([packet(48, 128), packet(12, 0)]))
+    expect(await indexSupWindows(path)).toBeUndefined()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+function element(id: string, ...parts: (Buffer | string | number)[]): Buffer {
+  const data = Buffer.concat(parts.map((part) => {
+    if (Buffer.isBuffer(part)) return part
+    if (typeof part === 'string') return Buffer.from(part)
+    const integer = Buffer.alloc(4)
+    integer.writeUInt32BE(part)
+    return integer
+  }))
+  return Buffer.concat([Buffer.from(id, 'hex'), Buffer.from([0x40 | (data.length >> 8), data.length & 255]), data])
+}
 
 it('reads indexed ASS cues for a seek, including lines already on screen', async () => {
-  function element(id: string, ...parts: (Buffer | string | number)[]): Buffer {
-    const data = Buffer.concat(parts.map((part) => {
-      if (Buffer.isBuffer(part)) return part
-      if (typeof part === 'string') return Buffer.from(part)
-      const integer = Buffer.alloc(4)
-      integer.writeUInt32BE(part)
-      return integer
-    }))
-    return Buffer.concat([Buffer.from(id, 'hex'), Buffer.from([0x40 | (data.length >> 8), data.length & 255]), data])
-  }
-
   const video = element('ae', element('d7', 1), element('83', 1))
   const subtitle = element('ae', element('d7', 2), element('83', 17), element('86', 'S_TEXT/ASS'),
     element('63a2', '[Script Info]\nScriptType: v4.00+\n\n[Events]\n'))
@@ -42,16 +104,50 @@ it('reads indexed ASS cues for a seek, including lines already on screen', async
     const path = join(directory, 'indexed.mkv')
     await Bun.write(path, element('18538067', info, tracks, cues, element('1f43b675', ongoing, later)))
     const flags = { default: false, forced: false, hearingImpaired: false }
-    const index = (await readMatroskaAssIndexes(path, [
+    const index = (await readMatroskaSubtitleIndexes(path, [
       { index: 0, kind: 'video', ...flags }, { index: 1, kind: 'subtitle', codec: 'ass', ...flags }
     ])).get(1)!
     const signal = new AbortController().signal
+    if (index.format !== 'ass') throw new Error('Expected indexed ASS')
     const seek = await readMatroskaAssWindow(path, index, 30_000, 60_000, signal)
     expect(seek).toContain('Dialogue: 0,0:00:20.00,0:00:40.00,Default,,0,0,0,,Long cue')
     expect(seek).not.toContain('Later cue')
     const next = await readMatroskaAssWindow(path, index, 60_000, 90_000, signal)
     expect(next).toContain('Dialogue: 0,0:01:00.00,0:01:01.00,Default,,0,0,0,,Later cue')
     expect(next).not.toContain('Long cue')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('restores the previous bitmap epoch on seek and declines incomplete subtitle indexes', async () => {
+  const info = element('1549a966', element('5741', 'mkvmerge fixture'))
+  const tracks = element('1654ae6b', element('ae', element('d7', 1), element('83', 1)),
+    element('ae', element('d7', 2), element('83', 17), element('86', 'S_HDMV/PGS')))
+  const epoch = Buffer.from('16000b0780043810000080000000', 'hex')
+  const clear = Buffer.from('800000', 'hex')
+  const blocks = [epoch, clear].map((data) => element('a3', Buffer.from([0x82, 0, 0, 0]), data))
+  const cuesAt = (position: number) => element('1c53bb6b',
+    element('bb', element('b3', 0), element('b7', element('f7', 1))),
+    ...[0, 1000].map((time, i) => element('bb', element('b3', time), element('b7',
+      element('f7', 2), element('f1', position), element('f0', i ? blocks[0].length : 0)))))
+  const directory = await mkdtemp(join(tmpdir(), 'kinome-pgs-index-'))
+  try {
+    const path = join(directory, 'indexed.mkv')
+    const cues = cuesAt(info.length + tracks.length + cuesAt(0).length)
+    await Bun.write(path, element('18538067', info, tracks, cues, element('1f43b675', ...blocks)))
+    const flags = { default: false, forced: false, hearingImpaired: false }
+    const indexes = (packetCount: number) => readMatroskaSubtitleIndexes(path, [
+      { index: 0, kind: 'video', ...flags }, { index: 1, kind: 'subtitle', codec: 'hdmv_pgs_subtitle', packetCount, ...flags }
+    ])
+    expect((await indexes(3)).size).toBe(0)
+    const index = (await indexes(2)).get(1)
+    if (index?.format !== 'pgs') throw new Error('Expected indexed PGS')
+    const data = await readMatroskaPgsWindow(path, index, 1100, 2000, new AbortController().signal)
+    expect(data).toEqual(Buffer.concat([
+      Buffer.from('50470000000000000000', 'hex'), epoch, Buffer.from('504700015f9000015f90', 'hex'), clear
+    ]))
+    await expect(readMatroskaPgsWindow(path, index, 1100, 2000, AbortSignal.abort())).rejects.toThrow()
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -166,6 +262,12 @@ it('advertises the complete seek timeline with individually playable segments', 
   expect(playlist).toContain('#EXTINF:2.750000,\nsegment-0.ts?token=login-token&clientId=viewer')
   expect(playlist).toContain('#EXTINF:4.250000,\nsegment-3.ts?token=login-token&clientId=viewer')
   expect(playlist).toEndWith('#EXT-X-ENDLIST\n')
+})
+
+it('keeps trailing audio in the last segment that contains a video frame', () => {
+  const timeline = createTimeline(6.5, undefined, 4.1)
+  expect(timeline.starts).toEqual([0, 1, 2, 3])
+  expect(segmentPlaylist(timeline, String)).toContain('#EXTINF:3.500000,\n3')
 })
 
 it.each([false, true])('keeps unclassified files in their current folder (TV ancestor: %s)', async (knownShow) => {

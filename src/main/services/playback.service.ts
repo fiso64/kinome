@@ -152,6 +152,9 @@ export function clearStreamCache(): void {
 // --- MIME Type Lookup (pre-computed for speed) ---
 const MIME_TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mpg': 'video/mpeg',
+  '.mpeg': 'video/mpeg',
   '.mkv': 'video/x-matroska',
   '.webm': 'video/webm',
   '.avi': 'video/x-msvideo',
@@ -299,6 +302,7 @@ export async function handleCachedStream(
 
 const playlistFields = ['id', 'type', 'name', 'title', 'parentId', 'mediaType',
   'seasonNumber', 'episodeNumber', 'isHidden', 'isMissing']
+const playlistNameOrder = new Intl.Collator(undefined, { numeric: true })
 
 /** Orders episodes within a show and other files within their immediate folder. */
 export function getPlaybackSequence(itemId: string): { item: LibraryItem; files: MediaFile[] } | undefined {
@@ -344,7 +348,7 @@ export function getPlaybackSequence(itemId: string): { item: LibraryItem; files:
     if (aE == null && bE != null) return 1
 
     // Fallback to Name
-    return a.name.localeCompare(b.name, undefined, { numeric: true })
+    return playlistNameOrder.compare(a.name, b.name)
   })
 
   return { item, files }

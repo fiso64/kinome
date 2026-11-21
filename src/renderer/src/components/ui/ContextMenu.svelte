@@ -5,8 +5,8 @@
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
-  import { availablePlaybackQualities, qualityLabel } from '@shared/playback-quality'
-  import { webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
+  import { availablePlaybackQualities, qualityLabel, type PlaybackQuality } from '@shared/playback-quality'
+  import { webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import type {
     LibraryItem,
     MediaFolder,
@@ -47,7 +47,7 @@
     globalSettings: Settings | null
     matchingFiles?: SearchIndexEntry['matchingFiles']
     onOpenMatchingFile: (id: string) => void
-    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice) => void
+    onPlay: (item: MediaFile, player?: PlayerCommandConfig, quality?: WebQualityChoice | PlaybackQuality) => void
     onClose: () => void
     onOpen: () => void
     onEditMetadata: () => void
@@ -80,8 +80,6 @@
   let activeSubmenu = $state<string | null>(null)
   const playbackQualities = $derived(availablePlaybackQualities(globalSettings))
   const defaultQuality = $derived(resolvePlaybackQuality(globalSettings))
-  const webQuality = $derived(playbackQualities.some((entry) => entry === clientSettingsStore.settings.webQuality)
-    ? clientSettingsStore.settings.webQuality : 'auto')
   let workerNotice = $state('')
   let activePlayerQuality = $state<string | null>(null)
   let qualityMenu = $state<HTMLDivElement>()
@@ -263,7 +261,7 @@
   }
 
 
-  function handlePlayWith(player: PlayerCommandConfig, quality?: WebQualityChoice) {
+  function handlePlayWith(player: PlayerCommandConfig, quality?: WebQualityChoice | PlaybackQuality) {
     onPlay(item as MediaFile, player, quality)
     onClose()
   }
@@ -437,13 +435,16 @@
                 {@const isWeb = player.id === BUILTIN_WEB_PLAYER.id}
                 <div class="context-menu submenu quality-menu" bind:this={qualityMenu} style={qualityMenuPosition}>
                   {#if isWeb}
-                    <button class="context-menu-item" aria-current={webQuality === 'auto'}
-                      onclick={() => handlePlayWith(player, 'auto')}>{webQualityLabel('auto')}</button>
+                    {#each webQualityChoices as quality (quality)}
+                      <button class="context-menu-item" aria-current={quality === clientSettingsStore.settings.webQuality}
+                        onclick={() => handlePlayWith(player, quality)}>{webQualityLabel(quality)}</button>
+                    {/each}
+                  {:else}
+                    {#each playbackQualities as quality (quality)}
+                      <button class="context-menu-item" aria-current={quality === defaultQuality}
+                        onclick={() => handlePlayWith(player, quality)}>{qualityLabel(quality)}</button>
+                    {/each}
                   {/if}
-                  {#each playbackQualities as quality (quality)}
-                    <button class="context-menu-item" aria-current={quality === (isWeb ? webQuality : defaultQuality)}
-                      onclick={() => handlePlayWith(player, quality)}>{isWeb ? webQualityLabel(quality) : qualityLabel(quality)}</button>
-                  {/each}
                 </div>
               {/if}
             </div>

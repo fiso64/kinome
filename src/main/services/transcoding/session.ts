@@ -1,6 +1,6 @@
-import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { inspectMp4Segment } from './mp4-keyframes'
 import type { PlaybackVideoBackend } from '@shared/playback-quality'
 import { copiesVideo, lastSegmentInJob, startSegmentJob, type SegmentSource } from './segment-job'
@@ -28,8 +28,22 @@ interface Job {
   first: number
   last: number
   requests: number
+  idle?: PromiseWithResolvers<void>
   stop: () => void
   waiters: Map<number, SegmentWaiter>
+}
+
+async function waitFor<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  const aborted = Promise.withResolvers<never>()
+  const abort = () => aborted.reject(signal.reason)
+  signal.addEventListener('abort', abort, { once: true })
+  if (signal.aborted) abort()
+  try {
+    return await Promise.race([promise, aborted.promise])
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
 }
 
 export class PlaybackSession {
@@ -39,6 +53,11 @@ export class PlaybackSession {
   readonly #onVideoBackend: (mode: PlaybackVideoBackend) => void
   readonly #completed = new Map<number, CachedSegment>()
   readonly #jobs = new Set<Promise<void>>()
+  readonly #id: string
+  readonly #started = performance.now()
+  #generated = 0
+  #cancelled = 0
+  #windows = 0
   #cachedBytes = 0
   #directory?: Promise<string>
   #initialization?: Buffer
@@ -47,18 +66,23 @@ export class PlaybackSession {
   #timer?: ReturnType<typeof setTimeout>
   #closed = false
 
-  constructor(executable: string, source: SegmentSource, onIdle: () => void, onVideoBackend: (mode: PlaybackVideoBackend) => void) {
+  constructor(id: string, executable: string, source: SegmentSource, onIdle: () => void, onVideoBackend: (mode: PlaybackVideoBackend) => void) {
+    this.#id = id
     this.#executable = executable
     this.#source = source
     this.#onIdle = onIdle
     this.#onVideoBackend = onVideoBackend
     this.#videoMode = !copiesVideo(source.quality) && source.vaapiDevice ? 'vaapi' : 'software'
+    console.info('[Playback] Opened conversion session', { operationId: id, quality: source.quality })
     this.touch()
   }
 
   touch(): void {
     clearTimeout(this.#timer)
-    this.#timer = setTimeout(this.#onIdle, retentionMs)
+    this.#timer = setTimeout(() => {
+      if (this.#job?.requests) this.touch()
+      else this.#onIdle()
+    }, retentionMs)
     this.#timer.unref()
   }
 
@@ -90,6 +114,13 @@ export class PlaybackSession {
     if (this.#job && index >= this.#job.first && index <= this.#job.last) {
       return this.#segmentFrom(this.#job, index, signal)
     }
+    if (this.#job?.requests) {
+      // A player can request neighbouring segments in reverse order. Finish
+      // any still-wanted responses before replacing their encoding window.
+      this.#job.idle ??= Promise.withResolvers<void>()
+      await waitFor(this.#job.idle.promise, signal)
+      return this.segment(index, signal)
+    }
 
     this.#cancelJob()
     const directory = join(root, crypto.randomUUID())
@@ -102,6 +133,7 @@ export class PlaybackSession {
       stop: () => {}
     }
     this.#job = job
+    this.#windows++
     const done = this.#run(job, directory, index)
     this.#jobs.add(done)
     void done.then(() => this.#jobs.delete(done))
@@ -119,6 +151,7 @@ export class PlaybackSession {
     const job = this.#job
     if (!job) return
     this.#job = undefined
+    this.#cancelled++
     for (const waiter of job.waiters.values()) waiter.reject(new DOMException('Playback moved to another segment', 'AbortError'))
     job.waiters.clear()
     job.stop()
@@ -131,16 +164,15 @@ export class PlaybackSession {
       job.waiters.set(index, waiter)
     }
     job.requests++
-    const aborted = Promise.withResolvers<never>()
-    const abort = () => aborted.reject(signal?.reason)
-    signal?.addEventListener('abort', abort, { once: true })
-    if (signal?.aborted) abort()
     try {
-      return await (signal ? Promise.race([waiter.promise, aborted.promise]) : waiter.promise)
+      return await waitFor(waiter.promise, signal)
     } finally {
-      signal?.removeEventListener('abort', abort)
       job.requests--
-      if (signal?.aborted && !job.requests && this.#job === job) this.#cancelJob()
+      if (!job.requests) {
+        job.idle?.resolve()
+        job.idle = undefined
+        if (signal?.aborted && this.#job === job) this.#cancelJob()
+      }
     }
   }
 
@@ -157,12 +189,21 @@ export class PlaybackSession {
         let cached = this.#completed.get(segment)
         if (!cached) {
           const fragment = this.#source.fragmented
-            ? await inspectMp4Segment(path, !this.#initialization)
+            ? await inspectMp4Segment(path, !this.#initialization, copiesVideo(this.#source.quality) ? this.#source.x264Build : undefined)
             : undefined
           if (this.#job !== job || this.#closed) return
+          // Move published files out of the job directory. This keeps scratch
+          // directories bounded across a feature-length stream or many seeks.
+          const retained = join(dirname(directory), basename(directory) + '-' + basename(path))
+          await rename(path, retained)
+          if (this.#job !== job || this.#closed) {
+            await rm(retained, { force: true })
+            return
+          }
           this.#initialization ??= fragment?.initialization
-          const bytes = Bun.file(path).size
-          cached = { path, bytes, offset: fragment?.offset ?? 0 }
+          const bytes = Bun.file(retained).size
+          cached = { path: retained, bytes, offset: fragment?.offset ?? 0 }
+          this.#generated++
           this.#completed.set(segment, cached)
           this.#cachedBytes += bytes
         }
@@ -175,9 +216,20 @@ export class PlaybackSession {
           void rm(old.path).catch(() => {})
         }
       }
+      // Include the preceding segment at a sequential window boundary so
+      // audio and video decode history overlap before publication resumes.
+      const from = this.#completed.has(index - 1) ? Math.max(0, index - 1) : index
+      const timeline = this.#source.timeline
+      let seek = timeline.seekStarts?.[from] ?? timeline.starts[from]
+      if (this.#source.seekMpegInput && seek > 0) {
+        const controller = new AbortController()
+        job.stop = () => controller.abort()
+        seek = await this.#source.seekMpegInput(seek, controller.signal)
+        if (this.#job !== job) return
+      }
       for (const mode of videoModes.slice(videoModes.indexOf(this.#videoMode))) {
         let emitted = false
-        const process = startSegmentJob(this.#executable, directory, this.#source, index, mode, async (segment, path) => {
+        const process = startSegmentJob(this.#executable, directory, this.#source, index, mode, from, seek, async (segment, path) => {
           await publish(segment, path)
           if (!emitted && !copiesVideo(this.#source.quality) && this.#job === job) this.#onVideoBackend(mode)
           emitted = true
@@ -198,16 +250,12 @@ export class PlaybackSession {
       if (this.#job === job) this.#job = undefined
       for (const waiter of job.waiters.values()) waiter.reject(failure)
       job.waiters.clear()
-      const cached = new Set(Array.from(this.#completed.values(), (segment) => segment.path))
-      const entries = await readdir(directory).catch(() => [])
-      await Promise.all(entries.map((entry) => {
-        const path = join(directory, entry)
-        if (!cached.has(path)) return rm(path, { force: true }).catch(() => {})
-      }))
+      await rm(directory, { recursive: true, force: true }).catch((error) =>
+        console.warn('[Playback] Could not remove segment work files', { operationId: this.#id, error }))
     }
   }
 
-  async close(): Promise<void> {
+  async close(reason: 'idle' | 'shutdown' = 'shutdown'): Promise<void> {
     if (this.#closed) return
     this.#closed = true
     clearTimeout(this.#timer)
@@ -215,5 +263,9 @@ export class PlaybackSession {
     await Promise.all(this.#jobs)
     const directory = await this.#directory?.catch(() => undefined)
     if (directory) await rm(directory, { recursive: true, force: true })
+    console.info('[Playback] Closed conversion session', {
+      operationId: this.#id, reason, durationMs: Math.round(performance.now() - this.#started),
+      windows: this.#windows, cancelledWindows: this.#cancelled, segments: this.#generated
+    })
   }
 }

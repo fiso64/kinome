@@ -1,4 +1,6 @@
 import { open, type FileHandle } from 'node:fs/promises'
+import { inflate } from 'node:zlib'
+import { promisify } from 'node:util'
 import type { LocalMediaTrack } from '@shared/local-media'
 
 const id = {
@@ -83,10 +85,35 @@ async function read(file: FileHandle, start: number, length: number): Promise<Bu
 const fileHeader = async (file: FileHandle, start: number, end: number) =>
   header(await read(file, start, Math.min(12, end - start)), 0, start, end)
 
+async function readSegment(file: FileHandle) {
+  const { size } = await file.stat()
+  let segment = await fileHeader(file, 0, size)
+  if (segment.id !== id.segment) segment = await fileHeader(file, segment.end, size)
+  return segment.id === id.segment ? segment : undefined
+}
+
+export async function matroskaWriter(filePath: string) {
+  const file = await open(filePath, 'r')
+  try {
+    const segment = await readSegment(file)
+    if (!segment) return
+    for (let offset = segment.start; offset < segment.end;) {
+      const element = await fileHeader(file, offset, segment.end)
+      if (element.id === id.cluster) return
+      if (element.id === id.info) {
+        if (element.end - element.start > maxMetadataSize) return
+        return fields(await read(file, element.start, element.end - element.start)).get(id.writingApp)?.toString()
+      }
+      offset = element.end
+    }
+  } finally {
+    await file.close()
+  }
+}
+
 async function readMatroskaIndex(filePath: string) {
   const file = await open(filePath, 'r')
   try {
-    const { size } = await file.stat()
     const readHeader = (start: number, end: number) => fileHeader(file, start, end)
     const readMetadata = async (element: Element) => {
       const length = element.end - element.start
@@ -94,9 +121,8 @@ async function readMatroskaIndex(filePath: string) {
       return read(file, element.start, length)
     }
 
-    let segment = await readHeader(0, size)
-    if (segment.id !== id.segment) segment = await readHeader(segment.end, size)
-    if (segment.id !== id.segment) return
+    const segment = await readSegment(file)
+    if (!segment) return
 
     const metadata = new Map<number, Element>()
     const seekPositions = new Map<number, number>()
@@ -182,26 +208,48 @@ export async function readMatroskaCueTimes(filePath: string): Promise<number[]> 
   return [...times].sort((a, b) => a - b)
 }
 
-interface AssCue {
+interface SubtitleCue {
   start: number
   end: number
   cluster: number
   relative: number
 }
 
-export interface MatroskaAssIndex {
+interface CueIndex {
   track: number
-  header: string
-  footer: string
   segmentEnd: number
-  cues: AssCue[]
+  cues: SubtitleCue[]
 }
 
-export async function readMatroskaAssIndexes(filePath: string, streams: LocalMediaTrack[]) {
-  const result = new Map<number, MatroskaAssIndex>()
+interface AssIndex extends CueIndex {
+  format: 'ass'
+  header: string
+  footer: string
+}
+
+interface PgsIndex extends CueIndex {
+  format: 'pgs'
+  compressed: boolean
+}
+
+export type MatroskaSubtitleIndex = AssIndex | PgsIndex
+
+// mkvmerge commonly zlib-compresses each bitmap block. Other encodings
+// (including header stripping) stay on the FFmpeg extraction path.
+function isZlibEncoding(data: Buffer): boolean {
+  const entries = [...elements(data)]
+  if (entries.length !== 1 || entries[0].id !== 0x6240) return false
+  const encoding = fields(entries[0].data)
+  const compression = encoding.get(0x5034)
+  if (!compression || encoding.has(0x5035) || (uint(encoding.get(0x5032)) ?? 1) !== 1 ||
+      (uint(encoding.get(0x5033)) ?? 0) !== 0) return false
+  const options = fields(compression)
+  return (uint(options.get(0x4254)) ?? 0) === 0 && !options.get(0x4255)?.length
+}
+
+export async function readMatroskaSubtitleIndexes(filePath: string, streams: LocalMediaTrack[]) {
+  const result = new Map<number, MatroskaSubtitleIndex>()
   const index = await readMatroskaIndex(filePath)
-  // mkvmerge normally indexes each subtitle frame. Other muxers can write a
-  // partial index even when the positions they do include have durations.
   if (!index?.writingApp?.startsWith('mkvmerge ')) return result
   const trackKind = { video: 1, audio: 2, subtitle: 17 }
   if (index.tracks.length !== streams.length ||
@@ -209,24 +257,27 @@ export async function readMatroskaAssIndexes(filePath: string, streams: LocalMed
     return result
   }
 
-  const candidates = new Map<number, {
-    stream: number; header: string; footer: string; cues: AssCue[]; incomplete: boolean
-  }>()
+  const candidates = new Map<number, MatroskaSubtitleIndex>()
   for (const stream of streams) {
-    if (stream.codec !== 'ass') continue
-    const fields = index.tracks[stream.index]
-    const number = uint(fields.get(id.trackNumber))
-    const script = fields.get(id.codecPrivate)?.toString()
-    const events = script && /^\[Events\][ \t]*\r?$/mi.exec(script)
-    if (!number || !script || !events || fields.get(id.codecId)?.toString() !== 'S_TEXT/ASS' ||
-      fields.has(id.contentEncodings) || fields.has(id.trackTimestampScale) ||
-      fields.has(id.trackOffset) || uint(fields.get(id.codecDelay))) continue
-    const header = script.slice(0, events.index).trimEnd() +
-      '\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
-    const afterEvents = script.slice(events.index + events[0].length)
-    const nextSection = afterEvents.search(/^\[/m)
-    const footer = nextSection === -1 ? '' : afterEvents.slice(nextSection)
-    candidates.set(number, { stream: stream.index, header, footer, cues: [], incomplete: false })
+    const entry = index.tracks[stream.index]
+    const track = uint(entry.get(id.trackNumber))
+    if (!track || entry.has(id.trackTimestampScale) || entry.has(id.trackOffset) || uint(entry.get(id.codecDelay))) continue
+    const codec = entry.get(id.codecId)?.toString()
+    const encoding = entry.get(id.contentEncodings)
+    const base = { track, segmentEnd: index.segment.end, cues: [] }
+    if (stream.codec === 'hdmv_pgs_subtitle' && codec === 'S_HDMV/PGS' && stream.packetCount &&
+        (!encoding || isZlibEncoding(encoding))) {
+      candidates.set(track, { ...base, format: 'pgs', compressed: !!encoding })
+    } else if (stream.codec === 'ass' && codec === 'S_TEXT/ASS' && !encoding) {
+      const script = entry.get(id.codecPrivate)?.toString()
+      const events = script && /^\[Events\][ \t]*\r?$/mi.exec(script)
+      if (!script || !events) continue
+      const header = script.slice(0, events.index).trimEnd() +
+        '\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+      const afterEvents = script.slice(events.index + events[0].length)
+      const nextSection = afterEvents.search(/^\[/m)
+      candidates.set(track, { ...base, format: 'ass', header, footer: nextSection === -1 ? '' : afterEvents.slice(nextSection) })
+    }
   }
   if (!candidates.size) return result
 
@@ -236,32 +287,107 @@ export async function readMatroskaAssIndexes(filePath: string, streams: LocalMed
     const track = uint(position.get(id.cueTrack))
     if (track === firstVideoTrack && time === 0) startsAtZero = true
     const candidate = track === undefined ? undefined : candidates.get(track)
-    if (!candidate || candidate.incomplete) continue
+    if (!candidate) continue
     const duration = uint(position.get(id.cueDuration))
     const cluster = uint(position.get(id.cueClusterPosition))
     const relative = uint(position.get(id.cueRelativePosition))
-    if (duration === undefined || cluster === undefined || relative === undefined || position.has(id.cueCodecState) ||
-        cluster >= index.segment.end - index.segment.start) {
-      candidate.incomplete = true
+    if ((candidate.format === 'ass' && duration === undefined) || cluster === undefined || relative === undefined ||
+        position.has(id.cueCodecState) || cluster >= index.segment.end - index.segment.start) {
+      candidates.delete(candidate.track)
       continue
     }
     candidate.cues.push({
       start: time * index.scale / 1_000_000,
-      end: (time + duration) * index.scale / 1_000_000,
+      end: (time + (duration ?? 0)) * index.scale / 1_000_000,
       cluster: index.segment.start + cluster, relative
     })
   }
-  if (startsAtZero) {
-    for (const [track, candidate] of candidates) {
-      if (candidate.incomplete || !candidate.cues.length) continue
-      // Read each playback window in file order to minimize seeks on disks.
-      candidate.cues.sort((a, b) => a.cluster - b.cluster || a.relative - b.relative)
-      result.set(candidate.stream, {
-        track, header: candidate.header, footer: candidate.footer, segmentEnd: index.segment.end, cues: candidate.cues
-      })
-    }
+  if (!startsAtZero) return result
+  for (const stream of streams) {
+    const candidate = candidates.get(uint(index.tracks[stream.index].get(id.trackNumber))!)
+    if (!candidate?.cues.length) continue
+    // Partial bitmap indexes can omit palette updates and clears.
+    if (candidate.format === 'pgs' && candidate.cues.length !== stream.packetCount) continue
+    candidate.cues.sort((a, b) => a.cluster - b.cluster || a.relative - b.relative)
+    if (candidate.format === 'pgs' && candidate.cues.some((cue, i, cues) => i && cue.start < cues[i - 1].start)) continue
+    result.set(stream.index, candidate)
   }
   return result
+}
+
+function cueReader(file: FileHandle, index: CueIndex, signal: AbortSignal) {
+  let cluster: Element | undefined
+  let position: number | undefined
+  return async (cue: SubtitleCue) => {
+    signal.throwIfAborted()
+    if (!cluster || position !== cue.cluster) {
+      position = cue.cluster
+      cluster = await fileHeader(file, position, index.segmentEnd)
+      if (cluster.id !== id.cluster) throw new Error('Invalid Matroska subtitle cue cluster')
+    }
+    const element = await fileHeader(file, cluster.start + cue.relative, cluster.end)
+    if (element.end - element.start > maxMetadataSize) throw new Error('Matroska subtitle block is too large')
+    let block = await read(file, element.start, element.end - element.start)
+    if (element.id === id.blockGroup) {
+      const group = fields(block)
+      if (group.has(id.codecState)) throw new Error('Unsupported Matroska subtitle codec state')
+      block = group.get(id.block) ?? Buffer.alloc(0)
+    } else if (element.id !== id.simpleBlock) throw new Error('Invalid Matroska subtitle block')
+    const track = readVint(block, 0, false)
+    if (track.value !== index.track || block.length < track.size + 4 || (block[track.size + 2] & 6)) {
+      throw new Error('Unsupported Matroska subtitle packet')
+    }
+    return block.subarray(track.size + 3)
+  }
+}
+
+const inflateBlock = promisify(inflate)
+
+function supPacket(block: Buffer, ms: number): Buffer {
+  const parts: Buffer[] = []
+  const clock = Math.round(ms * 90) >>> 0
+  for (let offset = 0; offset < block.length;) {
+    const end = offset + 3 + block.readUInt16BE(offset + 1)
+    if (end > block.length) throw new Error('Truncated PGS segment')
+    const header = Buffer.allocUnsafe(10)
+    header.write('PG')
+    header.writeUInt32BE(clock, 2)
+    header.writeUInt32BE(clock, 6)
+    parts.push(header, block.subarray(offset, end))
+    offset = end
+  }
+  return Buffer.concat(parts)
+}
+
+export async function readMatroskaPgsWindow(
+  filePath: string, index: PgsIndex, startMs: number, endMs: number, signal: AbortSignal
+): Promise<Buffer> {
+  const cues = index.cues
+  const last = cues.findLastIndex((cue) => cue.start < endMs)
+  if (last < 0) return Buffer.alloc(0)
+  let first = Math.max(0, cues.findLastIndex((cue) => cue.start <= startMs))
+  const file = await open(filePath, 'r')
+  try {
+    const readCue = cueReader(file, index, signal)
+    // A normal composition may reuse a bitmap or palette from an earlier
+    // display set. Seek back to the last epoch start and replay that state.
+    const packet = async (i: number) => {
+      const block = await readCue(cues[i])
+      return index.compressed ? inflateBlock(block, { maxOutputLength: maxMetadataSize }) : block
+    }
+    const history: Buffer[] = []
+    for (;;) {
+      const block = await packet(first)
+      history.push(supPacket(block, cues[first].start))
+      if (first === 0 || (block[0] === 0x16 && block.readUInt16BE(1) >= 11 && block[10] === 0x80)) break
+      first--
+    }
+    const packets = history.reverse()
+    for (let i = first + packets.length; i <= last; i++) packets.push(supPacket(await packet(i), cues[i].start))
+    return Buffer.concat(packets)
+  } finally {
+    await file.close()
+  }
 }
 
 function assTime(ms: number): string {
@@ -273,35 +399,17 @@ function assTime(ms: number): string {
 }
 
 export async function readMatroskaAssWindow(
-  filePath: string, index: MatroskaAssIndex, startMs: number, endMs: number, signal: AbortSignal
+  filePath: string, index: AssIndex, startMs: number, endMs: number, signal: AbortSignal
 ): Promise<string> {
   const cues = index.cues.filter((cue) => cue.start < endMs && cue.end > startMs)
   if (!cues.length) return index.header + index.footer
   const file = await open(filePath, 'r')
   try {
     const events = new Map<number, string>()
-    let cluster: Element | undefined
-    let clusterPosition: number | undefined
+    const readCue = cueReader(file, index, signal)
     for (const cue of cues) {
-      signal.throwIfAborted()
-      if (cue.cluster !== clusterPosition || !cluster) {
-        clusterPosition = cue.cluster
-        cluster = await fileHeader(file, cue.cluster, index.segmentEnd)
-        if (cluster.id !== id.cluster) throw new Error('Invalid Matroska subtitle cue cluster')
-      }
-      const element = await fileHeader(file, cluster.start + cue.relative, cluster.end)
-      if (element.end - element.start > maxMetadataSize) throw new Error('Matroska subtitle block is too large')
-      let block = await read(file, element.start, element.end - element.start)
-      if (element.id === id.blockGroup) {
-        const group = fields(block)
-        if (group.has(id.codecState)) throw new Error('Unsupported Matroska subtitle codec state')
-        block = group.get(id.block) ?? Buffer.alloc(0)
-      } else if (element.id !== id.simpleBlock) throw new Error('Invalid Matroska subtitle block')
-      const track = readVint(block, 0, false)
-      if (track.value !== index.track || block.length < track.size + 4 || (block[track.size + 2] & 6)) {
-        throw new Error('Unsupported Matroska subtitle packet')
-      }
-      const payload = /^(\d+),(-?\d+),([^\r\n]*)$/.exec(block.toString('utf8', track.size + 3))
+      const block = await readCue(cue)
+      const payload = /^(\d+),(-?\d+),([^\r\n]*)$/.exec(block.toString('utf8'))
       if (!payload) throw new Error('Invalid Matroska ASS packet')
       events.set(Number(payload[1]), `Dialogue: ${payload[2]},${assTime(cue.start)},${assTime(cue.end)},${payload[3]}\n`)
     }

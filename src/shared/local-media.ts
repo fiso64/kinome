@@ -3,9 +3,11 @@ export interface LocalMediaTrack {
   kind: 'video' | 'audio' | 'subtitle'
   codec?: string
   profile?: string
+  level?: number
   encoder?: string
   pixelFormat?: string
   colorTransfer?: string
+  fieldOrder?: string
   frameRate?: string
   bitrate?: number
   language?: string
@@ -14,6 +16,9 @@ export interface LocalMediaTrack {
   height?: number
   channels?: number
   channelLayout?: string
+  startSeconds?: number
+  endSeconds?: number
+  packetCount?: number
   sampleRate?: number
   default: boolean
   forced: boolean
@@ -27,6 +32,7 @@ export interface MediaChapter {
 }
 
 export interface LocalMedia {
+  startSeconds?: number
   container?: string
   durationSeconds?: number
   bitrate?: number
