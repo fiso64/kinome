@@ -384,3 +384,90 @@ describe('removeImage', () => {
     expect(result!.posterPath).toBeNull()
   })
 })
+
+describe('automatic title identification', () => {
+  function providerFixture() {
+    const calls: unknown[][] = []
+    const details: number[] = []
+    const provider: MetadataProvider = {
+      name: 'fixture',
+      async match(query, type, year, alternate) {
+        calls.push([query, type, year, alternate])
+        return { id: 82, type: type === 'tv' ? 'tv' : 'movie' }
+      },
+      async details({ id }) {
+        details.push(id)
+        return {
+          title: 'The Thing', originalTitle: 'The Thing', overview: null, releaseDate: '1982-06-25',
+          year: 1982, runtime: null, genres: [], artwork: {}
+        }
+      },
+      async credits() { return null },
+      async episodes() { return null },
+    }
+    return { provider, calls, details }
+  }
+
+  it('passes the cleaned title and year to the provider while preserving path and item identity', async () => {
+    const name = 'The.Thing.1982.2160p.UHD.BluRay.REMUX-GRP.mkv'
+    ctx.seedItems([{ id: 'feature', name, path: name }])
+    const { provider, calls } = providerFixture()
+    await fetchAndApplyMetadata(getItemById('feature')!, { provider })
+    expect(calls).toEqual([['The Thing', 'movie', 1982, undefined]])
+    expect(getItemById('feature')).toMatchObject({ id: 'feature', name, title: 'The Thing', year: 1982, tmdbId: 82 })
+  })
+
+  it('uses a typed explicit ID with one details request and no text search', async () => {
+    ctx.seedItems([{ id: 'feature', name: 'The Thing (1982) [tmdbid-1091].mkv' }])
+    const { provider, calls, details } = providerFixture()
+    await fetchAndApplyMetadata(getItemById('feature')!, { provider })
+    expect(calls).toEqual([])
+    expect(details).toEqual([1091])
+    expect(getItemById('feature')?.tmdbId).toBe(1091)
+  })
+
+  it('keeps a loose episode ID out of typed movie lookup', async () => {
+    ctx.seedItems([{ id: 'loose', name: 'Dark.S02E05.[tmdbid-95327].mkv' }])
+    const { provider, calls, details } = providerFixture()
+    await fetchAndApplyMetadata(getItemById('loose')!, { provider })
+    expect(calls).toEqual([['Dark S02E05', 'movie', undefined, undefined]])
+    expect(details).toEqual([82])
+  })
+
+  it('uses the title when local IDs conflict or a folder type is unknown', async () => {
+    ctx.seedItems([
+      { id: 'feature', name: 'The Thing (1982) [tmdbid-1091] {tmdbid=800}.mkv' },
+      { id: 'folder', type: 'folder', name: 'The Thing (1982) [tmdbid-1091]' }
+    ])
+    const { provider, calls } = providerFixture()
+    for (const id of ['feature', 'folder']) await fetchAndApplyMetadata(getItemById(id)!, { provider })
+    expect(calls).toEqual([['The Thing', 'movie', 1982, undefined], ['The Thing', 'multi', 1982, undefined]])
+  })
+
+  it.each([
+    ['Release', ['The.Thing.1982.1080p.BluRay.mkv', 'Sample.1080p.mkv', 'The Thing-trailer.mkv'], [['The Thing', 'movie', 1982, undefined]]],
+    ['Release', ['The.Thing.1982.1080p.BluRay.mkv', 'The.Thing.1982.2160p.BluRay.mkv'], [['The Thing', 'movie', 1982, undefined]]],
+    ['Release', ['The.Thing.1982.1080p.BluRay.mkv', 'The.Thing.2011.2160p.BluRay.mkv'], []],
+    ['Release', ['The.Thing.1982.1080p.BluRay.mkv', 'Alien (1979).mkv'], []],
+    ['Release', ['Sample.1080p.mkv', 'Dark.S01E03.mkv'], []],
+    ['Organized Feature (1993)', ['Alien (1979).mkv'], [['Organized Feature', 'multi', 1993, undefined]]]
+  ] as [string, string[], unknown[][]][])('uses the containing folder and only falls back to consistent features (%s / %j)', async (name, files, expected) => {
+    ctx.seedItems([
+      { id: 'folder', type: 'folder', name },
+      ...files.map((file, i) => ({ id: `file-${i}`, parentId: 'folder', name: file }))
+    ])
+    const { provider, calls } = providerFixture()
+    await fetchAndApplyMetadata(getItemById('folder')!, { provider })
+    expect(calls).toEqual(expected)
+  })
+
+  it('keeps the normal lookup eligibility for already-attempted items and respects type locks', async () => {
+    ctx.seedItems([{ id: 'attempted', name: 'The Thing (1982).mkv' }, { id: 'locked', name: 'The Thing (1982).mkv' }])
+    upsertMetadata('attempted', { lastRefreshedAt: 123 })
+    upsertMetadata('locked', { mediaType: null, lockedFields: ['mediaType'] })
+    const { provider, calls, details } = providerFixture()
+    for (const id of ['attempted', 'locked']) await fetchAndApplyMetadata(getItemById(id)!, { provider })
+    expect(calls).toEqual([])
+    expect(details).toEqual([])
+  })
+})

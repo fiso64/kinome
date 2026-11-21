@@ -5,11 +5,14 @@ import * as repositoryService from './repository.service'
 import * as virtualTagsService from './virtualTags.service'
 import * as settingsService from './settings.service'
 import * as pathsService from './paths.service'
-import { createTmdbProvider, type MetadataProvider } from './metadata-provider'
+import { createTmdbProvider, type MetadataProvider, type ProviderDetails, type ProviderMatch } from './metadata-provider'
 import * as tvShowService from './tv-show.service'
 import * as metadataMapping from './metadata-processing.service'
 import { processInChunks } from '../utils/concurrency'
 import { downloadImage } from '../utils/download'
+import { comparableTitle, isExtraVideoName, parseTitle, type TitleQuery } from '../utils/title-parser'
+import { parseEpisodeName } from '../utils/tv-parser'
+import { isSupportedVideoFile } from '@shared/local-media'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as metadataRepo from '../database/repositories/metadata.repo'
 import { syncAllGroupings, syncVirtualSeasonFolders } from './grouping.service'
@@ -167,6 +170,28 @@ export async function publishLibraryMetadata(syncGroupings: boolean) {
   })
 }
 
+function isGenericMediaTitle(title: string): boolean {
+  return !title || /^(?:(?:some )?release|movie|video|feature|main|downloads?|folder|untitled|[1-9]\d{2,3}[pi])(?: \d{1,4})?$/.test(comparableTitle(title))
+}
+
+function titleFromFeatureFiles(folderId: string): (TitleQuery & { alternate?: TitleQuery }) | undefined {
+  let feature: ReturnType<typeof parseTitle> | undefined
+  let titleKey: string | undefined
+  const children = repositoryService.getChildren(folderId, ['name', 'type', 'isMissing'])
+  for (const file of children) {
+    if (file.type !== 'file' || file.isMissing || !isSupportedVideoFile(file.name) || isExtraVideoName(file.name)) continue
+    const episode = parseEpisodeName(file.name)
+    if (episode?.kind === 'episode' || episode?.kind === 'range' || episode?.kind === 'date') return
+    const candidate = parseTitle(file.name, 'file')
+    if (isGenericMediaTitle(candidate.title)) return
+    const key = comparableTitle(candidate.title)
+    if (feature && (key !== titleKey || (feature.year && candidate.year && feature.year !== candidate.year))) return
+    if (!feature || (candidate.year && !feature.year)) feature = candidate
+    titleKey = key
+  }
+  return feature
+}
+
 export async function fetchAndApplyMetadata(
   item: LibraryItem,
   options: {
@@ -199,31 +224,47 @@ export async function fetchAndApplyMetadata(
   repositoryService.setBulkUpdateStatus(true)
 
   try {
+    let identifiedDetails: ProviderDetails | undefined
     // 1. Identification
     if (!item.tmdbId && !item.lastRefreshedAt) {
-      const query = item.name
-      const parent = item.parentId
-        ? (repositoryService.getItemById(item.parentId) as MediaFolder)
-        : null
-      const storedHint = parent?.folderSettings?.childrenTypeHint
-      const typeHint = typeLocked && (item.mediaType === 'movie' || item.mediaType === 'tv')
-        ? item.mediaType
-        : storedHint === 'movie' || storedHint === 'tv'
-          ? storedHint
-          : item.type === 'file' ? 'movie' : 'multi'
-
-      const result = await provider.match(query, typeHint, options.year)
+      const configuredType = item.parentId
+        ? (repositoryService.getItemById(item.parentId) as MediaFolder | null)?.folderSettings?.childrenTypeHint
+        : undefined
+      const storedType = item.mediaType === 'movie' || item.mediaType === 'tv' ? item.mediaType : undefined
+      const folderType = configuredType === 'movie' || configuredType === 'tv' ? configuredType : undefined
+      const knownType = typeLocked ? storedType : folderType ?? storedType
+      const typeHint = knownType ?? (item.type === 'file' ? 'movie' : 'multi')
+      const parsed = parseTitle(item.name, item.type)
+      const explicitId = parsed.conflictingIds ? undefined : parsed.ids.tmdb
+      // A provider ID is scoped to a media type. Preserve movie discovery
+      // for loose features and avoid guessing an ID namespace for loose episodes.
+      const episode = explicitId && !knownType && item.type === 'file' ? parseEpisodeName(item.name) : null
+      const hasEpisodeCoordinates = episode?.kind === 'episode' || episode?.kind === 'range' || episode?.kind === 'date'
+      const direct = explicitId && typeHint !== 'multi' && !hasEpisodeCoordinates
+        ? { id: Number(explicitId), type: typeHint } : undefined
+      let result: ProviderMatch | null
+      let rule
+      if (direct) {
+        identifiedDetails = await provider.details(direct) ?? undefined
+        result = identifiedDetails ? direct : null
+        rule = 'explicit provider ID'
+      } else {
+        const useFeature = item.type === 'folder' && typeHint !== 'tv' && isGenericMediaTitle(parsed.title)
+        const query = useFeature ? titleFromFeatureFiles(item.id) : parsed
+        const queryType = useFeature ? 'movie' : typeHint
+        const year = options.year ?? query?.year
+        const alternate = year === undefined ? query?.alternate : undefined
+        rule = useFeature ? 'feature filename' : 'item name'
+        result = query?.title ? await provider.match(query.title, queryType, year, alternate) : null
+      }
+      if (process.env.KINOME_LOG_LEVEL === 'debug') {
+        log(`[Identification] "${item.id}" via ${rule} -> ${result ? `${result.type} ${result.id}` : 'unresolved'}`)
+      }
 
       if (result) {
         item.tmdbId = result.id
         if (!typeLocked) {
           item.mediaType = result.type
-        }
-        if (
-          item.mediaType === 'tv' &&
-          (item as MediaFolder).folderSettings?.processTvChildren !== false
-        ) {
-          await tvShowService.syncTvShowStructure(item as MediaFolder)
         }
       } else {
         item.tmdbId = null
@@ -236,7 +277,7 @@ export async function fetchAndApplyMetadata(
     // 2. Save provider facts independently of item locks and materialize the item.
     if (item.tmdbId && (item.mediaType === 'movie' || item.mediaType === 'tv')) {
       const match = { id: item.tmdbId, type: item.mediaType }
-      const details = await provider.details(match, { includeArtwork: !options.backfillOnly })
+      const details = identifiedDetails ?? await provider.details(match, { includeArtwork: !options.backfillOnly })
       if (options.backfillOnly) {
         if (details?.metadata) {
           metadataRepo.saveProviderMatch(item.id, provider.name, match, details, { supplementalOnly: true })
@@ -245,6 +286,9 @@ export async function fetchAndApplyMetadata(
       }
       const { entityId, metadataChanged } = metadataRepo.saveProviderMatch(item.id, provider.name, match, details)
       if (!details) {
+        if (item.type === 'folder' && item.mediaType === 'tv' && item.folderSettings?.processTvChildren !== false) {
+          await tvShowService.syncTvShowStructure(item)
+        }
         // Keep the matched identity and pending freshness state for the next pass.
         if (!item.lastRefreshedAt) await updateIfChangedAndBroadcast(item)
         return []

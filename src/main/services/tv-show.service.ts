@@ -8,6 +8,7 @@ import {
   ParsedTvInfo,
   TvParserDiagnosticSink
 } from '../utils/tv-parser'
+import { parseTitle } from '../utils/title-parser'
 import type { MediaFolder, MediaFile, LibraryItem } from '@shared/types'
 import { updateIfChangedAndBroadcast } from './item-update.service'
 import { syncVirtualSeasonFolders } from './grouping.service'
@@ -67,6 +68,11 @@ export async function syncTvShowStructure(
   if (processingDisabled && !isForced && !isTargeted) return []
 
   const allModified: LibraryItem[] = []
+  const showTitles = [...new Set([parseTitle(show.name, 'folder').title, show.title]
+    .filter((title): title is string => Boolean(title)))]
+  const seasonCounts = new Map((show.tmdbSeasons ?? [])
+    .map((season) => [season.season_number, season.episode_count] as const)
+    .filter((entry): entry is readonly [number, number] => typeof entry[1] === 'number'))
 
   // 1. Fetch immediate children
   const children = repositoryService.getChildren(show.id).filter((child) => !child.isMissing)
@@ -74,7 +80,7 @@ export async function syncTvShowStructure(
   const files = children.filter((c) => c.type === 'file') as MediaFile[]
   const videoFiles = files.filter((f) => isSupportedVideoFile(f.name))
 
-  logVerbose('Starting TV structure sync.', {
+  if (isVerboseTvLoggingEnabled()) logVerbose('Starting TV structure sync.', {
     showId: show.id,
     showName: show.name,
     seasonStrategy,
@@ -118,7 +124,7 @@ export async function syncTvShowStructure(
           rootVideoFileCount: videoFiles.length
         })
       } else {
-        seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name))
+        seasonMap = determineAlphabeticSeasonNumbers(folders.map((f) => f.name), false)
         logVerbose('No explicit season folders or root video files; using alphabetic season folder assignment.', {
           showId: show.id,
           showName: show.name,
@@ -137,82 +143,78 @@ export async function syncTvShowStructure(
 
   // 2. Process Detected Season Folders
   const seasonsToProcess: MediaFolder[] = []
-  if (!isFlatShow) {
-    for (const folder of folders) {
-      // SCOPE CHECK: If a target ID is provided, skip any folder that isn't the target.
-      if (isTargeted && folder.id !== options.scopedToId) {
-        continue
-      }
+  for (const folder of folders) {
+    // SCOPE CHECK: If a target ID is provided, skip any folder that isn't the target.
+    if (isTargeted && folder.id !== options.scopedToId) {
+      continue
+    }
 
-      const info = seasonMap.get(folder.name)
-      if (folder.mediaType !== 'season' && repositoryService.isFieldLocked(folder, 'mediaType')) {
-        continue
-      }
-      const isSpecialFolder = isSpecialTvFolderName(folder.name)
-      const isSeasonNumberLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
-      const isManuallyAssignedSeason = folder.mediaType === 'season' && isSeasonNumberLocked
+    const info = seasonMap.get(folder.name)
+    if (folder.mediaType !== 'season' && repositoryService.isFieldLocked(folder, 'mediaType')) {
+      continue
+    }
+    const isSpecialFolder = isSpecialTvFolderName(folder.name)
+    const isSeasonNumberLocked = repositoryService.isFieldLocked(folder, 'seasonNumber')
 
-      if (!info && isSpecialFolder) {
-        const hadAutomaticSeasonMetadata = folder.mediaType === 'season' || folder.seasonNumber != null
-        if (!isSeasonNumberLocked && hadAutomaticSeasonMetadata) {
-          logVerbose('Clearing stale season metadata from special TV folder.', {
-            showId: show.id,
-            showName: show.name,
-            folderId: folder.id,
-            folderName: folder.name,
-            currentMediaType: folder.mediaType,
-            currentSeasonNumber: folder.seasonNumber
-          })
-          folder.mediaType = null
-          folder.seasonNumber = null
-          folder.title = null
-          folder.overview = null
-          folder.posterPath = null
-          folder.backdropPath = null
-          folder.logoPath = null
-          folder.lastRefreshedAt = null
-          allModified.push(folder)
-        }
-        continue
-      }
-
-      if ((info && info.mediaType === 'season') || isManuallyAssignedSeason) {
-        const isLocked = isSeasonNumberLocked
-        const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
-
-        logVerbose('Evaluating physical season folder.', {
+    if (!info && isSpecialFolder && !(folder.mediaType === 'season' && isSeasonNumberLocked)) {
+      const hadAutomaticSeasonMetadata = folder.mediaType === 'season' || folder.seasonNumber != null
+      if (!isSeasonNumberLocked && hadAutomaticSeasonMetadata) {
+        logVerbose('Clearing stale season metadata from special TV folder.', {
           showId: show.id,
           showName: show.name,
           folderId: folder.id,
           folderName: folder.name,
           currentMediaType: folder.mediaType,
-          currentSeasonNumber: folder.seasonNumber,
-          parsedSeasonNumber: info?.season,
-          isManuallyAssignedSeason,
-          isSeasonLocked: isLocked,
-          targetSeason
+          currentSeasonNumber: folder.seasonNumber
         })
-
-        let changedForFolder = false
-        if (!isLocked && folder.seasonNumber !== targetSeason) {
-          folder.seasonNumber = targetSeason
-          folder.title = null
-          folder.overview = null
-          folder.posterPath = null
-          folder.lastRefreshedAt = null
-          changedForFolder = true
-        }
-        if (folder.mediaType !== 'season') {
-          folder.mediaType = 'season'
-          folder.lastRefreshedAt = null
-          changedForFolder = true
-        }
-
-        if (changedForFolder) {
-          allModified.push(folder)
-        }
-        seasonsToProcess.push(folder)
+        folder.mediaType = null
+        folder.seasonNumber = null
+        folder.title = null
+        folder.overview = null
+        folder.posterPath = null
+        folder.backdropPath = null
+        folder.logoPath = null
+        folder.lastRefreshedAt = null
+        allModified.push(folder)
       }
+      continue
+    }
+
+    if (info?.mediaType === 'season' || folder.mediaType === 'season') {
+      const isLocked = isSeasonNumberLocked
+      const targetSeason = isLocked ? folder.seasonNumber : (info?.season ?? folder.seasonNumber)
+
+      logVerbose('Evaluating physical season folder.', {
+        showId: show.id,
+        showName: show.name,
+        folderId: folder.id,
+        folderName: folder.name,
+        currentMediaType: folder.mediaType,
+        currentSeasonNumber: folder.seasonNumber,
+        parsedSeasonNumber: info?.season,
+        isSeasonLocked: isLocked,
+        targetSeason
+      })
+
+      let changedForFolder = false
+      if (!isLocked && folder.seasonNumber !== targetSeason) {
+        folder.seasonNumber = targetSeason
+        folder.title = null
+        folder.overview = null
+        folder.posterPath = null
+        folder.lastRefreshedAt = null
+        changedForFolder = true
+      }
+      if (folder.mediaType !== 'season') {
+        folder.mediaType = 'season'
+        folder.lastRefreshedAt = null
+        changedForFolder = true
+      }
+
+      if (changedForFolder) {
+        allModified.push(folder)
+      }
+      seasonsToProcess.push(folder)
     }
   }
 
@@ -224,12 +226,9 @@ export async function syncTvShowStructure(
     ) as MediaFile[]
     const seasonFileNames = seasonFiles.map((f) => f.name)
 
-    // OPTIMIZATION: If the season folder's number is locked, use it for all children
-    // and tell the parser it's a fixed season context.
     const isSeasonLocked = repositoryService.isFieldLocked(seasonFolder, 'seasonNumber')
-    const effectiveSeasonNumber = isSeasonLocked
-      ? seasonFolder.seasonNumber
-      : seasonFolder.seasonNumber
+    const effectiveSeasonNumber = seasonFolder.seasonNumber
+    const forcedSeason = isSeasonLocked ? effectiveSeasonNumber : undefined
 
     const episodeMap = determineEpisodeNumbers(
       seasonFileNames,
@@ -242,14 +241,15 @@ export async function syncTvShowStructure(
         seasonFolderId: seasonFolder.id,
         seasonFolderName: seasonFolder.name,
         effectiveSeasonNumber,
-        forcedSeasonNumber: isSeasonLocked ? effectiveSeasonNumber : undefined
-      })
+        forcedSeasonNumber: forcedSeason
+      }),
+      { showTitles, seasonCounts, physicalSeason: true, forcedSeason }
     )
     allModified.push(
       ..._applyEpisodeMap(
         seasonFiles,
         episodeMap,
-        isSeasonLocked ? effectiveSeasonNumber : undefined,
+        forcedSeason,
         {
           showId: show.id,
           showName: show.name,
@@ -276,7 +276,8 @@ export async function syncTvShowStructure(
         location: 'show-root',
         isFlatShow,
         fallbackSeason
-      })
+      }),
+      { showTitles, seasonCounts }
     )
     allModified.push(..._applyEpisodeMap(videoFiles, episodeMap, undefined, {
       showId: show.id,
@@ -316,13 +317,14 @@ function _applyEpisodeMap(
   logContext: Record<string, unknown> = {}
 ): MediaFile[] {
   const modified: MediaFile[] = []
+  const verbose = isVerboseTvLoggingEnabled()
   for (const file of files) {
     if (file.mediaType !== 'episode' && repositoryService.isFieldLocked(file, 'mediaType')) {
       continue
     }
     const info = episodeMap.get(file.name)
     if (!info || info.mediaType !== 'episode') {
-      logVerbose('No episode assignment produced for file.', {
+      if (verbose) logVerbose('No episode assignment produced for file.', {
         ...logContext,
         fileId: file.id,
         fileName: file.name,
@@ -337,13 +339,13 @@ function _applyEpisodeMap(
 
       let changed = false
       const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
-      const before = {
+      const before = verbose ? {
         mediaType: file.mediaType,
         seasonNumber: file.seasonNumber,
         episodeNumber: file.episodeNumber,
         title: file.title,
         lastRefreshedAt: file.lastRefreshedAt
-      }
+      } : undefined
 
       if (!isSeasonLocked && targetSeason !== undefined && file.seasonNumber !== targetSeason) {
         file.seasonNumber = targetSeason
@@ -359,13 +361,14 @@ function _applyEpisodeMap(
         changed = true
       }
 
-      if (changed || file.mediaType !== 'episode') {
+      const markedModified = changed || file.mediaType !== 'episode'
+      if (markedModified) {
         file.mediaType = 'episode'
         file.lastRefreshedAt = null
         modified.push(file)
       }
 
-      logVerbose('Applied episode assignment decision.', {
+      if (verbose) logVerbose('Applied episode assignment decision.', {
         ...logContext,
         fileId: file.id,
         fileName: file.name,
@@ -376,7 +379,7 @@ function _applyEpisodeMap(
         isSeasonLocked,
         isEpisodeLocked,
         changed,
-        markedModified: modified.includes(file),
+        markedModified,
         before,
         after: {
           mediaType: file.mediaType,

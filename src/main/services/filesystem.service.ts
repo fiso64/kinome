@@ -13,7 +13,7 @@ import type { MediaFolder, MediaSource } from '@shared/types'
 import { getTransport } from '../transport.registry'
 import * as repositoryService from './repository.service'
 import { ITEM_READ_MODEL } from '../database/query-builder'
-import { isSpecialTvFolderName, isSupportedVideoFile, parseSeasonFolder } from '../utils/tv-parser'
+import { SPECIAL_FOLDER_NAMES_FOR_TV, isSupportedVideoFile, parseSeasonForFilesystem } from '../utils/tv-parser'
 import {
   applyReconciliationPlan, buildReconciliationPlan, type DiscoveredLocation, type SourceHistory,
 } from './scan-reconciliation.service'
@@ -108,7 +108,7 @@ async function probeMissingLocations(
 }
 
 function getSeasonNumberForShadowing(name: string): number | null {
-  return isSpecialTvFolderName(name) ? null : parseSeasonFolder(name)
+  return SPECIAL_FOLDER_NAMES_FOR_TV.includes(name.toLowerCase()) ? null : parseSeasonForFilesystem(name)
 }
 
 function getHigherPrioritySeasons(folderPaths?: ReadonlySet<string>): Map<string, Set<number>> {

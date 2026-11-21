@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
+import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { syncTvShowStructure } from './tv-show.service'
 import { getItemById } from './repository.service'
 import type { MediaFolder, MediaFile } from '@shared/types'
@@ -239,5 +240,54 @@ describe('syncTvShowStructure (Mixed Shows)', () => {
         const ep2 = getItemById('s2-ep') as MediaFile
         expect(ep2.seasonNumber).toBe(2)
         expect(ep2.episodeNumber).toBe(1)
+    })
+})
+
+describe('TV release structure', () => {
+    it('keeps duplicate claims local, processes mixed spellings, and does no work on a second sync', async () => {
+        ctx.seedEntities([{ id: 'e-release', tmdbId: 12, mediaType: 'tv', title: 'Release Show' }])
+        ctx.seedItems([
+            { id: 'show', name: 'Release.Show.2021.S01-S03.COMPLETE.1080p', type: 'folder', entityId: 'e-release' },
+            { id: 's2', parentId: 'show', name: 'Season_02', type: 'folder' },
+            { id: 'alternate', parentId: 'show', name: 'Release.Show.S02E01-E08.2160p', type: 'folder' },
+            { id: 's3', parentId: 'show', name: 'Third.Season_03', type: 'folder' },
+            { id: 'pack', parentId: 'show', name: 'Release.Show.S01-S03.COMPLETE', type: 'folder' },
+            { id: 'e7', parentId: 's2', name: 'Release.Show.S02E07.1080p.mkv' },
+            { id: 'e7-alt', parentId: 's2', name: 'Release.Show.S02E07.[4x3].480p.mkv' },
+            { id: 'e8', parentId: 's2', name: 'Episode 8 - Title.mkv' },
+            { id: 'e9', parentId: 'alternate', name: 'Release.Show.2x09.mkv' },
+            { id: 'loose', parentId: 'show', name: 'Release.Show.S03_E11.mkv' },
+            { id: 'sample', parentId: 's2', name: 'Sample.1080p.mkv' },
+            { id: 'range', parentId: 's2', name: 'Release.Show.S02E12-S02E14.mkv' },
+        ])
+
+        const show = getItemById('show') as MediaFolder
+        await syncTvShowStructure(show)
+        const seasonIds = ['s2', 'alternate', 's3', 'pack']
+        expect(seasonIds.map((id) => getItemById(id)?.seasonNumber)).toEqual([2, 2, 3, null])
+        const episodeIds = ['e7', 'e7-alt', 'e8', 'e9', 'loose', 'sample', 'range']
+        expect(episodeIds.map((id) => {
+            const item = getItemById(id) as MediaFile
+            return [item.id, item.seasonNumber, item.episodeNumber]
+        })).toEqual([
+            ['e7', 2, 7], ['e7-alt', 2, 7], ['e8', 2, 8], ['e9', 2, 9], ['loose', 3, 11],
+            ['sample', null, null], ['range', 2, 12]
+        ])
+        expect(await syncTvShowStructure(show)).toEqual([])
+    })
+
+    it('keeps a manually assigned specials folder and honors its locked season', async () => {
+        ctx.seedEntities([{ id: 'e-show', tmdbId: 12, mediaType: 'tv' }])
+        ctx.seedItems([
+            { id: 'show', type: 'folder', entityId: 'e-show', name: 'Show' },
+            { id: 'specials', parentId: 'show', type: 'folder', name: 'Specials' },
+            { id: 'special', parentId: 'specials', name: 'Show.S01E08.mkv' },
+            { id: 'loose', parentId: 'show', name: 'Show.S01E01.mkv' }
+        ])
+        upsertMetadata('specials', { mediaType: 'season', seasonNumber: 0, lockedFields: ['seasonNumber'] })
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+        expect(getItemById('specials')).toMatchObject({ mediaType: 'season', seasonNumber: 0 })
+        expect(getItemById('special')).toMatchObject({ mediaType: 'episode', seasonNumber: 0, episodeNumber: 8 })
+        expect(getItemById('loose')).toMatchObject({ mediaType: 'episode', seasonNumber: 1, episodeNumber: 1 })
     })
 })

@@ -1,26 +1,14 @@
-/**
- * TV Parser Tests
- *
- * Tests the pure parsing logic from tv_parsing.md spec.
- * These functions have zero external dependencies and implement
- * the core consensus-based pattern matching algorithm.
- *
- * SPEC: tv_parsing.md §4
- */
 import { describe, it, expect } from 'bun:test'
 import {
-    parseEpisodeInfo,
-    parseSeasonFolder,
+    parseEpisodeForReconciliation as parseEpisodeInfo,
+    parseEpisodeName,
+    parseSeasonForFilesystem as parseSeasonFolder,
+    parseSeasonName,
     isSupportedVideoFile,
     determineEpisodeNumbers,
     determineExplicitSeasonNumbers,
     determineAlphabeticSeasonNumbers,
-    determineSeasonNumbers,
 } from './tv-parser'
-
-// =================================================================
-// isSupportedVideoFile
-// =================================================================
 
 describe('isSupportedVideoFile', () => {
     it('recognizes standard video extensions', () => {
@@ -44,16 +32,7 @@ describe('isSupportedVideoFile', () => {
     })
 })
 
-// =================================================================
-// parseEpisodeInfo
-// SPEC: tv_parsing.md §4, Step 4 — Episode Patterns (Priority Order)
-//
-// Priority 1: SxxExx  /\bS(\d{1,2})\s?\.?\s?E(\d{1,3})\b/i
-// Priority 2: Episode XX  /\bEpisode\s*(\d{1,2})\b/i
-// Priority 3: Exx  /\bE(\d{2})\b/i
-// =================================================================
-
-describe('parseEpisodeInfo', () => {
+describe('episode moves retain their existing parser', () => {
     it.each(['Show.S01E20.5.mkv', 'Episode 20.5 - Recap.mkv', 'Show.E20.5.mkv', '[Group] Show - 20.5 [720p].mkv'])(
         'preserves decimal episodes in %s',
         (name) => expect(parseEpisodeInfo(name)?.episode).toBe(20.5)
@@ -112,13 +91,7 @@ describe('parseEpisodeInfo', () => {
     })
 })
 
-// =================================================================
-// parseSeasonFolder
-// SPEC: tv_parsing.md §4, Step 3 — Season Folder Pattern
-//   /\b(?:Season\s*|S)(\d{1,2})\b/i
-// =================================================================
-
-describe('parseSeasonFolder', () => {
+describe('filesystem season detection retains its existing parser', () => {
     it('parses "Season 1"', () => {
         expect(parseSeasonFolder('Season 1')).toBe(1)
     })
@@ -151,17 +124,6 @@ describe('parseSeasonFolder', () => {
         expect(parseSeasonFolder('Behind the Scenes')).toBeNull()
     })
 })
-
-// =================================================================
-// determineEpisodeNumbers — Consensus Algorithm
-// SPEC: tv_parsing.md §4, Step 4
-//
-// A pattern achieves consensus if:
-//   - It matches ALL files (perfect match), OR
-//   - It matches ≥3 files with ≤2 mismatches.
-//
-// If duplicates exist, falls through to next pattern or alphabetic.
-// =================================================================
 
 describe('determineEpisodeNumbers', () => {
     it('drops a fractional digit shared by all episodes in a season folder', () => {
@@ -202,7 +164,7 @@ describe('determineEpisodeNumbers', () => {
         expect(files.map((name) => result.get(name)?.episode)).toEqual(expected)
     })
 
-    it('achieves consensus with SxxExx pattern', () => {
+    it('assigns explicit episode coordinates', () => {
         const files = [
             'Breaking.Bad.S01E01.mkv',
             'Breaking.Bad.S01E02.mkv',
@@ -250,7 +212,7 @@ describe('determineEpisodeNumbers', () => {
         expect(result.get('Episode 1.mkv')?.episode).toBe(1)
     })
 
-    it('tolerates ≤2 mismatches with ≥3 matches (consensus threshold)', () => {
+    it('leaves extras outside the episode assignments', () => {
         const files = [
             'Show.S01E01.mkv',
             'Show.S01E02.mkv',
@@ -260,7 +222,6 @@ describe('determineEpisodeNumbers', () => {
         ]
         const result = determineEpisodeNumbers(files, 1)
 
-        // Should achieve consensus on SxxExx for 3 files
         expect(result.get('Show.S01E01.mkv')?.episode).toBe(1)
         expect(result.get('Show.S01E02.mkv')?.episode).toBe(2)
         expect(result.get('Show.S01E03.mkv')?.episode).toBe(3)
@@ -268,25 +229,13 @@ describe('determineEpisodeNumbers', () => {
         expect(result.has('bonus_feature.mkv')).toBe(false)
     })
 
-    it('falls back to alphabetic when no pattern achieves consensus', () => {
-        // SPEC: §4 Step 4 — Alphabetic fallback
-        const files = [
-            '[SubGroup] Show - 01 [720p].mkv',
-            '[SubGroup] Show - 02 [720p].mkv',
-            '[SubGroup] Show - 03 [720p].mkv',
-        ]
-        const result = determineEpisodeNumbers(files, 1)
-
-        // Alphabetic sort: these should sort in order
-        expect(result.size).toBe(3)
-        // All get episode numbers from position
-        for (const info of result.values()) {
-            expect(info.mediaType).toBe('episode')
-            expect(info.season).toBe(1)
-        }
+    it('falls back to numeric alphabetic order for unnumbered names in a known season', () => {
+        const result = determineEpisodeNumbers(['Vignette 10 - Red.mkv', 'Vignette 2 - Blue.mkv'], 1)
+        expect([...result.entries()].map(([name, info]) => [name, info.episode]))
+            .toEqual([['Vignette 2 - Blue.mkv', 1], ['Vignette 10 - Red.mkv', 2]])
     })
 
-    it('falls back to alphabetic when pattern produces duplicate episodes', () => {
+    it('preserves duplicate claims without renumbering unrelated episodes', () => {
         // SPEC: §4 Step 4 — If duplicates exist, strategy fails
         const files = [
             'Show.S01E01.v1.mkv',
@@ -295,9 +244,8 @@ describe('determineEpisodeNumbers', () => {
         ]
         const result = determineEpisodeNumbers(files, 1)
 
-        // Should fall through to alphabetic (positions 1,2,3)
         const episodes = [...result.values()].map(v => v.episode).sort()
-        expect(episodes).toEqual([1, 2, 3])
+        expect(episodes).toEqual([1, 1, 2])
     })
 
     it('uses explicit alphabetic strategy when requested', () => {
@@ -311,7 +259,7 @@ describe('determineEpisodeNumbers', () => {
         expect(result.get(sorted[2])?.episode).toBe(3)
     })
 
-    it('ignores non-video files in consensus calculation', () => {
+    it('ignores non-video files', () => {
         // SPEC: §6 — Only video files are assigned episode metadata
         const files = [
             'Show.S01E01.mkv',
@@ -330,15 +278,6 @@ describe('determineEpisodeNumbers', () => {
     })
 })
 
-// =================================================================
-// determineExplicitSeasonNumbers
-// SPEC: tv_parsing.md §4, Step 3
-//
-// Only assigns seasons via the Season regex.
-// Returns empty map on duplicate season numbers.
-// Filters out special folder names (Extras, Specials, etc.).
-// =================================================================
-
 describe('determineExplicitSeasonNumbers', () => {
     it('assigns season numbers from regex matches', () => {
         const folders = ['Season 1', 'Season 2', 'Season 3']
@@ -349,11 +288,10 @@ describe('determineExplicitSeasonNumbers', () => {
         expect(result.get('Season 3')?.season).toBe(3)
     })
 
-    it('returns empty map when duplicate season numbers are detected', () => {
-        // SPEC: §4 Step 3 — If duplicates exist: fail
+    it('preserves duplicate season claims', () => {
         const folders = ['Season 1', 'S01'] // both resolve to season 1
         const result = determineExplicitSeasonNumbers(folders)
-        expect(result.size).toBe(0)
+        expect([...result.values()].map(({ season }) => season)).toEqual([1, 1])
     })
 
     it('ignores special folders', () => {
@@ -371,14 +309,6 @@ describe('determineExplicitSeasonNumbers', () => {
         expect(result.size).toBe(0)
     })
 })
-
-// =================================================================
-// determineAlphabeticSeasonNumbers
-// SPEC: tv_parsing.md §4, Step 3 — Alphabetic Assignment
-//
-// Sort alphabetically with natural sort.
-// Assign positions: 1, 2, 3, ...
-// =================================================================
 
 describe('determineAlphabeticSeasonNumbers', () => {
     it('assigns season numbers by alphabetic position', () => {
@@ -410,26 +340,166 @@ describe('determineAlphabeticSeasonNumbers', () => {
     })
 })
 
-// =================================================================
-// determineSeasonNumbers (legacy wrapper)
-// =================================================================
+describe('episode evidence from release filenames', () => {
+    const cases: [string, number | null, string | null][] = [
+        ["Breaking.Bad.S01E05.1080p.BluRay.mkv", 1, "1:5"],
+        ["Dark.2017.S02.E05.1080p.mkv", 2, "2:5"],
+        ["The Wire Season 3 Episode 9 - Slapstick.mkv", 3, "3:9"],
+        ["The.X-Files.4x07.mkv", 4, "4:7"],
+        ["Dark (2017) - S02E05 - Lost and Found (1080p NF WEB-DL x265 Ghost).mkv", 2, "2:5"],
+        ["01 - Pilot.mkv", 3, "3:1"],
+        ["Episode 12 - Title.mkv", 3, "3:12"],
+        ["e05.mkv", 3, "3:5"],
+        ["Show.S01E02.2022.1080p.mkv", 1, "1:2"],
+        ["Show.S01E20.5.mkv", 1, "1:20.5"],
+        ["Show.S01E02-E04.1080p.mkv", 1, "1:2-4"],
+        ["Show.S01E02E03.mkv", 1, "1:2-3"],
+        ["Show.S01E02-1080p.mkv", 1, "1:2"],
+        ["Show.S01E09 - 3.2.1.mkv", 1, "1:9"],
+        ["Show.S01E02 - S02E03.mkv", 1, "conflict"],
+        ["Show.S03E04.mkv", 2, "3:4"],
+        ["Sample.1080p.mkv", 1, "extra"],
+        ["Special (1920x1080).mkv", 1, null],
+        ["Part 2.mkv", 1, null],
+        ["2024.mkv", 1, null],
+        ["Show S01E04 [720p].ass", 1, null],
+        ["Show.S00E01.mkv", 0, "0:1"],
+        ["[SubsPlease] 86 - Eighty Six - 05 (1080p).mkv", null, "?:5"],
+        ["[Fansub] One Piece - 1089v2 [1080p][A1B2C3D4].mkv", null, "?:1089"],
+        ["One Piece (1999) 152.mkv", null, "?:152"],
+        ["[SubGroup] Show [720p].mkv", null, null],
+        ["Asobi Asobase 6.mkv", null, "?:6"],
+        ["News.2024.02.29.720p.HDTV.mkv", null, "date:2024-02-29"],
+        ["News.2023.02.29.720p.HDTV.mkv", null, null],
+        ["Show_02x03_1080p.mkv", 2, "2:3"],
+        ["ShowS02E09v2.mkv", 2, "2:9"],
+        ["Ep_09.mkv", 2, "2:9"],
+        ["002.mkv", 2, "2:2"],
+        ["Show.S02E05-S02E07.mkv", 2, "2:5-7"],
+        ["The Story of S02E05X.mkv", 2, null],
+        ["Show.2x03-2x04 [1080p].mkv", 2, "2:3-4"],
+        ["Show.2x03.02.mkv", 2, "2:3"],
+        ["[Team] Show - 02.5v2 [720p].mkv", null, "?:2.5"],
+    ]
+    it.each(cases)('%s', (name, parentSeason, expected) => {
+        const result = parseEpisodeName(name)
+        let actual: string | null = null
+        if (result?.kind === 'episode' || result?.kind === 'number' || result?.kind === 'range') {
+            const season = ('season' in result ? result.season : undefined) ?? parentSeason ?? '?'
+            actual = `${season}:${result.episode}` + (result.kind === 'range' ? `-${result.endEpisode}` : '')
+        } else if (result?.kind === 'date') {
+            actual = `date:${result.date}`
+        } else if (result?.kind === 'extra' || result?.kind === 'conflict') {
+            actual = result.kind
+        }
+        expect(actual).toBe(expected)
+    })
+})
 
-describe('determineSeasonNumbers', () => {
-    it('smart: uses explicit regex first, falls back to alphabetic', () => {
-        // Should use explicit for these
-        const explicit = determineSeasonNumbers(['Season 1', 'Season 2'])
-        expect(explicit.get('Season 1')?.season).toBe(1)
-
-        // Should fall back to alphabetic for these
-        const alphabetic = determineSeasonNumbers(['First Arc', 'Second Arc'])
-        expect(alphabetic.get('First Arc')?.season).toBe(1)
-        expect(alphabetic.get('Second Arc')?.season).toBe(2)
+describe('structural season folder evidence', () => {
+    const cases: [string, number | null][] = [
+        ["Season 02", 2],
+        ["Dark.S03E01-E14.1080p", 3],
+        ["Dark.S01-S03.COMPLETE.1080p", null],
+        ["Dark.S01E01-S03E10.1080p", null],
+        ["Dark.S02.COMPLETE.1080p", 2],
+        ["2024", null],
+        ["Specials", 0],
+        ["The Specials Anthology", null],
+        ["Season_03 [1080p]", 3],
+        ["Dark.S02-S02.COMPLETE", 2],
+        ["Dark S01 + S02 pack", null],
+        ["Specials of the World", null],
+    ]
+    it.each(cases)('%s', (name, expected) => {
+        const result = parseSeasonName(name)
+        expect(typeof result === 'number' ? result : null).toBe(expected)
     })
 
-    it('alphabetic strategy skips regex entirely', () => {
-        const result = determineSeasonNumbers(['S02', 'S01'], 'alphabetic')
-        // With alphabetic sort: S01 = 1, S02 = 2 (by position, not regex)
-        expect(result.get('S01')?.season).toBe(1)
-        expect(result.get('S02')?.season).toBe(2)
+    it('keeps cross-season packs out of smart alphabetic fallback', () => {
+        const result = determineAlphabeticSeasonNumbers(['Show.S01-S03.COMPLETE', 'First Arc'], false)
+        expect([...result.keys()]).toEqual(['First Arc'])
     })
+})
+
+describe('contextual Smart episode assignment', () => {
+    it('mixes clear formats, uses the first episode of a range, and leaves extras unnumbered', () => {
+        const files = ['Show.S03E07.mkv', 'Episode 8 - Title.mkv', 'Show.3x09.mkv',
+            'Sample.1080p.mkv', 'Show.S03E10-E12.mkv', 'Mystery.mkv']
+        const result = determineEpisodeNumbers(files, 3)
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([7, 8, 9, undefined, 10, undefined])
+    })
+
+    it('does not number unknowns around dates, conflicts, or unverifiable absolute numbers', () => {
+        const ambiguous = ['News.2024.02.29.mkv', 'News.2023.02.29.mkv',
+            'Show.S01E05 - S02E01.mkv', '[Group] Show - 1089v2.mkv']
+        for (const file of ambiguous) {
+            expect(determineEpisodeNumbers([file, 'Unknown.mkv'], 1).size).toBe(0)
+        }
+    })
+
+    it('corroborates bare numbers in an established season without renumbering them', () => {
+        const files = ['002.mkv', '08 - Pilot.mkv', 'Mystery.mkv']
+        const result = determineEpisodeNumbers(files, 3, 'smart', undefined, { physicalSeason: true })
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([2, 8, undefined])
+    })
+
+    it('accepts show-prefixed numbering when provider data verifies a single season', () => {
+        const files = ['86 - Eighty Six - 05.mkv', '86 6.mkv', '86 - Eighty Six - 1089v2.mkv']
+        const result = determineEpisodeNumbers(files, 1, 'smart', undefined, {
+            showTitles: ['86'], seasonCounts: new Map([[0, 1], [1, 12]])
+        })
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([5, 6, undefined])
+    })
+
+    it('assigns matching flat anime releases within season one and leaves later absolute numbers unresolved', () => {
+        const files = ['Mob Psycho 100 - 01.mkv', 'Mob Psycho 100 - 02.mkv',
+            'Mob Psycho 100 - 12.mkv', 'Mob Psycho 100 - 13.mkv', 'Other Show - 01.mkv']
+        const result = determineEpisodeNumbers(files, 1, 'smart', undefined, {
+            showTitles: ['Mob Psycho 100'], seasonCounts: new Map([[1, 12], [2, 13], [3, 12]])
+        })
+        expect(files.map((name) => result.get(name)?.episode)).toEqual([1, 2, 12, undefined, undefined])
+        expect(result.get(files[0])?.season).toBe(1)
+        expect(determineEpisodeNumbers(files, 1, 'smart', undefined, { showTitles: ['Mob Psycho 100'] }).size).toBe(0)
+    })
+
+    it('uses locked parent coordinates when grouping fractional suffixes', () => {
+        const files = ['Show.S01E07.5.mkv', 'Show.S02E08.5.mkv']
+        const result = determineEpisodeNumbers(files, 3, 'smart', undefined, { forcedSeason: 3 })
+        expect(files.map((name) => result.get(name))).toEqual([
+            { mediaType: 'episode', season: 3, episode: 7 }, { mediaType: 'episode', season: 3, episode: 8 }
+        ])
+    })
+})
+
+it('keeps conflicting conventions visible even when a compact coordinate would be fast to parse', () => {
+    expect(parseEpisodeName('Show.2x06.S02E05.1080p.mkv')).toEqual({ kind: 'conflict' })
+    expect(parseEpisodeName('Show.S02E05.Season 2 Episode 6.mkv')).toEqual({ kind: 'conflict' })
+    expect(parseEpisodeName('Show.S02E08-E05.1080p.mkv')).toEqual({ kind: 'conflict' })
+})
+
+it('ignores bracketed aspect ratios and preserves genuine NxM episode names', () => {
+    expect(parseEpisodeName('Show.S01E02.[4x3].480p.mkv')).toMatchObject({ kind: 'episode', season: 1, episode: 2 })
+    expect(parseEpisodeName('Show - 01 (4x3) [480p].mkv')).toMatchObject({ kind: 'number', episode: 1 })
+    expect(parseEpisodeName('Show.S01E02.[16x9].480p.mkv')).toMatchObject({ kind: 'episode', season: 1, episode: 2 })
+    expect(parseEpisodeName('Show.[4x03].mkv')).toMatchObject({ kind: 'episode', season: 4, episode: 3 })
+    expect(parseEpisodeName('Show.4x3.mkv')).toMatchObject({ kind: 'episode', season: 4, episode: 3 })
+})
+
+it('retains the coordinates span after peeling a fansub label', () => {
+    const name = '[Subs] Show - 1089v2 [1080p].mkv'
+    const evidence = parseEpisodeName(name)
+    expect(evidence?.kind).toBe('number')
+    if (evidence?.kind !== 'number') return
+    expect(name.slice(evidence.span.start, evidence.span.end).trim()).toBe('- 1089v2')
+})
+
+it('does not use technical dimensions or malformed tokens as positional episodes', () => {
+    const files = ['Show.S02E05X.mkv', 'Special (1920x1080).mkv']
+    expect(determineEpisodeNumbers(files, 2).size).toBe(0)
+})
+
+it('needs independent episodes to reinterpret a shared fractional digit', () => {
+    const files = ['Show.S02E07.5.1080p.mkv', 'Show.S02E07.5.2160p.mkv']
+    expect([...determineEpisodeNumbers(files, 2).values()].map(({ episode }) => episode)).toEqual([7.5, 7.5])
 })

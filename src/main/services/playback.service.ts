@@ -162,6 +162,7 @@ const MIME_TYPES: Record<string, string> = {
   '.m4v': 'video/mp4',
   '.mpg': 'video/mpeg',
   '.mpeg': 'video/mpeg',
+  '.m2ts': 'video/mp2t',
   '.mkv': 'video/x-matroska',
   '.webm': 'video/webm',
   '.avi': 'video/x-msvideo',

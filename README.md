@@ -22,7 +22,6 @@ Kinome is under development and is missing some important features which one wou
 
 - Automatic library rescans
 - TV apps or *arr integration. A full jellyfin-compatible UI is planned!
-- scanner currently assumes media folder filename = only the movie/tv show name, so it will fail to find matches automatically if your format differs (e.g., has a year), requiring manual searches.
 
 See [**Plan.md**](./docs/Plan.md) for more details.
 

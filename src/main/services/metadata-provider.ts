@@ -1,5 +1,6 @@
 import type { LibraryItem, Person, TmdbEpisode, TmdbSeason } from '@shared/types'
 import type { TmdbMetadata } from '@shared/metadata-fields'
+import { comparableTitle, type TitleQuery } from '../utils/title-parser'
 import * as tmdb from './retriever.service'
 
 export type ProviderMediaType = 'movie' | 'tv'
@@ -20,7 +21,7 @@ export interface ProviderDetails {
 
 export interface MetadataProvider {
   name: string
-  match(query: string, type: ProviderMediaType | 'multi', year?: number): Promise<ProviderMatch | null>
+  match(query: string, type: ProviderMediaType | 'multi', year?: number, alternate?: TitleQuery): Promise<ProviderMatch | null>
   details(match: ProviderMatch, options?: { includeArtwork?: boolean }): Promise<ProviderDetails | null>
   credits(match: ProviderMatch): Promise<NonNullable<LibraryItem['tmdbCredits']> | null>
   episodes(showId: number, season: number): Promise<TmdbEpisode[] | null>
@@ -28,6 +29,35 @@ export interface MetadataProvider {
 
 function artworkUrl(filePath: string | undefined, size: 'w500' | 'original'): string | undefined {
   return filePath ? `https://image.tmdb.org/t/p/${size}${filePath}` : undefined
+}
+
+interface SearchResult {
+  id: number
+  media_type?: ProviderMediaType
+  title?: string
+  original_title?: string
+  name?: string
+  original_name?: string
+  release_date?: string
+  first_air_date?: string
+}
+
+function exactTitleMatches(results: SearchResult[], query: string, type: ProviderMediaType | 'multi') {
+  const title = comparableTitle(query)
+  const matches = new Map<string, ProviderMatch & { year: number }>()
+  for (const result of results) {
+    const resultType = type === 'multi' ? result.media_type : type
+    if (resultType !== 'movie' && resultType !== 'tv') continue
+    if (![result.title, result.original_title, result.name, result.original_name]
+      .some((name) => name && comparableTitle(name) === title)) continue
+    const year = Number((resultType === 'movie' ? result.release_date : result.first_air_date)?.slice(0, 4))
+    matches.set(`${resultType}:${result.id}`, { id: result.id, type: resultType, year })
+  }
+  return [...matches.values()]
+}
+
+function uniqueMatch(matches: ProviderMatch[]): ProviderMatch | null {
+  return matches.length === 1 ? { id: matches[0].id, type: matches[0].type } : null
 }
 
 export function createTmdbProvider(apiKey: string): MetadataProvider {
@@ -41,12 +71,36 @@ export function createTmdbProvider(apiKey: string): MetadataProvider {
     return request
   }
 
+  const pendingMatches = new Map<string, Promise<ProviderMatch | null>>()
+
+  async function matchTitle(query: string, type: ProviderMediaType | 'multi', year?: number, alternate?: TitleQuery) {
+    const initial = await tmdb.search(query, type, apiKey, { year: year?.toString() })
+    const candidates = exactTitleMatches(initial, query, type)
+    if (year === undefined) {
+      if (candidates.length || !alternate) return uniqueMatch(candidates)
+      const results = await tmdb.search(alternate.title, type, apiKey)
+      const alternatives = exactTitleMatches(results, alternate.title, type)
+      const exact = alternatives.filter((candidate) => candidate.year === alternate.year)
+      return uniqueMatch(exact.length ? exact : alternatives.filter((candidate) =>
+        alternate.year !== undefined && Math.abs(candidate.year - alternate.year) === 1))
+    }
+    const exact = candidates.filter((candidate) => candidate.year === year)
+    if (exact.length) return uniqueMatch(exact)
+    const expanded = type === 'multi' ? candidates
+      : exactTitleMatches([...initial, ...await tmdb.search(query, type, apiKey)], query, type)
+    const expandedExact = expanded.filter((candidate) => candidate.year === year)
+    return uniqueMatch(expandedExact.length ? expandedExact : expanded.filter((candidate) => Math.abs(candidate.year - year) === 1))
+  }
+
   return {
     name: 'tmdb',
-    async match(query, type, year) {
-      const [result] = await tmdb.search(query, type, apiKey, { year: year?.toString() })
-      if (!result) return null
-      return { id: result.id, type: result.media_type || (type === 'multi' ? 'movie' : type) }
+    match(query, type, year, alternate) {
+      const key = `${type}:${year ?? ''}:${query}\0${alternate?.title ?? ''}\0${alternate?.year ?? ''}`
+      const pending = pendingMatches.get(key)
+      if (pending) return pending
+      const request = matchTitle(query, type, year, alternate).finally(() => pendingMatches.delete(key))
+      pendingMatches.set(key, request)
+      return request
     },
     async details({ id, type }, { includeArtwork = true } = {}) {
       const ratingsEndpoint = type === 'tv' ? 'content_ratings' : 'release_dates'

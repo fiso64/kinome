@@ -56,7 +56,8 @@ export const VIDEO_EXTENSIONS = [
   '.webm',
   '.m4v',
   '.mpg',
-  '.mpeg'
+  '.mpeg',
+  '.m2ts'
 ]
 
 export function isSupportedVideoFile(fileName: string): boolean {

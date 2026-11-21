@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { Stats } from 'node:fs'
 import { runTransaction } from '../database/client'
 import * as locations from '../database/repositories/filesystem.repo'
-import { parseEpisodeInfo, parseSeasonFolder } from '../utils/tv-parser'
+import { parseEpisodeForReconciliation, parseSeasonForFilesystem } from '../utils/tv-parser'
 
 export interface DiscoveredLocation {
   relativePath: string
@@ -37,11 +37,11 @@ function matchEpisode(
   priorSources: SourceHistory,
 ): LocationMatch | 'ambiguous' | undefined {
   const { relativePath, contentFingerprint } = entry
-  const parsed = parseEpisodeInfo(path.posix.basename(relativePath))
+  const parsed = parseEpisodeForReconciliation(path.posix.basename(relativePath))
   if (!parsed) return
 
   const parentPath = path.posix.dirname(relativePath)
-  const parentSeason = parseSeasonFolder(path.posix.basename(parentPath))
+  const parentSeason = parseSeasonForFilesystem(path.posix.basename(parentPath))
   const seasonNumber = parsed.season ?? parentSeason
   const showRootPath = parentSeason === null ? parentPath : path.posix.dirname(parentPath)
   if (seasonNumber == null || showRootPath === '.') return

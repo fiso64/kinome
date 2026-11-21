@@ -91,7 +91,7 @@
 
 ### 📚 Library & Metadata
 
-- [ ] [P0] Improve filename extraction, handle many more patterns. Check Kyoo's approach.
+- [x] [P0] Improve filename extraction and year-aware matching. See the [filename parsing proposal](filename-parsing-proposal.md).
   - [x] In particular: Handle decimal episodes (20.5)
 - [x] [P1] Retrieve and save more local metadata using ffprobe (or similar), e.g. video file durations, mkv available audio and subtitle languages, etc.
   - [x] Make it all searchable and accessible in virtual tag definitions like every other piece of metadata.
