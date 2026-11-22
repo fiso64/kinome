@@ -15,6 +15,7 @@ export interface LocalMediaTrack {
   pixelFormat?: string
   colorTransfer?: string
   fieldOrder?: string
+  displayMatrix?: 'rotation' | 'reflection'
   frameRate?: string
   bitrate?: number
   language?: string

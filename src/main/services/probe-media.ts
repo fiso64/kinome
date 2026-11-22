@@ -21,6 +21,7 @@ interface ProbeStream {
   channels?: number
   channel_layout?: string
   sample_rate?: string
+  side_data_list?: { side_data_type?: string; displaymatrix?: string }[]
   tags?: Record<string, string>
   disposition?: { attached_pic?: number; default?: number; forced?: number; hearing_impaired?: number }
 }
@@ -35,6 +36,15 @@ interface ProbeResult {
   chapters?: ProbeChapter[]
   streams?: ProbeStream[]
   format?: { format_name?: string; start_time?: string; duration?: string; bit_rate?: string; tags?: Record<string, string> }
+}
+
+function displayMatrix(stream: ProbeStream): LocalMediaTrack['displayMatrix'] {
+  const data = stream.side_data_list?.find(entry => entry.side_data_type === 'Display Matrix')
+  if (!data) return undefined
+  // The sign of the 2x2 linear transform distinguishes a reflection from a rotation.
+  const rows = [...(data.displaymatrix ?? '').matchAll(/^\s*\d+:\s+(-?\d+)\s+(-?\d+)/gm)]
+  if (rows.length >= 2 && Number(rows[0][1]) * Number(rows[1][2]) < Number(rows[0][2]) * Number(rows[1][1])) return 'reflection'
+  return 'rotation'
 }
 
 function positiveNumber(value: string | number | undefined): number | undefined {
@@ -73,6 +83,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     '-show_entries', [
       'format=format_name,start_time,duration,bit_rate', 'format_tags=encoder',
       'chapter=start_time,end_time', 'chapter_tags=title',
+      'stream_side_data=side_data_type,displaymatrix',
       'stream=index,codec_type,codec_name,profile,level,pix_fmt,color_transfer,field_order,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate,start_time,duration',
       'stream_tags=language,title,encoder,filename,mimetype,DURATION,NUMBER_OF_FRAMES,NUMBER_OF_FRAMES-eng', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
     ].join(':'),
@@ -116,6 +127,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
       language: tag(stream.tags, 'language')?.trim().toLowerCase() || undefined,
       title: tag(stream.tags, 'title'), encoder: tag(stream.tags, 'encoder'), pixelFormat: stream.pix_fmt,
       colorTransfer: stream.color_transfer, fieldOrder: stream.field_order,
+      displayMatrix: displayMatrix(stream),
       frameRate: stream.avg_frame_rate === '0/0' ? undefined : stream.avg_frame_rate,
       bitrate: positiveNumber(stream.bit_rate),
       width: positiveNumber(stream.width), height: positiveNumber(stream.height),

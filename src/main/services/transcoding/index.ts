@@ -159,9 +159,15 @@ export async function openPlaybackSource(
     const channels = track.channels ?? 2
     return copy ? track.codec === 'aac' && channels > 6 : Math.min(channels, channelLimit) > 6
   })
-  const copiedVideoNeedsMp4 = copiesVideo(quality) && ((x264Build !== undefined && x264Build < 151) ||
+  // A transport stream loses the container's rotation and reflection matrix.
+  const copiedVideoNeedsMp4 = copiesVideo(quality) && (!!video.displayMatrix || (x264Build !== undefined && x264Build < 151) ||
     (browser && video.codec === 'hevc') || !transportVideo.has(video.codec ?? ''))
-  const fragmented = (videoCodec === 'hevc' || videoCodec === 'vp9') || audioNeedsMp4 || copiedVideoNeedsMp4
-  return { path, video, audioTracks, quality, fragmented, encoding, copyAudio, videoCodec, channelLimit, seekMpegInput, x264Build,
-    timeline: createTimeline(media.durationSeconds ?? 0, keyframes, video.endSeconds, firstPicture) }
+  // The HLS.js TS parser measures AVC crop offsets in 4:2:0 samples.
+  // MP4 carries the display dimensions for 4:2:2 and 4:4:4 without that conversion.
+  const wideAvc = browser && wideChroma && (copiesVideo(quality) ? video.codec === 'h264' : videoCodec === 'avc')
+  const fragmented = videoCodec === 'hevc' || videoCodec === 'vp9' || wideAvc || audioNeedsMp4 || copiedVideoNeedsMp4
+  const firstSound = browser && !fragmented
+    ? audioTracks.reduce((start, track) => copyAudio.has(track.index) ? Math.max(start, track.startSeconds ?? 0) : start, 0) : 0
+  return { path, video, audioTracks, quality, browser, fragmented, encoding, copyAudio, videoCodec, channelLimit, seekMpegInput, x264Build,
+    timeline: createTimeline(media.durationSeconds ?? 0, keyframes, video.endSeconds, firstPicture, firstSound) }
 }

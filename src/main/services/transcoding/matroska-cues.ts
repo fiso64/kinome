@@ -237,6 +237,7 @@ interface PacketIndex extends CueIndex {
   format: Exclude<SubtitleFormat, 'pgs'>
   emptyTrack: string
   trackEntry: Buffer
+  sourceStartMs: number
   scale: number
 }
 
@@ -255,7 +256,7 @@ function isZlibEncoding(data: Buffer): boolean {
   return (uint(options.get(0x4254)) ?? 0) === 0 && !options.get(0x4255)?.length
 }
 
-export async function readMatroskaSubtitleIndexes(filePath: string, streams: LocalMediaTrack[]) {
+export async function readMatroskaSubtitleIndexes(filePath: string, streams: LocalMediaTrack[], sourceStart = 0) {
   const result = new Map<number, MatroskaSubtitleIndex>()
   const index = await readMatroskaIndex(filePath)
   if (!index) return result
@@ -266,6 +267,12 @@ export async function readMatroskaSubtitleIndexes(filePath: string, streams: Loc
   }
 
   const candidates = new Map<number, MatroskaSubtitleIndex>()
+  // FFmpeg writes a cue for every subtitle packet in a seekable Matroska
+  // file, including simultaneous events. Its own files usually have no
+  // NUMBER_OF_FRAMES tag. Read the writer from Segment Info, not the tags
+  // that can be copied from an earlier container.
+  const sourceStartMs = sourceStart * 1000
+  const ffmpegCues = sourceStart >= 0 && /^Lavf\d+\./.test(index.writingApp ?? '')
   for (const stream of streams) {
     if (stream.kind !== 'subtitle') continue
     const entry = index.tracks[stream.index]
@@ -276,7 +283,7 @@ export async function readMatroskaSubtitleIndexes(filePath: string, streams: Loc
     const format = stream.codec && embeddedSubtitleFormats[stream.codec]
     if (!format) continue
     const base = { track, segmentEnd: index.segment.end, cues: [] }
-    if (format === 'pgs' && codec === 'S_HDMV/PGS' && stream.packetCount &&
+    if (format === 'pgs' && codec === 'S_HDMV/PGS' && (stream.packetCount || ffmpegCues) &&
         (!encoding || isZlibEncoding(encoding))) {
       candidates.set(track, { ...base, format: 'pgs', compressed: !!encoding })
     } else if (format === 'ass' && index.writingApp?.startsWith('mkvmerge ') && codec === 'S_TEXT/ASS' && !encoding) {
@@ -288,19 +295,21 @@ export async function readMatroskaSubtitleIndexes(filePath: string, streams: Loc
       const afterEvents = script.slice(events.index + events[0].length)
       const nextSection = afterEvents.search(/^\[/m)
       candidates.set(track, { ...base, format: 'ass', header, footer: nextSection === -1 ? '' : afterEvents.slice(nextSection) })
-    } else if (stream.packetCount && format !== 'pgs') {
+    } else if ((stream.packetCount || ffmpegCues) && format !== 'pgs') {
       const emptyTrack = format === 'ass' ? entry.get(id.codecPrivate)?.toString() : format === 'text' ? 'WEBVTT\n\n' : ''
       if (emptyTrack !== undefined) candidates.set(track, { ...base, format, emptyTrack,
-        trackEntry: index.entries[stream.index].data, scale: index.scale })
+        trackEntry: index.entries[stream.index].data, scale: index.scale, sourceStartMs })
     }
   }
   if (!candidates.size) return result
 
-  const firstVideoTrack = uint(index.tracks[streams.findIndex((stream) => stream.kind === 'video')]?.get(id.trackNumber))
-  let startsAtZero = false
+  const video = streams.find(stream => stream.kind === 'video')
+  const firstVideoTrack = video && uint(index.tracks[video.index]?.get(id.trackNumber))
+  const firstVideoTick = (sourceStart + (video?.startSeconds ?? 0)) * 1e9 / index.scale
+  let aligned = false
   for (const { time, position } of cuePositions(index.cues)) {
     const track = uint(position.get(id.cueTrack))
-    if (track === firstVideoTrack && time === 0) startsAtZero = true
+    if (track === firstVideoTrack && Math.abs(time - firstVideoTick) <= 0.5) aligned = true
     const candidate = track === undefined ? undefined : candidates.get(track)
     if (!candidate) continue
     const duration = uint(position.get(id.cueDuration))
@@ -313,12 +322,12 @@ export async function readMatroskaSubtitleIndexes(filePath: string, streams: Loc
       continue
     }
     candidate.cues.push({
-      start: time * index.scale / 1_000_000,
-      end: (time + (duration ?? 0)) * index.scale / 1_000_000,
+      start: time * index.scale / 1_000_000 - sourceStartMs,
+      end: (time + (duration ?? 0)) * index.scale / 1_000_000 - sourceStartMs,
       cluster: index.segment.start + cluster, relative
     })
   }
-  if (!startsAtZero) return result
+  if (!aligned) return result
   for (const stream of streams) {
     const candidate = candidates.get(uint(index.tracks[stream.index].get(id.trackNumber))!)
     if (!candidate?.cues.length) continue
@@ -363,7 +372,7 @@ const inflateBlock = promisify(inflate)
 
 function supPacket(block: Buffer, ms: number): Buffer {
   const parts: Buffer[] = []
-  const clock = Math.round(ms * 90) >>> 0
+  const clock = Math.round(Math.max(0, ms) * 90) >>> 0
   for (let offset = 0; offset < block.length;) {
     const end = offset + 3 + block.readUInt16BE(offset + 1)
     if (end > block.length) throw new Error('Truncated PGS segment')
@@ -443,7 +452,7 @@ export async function readMatroskaPacketWindow(
     const clusters: Buffer[] = []
     for (const cue of cues) {
       const { elementId, data, timeOffset } = await readCue(cue)
-      const clusterTime = Math.round(cue.start * 1_000_000 / index.scale) - timeOffset
+      const clusterTime = Math.round((cue.start + index.sourceStartMs) * 1_000_000 / index.scale) - timeOffset
       clusters.push(ebmlElement(id.cluster, [ebmlElement(0xe7, unsigned(clusterTime)), ebmlElement(elementId, data)]))
     }
     const info = ebmlElement(id.info, [ebmlElement(id.timestampScale, unsigned(index.scale)),
@@ -456,7 +465,7 @@ export async function readMatroskaPacketWindow(
 }
 
 function assTime(ms: number): string {
-  const hundredths = Math.round(ms / 10)
+  const hundredths = Math.round(Math.max(0, ms) / 10)
   const hours = Math.floor(hundredths / 360_000)
   const minutes = String(Math.floor(hundredths / 6000) % 60).padStart(2, '0')
   const seconds = String(Math.floor(hundredths / 100) % 60).padStart(2, '0')

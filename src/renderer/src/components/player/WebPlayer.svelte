@@ -19,13 +19,14 @@
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
     playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
-    knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition
+    knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition, supportsVideoReflection
   } from '@lib/services/web-playback.service'
   import { hlsMime, isVideoQuality, videoQualityHeights } from '@shared/playback-quality'
   import { resolveWebQuality, webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
-  import { defaultAudioTrack, isMp4Container, type MediaChapter } from '@shared/local-media'
+  import { defaultAudioTrack, isMatroskaContainer, isMp4Container, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
-  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
+  import reflectionSample from '../../assets/player/reflection.mp4?no-inline'
+  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchPlaybackProgress, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
   let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
@@ -80,6 +81,7 @@
 
   let info = $state<WebPlaybackInfo>()
   let timelineDuration = $state(0)
+  let videoTimeOrigin = $state(0)
   let bufferedRanges = $state.raw<[number, number][]>([])
   let playbackPosition = $state(0)
   let requestedPosition = $state<number>()
@@ -121,6 +123,7 @@
   let subtitleReady = $state(false)
   let subtitleLoading = $state(false)
   let fontPermission = $state<PermissionState>()
+  const canUseLocalFonts = $derived(fontPermission === 'granted')
   const localFonts = window as Window & { queryLocalFonts?: () => Promise<unknown[]> }
   const selectedSubtitle = $derived(info?.subtitles.find(track => track.id === subtitleId))
 
@@ -261,7 +264,7 @@
   function persist(force = false, finished = false) {
     if (!hasPlayed || !mediaReady || (completed && !finished)) return
     const now = performance.now()
-    const position = finished ? 0 : Math.round(video.currentTime)
+    const position = finished ? 0 : Math.round(mediaTime())
     if (!finished && (!Number.isFinite(position) || position === lastSaved || (!force && now - lastSaveAt < 15_000))) return
     lastSaveAt = now
     lastSaved = position
@@ -320,7 +323,7 @@
     if (!info) return
     if (remember && mediaReady) {
       persist(true)
-      resumeAt = video.ended ? 0 : requestedPosition ?? video.currentTime
+      resumeAt = video.ended ? 0 : requestedPosition ?? mediaTime()
       // paused changes synchronously. Its queued event may still belong
       // to the old source when the viewer switches tracks.
       if (!video.error) wantPlayback = video.ended || !video.paused
@@ -339,7 +342,13 @@
     operation = controller
     const audio = audioCapability.find((track) => track.index === audioIndex)
     const sourceVideo = info.media?.tracks.find((track) => track.kind === 'video')
-    const candidates = playbackAttempts(video, info, audio, defaultAudio, quality)
+    let candidates = playbackAttempts(video, info, audio, defaultAudio, quality)
+    if (sourceVideo?.displayMatrix === 'reflection' && !isVideoQuality(quality) && candidates.some(entry => isVideoQuality(entry.mode))) {
+      if (!await supportsVideoReflection(reflectionSample)) {
+        candidates = [...candidates.filter(entry => isVideoQuality(entry.mode)), ...candidates.filter(entry => !isVideoQuality(entry.mode))]
+      }
+      if (controller.signal.aborted) return
+    }
     let index = 0
     let reportRecovery = false
     // Keep intermediate rungs available for a gradual recovery.
@@ -347,7 +356,7 @@
     const incompatible = new Set<number>()
     let recoverySeconds = 20
     let lastUpgrade = -Infinity
-    let retriedSeek: { source: number; position: number } | undefined
+    let reopened: { source: number; position: number } | undefined
     let transportRetries = 0
     let reconnectTimer: ReturnType<typeof setTimeout>
     let attempt: AbortController | undefined
@@ -391,6 +400,7 @@
         loadQueue()
         return
       }
+      videoTimeOrigin = 0
       activeQuality = mode
       const nativeHls = video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.'
       const signal = (attempt = new AbortController()).signal
@@ -399,7 +409,7 @@
 
       const context = () => ({
         itemId: item.id, mode, sourceVideo: sourceVideo?.codec, sourceAudio: audio?.codec, audioIndex,
-        videoCodec: candidate.videoCodec, sound: candidate.sound, position: mediaReady ? video.currentTime : resumeAt
+        videoCodec: candidate.videoCodec, sound: candidate.sound, position: mediaReady ? mediaTime() : resumeAt
       })
       function failed(message: string, transport = false, details?: { status?: number; [key: string]: unknown }, resetVideoClock = false) {
         if (signal.aborted) return
@@ -423,7 +433,7 @@
         reportRecovery = true
         if (mediaReady) {
           persist(true)
-          resumeAt = requestedPosition ?? video.currentTime
+          resumeAt = requestedPosition ?? mediaTime()
           if (resetVideoClock) wantPlayback = !video.paused
         }
         mediaReady = false
@@ -452,13 +462,26 @@
       }
 
       retryTransport = () => {
-        if (mediaReady) resumeAt = requestedPosition ?? video.currentTime
+        if (mediaReady) resumeAt = requestedPosition ?? mediaTime()
         mediaReady = false
         loading = true
         error = ''
         index--
         void nextSource()
       }
+      function reopenStalledSource(reason: string, details: Record<string, unknown>) {
+        const position = mediaTime()
+        if ((mode === 'original' && candidates[index]?.mode === 'remux') ||
+            (reopened?.source === index && Math.abs(reopened.position - position) < 5)) {
+          failed(reason, false, details, mode === 'original')
+          return
+        }
+        console.warn('[Kinome player] Playback stalled, reopening source', { ...context(), reason, ...details })
+        reopened = { source: index, position }
+        reportRecovery = true
+        retryTransport?.()
+      }
+      watchPlaybackProgress(video, signal, mode === 'original' || !!nativeHls, reopenStalledSource)
       const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex, candidate)
       video.playbackRate = speed
       video.defaultPlaybackRate = speed
@@ -471,15 +494,12 @@
             { cause: diagnosticMessage(reason) })
         })
       }
-      listen('durationchange', () => {
-        timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
-      })
+      listen('durationchange', updateTimelineDuration)
       listen('progress', updateBufferedRanges)
       listen('suspend', updateBufferedRanges)
-      listen('loadeddata', updateBufferedRanges, true)
+      listen('loadeddata', () => { updateBufferedRanges(); loadQueue() }, true)
       listen('seeked', () => {
         if (video.seeking) return
-        if (retriedSeek?.source === index && Math.abs(video.currentTime - retriedSeek.position) < 1) retriedSeek = undefined
         updatePlaybackPosition()
         if (committedPosition !== undefined) {
           const settledPosition = committedPosition
@@ -496,21 +516,49 @@
         resetFrameStep()
       })
       const firstPicture = sourceVideo?.startSeconds ?? 0
-      // A cached MP4 can present its opening frame before loadedmetadata
-      // runs. Register before assigning src so that timestamp is retained.
-      const openingPicture = mode === 'original' && candidates[index] && firstPicture > 0 &&
-        isMp4Container(info?.media?.container) && typeof video.requestVideoFrameCallback === 'function'
+      const sourceStart = info?.media?.startSeconds ?? 0
+      const checkOrigin = sourceStart > 0.05 && isMatroskaContainer(info?.media?.container)
+      const checkFrame = checkOrigin || (firstPicture > 0 && candidates[index] && isMp4Container(info?.media?.container))
+      // Register before assigning src. A cached first frame may arrive before loadedmetadata.
+      const openingPicture = mode === 'original' && checkFrame && typeof video.requestVideoFrameCallback === 'function'
         ? checkOpeningPicture(video, signal, firstPicture, (pictureTime) => {
-          if (pictureTime !== undefined && pictureTime <= Math.max(firstPicture, video.currentTime) + 0.5) return
+          // Firefox rebases Matroska timestamps. Chromium can retain the
+          // container clock for the element, including its rendered subtitles.
+          if (checkOrigin && pictureTime !== undefined &&
+              Math.abs(pictureTime - (sourceStart + firstPicture)) < Math.min(0.25, sourceStart / 3)) {
+            videoTimeOrigin = sourceStart
+            updateTimelineDuration()
+            updatePlaybackPosition()
+          }
+          if (pictureTime !== undefined && pictureTime - videoTimeOrigin <= Math.max(firstPicture, mediaTime()) + 0.5) return
+          if (!candidates[index]) return
           const recover = () => failed(pictureTime === undefined ? 'The browser did not present the opening picture.'
             : 'The browser placed the picture outside the playback timeline.',
             false, { pictureTime, firstPicture }, true)
-          if (Math.max(resumeAt, video.currentTime) >= firstPicture) { recover(); return }
+          if (Math.max(resumeAt, mediaTime()) >= firstPicture) { recover(); return }
           // Let the viewer hear the intentional audio lead-in.
-          const afterLead = () => { if (video.currentTime >= firstPicture) recover() }
+          const afterLead = () => { if (mediaTime() >= firstPicture) recover() }
           listen('timeupdate', afterLead)
           listen('seeking', afterLead)
         }) : undefined
+      const openingPosition = resumeAt
+      if (mode === 'original' && candidates[index] && openingPosition < 0.5 && isMatroskaContainer(info?.media?.container)) {
+        const firstSample = Math.min(firstPicture, audio?.startSeconds ?? firstPicture)
+        const initialSeek = lastSeekAt
+        listen('playing', async () => {
+          const started = performance.now()
+          await openingPicture
+          if (signal.aborted || initialSeek !== lastSeekAt) return
+          // Chromium can jump straight to a delayed soundtrack, skipping
+          // seconds of valid opening pictures before the first playing event.
+          const position = mediaTime()
+          const elapsed = (performance.now() - started) / 1000 * video.playbackRate
+          if (position <= Math.max(openingPosition, firstSample) + elapsed + 0.5) return
+          mediaReady = false
+          resumeAt = openingPosition
+          failed('The browser skipped the beginning of the native playback timeline.', false, { position, firstSample }, true)
+        }, true)
+      }
       const deferPlay = !!openingPicture && resumeAt > 0
       listen('loadedmetadata', async () => {
         if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
@@ -561,10 +609,10 @@
         // appended both tracks. Seeking earlier can strand the element just
         // before the first playable sample at a segment boundary. A prepared
         // rendition still needs the position reached during prefetch.
-        if (resumeAt > 0 && Number.isFinite(video.duration) && (!hls || prepared || resumeAt >= video.duration)) {
-          video.currentTime = Math.min(resumeAt, Math.max(0, video.duration - 0.1))
+        updateTimelineDuration()
+        if (resumeAt > 0 && timelineDuration && (!hls || prepared || resumeAt >= timelineDuration)) {
+          video.currentTime = videoTimeOrigin + Math.min(resumeAt, Math.max(0, timelineDuration - 0.1))
         }
-        timelineDuration = Number.isFinite(video.duration) ? video.duration : 0
         updatePlaybackPosition()
         observePresentedFrames(signal)
         if (deferPlay) play()
@@ -582,13 +630,18 @@
         const controller = new AbortController()
         preparing = controller
         const cancel = () => controller.abort()
+        const seekAtStart = lastSeekAt
         signal.addEventListener('abort', cancel, { once: true })
-        video.addEventListener('seeking', cancel, { signal: controller.signal })
+        // HLS also seeks forward a fraction of a second to cross a buffer gap.
+        // Keep preparing through that recovery. A viewer seek changes the target.
+        video.addEventListener('seeking', () => {
+          if (lastSeekAt !== seekAtStart) cancel()
+        }, { signal: controller.signal })
         video.addEventListener('pause', cancel, { signal: controller.signal })
         const reserve = bufferedEnd(video) - video.currentTime
         try {
           const prepared = target.mode === 'original' || nativeHls ? undefined : await prefetchRendition(
-            browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target), video.currentTime, controller.signal
+            browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target), mediaTime(), controller.signal
           )
           if (prepared === false) {
             incompatible.add(next)
@@ -602,7 +655,7 @@
             prepared?.destroy()
             return
           }
-          resumeAt = video.currentTime
+          resumeAt = mediaTime()
           mediaReady = false
           loading = true
           index = next
@@ -610,7 +663,7 @@
           void nextSource(prepared)
         } catch {
           // A speculative conversion failure leaves the working source playing.
-          retryAfter = performance.now() + 10000
+          if (!controller.signal.aborted) retryAfter = performance.now() + 10000
         } finally {
           signal.removeEventListener('abort', cancel)
           controller.abort()
@@ -671,7 +724,8 @@
         if (!video.ended) persist(true)
       })
       listen('timeupdate', () => {
-        if (transportRetries && !video.seeking && video.currentTime >= resumeAt + 5) transportRetries = 0
+        if (transportRetries && !video.seeking && mediaTime() >= resumeAt + 5) transportRetries = 0
+        if (reopened && !video.seeking && Math.abs(mediaTime() - reopened.position) >= 5 && mediaReady) reopened = undefined
         updatePlaybackPosition()
         persist()
       })
@@ -708,17 +762,10 @@
           const player = prepared ?? createPlaybackHls(Hls, resumeAt)
           hls = player
           watchHlsSeeks(Hls, player, video, signal, (reason) => {
-            const position = video.currentTime
             const { state, frag } = player.inFlightFragments.main
-            const details = { state, segment: frag?.sn, readyState: video.readyState, bufferedAhead: bufferedEnd(video) - position }
-            if (retriedSeek?.source === index && Math.abs(retriedSeek.position - position) < 1) {
-              failed(reason, false, details)
-              return
-            }
-            console.warn('[Kinome player] Seek stalled, reopening source', { ...context(), reason, ...details })
-            retriedSeek = { source: index, position }
-            reportRecovery = true
-            retryTransport?.()
+            reopenStalledSource(reason, {
+              state, segment: frag?.sn, readyState: video.readyState, bufferedAhead: bufferedEnd(video) - video.currentTime
+            })
           })
           const updateBuffer = () => { if (!signal.aborted) updateBufferedRanges() }
           player.on(Hls.Events.BUFFER_APPENDED, updateBuffer)
@@ -732,6 +779,12 @@
           const warned = new Set<ErrorData['details']>()
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (signal.aborted) return
+            // The server has already rejected this representation. HLS.js can
+            // otherwise spend several fragment retries on the same 422.
+            if (data.response?.code === 422) {
+              failed(statusDetail(data), false, hlsDiagnostic(data))
+              return
+            }
             if (!data.fatal) {
               if (data.details === Hls.ErrorDetails.INTERNAL_ABORTED) return
               // Ordinary buffer management can emit events on healthy playback.
@@ -744,7 +797,7 @@
               return
             }
             // HLS.js also classifies playlist parsing failures as network errors.
-            const transport = data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response?.code !== 422 &&
+            const transport = data.type === Hls.ErrorTypes.NETWORK_ERROR &&
               (data.details.endsWith('LoadError') || data.details.endsWith('LoadTimeOut'))
             failed(statusDetail(data), transport, hlsDiagnostic(data))
           })
@@ -848,15 +901,28 @@
     return `Subtitles: ${detail}`
   }
 
+  function mediaTime(nativeTime = video.currentTime) {
+    return Math.min(timelineDuration || Infinity, Math.max(0, nativeTime - videoTimeOrigin))
+  }
+
+  function updateTimelineDuration() {
+    const duration = video.duration - videoTimeOrigin
+    const probed = info?.media?.durationSeconds
+    // A subtitle can extend the native timeline past every playable track.
+    const knownEnds = info?.media?.tracks.every(track => track.kind === 'subtitle' || track.endSeconds !== undefined)
+    timelineDuration = knownEnds && probed && duration > probed + 2
+      ? probed : Number.isFinite(duration) ? Math.max(0, duration) : 0
+  }
+
   function updateBufferedRanges() {
     const ranges = video.buffered
     if (ranges.length === bufferedRanges.length && bufferedRanges.every(([start, end], i) =>
-      start === ranges.start(i) && end === ranges.end(i))) return
-    bufferedRanges = Array.from({ length: ranges.length }, (_, i) => [ranges.start(i), ranges.end(i)])
+      start === mediaTime(ranges.start(i)) && end === mediaTime(ranges.end(i)))) return
+    bufferedRanges = Array.from({ length: ranges.length }, (_, i) => [mediaTime(ranges.start(i)), mediaTime(ranges.end(i))])
   }
 
   function updatePlaybackPosition() {
-    playbackPosition = video.currentTime
+    playbackPosition = mediaTime()
     // Native playback can update buffered ranges after a seek without a progress event.
     updateBufferedRanges()
     if (chapters.length) chapterIndex = chapterAfter(playbackPosition) - 1
@@ -873,14 +939,14 @@
     clearTimeout(seekTimer)
     seekTimer = undefined
     if (requestedPosition === undefined || requestedPosition === committedPosition) return
-    if (!video.seeking && requestedPosition === video.currentTime) {
+    if (!video.seeking && requestedPosition === mediaTime()) {
       updatePlaybackPosition()
       if (scrubPointer === undefined) requestedPosition = undefined
       return
     }
     committedPosition = requestedPosition
     lastSeekAt = performance.now()
-    video.currentTime = committedPosition
+    video.currentTime = videoTimeOrigin + committedPosition
   }
 
   function scheduleLiveSeek() {
@@ -901,7 +967,7 @@
   }
 
   function seek(seconds: number, live = false) {
-    seekTo((requestedPosition ?? video.currentTime) + seconds, live)
+    seekTo((requestedPosition ?? mediaTime()) + seconds, live)
   }
 
   function startScrub(event: PointerEvent) {
@@ -910,7 +976,7 @@
     clearTimeout(seekTimer)
     seekTimer = undefined
     scrubPointer = event.pointerId
-    requestedPosition ??= video.currentTime
+    requestedPosition ??= mediaTime()
   }
 
   function updateScrub(event: Event & { currentTarget: HTMLInputElement }) {
@@ -954,7 +1020,7 @@
     // boundaries relative to currentTime even at a constant frame rate.
     const base = steppedFrameTime ?? (presented !== undefined && !video.seeking &&
       Math.abs(presented - video.currentTime) < step ? presented + step / 2 : video.currentTime)
-    steppedFrameTime = Math.min(video.duration, Math.max(0, base + direction * step))
+    steppedFrameTime = Math.min(videoTimeOrigin + timelineDuration, Math.max(videoTimeOrigin, base + direction * step))
     pendingFrameTime = steppedFrameTime
     applyFrameStep()
   }
@@ -1045,7 +1111,7 @@
   }
 
   function seekChapter(next: boolean) {
-    const index = chapterAfter(requestedPosition ?? video.currentTime)
+    const index = chapterAfter(requestedPosition ?? mediaTime())
     const chapter = chapters[next ? index : index - 2]
     if (chapter) seekTo(chapter.startSeconds)
     else if (!next) seekTo(0)
@@ -1427,7 +1493,6 @@
         else openItem(initialQuality)
       }
     }, { signal: lifecycle.signal })
-    video.addEventListener('loadeddata', loadQueue, { once: true, signal: lifecycle.signal })
     openItem(initialQuality, initialInfo)
     return () => {
       persist(true)
@@ -1463,15 +1528,15 @@
       notificationStore.add('This subtitle track could not be displayed.', 'error')
       console.warn('[Kinome player] Subtitle track failed', {
         itemId: item.id, format: track.format, language: track.language,
-        position: video.currentTime, reason: diagnosticMessage(reason)
+        position: mediaTime(), reason: diagnosticMessage(reason)
       })
     }
     void openSubtitle({
       itemId: item.id, track, video, container: surface,
       source: info?.media?.tracks.find((stream) => stream.kind === 'video'),
-      localFonts: track.format === 'ass' && fontPermission === 'granted',
+      localFonts: track.format === 'ass' && canUseLocalFonts,
       fonts: info?.media?.fonts ?? [], fontRevision: info?.fontRevision,
-      signal: controller.signal, delay: untrack(() => delay), onReady, onError
+      signal: controller.signal, delay: untrack(() => delay + videoTimeOrigin), onReady, onError
     }).then((subtitle) => {
       if (controller.signal.aborted) return
       renderer = subtitle
@@ -1479,7 +1544,7 @@
     return () => { clearTimeout(slow); controller.abort(); renderer = undefined }
   })
 
-  $effect(() => { renderer?.setDelay(delay) })
+  $effect(() => { renderer?.setDelay(delay + videoTimeOrigin) })
   $effect(() => { renderer?.setPosition?.(subtitlePosition) })
 </script>
 

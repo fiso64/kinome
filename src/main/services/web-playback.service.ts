@@ -311,11 +311,15 @@ export async function serveSubtitle(
         const requestedWindow = new URL(request.url).searchParams.get('window')
         const window = request.method === 'GET' && !request.headers.has('range') ? requestedWindow : null
         const { mime: contentType, codec, muxer } = subtitleOutput[track.format]
-        if (media.startSeconds === 0 && window !== null && isMatroskaContainer(media.container)) {
+        // A subtitle may already be visible at the first playable sample. Without
+        // clipping it, FFmpeg shifts later cues to keep the first timestamp positive.
+        const clipPreroll = (media.startSeconds ?? 0) > 0
+          ? ['-bsf:s', "setts=pts='max(PTS,0)':dts='max(DTS,0)':duration='max(0,DURATION+min(0,PTS))'"] : []
+        if (window !== null && isMatroskaContainer(media.container)) {
           const start = Number(window) * SUBTITLE_WINDOW_SECONDS * 1000
           const end = start + SUBTITLE_WINDOW_SECONDS * 1000
           if (!/^\d+$/.test(window) || !Number.isSafeInteger(end)) return new Response(null, { status: 400 })
-          record.subtitleIndexes ??= readMatroskaSubtitleIndexes(path, media.tracks).catch(() => new Map())
+          record.subtitleIndexes ??= readMatroskaSubtitleIndexes(path, media.tracks, media.startSeconds).catch(() => new Map())
           const indexes = await record.subtitleIndexes
           request.signal.throwIfAborted()
           const streamIndex = Number(id.slice(2))
@@ -330,8 +334,8 @@ export async function serveSubtitle(
               } else {
                 const packets = new Uint8Array(await readMatroskaPacketWindow(path, index, start, end, request.signal))
                 if (packets.length) {
-                  body = await ffmpegExtract(['-copyts', '-f', 'matroska', '-i', 'pipe:0', '-c:s', codec,
-                    '-f', muxer, 'pipe:1'], request.signal, new Blob([packets]))
+                  body = await ffmpegExtract(['-copyts', ...(index.sourceStartMs ? ['-itsoffset', String(-index.sourceStartMs / 1000)] : []), '-f', 'matroska', '-i', 'pipe:0', '-c:s', codec,
+                    ...clipPreroll, '-f', muxer, 'pipe:1'], request.signal, new Blob([packets]))
                 } else {
                   body = index.emptyTrack
                 }
@@ -348,7 +352,7 @@ export async function serveSubtitle(
         const directory = await extract(key, request.signal, async (dir, signal) => {
           console.debug('[Subtitles] Extracting full embedded track', { itemId, id, format: track.format, windowRequested: requestedWindow !== null })
           await ffmpegExtract(['-i', path, '-map', '0:' + id.slice(2), '-map_metadata', '-1',
-            '-c:s', codec, '-f', muxer, join(dir, 'track')], signal)
+            '-c:s', codec, ...clipPreroll, '-f', muxer, join(dir, 'track')], signal)
         })
         asset = join(directory, 'track')
         type = contentType

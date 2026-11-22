@@ -1,6 +1,6 @@
 import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
-import type { LocalMediaTrack } from '@shared/local-media'
+import { isMatroskaContainer, type LocalMediaTrack } from '@shared/local-media'
 import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput, type VideoQuality } from '@shared/playback-quality'
 import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
 import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQualityChoice, WebQueueItem, WebSubtitle } from '@shared/web-playback'
@@ -138,12 +138,16 @@ export function playbackAttempts(
   }
   if (!explicit) {
     const audioTracks = source?.tracks.filter(track => track.kind === 'audio') ?? []
+    // FFprobe groups WebM with Matroska. Native WebM playback can decode
+    // Vorbis even when the browser's fragmented MP4 demuxer cannot.
+    const audioMime = isMatroskaContainer(source?.container) && (audioCodec === 'vorbis' || audioCodec === 'opus')
+      ? 'audio/webm' : 'audio/mp4'
+    const nativeAudio = audioCodec && player.canPlayType(`${audioMime}; codecs="${audioCodec}"`)
     const mixedCodecs = audioTracks.some(track => codecsFor(track) !== audioCodec)
     const couldSubstituteAudio = audioTracks.length > 1 &&
-      (audio?.index !== audioTracks[0].index || (mixedCodecs && !copyAudio))
+      (audio?.index !== audioTracks[0].index || (mixedCodecs && !nativeAudio))
     if ('audioTracks' in player || (audio?.index === defaultAudio?.index && !couldSubstituteAudio)) {
-      attempts.push({ mode: 'original', checkAudio: !!audio &&
-        (!audioCodec || !player.canPlayType(`audio/mp4; codecs="${audioCodec}"`)) })
+      attempts.push({ mode: 'original', checkAudio: !!audio && !nativeAudio })
     }
     if (info.qualities.includes('remux')) {
       attempts.push({ mode: 'remux', checkAudio: !!audio && !copyAudio })
@@ -181,6 +185,40 @@ export function playbackAttempts(
     }
   }
   return attempts
+}
+
+let reflectionSupport: Promise<boolean> | undefined
+
+/** Probe once, only for mirrored media. Some browsers honor rotation but discard reflection. */
+export function supportsVideoReflection(sample: string): Promise<boolean> {
+  return reflectionSupport ??= new Promise(resolve => {
+    const video = document.createElement('video')
+    const finish = (supported: boolean) => {
+      clearTimeout(timer)
+      video.onloadeddata = video.onerror = null
+      video.removeAttribute('src')
+      video.load()
+      resolve(supported)
+    }
+    // An inconclusive probe leaves the viewer's original playback order intact.
+    const timer = setTimeout(() => finish(true), 1200)
+    video.onerror = () => finish(true)
+    video.onloadeddata = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 2
+      canvas.height = 1
+      try {
+        const context = canvas.getContext('2d')!
+        context.drawImage(video, 0, 0, 2, 1)
+        const pixels = context.getImageData(0, 0, 2, 1).data
+        // The stored image is black on the left and white on the right.
+        finish(!(pixels[0] < 32 && pixels[4] > 224))
+      } catch { finish(true) }
+    }
+    video.muted = true
+    video.preload = 'auto'
+    video.src = sample
+  })
 }
 
 function playbackPath(itemId: string): string {

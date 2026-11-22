@@ -1,6 +1,7 @@
 import type { PlaybackQuality } from '@shared/playback-quality'
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import path from 'path'
 import * as repositoryService from './repository.service'
 import * as settingsService from './settings.service'
@@ -237,7 +238,9 @@ export function handleFileStreamFast(
   // Bun can spend hundreds of milliseconds sending a cold file slice on the
   // HTTP thread, delaying every viewer. Bound read-ahead for slow clients.
   const stream = createReadStream(file, { start, end: end - 1, highWaterMark: 256 * 1024, signal: request.signal })
-  return new Response(stream, { status, headers })
+  // Attach the response body's error handling before a viewer can cancel the
+  // request. A client seeking again can disconnect before Bun pulls any bytes.
+  return new Response(Readable.toWeb(stream, { strategy: { highWaterMark: 1 } }), { status, headers })
 }
 
 /**

@@ -16,18 +16,21 @@ export interface PlaybackTimeline {
   readonly seekStarts?: readonly number[]
 }
 
-export function createTimeline(duration: number, keyframes?: readonly number[], videoEnd = duration, firstPicture = 0): PlaybackTimeline {
+export function createTimeline(duration: number, keyframes?: readonly number[], videoEnd = duration, firstPicture = 0, firstSound = 0): PlaybackTimeline {
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('The file has no usable duration')
   // The final video segment carries any remaining audio. A cut after the last
   // picture cannot be produced by the video-referenced segment muxer.
   const lastCut = Math.min(duration, videoEnd) - minimumTailSeconds
+  // A TS segment with no audio packets cannot initialize the browser's
+  // audio buffer. Keep the first copied sound packet in the opening segment.
+  const firstTracks = Math.max(firstPicture, firstSound)
   const starts = [0]
   if (keyframes) {
     if (!keyframes.length) throw new Error('The file has no usable video seek index')
     const seekStarts = [0]
     for (const [index, keyframe] of keyframes.entries()) {
       if (keyframe >= lastCut) break
-      if (keyframe <= firstPicture) continue
+      if (keyframe <= firstTracks) continue
       if (keyframe - starts[starts.length - 1] < targetRemuxSegmentSeconds) continue
       starts.push(keyframe)
       // Some demuxers back up across their seek preroll. Seek slightly beyond
@@ -37,7 +40,7 @@ export function createTimeline(duration: number, keyframes?: readonly number[], 
     }
     return { firstPicture, duration, starts, seekStarts }
   }
-  const firstCut = Math.ceil((firstPicture + minimumTailSeconds) / transcodeSegmentSeconds) * transcodeSegmentSeconds
+  const firstCut = Math.ceil((firstTracks + minimumTailSeconds) / transcodeSegmentSeconds) * transcodeSegmentSeconds
   for (let time = firstCut; time < lastCut; time += transcodeSegmentSeconds) starts.push(time)
   return { firstPicture, duration, starts }
 }
@@ -61,7 +64,10 @@ export function segmentPlaylist(
   for (const duration of durations) targetDuration = Math.max(targetDuration, Math.ceil(duration))
   const playlist = [
     '#EXTM3U', initUrl ? '#EXT-X-VERSION:7' : '#EXT-X-VERSION:6', '#EXT-X-PLAYLIST-TYPE:VOD',
-    '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-INDEPENDENT-SEGMENTS', `#EXT-X-TARGETDURATION:${targetDuration}`
+    '#EXT-X-MEDIA-SEQUENCE:0',
+    // Copied keyframes may start an open GOP with pictures referencing the previous segment.
+    ...(!timeline.seekStarts ? ['#EXT-X-INDEPENDENT-SEGMENTS'] : []),
+    `#EXT-X-TARGETDURATION:${targetDuration}`
   ]
   if (initUrl) playlist.push(`#EXT-X-MAP:URI="${initUrl}"`)
   for (const [index, duration] of durations.entries()) {

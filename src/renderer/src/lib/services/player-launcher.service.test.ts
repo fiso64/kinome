@@ -171,6 +171,12 @@ test('tries the original before lossy fallback and preserves compatible audio at
   info.media = { container: 'avi', tracks: [video, unsupported, { ...audio, index: 2, default: false }] }
   // This client cannot identify or select the track that its native demuxer picked.
   expect(playbackAttempts(player, info, unsupported, unsupported, 'auto').some(attempt => attempt.mode === 'original')).toBe(false)
+  const vorbis = { ...audio, codec: 'vorbis' }
+  const opus = { ...audio, index: 2, codec: 'opus', default: false }
+  const webm = { ...info, media: { container: 'matroska', tracks: [{ ...video, codec: 'vp8' }, vorbis, opus] } }
+  const webmPlayer = { canPlayType: (type: string) => type.startsWith('audio/webm') ? 'probably' : '' } as HTMLVideoElement
+  expect(playbackAttempts(webmPlayer, webm, vorbis, vorbis, 'source')[0]).toEqual({ mode: 'original', checkAudio: false })
+  expect(playbackAttempts(webmPlayer, webm, opus, vorbis, 'source').some(attempt => attempt.mode === 'original')).toBe(false)
   const h264 = { ...video, codec: 'h264' }
   const hlsPlayer = { canPlayType: (type: string) => type.includes('avc1') ? 'probably' : player.canPlayType(type) } as HTMLVideoElement
   const compatibleVideo = { ...info, media: { container: 'matroska', tracks: [h264, unsupported, { ...audio, index: 2 }] } }

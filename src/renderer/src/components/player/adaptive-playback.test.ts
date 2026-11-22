@@ -1,6 +1,48 @@
-import { expect, spyOn, test } from 'bun:test'
+import { expect, jest, spyOn, test } from 'bun:test'
 import Hls, { Fragment, PlaylistLevelType } from 'hls.js'
-import { AdaptivePlaybackStats, createPlaybackHls, watchHlsSeeks } from './adaptive-playback'
+import { AdaptivePlaybackStats, createPlaybackHls, watchHlsSeeks, watchPlaybackProgress } from './adaptive-playback'
+
+test.each([2, 4])('recovers a buffered freeze at readyState %i and an idle paused seek', (readyState: number) => {
+  const page = Object.assign(new EventTarget(), { hidden: false })
+  const video = Object.assign(new EventTarget(), {
+    ownerDocument: page, currentTime: 12, playbackRate: 1, readyState, networkState: 2,
+    HAVE_FUTURE_DATA: 3, NETWORK_IDLE: 1, paused: false, seeking: false,
+    buffered: { length: 1, start: () => 10, end: () => 20 }
+  })
+  const signal = new AbortController()
+  const failures: string[] = []
+  jest.useFakeTimers()
+  try {
+    watchPlaybackProgress(video as unknown as HTMLVideoElement, signal.signal, true, reason => failures.push(reason))
+    video.dispatchEvent(new Event('playing'))
+    for (let i = 0; i < 6; i++) {
+      video.currentTime++
+      jest.advanceTimersByTime(2000)
+    }
+    video.paused = true
+    video.dispatchEvent(new Event('pause'))
+    jest.advanceTimersByTime(12000)
+    video.paused = false
+    video.dispatchEvent(new Event('playing'))
+    jest.advanceTimersByTime(4000)
+    expect(failures).toEqual([])
+    jest.advanceTimersByTime(2000)
+    expect(failures).toEqual(['The playback clock stopped advancing with media buffered.'])
+
+    video.currentTime = 42
+    video.seeking = video.paused = true
+    video.readyState = 1
+    video.dispatchEvent(new Event('seeking'))
+    jest.advanceTimersByTime(12000)
+    expect(failures).toHaveLength(1)
+    video.networkState = video.NETWORK_IDLE
+    jest.advanceTimersByTime(6000)
+    expect(failures[1]).toBe('The browser stopped loading before the requested position was playable.')
+  } finally {
+    signal.abort()
+    jest.useRealTimers()
+  }
+})
 
 test('delivers the first fragment whole before the playlist identifies its format', () => {
   const player = createPlaybackHls(Hls, 0)
@@ -38,6 +80,41 @@ test('resets progressive parsing only when a seek abandons a partially delivered
   } finally {
     controller.abort()
     player.destroy()
+  }
+})
+
+test('lets a buffered seek settle and recovers one that remains stuck on the wrong fragments', () => {
+  const player = createPlaybackHls(Hls, 0)
+  const controller = new AbortController()
+  const video = Object.assign(new EventTarget(), { currentTime: 60, seeking: true })
+  const frag = new Fragment(PlaylistLevelType.MAIN, '')
+  frag.start = 10
+  frag.duration = 2
+  frag.sn = 5
+  const failures: string[] = []
+  jest.useFakeTimers()
+  try {
+    watchHlsSeeks(Hls, player, video as HTMLVideoElement, controller.signal, reason => failures.push(reason))
+    function seek() {
+      video.seeking = true
+      video.dispatchEvent(new Event('seeking'))
+      for (let n = 0; n < 3; n++) {
+        player.emit(Hls.Events.FRAG_BUFFERED, Hls.Events.FRAG_BUFFERED, { frag, part: null, stats: frag.stats, id: PlaylistLevelType.MAIN })
+      }
+    }
+    seek()
+    jest.advanceTimersByTime(150)
+    video.seeking = false
+    video.dispatchEvent(new Event('seeked'))
+    jest.advanceTimersByTime(2000)
+    expect(failures).toBeEmpty()
+    seek()
+    jest.advanceTimersByTime(2000)
+    expect(failures).toEqual(['HLS buffered segments without reaching the seek target.'])
+  } finally {
+    controller.abort()
+    player.destroy()
+    jest.useRealTimers()
   }
 })
 

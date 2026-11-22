@@ -1,4 +1,5 @@
 import type JassubRenderer from 'jassub'
+import fallbackFontUrl from 'jassub/dist/default.woff2?url'
 import { subtitleUrl } from '@lib/services/web-playback.service'
 import type { LocalMediaTrack } from '@shared/local-media'
 import { SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type WebSubtitle } from '@shared/web-playback'
@@ -66,7 +67,10 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
       renderer = new StyledSubtitles({
         video, canvas, subContent: initial.content, timeOffset: -delay,
         maxRenderHeight: 0, queryFonts: options.localFonts ? 'local' : false,
-        fonts: fonts.map((index) => subtitleUrl(itemId, 'font', String(index), options.fontRevision))
+        // A paused video may never present another frame after the worker's
+        // first draw. Make its fallback face available for that draw as well.
+        defaultFont: 'Liberation Sans',
+        fonts: [...fonts.map((index) => subtitleUrl(itemId, 'font', String(index), options.fontRevision)), fallbackFontUrl]
       })
       await renderer.ready
       signal.throwIfAborted()
@@ -147,7 +151,6 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
       ? followWindows(video, canvas, windows, firstWindow, signal, () => offset, display, onReady, onError)
       : undefined
     onReady()
-    follow?.()
     return {
       setDelay: (seconds) => {
         offset = -seconds
@@ -202,9 +205,27 @@ export async function openSubtitle(options: SubtitleOptions): Promise<SubtitleRe
 const subtitleWindow = (seconds: number) => Math.floor(Math.max(0, seconds) / SUBTITLE_WINDOW_SECONDS)
 
 async function fetchWindow<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>) {
-  const response = await fetch(url, { signal })
-  if (!response.ok) throw new Error(`Subtitle request failed (HTTP ${response.status})`)
-  return { content: await read(response), windowed: response.headers.has(SUBTITLE_WINDOW_HEADER) }
+  const delays = [500, 2000, 5000, 15000, 30000]
+  for (let attempt = 0; ; attempt++) {
+    let response: Response | undefined
+    try {
+      response = await fetch(url, { signal })
+      if (!response.ok) throw new Error(`Subtitle request failed (HTTP ${response.status})`)
+      return { content: await read(response), windowed: response.headers.has(SUBTITLE_WINDOW_HEADER) }
+    } catch (error) {
+      signal.throwIfAborted()
+      if (attempt >= delays.length || (response && !response.ok &&
+          ![408, 429, 500, 502, 503, 504].includes(response.status))) throw error
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => { clearTimeout(timer); reject(signal.reason) }
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', abort)
+          resolve()
+        }, delays[attempt])
+        signal.addEventListener('abort', abort, { once: true })
+      })
+    }
+  }
 }
 
 function subtitleWindows<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>) {
@@ -294,6 +315,8 @@ function followWindows<T>(
   }
   video.addEventListener('timeupdate', follow, { signal })
   video.addEventListener('seeking', follow, { signal })
+  // A paused seek can finish during the initial request or renderer setup.
+  follow()
   return follow
 }
 
@@ -385,7 +408,6 @@ async function textTrack(
   const follow = windows && initial.windowed
     ? followWindows(video, undefined, windows, firstWindow, signal, () => -offset, display, onReady, onError)
     : undefined
-  follow?.()
   onReady()
   return {
     setDelay: (seconds) => { offset = seconds; apply(); follow?.() },

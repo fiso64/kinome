@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,62 @@ import { readMatroskaSubtitleIndexes, readMatroskaAssWindow, readMatroskaPgsWind
 import { createTimeline, segmentPlaylist } from './transcoding/timeline'
 import { indexSupWindows } from './transcoding/sup-windows'
 import { inspectMp4Segment } from './transcoding/mp4-keyframes'
+import { openPlaybackSource, PlaybackSession } from './transcoding'
+import { conversionAvailable, ffmpeg, ffprobe } from './transcoding/runtime'
+import { normalizePlaybackEncoding } from '@shared/playback-quality'
+
+it.skipIf(!conversionAvailable)('holds the last source picture when seeking in a gap between video frames', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kinome-sparse-video-'))
+  const log = spyOn(console, 'info').mockImplementation(() => {})
+  let session: PlaybackSession | undefined
+  try {
+    const path = join(directory, 'slides.mkv')
+    // Only the last quarter-second before the gap is white. The next shot is black.
+    const fixture = Bun.spawnSync([ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=black:s=32x32:r=8:d=8',
+      '-f', 'lavfi', '-i', 'sine=duration=8', '-vf',
+      "drawbox=color=white:t=fill:enable='between(t,0.75,1)',select='lte(t,1)+gte(t,5.25)'",
+      '-fps_mode', 'vfr', '-c:v', 'mpeg4', '-g', '1', '-c:a', 'aac', path])
+    expect(fixture.exitCode).toBe(0)
+    const source = await openPlaybackSource(ffprobe!, path, '480p', normalizePlaybackEncoding({ hardwareAcceleration: 'software' }))
+    session = new PlaybackSession('slides', ffmpeg!, source, () => {}, () => {})
+    for (const [second, white] of [[3, true], [6, false]] as const) {
+      const segment = await session.segment(second)
+      const decoded = Bun.spawnSync([ffmpeg!, '-v', 'error', '-i', segment.path, '-an',
+        '-vf', 'scale=1:1,format=gray', '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1'])
+      expect(decoded.exitCode).toBe(0)
+      expect(decoded.stdout.length).toBeGreaterThan(0)
+      expect(decoded.stdout.every(value => white ? value > 235 : value < 20)).toBe(true)
+    }
+  } finally {
+    await session?.close()
+    log.mockRestore()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it.skipIf(!conversionAvailable)('decodes a copied open-GOP AVC segment after a cold seek', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kinome-open-gop-'))
+  const log = spyOn(console, 'info').mockImplementation(() => {})
+  let session: PlaybackSession | undefined
+  try {
+    const path = join(directory, 'movie.mp4')
+    const fixture = Bun.spawnSync([ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=96x64:r=24:d=9',
+      '-threads:v', '1', '-c:v', 'libx264', '-x264-params', 'open-gop=1:bframes=4:b-adapt=0:keyint=48:min-keyint=48:scenecut=0', path])
+    expect(fixture.exitCode).toBe(0)
+    const source = await openPlaybackSource(ffprobe!, path, 'remux', normalizePlaybackEncoding({}), undefined, true)
+    expect(segmentPlaylist(source.timeline, String)).not.toContain('#EXT-X-INDEPENDENT-SEGMENTS')
+    session = new PlaybackSession('open-gop', ffmpeg!, source, () => {}, () => {})
+    const segment = await session.segment(2)
+    const decoded = Bun.spawnSync([ffmpeg!, '-v', 'error', '-i', segment.path, '-frames:v', '1',
+      '-pix_fmt', 'gray', '-threads:v', '1', '-f', 'rawvideo', 'pipe:1'])
+    expect(decoded.exitCode).toBe(0)
+    expect(decoded.stdout.length).toBe(96 * 64)
+  } finally {
+    await session?.close()
+    log.mockRestore()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 it('publishes the legacy x264 decoder hint before the picture without shifting fragment offsets', async () => {
   const word = (value: number) => {
@@ -121,7 +177,6 @@ it('reads indexed ASS cues for a seek, including lines already on screen', async
 })
 
 it('restores the previous bitmap epoch on seek and declines incomplete subtitle indexes', async () => {
-  const info = element('1549a966', element('5741', 'mkvmerge fixture'))
   const tracks = element('1654ae6b', element('ae', element('d7', 1), element('83', 1)),
     element('ae', element('d7', 2), element('83', 17), element('86', 'S_HDMV/PGS')))
   const epoch = Buffer.from('16000b0780043810000080000000', 'hex')
@@ -134,13 +189,18 @@ it('restores the previous bitmap epoch on seek and declines incomplete subtitle 
   const directory = await mkdtemp(join(tmpdir(), 'kinome-pgs-index-'))
   try {
     const path = join(directory, 'indexed.mkv')
-    const cues = cuesAt(info.length + tracks.length + cuesAt(0).length)
-    await Bun.write(path, element('18538067', info, tracks, cues, element('1f43b675', ...blocks)))
+    const write = (writer: string) => {
+      const info = element('1549a966', element('5741', writer))
+      const cues = cuesAt(info.length + tracks.length + cuesAt(0).length)
+      return Bun.write(path, element('18538067', info, tracks, cues, element('1f43b675', ...blocks)))
+    }
+    await write('mkvmerge fixture')
     const flags = { default: false, forced: false, hearingImpaired: false }
-    const indexes = (packetCount: number) => readMatroskaSubtitleIndexes(path, [
+    const indexes = (packetCount?: number) => readMatroskaSubtitleIndexes(path, [
       { index: 0, kind: 'video', ...flags }, { index: 1, kind: 'subtitle', codec: 'hdmv_pgs_subtitle', packetCount, ...flags }
     ])
     expect((await indexes(3)).size).toBe(0)
+    expect((await indexes()).size).toBe(0)
     const index = (await indexes(2)).get(1)
     if (index?.format !== 'pgs') throw new Error('Expected indexed PGS')
     const data = await readMatroskaPgsWindow(path, index, 1100, 2000, new AbortController().signal)
@@ -148,6 +208,9 @@ it('restores the previous bitmap epoch on seek and declines incomplete subtitle 
       Buffer.from('50470000000000000000', 'hex'), epoch, Buffer.from('504700015f9000015f90', 'hex'), clear
     ]))
     await expect(readMatroskaPgsWindow(path, index, 1100, 2000, AbortSignal.abort())).rejects.toThrow()
+    await write('Lavf62.3.100')
+    expect((await indexes()).get(1)?.cues).toHaveLength(2)
+    expect((await indexes(3)).size).toBe(0)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -211,10 +274,13 @@ describe('direct media streaming', () => {
     expect(response.body).toBeNull()
   })
 
-  it('stops a direct read when the request is aborted', async () => {
+  it('handles a cancelled direct request before the response body is consumed', async () => {
     const controller = new AbortController()
     const response = handleFileStreamFast(streamRequest(null, { signal: controller.signal }), filePath, 10, 'video/mp4')
     controller.abort()
+    // A browser can abandon the response headers during a seek, before the
+    // HTTP server has attached its body reader.
+    await new Promise<void>((resolve) => setImmediate(resolve))
     await expect(response.arrayBuffer()).rejects.toThrow()
   })
 })

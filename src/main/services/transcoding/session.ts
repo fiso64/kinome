@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { inspectMp4Segment } from './mp4-keyframes'
 import type { PlaybackVideoBackend } from '@shared/playback-quality'
-import { copiesVideo, lastSegmentInJob, startSegmentJob, type SegmentSource } from './segment-job'
+import { copiesVideo, lastSegmentInJob, MissingVideoCut, startSegmentJob, type SegmentSource } from './segment-job'
 import { transcodeSegmentSeconds } from './timeline'
 
 const retentionMs = 60_000
@@ -29,6 +29,7 @@ interface Job {
   last: number
   requests: number
   idle?: PromiseWithResolvers<void>
+  cancelTimer?: ReturnType<typeof setTimeout>
   stop: () => void
   waiters: Map<number, SegmentWaiter>
 }
@@ -72,7 +73,12 @@ export class PlaybackSession {
     this.#source = source
     this.#onIdle = onIdle
     this.#onVideoBackend = onVideoBackend
-    this.#videoMode = !copiesVideo(source.quality) && source.vaapiDevice ? 'vaapi' : 'software'
+    this.#videoMode = 'software'
+    if (!copiesVideo(source.quality) && source.vaapiDevice) {
+      // FFmpeg applies the source display matrix on CPU frames. VA-API
+      // decode can discard it, leaving the encoded picture sideways or mirrored.
+      this.#videoMode = source.video.displayMatrix ? 'vaapi-upload' : 'vaapi'
+    }
     console.info('[Playback] Opened conversion session', { operationId: id, quality: source.quality })
     this.touch()
   }
@@ -152,12 +158,14 @@ export class PlaybackSession {
     if (!job) return
     this.#job = undefined
     this.#cancelled++
+    clearTimeout(job.cancelTimer)
     for (const waiter of job.waiters.values()) waiter.reject(new DOMException('Playback moved to another segment', 'AbortError'))
     job.waiters.clear()
     job.stop()
   }
 
   async #segmentFrom(job: Job, index: number, signal?: AbortSignal): Promise<CachedSegment> {
+    clearTimeout(job.cancelTimer)
     let waiter = job.waiters.get(index)
     if (!waiter) {
       waiter = Promise.withResolvers<CachedSegment>()
@@ -171,7 +179,14 @@ export class PlaybackSession {
       if (!job.requests) {
         job.idle?.resolve()
         job.idle = undefined
-        if (signal?.aborted && this.#job === job) this.#cancelJob()
+        if (signal?.aborted && this.#job === job) {
+          // A fragment timeout is followed by a new HTTP request for the same
+          // segment. Let that request reuse the encode. A seek outside this
+          // window still replaces it immediately.
+          job.cancelTimer = setTimeout(() => {
+            if (this.#job === job && !job.requests) this.#cancelJob()
+          }, 1500)
+        }
       }
     }
   }
@@ -192,6 +207,8 @@ export class PlaybackSession {
             ? await inspectMp4Segment(path, !this.#initialization, copiesVideo(this.#source.quality) ? this.#source.x264Build : undefined)
             : undefined
           if (this.#job !== job || this.#closed) return
+          const bytes = Bun.file(path).size
+          if (!bytes) throw new Error('FFmpeg produced an empty media segment')
           // Move published files out of the job directory. This keeps scratch
           // directories bounded across a feature-length stream or many seeks.
           const retained = join(dirname(directory), basename(directory) + '-' + basename(path))
@@ -201,7 +218,6 @@ export class PlaybackSession {
             return
           }
           this.#initialization ??= fragment?.initialization
-          const bytes = Bun.file(retained).size
           cached = { path: retained, bytes, offset: fragment?.offset ?? 0 }
           this.#generated++
           this.#completed.set(segment, cached)
@@ -229,15 +245,22 @@ export class PlaybackSession {
       }
       for (const mode of videoModes.slice(videoModes.indexOf(this.#videoMode))) {
         let emitted = false
-        const process = startSegmentJob(this.#executable, directory, this.#source, index, mode, from, seek, async (segment, path) => {
+        const onSegment = async (segment: number, path: string) => {
           await publish(segment, path)
           if (!emitted && !copiesVideo(this.#source.quality) && this.#job === job) this.#onVideoBackend(mode)
           emitted = true
           if (this.#job === job) this.#videoMode = mode
-        })
-        job.stop = process.stop
+        }
+        const encode = (fillVideoGaps: boolean) => {
+          const process = startSegmentJob(this.#executable, directory, this.#source, index, mode, from, seek, onSegment, fillVideoGaps)
+          job.stop = process.stop
+          return process.finished
+        }
         try {
-          await process.finished
+          await encode(false).catch((error: unknown) => {
+            if (!(error instanceof MissingVideoCut) || this.#job !== job) throw error
+            return encode(true)
+          })
           if (emitted) break
         } catch (error) {
           if (emitted || this.#job !== job || mode === 'software') throw error
@@ -247,6 +270,7 @@ export class PlaybackSession {
     } catch (error) {
       if (error instanceof Error) failure = error
     } finally {
+      clearTimeout(job.cancelTimer)
       if (this.#job === job) this.#job = undefined
       for (const waiter of job.waiters.values()) waiter.reject(failure)
       job.waiters.clear()

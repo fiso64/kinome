@@ -14,6 +14,7 @@ export interface SegmentSource {
   video: LocalMediaTrack
   audioTracks: readonly LocalMediaTrack[]
   quality: SegmentQuality
+  browser?: boolean
   fragmented: boolean
   seekMpegInput?: (start: number, signal: AbortSignal) => Promise<number>
   x264Build?: number
@@ -31,6 +32,10 @@ const segmentName = /^segment-(\d+)\.(?:ts|mp4),/
 // of a file. Negative MPEG-TS timestamps wrap to the end of the 33-bit clock.
 const transportStreamPreroll = 1.4
 
+// A VOD playlist advertises its cuts before any frames are encoded. A long
+// source picture can span a cut, leaving the muxer without a picture there.
+export class MissingVideoCut extends Error {}
+
 export function lastSegmentInJob(source: SegmentSource, first: number): number {
   const segmentCount = copiesVideo(source.quality) ? 4 : 12 / transcodeSegmentSeconds
   return Math.min(source.timeline.starts.length - 1, first + segmentCount - 1)
@@ -39,7 +44,7 @@ export function lastSegmentInJob(source: SegmentSource, first: number): number {
 export function startSegmentJob(
   executable: string, directory: string, source: SegmentSource, first: number,
   mode: PlaybackVideoBackend, encodeFrom: number, inputStart: number,
-  onSegment: (index: number, path: string) => void | Promise<void>
+  onSegment: (index: number, path: string) => void | Promise<void>, fillVideoGaps = false
 ) {
   const { quality, timeline, path, video, audioTracks, fragmented, encoding } = source
   const last = lastSegmentInJob(source, first)
@@ -47,9 +52,16 @@ export function startSegmentJob(
   const end = endOfSegment(timeline, last)
   const boundaries = timeline.starts.slice(encodeFrom + 1, last + 2)
   const firstPicture = Math.max(start, timeline.firstPicture)
-  const splitTimes = boundaries.map((time) => (time - firstPicture).toFixed(6))
+  const firstSound = Math.min(firstPicture, ...audioTracks.map(track => track.startSeconds ?? 0))
+  // MSE takes the intersection of buffered tracks. Hold the first picture
+  // through an audio intro so the player can present the opening soundtrack.
+  const openingLead = source.browser && start === 0 && firstPicture - firstSound > 0.25 ? firstPicture - firstSound : 0
+  const splitTimes = boundaries.map((time) => (time - firstPicture + openingLead).toFixed(6))
   const remux = copiesVideo(quality)
   const hardware = !remux && mode !== 'software' ? source.vaapiDevice : undefined
+  const interlaced = ['tt', 'bb', 'tb', 'bt'].includes(video.fieldOrder ?? '')
+  const preserveTimestamps = !remux && !(interlaced && hardware)
+  const checkCuts = preserveTimestamps && !fillVideoGaps
   // TrueHD needs a Blu-ray stream type and an AC-3 compatibility stream.
   const mpegtsFormat = [
     'mpegts_copyts=1', 'mpegts_flags=initial_discontinuity',
@@ -70,7 +82,7 @@ export function startSegmentJob(
     // A copied video seeks just past its keyframe to select the correct cue.
     // Keep the corresponding decoded audio preroll instead of trimming it to
     // that later timestamp when only the audio is being converted.
-    ...(quality === 'audio' ? ['-noaccurate_seek'] : []),
+    ...(quality === 'audio' || fillVideoGaps ? ['-noaccurate_seek'] : []),
     // Seeking even to zero can jump to a delayed first video keyframe
     // and discard the audio that precedes it in the container.
     ...(inputStart > 0 ? ['-ss', inputStart.toFixed(6)] : []),
@@ -83,31 +95,40 @@ export function startSegmentJob(
     if (track.language) args.push(`-metadata:s:a:${index}`, `language=${track.language}`)
     args.push(`-disposition:a:${index}`, index === 0 ? 'default' : '0')
   }
+  const videoBitstreamFilters: string[] = []
   if (remux) {
     args.push('-c:v', 'copy')
     if (source.x264Build !== undefined && source.x264Build < 151) {
       // Include the source encoder identity at each random-access point.
-      args.push('-bsf:v', 'h264_mp4toannexb,h264_metadata=sei_user_data=' +
+      videoBitstreamFilters.push('h264_mp4toannexb', 'h264_metadata=sei_user_data=' +
         `dc45e9bde6d948b7962cd820d923eeef+x264 - core ${source.x264Build}`)
+    } else if (!fragmented && video.codec === 'h264') {
+      // An open-GOP recovery point need not be an IDR. Include the parameter
+      // sets there too so a fresh TS parser can configure the video on a seek.
+      videoBitstreamFilters.push('h264_mp4toannexb', 'dump_extra=freq=keyframe')
     }
     if (fragmented && video.codec === 'hevc') args.push('-tag:v', 'hvc1')
   } else {
     const height = Math.floor(Math.min(video.height!, videoQualityHeights[quality]) / 2) * 2
     const width = Math.round(height * video.width! / video.height! / 2) * 2
+    // Autorotation happens before scaling. Preserve the selected reduction
+    // on both picture axes even when the filter receives a portrait frame.
+    const scale = video.displayMatrix
+      ? `w=2*round(iw*${height}/${video.height}/2):h=2*round(ih*${height}/${video.height}/2)`
+      : `w=${width}:h=${height}`
     const hdr = isHdrTransfer(video.colorTransfer)
     const toneMap = hdr && !source.videoCodec
     const tenBit = hdr || !!source.videoCodec
-    const interlaced = ['tt', 'bb', 'tb', 'bt'].includes(video.fieldOrder ?? '')
     const filters = hardware
       ? [
           ...(mode === 'vaapi-upload' ? [tenBit ? 'format=p010le' : 'format=nv12', 'hwupload'] : []),
           ...(interlaced ? ['deinterlace_vaapi=rate=field:auto=1'] : []),
-          `scale_vaapi=w=${width}:h=${height}:format=${tenBit ? 'p010' : 'nv12'}`,
+          `scale_vaapi=${scale}:format=${tenBit ? 'p010' : 'nv12'}`,
           ...(toneMap ? ['tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709'] : [])
         ]
       : [
           ...(interlaced ? ['bwdif=mode=send_field:deint=interlaced'] : []),
-          `scale=${width}:${height}`,
+          `scale=${scale}`,
           ...(toneMap ? ['zscale=t=linear:npl=100', 'format=gbrpf32le', 'tonemap=tonemap=mobius',
             'zscale=p=bt709:t=bt709:m=bt709:r=tv', 'format=yuv420p'] : [])
         ]
@@ -125,7 +146,17 @@ export function startSegmentJob(
     }
     if (codec === 'hevc') encoder.push('-tag:v', 'hvc1')
     if (source.videoCodec && video.colorTransfer) encoder.push('-color_trc', video.colorTransfer)
-    if (source.seekMpegInput && start) filters.unshift(`trim=start=${start}`)
+    if (fillVideoGaps) {
+      // Retain the picture preceding the seek and hold it through missing cuts.
+      filters.unshift(`fps=fps='max(source_fps,1)':start_time=${firstPicture}:round=near`)
+    } else if (source.seekMpegInput && start) filters.unshift(`trim=start=${start}`)
+    if (checkCuts) {
+      // Observe only the first picture in each second of the filtered video.
+      // The segmenter's CSV alone can report a normal video duration even
+      // when the final file has absorbed many seconds of audio in a picture gap.
+      filters.push("split[video][clock];[clock]select='isnan(prev_t)+gt(floor(t),floor(prev_t))'," +
+        "metadata=mode=add:key=cut:value=1,metadata=mode=print:key=cut:file='pipe\\:1':direct=1,nullsink;[video]null")
+    }
     const bitrate = encoding.videoBitrateMbps
     const high = encoding.videoQuality === 'high'
     if (bitrate) {
@@ -138,10 +169,17 @@ export function startSegmentJob(
       if (codec === 'vp9') encoder.push('-b:v', '0')
     }
     args.push(
-      '-vf', filters.join(','), '-filter_threads', '2', ...encoder, '-bf', '0', '-flags:v', '+cgop',
+      '-vf', filters.join(','), '-filter_threads', '2',
+      ...(preserveTimestamps ? ['-fps_mode:v', 'vfr', '-enc_time_base:v', '1:90000'] : []),
+      ...encoder, '-bf', '0', '-flags:v', '+cgop',
       ...(boundaries.length ? ['-force_key_frames', boundaries.join(',')] : [])
     )
   }
+  if (openingLead) {
+    const shift = `${openingLead}/TB`
+    videoBitstreamFilters.push(`setts=pts='if(eq(N,0),PTS-${shift},PTS)':dts='if(eq(N,0),DTS-${shift},DTS)':duration='if(eq(N,0),DURATION+${shift},DURATION)'`)
+  }
+  if (videoBitstreamFilters.length) args.push('-bsf:v', videoBitstreamFilters.join(','))
   for (const [index, track] of audioTracks.entries()) {
     if (source.copyAudio.has(track.index)) {
       args.push(`-c:a:${index}`, 'copy')
@@ -178,16 +216,36 @@ export function startSegmentJob(
   const stderr = new Response(process.stderr).text()
   const segments = (async () => {
     let pending = ''
+    let picture: number | undefined
+    let awaitingCut: number | undefined
+    const publish = (index: number) => onSegment(index, join(directory, `segment-${index}.${extension}`))
     for await (const chunk of process.stdout.pipeThrough(new TextDecoderStream())) {
       const lines = (pending + chunk).split('\n')
       pending = lines.pop() ?? ''
       for (const line of lines) {
+        if (checkCuts && line.startsWith('frame:')) {
+          const time = Number(line.split('pts_time:')[1])
+          const cut = picture === undefined ? firstPicture : Math.floor(picture) + 1
+          if (time > cut + 0.25) throw new MissingVideoCut()
+          picture = time
+          if (awaitingCut !== undefined && time >= timeline.starts[awaitingCut + 1]) {
+            await publish(awaitingCut)
+            awaitingCut = undefined
+          }
+          continue
+        }
         const match = segmentName.exec(line)
         if (!match) continue
         const index = Number(match[1])
-        if (index >= first && index <= last) await onSegment(index, join(directory, `segment-${index}.${extension}`))
+        if (index < first || index > last) continue
+        if (awaitingCut !== undefined) throw new MissingVideoCut()
+        const nextCut = timeline.starts[index + 1]
+        if (checkCuts && (picture === undefined || (nextCut !== undefined && picture < nextCut))) {
+          awaitingCut = index
+        } else await publish(index)
       }
     }
+    if (awaitingCut !== undefined) throw new MissingVideoCut()
   })().catch((error: unknown) => {
     process.kill('SIGKILL')
     return error

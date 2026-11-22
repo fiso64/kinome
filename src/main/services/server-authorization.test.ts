@@ -229,7 +229,7 @@ describe('HTTP authorization — capability enforcement', () => {
     }
   })
 
-  it.skipIf(!conversionAvailable)('serves indexed text and styled subtitles around the playhead, including an overlapping cue', async () => {
+  it.skipIf(!conversionAvailable)('serves indexed text and styled subtitles at a nonzero media origin, including an overlapping cue', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'kinome-subrip-'))
     const source = spyOn(settingsService, 'getAbsoluteSourcePath').mockResolvedValue(directory)
     const logs = spyOn(console, 'log').mockImplementation(() => {})
@@ -239,12 +239,13 @@ describe('HTTP authorization — capability enforcement', () => {
         '2\n00:01:01,000 --> 00:01:03,000\nLater\n')
       const fixture = Bun.spawnSync([ffmpeg!, '-v', 'error', '-f', 'lavfi', '-i', 'color=size=16x16:rate=1',
         '-i', subtitle, '-t', '65', '-map', '0:v', '-map', '1:s', '-map', '1:s', '-map', '1:s',
-        '-c:v', 'mpeg4', '-bf', '0', '-g', '10', '-c:s:0', 'copy', '-c:s:1', 'webvtt', '-c:s:2', 'ass',
-        '-metadata:s:s', 'NUMBER_OF_FRAMES=2', join(directory, 'movie.mkv')])
+        '-c:v', 'mpeg4', '-bf', '0', '-g', '10', '-c:s:0', 'copy', '-c:s:1', 'webvtt', '-c:s:2', 'ass', '-output_ts_offset', '10',
+        join(directory, 'movie.mkv')])
       expect(fixture.exitCode).toBe(0)
       ctx.seedItems([{ id: 'indexed-text', sourceId: 'text-source', path: 'movie.mkv' }])
       const base = '/api/playback/indexed-text'
       const info = await (await app.handle(req('GET', base + '/info'))).json() as WebPlaybackInfo
+      expect(info.media?.startSeconds).toBe(10)
       expect(info.subtitles.map((track) => track.format)).toEqual(['text', 'text', 'ass'])
       for (const track of info.subtitles) {
         const url = base + '/subtitle/' + track.id + '/track?window='
@@ -288,7 +289,9 @@ describe('HTTP authorization — capability enforcement', () => {
         '-f', 'lavfi', '-i', 'sine=sample_rate=48000', '-f', 'ffmetadata', '-i', chapterFile,
         '-i', subtitleFile,
         '-map_chapters', '2', '-t', '12',
-        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', '-ac', '8', '-c:s', 'ass', join(directory, 'movie.mkv')
+        // A stale count from an earlier mux prevents trusting this subtitle index.
+        '-c:v', 'mpeg4', '-g', '48', '-c:a', 'flac', '-ac', '8', '-c:s', 'ass',
+        '-metadata:s:s', 'NUMBER_OF_FRAMES=2', join(directory, 'movie.mkv')
       ])
       expect(fixture.stderr.toString()).toBe('')
       expect(fixture.exitCode).toBe(0)
@@ -401,12 +404,14 @@ describe('HTTP authorization — capability enforcement', () => {
       ctx.seedItems([{ id: 'delayed-movie', sourceId: 'hls-source', path: 'lead.mp4' }])
       const lead = new URL('/api/hls/delayed-movie/remux/master.m3u8', master)
       lead.search = new URLSearchParams({ token: adminToken, web: '1', audio: '1' }).toString()
-      const timing = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=codec_name,start_time',
+      const timing = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=index,codec_name,start_time:packet=stream_index,pts_time',
         '-of', 'json', 'pipe:0'], { stdin: await firstFragment(lead) })
       expect(timing.exitCode).toBe(0)
-      const [picture, sound] = JSON.parse(timing.stdout.toString()).streams
+      const { streams: [picture, sound], packets } = JSON.parse(timing.stdout.toString())
       expect(sound.codec_name).toBe('mp3')
-      expect(Number(picture.start_time) - Number(sound.start_time)).toBeCloseTo(1, 1)
+      expect(Number(picture.start_time) - Number(sound.start_time)).toBeCloseTo(0, 1)
+      const frames = packets.filter((packet: { stream_index: number }) => packet.stream_index === picture.index)
+      expect(Number(frames[1].pts_time) - Number(sound.start_time)).toBeCloseTo(1 + 1 / 24, 1)
       const initialization = await app.handle(new Request(init.href, { headers: { Range: 'bytes=0-7' } }))
       expect(initialization.status).toBe(206)
       expect(Buffer.from(await initialization.arrayBuffer()).toString('ascii', 4, 8)).toBe('ftyp')

@@ -111,6 +111,72 @@ export function bufferedEnd(video: HTMLVideoElement) {
   return position
 }
 
+/** Recover a stopped media clock or a native seek abandoned by the demuxer. */
+export function watchPlaybackProgress(
+  video: HTMLVideoElement, signal: AbortSignal, native: boolean,
+  stalled: (reason: string, details: Record<string, number>) => void
+) {
+  const page = video.ownerDocument
+  let timer: ReturnType<typeof setInterval> | undefined
+  let lastTime = 0
+  let lastPosition = 0
+  let healthyAt = 0
+  let healthyPosition = 0
+
+  function stop() {
+    clearInterval(timer)
+    timer = undefined
+  }
+  function active() {
+    return !page.hidden && !video.ended && !video.error && (video.seeking ? native : !video.paused)
+  }
+  function sample() {
+    if (!active()) { stop(); return }
+    const now = performance.now()
+    const position = video.currentTime
+    const elapsed = now - lastTime
+    const advance = position - lastPosition
+    lastTime = now
+    lastPosition = position
+    const idleRead = native && video.networkState === video.NETWORK_IDLE &&
+      (video.seeking || video.readyState < video.HAVE_FUTURE_DATA)
+    // Firefox can stay at HAVE_CURRENT_DATA with seconds of both tracks
+    // already buffered. Use the buffered range to distinguish a stuck decoder
+    // from an ordinary wait for bytes.
+    const slowClock = !video.seeking && advance >= 0 && advance < elapsed / 1000 * video.playbackRate / 4
+    if (elapsed > 5000 || (!idleRead && !slowClock)) {
+      healthyAt = now
+      healthyPosition = position
+      return
+    }
+    if (now - healthyAt < 6000) return
+    const progress = position - healthyPosition
+    healthyAt = now
+    healthyPosition = position
+    const bufferedAhead = bufferedEnd(video) - position
+    if (!idleRead && bufferedAhead < 2 * video.playbackRate) return
+    stop()
+    stalled(idleRead ? 'The browser stopped loading before the requested position was playable.' :
+      'The playback clock stopped advancing with media buffered.', {
+      bufferedAhead, progress, readyState: video.readyState, networkState: video.networkState
+    })
+  }
+  function reset() {
+    stop()
+    if (!active()) return
+    lastTime = healthyAt = performance.now()
+    lastPosition = healthyPosition = video.currentTime
+    timer = setInterval(sample, 2000)
+  }
+
+  for (const event of ['play', 'playing', 'waiting', 'suspend']) {
+    video.addEventListener(event, () => { if (timer === undefined) reset() }, { signal })
+  }
+  for (const event of ['pause', 'ended', 'seeking', 'seeked', 'ratechange']) video.addEventListener(event, reset, { signal })
+  page.addEventListener('visibilitychange', reset, { signal })
+  signal.addEventListener('abort', stop, { once: true })
+}
+
 export function monitorAdaptivePlayback(
   video: HTMLVideoElement, signal: AbortSignal, stats: AdaptivePlaybackStats,
   previousRenditions: readonly RenditionTarget[], recoverySeconds: number,
@@ -162,6 +228,11 @@ export function watchHlsSeeks(
   }
   function check() {
     if (!video.seeking || signal.aborted) return
+    if (unhelpfulFragments >= 2) {
+      clear()
+      stalled('HLS buffered segments without reaching the seek target.')
+      return
+    }
     const { state } = player.inFlightFragments.main
     // An active transfer has its own timeout and retries. An idle loader
     // can wait forever when MSE reports a buffered but unplayable range.
@@ -188,7 +259,12 @@ export function watchHlsSeeks(
     const margin = player.latestLevelDetails?.targetduration ?? frag.duration
     const outside = video.currentTime < frag.start - margin || video.currentTime > frag.end + margin
     if (lastSegment === frag.sn || outside) {
-      if (++unhelpfulFragments >= 2) stalled('HLS buffered segments without reaching the seek target.')
+      if (++unhelpfulFragments === 2) {
+        // Cached fragments can finish in one burst before the decoder reports
+        // seeked. Give the pending seek time to present its first picture.
+        clearTimeout(timer)
+        timer = setTimeout(check, 1000)
+      }
     } else {
       unhelpfulFragments = 0
       clearTimeout(timer)
@@ -235,7 +311,7 @@ export async function prefetchRendition(url: string, position: number, signal: A
         resolve(true)
       }
       function failed(_event: Events.ERROR, data: ErrorData) {
-        if (!data.fatal) return
+        if (!data.fatal && data.response?.code !== 422) return
         if (data.response?.code === 422 || data.type === Hls.ErrorTypes.MEDIA_ERROR) resolve(false)
         else reject(data.error)
       }
