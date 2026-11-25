@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
 import path from 'path'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { LIBRARY_ROOT_ID } from '@shared/types'
+import { applySortPlacement } from '@shared/sort-placement'
 
 // --- Mock I/O boundaries BEFORE importing the module under test ---
 
@@ -1587,6 +1588,44 @@ describe('getChildren — sortTop / sortBottom', () => {
     expect(ids[ids.length - 1]).toBe('alpha')
     // Unpinned items (bravo, charlie) in default order between them
     expect(ids.slice(1, -1).sort()).toEqual(['bravo', 'charlie'])
+  })
+
+  it('sortAfter places items behind another item in every sort mode, page, and edge case', async () => {
+    const order = async (options = {}) => expectItems(await getChildren(LIBRARY_ROOT_ID, options)).map((i) => i.id)
+    const place = (viewSettings: object) => mergeSettings(LIBRARY_ROOT_ID, { viewSettings })
+
+    // Delta follows Alpha; the rest keeps the folder's sort. The preview helper agrees with the query.
+    place({ sortAfter: { alpha: ['delta'] } })
+    expect(await order()).toEqual(['alpha', 'delta', 'bravo', 'charlie'])
+    expect(applySortPlacement(await order({ naturalOrder: true }), { after: { alpha: ['delta'] } }))
+      .toEqual(await order())
+    expect(await order({ naturalOrder: true })).toEqual(['alpha', 'bravo', 'charlie', 'delta'])
+
+    // Paging cuts the same order.
+    expect([...await order({ limit: 2 }), ...await order({ limit: 2, offset: 2 })])
+      .toEqual(['alpha', 'delta', 'bravo', 'charlie'])
+
+    // A follower stays behind its anchor when the sort is reversed or changed.
+    place({ sortDescending: true })
+    expect(await order()).toEqual(['charlie', 'bravo', 'alpha', 'delta'])
+    place({ sortDescending: false, sortBy: 'year' })
+    ctx.db.exec("UPDATE media_entities SET year = 2001 WHERE id = 'ec'")
+    expect(await order()).toEqual(['charlie', 'alpha', 'delta', 'bravo'])
+    place({ sortBy: 'alpha' })
+
+    // Several followers keep their order, chains flatten, and edge pins still win.
+    place({ sortAfter: { alpha: ['delta', 'charlie'] } })
+    expect(await order()).toEqual(['alpha', 'delta', 'charlie', 'bravo'])
+    place({ sortAfter: { bravo: ['alpha'], alpha: ['delta'] } })
+    expect(await order()).toEqual(['bravo', 'alpha', 'delta', 'charlie'])
+    place({ sortTop: ['charlie'], sortAfter: { charlie: ['delta'] } })
+    expect(await order()).toEqual(['charlie', 'delta', 'alpha', 'bravo'])
+
+    // A missing anchor or a cycle leaves the items in their natural place.
+    place({ sortTop: [], sortAfter: { gone: ['delta'] } })
+    expect(await order()).toEqual(['alpha', 'bravo', 'charlie', 'delta'])
+    place({ sortAfter: { alpha: ['bravo'], bravo: ['alpha'] } })
+    expect(await order()).toEqual(['alpha', 'bravo', 'charlie', 'delta'])
   })
 })
 

@@ -8,6 +8,8 @@ import { SCHEMA_SQL } from '../src/main/database/schema'
 import { runWithAccount } from '../src/main/request-context'
 import { ensureUpToDate } from '../src/main/services/account-filter.service'
 import { getAutocompleteValues } from '../src/main/services/autocomplete.service'
+import { buildSortOrder } from '../src/main/services/navigation.service'
+import { find } from '../src/main/services/repository.service'
 import type { VirtualTagConfig } from '../src/shared/types'
 
 const items = Number(process.argv[2] ?? 100_000)
@@ -74,6 +76,7 @@ try {
   `))()
   ensureUpToDate('viewer')
 
+  const folderOrder = buildSortOrder(undefined)
   const container = [{ key: 'file.container', value: 'matroska' }]
   const virtualTag: VirtualTagConfig = {
     id: 'container',
@@ -95,6 +98,11 @@ try {
     ['Broad text and file search', () => findByFtsQuery('Feature', container, 50, undefined, false, 'Feature')],
     ['Broad text with rare file match', () => findByFtsQuery('Feature', [{ key: 'file.videoHeight', value: '4320' }], 50)],
     ['Broad text with no file match', () => findByFtsQuery('Feature', [{ key: 'file.videoHeight', value: '1' }], 50)],
+    ['Folder page', () => find({ where: { parentId: 'root' }, orderBy: folderOrder, limit: 200 })],
+    ['Folder page with 3 placed items', () => find({ where: { parentId: 'root' }, orderBy: folderOrder, limit: 200,
+      placement: { top: ['item:9'], after: { 'item:50000': ['item:7', 'item:8'] } } })],
+    ['Folder page with 200 placed items', () => find({ where: { parentId: 'root' }, orderBy: folderOrder, limit: 200,
+      placement: { after: { 'item:50000': Array.from({ length: 200 }, (_, n) => `item:${n + 100}`) } } })],
     ['Short text search', () => findByShortQuery('Ra', [], 50)],
     ['File tag search', () => findByTagsOnly(container, 50)],
     ['Person tag search', () => findByTagsOnly([{ key: 'person', value: 'Rare Person' }], 50)],

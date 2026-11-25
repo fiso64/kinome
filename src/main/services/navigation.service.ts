@@ -19,7 +19,7 @@ import {
 } from './repository.service'
 import { getGroupedChildren, childrenFilter } from './grouping.service'
 import { getVirtualChildren } from './virtualFolders.service'
-import { buildSortPinPrefix, type OrderByClause } from '../database/query-builder'
+import type { OrderByClause } from '../database/query-builder'
 import { resolveViewSettings } from '@shared/settings-helpers'
 import { readSettings, checkLibraryExists } from './settings.service'
 import { setLibraryDataPath, getLibraryDataPath, isRemoteLibrary } from './paths.service'
@@ -167,9 +167,9 @@ export async function getChildren(
     )
   }
 
-  // 6. Build sort-pinning prefix from viewSettings (sortTop / sortBottom)
-  const { sortTop, sortBottom } = item.viewSettings ?? {}
-  opts.compiledOrderPrefix = buildSortPinPrefix(sortTop, sortBottom)
+  // 6. Hand-placed children. The sort order editor asks for the natural order.
+  const { sortTop, sortBottom, sortAfter } = item.viewSettings ?? {}
+  opts.placement = opts.naturalOrder ? undefined : { top: sortTop, bottom: sortBottom, after: sortAfter }
 
   // 7. Route to specialized services
   let results: LibraryItem[]
@@ -184,7 +184,7 @@ export async function getChildren(
       rawConditions: [childrenFilter(item)],
       fields: opts.fields,
       orderBy: opts.orderBy,
-      compiledOrderPrefix: opts.compiledOrderPrefix,
+      placement: opts.placement,
       limit: opts.limit,
       offset: opts.offset,
       includeHidden: opts.includeHidden,

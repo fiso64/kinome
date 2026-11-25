@@ -330,18 +330,20 @@ export async function scanDirectory(
     refetchRemoteMetadataOnFileChange?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
     sourcePaths?: ReadonlyMap<string, string>
+    /** A folder inside the source to scan in place of the whole source. */
+    scanPath?: string
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
     onScanSucceeded?: (scanSucceeded: boolean) => void
   } = {}
 ): Promise<MediaFolder | null> {
-  log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${resolvedAbsPath}`)
+  log(`Starting Phase 1 (Filesystem Sync) for source ${source.id}: ${options.scanPath ?? resolvedAbsPath}`)
 
   repositoryService.ensureSourceRoot(source, resolvedAbsPath)
 
   await syncDiskToDatabase(
-    resolvedAbsPath,
+    options.scanPath ?? resolvedAbsPath,
     { id: source.id, absolutePath: resolvedAbsPath },
     options.higherPriorityPaths,
     options.shadowMinDepth,

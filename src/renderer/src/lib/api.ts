@@ -46,6 +46,8 @@ export interface ApiClient {
       orderBy?: string
       groupBy?: string
       includeHidden?: boolean
+      /** Lists the children without the folder's hand placements. */
+      naturalOrder?: boolean
     }
   ): Promise<LibraryItem[]>
   getAncestors(itemId: string): Promise<LibraryItem[]>

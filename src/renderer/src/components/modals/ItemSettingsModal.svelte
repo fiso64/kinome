@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import equal from 'fast-deep-equal'
+  import type { SortPlacement } from '@shared/sort-placement'
   import ModalWindow from './_base/ModalWindow.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import MetadataTab from './_parts/item-settings/MetadataTab.svelte'
@@ -240,10 +241,11 @@
     return editable
   }
 
-  function readPins(folder?: MediaFolder) {
+  function readPins(folder?: MediaFolder): Required<SortPlacement> {
     return {
       top: [...(folder?.viewSettings?.sortTop ?? [])],
-      bottom: [...(folder?.viewSettings?.sortBottom ?? [])]
+      bottom: [...(folder?.viewSettings?.sortBottom ?? [])],
+      after: structuredClone($state.snapshot(folder?.viewSettings?.sortAfter) ?? {})
     }
   }
 
@@ -405,7 +407,10 @@
       }
 
       if (hasChanged(pins, initialValues.pins)) {
-        updates.viewSettings = { ...updates.viewSettings, sortTop: [...pins.top], sortBottom: [...pins.bottom] }
+        const placement = $state.snapshot(pins)
+        updates.viewSettings = {
+          ...updates.viewSettings, sortTop: placement.top, sortBottom: placement.bottom, sortAfter: placement.after
+        }
         changed = true
       }
 

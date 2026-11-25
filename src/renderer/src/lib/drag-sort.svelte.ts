@@ -33,6 +33,9 @@ const INTERACTIVE_SELECTOR = 'input, textarea, select, button, a, label, [conten
 // Pixels the pointer must move before a pending pointerdown commits to a drag.
 // This preserves click handlers on non-interactive item areas.
 const DRAG_THRESHOLD = 5
+// Distance from a scroll container's edge where a drag starts scrolling it, and the top speed per frame.
+const SCROLL_EDGE = 48
+const SCROLL_SPEED = 14
 type DragSource<T> = { index: number } | { item: T }
 
 export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => void) {
@@ -48,6 +51,9 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
   let pointerOffsetY = 0
   let originalItems: T[] = []
   let pointerId: number | undefined
+  let pointer: { clientX: number; clientY: number } | undefined
+  let scroller: Element | null = null
+  let scrollFrame = 0
   let dragOrigin: HTMLElement | undefined
   let originalUserSelect = ''
 
@@ -105,6 +111,36 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
 
   function onPointerMove(e: PointerEvent) {
     if (!floatingEl || e.pointerId !== pointerId) return
+    pointer = { clientX: e.clientX, clientY: e.clientY }
+    moveTo(pointer)
+  }
+
+  /** Scrolls the list while the pointer rests near its top or bottom edge, so a drag can reach any row. */
+  function autoScroll() {
+    scrollFrame = requestAnimationFrame(autoScroll)
+    if (!scroller || !pointer || !floatingEl) return
+    const bounds = scroller === document.scrollingElement
+      ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect()
+    const above = bounds.top + SCROLL_EDGE - pointer.clientY
+    const below = pointer.clientY - (bounds.bottom - SCROLL_EDGE)
+    const depth = Math.min(1, Math.max(above, below) / SCROLL_EDGE)
+    if (depth <= 0) return
+    const before = scroller.scrollTop
+    scroller.scrollTop += (above > 0 ? -1 : 1) * Math.ceil(depth * SCROLL_SPEED)
+    // Rows moved under a resting pointer: place the dragged row again.
+    if (scroller.scrollTop !== before) moveTo(pointer)
+  }
+
+  function scrollContainer(el: HTMLElement): Element | null {
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const { overflowY } = getComputedStyle(parent)
+      if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) return parent
+    }
+    return document.scrollingElement
+  }
+
+  function moveTo(e: { clientX: number; clientY: number }) {
+    if (!floatingEl) return
 
     // Move the floating clone to follow the pointer
     floatingEl.style.left = `${e.clientX - pointerOffsetX}px`
@@ -129,7 +165,7 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     }
   }
 
-  function externalInsertionIndex(e: PointerEvent): number | null {
+  function externalInsertionIndex(e: { clientX: number; clientY: number }): number | null {
     return dropTarget?.contains(document.elementFromPoint(e.clientX, e.clientY))
       ? findInsertIndex(e.clientY)
       : null
@@ -177,6 +213,9 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     document.removeEventListener('pointerup', onPointerUp)
     document.removeEventListener('pointercancel', cancelDrag)
     document.removeEventListener('keydown', onKeyDown)
+    cancelAnimationFrame(scrollFrame)
+    pointer = undefined
+    scroller = null
     pointerId = undefined
     dragOrigin = undefined
     draggedIndex = null
@@ -215,6 +254,8 @@ export function useDragSort<T>(getItems: () => T[], setItems: (items: T[]) => vo
     document.body.style.userSelect = 'none'
     if ('index' in source) draggedIndex = source.index
     else externalDrag = source
+    scroller = scrollContainer(itemEl)
+    scrollFrame = requestAnimationFrame(autoScroll)
     onPointerMove(e)
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)

@@ -118,6 +118,8 @@ export interface FolderOrganizationSettings {
   sortTop?: string[]
   /** Child item IDs pinned to the bottom, in display order. */
   sortBottom?: string[]
+  /** Child item IDs placed directly after another child, keyed by that child, in display order. */
+  sortAfter?: Record<string, string[]>
 }
 
 /** Runtime list of all FolderOrganizationSettings keys — used for generic merging. */
@@ -125,6 +127,7 @@ export const FOLDER_ORGANIZATION_KEYS = [
   'appliedGrouping',
   'sortTop',
   'sortBottom',
+  'sortAfter',
 ] as const satisfies (keyof FolderOrganizationSettings)[]
 
 /**

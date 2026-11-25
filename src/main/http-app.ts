@@ -114,7 +114,8 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
     'sort',
     'order',
     'includeHidden',
-    'includeIgnored'
+    'includeIgnored',
+    'naturalOrder'
   ]
 
   for (const [key, value] of Object.entries(query)) {
@@ -139,6 +140,8 @@ function parseFindOptions(query: any): repositoryService.FindOptions {
   } else if (query.includeHidden === 'false') {
     options.includeHidden = false
   }
+
+  if (query.naturalOrder === 'true') options.naturalOrder = true
 
   if (query.includeIgnored === 'true') {
     options.includeIgnored = true
@@ -499,7 +502,8 @@ export function buildApp() {
               sort: t.Optional(t.String()),
               order: t.Optional(t.String()),
               includeHidden: t.Optional(t.String()),
-              includeIgnored: t.Optional(t.String())
+              includeIgnored: t.Optional(t.String()),
+              naturalOrder: t.Optional(t.String())
             })
           }
         )
@@ -829,9 +833,19 @@ export function buildApp() {
               await libraryService.applyInitialFolderSettings(body.settings)
               return { success: true }
             })
-            .post('/perform-scan', ({ body }: { body: any }) =>
-              libraryService.performScan(body.sourceFolderSettings)
-            )
+            // With itemId or path, only that folder is scanned. A file stands for its folder.
+            .post('/perform-scan', async ({ body, set }: { body: any; set: any }) => {
+              try {
+                return await libraryService.performScan(body?.sourceFolderSettings, {
+                  itemId: typeof body?.itemId === 'string' ? body.itemId : undefined,
+                  path: typeof body?.path === 'string' ? body.path : undefined
+                })
+              } catch (error) {
+                if (!(error instanceof libraryService.ScanScopeError)) throw error
+                set.status = 400
+                return { success: false, message: error.message }
+              }
+            })
         )
     )
 }

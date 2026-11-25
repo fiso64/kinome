@@ -87,7 +87,7 @@
     />
   {:else if active.type === 'sortPinning'}
     {@const sp = active.props}
-    <SortPinningModal item={sp.item} initialSortTop={sp.initialSortTop} initialSortBottom={sp.initialSortBottom} onClose={() => modalStore.close()} onDone={sp.onDone} />
+    <SortPinningModal item={sp.item} placement={sp.placement} onClose={() => modalStore.close()} onDone={sp.onDone} />
   {/if}
 {/each}
 

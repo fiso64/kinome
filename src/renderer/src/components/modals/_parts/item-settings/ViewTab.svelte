@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MediaFolder, EditableViewSettings, Settings } from '@shared/types'
   import ViewConfigurator from '@ui/ViewConfigurator.svelte'
+  import type { SortPlacement } from '@shared/sort-placement'
 
   let {
     item,
@@ -19,7 +20,7 @@
     inheritedSettings?: import('@shared/types').CascadableViewSettings
     inheritedLabel?: string
     settings: Settings | null
-    pins: { top: string[]; bottom: string[] }
+    pins: Required<SortPlacement>
   } = $props()
 </script>
 

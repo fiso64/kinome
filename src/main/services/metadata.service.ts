@@ -42,14 +42,14 @@ export async function enrichDatabase(syncGroupings = false) {
 
 export async function enrichItems(
   itemIds: Iterable<string>,
-  options: { runMaintenance?: boolean; deferFileChangeRefresh?: boolean } = {}
+  options: { runMaintenance?: boolean; deferFileChangeRefresh?: boolean; structuralPrepass?: boolean } = {}
 ) {
   const scopedItemIds = [...new Set(itemIds)]
   if (scopedItemIds.length === 0) return
 
   return runEnrichment({
     itemIds: scopedItemIds,
-    includeStructuralPrepass: false,
+    includeStructuralPrepass: options.structuralPrepass ?? false,
     runMaintenance: options.runMaintenance ?? false,
     deferFileChangeRefresh: options.deferFileChangeRefresh
   })
@@ -114,11 +114,14 @@ async function runEnrichment(options: {
 
         // 3. The Orchestration Loop
         const provider = createTmdbProvider(settings.tmdbApiKey)
-        await processInChunks(entryPoints, 5, async ({ item, fileChangeRevision, needsTmdbBackfill }) => {
+        await processInChunks(entryPoints, 5, async ({ item, fileChangeRevision, needsTmdbBackfill, airDatePassed }) => {
           const force = tvShowsWithChanges.has(item.id)
-          const backfillOnly = needsTmdbBackfill && !force && !fileChangeRevision
+          // Provider facts alone: titles, artwork, episodes and structure stay as they are.
+          const backfillOnly = (needsTmdbBackfill || !!airDatePassed) && !force && !fileChangeRevision
           const reason = fileChangeRevision ? 'file changed'
-            : force ? 'structure changed' : backfillOnly ? 'supplemental metadata backfill' : 'missing metadata'
+            : force ? 'structure changed'
+            : !backfillOnly ? 'missing metadata'
+            : needsTmdbBackfill ? 'supplemental metadata backfill' : 'next air date passed'
           log(`[Phase 2] [${item.mediaType || item.type}] Enriching "${item.name}" (${reason})`)
           await fetchAndApplyMetadata(item, {
             force, provider, fileChangeRevision, backfillOnly, deferGroupingSync: options.runMaintenance
@@ -212,7 +215,9 @@ export async function fetchAndApplyMetadata(
   const allModifiedItems: LibraryItem[] = [item]
 
   if (pathsService.isRemoteLibrary()) return []
-  if (options.backfillOnly && metadataRepo.hasSupplementalTmdbMetadata(item.id)) return []
+  // Another item of the same title may have fetched the facts already in this pass.
+  if (options.backfillOnly && metadataRepo.hasSupplementalTmdbMetadata(item.id) &&
+    !metadataRepo.hasPassedAirDate(item.id)) return []
 
   const fileChangeRefresh = options.fileChangeRevision
     ? { completed: new Map<string, string>(), failed: false, onlyChangedSeasons: !options.force }

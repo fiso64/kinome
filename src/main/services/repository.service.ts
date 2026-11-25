@@ -227,7 +227,9 @@ export function getTvShowsForStructuralSync(itemIds?: string[]): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
-type EnrichmentItem = { item: LibraryItem; fileChangeRevision?: string; needsTmdbBackfill: boolean }
+type EnrichmentItem = {
+  item: LibraryItem; fileChangeRevision?: string; needsTmdbBackfill: boolean; airDatePassed?: boolean
+}
 
 export function getDiscoveryItemsForPhase2(itemIds?: string[]): EnrichmentItem[] {
   const scope = buildItemIdScope(itemIds)
@@ -238,11 +240,14 @@ export function getDiscoveryItemsForPhase2(itemIds?: string[]): EnrichmentItem[]
   // refreshed after a file edit or backfilled with supplemental provider facts.
   const needsTmdbBackfill = `e.tmdb_id > 0 AND e.media_type IN ('movie', 'tv')
     AND e.tmdb_display_json IS NULL AND e.last_refreshed_at IS NOT NULL`
+  const airDatePassed = `e.last_refreshed_at IS NOT NULL AND EXISTS (
+    SELECT 1 FROM media_entities e WHERE e.id = i.entity_id AND ${metadataRepo.AIR_DATE_PASSED_SQL})`
   const rows = db
     .prepare(
       `
     SELECT i.*, ${ENTITY_COLUMNS_SQL}, e.file_change_revision,
            (${needsTmdbBackfill}) AS needs_tmdb_backfill,
+           (${airDatePassed}) AS air_date_passed,
            f.view_settings_json, f.retrieve_children_metadata, f.children_type_hint, f.process_tv_children
     FROM ${ITEM_READ_MODEL} i
     JOIN ${EFFECTIVE_METADATA} e ON i.id = e.item_id
@@ -256,6 +261,7 @@ export function getDiscoveryItemsForPhase2(itemIds?: string[]): EnrichmentItem[]
         (e.last_refreshed_at IS NULL AND pf.retrieve_children_metadata = 1)
         OR (e.file_change_revision IS NOT NULL AND e.tmdb_id > 0)
         ${itemIds ? '' : `OR (${needsTmdbBackfill})`}
+        OR (${airDatePassed})
       )
       ${scope.sql}
   `
@@ -265,7 +271,8 @@ export function getDiscoveryItemsForPhase2(itemIds?: string[]): EnrichmentItem[]
   return rows.map((row) => ({
     item: mapRowToLibraryItem(row),
     fileChangeRevision: row.file_change_revision ?? undefined,
-    needsTmdbBackfill: Boolean(row.needs_tmdb_backfill)
+    needsTmdbBackfill: Boolean(row.needs_tmdb_backfill),
+    airDatePassed: Boolean(row.air_date_passed)
   }))
 }
 
@@ -290,7 +297,14 @@ export function getAncestors(itemId: string): LibraryItem[] {
 export function find(options: FindOptions = {}): LibraryItem[] {
   const userId = options.userId ?? getCurrentAccountId()
   if (userId) ensureUpToDate(userId)
-  const { query, params } = buildFindQuery({ ...options, userId })
+  const placed: FindOptions = { ...options, userId }
+  if (Object.keys(options.placement?.after ?? {}).length) {
+    // Rows placed after another row sort by that row's values. Read them first.
+    const anchors = buildFindQuery({ ...placed, anchorKeysOnly: true })
+    placed.anchorKeys = new Map(itemsRepo.rawFind(anchors.query, anchors.params)
+      .map(({ id, ...keys }: Record<string, unknown>) => [id as string, Object.values(keys)]))
+  }
+  const { query, params } = buildFindQuery(placed)
   const rows = itemsRepo.rawFind(query, params)
   return rows.map(mapRowToLibraryItem)
 }

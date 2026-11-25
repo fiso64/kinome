@@ -6,6 +6,7 @@ import { isLocalMediaField, isTmdbFilterField, type LocalMediaField } from '@sha
 import { REPOSITORY_SCHEMA } from './repo-definitions'
 import { CORE_FIELDS } from '@shared/types'
 import type { LibraryFilter } from '@shared/types'
+import { resolveSortPlacement, type SortPlacement } from '@shared/sort-placement'
 
 /**
  * An operator-aware WHERE condition that maps to a REPOSITORY_SCHEMA field
@@ -44,8 +45,17 @@ export interface FindOptions {
     compiledConditions?: CompiledSql
     fields?: string[]
     orderBy?: OrderByClause | OrderByClause[]
-    /** Raw SQL expression prepended to ORDER BY (before schema-based orderBy clauses). */
-    compiledOrderPrefix?: { sql: string; params: any[] }
+    /** Hand-placed rows. They are ordered around and between the rows sorted by orderBy. */
+    placement?: SortPlacement
+    /**
+     * Sort values of the anchors that placed rows follow, read with anchorKeysOnly.
+     * A follower takes its anchor's values, so the database sorts it into place.
+     */
+    anchorKeys?: Map<string, unknown[]>
+    /** Selects each anchor's ID and sort values instead of the rows. */
+    anchorKeysOnly?: boolean
+    /** Lists a folder's children without their hand placements. */
+    naturalOrder?: boolean
     limit?: number
     offset?: number
     includeHidden?: boolean
@@ -560,40 +570,6 @@ export function buildWhereFragment(options: FindOptions): {
 // =================================================================
 
 /**
- * Compiles sortTop/sortBottom arrays into a compiledOrderPrefix for use in FindOptions.
- * Items in sortTop are ranked 0..N-1, items in sortBottom are ranked 1000..1000+M-1,
- * and everything else gets the middle rank N (sits between the two pinned groups).
- */
-export function buildSortPinPrefix(
-    sortTop?: string[],
-    sortBottom?: string[]
-): { sql: string; params: any[] } | undefined {
-    if (!sortTop?.length && !sortBottom?.length) return undefined
-
-    const caseParts: string[] = []
-    const params: any[] = []
-    let rank = 0
-
-    for (const id of sortTop ?? []) {
-        caseParts.push('WHEN i.id = ? THEN ?')
-        params.push(id, rank++)
-    }
-
-    const middleRank = rank
-    const bottomBase = middleRank + 1000
-
-    for (let i = 0; i < (sortBottom?.length ?? 0); i++) {
-        caseParts.push('WHEN i.id = ? THEN ?')
-        params.push(sortBottom![i], bottomBase + i)
-    }
-
-    return {
-        sql: `CASE ${caseParts.join(' ')} ELSE ${middleRank} END ASC`,
-        params,
-    }
-}
-
-/**
  * Builds a dynamic SQL query based on find options.
  * When options.userId is set, user_state is joined for that user (watched, lastWatched, etc.).
  * When absent, user_state fields resolve to NULL (join with impossible condition).
@@ -664,7 +640,21 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         }
     }
 
-    const selectClause = selectParts.join(', ')
+    // ORDER BY terms. A hand-placed row borrows the values of the row it follows.
+    const placement = options.placement ? resolveSortPlacement(options.placement) : undefined
+    const sortTerms = (Array.isArray(options.orderBy) ? options.orderBy : options.orderBy ? [options.orderBy] : [])
+        .flatMap((clause) => {
+            const sql = clause.raw ?? REPOSITORY_SCHEMA[clause.field!]?.sql
+            return sql ? [{ sql, direction: clause.direction, nullsLast: !clause.raw && clause.nullsLast }] : []
+        })
+    if (sortTerms.at(-1)?.sql !== REPOSITORY_SCHEMA.id.sql) {
+        sortTerms.push({ sql: REPOSITORY_SCHEMA.id.sql, direction: 'ASC', nullsLast: false })
+    }
+    const anchors = placement ? [...placement.followers.keys()] : []
+
+    const selectClause = options.anchorKeysOnly
+        ? [`${REPOSITORY_SCHEMA.id.sql} AS id`, ...sortTerms.map(({ sql }, index) => `${sql} AS key${index}`)].join(', ')
+        : selectParts.join(', ')
     let query = `SELECT ${selectClause} FROM ${ITEM_READ_MODEL} i`
     const joinParams: any[] = []
 
@@ -684,6 +674,26 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         query += ` LEFT JOIN folder_settings f ON i.id = f.item_id`
     }
 
+    // Hand-placed rows as a small table: (id, edge, rank, borrowed sort values).
+    // Rows pinned to an end get an edge rank. A follower gets its anchor's sort
+    // values and its position behind it; one whose anchor is not listed sorts naturally.
+    const placedRows: unknown[][] = []
+    if (placement && !options.anchorKeysOnly) {
+        const noKeys = sortTerms.map(() => null)
+        placement.top.forEach((id, index) => placedRows.push([id, index, null, ...noKeys]))
+        placement.bottom.forEach((id, index) => placedRows.push([id, placement.top.length + 1 + index, null, ...noKeys]))
+        for (const [anchor, chain] of placement.followers) {
+            const keys = options.anchorKeys?.get(anchor)
+            if (keys) chain.forEach((id, index) => placedRows.push([id, null, index + 1, ...keys]))
+        }
+    }
+    const placedColumns = ['id', 'edge', 'rank', ...sortTerms.map((_term, index) => `key${index}`)]
+    const placedCte = placedRows.length
+        // The text cast gives the ID an affinity, which lets SQLite index this table for the join.
+        ? `placed(${placedColumns.join(', ')}) AS MATERIALIZED (SELECT CAST(column1 AS TEXT), ${placedColumns.slice(1).map((_name, index) => `column${index + 2}`).join(', ')} FROM (VALUES ${placedRows.map((row) => `(${row.map(() => '?').join(', ')})`).join(', ')}))`
+        : undefined
+    if (placedCte) query += ` LEFT JOIN placed ON placed.id = i.id`
+
     // Account visibility filter: pre-materialized visible item set.
     // Virtual items (is_virtual=1) always bypass the filter.
     // Accounts without a filter rule see everything (NOT EXISTS branch).
@@ -696,41 +706,34 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         params.push(userId)
     }
 
+    if (options.anchorKeysOnly) {
+        conditions.push(`i.id IN (${anchors.map(() => '?').join(', ')})`)
+        params.push(...anchors)
+    }
+
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(' AND ')}`
     }
 
-    {
+    const finish = (sql: string) => userId
+        ? { query: withAccountLocations(sql, '?', placedCte), params: [userId, ...placedRows.flat(), ...joinParams, ...params] }
+        : { query: placedCte ? `WITH ${placedCte} ${sql}` : sql, params: [...placedRows.flat(), ...joinParams, ...params] }
+
+    if (options.anchorKeysOnly) return finish(query)
+
+    if (options.orderBy || placedCte) {
         const orderParts: string[] = []
+        if (placedCte) orderParts.push(`COALESCE(placed.edge, ${placement!.top.length}) ASC`)
 
-        if (options.compiledOrderPrefix) {
-            orderParts.push(options.compiledOrderPrefix.sql)
-            params.push(...options.compiledOrderPrefix.params)
-        }
-
-        if (options.orderBy) {
-            const clauses = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
-            for (const c of clauses) {
-                if (c.raw) {
-                    orderParts.push(c.raw)
-                    continue
-                }
-                const def = REPOSITORY_SCHEMA[c.field!]
-                if (!def) continue
-                if (c.nullsLast) {
-                    orderParts.push(`(CASE WHEN ${def.sql} IS NULL THEN 1 ELSE 0 END) ASC, ${def.sql} ${c.direction}`)
-                } else {
-                    orderParts.push(`${def.sql} ${c.direction}`)
-                }
-            }
-        }
-
-        if (orderParts.length > 0) {
-            // Final tiebreaker: keeps tied rows in a stable order across refetches and pages.
-            const idSql = REPOSITORY_SCHEMA.id.sql
-            if (!orderParts.some((part) => part.startsWith(`${idSql} `))) orderParts.push(`${idSql} ASC`)
-            query += ` ORDER BY ${orderParts.join(', ')}`
-        }
+        // The ID is the final key: it keeps tied rows in a stable order across
+        // refetches and pages, and puts each follower right behind its anchor.
+        sortTerms.forEach(({ sql, direction, nullsLast }, key) => {
+            const value = placedCte ? `CASE WHEN placed.rank IS NULL THEN ${sql} ELSE placed.key${key} END` : sql
+            if (nullsLast) orderParts.push(`(CASE WHEN ${value} IS NULL THEN 1 ELSE 0 END) ASC`)
+            orderParts.push(`${value} ${direction}`)
+        })
+        if (placedCte) orderParts.push('COALESCE(placed.rank, 0) ASC')
+        query += ` ORDER BY ${orderParts.join(', ')}`
     }
 
     if (options.limit) {
@@ -740,7 +743,5 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         }
     }
 
-    return userId
-        ? { query: withAccountLocations(query, '?'), params: [userId, ...joinParams, ...params] }
-        : { query, params: [...joinParams, ...params] }
+    return finish(query)
 }

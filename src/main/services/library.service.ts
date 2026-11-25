@@ -21,7 +21,8 @@ import * as groupingService from './grouping.service'
 import { getHomeFolderId, FindOptions, HOME_CATEGORIES_ID, HOME_GENRES_ID, HOME_ALL_MEDIA_ID } from './repository.service'
 import { StoredViewSettings } from '@shared/types'
 import { closeDatabase } from '../database/client'
-import { relativePathFromAbsolute } from '../database/repositories/filesystem.repo'
+import fs from 'fs/promises'
+import { getItemIdBySourcePath, getPresentFolderLocations, relativePathFromAbsolute } from '../database/repositories/filesystem.repo'
 import { replaceSourcePriorities } from '../database/repositories/media-location.repo'
 import { updateIfChangedAndBroadcast, broadcastModifiedItems } from './item-update.service'
 import * as userRepo from '../database/repositories/user.repo'
@@ -56,9 +57,14 @@ interface SourceScanResult {
   scanSucceeded: boolean
 }
 
-interface FullLibraryScanOptions {
+interface LibraryScanOptions {
   sources: import('@shared/types').MediaSource[]
   sourcePaths: Map<string, string>
+  /**
+   * Limits the scan to one folder per source, as a path relative to the source.
+   * Sources without an entry are not scanned. Omitted, every source is scanned in full.
+   */
+  scope?: ReadonlyMap<string, string>
   sourceFolderSettings?: Record<string, Record<string, any>>
   shadowSources?: boolean
   shadowMinDepth?: number
@@ -154,6 +160,7 @@ async function _runBackgroundScan(
     refetchRemoteMetadataOnFileChange?: boolean
     sameRelativePathRescueSources?: Map<string, Set<string>>
     sourcePaths?: ReadonlyMap<string, string>
+    scanPath?: string
     onFoundItems?: (foundItemIds: Set<string>) => void
     onFoundLocationPaths?: (foundLocationPaths: Set<string>) => void
     onFoundNonEmptyFolderPaths?: (foundFolderPaths: Set<string>) => void
@@ -182,6 +189,7 @@ async function _runBackgroundScan(
       refetchRemoteMetadataOnFileChange: options.refetchRemoteMetadataOnFileChange,
       sameRelativePathRescueSources: options.sameRelativePathRescueSources,
       sourcePaths: options.sourcePaths,
+      scanPath: options.scanPath,
       onFoundItems: (foundItemIds) => {
         scanResult.foundItemIds = foundItemIds
         options.onFoundItems?.(foundItemIds)
@@ -240,18 +248,27 @@ export function updateSourcePriority(sources: import('@shared/types').MediaSourc
   accountFilterService.markDirty()
 }
 
-export async function runFullLibraryScan({
+export async function runLibraryScan({
   sources,
   sourcePaths,
+  scope,
   sourceFolderSettings,
   shadowSources = false,
   shadowMinDepth = 1,
   runEarlyMaintenance = true,
   refetchRemoteMetadataOnFileChange = true
-}: FullLibraryScanOptions): Promise<void> {
+}: LibraryScanOptions): Promise<void> {
+  const scanId = crypto.randomUUID().slice(0, 8)
+  const started = performance.now()
+  const scopeLabel = scope ? [...scope].map(([sourceId, relativePath]) => `${sourceId}:${relativePath}`).join(', ') : 'all sources'
+  log(`[Scan ${scanId}] Started (${scopeLabel}).`)
+  let foundItemCount = 0
+  // A scoped scan reads one folder of each listed source. A full scan reads every source from its root.
+  const scopePathFor = (sourceId: string) => scope ? scope.get(sourceId) : '.'
+
   updateSourcePriority(sources)
   // Initialize roots before any scanning begins
-  for (const source of sources) {
+  for (const source of scope ? [] : sources) {
     const resolvedAbsPath = sourcePaths.get(source.id)
     if (!resolvedAbsPath) continue
     const normalizedSettings = normalizeFolderSettings(resolvedAbsPath, sourceFolderSettings?.[source.id])
@@ -262,14 +279,17 @@ export async function runFullLibraryScan({
   const foundLocationPathsBySource = new Map<string, Set<string>>()
   const foundNonEmptyFolderPathsBySource = new Map<string, Set<string>>()
   const scanSucceededBySource = new Map<string, boolean>()
+  const scopedItemIds = new Set<string>()
   let earlyEnrichment = Promise.resolve()
 
   for (let j = 0; j < sources.length; j++) {
     const source = sources[j]
     const resolvedAbsPath = sourcePaths.get(source.id)
-    if (!resolvedAbsPath) continue
+    const scopePath = scopePathFor(source.id)
+    if (!resolvedAbsPath || scopePath === undefined) continue
+    const scanPath = path.join(resolvedAbsPath, scopePath)
 
-    log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${resolvedAbsPath}`)
+    log(`Scan source ${source.id} (${j + 1}/${sources.length}): ${scanPath}`)
 
     // Build shadow set from higher-priority sources that have already been scanned this cycle
     let higherPriorityPaths: Set<string> | undefined
@@ -301,14 +321,17 @@ export async function runFullLibraryScan({
       refetchRemoteMetadataOnFileChange,
       sameRelativePathRescueSources,
       sourcePaths,
+      scanPath,
       runMaintenance: false
     })
 
+    foundItemCount += scanResult.foundItemIds.size
+    if (scope) for (const id of scanResult.foundItemIds) scopedItemIds.add(id)
     foundLocationPathsBySource.set(source.id, scanResult.foundLocationPaths)
     foundNonEmptyFolderPathsBySource.set(source.id, scanResult.foundNonEmptyFolderPaths)
     scanSucceededBySource.set(source.id, scanResult.scanSucceeded)
 
-    if (runEarlyMaintenance && scanResult.scanSucceeded) {
+    if (runEarlyMaintenance && !scope && scanResult.scanSucceeded) {
       searchService.buildFullSearchIndex()
       if (scanResult.foundItemIds.size > 0) {
         // Keep enrichment serial while letting local discovery continue during provider requests.
@@ -322,18 +345,29 @@ export async function runFullLibraryScan({
   }
 
   for (const source of sources) {
-    const resolvedAbsPath = sourcePaths.get(source.id)
-    if (!resolvedAbsPath) continue
+    const scopePath = scopePathFor(source.id)
+    if (!sourcePaths.get(source.id) || scopePath === undefined) continue
     filesystemService.cleanupMissingForSource(
       source.id,
-      '.',
+      scopePath,
       foundLocationPathsBySource.get(source.id) ?? new Set(),
       scanSucceededBySource.get(source.id) === true
     )
   }
 
   await earlyEnrichment
-  await runScanMaintenance(true)
+  if (scope) {
+    // Enrich what the scan saw, plus the titles above it: a rescanned season belongs to its show.
+    for (const ancestors of Object.values(repositoryService.getAncestorIdsForItems([...scopedItemIds]))) {
+      for (const id of ancestors) scopedItemIds.add(id)
+    }
+    searchService.buildFullSearchIndex()
+    await metadataService.enrichItems(scopedItemIds, { structuralPrepass: true, runMaintenance: true }).catch((err) => {
+      console.error(`[Scan ${scanId}] Enrichment failed:`, err)
+    })
+  } else {
+    await runScanMaintenance(true)
+  }
   playbackService.clearStreamCache()
 
   await refreshLocalMedia(sourcePaths, {
@@ -341,31 +375,81 @@ export async function runFullLibraryScan({
   }).catch((error) => {
     console.error('[Library Service] Local media refresh failed', error)
   })
+  const failedSources = [...scanSucceededBySource].filter(([, succeeded]) => !succeeded).map(([sourceId]) => sourceId)
+  log(`[Scan ${scanId}] Finished in ${Math.round(performance.now() - started)} ms (${scopeLabel}): ` +
+    `${foundItemCount} items seen, ${scanSucceededBySource.size} sources read` +
+    (failedSources.length ? `, incomplete: ${failedSources.join(', ')}` : '') + '.')
 }
+
+/** A scan request named a scope that cannot be scanned. The message is safe to show. */
+export class ScanScopeError extends Error {}
+
+/**
+ * Resolves what a scoped scan covers: the folders of an item in every source,
+ * or one filesystem path. A file stands for the folder that contains it.
+ */
+export async function resolveScanScope(
+  request: { itemId?: string; path?: string },
+  sourcePaths: ReadonlyMap<string, string>
+): Promise<Map<string, string>> {
+  const scope = new Map<string, string>()
+  if (request.itemId) {
+    const item = repositoryService.getItemById(request.itemId)
+    const folderId = item?.type === 'file' ? item.parentId : item?.id
+    if (!folderId) throw new ScanScopeError('Item not found.')
+    for (const { sourceId, relativePath } of getPresentFolderLocations(folderId)) {
+      if (sourcePaths.has(sourceId) && !scope.has(sourceId)) scope.set(sourceId, relativePath)
+    }
+    if (!scope.size) throw new ScanScopeError('This item has no folder on disk to scan.')
+    return scope
+  }
+
+  const requested = path.resolve(request.path ?? '')
+  const stats = await fs.stat(requested).catch(() => null)
+  if (!stats) throw new ScanScopeError('The path does not exist.')
+  const folder = stats.isDirectory() ? requested : path.dirname(requested)
+  const source = [...sourcePaths].find(([, sourcePath]) => pathsService.isPathInside(sourcePath, folder))
+  if (!source) throw new ScanScopeError('The path is outside the media sources.')
+  const [sourceId, sourcePath] = source
+  // A new folder is linked to its parent by path. Start at the highest folder the library has yet to see.
+  let relativePath = relativePathFromAbsolute(sourcePath, folder)
+  for (let parent = path.posix.dirname(relativePath); relativePath !== '.' && parent !== '.'; parent = path.posix.dirname(parent)) {
+    if (getItemIdBySourcePath(sourceId, parent)) break
+    relativePath = parent
+  }
+  scope.set(sourceId, relativePath)
+  return scope
+}
+
+// One scan at a time: a full and a scoped scan would otherwise reconcile the same rows concurrently.
+let scanQueue: Promise<void> = Promise.resolve()
 
 /**
  * Scans all configured media sources sequentially.
  * Sources are scanned in priority order; shadowing is applied when enabled.
  */
 export const performScan = async (
-  sourceFolderSettings?: Record<string, Record<string, any>>
+  sourceFolderSettings?: Record<string, Record<string, any>>,
+  scopeRequest?: { itemId?: string; path?: string }
 ): Promise<{ success: boolean }> => {
   const settings = await settingsService.readSettings()
   const sourcePaths = await settingsService.getAbsoluteSourcePaths()
   if (sourcePaths.size === 0) throw new Error('Cannot scan, no library sources configured.')
+  const scope = scopeRequest?.itemId || scopeRequest?.path ? await resolveScanScope(scopeRequest, sourcePaths) : undefined
 
   const sources = settings.mediaSources ?? []
   const shadowSources = settings.shadowSources ?? false
   const shadowMinDepth = settings.shadowMinDepth ?? 1
 
-  runFullLibraryScan({
+  scanQueue = scanQueue.then(() => runLibraryScan({
     sources,
     sourcePaths,
+    scope,
     sourceFolderSettings,
     shadowSources,
     shadowMinDepth,
     refetchRemoteMetadataOnFileChange: settings.refetchRemoteMetadataOnFileChange
-  }).catch((err) => {
+  })).catch((err) => {
     console.error('[Library Service] Background scan sequence failed:', err)
   })
 

@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
-import { runFullLibraryScan } from './library.service'
+import { resolveScanScope, runLibraryScan } from './library.service'
 import * as filesystemService from './filesystem.service'
 import * as metadataService from './metadata.service'
 import * as fileProbe from './probe-media'
@@ -75,7 +75,7 @@ describe('full-library scan maintenance orchestration', () => {
     const status = spyOn(transport, 'notifyScanStatusChanged').mockImplementation(({ isProbingLocalMedia }) => {
       if (isProbingLocalMedia !== undefined) events.push(isProbingLocalMedia ? 'probe started' : 'probe finished')
     })
-    const scanLibrary = () => runFullLibraryScan({
+    const scanLibrary = () => runLibraryScan({
       sources: [source],
       sourcePaths: new Map([[source.id, fixture]]),
       sourceFolderSettings: { [source.id]: { [fixture]: { retrieve_children_metadata: true } } }
@@ -122,7 +122,7 @@ describe('full-library scan maintenance orchestration', () => {
     }))
     const [first, second] = reverse ? [sources[1], sources[0]] : sources
     const sourcePaths = new Map(sources.map(({ id, path }) => [id, path]))
-    const scan = () => runFullLibraryScan({ sources, sourcePaths, runEarlyMaintenance: false })
+    const scan = () => runLibraryScan({ sources, sourcePaths, runEarlyMaintenance: false })
     const enrichment = spyOn(metadataService, 'enrichDatabase').mockResolvedValue(undefined)
 
     try {
@@ -154,7 +154,7 @@ describe('full-library scan maintenance orchestration', () => {
   it('refreshes changed files’ nearest titles and only the affected season, with retry and opt-out', async () => {
     const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-refresh-on-edit-'))
     const source = { id: 'source', path: fixture, isRelative: false }
-    const scan = (refetchRemoteMetadataOnFileChange?: boolean) => runFullLibraryScan({
+    const scan = (refetchRemoteMetadataOnFileChange?: boolean) => runLibraryScan({
       sources: [source], sourcePaths: new Map([[source.id, fixture]]), refetchRemoteMetadataOnFileChange
     })
     const log = spyOn(console, 'log').mockImplementation(() => {})
@@ -293,6 +293,99 @@ describe('full-library scan maintenance orchestration', () => {
     }
   })
 
+  it('refreshes the facts of a show whose next air date has passed, and leaves upcoming and undated shows alone', async () => {
+    ctx.seedItems([
+      { id: 'root', type: 'folder' },
+      { id: 'aired', parentId: 'root', type: 'folder', name: 'Aired' },
+      { id: 'upcoming', parentId: 'root', type: 'folder', name: 'Upcoming' },
+      { id: 'ended', parentId: 'root', type: 'folder', name: 'Ended' }
+    ])
+    const shows = { aired: [51, '2001-01-01'], upcoming: [52, '2999-01-01'], ended: [53, null] } as const
+    for (const [id, [tmdbId, nextAirDate]] of Object.entries(shows)) {
+      saveProviderMatch(id, 'tmdb', { id: tmdbId, type: 'tv' })
+      upsertMetadata(id, { title: 'Library title', tmdbId, mediaType: 'tv', lastRefreshedAt: 1 })
+      ctx.db.prepare("UPDATE media_entities SET tmdb_display_json = '{}', tmdb_next_air_date = ? WHERE tmdb_id = ?")
+        .run(nextAirDate, tmdbId)
+    }
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const settings = await settingsService.readSettings()
+    const readSettings = spyOn(settingsService, 'readSettings').mockResolvedValue({ ...settings, tmdbApiKey: 'fixture-key' })
+    const getDetails = spyOn(retriever, 'getDetails').mockResolvedValue({
+      name: 'Provider title', status: 'Returning Series', next_episode_to_air: { air_date: '2999-06-01' }
+    })
+    const getCredits = spyOn(retriever, 'getCredits').mockResolvedValue(null)
+    const getSeason = spyOn(retriever, 'getSeasonDetails').mockResolvedValue(null)
+
+    try {
+      await metadataService.enrichDatabase()
+      await metadataService.enrichDatabase()
+      expect(getDetails.mock.calls.map(([id, type]) => [id, type])).toEqual([[51, 'tv']])
+      expect(getSeason).toHaveBeenCalledTimes(0)
+      const [aired] = findItems({ where: { id: 'aired' }, fields: ['title', 'tmdbMetadata'] })
+      expect(aired.title).toBe('Library title')
+      expect(aired.tmdbMetadata).toMatchObject({ nextAirDate: '2999-06-01', status: 'Returning Series' })
+    } finally {
+      getSeason.mockRestore()
+      getCredits.mockRestore()
+      getDetails.mockRestore()
+      readSettings.mockRestore()
+      log.mockRestore()
+    }
+  })
+
+  it('rescans one folder by item or by path and leaves the rest of the source alone', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-scoped-scan-'))
+    const source = { id: 'scoped-source', path: root, isRelative: false }
+    const sourcePaths = new Map([[source.id, root]])
+    const write = async (file: string) => {
+      await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true })
+      await fs.writeFile(path.join(root, file), file)
+    }
+    const enriched: string[][] = []
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const enrichItems = spyOn(metadataService, 'enrichItems')
+      .mockImplementation(async (itemIds: Iterable<string>) => { enriched.push(pathsForItemIds(itemIds)) })
+    const enrichDatabase = spyOn(metadataService, 'enrichDatabase').mockImplementation(async () => {})
+    const scan = (scope?: Map<string, string>) =>
+      runLibraryScan({ sources: [source], sourcePaths, scope, runEarlyMaintenance: false })
+
+    try {
+      await write('A/keep.mkv'); await write('A/gone.mkv'); await write('B/first.mkv')
+      await scan()
+
+      await write('A/added.mkv'); await write('B/unseen.mkv'); await write('New/Deep/film.mkv')
+      await fs.rm(path.join(root, 'A/gone.mkv'))
+
+      // By item: a file stands for its folder.
+      const byItem = await resolveScanScope({ itemId: itemIdForSourcePath(source.id, 'A/keep.mkv')! }, sourcePaths)
+      expect([...byItem]).toEqual([[source.id, 'A']])
+      await scan(byItem)
+      expect(['A/added.mkv', 'A/gone.mkv', 'A/keep.mkv', 'B/unseen.mkv', 'New/Deep/film.mkv']
+        .map((file) => itemIdForSourcePath(source.id, file) !== null)).toEqual([true, false, true, false, false])
+      // The folder, its files and the source root above them are enriched. Other folders are not.
+      expect(enriched.at(-1)).toEqual(['.', 'A', 'A/added.mkv', 'A/keep.mkv'])
+
+      // By path: the scan starts at the highest folder the library has yet to see, so the new branch is linked.
+      const byPath = await resolveScanScope({ path: path.join(root, 'New/Deep/film.mkv') }, sourcePaths)
+      expect([...byPath]).toEqual([[source.id, 'New']])
+      await scan(byPath)
+      const parentOf = (file: string) => (ctx.db.prepare('SELECT parent_item_id AS id FROM media_items WHERE id = ?')
+        .get(itemIdForSourcePath(source.id, file)) as { id: string }).id
+      expect(parentOf('New/Deep/film.mkv')).toBe(itemIdForSourcePath(source.id, 'New/Deep')!)
+      expect(parentOf('New')).toBe(itemIdForSourcePath(source.id, '.')!)
+      expect(itemIdForSourcePath(source.id, 'B/unseen.mkv')).toBeNull()
+
+      await expect(resolveScanScope({ itemId: 'unknown' }, sourcePaths)).rejects.toThrow('Item not found.')
+      await expect(resolveScanScope({ path: os.tmpdir() }, sourcePaths)).rejects.toThrow('outside the media sources')
+      await expect(resolveScanScope({ path: path.join(root, 'missing') }, sourcePaths)).rejects.toThrow('does not exist')
+    } finally {
+      enrichDatabase.mockRestore()
+      enrichItems.mockRestore()
+      log.mockRestore()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('starts targeted enrichment early without blocking the next source scan', async () => {
     const tmpA = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-fast-source-'))
     const tmpB = await fs.mkdtemp(path.join(os.tmpdir(), 'kinome-slow-source-'))
@@ -332,7 +425,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.writeFile(path.join(tmpA, 'fast.mkv'), 'fast')
       await fs.writeFile(path.join(tmpB, 'slow.mkv'), 'slow')
 
-      const scan = runFullLibraryScan({
+      const scan = runLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths: new Map([
           [sourceA.id, tmpA],
@@ -395,7 +488,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.mkdir(path.join(tmpA, 'Shows', 'Foo'), { recursive: true })
       await fs.writeFile(path.join(tmpA, 'Shows', 'Foo', 'episode.mkv'), 'episode')
 
-      await runFullLibraryScan({
+      await runLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths,
         runEarlyMaintenance: false
@@ -430,7 +523,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.writeFile(path.join(tmpB, 'Shows', 'Foo', 'episode.mkv'), 'episode')
       await fs.rm(path.join(tmpA, 'Shows', 'Foo'), { recursive: true, force: true })
 
-      await runFullLibraryScan({
+      await runLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths,
         runEarlyMaintenance: true
@@ -499,7 +592,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.writeFile(flatEp1, 'episode-1')
       await fs.writeFile(flatEp2, 'episode-2')
 
-      await runFullLibraryScan({
+      await runLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths,
         runEarlyMaintenance: false
@@ -550,7 +643,7 @@ describe('full-library scan maintenance orchestration', () => {
       await fs.copyFile(flatEp2, renamedEp2)
       await fs.rm(showA, { recursive: true, force: true })
 
-      await runFullLibraryScan({
+      await runLibraryScan({
         sources: [sourceA, sourceB],
         sourcePaths,
         runEarlyMaintenance: true

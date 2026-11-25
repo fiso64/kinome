@@ -96,8 +96,29 @@
   const releaseFacts = $derived([
     item.year,
     item.mediaType === 'movie' ? formatRuntime(item.tmdbRuntime) : '',
-    item.tmdbMetadata?.productionCountries?.join(', ')
+    item.tmdbMetadata?.productionCountries?.join(', '),
+    item.mediaType === 'tv' ? formatNextEpisode(item.tmdbMetadata?.nextAirDate) : ''
   ].filter(Boolean))
+
+  /**
+   * The stored date is as of the last metadata fetch. A date that has passed
+   * says nothing about the next episode, so it is not shown.
+   */
+  function formatNextEpisode(date: string | undefined): string {
+    const match = date && /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+    if (!match) return ''
+    const day = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const daysAway = Math.round((day.getTime() - today.getTime()) / 86_400_000)
+    if (daysAway < 0) return ''
+    if (daysAway === 0) return 'Next episode today'
+    if (daysAway === 1) return 'Next episode tomorrow'
+    if (daysAway < 7) return `Next episode in ${daysAway} days`
+    return `Next episode ${day.toLocaleDateString(undefined, {
+      day: 'numeric', month: 'short', year: day.getFullYear() === today.getFullYear() ? undefined : 'numeric'
+    })}`
+  }
 
   function formatRuntime(minutes: number | null | undefined): string {
     if (!minutes || minutes <= 0) return ''
@@ -439,9 +460,6 @@
                       {/each}
                     </div>
                   {/if}
-                  {#if item.mediaType === 'tv' && item.tmdbMetadata?.nextAirDate}
-                    <p class="next-air-date">Next episode <time datetime={item.tmdbMetadata.nextAirDate}>{item.tmdbMetadata.nextAirDate}</time></p>
-                  {/if}
                   {#if item.genres?.length}
                     <div class="genres">
                       {#each item.genres as genre}
@@ -747,7 +765,6 @@
   }
   .release-facts { color: var(--color-text-soft); font-size: clamp(.82rem, 1.4vw, 1.03rem); font-weight: 650; }
   .fact-separator { width: .23em; height: .23em; border-radius: 50%; background: currentColor; }
-  .next-air-date { color: var(--color-text-soft); font-size: .85rem; }
   .genre-tag { padding: .2rem .53rem; color: var(--color-text-soft); font-size: .78rem; }
   .play-button { display: inline-flex; align-items: center; gap: .4rem; padding-inline: 1.05rem; margin-top: .25rem; }
 

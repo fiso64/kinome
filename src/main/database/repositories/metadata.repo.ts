@@ -183,6 +183,20 @@ function saveTmdbMetadata(entityId: string, metadata: TmdbMetadata): boolean {
     return scalarChanges + removed + inserted > 0
 }
 
+/**
+ * A show whose stored next air date is behind today. The date says when the
+ * provider facts went stale, so this is the one case refreshed without a file change.
+ * Expects the entity row as e.
+ */
+export const AIR_DATE_PASSED_SQL = `e.media_type = 'tv' AND e.tmdb_id > 0 AND e.tmdb_next_air_date < date('now')`
+
+export function hasPassedAirDate(itemId: string): boolean {
+    return !!getDb().query(`
+        SELECT 1 FROM media_items i JOIN media_entities e ON e.id = i.entity_id
+        WHERE i.id = ? AND ${AIR_DATE_PASSED_SQL}
+    `).get(itemId)
+}
+
 export function hasSupplementalTmdbMetadata(itemId: string): boolean {
     return !!getDb().query(`
         SELECT 1 FROM media_items i JOIN media_entities e ON e.id = i.entity_id

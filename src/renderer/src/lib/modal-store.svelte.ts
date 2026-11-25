@@ -1,4 +1,5 @@
 import { authStore } from './auth-store.svelte'
+import type { SortPlacement } from '@shared/sort-placement'
 import type { Capability, LibraryItem, MediaFolder, StoredViewSettings, LibraryFilter, ViewLayout } from '@shared/types'
 
 // --- Types ---
@@ -45,7 +46,7 @@ export type ModalConfig =
         groupByKeys: string[]
       }
     }
-  | { type: 'sortPinning'; props: { item: MediaFolder; initialSortTop?: string[]; initialSortBottom?: string[]; onDone: (sortTop: string[], sortBottom: string[]) => void } }
+  | { type: 'sortPinning'; props: { item: MediaFolder; placement?: SortPlacement; onDone: (placement: Required<SortPlacement>) => void } }
 
 export type ModalType = ModalConfig['type']
 

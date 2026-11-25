@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '@components/ui/Icon.svelte'
+  import type { SortPlacement } from '@shared/sort-placement'
   import { resolveViewSettings, formatLayoutString } from '@shared/settings-helpers'
   import {
     LAYOUT_SPECIFIC_SETTINGS_CONFIG,
@@ -94,7 +95,7 @@
     selectedGroupBy?: string | null
     inheritedSettings?: CascadableViewSettings
     inheritedLabel?: string
-    pins?: { top: string[]; bottom: string[] }
+    pins?: Required<SortPlacement>
   } = $props()
 
   let showLayoutOptions = $state(false)
@@ -378,12 +379,12 @@
         <span>Descending</span>
       </label>
       {#if item && pins}
-        {@const pinnedCount = pins.top.length + pins.bottom.length}
+        {@const placedCount = pins.top.length + pins.bottom.length + Object.values(pins.after).flat().length}
         <button
           class="secondary pin-btn"
-          onclick={() => modalStore.open('sortPinning', { item, initialSortTop: pins?.top, initialSortBottom: pins?.bottom, onDone: (top, bottom) => (pins = { top, bottom }) })}
+          onclick={() => modalStore.open('sortPinning', { item, placement: pins, onDone: (placement) => (pins = placement) })}
         >
-          {#if pinnedCount > 0}Pinned ({pinnedCount})...{:else}Pin items...{/if}
+          {#if placedCount > 0}Arranged ({placedCount})...{:else}Arrange items...{/if}
         </button>
       {/if}
     </div>

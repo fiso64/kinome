@@ -783,6 +783,16 @@ export function getPresentItemLocation(
     }
 }
 
+/** Every place a folder is present on disk, in source priority order. */
+export function getPresentFolderLocations(itemId: string): { sourceId: string; relativePath: string }[] {
+    return getDb().prepare(`
+        SELECT l.source_id AS sourceId, l.relative_path AS relativePath
+        FROM media_locations l LEFT JOIN media_source_priority p ON p.source_id = l.source_id
+        WHERE l.item_id = ? AND l.type = 'folder' AND l.is_present = 1
+        ORDER BY p.priority IS NULL, p.priority, l.relative_path
+    `).all(itemId) as { sourceId: string; relativePath: string }[]
+}
+
 export function getPresentFolderLocation(
     itemId: string,
     userId?: string | null

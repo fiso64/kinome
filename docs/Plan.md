@@ -5,7 +5,7 @@
 - [x] Clean up the API and optimize. Currently sends huge amount of data even though most of it is frequently not needed. Should be smarter and much more on-demand. Must rethink from scratch and adopt a good pattern.
 - [ ] [P0] Monitor/periodic rescan option: Rescan on startup and watch filesystem for changes, rescan on change. Rescan only what's needed, do not always run an expensive full rescan,
   - [x] Need to ensure rescan is non-destructive, always. (Probably already the case, see `spec/backend/metadata_locking.md`)
-  - [ ] Introduce a public scoped rescan API.
+  - [ ] Introduce a scoped rescan API.
 - [ ] [P1] Optimization
   - [x] Migrate to bun.
   - [ ] Optimize rescan performance and responsiveness, especially with multiple hdd  media sources.

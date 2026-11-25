@@ -265,6 +265,7 @@ class WebApiClient implements ApiClient {
       include?: string[]
       orderBy?: string
       includeHidden?: boolean
+      naturalOrder?: boolean
     } = {}
   ): Promise<LibraryItem[]> {
     if (!parentId || parentId === 'null' || parentId === 'undefined') {
@@ -282,6 +283,7 @@ class WebApiClient implements ApiClient {
     if (options.orderBy) params.set('orderBy', options.orderBy)
     if (options.includeHidden !== undefined)
       params.set('includeHidden', String(options.includeHidden))
+    if (options.naturalOrder) params.set('naturalOrder', 'true')
 
     return this.request(`/api/items/${encodeURIComponent(parentId)}/children?${params.toString()}`)
   }
