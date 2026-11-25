@@ -55,7 +55,6 @@
     padding: 1.25rem;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
-    user-select: text;
   }
   .dialog-detail { font-size: .865rem; color: var(--color-text-soft); }
   .checkbox-label {

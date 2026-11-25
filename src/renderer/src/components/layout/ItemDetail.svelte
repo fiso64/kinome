@@ -203,8 +203,12 @@
   )
 
   // A file's detail view lists the file itself, like a folder holding only that file.
+  // The row stands for the file on disk: its name and no artwork. The page above already shows the title.
   const fileAsChild = $derived(
-    item.type === 'file' ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
+    item.type === 'file' ? [{
+      ...JSON.parse(JSON.stringify(item)), opensAsFolder: false,
+      title: null, posterPath: null, seasonNumber: null, episodeNumber: null
+    }] : []
   )
 
   const availableInfoTabs = $derived.by(() => {
@@ -604,7 +608,7 @@
             <MediaView
               parentItem={item as unknown as MediaFolder}
               items={fileAsChild}
-              {onItemClick}
+              onItemClick={() => { if (itemCapabilities(item).canPlay) onPlay(item) }}
               layout="tree"
               onShowContextMenu={showContextMenu}
               {settings}

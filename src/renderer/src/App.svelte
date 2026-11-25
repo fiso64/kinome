@@ -717,7 +717,8 @@
       openViewSettings: () => actions.openViewSettings(),
       markAsUnwatched: () => actions.markUnwatched(),
       editMetadata: () => actions.editMetadata(),
-      openProperties: () => actions.showProperties()
+      openProperties: () => actions.showProperties(),
+      showShortcuts: () => modalStore.open('shortcuts', {})
     })
     return () => cleanupShortcuts()
   })

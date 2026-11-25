@@ -14,6 +14,7 @@
   import NotificationContainer from '@ui/NotificationContainer.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import { PLAYER_SHORTCUTS } from '@lib/shortcuts'
   import { formatClockTime } from '@lib/view-helpers'
   import { notificationStore } from '@lib/notification-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
@@ -1807,20 +1808,10 @@
               </div>
             {:else}
               <dl class="panel-body shortcuts">
-                <dt><kbd>Space</kbd> / <kbd>K</kbd></dt><dd>Play or pause</dd>
-                <dt><kbd>Left</kbd> <kbd>Right</kbd></dt><dd>Seek 5 seconds (Shift for 30)</dd>
-                <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Previous or next frame</dd>
-                <dt><kbd>Up</kbd> <kbd>Down</kbd> / <kbd>M</kbd></dt><dd>Volume or mute</dd>
-                <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Playback speed</dd>
-                <dt><kbd>A</kbd> / <kbd>Q</kbd> / <kbd>P</kbd></dt><dd>Audio & subtitles, quality, or queue</dd>
-                <dt><kbd>S</kbd></dt><dd>Toggle subtitles</dd>
-                <dt><kbd>Shift</kbd> + <kbd>Up</kbd> <kbd>Down</kbd></dt><dd>Previous or next subtitle track</dd>
-                <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Up</kbd> <kbd>Down</kbd></dt><dd>Subtitle scale</dd>
-                <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Left</kbd> <kbd>Right</kbd></dt><dd>Subtitle delay</dd>
-                <dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next chapter</dd>
-                <dt><kbd>Shift</kbd> + <kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Previous or next video</dd>
-                <dt><kbd>F</kbd> / <kbd>Esc</kbd></dt><dd>Fullscreen or close</dd>
-                <dt><kbd>?</kbd></dt><dd>Keyboard shortcuts</dd>
+                {#each PLAYER_SHORTCUTS as shortcut (shortcut.description)}
+                  <dt>{#each shortcut.keys as chord, index (chord)}{#if index > 0} / {/if}{#each chord.split('+') as key, keyIndex (keyIndex)}{#if keyIndex > 0} + {/if}<kbd>{key}</kbd>{/each}{/each}</dt>
+                  <dd>{shortcut.description}</dd>
+                {/each}
               </dl>
             {/if}
           </section>
@@ -1967,6 +1958,9 @@
     color-scheme: dark;
     background: #000;
   }
+  /* Clicks and double-clicks over the video control playback. Only the title is text to copy. */
+  .player { user-select: none; }
+  .player .title { user-select: text; }
   .player {
     --player-accent: var(--color-primary-soft, #a6a5ff);
     --label-muted: #bbbcc6;

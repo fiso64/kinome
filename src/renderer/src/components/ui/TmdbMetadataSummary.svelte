@@ -51,11 +51,9 @@
     gap: .4rem .7rem;
     min-width: 0;
     font-size: .86rem;
-    user-select: text;
     overflow-wrap: anywhere;
   }
 
-  dt, dd { user-select: text; }
   dt { color: var(--color-text-soft); }
   a { text-underline-offset: .2em; }
 </style>

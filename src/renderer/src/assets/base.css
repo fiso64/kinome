@@ -149,6 +149,10 @@
   }
 
   img { -webkit-user-drag: none; user-select: none; }
+  /* Text is selectable. Controls are not, so clicking, double-clicking and
+     dragging them never highlights their labels. */
+  :where(button, select, summary, [role='button'], [role='tab'], [role='menuitem'], [data-drag-item], kbd),
+  :where(label:has(> input:is([type='checkbox'], [type='radio']))) { user-select: none; }
   a { color: var(--color-primary-soft); }
 
   @media (prefers-reduced-motion: reduce) {

@@ -277,7 +277,7 @@
   .readonly-input { color: var(--color-text-soft); cursor: text; }
   #year { width: min(100%, 7rem); }
   textarea { min-height: 6rem; resize: vertical; }
-  .metadata-summary { display: grid; gap: .6rem; padding: .75rem; user-select: text; }
+  .metadata-summary { display: grid; gap: .6rem; padding: .75rem; }
   h3 { font-size: .92rem; font-weight: 670; }
   .metadata-facts {
     display: grid;

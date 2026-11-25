@@ -11,6 +11,7 @@
   import { api } from '@lib/api'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
+  import { itemCapabilities } from '@shared/item-capabilities'
   import type {
     Settings,
     MediaFolder,
@@ -211,7 +212,7 @@
           <span class:reloading={scanInProgress}><Icon name="refresh" size={18} /></span>
         </button>
         {#if contextItem}
-          {#if authStore.can.editMetadata}
+          {#if authStore.can.editMetadata && itemCapabilities(contextItem).canEditView}
             <button type="button" class="icon-button" onclick={() => dispatch('openLayoutSelector')}
               title="Set view layout" aria-label="Set view layout">
               <Icon name="grid" size={18} />

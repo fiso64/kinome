@@ -41,7 +41,8 @@
     onDeleteItemFromDb,
     onAssignSeasons,
     onCreateVirtualFolder,
-    onLogout
+    onLogout,
+    onShowShortcuts
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -67,6 +68,7 @@
     onAssignSeasons: () => void
     onCreateVirtualFolder: () => void
     onLogout?: () => void
+    onShowShortcuts?: () => void
   } = $props()
 
   const canEdit = $derived(authStore.can.editMetadata)
@@ -372,6 +374,16 @@
     >
       <span>Log Out</span>
     </button>
+    {#if onShowShortcuts}
+      <button
+        class="context-menu-item"
+        onclick={() => { onShowShortcuts!(); onClose() }}
+        onmouseenter={() => (activeSubmenu = null)}
+      >
+        <span>Keyboard Shortcuts</span>
+        <span class="shortcut-hint">?</span>
+      </button>
+    {/if}
     <div class="separator"></div>
   {/if}
   {#if matchingFiles?.length}
@@ -706,6 +718,8 @@
     padding: .31rem;
     animation: fadeIn 0.15s ease-out;
   }
+
+  .shortcut-hint { margin-left: auto; color: var(--color-text-soft); font-size: .8rem; }
 
   .context-menu-item {
     display: flex;

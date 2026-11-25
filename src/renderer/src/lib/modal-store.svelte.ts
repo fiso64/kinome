@@ -23,6 +23,7 @@ export type ModalConfig =
       }
     }
   | { type: 'properties'; props: { item: LibraryItem } }
+  | { type: 'shortcuts'; props: Record<string, never> }
   | { type: 'rename'; props: { item: LibraryItem } }
   | { type: 'assignSeasons'; props: { item: MediaFolder } }
   | {
@@ -55,6 +56,7 @@ const REQUIRED_CAPABILITY: Record<ModalType, Capability | null> = {
   itemSettings: 'editMetadata',
   manualSearch: 'editMetadata',
   properties: null,
+  shortcuts: null,
   rename: 'editMetadata',
   assignSeasons: 'editMetadata',
   createVirtualFolder: 'editMetadata',

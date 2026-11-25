@@ -5,6 +5,7 @@
   import ItemSettingsModal from '../modals/ItemSettingsModal.svelte'
   import ManualSearchModal from '../modals/ManualSearchModal.svelte'
   import PropertiesModal from '../modals/PropertiesModal.svelte'
+  import ShortcutsModal from '../modals/ShortcutsModal.svelte'
   import RenameModal from '../modals/RenameModal.svelte'
   import AssignSeasonsModal from '../modals/AssignSeasonsModal.svelte'
   import CreateVirtualFolderModal from '../modals/CreateVirtualFolderModal.svelte'
@@ -55,6 +56,8 @@
       initialTab={active.props.initialTab}
       onClose={() => modalStore.close()}
     />
+  {:else if active.type === 'shortcuts'}
+    <ShortcutsModal onClose={() => modalStore.close()} />
   {:else if active.type === 'properties'}
     <PropertiesModal item={active.props.item} onClose={() => modalStore.close()} />
   {:else if active.type === 'rename'}

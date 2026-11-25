@@ -8,6 +8,7 @@
   import Icon, { type IconName } from '@components/ui/Icon.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
   import AccountAvatar from '@components/ui/AccountAvatar.svelte'
+  import ShortcutReference from '@components/ui/ShortcutReference.svelte'
   import { formatLayoutString } from '@shared/settings-helpers'
   import { dialogStore } from '@lib/dialog-store'
   import DefaultViewSettingsModal from '@modals/DefaultViewSettingsModal.svelte'
@@ -41,7 +42,9 @@
     library: { label: 'Library', icon: 'folder', capability: 'editSettings' },
     playback: { label: 'Playback', icon: 'play', capability: null },
     view: { label: 'View', icon: 'grid', capability: 'editSettings' },
-    virtualTags: { label: 'Virtual Tags', icon: 'filter', capability: 'editSettings' }
+    virtualTags: { label: 'Virtual Tags', icon: 'filter', capability: 'editSettings' },
+    // Not a setting: listed here so the shortcuts are easy to find.
+    shortcuts: { label: 'Shortcuts', icon: 'keyboard', capability: null }
   } satisfies Record<string, { label: string; icon: IconName; capability: Capability | null }>
 
   type SettingsTab = keyof typeof TABS
@@ -200,23 +203,6 @@
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
-
-    const handleKeydown = (event: KeyboardEvent): void => {
-      if (editor || editingAccount || saving) return
-
-      if (event.ctrlKey && event.key === 'Tab') {
-        event.preventDefault()
-        const currentIndex = availableTabs.indexOf(activeTab)
-        const nextIndex = event.shiftKey
-          ? (currentIndex - 1 + availableTabs.length) % availableTabs.length
-          : (currentIndex + 1) % availableTabs.length
-        navStore.setSettingsTab(availableTabs[nextIndex])
-      }
-    }
-    window.addEventListener('keydown', handleKeydown)
-    return () => {
-      window.removeEventListener('keydown', handleKeydown)
-    }
   })
 
   $effect(() => {
@@ -722,6 +708,9 @@
                 <button class="secondary" {...authStore.control('manageAccounts')}>+ Add Account</button>
               </div>
             {/if}
+          {:else if activeTab === 'shortcuts'}
+            <p class="help-text shortcuts-hint">Press ? anywhere to open this list.</p>
+            <ShortcutReference />
           {/if}
         </div>
       </div>
@@ -1113,4 +1102,5 @@
     gap: 0.75rem;
     padding: 1.5rem 0;
   }
+  .shortcuts-hint { margin-bottom: .8rem; }
 </style>

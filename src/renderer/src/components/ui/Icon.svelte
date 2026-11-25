@@ -39,6 +39,7 @@
     trash: 'M3 6h18M9 6V3h6v3m4 0-1 15H6L5 6m5 4v7m4-7v7',
     block: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM6 6l12 12',
     download: 'M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4',
+    keyboard: 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10',
     tool: 'm14 7 3 3 4-4a6 6 0 0 1-7.5 7.5l-7 7a2 2 0 1 1-3-3l7-7A6 6 0 0 1 18 3l-4 4Z'
   } as const
 

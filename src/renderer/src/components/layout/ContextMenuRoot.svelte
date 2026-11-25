@@ -2,6 +2,7 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
+  import { modalStore } from '@lib/modal-store.svelte'
   import type { WebQualityChoice } from '@shared/web-playback'
   import type { PlaybackQuality } from '@shared/playback-quality'
   import type { LibraryItem, MediaFile, PlayerCommandConfig, Settings } from '@shared/types'
@@ -47,5 +48,6 @@
     onDeleteItemFromDb={() => actions.deleteFromDb(item)}
     onCreateVirtualFolder={() => actions.createVirtualFolder(item)}
     onLogout={showLogout ? () => authStore.logout() : undefined}
+    onShowShortcuts={showLogout ? () => modalStore.open('shortcuts', {}) : undefined}
   />
 {/if}

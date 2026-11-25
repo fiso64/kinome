@@ -90,34 +90,6 @@
   const canScrollLeft = $derived($scrollState.canScrollLeft)
   const canScrollRight = $derived($scrollState.canScrollRight)
 
-  $effect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement
-      const isInput =
-        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-      if (isInput) return
-
-      if (event.ctrlKey && event.key === 'Tab') {
-        event.preventDefault()
-        if (!folders || folders.length < 2) return
-
-        const currentIndex = folders.findIndex((f) => f.id === activeTabId)
-        if (currentIndex === -1) return
-
-        const nextIndex = event.shiftKey
-          ? (currentIndex - 1 + folders.length) % folders.length
-          : (currentIndex + 1) % folders.length
-
-        selectTab(folders[nextIndex].id)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  })
 
   // When the active tab changes, scroll it into view.
   $effect(() => {
