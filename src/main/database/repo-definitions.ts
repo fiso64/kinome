@@ -33,6 +33,8 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     // Computed sort keys
     typeRank: { sql: `CASE WHEN e.media_type = 'season' THEN 0 WHEN e.media_type = 'episode' THEN 1 WHEN i.type = 'folder' THEN 2 ELSE 3 END`, table: 'e' },
     displayName: { sql: `COALESCE(e.title, i.name)`, table: 'e' },
+    // Specials follow the numbered episodes of the season folder they sit in.
+    specialRank: { sql: `CASE WHEN e.media_type = 'episode' AND e.season_number = 0 THEN 1 ELSE 0 END`, table: 'e' },
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
     entityId: { sql: 'i.entity_id', table: 'i' },

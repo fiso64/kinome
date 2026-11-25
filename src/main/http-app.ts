@@ -765,6 +765,9 @@ export function buildApp() {
             .post('/get-tmdb-images', ({ body }: { body: any }) =>
               libraryService.getTmdbImages(body.tmdbId, body.mediaType, body.language)
             )
+            .post('/episode-matches', ({ body }: { body: any }) =>
+              libraryService.getEpisodeMatches(body.itemId, typeof body.seasonNumber === 'number' ? body.seasonNumber : undefined)
+            )
             .post('/user-apply-tmdb-result', async ({ body }: { body: any }) => {
               await libraryService.applyManualMatch(body.itemId, body.result, body.mediaType)
               return { success: true }

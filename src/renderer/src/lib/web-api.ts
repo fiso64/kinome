@@ -477,10 +477,14 @@ class WebApiClient implements ApiClient {
     })
   }
 
+  getEpisodeMatches(itemId: string, seasonNumber?: number): Promise<TmdbSearchResult[]> {
+    return this.request('/api/episode-matches', { method: 'POST', body: JSON.stringify({ itemId, seasonNumber }) })
+  }
+
   applyManualMatch(
     itemId: string,
     result: TmdbSearchResult,
-    mediaType: 'movie' | 'tv' | 'season'
+    mediaType: 'movie' | 'tv' | 'season' | 'episode'
   ): Promise<void> {
     return this.request('/api/user-apply-tmdb-result', {
       method: 'POST',

@@ -82,6 +82,7 @@ export function buildSortOrder(
       if (mediaType === 'season') {
         return [
           { field: 'typeRank', direction: 'ASC' },
+          { field: 'specialRank', direction: 'ASC' },
           { field: 'episodeNumber', direction: dir },
           { field: 'displayName', direction: dir },
         ]

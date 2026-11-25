@@ -4,13 +4,17 @@
  * Verifies that Virtual Season Folders do not interfere with the
  * scanning of new physical episodes in a "flat" TV show.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { syncTvShowStructure } from './tv-show.service'
 import { assignManualIdentity, clearItemMetadata } from './metadata.service'
-import { getItemById } from './repository.service'
-import type { MediaFolder, MediaFile } from '@shared/types'
+import { find, getItemById } from './repository.service'
+import { applyTvShowData } from './metadata-processing.service'
+import { updateIfChangedAndBroadcast } from './item-update.service'
+import { buildSortOrder } from './navigation.service'
+import * as retriever from './retriever.service'
+import type { MediaFolder, MediaFile, Settings } from '@shared/types'
 
 let ctx: ServiceTestContext
 
@@ -318,6 +322,89 @@ describe('TV release structure', () => {
         const episode = getItemById('matched') as MediaFile
         expect(episode).toMatchObject({ mediaType: 'episode', seasonNumber: 2, episodeNumber: 1 })
         expect([episode.tmdbId ?? null, episode.lockedFields ?? []]).toEqual([null, []])
+    })
+
+    it('treats S00 and SxxEXX files in a season folder as specials with their own season data', async () => {
+        ctx.seedEntities([{ id: 'e-show', tmdbId: 12, mediaType: 'tv' }])
+        ctx.seedItems([
+            { id: 'show', type: 'folder', entityId: 'e-show', name: 'Black Mirror' },
+            { id: 'season', parentId: 'show', type: 'folder', name: 'Season 02' },
+            { id: 'regular', parentId: 'season', name: 'Black.Mirror.S02E01.Be.Right.Back.1080p.mkv' },
+            { id: 'unnumbered', parentId: 'season', name: 'Black.Mirror.S02EXX.Special.White.Christmas.1080p.WEB-DL.mkv' },
+            { id: 'numbered', parentId: 'season', name: '[Name] Show - S00E02 - Title (BD 1080p HEVC Opus).mkv' }
+        ])
+        const numbers = (): unknown[][] => ['regular', 'unnumbered', 'numbered'].map((id) => {
+            const file = getItemById(id) as MediaFile
+            return [file.mediaType, file.seasonNumber, file.episodeNumber ?? null]
+        })
+        const expected: unknown[][] = [['episode', 2, 1], ['episode', 0, null], ['episode', 0, 2]]
+
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+        expect(numbers()).toEqual(expected)
+        // A season fixed by a manual match keeps its regular episodes and still leaves specials in season 0.
+        upsertMetadata('season', { ...getItemById('season'), lockedFields: ['tmdbId', 'mediaType', 'seasonNumber'] })
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+        expect(numbers()).toEqual(expected)
+
+        // Each file takes the details of its own season: the special is never given S02E02's.
+        const getSeason = spyOn(retriever, 'getSeasonDetails').mockImplementation(async (_show, season) => ({
+            episodes: season === 0
+                ? [{ episode_number: 2, name: 'A Special', overview: '', still_path: null }]
+                : [1, 2].map((n) => ({ episode_number: n, name: `Regular ${n}`, overview: '', still_path: null }))
+        }))
+        const log = spyOn(console, 'log').mockImplementation(() => {})
+        try {
+            const show = getItemById('show') as MediaFolder
+            show.tmdbSeasons = [0, 2].map((n) => ({ season_number: n, name: `Season ${n}`, episode_count: 2 })) as MediaFolder['tmdbSeasons']
+            const settings = { tmdbApiKey: 'fixture-key' } as Settings
+            await updateIfChangedAndBroadcast(await applyTvShowData(show, settings, '', { respectLocks: true }))
+            expect(['regular', 'unnumbered', 'numbered'].map((id) => getItemById(id)?.title ?? null))
+                .toEqual(['Regular 1', null, 'A Special'])
+        } finally {
+            log.mockRestore()
+            getSeason.mockRestore()
+        }
+
+        // Specials follow the numbered episodes.
+        expect(find({ where: { parentId: 'season' }, orderBy: buildSortOrder('season') }).map(({ id }) => id))
+            .toEqual(['regular', 'unnumbered', 'numbered'])
+    })
+
+    it('matches a file to a chosen episode: locks its place, takes that episode\'s details, and survives scans', async () => {
+        ctx.seedEntities([{ id: 'e-show', tmdbId: 12, mediaType: 'tv' }])
+        ctx.seedItems([
+            { id: 'show', type: 'folder', entityId: 'e-show', name: 'Black Mirror' },
+            { id: 'season', parentId: 'show', type: 'folder', name: 'Season 02' },
+            { id: 'special', parentId: 'season', name: 'Black.Mirror.S02EXX.Special.White.Christmas.mkv' },
+            { id: 'wrong', parentId: 'season', name: 'Black.Mirror.S02E01.mkv' }
+        ])
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+
+        // The unnumbered special becomes Specials episode 1, and a misnumbered file becomes episode 3.
+        expect(await assignManualIdentity('special', { season_number: 0, episode_number: 1 }, 'episode')).not.toBeNull()
+        expect(await assignManualIdentity('wrong', { season_number: 2, episode_number: 3 }, 'episode')).not.toBeNull()
+        // A folder cannot be an episode, and a match needs both numbers.
+        expect(await assignManualIdentity('season', { season_number: 2, episode_number: 1 }, 'episode')).toBeNull()
+        expect(await assignManualIdentity('wrong', { season_number: 2 }, 'episode')).toBeNull()
+
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+        const locks = ['mediaType', 'seasonNumber', 'episodeNumber']
+        expect(getItemById('special')).toMatchObject({ mediaType: 'episode', seasonNumber: 0, episodeNumber: 1, lockedFields: locks })
+        expect(getItemById('wrong')).toMatchObject({ mediaType: 'episode', seasonNumber: 2, episodeNumber: 3, lockedFields: locks })
+
+        const getSeason = spyOn(retriever, 'getSeasonDetails').mockImplementation(async (_show, season) => ({
+            episodes: [1, 2, 3].map((n) => ({ episode_number: n, name: `S${season} episode ${n}`, overview: '', still_path: null }))
+        }))
+        const log = spyOn(console, 'log').mockImplementation(() => {})
+        try {
+            const show = getItemById('show') as MediaFolder
+            show.tmdbSeasons = [0, 2].map((n) => ({ season_number: n, name: `Season ${n}`, episode_count: 3 })) as MediaFolder['tmdbSeasons']
+            await updateIfChangedAndBroadcast(await applyTvShowData(show, { tmdbApiKey: 'fixture-key' } as Settings, '', { respectLocks: true }))
+            expect([getItemById('special')?.title, getItemById('wrong')?.title]).toEqual(['S0 episode 1', 'S2 episode 3'])
+        } finally {
+            log.mockRestore()
+            getSeason.mockRestore()
+        }
     })
 
     it('numbers dash-numbered files in a season folder only when the season size is known', async () => {

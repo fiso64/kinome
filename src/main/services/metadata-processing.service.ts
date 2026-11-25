@@ -142,6 +142,7 @@ export async function applyTvShowData(
   }
 
   // 1. Process Season Folders
+  const straysBySeason = new Map<number, MediaFile[]>()
   const seasonFolders = children.filter(
     (c) => c.type === 'folder' && c.mediaType === 'season' && typeof c.seasonNumber === 'number'
   ) as MediaFolder[]
@@ -182,6 +183,19 @@ export async function applyTvShowData(
     }
 
     if (!seasonFolder.isVirtual && (!refresh?.onlyChangedSeasons || seasonIsStale || !seasonFolder.lastRefreshedAt)) {
+      // A season folder can hold episodes of another season, usually specials.
+      // Each file is matched against its own season's provider episodes.
+      const files = repositoryService.getChildren(seasonFolder.id, [...repositoryService.CORE_FIELDS, 'overview'])
+        .filter((item): item is MediaFile => item.type === 'file' && !item.isMissing)
+      const own: MediaFile[] = []
+      for (const file of files) {
+        if (file.seasonNumber == null || file.seasonNumber === seasonFolder.seasonNumber) own.push(file)
+        else if (file.mediaType === 'episode') {
+          let strays = straysBySeason.get(file.seasonNumber)
+          if (!strays) straysBySeason.set(file.seasonNumber, (strays = []))
+          strays.push(file)
+        }
+      }
       const modifiedInSeason = await fetchAndApplyEpisodeData(
         seasonFolder,
         tmdbId,
@@ -190,6 +204,7 @@ export async function applyTvShowData(
         show.tmdbSeasons,
         {
           ...options,
+          localEpisodes: own,
           force: options.force || seasonIsStale,
           getEpisodes,
           onFetch: (success) => recordFetch([seasonFolder.id], success)
@@ -226,6 +241,15 @@ export async function applyTvShowData(
         getEpisodes,
         onFetch: (success) => recordFetch(ids, success)
       }
+    )
+    allModifiedItems.push(...modified.filter((item) => item.id !== show.id))
+  }
+
+  for (const [seasonNumber, episodes] of straysBySeason) {
+    const proxySeason: MediaFolder = { ...show, seasonNumber, lastRefreshedAt: null }
+    const modified = await fetchAndApplyEpisodeData(
+      proxySeason, tmdbId, settings.tmdbApiKey!, libraryDataPath, show.tmdbSeasons,
+      { ...options, localEpisodes: episodes, getEpisodes, onFetch: (success) => recordFetch([], success) }
     )
     allModifiedItems.push(...modified.filter((item) => item.id !== show.id))
   }
@@ -280,7 +304,8 @@ export async function fetchAndApplyEpisodeData(
   // CORE_FIELDS, which excludes overview. We need it for change detection.
   const localEpisodes = options.localEpisodes ?? repositoryService.getChildren(
     seasonFolder.id, [...repositoryService.CORE_FIELDS, 'overview']
-  ).filter((item): item is MediaFile => item.type === 'file' && !item.isMissing)
+  ).filter((item): item is MediaFile => item.type === 'file' && !item.isMissing &&
+    (item.seasonNumber == null || item.seasonNumber === seasonNumber))
   const episodesByNumber = new Map(tmdbEpisodes.map((episode) => [episode.episode_number, episode]))
 
   for (const localEpisode of localEpisodes) {

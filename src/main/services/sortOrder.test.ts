@@ -92,10 +92,11 @@ describe('buildSortOrder', () => {
       ])
     })
 
-    it('season folder: typeRank ASC + episodeNumber ASC + displayName ASC', () => {
+    it('season folder: typeRank ASC + specialRank ASC + episodeNumber ASC + displayName ASC', () => {
       const clauses = buildSortOrder('season')
       expect(clauses).toEqual([
         { field: 'typeRank', direction: 'ASC' },
+        { field: 'specialRank', direction: 'ASC' },
         { field: 'episodeNumber', direction: 'ASC' },
         { field: 'displayName', direction: 'ASC' },
       ])
@@ -109,6 +110,7 @@ describe('buildSortOrder', () => {
       ])
       expect(buildSortOrder('season', 'hybrid', true)).toEqual([
         { field: 'typeRank', direction: 'ASC' },
+        { field: 'specialRank', direction: 'ASC' },
         { field: 'episodeNumber', direction: 'DESC' },
         { field: 'displayName', direction: 'DESC' },
       ])

@@ -42,16 +42,48 @@
   let searched = $state(false)
   let searchYear = $state(guessedTitle.year?.toString() ?? '')
 
-  function initialSearchType(): 'movie' | 'tv' | 'season' {
+  type MatchType = 'movie' | 'tv' | 'season' | 'episode'
+
+  function initialSearchType(): MatchType {
     if (item.mediaType === 'season') return 'season'
-    if (item.mediaType === 'tv' || item.mediaType === 'episode') return 'tv'
+    if (item.mediaType === 'episode' && item.type === 'file') return 'episode'
+    if (item.mediaType === 'tv') return 'tv'
     if (item.mediaType === 'movie') return 'movie'
     return item.type === 'folder' ? 'tv' : 'movie'
   }
 
   let searchType = $state(initialSearchType())
-  let resultType = $state<'movie' | 'tv' | 'season'>('movie')
+  let resultType = $state<MatchType>('movie')
   let searchResults = $state<TmdbSearchResult[]>([])
+
+  // An episode is chosen from the show the file sits in: its seasons first, then one season's episodes.
+  let episodeSeasons = $state<TmdbSearchResult[]>()
+  let openSeason = $state<TmdbSearchResult>()
+  let seasonEpisodes = $state<TmdbSearchResult[]>([])
+  let episodeError = $state('')
+
+  async function loadEpisodeMatches(season?: TmdbSearchResult) {
+    if (isSearching) return
+    isSearching = true
+    episodeError = ''
+    try {
+      const matches = await window.api.getEpisodeMatches(item.id, season?.season_number)
+      if (season) {
+        seasonEpisodes = matches
+        openSeason = season
+      } else {
+        episodeSeasons = matches
+      }
+    } catch (err: any) {
+      episodeError = err.message || 'Could not load episodes.'
+    } finally {
+      isSearching = false
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'match' && searchType === 'episode' && !episodeSeasons && !episodeError) void loadEpisodeMatches()
+  })
   let searchInput = $state<HTMLInputElement | undefined>(undefined)
 
   // Artwork tab state
@@ -102,9 +134,9 @@
   })
 
   async function performSearch() {
-    if (!(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim()) || isSearching) return
-    isSearching = true
     const type = searchType
+    if (type === 'episode' || !(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim()) || isSearching) return
+    isSearching = true
     try {
       searchResults = await window.api.manualSearch(
         searchBy === 'title' ? searchQuery : '', type, searchBy === 'title' ? searchYear : '', searchBy === 'id' ? searchTmdbId : ''
@@ -118,12 +150,12 @@
     }
   }
 
-  async function applyResult(result: TmdbSearchResult) {
+  async function applyResult(result: TmdbSearchResult, type: MatchType = resultType) {
     applyingResultId = result.id
     try {
       // De-proxy the reactive Svelte object before sending it over IPC
       const plainResult = JSON.parse(JSON.stringify(result))
-      await window.api.applyManualMatch(localItem.id, plainResult, resultType)
+      await window.api.applyManualMatch(localItem.id, plainResult, type)
       // The modal will be closed automatically when the parent receives the item update.
       onClose()
     } catch (err: any) {
@@ -239,6 +271,11 @@
     let active = true
     void window.api.getParent(item.id).then((parent) => {
       if (!active) return
+      // An untyped file in a show or season is most likely an episode of it.
+      if (item.type === 'file') {
+        if (parent?.mediaType === 'tv' || parent?.mediaType === 'season') searchType = 'episode'
+        return
+      }
       if (parent?.mediaType === 'tv') searchType = 'season'
       if (searchType === 'season' && parent?.tmdbId) {
         searchTmdbId = parent.tmdbId.toString()
@@ -271,12 +308,16 @@
     {#if activeTab === 'match'}
       <form class="search-form raised-surface"
         onsubmit={(event) => { event.preventDefault(); void performSearch() }}>
-        <div class="selection-bar" role="group" aria-label="Match by">
-          <button type="button" aria-pressed={searchBy === 'title'} onclick={() => (searchBy = 'title')}>By title</button>
-          <button type="button" aria-pressed={searchBy === 'id'} onclick={() => (searchBy = 'id')}>By TMDB ID</button>
-        </div>
+        {#if searchType !== 'episode'}
+          <div class="selection-bar" role="group" aria-label="Match by">
+            <button type="button" aria-pressed={searchBy === 'title'} onclick={() => (searchBy = 'title')}>By title</button>
+            <button type="button" aria-pressed={searchBy === 'id'} onclick={() => (searchBy = 'id')}>By TMDB ID</button>
+          </div>
+        {/if}
         <div class="search-fields">
-          {#if searchBy === 'title'}
+          {#if searchType === 'episode'}
+            <p class="form-hint search-name">Choose a season of this file's show, then the episode.</p>
+          {:else if searchBy === 'title'}
             <div class="form-field search-name">
               <label for="match-title">Title</label>
               <input id="match-title" type="text" bind:this={searchInput} bind:value={searchQuery} />
@@ -297,14 +338,76 @@
               <option value="movie">Movie</option>
               <option value="tv">TV show</option>
               <option value="season">Season</option>
+              {#if item.type === 'file'}<option value="episode">Episode</option>{/if}
             </select>
           </div>
-          <button class="primary" type="submit"
-            disabled={isSearching || !(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim())}>
-            <Icon name="search" size={17} /> {isSearching ? 'Searching...' : 'Search'}
-          </button>
+          {#if searchType !== 'episode'}
+            <button class="primary" type="submit"
+              disabled={isSearching || !(searchBy === 'title' ? searchQuery.trim() : searchTmdbId.trim())}>
+              <Icon name="search" size={17} /> {isSearching ? 'Searching...' : 'Search'}
+            </button>
+          {/if}
         </div>
       </form>
+      {#if searchType === 'episode'}
+        <div class="search-results" aria-busy={isSearching}>
+          {#if episodeError}
+            <p class="form-hint" role="alert">{episodeError}</p>
+          {:else if openSeason}
+            <div class="season-heading">
+              <button class="secondary" type="button" data-action="back-to-seasons" onclick={() => (openSeason = undefined)}>
+                <Icon name="left" size={16} /> Seasons
+              </button>
+              <h3>{openSeason.name ?? `Season ${openSeason.season_number}`}</h3>
+            </div>
+            {#each seasonEpisodes as episode (episode.id)}
+              <div class="result-item raised-surface">
+                <div class="result-poster still">
+                  {#if episode.poster_path}
+                    <img src="https://image.tmdb.org/t/p/w300{episode.poster_path}" alt="" loading="lazy" />
+                  {/if}
+                </div>
+                <div class="result-info">
+                  <h3>{episode.episode_number}. {episode.name}
+                    {#if episode.first_air_date}<span class="episode-count">({episode.first_air_date})</span>{/if}
+                  </h3>
+                  <p>{episode.overview}</p>
+                </div>
+                <div class="result-actions">
+                  <button data-action="select-episode" onclick={() => applyResult(episode, 'episode')} disabled={applyingResultId !== null}>
+                    {#if applyingResultId === episode.id}Applying...{:else}Select{/if}
+                  </button>
+                </div>
+              </div>
+            {:else}
+              <p class="form-hint">This season has no episodes on TMDB.</p>
+            {/each}
+          {:else}
+            {#each episodeSeasons ?? [] as season (season.id)}
+              <div class="result-item raised-surface">
+                <div class="result-poster">
+                  {#if season.poster_path}
+                    <img src="https://image.tmdb.org/t/p/w154{season.poster_path}" alt="" loading="lazy" />
+                  {/if}
+                </div>
+                <div class="result-info">
+                  <h3>{season.season_number}. {season.name} ({getYear(season)})
+                    {#if typeof season.episode_count !== 'undefined'}
+                      <span class="episode-count">({season.episode_count} episodes)</span>
+                    {/if}
+                  </h3>
+                  <p>{season.overview}</p>
+                </div>
+                <div class="result-actions">
+                  <button data-action="open-season" onclick={() => loadEpisodeMatches(season)} disabled={isSearching}>Episodes</button>
+                </div>
+              </div>
+            {:else}
+              {#if episodeSeasons && !isSearching}<p class="form-hint">This show has no seasons on TMDB.</p>{/if}
+            {/each}
+          {/if}
+        </div>
+      {:else}
       <div class="search-results" aria-busy={isSearching}>
         {#each searchResults as result (result.id)}
           <div class="result-item raised-surface">
@@ -338,6 +441,7 @@
           {/if}
         {/each}
       </div>
+      {/if}
     {:else if activeTab === 'artwork'}
       <div class="artwork-controls">
         <div>
@@ -421,6 +525,10 @@
     overflow: hidden;
   }
   .result-poster img { width: 100%; height: 100%; object-fit: cover; }
+  .result-poster.still { flex-basis: 120px; width: 120px; aspect-ratio: 16 / 9; height: auto; }
+  .season-heading { display: flex; align-items: center; gap: .75rem; }
+  .season-heading h3 { font-size: 1rem; font-weight: 650; }
+  .season-heading button { display: inline-flex; align-items: center; gap: .25rem; }
   .result-info { flex: 1; min-width: 0; }
   .result-info h3 { font-size: 1rem; font-weight: 650; }
   .episode-count, .result-info p { color: var(--color-text-soft); font-size: .84rem; }

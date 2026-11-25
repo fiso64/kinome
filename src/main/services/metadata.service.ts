@@ -389,37 +389,71 @@ export async function ensureSeasonCounts(show: MediaFolder, provider?: MetadataP
 export async function assignManualIdentity(
   itemId: string,
   result: Record<string, any>,
-  mediaType: 'movie' | 'tv' | 'season'
+  mediaType: ManualMatchType
 ): Promise<LibraryItem | null> {
   const current = repositoryService.getItemById(itemId)
   if (!current) return null
-  const seasonNumber = mediaType === 'season' && typeof result.season_number === 'number'
-    ? result.season_number : undefined
+  // An episode is identified by its place in its show. The show itself is the folder above it.
+  const numbers = mediaType === 'episode' ? ['seasonNumber', 'episodeNumber'] as const
+    : mediaType === 'season' ? ['seasonNumber'] as const : []
+  const chosen: Record<string, number> = {}
+  for (const field of numbers) {
+    const value = result[field === 'seasonNumber' ? 'season_number' : 'episode_number']
+    if (typeof value === 'number') chosen[field] = value
+  }
+  if (mediaType === 'episode' && (current.type !== 'file' || Object.keys(chosen).length < 2)) return null
+  const tmdbId = mediaType === 'episode' ? null : result.id
   // Edits describe an identity. They survive only when the same match is applied again.
-  const sameIdentity = current.tmdbId === result.id && current.mediaType === mediaType &&
-    (seasonNumber === undefined || (current as MediaFolder).seasonNumber === seasonNumber)
+  const sameIdentity = (current.tmdbId ?? null) === tmdbId && current.mediaType === mediaType &&
+    Object.entries(chosen).every(([field, value]) => (current as Record<string, any>)[field] === value)
 
   const item = await clearItemMetadata(itemId, { targetedClear: true, preserveEdits: sameIdentity })
   if (!item) return null
 
-  if (seasonNumber !== undefined) item.seasonNumber = seasonNumber
-  item.tmdbId = result.id
+  Object.assign(item, chosen)
+  item.tmdbId = tmdbId
   item.mediaType = mediaType
   item.lastRefreshedAt = null
-  const identity = mediaType === 'season' ? ['tmdbId', 'mediaType', 'seasonNumber'] : ['tmdbId', 'mediaType']
-  item.lockedFields = [...new Set([...(item.lockedFields ?? []), ...identity])]
+  const identity = [...(mediaType === 'episode' ? [] : ['tmdbId']), 'mediaType', ...Object.keys(chosen)]
+  item.lockedFields = [...new Set([...(item.lockedFields ?? []).filter((field) => tmdbId !== null || field !== 'tmdbId'), ...identity])]
 
-  if (mediaType !== 'season') {
+  if (mediaType === 'movie' || mediaType === 'tv') {
     metadataRepo.saveProviderMatch(item.id, 'tmdb', { id: result.id, type: mediaType })
   }
   await updateIfChangedAndBroadcast(item)
   return item
 }
 
+export type ManualMatchType = 'movie' | 'tv' | 'season' | 'episode'
+
+/** The matched show a file belongs to: the nearest TV folder above it. */
+export function findShowFor(itemId: string): MediaFolder | null {
+  for (let parent = repositoryService.findParent(itemId); parent; parent = repositoryService.findParent(parent.id)) {
+    if (parent.mediaType === 'tv') return parent.tmdbId ? parent : null
+  }
+  return null
+}
+
+/** Gives one manually matched episode the details of its place in the show. */
+async function enrichMatchedEpisode(episode: MediaFile): Promise<void> {
+  const show = findShowFor(episode.id)
+  if (!show || episode.seasonNumber == null) return
+  const settings = await settingsService.readSettings()
+  await ensureSeasonCounts(show)
+  const modified = await metadataMapping.fetchAndApplyEpisodeData(
+    { ...show, seasonNumber: episode.seasonNumber, lastRefreshedAt: null },
+    show.tmdbId!, settings.tmdbApiKey!, pathsService.getLibraryDataPath(), show.tmdbSeasons ?? undefined,
+    { respectLocks: true, force: true, localEpisodes: [episode] }
+  )
+  await updateIfChangedAndBroadcast(modified.filter((item) => item.id !== show.id))
+  // A loose episode is listed under its show's generated season folders.
+  if (episode.parentId === show.id) syncVirtualSeasonFolders(show.id)
+}
+
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
-  mediaType: 'movie' | 'tv' | 'season'
+  mediaType: ManualMatchType
 ): Promise<LibraryItem[]> {
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
@@ -445,7 +479,8 @@ export async function applyManualMatch(
             })
           }
         }
-        await fetchAndApplyMetadata(item, { force: true })
+        if (mediaType === 'episode') await enrichMatchedEpisode(item as MediaFile)
+        else await fetchAndApplyMetadata(item, { force: true })
       } catch (err) {
         log(`[Manual Match] Background enrichment failed: ${err}`)
       } finally {

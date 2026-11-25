@@ -913,9 +913,33 @@ export const clearVirtualFolderMetadata = metadataService.clearVirtualFolderMeta
 export const applyManualMatch = async (
   itemId: string,
   result: any,
-  mediaType: 'movie' | 'tv' | 'season'
+  mediaType: metadataService.ManualMatchType
 ) => {
   await metadataService.applyManualMatch(itemId, result, mediaType)
+}
+
+/**
+ * What a file can be matched to as an episode: the seasons of the show it
+ * sits in, or with a season number, that season's episodes.
+ */
+export const getEpisodeMatches = async (itemId: string, seasonNumber?: number) => {
+  const show = metadataService.findShowFor(itemId)
+  if (!show?.tmdbId) throw new Error('Match the show before matching its episodes.')
+  const { tmdbApiKey } = await settingsService.readSettings()
+  if (seasonNumber === undefined) {
+    return retrieverService.manualSearch('', 'season', tmdbApiKey, { tmdbId: String(show.tmdbId) })
+  }
+  const season = await retrieverService.getSeasonDetails(show.tmdbId, seasonNumber, tmdbApiKey)
+  return (season?.episodes ?? []).map((episode: any) => ({
+    id: episode.id,
+    name: episode.name,
+    overview: episode.overview ?? null,
+    poster_path: episode.still_path ?? null,
+    backdrop_path: null,
+    first_air_date: episode.air_date,
+    season_number: seasonNumber,
+    episode_number: episode.episode_number
+  }))
 }
 
 export const setImage = async (

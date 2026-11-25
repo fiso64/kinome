@@ -60,6 +60,16 @@ export function shouldBeGreyedOut(
  * @param text The text from the search input.
  * @returns `true` if the user is likely in the middle of typing a tag.
  */
+/** The title a list shows for an item. Episodes carry their number; specials (season 0) say so. */
+export function displayTitle(item: {
+  title?: string | null; name?: string; mediaType?: string | null; seasonNumber?: number | null; episodeNumber?: number | null
+}): string {
+  const title = item.title ?? item.name ?? ''
+  if (item.mediaType !== 'episode') return title
+  if (item.seasonNumber === 0) return `Special${item.episodeNumber != null ? ` ${item.episodeNumber}` : ''} · ${title}`
+  return item.episodeNumber != null ? `${item.episodeNumber}. ${title}` : title
+}
+
 export function isTypingTag(text: string): boolean {
   if (!text) return false
   // These regexes check if the user is in the middle of typing a tag.

@@ -37,6 +37,7 @@
 </script>
 
 <script lang="ts">
+  import { displayTitle as itemTitle } from '@lib/view-helpers'
   import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import { untrack } from 'svelte'
@@ -71,11 +72,7 @@
 
   let isExpanded = $state(false)
 
-  const displayTitle = $derived(
-    item.mediaType === 'episode' && item.episodeNumber != null
-      ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : (item.title ?? item.name)
-  )
+  const displayTitle = $derived(itemTitle(item))
 
   const facts = $derived(item.type === 'file' ? getFileFacts(item) : undefined)
 

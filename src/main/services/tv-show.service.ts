@@ -338,7 +338,8 @@ function _applyEpisodeMap(
       const isEpisodeLocked = repositoryService.isFieldLocked(file, 'episodeNumber')
 
       let changed = false
-      const targetSeason = forcedSeasonNumber !== undefined ? forcedSeasonNumber : info.season
+      // A special keeps season 0 in a folder whose season is fixed.
+      const targetSeason = info.season === 0 || forcedSeasonNumber === undefined ? info.season : forcedSeasonNumber
       const before = verbose ? {
         mediaType: file.mediaType,
         seasonNumber: file.seasonNumber,

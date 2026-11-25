@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle as itemTitle } from '@lib/view-helpers'
   import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import { shouldBeGreyedOut } from '@lib/view-helpers'
@@ -51,11 +52,7 @@
 <div class="media-list">
   {#if items.length > 0}
     {#each items as item (item.id)}
-      {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
-      {@const displayTitle =
-        'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
-          ? `${item.episodeNumber}. ${baseTitle}`
-          : baseTitle}
+      {@const displayTitle = itemTitle(item)}
       {@const overview = 'overview' in item ? item.overview : ''}
       <div class="list-row" data-media-item-id={item.id}>
         <button

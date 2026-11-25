@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle as itemTitle } from '@lib/view-helpers'
   import Icon from '@components/ui/Icon.svelte'
   import MediaView from './MediaView.svelte'
   import TmdbMetadataSummary from '@components/ui/TmdbMetadataSummary.svelte'
@@ -192,11 +193,7 @@
 
   // -- 3. Derived Template Properties --
 
-  const displayTitle = $derived(
-    item.mediaType === 'episode' && 'episodeNumber' in item && item.episodeNumber != null
-      ? `${item.episodeNumber}. ${item.title ?? item.name}`
-      : (item.title ?? item.name)
-  )
+  const displayTitle = $derived(itemTitle(item))
 
   const showOverviewTab = $derived(!!item.overview)
   // Ensure we show the tab if we HAVE credits OR if we can fetch them (has tmdbId)

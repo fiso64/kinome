@@ -95,10 +95,12 @@ export interface ApiClient {
     mediaType: 'movie' | 'tv',
     language: string
   ): Promise<TmdbImageResults>
+  /** The seasons of the show a file sits in, or with a season number, that season's episodes. */
+  getEpisodeMatches(itemId: string, seasonNumber?: number): Promise<TmdbSearchResult[]>
   applyManualMatch(
     itemId: string,
     result: TmdbSearchResult,
-    mediaType: 'movie' | 'tv' | 'season'
+    mediaType: 'movie' | 'tv' | 'season' | 'episode'
   ): Promise<void>
   markAsWatched(itemId: string): Promise<void>
   markAsUnwatched(itemId: string): Promise<void>

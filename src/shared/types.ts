@@ -595,6 +595,7 @@ export interface TmdbSearchResult {
   genre_ids?: number[]
   season_number?: number
   episode_count?: number
+  episode_number?: number
 }
 
 export interface Database {

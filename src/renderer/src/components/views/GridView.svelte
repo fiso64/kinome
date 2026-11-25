@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle as itemTitle } from '@lib/view-helpers'
   import PosterCard from './PosterCard.svelte'
   import type { LibraryItem, MediaFolder, SearchIndexEntry } from '@shared/types'
 
@@ -33,11 +34,7 @@
 >
   {#if items.length > 0}
     {#each items as item (item.id)}
-      {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
-      {@const displayTitle =
-        'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null
-          ? `${item.episodeNumber}. ${baseTitle}`
-          : baseTitle}
+      {@const displayTitle = itemTitle(item)}
       <PosterCard itemId={item.id} title={displayTitle} folder={item.type === 'folder'}
         episode={item.mediaType === 'episode'} episodeWatched={item.watched}
         src={item.posterPath ? getAssetUrl(item.posterPath + (item._v ? `?v=${item._v}` : '')) : undefined}

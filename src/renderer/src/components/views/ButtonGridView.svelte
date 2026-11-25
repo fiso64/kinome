@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle as itemTitle } from '@lib/view-helpers'
   import WatchedIndicator from '@components/ui/WatchedIndicator.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import ScrollableGrid from './ScrollableGrid.svelte'
@@ -38,8 +39,7 @@
 <ScrollableGrid stateKey="button-grid" hasItems={items.length > 0} columnWidth={gridPosterSize}
   showScrollbar={showHorizontalScrollbar} horizontal={scrollHorizontally ?? false} fill>
   {#each items as item (item.id)}
-    {@const baseTitle = item.title ?? ('name' in item ? (item as LibraryItem).name : '')}
-    {@const displayTitle = 'episodeNumber' in item && item.mediaType === 'episode' && item.episodeNumber != null ? `${item.episodeNumber}. ${baseTitle}` : baseTitle}
+    {@const displayTitle = itemTitle(item)}
     {@const bgImage = ('backdropPath' in item && item.backdropPath) ? item.backdropPath : item.posterPath}
     {@const hasImage = !!bgImage}
     <div class="category-card-shell interactive-card" class:episode={item.mediaType === 'episode'} data-media-item-id={item.id}>

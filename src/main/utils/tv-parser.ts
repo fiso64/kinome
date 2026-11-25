@@ -88,7 +88,7 @@ type EpisodeCandidate =
   | ({ kind: 'range'; endEpisode: number } & Coordinates)
   | { kind: 'number'; episode: number; prefix: string; notation: 'bare' | 'named' | 'absolute'; span: Span }
   | { kind: 'date'; date: string; span: Span }
-  | { kind: 'extra' | 'conflict' | 'ambiguous' }
+  | { kind: 'extra' | 'conflict' | 'ambiguous' | 'special' }
 
 const number = String.raw`(\d{1,4}(?:\.\d(?!\d))?)`
 // The revision suffix belongs to the release. It is part of the boundary
@@ -133,6 +133,8 @@ function* episodeCoordinates(stem: string) {
 }
 
 const compactEpisode = /s(\d{1,2})e(\d{1,4})(?![a-z0-9]|\.\d(?!\d))/i
+// Releases mark a special that has no episode number as S02EXX.
+const unnumberedSpecial = /(?<![a-z0-9])s\d{1,2}[ ._-]*exx(?![a-z0-9])/i
 const otherCoordinate = /s\d{1,2}[ ._-]*e\d|season[ ._-]*\d|(?:^|[^a-z0-9])\d{1,2}x\d/i
 
 function explicitEpisode(stem: string): EpisodeCandidate | null {
@@ -188,6 +190,7 @@ function parseVideoEpisodeName(name: string): EpisodeCandidate | null {
   const stem = videoStem(name)
   const explicit = explicitEpisode(stem)
   if (explicit) return explicit
+  if (unnumberedSpecial.test(stem)) return { kind: 'special' }
 
   const partial = stem.matchAll(episodeOnly)
   const first = partial.next().value
@@ -254,7 +257,7 @@ export interface EpisodeContext {
 }
 
 const naturalOrder = new Intl.Collator(undefined, { numeric: true })
-const episodeInfo = (season: number | null | undefined, episode: number): ParsedTvInfo =>
+const episodeInfo = (season: number | null | undefined, episode: number | null): ParsedTvInfo =>
   ({ season, episode, mediaType: 'episode' })
 
 export function determineEpisodeNumbers(
@@ -286,8 +289,12 @@ export function determineEpisodeNumbers(
     }
     if (candidate.kind === 'extra') continue
     hasNumberingEvidence = true
-    if (candidate.kind === 'episode' || candidate.kind === 'range') {
-      const season = context.forcedSeason === undefined ? candidate.season ?? parentSeason : inheritedSeason
+    if (candidate.kind === 'special') {
+      result.set(name, episodeInfo(0, null))
+    } else if (candidate.kind === 'episode' || candidate.kind === 'range') {
+      // A special belongs to season 0 wherever its file sits, even in a folder with a fixed season.
+      const season = candidate.season === 0 ? 0
+        : context.forcedSeason === undefined ? candidate.season ?? parentSeason : inheritedSeason
       if (season == null) continue
       // Kinome currently has one episode slot per file. A valid combined
       // release stays playable from its first episode until ranges have their
