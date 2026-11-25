@@ -1568,6 +1568,12 @@ describe('getChildren — sortTop / sortBottom', () => {
     expect(ids[1]).toBe('delta')
   })
 
+  it('treats cleared arrangement settings as none', async () => {
+    mergeSettings(LIBRARY_ROOT_ID, { viewSettings: { sortTop: null, sortBottom: null, sortAfter: { alpha: null } } })
+
+    expect(expectItems(await getChildren(LIBRARY_ROOT_ID, {})).map((i) => i.id)).toEqual(['alpha', 'bravo', 'charlie', 'delta'])
+  })
+
   it('sortBottom pins items to the end in order', async () => {
     mergeSettings(LIBRARY_ROOT_ID, { viewSettings: { sortBottom: ['alpha', 'bravo'] } })
 

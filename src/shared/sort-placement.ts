@@ -1,12 +1,13 @@
 /**
  * Hand-placed children of a folder. Everything else keeps the folder's sort.
  * `top` and `bottom` are anchored to the ends of the list. `after` maps an
- * anchor child to the children that follow it, in display order.
+ * anchor child to the children that follow it, in display order. A null list
+ * is a cleared view setting and places nothing.
  */
 export interface SortPlacement {
-  top?: string[]
-  bottom?: string[]
-  after?: Record<string, string[]>
+  top?: string[] | null
+  bottom?: string[] | null
+  after?: Record<string, string[] | null> | null
 }
 
 export interface ResolvedSortPlacement {
@@ -24,8 +25,8 @@ export interface ResolvedSortPlacement {
 export function resolveSortPlacement(placement: SortPlacement): ResolvedSortPlacement {
   const after = placement.after ?? {}
   const seen = new Set<string>()
-  const expand = (ids: string[] = [], result: string[] = []) => {
-    for (const id of ids) {
+  const expand = (ids: string[] | null | undefined, result: string[] = []) => {
+    for (const id of ids ?? []) {
       if (seen.has(id)) continue
       seen.add(id)
       result.push(id)
@@ -37,7 +38,7 @@ export function resolveSortPlacement(placement: SortPlacement): ResolvedSortPlac
   const top = expand(placement.top)
   const bottom = expand(placement.bottom)
   // An anchor that follows another child belongs to that child's chain.
-  const following = new Set(Object.values(after).flat())
+  const following = new Set(Object.values(after).flatMap((ids) => ids ?? []))
   const followers = new Map<string, string[]>()
   for (const anchor of Object.keys(after)) {
     if (seen.has(anchor) || following.has(anchor)) continue
@@ -63,7 +64,7 @@ export function applySortPlacement(natural: string[], placement: SortPlacement):
 
 /** Places one child right after another, or first when there is none. Children placed after it move with it. */
 export function placeAfter(placement: SortPlacement, id: string, predecessor: string | null): SortPlacement {
-  const without = (ids: string[] = []) => ids.filter((entry) => entry !== id)
+  const without = (ids: string[] | null | undefined) => (ids ?? []).filter((entry) => entry !== id)
   const after: Record<string, string[]> = {}
   for (const [anchor, ids] of Object.entries(placement.after ?? {})) {
     const kept = without(ids)
