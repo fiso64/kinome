@@ -304,7 +304,9 @@ export function reportPlayback(level: 'info' | 'warn' | 'error', message: string
   }).catch(() => {})
 }
 
-export function browserPlaybackUrl(itemId: string, filename: string, quality: WebPlaybackQuality, audio?: number, output?: PlaybackOutput): string {
+export function browserPlaybackUrl(
+  itemId: string, filename: string, quality: WebPlaybackQuality, audio?: number, output?: PlaybackOutput, position = 0
+): string {
   if (quality === 'original') return getStreamUrl(itemId, filename)
   const url = new URL(`/api/hls/${encodeURIComponent(itemId)}/${quality}/master.m3u8`, window.location.origin)
   url.searchParams.set('web', '1')
@@ -312,6 +314,8 @@ export function browserPlaybackUrl(itemId: string, filename: string, quality: We
   if (audio !== undefined) url.searchParams.set('audio', String(audio))
   if (output?.videoCodec) url.searchParams.set('videoCodec', output.videoCodec)
   if (output?.sound) url.searchParams.set('sound', output.sound)
+  // Lets the server prepare the initialization and the first segment in one job.
+  if (position > 0) url.searchParams.set('start', position.toFixed(3))
   return url.href
 }
 

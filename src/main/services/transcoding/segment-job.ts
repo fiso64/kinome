@@ -72,7 +72,9 @@ export function startSegmentJob(
   ].join(':')
   // frag_discont keeps the source's decode times in tfdt across independently
   // opened MP4 muxers. default_base_moof makes media readable without its moov.
-  const mp4Format = 'movflags=+frag_keyframe+delay_moov+default_base_moof+skip_trailer+frag_discont:use_editlist=0:strict=experimental:avoid_negative_ts=disabled'
+  // frag_duration splits a long keyframe interval into one-second fragments
+  // so a browser can present a segment while it is still downloading.
+  const mp4Format = 'movflags=+frag_keyframe+delay_moov+default_base_moof+skip_trailer+frag_discont:frag_duration=1000000:use_editlist=0:strict=experimental:avoid_negative_ts=disabled'
   const extension = fragmented ? 'mp4' : 'ts'
   const args = [
     executable, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',

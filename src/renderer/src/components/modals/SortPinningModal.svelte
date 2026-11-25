@@ -160,7 +160,7 @@
 </script>
 
 
-<ModalWindow title="Sort Order" {onClose} onDone={handleDone} maxWidth="480px">
+<ModalWindow title="Sort Order" {onClose} onDone={handleDone} minWidth="560px" maxWidth="900px">
   {#if loading}
     <div class="form-stack" role="status" aria-label="Loading sort order"><Skeleton height="3rem" /><Skeleton height="3rem" /></div>
   {:else}
@@ -206,7 +206,9 @@
 </ModalWindow>
 
 <style>
-  .sort-editor { display: grid; min-width: 0; gap: .65rem; padding: clamp(.85rem, 2.7vw, 1.35rem); }
+  /* Long names widen the window up to its limit, then truncate. */
+  .sort-editor { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: .65rem; padding: clamp(.85rem, 2.7vw, 1.35rem); }
+  .sort-editor .form-hint { inline-size: 0; min-inline-size: 100%; }
   .sort-list { padding: .4rem .55rem; }
   .empty-state { color: var(--color-text-soft); font-size: .79rem; padding: .35rem .25rem; }
   .item { display: flex; align-items: center; gap: .4rem; min-width: 0; margin-block: .16rem; padding: .15rem .25rem;

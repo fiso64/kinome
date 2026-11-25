@@ -12,6 +12,7 @@
     saveText = 'Save & Close',
     submitDisabled = false,
     maxWidth = '600px',
+    minWidth,
     zIndex = 100,
     role = 'dialog',
     descriptionId,
@@ -25,6 +26,8 @@
     saveText?: string
     submitDisabled?: boolean
     maxWidth?: string
+    /** Size the window to its content between this width and maxWidth. */
+    minWidth?: string
     zIndex?: number
     role?: 'dialog' | 'alertdialog'
     descriptionId?: string
@@ -167,7 +170,8 @@
 >
   <div
     class="modal-positioner"
-    style="transform: translate({position.x}px, {position.y}px); max-width: {maxWidth};"
+    style="transform: translate({position.x}px, {position.y}px); max-width: min({maxWidth}, 100%);{minWidth
+      ? ` width: fit-content; min-width: min(${minWidth}, 100%);` : ''}"
   >
     <div class="modal-window glass-surface" bind:this={windowElement} {role} aria-modal="true"
       aria-labelledby={titleId} aria-describedby={descriptionId} tabindex="-1">

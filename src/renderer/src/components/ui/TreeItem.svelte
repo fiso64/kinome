@@ -130,9 +130,6 @@
       oncontextmenu={(e) => showContextMenu(item, e, { parentItem: parentItem as LibraryItem })}
     >
       <div class="poster" style:--tree-depth={level}>
-        {#if item.type === 'folder'}
-          <span class="chevron"><Icon name={isExpanded ? 'down' : 'right'} size={15} /></span>
-        {/if}
         <div class="icon">
           {#if item.posterPath}
             <img
@@ -163,6 +160,9 @@
           </div>
         {/if}
       </div>
+      {#if item.type === 'folder'}
+        <span class="chevron"><Icon name={isExpanded ? 'down' : 'right'} size={15} /></span>
+      {/if}
       {#if facts && (facts.resolution || facts.sourceLabel || facts.bluRaySuffix !== undefined || facts.codecLabel)}
         <div class="media-facts">
           {#if facts.resolution}<span title={facts.dimensions}>{facts.resolution}</span>{/if}
@@ -225,14 +225,12 @@
   }
   .poster {
     margin-inline-start: min(21%, calc(var(--tree-depth, 0) * .95rem));
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
     flex-shrink: 0;
   }
   .chevron {
-    width: 1em;
-    text-align: center;
+    display: flex;
+    flex: none;
+    margin-inline-end: .45rem;
     color: var(--ev-c-text-2);
   }
   .icon {

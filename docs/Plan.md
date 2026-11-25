@@ -12,9 +12,15 @@
   - [ ] Optimize the backend to be super fast for all reasonable scenarios.
   - [ ] Optimize the frontend to load super quickly.
 - [ ] [P0] Pagination everywhere (vertical lists, horizontal lists, arbitrarily nested sublists, etc), but still have seamless infinite scrolling).
-- [ ] [P2] Expose a full jellyfin-compatible API as an alternative. Any jellyfin apps (android, tv) as well as other services like the arrs should work seamlessly when  given the correct root endpoint. Keep separate under a different endpoint, don't mix with our api. <a id="alt-api"></a>
-  This will require adding and translating many of jellyfin's features, and might hide a bunch of decisions.
-  The idea is support most of but not necessarily all of jellyfin's API. Enough for common integrations (seerr, sonarr, radarr, jellyfin clients, wholphin, moonfin) to work seamlessly.
+- [ ] [P1] Jellyfin-compatible API as a second surface, so native Jellyfin clients and common integrations work when pointed at Kinome. A translation layer over existing services under its own prefix (`/jellyfin`), separate from our API, with no data model of its own. Most of Jellyfin's API, not all of it. See [the proposal](jellyfin-api-proposal.md). <a id="alt-api"></a>
+  - [ ] Prerequisite: persistent sign-ins and API keys (sessions are in memory today and lost on restart).
+  - [ ] Connect, sign in, browse and direct play, presenting two standard libraries (Movies, TV Shows). Accepted when Jellyfin's web client works against Kinome (automated in headless Chromium).
+  - [ ] Progress, watched state, resume and next up.
+  - [ ] Jellyfin for Android TV, then Wholphin and Moonfin.
+  - [ ] Transcode negotiation from client device profiles.
+  - [ ] Seerr, Sonarr and Radarr.
+  - [ ] Favourites as a personal `favorite:true` tag. Needs personal tags first.
+  - Out of scope: Live TV, SyncPlay, plugins, DLNA, admin dashboard, music.
 
 ### 🎬 Playback & Transcoding
 
@@ -99,7 +105,8 @@
 - [ ] [P2] UI to manage metadata locks (add or remove).
 - [ ] A "Notes" text field? Or star rating field? Or custom field definitions? 
 - [ ] More metadata providers aside from TheMovieDB? (TVDB, AniList, etc.). See Kyoo.
-- [ ] Manual episode assignment. See `docs/TODO-expanded.md#manual-episode-assignment`. What to do when episodes are completey wrong?
+- [x] Manual episode assignment.
+  - [ ] Sometimes episodes are completely wrong (e.g. Haruhi broadcast vs chronological order). Some kind of bulk assignment UI, or smarter recognition? 
 
 ### 🔐 Auth & Multi-User
 
@@ -112,8 +119,8 @@
   - [x] Implement basic multi-account support with normal and admin roles and per-user watched state.
   - [x] Allow locking normals to a particular library filter (e.g. user A can only see media that has a particular tag).
 - [ ] [P2] Granular permission/capability flags for non-admin accounts.
-- [ ] [P2] Normals should be able to create and remove their personal tags. How? Maybe separate "personal tags" entry in metadata for each user.
-- [ ] [P2] Create a virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership). 
+- [ ] [P1] Normals should be able to create and remove their personal tags. How? Maybe separate "personal tags" entry in metadata for each user. Favourites in the [Jellyfin-compatible API](#alt-api) become a personal `favorite:true` tag, so lookups by account must be indexed.
+- [ ] [P2] Create virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership). 
 - [ ] UI for sharing folders and accessing shared folders.
   - [ ] Store more settings (like layout and sort by) per-user to allow normals to modify appearance even for shared folders.
 - [ ] Admins should be able to filter their library too.

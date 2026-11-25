@@ -27,7 +27,7 @@
   import { defaultAudioTrack, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import reflectionSample from '../../assets/player/reflection.mp4?no-inline'
-  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, type RenditionTarget } from './adaptive-playback'
+  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, discardAbandonedSegment, monitorAdaptivePlayback, prefetchRendition, seekWhenStartBuffered, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
   let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
@@ -456,7 +456,7 @@
         index--
         void nextSource()
       }
-      const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex, candidate)
+      const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex, candidate, resumeAt)
       video.playbackRate = speed
       video.defaultPlaybackRate = speed
       const play = () => {
@@ -547,7 +547,7 @@
         const reserve = bufferedEnd(video) - video.currentTime
         try {
           const prepared = target.mode === 'original' || nativeHls ? undefined : await prefetchRendition(
-            browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target), mediaTime(), controller.signal
+            browserPlaybackUrl(item.id, item.name, target.mode, audioIndex, target, mediaTime()), mediaTime(), controller.signal
           )
           if (prepared === false) {
             incompatible.add(next)
@@ -672,6 +672,8 @@
         if (Hls.isSupported()) {
           const player = prepared ?? createPlaybackHls(Hls, resumeAt)
           hls = player
+          discardAbandonedSegment(player, video, signal)
+          if (!prepared) seekWhenStartBuffered(Hls, player, video, resumeAt)
           const updateBuffer = () => { if (!signal.aborted) updateBufferedRanges() }
           player.on(Hls.Events.BUFFER_APPENDED, updateBuffer)
           player.on(Hls.Events.BUFFER_FLUSHED, updateBuffer)

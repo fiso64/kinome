@@ -147,8 +147,56 @@ export function monitorAdaptivePlayback(
 
 type HlsClass = typeof import('hls.js').default
 
-export function createPlaybackHls(Hls: HlsClass, position: number, prefetch = false) {
-  return new Hls({ maxBufferLength: 12, maxMaxBufferLength: 30, startPosition: position || -1, startFragPrefetch: prefetch })
+export function createPlaybackHls(Hls: HlsClass, position: number) {
+  return new Hls({
+    // Present a segment while it downloads. A copied segment spans whole
+    // keyframe intervals and can be many megabytes on a slow connection.
+    progressive: true,
+    maxBufferLength: 12, maxMaxBufferLength: 30, startPosition: position || -1,
+    // Request the first segment as soon as the playlist arrives. HLS.js
+    // otherwise waits for its next 100 ms timer when the playlist loads before
+    // the browser has opened the media source.
+    startFragPrefetch: true
+  })
+}
+
+/**
+ * HLS.js keeps the unparsed tail of a partly delivered segment and prepends it
+ * to the next one. Discard it when a seek leaves that segment, keeping
+ * completed media buffers.
+ */
+export function discardAbandonedSegment(player: InstanceType<HlsClass>, video: HTMLVideoElement, signal: AbortSignal) {
+  video.addEventListener('seeking', () => {
+    const { frag } = player.inFlightFragments.main
+    const target = video.currentTime
+    // Parsed timestamps can move a playlist cut by a few frames. HLS.js still
+    // considers that segment a match for the target.
+    const tolerance = player.config.maxFragLookUpTolerance
+    if (frag && frag.stats.chunkCount && !frag.stats.buffering.end &&
+      (target < frag.start - tolerance || target > frag.end + tolerance)) player.startLoad(target, true)
+  }, { signal })
+}
+
+/**
+ * HLS.js moves to its start position only after the whole first segment is
+ * buffered. Move as soon as the position itself is, which matters when a long
+ * segment arrives slowly. HLS.js leaves a playhead at or past its start alone.
+ */
+export function seekWhenStartBuffered(Hls: HlsClass, player: InstanceType<HlsClass>, video: HTMLVideoElement, position: number) {
+  if (position <= 0) return
+  function seek() {
+    const ranges = video.buffered
+    let buffered = video.currentTime >= position
+    for (let i = 0; !buffered && i < ranges.length; i++) {
+      // Require playable media past the position, not a range that merely ends there.
+      if (ranges.start(i) <= position && ranges.end(i) >= position + 0.5) {
+        buffered = true
+        video.currentTime = position
+      }
+    }
+    if (buffered) player.off(Hls.Events.BUFFER_APPENDED, seek)
+  }
+  player.on(Hls.Events.BUFFER_APPENDED, seek)
 }
 
 /** Keep presenting the current source while the first on-demand segment is generated. */
@@ -156,7 +204,7 @@ export async function prefetchRendition(url: string, position: number, signal: A
   const { default: Hls } = await import('hls.js')
   signal.throwIfAborted()
   if (!Hls.isSupported()) return
-  const player = createPlaybackHls(Hls, position, true)
+  const player = createPlaybackHls(Hls, position)
   try {
     const compatible = await new Promise<boolean>((resolve, reject) => {
       const aborted = () => reject(signal.reason)

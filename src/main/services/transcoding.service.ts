@@ -130,8 +130,13 @@ export async function serveHls(
       if (output.videoCodec) query.set('videoCodec', output.videoCodec)
       if (output.sound) query.set('sound', output.sound)
       const suffix = query.toString()
+      // The player asks for the initialization before its first segment.
+      // Name that segment so both requests share one conversion job.
+      const start = Number(params.get('start'))
+      const first = start > 0 ? Math.max(0, timeline.starts.findLastIndex((time) => time <= start)) : 0
       const playlist = request.method === 'HEAD' ? null : segmentPlaylist(
-        timeline, (index) => `segment-${index}.${extension}?${suffix}`, fragmented ? `init.mp4?${suffix}` : undefined, browser
+        timeline, (index) => `segment-${index}.${extension}?${suffix}`,
+        fragmented ? `init.mp4?${suffix}${first ? `&first=${first}` : ''}` : undefined, browser
       )
       return textResponse(request, playlist, hlsMime)
     }
@@ -139,7 +144,9 @@ export async function serveHls(
     let data: BufferBlob | Bun.BunFile
     if (isInit) {
       if (!fragmented) return hlsError(404, 'Initialization not found.')
-      data = new BufferBlob([await session.initialization(request.signal)])
+      const first = Number(params.get('first') ?? 0)
+      data = new BufferBlob([await session.initialization(
+        Number.isSafeInteger(first) && first > 0 && first < timeline.starts.length ? first : 0, request.signal)])
     } else {
       const index = Number(segment![1])
       if (segment![2] !== extension || !Number.isSafeInteger(index) || index >= timeline.starts.length) {

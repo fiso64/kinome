@@ -92,9 +92,10 @@ export class PlaybackSession {
     this.#timer.unref()
   }
 
-  async initialization(signal?: AbortSignal): Promise<Buffer> {
+  /** Every segment carries the same initialization. Take it from the job that playback will use next. */
+  async initialization(nearSegment: number, signal?: AbortSignal): Promise<Buffer> {
     this.touch()
-    if (!this.#initialization) await this.segment(0, signal)
+    if (!this.#initialization) await this.segment(nearSegment, signal)
     if (!this.#initialization) throw new Error('Missing MP4 initialization')
     return this.#initialization
   }
