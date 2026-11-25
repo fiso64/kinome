@@ -411,6 +411,14 @@ export function isFieldLocked(item: LibraryItem, field: string): boolean {
   return item.lockedFields?.includes(field) ?? false
 }
 
+/** Fields that say what an item is. The other lockable fields describe it. */
+const IDENTITY_FIELDS = ['tmdbId', 'mediaType', 'seasonNumber', 'episodeNumber']
+
+/** The user decided what this item is, so no action on a parent may reset it. */
+export function hasIdentityLock(item: LibraryItem): boolean {
+  return IDENTITY_FIELDS.some((field) => isFieldLocked(item, field))
+}
+
 export function createTransferableCopy(item: LibraryItem): LibraryItem {
   return JSON.parse(JSON.stringify(item))
 }

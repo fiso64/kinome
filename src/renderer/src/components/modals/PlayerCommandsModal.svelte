@@ -248,7 +248,8 @@
     />
     <p id="player-command-hint">
       Use <code>&lt;url&gt;</code> for the playlist URL and <code>&lt;alang&gt;</code> or <code>&lt;slang&gt;</code>
-      for the selected file’s saved audio or subtitle language priorities. Each list is comma-separated and can be empty.
+      for the selected file’s saved audio or subtitle language priorities, followed by your preferred languages
+      from Playback settings. Each list is comma-separated and can be empty.
       Disable player prefetching to avoid marking queued items watched early.
     </p>
     <div class="form-actions">

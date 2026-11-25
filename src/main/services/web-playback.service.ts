@@ -3,9 +3,9 @@ import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { availablePlaybackQualities, canConvertPlaybackAudio } from '@shared/playback-quality'
 import { isMatroskaContainer, isSupportedVideoFile, type LocalMedia } from '@shared/local-media'
-import { embeddedSubtitleFormats, playbackLanguagePriorities, SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type PlaybackDefaultScope, type PlaybackDefaultsEditor, type PlaybackLanguageDefaults, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
+import { embeddedSubtitleFormats, isPlaybackLanguageList, normalizePlaybackLanguages, playbackLanguagePriorities, SUBTITLE_WINDOW_HEADER, SUBTITLE_WINDOW_SECONDS, type PlaybackDefaultScope, type PlaybackDefaultsEditor, type PlaybackLanguageDefaults, type PlaybackPreferences, type SubtitleFormat, type WebPlaybackInfo, type WebQueueItem, type WebSubtitle } from '@shared/web-playback'
 import { getPresentItemLocation } from '../database/repositories/filesystem.repo'
-import { getPlaybackDefaults, writePlaybackDefault } from '../database/repositories/playback-defaults.repo'
+import { getPlaybackDefaults, getPlaybackPreferences, writePlaybackDefault, writePlaybackPreferences } from '../database/repositories/playback-defaults.repo'
 import { getPlaybackTrackLanguages } from '../database/repositories/local-media.repo'
 import { getPlaybackPosition, savePlaybackPosition } from '../database/repositories/user.repo'
 import { ensureUpToDate } from './account-filter.service'
@@ -177,11 +177,34 @@ function availablePlaybackDefaults(itemId: string, accountId: string) {
   return getPlaybackDefaults(itemId, accountId)
 }
 
+export { getPlaybackPreferences }
+
+/** Saves an account's playback preferences. Returns false when a language list is malformed. */
+export function savePlaybackPreferences(accountId: string, preferences: PlaybackPreferences): boolean {
+  const languages = (value: string | null) => value?.trim() ? normalizePlaybackLanguages(value) : null
+  const audioLanguage = languages(preferences.audioLanguage)
+  const subtitleLanguage = languages(preferences.subtitleLanguage)
+  if ([audioLanguage, subtitleLanguage].some((value) => value !== null && !isPlaybackLanguageList(value))) return false
+  writePlaybackPreferences(accountId, { audioLanguage, subtitleLanguage, subtitles: preferences.subtitles })
+  return true
+}
+
+/**
+ * Language priorities for an external player: the saved defaults from the most
+ * specific scope outward, then the account's preferred languages. A language
+ * list cannot express forced-only subtitles, so the preferred subtitle language
+ * applies only in the default subtitle mode.
+ */
 export function getExternalPlaybackLanguages(itemId: string, accountId: string): PlaybackLanguageDefaults {
   const audio = new Set<string>()
   const subtitles = new Set<string>()
   let inheritSubtitles = true
-  for (const { audioLanguage, subtitleLanguage } of availablePlaybackDefaults(itemId, accountId)) {
+  const preferred = getPlaybackPreferences(accountId)
+  const account = {
+    audioLanguage: preferred.audioLanguage,
+    subtitleLanguage: preferred.subtitles === 'default' ? preferred.subtitleLanguage : null
+  }
+  for (const { audioLanguage, subtitleLanguage } of [...availablePlaybackDefaults(itemId, accountId), account]) {
     for (const language of playbackLanguagePriorities(audioLanguage)) audio.add(language)
     if (subtitleLanguage === 'off') inheritSubtitles = false
     if (inheritSubtitles) {
@@ -246,7 +269,8 @@ export async function getWebPlaybackInfo(itemId: string, accountId: string): Pro
     qualities, audioConversion: canConvertPlaybackAudio(qualities, settings.playbackConversion),
     position: getPlaybackPosition(itemId, accountId),
     languageDefaults: getPlaybackDefaults(itemId, accountId).map(({ scope, audioLanguage, subtitleLanguage }) =>
-      ({ scope, audioLanguage, subtitleLanguage }))
+      ({ scope, audioLanguage, subtitleLanguage })),
+    preferences: getPlaybackPreferences(accountId)
   }
 }
 

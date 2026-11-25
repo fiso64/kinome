@@ -809,6 +809,7 @@ export const assignSeasonsAndEpisodes = async (
   }
 
   // 1. Sync Structure (Internal persistence handled)
+  await metadataService.ensureSeasonCounts(show)
   await tvShowService.syncTvShowStructure(show, seasonStrategy, episodeStrategy, { force: true })
 
   // 2. Fetch Metadata if requested (Internal persistence handled)

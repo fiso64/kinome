@@ -13,6 +13,9 @@ import { hasFilterRule } from './account-filter.repo'
 
 const TITLE_PRIORITY = `CASE WHEN ${effectiveMetadataColumn('media_type')} IN ('movie', 'tv') THEN 0 ELSE 1 END`
 const EFFECTIVE_TITLE = effectiveMetadataColumn('title')
+// The index stores each item's effective title and name, so a hit can be
+// classified without reading metadata.
+const STARTS_WITH_QUERY = `coalesce(${effectiveMetadataColumn('title')}, i.name) LIKE @startsWith ESCAPE '\\'`
 const MAX_RANKED_PREFIX = 256
 const CREDIT_LOOKUP_BUDGET = 64
 
@@ -171,6 +174,8 @@ interface SearchQuery {
     ctes?: string[]
     params?: SearchParams
     ftsMatch?: string
+    /** Typed text. Hits whose displayed title starts with it rank ahead of other text hits. */
+    startsWith?: string
 }
 
 function hasFewTextMatches(match: string): boolean {
@@ -178,6 +183,11 @@ function hasFewTextMatches(match: string): boolean {
         SELECT count(*) AS count FROM (SELECT 1 FROM ${FTS_TABLE} WHERE ${FTS_TABLE} MATCH ? LIMIT ?)
     `).get(match, CREDIT_LOOKUP_BUDGET)
     return !!row && row.count < CREDIT_LOOKUP_BUDGET
+}
+
+/** Whether any indexed title or name starts with the text. Most queries match mid-title and skip the leading pass. */
+function hasLeadingHits(text: string): boolean {
+    return !!getDb().query(`SELECT 1 FROM ${FTS_TABLE}(?) LIMIT 1`).get(`{title name} : ^"${text.replace(/"/g, '""')}"`)
 }
 
 function hasDenseTitleSample(match: string, fileFilter: ReturnType<typeof searchFileFilter>, limit: number, sampleSize: number) {
@@ -246,7 +256,8 @@ function readRankedPrefix(
 function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
     const tags = inputTags.map(tag => ({ ...tag, field: getMetadataSearchField(tag.key) }))
     const watchParams = { '@watchUser': userId ?? null }
-    const params = { ...query.params, ...watchParams, '@limit': limit }
+    const params: SearchParams = { ...query.params, ...watchParams, '@limit': limit }
+    if (query.startsWith) params['@startsWith'] = `${query.startsWith.replace(/[\\%_]/g, '\\$&')}%`
     const baseCtes = query.ctes ?? []
     const fileFilter = searchFileFilter(tags)
     const fullFileMatches = fileFilter && compilePlayableFileMatches(fileFilter.conditions, fileFilter)
@@ -261,7 +272,8 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
 
     const fileFirst = query.ftsMatch && locationCount !== undefined && locationCount < probeSize
     // Keep the ordering identical before and after applying a file filter.
-    const order = [TITLE_PRIORITY, ...query.order, 'i.id']
+    const startsWithRank = query.startsWith ? [`CASE WHEN ${STARTS_WITH_QUERY} THEN 0 ELSE 1 END`] : []
+    const order = [TITLE_PRIORITY, ...startsWithRank, ...query.order, 'i.id']
     const columns = order.map((expression, index) => `${expression} AS sort_${index}`)
     const sortKeys = order.map((_expression, index) => `sort_${index}`).join(', ')
     // Selective text queries can check their own credits. Broad queries start from matching people.
@@ -270,7 +282,7 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
     where = appendTagFilters(where, params, tags, narrowText)
     where = appendVisibilityFilter(where, params, userId)
 
-    const rankCandidates = (mode: RankMode) => `
+    const rankCandidates = (mode: RankMode, startsWithOnly = false) => `
         SELECT i.id${mode === 'titles' ? '' : `, ${columns.join(', ')}`}
         FROM ${mode === 'complete' && fileFirst ? `(SELECT DISTINCT item_id FROM file_matches) candidate
             CROSS JOIN media_items i ON i.id = candidate.item_id
@@ -280,6 +292,7 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
             WHERE eligible.id = i.id AND eligible.is_hidden = 0 AND eligible.is_ignored = 0)` : ''}
         ${mode === 'complete' && fileFilter && !fileFirst ? 'AND i.id IN (SELECT item_id FROM file_matches)' : ''}
         ${mode === 'titles' ? `AND ${TITLE_PRIORITY} = 0 AND ${FTS_TABLE}.rank MATCH 'bm25(${SEARCH_RANK_WEIGHTS})'` : ''}
+        ${startsWithOnly ? `AND ${STARTS_WITH_QUERY}` : ''}
         ORDER BY ${mode === 'titles' ? `${FTS_TABLE}.rank` : sortKeys}
     `
 
@@ -292,8 +305,20 @@ function search(query: SearchQuery, inputTags: SearchTag[], limit: number, userI
             && tags.every(({ field }) => field && isLocalMediaField(field))
             && (!userId || !hasFilterRule(userId))
             && hasDenseTitleSample(query.ftsMatch, fileFilter, limit, probeSize)
-        const prefix = querySearch<RankedItem>(`${rankCandidates(nativeTitles ? 'titles' : 'prefix')} LIMIT @probeSize`,
+        const rankPrefix = (startsWithOnly = false) => querySearch<RankedItem>(
+            `${rankCandidates(nativeTitles ? 'titles' : 'prefix', startsWithOnly)} LIMIT @probeSize`,
             { ...params, '@probeSize': probeSize }, undefined, baseCtes)
+        let prefix: RankedItem[]
+        if (nativeTitles && query.startsWith && hasLeadingHits(query.startsWith)) {
+            // FTS5 yields hits by rank alone. Read the titles that start with
+            // the query first, then fill the prefix with the remaining hits.
+            const leading = rankPrefix(true)
+            const seen = new Set(leading.map(({ id }) => id))
+            prefix = leading.length === probeSize ? leading
+                : [...leading, ...rankPrefix().filter(({ id }) => !seen.has(id))].slice(0, probeSize)
+        } else {
+            prefix = rankPrefix()
+        }
         const exhausted = !nativeTitles && prefix.length < probeSize
         // A complete prefix can yield an exact total without traversing any
         // more candidates. The window counts only visible, matching rows.
@@ -337,13 +362,16 @@ export function findByShortQuery(normalized: string, tags: SearchTag[], limit: n
 }
 
 /** Finds items using FTS5 match query with tag filtering. */
-export function findByFtsQuery(matchQuery: string, tags: SearchTag[], limit: number, userId?: string, includeTotal = false): any[] {
+export function findByFtsQuery(
+    matchQuery: string, tags: SearchTag[], limit: number, userId?: string, includeTotal = false, startsWith?: string
+): any[] {
     return search({
         from: `${FTS_TABLE} CROSS JOIN media_items i ON i.search_document_id = ${FTS_TABLE}.rowid`,
         where: `AND ${FTS_TABLE} MATCH @matchQuery`,
         order: [`bm25(${FTS_TABLE}, ${SEARCH_RANK_WEIGHTS})`],
         params: { '@matchQuery': matchQuery },
-        ftsMatch: matchQuery
+        ftsMatch: matchQuery,
+        startsWith
     }, tags, limit, userId, includeTotal)
 }
 

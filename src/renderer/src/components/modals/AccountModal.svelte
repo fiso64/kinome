@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import ModalWindow from './_base/ModalWindow.svelte'
+  import AccountAvatar from '@components/ui/AccountAvatar.svelte'
   import AccountFilterModal from './AccountFilterModal.svelte'
   import { api } from '@lib/api'
   import { authStore } from '@lib/auth-store.svelte'
@@ -103,7 +104,7 @@
 <ModalWindow title={isSelf ? 'Your Account' : 'Edit Account'} {onClose} cancelText="Close" maxWidth="480px">
   <div class="form-stack">
     <div class="account-header raised-surface">
-      <div class="avatar">{account.username[0].toUpperCase()}</div>
+      <AccountAvatar username={account.username} />
       <div class="account-meta">
         <span class="username">{account.username}</span>
         <span class="role-badge" class:admin={isAdmin}>{isAdmin ? 'Administrator' : 'Normal'}</span>
@@ -191,8 +192,6 @@
 <style>
   .account-header, .role-row, .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; }
   .account-header { padding: .7rem; }
-  .avatar { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: var(--radius-field);
-    color: var(--color-primary-soft); border: 1px solid var(--accent-border); background: var(--accent-surface); font-size: 1.2rem; font-weight: 690; }
   .account-meta, .section { display: grid; min-width: 0; gap: .5rem; }
   .account-meta { gap: .1rem; }
   .username { font-weight: 670; overflow-wrap: anywhere; }

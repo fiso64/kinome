@@ -176,6 +176,8 @@
   const speeds = [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
   const title = $derived(item.title || item.name)
   const queueIndex = $derived(queue?.findIndex((entry) => entry.id === item.id) ?? -1)
+  // The queue always carries episode numbers. The opened item may not.
+  const episode = $derived(episodeLabel(queue?.[queueIndex] ?? item))
   const previous = $derived(queueIndex > 0 ? queue?.[queueIndex - 1] : undefined)
   const next = $derived(queueIndex >= 0 ? queue?.[queueIndex + 1] : undefined)
 
@@ -1210,7 +1212,16 @@
     if (next === 'queue') queuePage = Math.max(0, Math.floor(queueIndex / queuePageSize))
     if (origin) panelOrigin = origin
     panel = next
-    void tick().then(() => panelHeading?.focus({ preventScroll: true }))
+    void tick().then(() => {
+      panelHeading?.focus({ preventScroll: true })
+      if (next !== 'queue' || !panelElement) return
+      // Start the queue at the playing item, just below the sticky header.
+      const playing = panelElement.querySelector('.queue-entry[aria-current="true"]')
+      const header = panelElement.querySelector('.panel-header')
+      if (playing && header) {
+        panelElement.scrollTop += playing.getBoundingClientRect().top - header.getBoundingClientRect().bottom
+      }
+    })
   }
 
   $effect(() => {
@@ -1452,8 +1463,8 @@
       info = result
       const preferences = clientSettingsStore.settings
       quality = resolveWebQuality(qualityChoices, chosenQuality ?? preferences.webQuality)
-      audioIndex = (selectPlaybackAudio(audioCapability, result.languageDefaults, preferences.audioLanguage) ?? defaultAudio)?.index
-      subtitleId = selectPlaybackSubtitle(result.subtitles, result.languageDefaults, preferences.subtitleLanguage, preferences.subtitles)
+      audioIndex = (selectPlaybackAudio(audioCapability, result.languageDefaults, result.preferences) ?? defaultAudio)?.index
+      subtitleId = selectPlaybackSubtitle(result.subtitles, result.languageDefaults, result.preferences)
       lastSubtitle = subtitleId
       lastSaved = result.position
       resumeAt = result.position
@@ -1617,7 +1628,7 @@
           <div class="buffering" role="status" aria-label={mediaReady ? 'Buffering' : 'Opening video'}>
             <span class="spinner"></span>
           </div>
-        {:else if playBlocked || paused}
+        {:else if playBlocked || (paused && clientSettingsStore.settings.centerPlayButton)}
           <button class="center-play" onclick={togglePlayback} aria-label="Play video" title="Play video">
             <media-icon name="play" aria-hidden="true"></media-icon>
           </button>
@@ -1630,7 +1641,8 @@
           <media-icon name="chevron" aria-hidden="true"></media-icon>
         </button>
         <div class="title">
-          <h1>{title}</h1>
+          <h1>{#if episode}<span class="episode">{episode}</span>{/if}{title}</h1>
+          {#if item.title && item.title !== item.name}<p class="file-name">{item.name}</p>{/if}
           {#if streamDescription}
             <p>{streamDescription}{width && height ? ` (${width} x ${height})` : ''}</p>
           {/if}
@@ -2040,6 +2052,8 @@
     text-overflow: ellipsis;
   }
   .title p { margin: 0.22rem 0 0; font-size: 0.79rem; color: #dddde5; }
+  h1 .episode { margin-inline-end: 0.5em; color: #dddde5; font-weight: 500; }
+  .title .file-name { color: #b4b4c0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .player-footer {
     bottom: 0;
     padding-bottom: env(safe-area-inset-bottom);

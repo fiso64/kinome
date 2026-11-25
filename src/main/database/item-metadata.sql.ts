@@ -110,12 +110,13 @@ ${ITEM_METADATA_JOINS};
 
 export const FTS_TABLE = 'media_items_fts'
 // FTS5 weights are positional. Define them in the same order as the columns.
+// Index only text that search matches: bm25 normalizes by the length of the
+// whole row, so unmatched long text such as an overview would demote title hits.
 const searchColumns = [
   { name: 'id', weight: '0.0', source: 'item', indexed: false, keyword: false },
   { name: 'title', weight: '10.0', source: 'metadata', indexed: true, keyword: true },
   { name: 'original_title', weight: '5.0', source: 'metadata', indexed: true, keyword: true },
-  { name: 'name', weight: '1.0', source: 'item', indexed: true, keyword: true },
-  { name: 'overview', weight: '0.1', source: 'metadata', indexed: true, keyword: false }
+  { name: 'name', weight: '1.0', source: 'item', indexed: true, keyword: true }
 ] as const
 
 export const SEARCH_INDEX_SQL = `

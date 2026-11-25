@@ -53,6 +53,14 @@ export interface PlaybackLanguageDefaults {
   subtitleLanguage: string | null
 }
 
+export const subtitleModes = ['default', 'forced', 'off'] as const
+export type SubtitleMode = typeof subtitleModes[number]
+
+/** An account's choices for titles without saved languages. They apply to every player and device. */
+export interface PlaybackPreferences extends PlaybackLanguageDefaults {
+  subtitles: SubtitleMode
+}
+
 export interface PlaybackDefaultsEditor {
   defaults: PlaybackLanguageDefaults | null
   languages: { audio: string[]; subtitles: string[] } | null
@@ -88,6 +96,7 @@ export interface WebPlaybackInfo {
   audioConversion: boolean
   position: number
   languageDefaults: PlaybackDefault[]
+  preferences: PlaybackPreferences
 }
 
 export function isFontAttachment(filename?: string, mime?: string): boolean {

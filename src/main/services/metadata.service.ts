@@ -330,11 +330,7 @@ export async function fetchAndApplyMetadata(
           ? (repositoryService.findParent(item.id) as MediaFolder)
           : (item as MediaFolder)
       if (target && target.tmdbId) {
-        // Ensure targeted details are cached on the item for the mapping
-        if (!target.tmdbSeasons) {
-          const details = await provider.details({ id: target.tmdbId, type: 'tv' })
-          if (details?.seasons) target.tmdbSeasons = details.seasons
-        }
+        await ensureSeasonCounts(target, provider)
         const modified = await metadataMapping.applyTvShowData(target, settings, libraryDataPath, {
           respectLocks: true,
           force: options.force,
@@ -365,40 +361,71 @@ export async function fetchAndApplyMetadata(
   }
 }
 
+/**
+ * A show's TMDB season sizes are kept on the loaded item only, never stored.
+ * Structure sync needs them to accept episode numbers that are not written as
+ * SxxEyy, so a sync started outside a show refresh loads them first.
+ */
+export async function ensureSeasonCounts(show: MediaFolder, provider?: MetadataProvider): Promise<void> {
+  if (show.tmdbSeasons || !show.tmdbId || pathsService.isRemoteLibrary()) return
+  try {
+    const source = provider ?? createTmdbProvider((await settingsService.readSettings()).tmdbApiKey!)
+    const details = await source.details({ id: show.tmdbId, type: 'tv' })
+    if (details?.seasons) show.tmdbSeasons = details.seasons
+  } catch (error) {
+    log(`[Structure Sync] Could not load season sizes for "${show.name}": ${error}`)
+  }
+}
+
+/**
+ * Gives an item the identity the user chose and locks it. See the overwrite
+ * rules in spec/backend/metadata_locking.md.
+ */
+export async function assignManualIdentity(
+  itemId: string,
+  result: Record<string, any>,
+  mediaType: 'movie' | 'tv' | 'season'
+): Promise<LibraryItem | null> {
+  const current = repositoryService.getItemById(itemId)
+  if (!current) return null
+  const seasonNumber = mediaType === 'season' && typeof result.season_number === 'number'
+    ? result.season_number : undefined
+  // Edits describe an identity. They survive only when the same match is applied again.
+  const sameIdentity = current.tmdbId === result.id && current.mediaType === mediaType &&
+    (seasonNumber === undefined || (current as MediaFolder).seasonNumber === seasonNumber)
+
+  const item = await clearItemMetadata(itemId, { targetedClear: true, preserveEdits: sameIdentity })
+  if (!item) return null
+
+  if (seasonNumber !== undefined) item.seasonNumber = seasonNumber
+  item.tmdbId = result.id
+  item.mediaType = mediaType
+  item.lastRefreshedAt = null
+  const identity = mediaType === 'season' ? ['tmdbId', 'mediaType', 'seasonNumber'] : ['tmdbId', 'mediaType']
+  item.lockedFields = [...new Set([...(item.lockedFields ?? []), ...identity])]
+
+  if (mediaType !== 'season') {
+    metadataRepo.saveProviderMatch(item.id, 'tmdb', { id: result.id, type: mediaType })
+  }
+  await updateIfChangedAndBroadcast(item)
+  return item
+}
+
 export async function applyManualMatch(
   itemId: string,
   result: Record<string, any>,
   mediaType: 'movie' | 'tv' | 'season'
 ): Promise<LibraryItem[]> {
-  const item = repositoryService.getItemById(itemId)
-  if (!item) return []
-
-  log(`[Manual Match] Priming "${item.name}" for ${mediaType} match...`)
-
   const wasBulkUpdating = repositoryService.getBulkUpdateStatus()
   repositoryService.setBulkUpdateStatus(true)
 
   try {
-    const item = await clearItemMetadata(itemId, { targetedClear: true, preserveEdits: true })
-    if (!item) return []
-
-    if (mediaType === 'season' && typeof result.season_number === 'number') {
-      item.seasonNumber = result.season_number
+    const item = await assignManualIdentity(itemId, result, mediaType)
+    if (!item) {
+      repositoryService.setBulkUpdateStatus(wasBulkUpdating)
+      return []
     }
-    item.tmdbId = result.id
-    item.mediaType = mediaType
-    item.lastRefreshedAt = null
-
-    // LOCK identity
-    if (!item.lockedFields) item.lockedFields = []
-    if (!item.lockedFields.includes('tmdbId')) item.lockedFields.push('tmdbId')
-    if (mediaType === 'season' && !item.lockedFields.includes('seasonNumber'))
-      item.lockedFields.push('seasonNumber')
-
-    if (mediaType !== 'season') {
-      metadataRepo.saveProviderMatch(item.id, 'tmdb', { id: result.id, type: mediaType })
-    }
-    await updateIfChangedAndBroadcast(item)
+    log(`[Manual Match] Primed "${item.name}" for ${mediaType} match.`)
 
     // 2. TRIGGER BACKGROUND ENRICHMENT
     const runBackgroundEnrichment = async () => {
@@ -407,6 +434,7 @@ export async function applyManualMatch(
         if (mediaType === 'season' && item.parentId) {
           const parent = repositoryService.getItemById(item.parentId) as MediaFolder
           if (parent && parent.mediaType === 'tv') {
+            await ensureSeasonCounts(parent)
             await tvShowService.syncTvShowStructure(parent, 'smart', 'smart', {
               scopedToId: item.id
             })
@@ -453,19 +481,22 @@ export async function clearItemMetadata(
   } else if (options.targetedClear) {
     itemsToFullClear.push(item)
     if (item.type === 'folder') {
+      // A rematch resets the seasons and episodes that follow from it. A child
+      // whose identity the user set keeps it until that child is cleared.
+      const follows = (child: LibraryItem) => !repositoryService.hasIdentityLock(child)
       const children = repositoryService.getChildren(item.id)
       if (item.mediaType === 'tv') {
         for (const child of children) {
           if (child.mediaType === 'season' || child.mediaType === 'episode') {
-            itemsToFullClear.push(child)
+            if (follows(child)) itemsToFullClear.push(child)
             if (child.type === 'folder') {
               const episodes = repositoryService.getChildren(child.id)
-              itemsToFullClear.push(...episodes.filter((e) => e.mediaType === 'episode'))
+              itemsToFullClear.push(...episodes.filter((e) => e.mediaType === 'episode' && follows(e)))
             }
           }
         }
       } else if (item.mediaType === 'season') {
-        itemsToFullClear.push(...children.filter((c) => c.mediaType === 'episode'))
+        itemsToFullClear.push(...children.filter((c) => c.mediaType === 'episode' && follows(c)))
       }
     }
   } else {

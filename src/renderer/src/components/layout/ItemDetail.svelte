@@ -32,7 +32,7 @@
 
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { resolveViewSettings } from '@shared/settings-helpers'
-  import { getAllRequiredFields, DETAIL_HEADER_FIELDS, TREE_FILE_FIELDS } from '@lib/view-requirements'
+  import { getAllRequiredFields, DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
   import { scrollPersistence } from '@lib/scroll-persistence.svelte'
   import { getViewKey } from '@lib/view-state-store.svelte'
   import ViewContextProvider from './ViewContextProvider.svelte'
@@ -76,9 +76,7 @@
 
   // 1. Fetch metadata only (Fast, no large blobs) + Request View Settings Side-Channel
   const itemQuery = libraryDataService.getItemDetailsQuery(() => initialItem.id, {
-    fields: () => initialItem.type === 'file' && initialItem.opensAsFolder
-      ? [...DETAIL_HEADER_FIELDS, ...TREE_FILE_FIELDS]
-      : DETAIL_HEADER_FIELDS,
+    fields: () => DETAIL_HEADER_FIELDS,
     include: () => ['viewHierarchy']
   })
 
@@ -186,9 +184,9 @@
       (item.tmdbCredits && (item.tmdbCredits.cast.length > 0 || item.tmdbCredits.crew.length > 0))
   )
 
-  const isSpecialFile = $derived(item.type === 'file' && item.opensAsFolder === true)
+  // A file's detail view lists the file itself, like a folder holding only that file.
   const fileAsChild = $derived(
-    isSpecialFile ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
+    item.type === 'file' ? [{ ...JSON.parse(JSON.stringify(item)), opensAsFolder: false }] : []
   )
 
   const availableInfoTabs = $derived.by(() => {
@@ -585,11 +583,11 @@
           </section>
         {/if}
 
-        {#if isSpecialFile}
+        {#if item.type === 'file'}
           <section class="children-section media-panel">
-            <h2 class="section-title">Contents</h2>
+            <h2 class="section-title">File</h2>
             <MediaView
-              parentItem={item as MediaFolder}
+              parentItem={item as unknown as MediaFolder}
               items={fileAsChild}
               {onItemClick}
               layout="tree"

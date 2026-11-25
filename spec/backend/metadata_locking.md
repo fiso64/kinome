@@ -1,10 +1,28 @@
 # Spec: Metadata Locking & User Edits ("Field-Level Persistence")
 
-**Version:** 2.1 (Partial Updates + Auto-Locking)
+**Version:** 2.2 (Partial Updates + Auto-Locking + Overwrite Rules)
 **Status:** Implemented
 **Related:** `scan_architecture.md`, `manual_assignment.md`, `../frontend/metadata_and_settings_edits.md`
 
 ---
+
+## 0. Overwrite Rules
+
+These rules decide what any process may overwrite. Everything below implements them.
+
+A lock is a field name on the item's lock list. Two groups of fields can be locked:
+
+- **Identity fields** say what the item is: `tmdbId`, `mediaType`, `seasonNumber`, `episodeNumber`.
+- **Descriptive fields** say how it is shown: `title`, `overview`, artwork, `year`, `genres`, and the rest.
+
+Descriptive edits belong to an identity, and only the user changes an identity.
+
+1. **Automatic processes write only unlocked fields.** Scans, structure sync, and metadata refresh never change a locked field and never remove a lock. A renamed or renumbered file keeps the user's edits.
+2. **A manual match sets and locks the full identity:** `tmdbId` and `mediaType`, plus `seasonNumber` for a season.
+3. **Changing an item's identity resets its description.** A match to a different title or season drops the item's descriptive locks along with its automatic values. Applying the same match again keeps them. A first manual match counts as a change.
+4. **A parent rematch resets the children that follow from it.** Seasons and episodes under a rematched show or season are cleared and derived again. Their descriptive locks follow rule 3.
+5. **A child with an identity lock is never reset by a parent action.** A file matched as another title, or one whose type or number the user set, stays as it is under show and season rematches. Clearing that child hands it back.
+6. **Clear metadata removes everything, including every lock,** for the item or for all its children. It is the only way back to fully automatic. There is no per-field unlock in the UI.
 
 ## 1. Concrete Implementation
 
@@ -22,6 +40,7 @@ A simplified list of keys that automated processes MUST check before writing.
 | `seasonNumber`  | **FilesystemService** | Protects user-assigned Season index.        |
 | `episodeNumber` | **FilesystemService** | Protects user-assigned Episode index.       |
 | `tmdbId`        | **MetadataService**   | Protects user-assigned Match (Fix Match).   |
+| `mediaType`     | **FilesystemService** | Protects the type of a manual match or edit. |
 | `title`         | **MetadataService**   | Protects user-assigned Title.               |
 | `overview`      | **MetadataService**   | Protects user-assigned Overview.            |
 | `posterPath`    | **MetadataService**   | Protects user-assigned (or deleted) Poster. |

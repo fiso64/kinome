@@ -21,6 +21,7 @@
     plus: 'M5 12h14m-7-7v14',
     minus: 'M5 12h14',
     maximize: 'M5 5h14v14H5Z',
+    expand: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
     restore: 'M4 8h12v12H4zm4-3V4h12v12h-1',
     user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m12-13a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
     logout: 'M10 17l5-5-5-5m5 5H3m10-9h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6',

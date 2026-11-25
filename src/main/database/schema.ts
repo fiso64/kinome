@@ -213,7 +213,11 @@ CREATE TABLE IF NOT EXISTS accounts (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'normal' CHECK(role IN ('admin', 'normal')),
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- Playback preferences for titles without saved languages
+    audio_language TEXT,
+    subtitle_language TEXT,
+    subtitle_mode TEXT NOT NULL DEFAULT 'default' CHECK(subtitle_mode IN ('default', 'forced', 'off'))
 );
 
 -- Account-level library filter rules (one row per restricted account)

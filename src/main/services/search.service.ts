@@ -66,7 +66,7 @@ export function performSearch(query: SearchRequest & { userId?: string }): Searc
       // --- Long Query Strategy (FTS Trigram) ---
       try {
         const matchQuery = `${SEARCH_KEYWORD_COLUMNS} : "${normalized}"`
-        rows = searchRepo.findByFtsQuery(matchQuery, tags, rowLimit, userId, includeTotal)
+        rows = searchRepo.findByFtsQuery(matchQuery, tags, rowLimit, userId, includeTotal, normalized)
 
         // Fuzzy Fallback
         if (rows.length === 0) {

@@ -69,6 +69,25 @@ describe('database migrations', () => {
     db.close()
   })
 
+  it('locks the type of items that were manually matched before the type was part of the lock', () => {
+    const db = new Database(':memory:')
+    db.exec(`
+      CREATE TABLE media_entities (id TEXT PRIMARY KEY, media_type TEXT, tmdb_id INTEGER, locked_fields_json TEXT);
+      INSERT INTO media_entities VALUES
+        ('matched', 'movie', 7, '["tmdbId"]'), ('already', 'tv', 8, '["tmdbId","mediaType"]'),
+        ('unmatched', NULL, NULL, '["tmdbId"]'), ('edited', 'movie', 9, '["title"]'), ('plain', 'movie', 10, NULL);
+      PRAGMA user_version = 25;
+    `)
+    runMigrations(db)
+    const locks = Object.fromEntries((db.prepare('SELECT id, locked_fields_json AS locks FROM media_entities').all() as any[])
+      .map(({ id, locks }) => [id, locks]))
+    expect(locks).toEqual({
+      matched: '["tmdbId","mediaType"]', already: '["tmdbId","mediaType"]',
+      unmatched: '["tmdbId"]', edited: '["title"]', plain: null
+    })
+    db.close()
+  })
+
   it('keeps migrations uniquely versioned and ordered', () => {
     const versions = DATABASE_MIGRATIONS.map((migration) => migration.version)
     expect(versions).toEqual([...versions].sort((a, b) => a - b))
@@ -234,6 +253,8 @@ describe('database migrations', () => {
     const ftsRow = db.prepare('SELECT id, name, title FROM media_items_fts WHERE id = ?').get('show-item') as any
     expect(ftsRow.name).toBe('Breaking Bad')
     expect(ftsRow.title).toBe('Breaking Bad')
+    const ftsColumns = (db.prepare("SELECT name FROM pragma_table_info('media_items_fts')").all() as any[]).map(({ name }) => name)
+    expect(ftsColumns).toEqual(['id', 'title', 'original_title', 'name'])
     expect(getTableNames(db)).not.toContain('items')
     expect(getTableNames(db)).not.toContain('items_fts')
     expect(getUserVersion(db)).toBe(LATEST_SCHEMA_VERSION)

@@ -1,4 +1,4 @@
-import type { PlaybackDefault, PlaybackLanguageDefaults } from '@shared/web-playback'
+import type { PlaybackDefault, PlaybackLanguageDefaults, PlaybackPreferences } from '@shared/web-playback'
 import { getDb } from '../client'
 import { effectiveMetadataColumn } from '../item-metadata.sql'
 
@@ -77,6 +77,20 @@ LEFT JOIN playback_defaults d ON d.account_id = $accountId AND d.item_id = t.ite
 WHERE t.item_id IS NOT NULL
 ORDER BY t.priority
 `
+
+const NO_PREFERENCES: PlaybackPreferences = { audioLanguage: null, subtitleLanguage: null, subtitles: 'default' }
+
+export function getPlaybackPreferences(accountId: string): PlaybackPreferences {
+  return getDb().query<PlaybackPreferences, [string]>(`
+    SELECT audio_language AS audioLanguage, subtitle_language AS subtitleLanguage, subtitle_mode AS subtitles
+    FROM accounts WHERE id = ?
+  `).get(accountId) ?? NO_PREFERENCES
+}
+
+export function writePlaybackPreferences(accountId: string, preferences: PlaybackPreferences): void {
+  getDb().query('UPDATE accounts SET audio_language = ?, subtitle_language = ?, subtitle_mode = ? WHERE id = ?')
+    .run(preferences.audioLanguage, preferences.subtitleLanguage, preferences.subtitles, accountId)
+}
 
 export function getPlaybackDefaults(itemId: string, accountId: string): PlaybackDefaultTarget[] {
   return getDb().query<PlaybackDefaultTarget, { $itemId: string; $accountId: string }>(playbackDefaultsQuery)

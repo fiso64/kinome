@@ -8,6 +8,7 @@ interface NavigationState {
   currentFolderId: string // 'home' = Home virtual folder
   selectedItemId: string | null // For Detail View
   path: string // '/' or '/settings'
+  settingsTab: string | null // Open Settings tab, kept in the URL so a reload returns to it
   globalQuery: SearchQuery // Unified source of truth for global search
 }
 
@@ -17,6 +18,7 @@ let currentState = $state<NavigationState>({
   currentFolderId: 'home',
   selectedItemId: null,
   path: '/',
+  settingsTab: null,
   globalQuery: { text: '', tags: [] }
 })
 
@@ -73,6 +75,7 @@ function readRoute(): NavigationState {
     currentFolderId: folder,
     selectedItemId: item,
     path: pathParam,
+    settingsTab: params.get('tab')?.trim() || null,
     globalQuery: queryObj
   }
 }
@@ -94,7 +97,10 @@ function updateUrl(replace = false) {
     params.set('q', queryStr)
   }
 
-  if (currentState.path !== '/') params.set('page', 'settings')
+  if (currentState.path !== '/') {
+    params.set('page', 'settings')
+    if (currentState.settingsTab) params.set('tab', currentState.settingsTab)
+  }
 
   const str = params.toString()
   const url = str ? `?${str}` : '/'
@@ -157,6 +163,7 @@ function closeDetail() {
 
 function navigateToSettings() {
   currentState.path = '/settings'
+  currentState.settingsTab = null
   updateUrl()
 }
 
@@ -248,6 +255,15 @@ export const navStore = {
   },
   get isHomeLocation() {
     return isHomeRoute(currentState)
+  },
+  get settingsTab() {
+    return currentState.settingsTab
+  },
+  /** Switching tabs rewrites the current history entry, so Back still leaves Settings in one step. */
+  setSettingsTab: (tab: string) => {
+    if (!isSettingsRoute(currentState) || navigationPending) return
+    currentState.settingsTab = tab
+    updateUrl(true)
   },
   get isSettingsActive() {
     return isSettingsRoute(currentState)

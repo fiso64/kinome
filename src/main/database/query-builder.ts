@@ -726,6 +726,9 @@ export function buildFindQuery(options: FindOptions = {}): { query: string; para
         }
 
         if (orderParts.length > 0) {
+            // Final tiebreaker: keeps tied rows in a stable order across refetches and pages.
+            const idSql = REPOSITORY_SCHEMA.id.sql
+            if (!orderParts.some((part) => part.startsWith(`${idSql} `))) orderParts.push(`${idSql} ASC`)
             query += ` ORDER BY ${orderParts.join(', ')}`
         }
     }

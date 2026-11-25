@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { upsertMetadata } from '../database/repositories/metadata.repo'
 import { syncTvShowStructure } from './tv-show.service'
+import { assignManualIdentity, clearItemMetadata } from './metadata.service'
 import { getItemById } from './repository.service'
 import type { MediaFolder, MediaFile } from '@shared/types'
 
@@ -274,6 +275,68 @@ describe('TV release structure', () => {
             ['sample', null, null], ['range', 2, 12]
         ])
         expect(await syncTvShowStructure(show)).toEqual([])
+    })
+
+    it('applies the overwrite rules for manual matches, parent rematches, and clearing', async () => {
+        ctx.seedEntities([{ id: 'e-show', tmdbId: 12, mediaType: 'tv' }])
+        ctx.seedItems([
+            { id: 'show', type: 'folder', entityId: 'e-show', name: 'Show' },
+            { id: 'season', parentId: 'show', type: 'folder', name: 'Season 1' },
+            { id: 'matched', parentId: 'season', name: 'Show.S01E01.mkv' },
+            { id: 'edited', parentId: 'season', name: 'Show.S01E02.mkv' }
+        ])
+        const sync = (scopedToId?: string) =>
+            syncTvShowStructure(getItemById('show') as MediaFolder, 'smart', 'smart', scopedToId ? { scopedToId } : {})
+        await sync()
+
+        // A manual match locks the whole identity, and a scan leaves it alone.
+        await assignManualIdentity('matched', { id: 99 }, 'movie')
+        await sync()
+        expect(getItemById('matched')).toMatchObject({ mediaType: 'movie', tmdbId: 99, lockedFields: ['tmdbId', 'mediaType'] })
+
+        // Applying the same season match again keeps a child's edit and the child with its own identity.
+        await assignManualIdentity('season', { id: 500, season_number: 1 }, 'season')
+        await sync('season')
+        upsertMetadata('edited', { ...getItemById('edited'), title: 'My title', lockedFields: ['title'] })
+        await assignManualIdentity('season', { id: 500, season_number: 1 }, 'season')
+        await sync('season')
+        expect(getItemById('edited')).toMatchObject({ mediaType: 'episode', episodeNumber: 2, title: 'My title' })
+        expect(getItemById('matched')).toMatchObject({ mediaType: 'movie', tmdbId: 99 })
+
+        // A different season drops the edit, which described the old episode. The matched file still stands.
+        await assignManualIdentity('season', { id: 501, season_number: 2 }, 'season')
+        await sync('season')
+        expect(getItemById('season')).toMatchObject({ seasonNumber: 2, lockedFields: ['tmdbId', 'mediaType', 'seasonNumber'] })
+        const edited = getItemById('edited') as MediaFile
+        expect(edited).toMatchObject({ mediaType: 'episode', seasonNumber: 2, episodeNumber: 2 })
+        expect([edited.title ?? null, edited.lockedFields ?? []]).toEqual([null, []])
+        expect(getItemById('matched')).toMatchObject({ mediaType: 'movie', tmdbId: 99 })
+
+        // Clearing the file hands it back, and it returns as a clean episode.
+        await clearItemMetadata('matched')
+        await sync('season')
+        const episode = getItemById('matched') as MediaFile
+        expect(episode).toMatchObject({ mediaType: 'episode', seasonNumber: 2, episodeNumber: 1 })
+        expect([episode.tmdbId ?? null, episode.lockedFields ?? []]).toEqual([null, []])
+    })
+
+    it('numbers dash-numbered files in a season folder only when the season size is known', async () => {
+        ctx.seedEntities([{ id: 'e-show', tmdbId: 12, mediaType: 'tv' }])
+        ctx.seedItems([
+            { id: 'show', type: 'folder', entityId: 'e-show', name: 'Show' },
+            { id: 'films', parentId: 'show', type: 'folder', name: 'Films' },
+            ...[1, 2, 3].map((n) => ({ id: `film${n}`, parentId: 'films', name: `[Group] Some Film - 0${n} [1080p].mkv` }))
+        ])
+        upsertMetadata('films', { mediaType: 'season', seasonNumber: 2, lockedFields: ['mediaType', 'seasonNumber'] })
+        const numbers = () => [1, 2, 3].map((n) => (getItemById(`film${n}`) as MediaFile).episodeNumber ?? null)
+
+        await syncTvShowStructure(getItemById('show') as MediaFolder)
+        expect(numbers()).toEqual([null, null, null])
+
+        const show = getItemById('show') as MediaFolder
+        show.tmdbSeasons = [{ season_number: 2, episode_count: 3 }] as MediaFolder['tmdbSeasons']
+        await syncTvShowStructure(show)
+        expect(numbers()).toEqual([1, 2, 3])
     })
 
     it('keeps a manually assigned specials folder and honors its locked season', async () => {

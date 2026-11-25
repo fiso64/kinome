@@ -1,8 +1,8 @@
 import { ROLE_CAPABILITIES, type AccountRole, type Capability } from '@shared/types'
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
 import { textResponse } from './http-compression'
-import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes } from '@shared/web-playback'
-import { getExternalPlaybackLanguages, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
+import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes, subtitleModes } from '@shared/web-playback'
+import { getExternalPlaybackLanguages, getPlaybackPreferences, savePlaybackPreferences, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
@@ -580,6 +580,16 @@ export function buildApp() {
           getItemPlaybackDefault(params.id, session.accountId))
         .get('/playback/:id/languages', ({ params, session }) =>
           getExternalPlaybackLanguages(params.id, session.accountId))
+        .get('/playback/preferences', ({ session }) => getPlaybackPreferences(session.accountId))
+        .put('/playback/preferences', ({ body, session, set }) => {
+          const ok = savePlaybackPreferences(session.accountId, body)
+          if (!ok) set.status = 422
+          return { success: ok }
+        }, { body: t.Object({
+          audioLanguage: t.Union([t.String(), t.Null()]),
+          subtitleLanguage: t.Union([t.String(), t.Null()]),
+          subtitles: t.Union(subtitleModes.map((mode) => t.Literal(mode)))
+        }) })
         .put('/playback/:id/defaults', ({ params, body, session, set }) => {
           const { scope, audioLanguage, subtitleLanguage } = body
           const audio = typeof audioLanguage === 'string' ? normalizePlaybackLanguages(audioLanguage) : audioLanguage

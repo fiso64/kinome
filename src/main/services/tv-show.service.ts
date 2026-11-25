@@ -354,9 +354,10 @@ function _applyEpisodeMap(
       }
       if (!isEpisodeLocked && info.episode !== undefined && file.episodeNumber !== info.episode) {
         file.episodeNumber = info.episode
-        file.title = null
-        file.overview = null
-        file.posterPath = null
+        // The old episode's details no longer apply. The user's own edits stay.
+        for (const field of ['title', 'overview', 'posterPath'] as const) {
+          if (!repositoryService.isFieldLocked(file, field)) file[field] = null
+        }
         file.lastRefreshedAt = null
         changed = true
       }

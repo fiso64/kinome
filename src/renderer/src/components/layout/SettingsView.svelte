@@ -2,9 +2,12 @@
   import equal from 'fast-deep-equal'
   import { DEFAULT_VIDEO_QUALITIES, normalizePlaybackEncoding } from '@shared/playback-quality'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
+  import { getPlaybackPreferences, savePlaybackPreferences } from '@lib/services/web-playback.service'
+  import type { PlaybackPreferences } from '@shared/web-playback'
   import { api } from '@lib/api'
   import Icon, { type IconName } from '@components/ui/Icon.svelte'
   import Skeleton from '@components/ui/Skeleton.svelte'
+  import AccountAvatar from '@components/ui/AccountAvatar.svelte'
   import { formatLayoutString } from '@shared/settings-helpers'
   import { dialogStore } from '@lib/dialog-store'
   import DefaultViewSettingsModal from '@modals/DefaultViewSettingsModal.svelte'
@@ -51,7 +54,8 @@
   }
 
   const availableTabs = $derived(tabIds.filter((tab) => !tabControl(tab).disabled))
-  let selectedTab = $state<SettingsTab>('general')
+  // The open tab lives in the URL so a reload returns to it.
+  const selectedTab = $derived(tabIds.find((tab) => tab === navStore.settingsTab) ?? 'general')
   const activeTab = $derived(availableTabs.includes(selectedTab) ? selectedTab : 'playback')
   let editor = $state<
     | { type: 'view'; key: DefaultLayoutKey }
@@ -100,7 +104,17 @@
   let draft = $state<ReturnType<typeof editableSettings> | null>(null)
   let saved = $state.raw<ReturnType<typeof editableSettings> | null>(null)
   const previewSettings = $derived(settings && draft ? { ...settings, ...draft } : settings)
-  let enabledPlayerIds = $state<string[]>([])
+  // Every setting on this page is edited as a draft and written by Save Changes,
+  // whether it belongs to the server, this account, or this browser.
+  function browserSettings() {
+    const { enabledPlayerIds, webQuality, centerPlayButton } = clientSettingsStore.settings
+    return { enabledPlayerIds: [...enabledPlayerIds], webQuality, centerPlayButton }
+  }
+  let browser = $state(browserSettings())
+  const hasBrowserChanges = $derived(!equal(browser, browserSettings()))
+  let preferences = $state<PlaybackPreferences | null>(null)
+  let savedPreferences = $state.raw<PlaybackPreferences | null>(null)
+  const hasPreferenceChanges = $derived(!equal(preferences, savedPreferences))
   let playbackConversionAvailable = $state(false)
   let folderDrafts = $state<FolderDrafts>({})
   const changedFolders = $derived(Object.entries(folderDrafts).filter(([, folder]) =>
@@ -117,7 +131,8 @@
   )
   const hasChanges = $derived(
     hasServerChanges ||
-    !equal(enabledPlayerIds, clientSettingsStore.settings.enabledPlayerIds) ||
+    hasBrowserChanges ||
+    hasPreferenceChanges ||
     changedFolders.length > 0
   )
 
@@ -170,11 +185,18 @@
       saved = editableSettings(s)
       draft = structuredClone(saved)
       playbackConversionAvailable = s.playbackConversionAvailable ?? false
-      enabledPlayerIds = [...clientSettingsStore.settings.enabledPlayerIds]
+      browser = browserSettings()
     }).catch((err: any) => {
       dialogStore.showError({ title: 'Failed to Load Settings', message: err.message || 'Could not load settings.' })
     }).finally(() => {
       isSettingsLoading = false
+    })
+
+    getPlaybackPreferences().then((account) => {
+      savedPreferences = account
+      preferences = { ...account }
+    }).catch((err: Error) => {
+      dialogStore.showError({ title: 'Failed to Load Settings', message: err.message })
     })
 
     api.getAutocompleteSuggestions().then((data) => (suggestions = data))
@@ -188,7 +210,7 @@
         const nextIndex = event.shiftKey
           ? (currentIndex - 1 + availableTabs.length) % availableTabs.length
           : (currentIndex + 1) % availableTabs.length
-        selectedTab = availableTabs[nextIndex]
+        navStore.setSettingsTab(availableTabs[nextIndex])
       }
     }
     window.addEventListener('keydown', handleKeydown)
@@ -284,9 +306,16 @@
         saved = { ...pending, libraryLocation: saved.libraryLocation }
         draft.defaultPlaybackQuality = pending.defaultPlaybackQuality
       }
+      if (preferences && hasPreferenceChanges) {
+        await savePlaybackPreferences($state.snapshot(preferences))
+        committedChanges = true
+        // The server normalizes language lists.
+        savedPreferences = await getPlaybackPreferences()
+        preferences = { ...savedPreferences }
+      }
       // A new custom player must exist on the server before its ID is saved on this browser.
-      if (!equal(enabledPlayerIds, clientSettingsStore.settings.enabledPlayerIds)) {
-        clientSettingsStore.update({ enabledPlayerIds: [...enabledPlayerIds] })
+      if (hasBrowserChanges) {
+        clientSettingsStore.update($state.snapshot(browser))
         committedChanges = true
       }
       if (wasLibLocationChanged) {
@@ -394,7 +423,7 @@
       {#each tabIds as tab (tab)}
         <button type="button" aria-current={activeTab === tab ? 'page' : undefined}
           {...tabControl(tab)}
-          onclick={() => (selectedTab = tab)}>
+          onclick={() => navStore.setSettingsTab(tab)}>
           <Icon name={TABS[tab].icon} size={17} />
           {TABS[tab].label}
         </button>
@@ -421,6 +450,9 @@
               bind:defaultQuality={draft.defaultPlaybackQuality}
               bind:qualities={draft.playbackQualities}
               bind:encoding={draft.playbackEncoding}
+              bind:webQuality={browser.webQuality}
+              bind:centerPlayButton={browser.centerPlayButton}
+              bind:preferences
               onManagePlayers={() => (editor = { type: 'players' })}
             />
           {:else if activeTab === 'general'}
@@ -615,7 +647,7 @@
                 {@const acct = authStore.account}
                 <button class="account-item clickable" onclick={() => openAccountModal(acct, true)}>
                   <div class="account-info">
-                    <div class="account-avatar">{acct.username[0].toUpperCase()}</div>
+                    <AccountAvatar username={acct.username} />
                     <div class="account-details">
                       <span class="account-name">{acct.username}</span>
                       <span class="account-role">{acct.role === 'admin' ? 'Administrator' : 'Normal'}</span>
@@ -633,7 +665,7 @@
                   {#each allAccounts.filter(a => a.id !== authStore.account?.id) as acct (acct.id)}
                     <button class="account-item clickable" onclick={() => openAccountModal(acct, false)}>
                       <div class="account-info">
-                        <div class="account-avatar">{acct.username[0].toUpperCase()}</div>
+                        <AccountAvatar username={acct.username} />
                         <div class="account-details">
                           <span class="account-name">{acct.username}</span>
                           <span class="account-role">{acct.role === 'admin' ? 'Administrator' : 'Normal'}</span>
@@ -717,10 +749,10 @@
   <PlayerCommandsModal
     playerCommands={draft.playerCommands}
     canEditDefinitions={authStore.can.editSettings}
-    {enabledPlayerIds}
+    enabledPlayerIds={browser.enabledPlayerIds}
     onDone={(players, ids) => {
       if (draft) draft.playerCommands = players
-      enabledPlayerIds = ids
+      browser.enabledPlayerIds = ids
     }}
     onClose={closeEditor}
   />
@@ -992,19 +1024,6 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-  }
-
-  .account-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-field);
-    background: var(--accent-surface);
-    color: var(--color-primary-soft);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 1.2rem;
   }
 
   .account-details {

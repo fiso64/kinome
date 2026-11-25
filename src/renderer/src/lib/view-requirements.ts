@@ -4,10 +4,12 @@ import { CORE_FIELDS } from '@shared/types'
 export const TREE_FILE_FIELDS = ['size', 'videoSummary']
 
 /**
- * Fields required for the ItemDetail header and primary metadata.
+ * Fields required for the ItemDetail header and primary metadata. A file's
+ * detail view also lists the file itself as a tree row.
  */
 export const DETAIL_HEADER_FIELDS = [
   ...CORE_FIELDS,
+  ...TREE_FILE_FIELDS,
   'overview',
   'backdropPath',
   'logoPath',

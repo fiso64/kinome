@@ -40,10 +40,12 @@ Manual assignment is implemented as a state-transition pipeline that "primes" an
 ### 4.1 Phase 1: Targeted Metadata Clearing
 To prevent data leakage between different identities, the existing metadata and images must be reset.
 
-- **Operation**: Call `clearItemMetadata(itemId, { targetedClear: true })`.
-- **Logic**: Resets all metadata fields and deletes images for the target item. 
+- **Operation**: Call `clearItemMetadata(itemId, { targetedClear: true, preserveEdits })`.
+- **Logic**: Resets all metadata fields and deletes images for the target item.
     - If target is a **TV Show**, it also resets its direct seasons and episodes.
     - If target is a **Season**, it also resets its direct episodes.
+    - A child with an identity lock of its own is skipped (overwrite rule 5 in `metadata_locking.md`).
+- **Edits**: `preserveEdits` is true only when the same match is applied again. A different identity drops the descriptive locks of the item and of the children it resets (rules 3 and 4).
 - **Scope**: Shallow; no further recursion is performed.
 
 ### 4.2 Phase 2: Identity Application & Persistence
@@ -52,7 +54,7 @@ The new identity (provided by the user via the Search UI) is applied.
 1.  **Identity Mapping**: Apply the new `tmdbId` and `mediaType`.
 2.  **Numbering Binding**: Apply specific indices (e.g., `seasonNumber`) if the result is a sub-item (Season/Episode).
 3.  **Defensive Locking**:
-    - **ID Lock**: The `tmdbId` is added to `lockedFields`. This signals to the scanner that it should never attempt to re-identify this item.
+    - **Identity Lock**: `tmdbId` and `mediaType` are added to `lockedFields`. The scanner never re-identifies or retypes this item, whatever its filename says.
     - **Structural Lock**: If a structural property (like `seasonNumber`) is manually assigned, it is also added to `lockedFields`. This prevents naming-based sync logic (e.g., `syncTvShowStructure`) from reverting the number to match the filesystem name.
 
 ### 4.3 Phase 3: Orchestration & Finalization
@@ -63,6 +65,8 @@ The item (now "dirty" and "identified") is passed to `fetchAndApplyMetadata`.
 
     > [!IMPORTANT]
     > **Season Update Propagation**: If a **Season** is manually matched, the system **MUST** save the identity/locks to the database and then trigger a structural sync on the **Parent TV Show**. This is required because `syncTvShowStructure` only runs at the show level and needs the locked season identity in the DB to correctly re-number child episodes.
+    >
+    > The show's TMDB season sizes are not stored, so they are loaded before this sync (`ensureSeasonCounts`). Without them, files numbered as `Title - 01` instead of `S01E01` are not accepted as episodes.
 
 3.  **Managed Copy**: Pushes the new metadata down the hierarchy.
 4.  **Atomic Broadcast**: Returns all changed items to the UI.
@@ -74,10 +78,11 @@ The item (now "dirty" and "identified") is passed to `fetchAndApplyMetadata`.
 2.  **Application**:
     - The `tmdbId` for Season 5 is set.
     - The `seasonNumber` is set to `5`.
-    - Both `tmdbId` and `seasonNumber` are added to `lockedFields`.
+    - `tmdbId`, `mediaType`, and `seasonNumber` are added to `lockedFields`.
 3.  **Resolution**: During the next sync, the system sees the folder name is `S01` (Parsing would result in `1`), but since `seasonNumber` is **locked**, the system preserves `5`. Consequently, episodes are correctly matched to Season 5 data instead of Season 1.
 
 ## 6. Edge Cases
 
 - **"Fix Match" to No Match**: If a user clears a match, the `tmdbId` remains null and the field is locked. This identifies the item as "Manual Unmatch", preventing the scanner from trying to identify it again.
-- **Hierarchy Rebranding**: When a parent Show's identity is changed, the manual assignment logic must ensure all children are also cleared and their `lastRefreshedAt` timestamp reset, forcing a branch-wide metadata update.
+- **Hierarchy Rebranding**: When a parent Show's identity is changed, the manual assignment logic must ensure its seasons and episodes are also cleared and their `lastRefreshedAt` timestamp reset, forcing a branch-wide metadata update. Children with an identity lock of their own are left alone.
+- **A file matched as another title inside a season**: It stays that title through scans and through rematches of the season or show. Clear the file's metadata to let its filename make it an episode again.

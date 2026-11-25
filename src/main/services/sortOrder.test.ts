@@ -92,11 +92,12 @@ describe('buildSortOrder', () => {
       ])
     })
 
-    it('season folder: typeRank ASC + episodeNumber ASC', () => {
+    it('season folder: typeRank ASC + episodeNumber ASC + displayName ASC', () => {
       const clauses = buildSortOrder('season')
       expect(clauses).toEqual([
         { field: 'typeRank', direction: 'ASC' },
         { field: 'episodeNumber', direction: 'ASC' },
+        { field: 'displayName', direction: 'ASC' },
       ])
     })
 
@@ -109,6 +110,7 @@ describe('buildSortOrder', () => {
       expect(buildSortOrder('season', 'hybrid', true)).toEqual([
         { field: 'typeRank', direction: 'ASC' },
         { field: 'episodeNumber', direction: 'DESC' },
+        { field: 'displayName', direction: 'DESC' },
       ])
       expect(buildSortOrder(undefined, 'hybrid', true)).toEqual([
         { field: 'typeRank', direction: 'ASC' },
@@ -138,15 +140,17 @@ describe('buildSortOrder', () => {
   })
 
   describe('date-added', () => {
-    it('ASC: single addedAt ASC clause', () => {
+    it('ASC: addedAt ASC + displayName tiebreaker ASC', () => {
       expect(buildSortOrder(undefined, 'date-added')).toEqual([
         { field: 'addedAt', direction: 'ASC' },
+        { field: 'displayName', direction: 'ASC' },
       ])
     })
 
-    it('DESC: single addedAt DESC clause', () => {
+    it('DESC: addedAt DESC + displayName tiebreaker ASC', () => {
       expect(buildSortOrder(undefined, 'date-added', true)).toEqual([
         { field: 'addedAt', direction: 'DESC' },
+        { field: 'displayName', direction: 'ASC' },
       ])
     })
   })
@@ -410,6 +414,37 @@ describe('getChildren — sort ordering', () => {
     // Episodes (typeRank 1) must come before the Extras folder (typeRank 2)
     expect(ids.indexOf('ep1')).toBeLessThan(ids.indexOf('extras'))
     expect(ids.indexOf('ep2')).toBeLessThan(ids.indexOf('extras'))
+  })
+
+  it('hybrid: season folder sorts items without episode numbers by name', async () => {
+    ctx.seedEntities([
+      { id: 'eSeason', mediaType: 'season', seasonNumber: 1, title: 'Movies' },
+      { id: 'eC', mediaType: 'movie', title: 'C Movie' },
+      { id: 'eA', mediaType: 'movie', title: 'A Movie' },
+      { id: 'eB', mediaType: 'movie', title: 'B Movie' },
+    ])
+    ctx.seedItems([
+      { id: 'season', parentId: LIBRARY_ROOT_ID, path: 'show/movies', type: 'folder', entityId: 'eSeason' },
+      { id: 'c', parentId: 'season', path: 'show/movies/c', type: 'file', entityId: 'eC' },
+      { id: 'a', parentId: 'season', path: 'show/movies/a', type: 'file', entityId: 'eA' },
+      { id: 'b', parentId: 'season', path: 'show/movies/b', type: 'file', entityId: 'eB' },
+    ])
+
+    const result = expectItems(await getChildren('season', {}))
+    expect(result.map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('alpha: identically named items fall back to a stable id order', async () => {
+    ctx.seedItems([
+      { id: 'parent', parentId: LIBRARY_ROOT_ID, path: 'parent', type: 'folder' },
+      { id: 'dup3', parentId: 'parent', path: 'parent/c/Same', name: 'Same', type: 'file' },
+      { id: 'dup1', parentId: 'parent', path: 'parent/a/Same', name: 'Same', type: 'file' },
+      { id: 'dup2', parentId: 'parent', path: 'parent/b/Same', name: 'Same', type: 'file' },
+    ])
+    mergeSettings('parent', { viewSettings: { sortBy: 'alpha' } })
+
+    const result = expectItems(await getChildren('parent', {}))
+    expect(result.map((i) => i.id)).toEqual(['dup1', 'dup2', 'dup3'])
   })
 
   it('hybrid DESC: tv folder sorts seasons in reverse (S3, S2, S1)', async () => {

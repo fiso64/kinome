@@ -4,8 +4,9 @@
     type PlaybackConversion, type PlaybackEncodingPreferences, type PlaybackQuality,
     type PlaybackVideoBackend, type PlaybackWorkerHealth, type PlaybackWorkerStatus, type VideoQuality
   } from '@shared/playback-quality'
-  import { clientSettingsStore } from '@lib/client-settings-store.svelte'
-  import { isWebQualityChoice, resolveWebQuality, webQualityChoices, webQualityLabel } from '@shared/web-playback'
+  import {
+    isWebQualityChoice, resolveWebQuality, webQualityChoices, webQualityLabel, type PlaybackPreferences, type WebQualityChoice
+  } from '@shared/web-playback'
   import Icon from '@components/ui/Icon.svelte'
   import { api } from '@lib/api'
 
@@ -16,6 +17,9 @@
     defaultQuality = $bindable(),
     qualities = $bindable(),
     encoding = $bindable(),
+    webQuality = $bindable(),
+    centerPlayButton = $bindable(),
+    preferences = $bindable(),
     onManagePlayers
   }: {
     canEditServer: boolean
@@ -24,6 +28,11 @@
     defaultQuality: PlaybackQuality
     qualities: VideoQuality[]
     encoding: PlaybackEncodingPreferences
+    /** This browser's web player choices. */
+    webQuality: WebQualityChoice
+    centerPlayButton: boolean
+    /** The signed-in account's preferences. Null until they load. */
+    preferences: PlaybackPreferences | null
     onManagePlayers: () => void
   } = $props()
 
@@ -37,7 +46,7 @@
     playbackConversionAvailable: conversionAvailable, playbackConversion: conversion, playbackQualities: qualities
   }))
   const browserQualities = $derived(webQualityChoices(qualityChoices))
-  const browserQuality = $derived(resolveWebQuality(browserQualities, clientSettingsStore.settings.webQuality))
+  const browserQuality = $derived(resolveWebQuality(browserQualities, webQuality))
   const transcodingEnabled = $derived(conversionAvailable && conversion === 'full')
   let worker = $state<PlaybackWorkerHealth | null>(null)
   let checking = $state(true)
@@ -66,44 +75,61 @@
     <section aria-labelledby="browser-playback-heading" class="player-preferences">
       <div>
         <h4 id="browser-playback-heading">Web player</h4>
-        <p>Saved automatically in this browser</p>
+        <p>Applies to this browser</p>
       </div>
       <div class="encoding-grid">
         <div class="form-field">
           <label for="browser-quality">Default playback mode</label>
           <select id="browser-quality" value={browserQuality}
             onchange={(event) => {
-              const webQuality = event.currentTarget.value
-              if (isWebQualityChoice(webQuality)) clientSettingsStore.update({ webQuality })
+              const choice = event.currentTarget.value
+              if (isWebQualityChoice(choice)) webQuality = choice
             }}>
             {#each browserQualities as quality (quality)}
               <option value={quality}>{webQualityLabel(quality)}</option>
             {/each}
           </select>
         </div>
-        <div class="form-field">
-          <label for="browser-subtitles">Subtitles</label>
-          <select id="browser-subtitles" value={clientSettingsStore.settings.subtitles}
-            onchange={(event) => clientSettingsStore.update({ subtitles: event.currentTarget.value as 'default' | 'forced' | 'off' })}>
-            <option value="default">Preferred or default track</option>
-            <option value="forced">Forced tracks only</option>
-            <option value="off">Off</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label for="browser-audio-language">Preferred audio language</label>
-          <input id="browser-audio-language" value={clientSettingsStore.settings.audioLanguage}
-            placeholder="Track default" aria-describedby="browser-language-help"
-            onchange={(event) => clientSettingsStore.update({ audioLanguage: event.currentTarget.value.trim().toLowerCase() })} />
-        </div>
-        <div class="form-field">
-          <label for="browser-subtitle-language">Preferred subtitle language</label>
-          <input id="browser-subtitle-language" value={clientSettingsStore.settings.subtitleLanguage}
-            placeholder="Track default" aria-describedby="browser-language-help"
-            onchange={(event) => clientSettingsStore.update({ subtitleLanguage: event.currentTarget.value.trim().toLowerCase() })} />
-        </div>
+        <label class="center-play-option" for="browser-center-play">
+          <input type="checkbox" id="browser-center-play" bind:checked={centerPlayButton} />
+          <span>Show the play button over a paused video</span>
+        </label>
       </div>
-      <p id="browser-language-help">Use a language code such as en, ja, or fr.</p>
+    </section>
+
+    <section aria-labelledby="playback-languages-heading" class="player-preferences">
+      <div>
+        <h4 id="playback-languages-heading">Audio and subtitles</h4>
+        <p>Used by every player when a title has no saved languages. Applies to your account on every device</p>
+      </div>
+      {#if preferences}
+        <div class="encoding-grid">
+          <div class="form-field">
+            <label for="preferred-audio-language">Preferred audio language</label>
+            <input id="preferred-audio-language" value={preferences.audioLanguage ?? ''}
+              placeholder="Track default" aria-describedby="preferred-language-help"
+              oninput={(event) => { preferences!.audioLanguage = event.currentTarget.value || null }} />
+          </div>
+          <div class="form-field">
+            <label for="preferred-subtitle-language">Preferred subtitle language</label>
+            <input id="preferred-subtitle-language" value={preferences.subtitleLanguage ?? ''}
+              placeholder="Track default" aria-describedby="preferred-language-help"
+              oninput={(event) => { preferences!.subtitleLanguage = event.currentTarget.value || null }} />
+          </div>
+          <div class="form-field">
+            <label for="preferred-subtitles">Subtitles</label>
+            <select id="preferred-subtitles" bind:value={preferences.subtitles}>
+              <option value="default">Preferred or default track</option>
+              <option value="forced">Forced tracks only</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
+        </div>
+      {/if}
+      <p id="preferred-language-help">
+        Use language codes such as en or ja, in priority order when listing several: ja, en. External players receive these through
+        <code>&lt;alang&gt;</code> and <code>&lt;slang&gt;</code>; the subtitle language is passed only in the first subtitle mode.
+      </p>
     </section>
 
     <fieldset aria-labelledby="external-playback-heading" class="player-preferences" disabled={!canEditServer}>
@@ -239,6 +265,8 @@
   h4 { margin: 0; font-size: 0.95rem; font-weight: 650; }
   label { font-weight: 600; }
   .quality-label { font-weight: 400; }
+  .center-play-option { display: flex; align-items: center; gap: .5rem; align-self: end; min-height: 2.25rem; font-weight: 400; font-size: .9rem; cursor: pointer; }
+  .center-play-option input { margin: 0; }
   .setting-row {
     display: flex;
     flex-wrap: wrap;

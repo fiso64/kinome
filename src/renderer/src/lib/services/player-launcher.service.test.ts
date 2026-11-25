@@ -154,6 +154,7 @@ test('tries the original before lossy fallback and preserves compatible audio at
   const audio = { index: 1, kind: 'audio' as const, codec: 'aac', channels: 6, ...flags }
   const info: WebPlaybackInfo = {
     languageDefaults: [],
+    preferences: { audioLanguage: null, subtitleLanguage: null, subtitles: 'default' },
     media: { container: 'avi', tracks: [video, audio] },
     qualities: ['original', 'remux', '4k', '1080p'],
     position: 0, subtitles: [], audioConversion: true
@@ -205,13 +206,20 @@ test('resolves audio and subtitle defaults independently and falls through unava
     { scope: 'season' as const, audioLanguage: 'ja', subtitleLanguage: 'off' },
     { scope: 'show' as const, audioLanguage: 'en', subtitleLanguage: 'ja' }
   ]
-  expect(selectPlaybackAudio(audio, defaults, 'en')?.index).toBe(1)
-  expect(selectPlaybackSubtitle(subtitles, defaults, 'ja', 'off')).toBe('english')
-  expect(selectPlaybackSubtitle(subtitles, [{ ...defaults[0], subtitleLanguage: 'fr' }, ...defaults.slice(1)], 'ja', 'default'))
+  const account = (audioLanguage: string | null, subtitleLanguage: string | null, mode: 'default' | 'forced' | 'off') =>
+    ({ audioLanguage, subtitleLanguage, subtitles: mode })
+  expect(selectPlaybackAudio(audio, defaults, account('en', null, 'default'))?.index).toBe(1)
+  expect(selectPlaybackSubtitle(subtitles, defaults, account(null, 'ja', 'off'))).toBe('english')
+  expect(selectPlaybackSubtitle(subtitles, [{ ...defaults[0], subtitleLanguage: 'fr' }, ...defaults.slice(1)], account(null, 'ja', 'default')))
     .toBe('')
-  expect(selectPlaybackAudio(audio, defaults.slice(0, 1), 'en')?.index).toBe(0)
+  expect(selectPlaybackAudio(audio, defaults.slice(0, 1), account('en', null, 'default'))?.index).toBe(0)
   const ordered = [{ ...defaults[0], audioLanguage: 'fr, eng, ja', subtitleLanguage: 'fr, ja, en' }, ...defaults.slice(1)]
-  expect(selectPlaybackAudio(audio, ordered, 'ja')?.index).toBe(0)
-  expect(selectPlaybackSubtitle(subtitles, ordered, 'en', 'off')).toBe('japanese')
+  expect(selectPlaybackAudio(audio, ordered, account('ja', null, 'default'))?.index).toBe(0)
+  expect(selectPlaybackSubtitle(subtitles, ordered, account(null, 'en', 'off'))).toBe('japanese')
+  // Account preferences apply only when no saved default matches, and may list several languages.
+  expect(selectPlaybackAudio(audio, [], account('fr, ja', null, 'default'))?.index).toBe(1)
+  expect(selectPlaybackSubtitle(subtitles, [], account(null, 'fr, ja', 'default'))).toBe('japanese')
+  expect(selectPlaybackSubtitle(subtitles, [], account(null, 'en', 'forced'))).toBe('forced')
+  expect(selectPlaybackSubtitle(subtitles, [], account(null, 'ja', 'off'))).toBe('')
 
 })

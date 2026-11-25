@@ -102,6 +102,25 @@
     viewManager?.focusLibrarySearch()
   }
 
+  // Continues the compact title search in the full search view.
+  async function expandSearch() {
+    const query = $state.snapshot(searchStore.detailQuery)
+    appSidebarComponent?.blurSearchInput()
+    searchStore.clearDetail()
+    navStore.setGlobalSearch(query, { replace: false, closeDetail: true })
+    librarySearchOpen = true
+    await tick()
+    viewManager?.focusLibrarySearch()
+  }
+
+  // The search view closes only on request: clearing the query of a view that
+  // was reached through a link, history, or a tag keeps it open.
+  $effect(() => {
+    if (!librarySearchOpen && searchStore.isGlobalActive && !navStore.isDetailViewActive && !navStore.isSettingsActive) {
+      librarySearchOpen = true
+    }
+  })
+
   function closeLibrarySearch() {
     librarySearchOpen = false
     if (searchStore.isGlobalActive) searchStore.clearGlobal()
@@ -771,6 +790,7 @@
           on:home={() => { librarySearchOpen = false; navStore.navigateToHome() }}
           on:back={goBack}
           on:librarySearch={openSearch}
+          on:expandSearch={expandSearch}
           on:openLayoutSelector={openLayoutSelector}
           on:showContextMenu={(e) => handleShowContextMenu(e.detail.item, e.detail.event, e.detail.options)}
           on:detailSearchItemClick={(e) => handleItemClick(e.detail.item, 'detail')}

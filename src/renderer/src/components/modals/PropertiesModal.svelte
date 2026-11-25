@@ -95,6 +95,7 @@
 
 <style>
   .loading-properties { display: grid; gap: .6rem; }
+  .error-text, .property-title, code, .property-list { user-select: text; }
   .error-text { color: var(--color-danger-soft); font-size: .9rem; }
   .property-title { display: flex; align-items: center; gap: .65rem; min-width: 0; overflow-wrap: anywhere; }
   .property-title h3 { font-size: 1rem; font-weight: 650; }

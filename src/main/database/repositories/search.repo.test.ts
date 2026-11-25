@@ -153,6 +153,31 @@ describe('Search Repository (Integration)', () => {
                 .toEqual(['movie', 'movie', 'episode'])
         })
 
+        it('ranks titles that start with the text first, however long their overview', () => {
+            db.exec(`
+                INSERT INTO media_entities (id, title, media_type, overview) VALUES
+                    ('lead', 'Testingstr and a much longer title', 'movie', '${'A very long overview. '.repeat(40)}'),
+                    ('mid1', 'Xtes', 'movie', NULL), ('mid2', 'Ytes', 'movie', NULL);
+                INSERT INTO media_items (id, physical_kind, media_kind, name, entity_id, created_at, updated_at) VALUES
+                    ('lead', 'file', 'movie', 'a.mkv', 'lead', 1, 1),
+                    ('mid1', 'file', 'movie', 'b.mkv', 'mid1', 1, 1), ('mid2', 'file', 'movie', 'c.mkv', 'mid2', 1, 1);
+            `)
+            const match = '{title original_title name} : "tes"'
+            // Without the typed text, relevance alone favors the shorter titles.
+            expect(searchRepo.findByFtsQuery(match, [], 10)[0].id).not.toBe('lead')
+            // Both the sorted path and the FTS-ranked title page put the leading hit first.
+            expect(searchRepo.findByFtsQuery(match, [], 10, undefined, false, 'tes').map(({ id }) => id))
+                .toEqual(['lead', 'mid1', 'mid2'])
+            expect(searchRepo.findByFtsQuery(match, [], 1, undefined, false, 'tes').map(({ id }) => id)).toEqual(['lead'])
+            // An overview does not change the relevance of a title hit.
+            const rank = (id: string) => db.query(`
+                SELECT bm25(media_items_fts) AS rank FROM media_items_fts WHERE media_items_fts MATCH 'title : "tes"' AND id = ?
+            `).get(id).rank
+            const before = rank('mid1')
+            db.exec("UPDATE media_entities SET overview = 'Now with a long overview of its own' WHERE id = 'mid1'")
+            expect(rank('mid1')).toBe(before)
+        })
+
         it('keeps a document linked through metadata edits, a rebuild, and deletion', () => {
             const documentId = () => db.query("SELECT search_document_id FROM media_items WHERE id = '1'").get().search_document_id
             const original = documentId()

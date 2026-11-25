@@ -13,9 +13,8 @@ export interface ClientSettings {
    */
   enabledPlayerIds: string[]
   webQuality: WebQualityChoice
-  audioLanguage: string
-  subtitleLanguage: string
-  subtitles: 'default' | 'forced' | 'off'
+  /** Show the large play button over a paused video in the web player. */
+  centerPlayButton: boolean
   playerVolume: number
   playerMuted: boolean
 }
@@ -23,9 +22,7 @@ export interface ClientSettings {
 const DEFAULTS: ClientSettings = {
   enabledPlayerIds: [],
   webQuality: 'source',
-  audioLanguage: '',
-  subtitleLanguage: '',
-  subtitles: 'default',
+  centerPlayButton: true,
   playerVolume: 1,
   playerMuted: false
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '@components/ui/Icon.svelte'
+  import AccountAvatar from '@components/ui/AccountAvatar.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
@@ -8,13 +9,6 @@
 
   type UserEntry = { id: string; username: string }
 
-  function avatarHue(username: string): number {
-    let hash = 2166136261
-    for (let index = 0; index < username.length; index++) {
-      hash = Math.imul(hash ^ username.charCodeAt(index), 16777619)
-    }
-    return (hash >>> 0) * 360 / 2 ** 32
-  }
 
   let users = $state<UserEntry[]>([])
   let loadingUsers = $state(true)
@@ -127,7 +121,7 @@
       <form class="auth-flow" in:fade={{ duration: prefersReducedMotion.current ? 0 : 135 }}
         onsubmit={(event) => { event.preventDefault(); void handleLogin() }}>
         <div class="sign-in-heading">
-          {@render avatar(selectedUser.username)}
+          <AccountAvatar username={selectedUser.username} />
           <h1 id="auth-heading">{selectedUser.username}</h1>
         </div>
         <input type="text" autocomplete="username" value={selectedUser.username} hidden />
@@ -154,7 +148,7 @@
           <div class="user-grid">
             {#each users as user (user.id)}
               <button type="button" class="user-card secondary" onclick={() => selectUser(user)}>
-                {@render avatar(user.username)}
+                <AccountAvatar username={user.username} />
                 <span class="username">{user.username}</span>
                 <span class="account-arrow"><Icon name="right" size={16} /></span>
               </button>
@@ -168,11 +162,6 @@
   </section>
 </div>
 
-{#snippet avatar(username: string)}
-  <span class="avatar" style:--avatar-hue={avatarHue(username)} aria-hidden="true">
-    {username.charAt(0).toUpperCase()}
-  </span>
-{/snippet}
 
 <style>
   .page {
@@ -199,30 +188,18 @@
     font-size: 1.05rem;
     font-weight: 680;
   }
-  .brand-icon, .avatar {
+  .brand-icon {
     display: grid;
     place-items: center;
-    flex: 0 0 38px;
-    width: 38px;
-    height: 38px;
-    border: 1px solid;
-    box-shadow: var(--edge-light);
-    border-radius: var(--radius-field);
-  }
-  .brand-icon {
+    flex: 0 0 42px;
     width: 42px;
     height: 42px;
-    flex-basis: 42px;
+    border: 1px solid;
+    border-radius: var(--radius-field);
     color: var(--color-primary-soft);
     background: var(--surface-raised);
     border-color: var(--color-border);
     box-shadow: var(--control-shadow);
-  }
-  .avatar {
-    color: oklch(0.96 0.025 var(--avatar-hue));
-    background: oklch(0.46 0.1 var(--avatar-hue));
-    border-color: oklch(0.56 0.09 var(--avatar-hue));
-    font-weight: 700;
   }
   .auth-flow, .user-grid { display: grid; }
   .auth-flow { gap: .9rem; }

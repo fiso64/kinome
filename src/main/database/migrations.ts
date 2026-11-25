@@ -22,6 +22,9 @@ import { migration as locationReadModel } from './migrations/0020_location_read_
 import { migration as tagValueIndexes } from './migrations/0021_tag_value_indexes'
 import { migration as creditPersonIndex } from './migrations/0022_credit_person_index'
 import { migration as searchDocumentIds } from './migrations/0023_search_document_ids'
+import { migration as searchIndexWithoutOverview } from './migrations/0024_search_index_without_overview'
+import { migration as accountPlaybackPreferences } from './migrations/0025_account_playback_preferences'
+import { migration as lockManualMatchType } from './migrations/0026_lock_manual_match_type'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -56,7 +59,10 @@ const MIGRATIONS: Migration[] = [
   locationReadModel,
   tagValueIndexes,
   creditPersonIndex,
-  searchDocumentIds
+  searchDocumentIds,
+  searchIndexWithoutOverview,
+  accountPlaybackPreferences,
+  lockManualMatchType
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

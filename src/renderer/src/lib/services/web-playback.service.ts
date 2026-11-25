@@ -3,7 +3,7 @@ import { authStore } from '@lib/auth-store.svelte'
 import { isMatroskaContainer, type LocalMediaTrack } from '@shared/local-media'
 import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput, type VideoQuality } from '@shared/playback-quality'
 import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
-import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, WebPlaybackInfo, WebPlaybackQuality, WebQualityChoice, WebQueueItem, WebSubtitle } from '@shared/web-playback'
+import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, PlaybackPreferences, SubtitleMode, WebPlaybackInfo, WebPlaybackQuality, WebQualityChoice, WebQueueItem, WebSubtitle } from '@shared/web-playback'
 
 const videoCodecs: Record<string, string> = {
   h264: 'avc1.640028', hevc: 'hvc1.1.6.L120.B0', av1: 'av01', vp9: 'vp9', vp8: 'vp8'
@@ -43,15 +43,15 @@ export function knownTrackLanguage(code?: string): string | undefined {
 }
 
 export function selectPlaybackAudio(
-  tracks: LocalMediaTrack[], defaults: PlaybackDefault[], browserLanguage: string
+  tracks: LocalMediaTrack[], defaults: PlaybackDefault[], preferences: PlaybackPreferences
 ): LocalMediaTrack | undefined {
-  for (const { audioLanguage } of defaults) {
+  for (const { audioLanguage } of [...defaults, preferences]) {
     for (const language of playbackLanguagePriorities(audioLanguage)) {
       const track = tracks.find((audio) => matchesLanguage(audio.language, language))
       if (track) return track
     }
   }
-  return tracks.find((audio) => matchesLanguage(audio.language, browserLanguage))
+  return undefined
 }
 
 function matchingSubtitleTrack(tracks: WebSubtitle[]): WebSubtitle | undefined {
@@ -61,7 +61,7 @@ function matchingSubtitleTrack(tracks: WebSubtitle[]): WebSubtitle | undefined {
 }
 
 export function selectPlaybackSubtitle(
-  tracks: WebSubtitle[], defaults: PlaybackDefault[], browserLanguage: string, mode: 'default' | 'forced' | 'off'
+  tracks: WebSubtitle[], defaults: PlaybackDefault[], preferences: PlaybackPreferences
 ): string {
   for (const { subtitleLanguage } of defaults) {
     if (subtitleLanguage === 'off') return ''
@@ -71,12 +71,17 @@ export function selectPlaybackSubtitle(
       if (track) return track.id
     }
   }
-  return preferredSubtitle(tracks, browserLanguage, mode)
+  const preferred = playbackLanguagePriorities(preferences.subtitleLanguage)
+  if (preferences.subtitles === 'default') {
+    for (const language of preferred) {
+      const track = matchingSubtitleTrack(tracks.filter((track) => matchesLanguage(track.language, language)))
+      if (track) return track.id
+    }
+  }
+  return preferredSubtitle(tracks, preferred[0] ?? '', preferences.subtitles)
 }
 
-export function preferredSubtitle(
-  subtitles: WebSubtitle[], preferred: string, mode: 'default' | 'forced' | 'off'
-): string {
+function preferredSubtitle(subtitles: WebSubtitle[], preferred: string, mode: SubtitleMode): string {
   if (mode === 'off') return ''
   const matching = subtitles.filter((track) => matchesLanguage(track.language, preferred))
   const forced = matching.find((track) => track.forced) ??
@@ -232,6 +237,21 @@ export async function getWebPlaybackInfo(itemId: string, signal: AbortSignal): P
   if (!response.ok) throw new Error(response.status === 404
     ? 'This file is no longer available.' : 'Could not load playback information.')
   return response.json()
+}
+
+export async function getPlaybackPreferences(): Promise<PlaybackPreferences> {
+  const response = await fetch('/api/playback/preferences', { headers: { Authorization: `Bearer ${authStore.token}` } })
+  if (!response.ok) throw new Error('Could not load playback preferences.')
+  return response.json()
+}
+
+export async function savePlaybackPreferences(preferences: PlaybackPreferences): Promise<void> {
+  const response = await fetch('/api/playback/preferences', {
+    method: 'PUT', headers: { Authorization: `Bearer ${authStore.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(preferences)
+  })
+  if (!response.ok) throw new Error(response.status === 422
+    ? 'Use language codes such as en or ja, separated by commas.' : 'Could not save playback preferences.')
 }
 
 export async function getItemPlaybackDefault(itemId: string, signal: AbortSignal): Promise<PlaybackDefaultsEditor> {

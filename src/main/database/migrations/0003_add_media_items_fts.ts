@@ -14,6 +14,9 @@ export const migration: Migration = {
       }
     }
 
+    // A fresh database already has the current index from the schema.
+    if (tableExists(db, 'media_items_fts')) return
+
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS media_items_fts USING fts5(
         id UNINDEXED,

@@ -66,7 +66,10 @@ export function buildSortOrder(
       return [{ field: 'displayName', direction: dir }]
 
     case 'date-added':
-      return [{ field: 'addedAt', direction: dir }]
+      return [
+        { field: 'addedAt', direction: dir },
+        { field: 'displayName', direction: 'ASC' },
+      ]
 
     case 'year':
       return [
@@ -80,6 +83,7 @@ export function buildSortOrder(
         return [
           { field: 'typeRank', direction: 'ASC' },
           { field: 'episodeNumber', direction: dir },
+          { field: 'displayName', direction: dir },
         ]
       } else if (mediaType === 'tv') {
         return [

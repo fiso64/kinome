@@ -55,6 +55,7 @@
     openLayoutSelector: void
     showContextMenu: { item: LibraryItem; event: MouseEvent; options?: { showLogout?: boolean } }
     librarySearch: void
+    expandSearch: void
     home: void
     back: void
     detailSearchItemClick: { item: SearchIndexEntry }
@@ -150,10 +151,17 @@
             tabindex="-1"
             bind:this={searchPanel}
             onkeydown={(event) => searchStore.handleResultKeys(event, 'title', searchInputEl, (item) => dispatch('detailSearchItemClick', { item }))}>
-            <SearchInput label="Search this folder" bind:query={searchStore.detailQuery} {suggestions} bind:element={searchInputEl} />
-            <button class="icon-button" type="button" aria-label="Close title search" title="Close"
-              onclick={closeTitleSearch}><Icon name="close" size={19} /></button>
-            <div class="search-results">
+            <header class="search-bar">
+              <span class="search-bar-icon"><Icon name="search" size={18} /></span>
+              <SearchInput label="Search this folder" bind:query={searchStore.detailQuery} {suggestions} bind:element={searchInputEl} />
+              <button class="icon-button" type="button" data-action="expand-search"
+                aria-label="Open in full search" title="Open in full search"
+                onclick={() => dispatch('expandSearch')}><Icon name="expand" size={17} /></button>
+              <button class="icon-button" type="button" aria-label="Close title search" title="Close"
+                onclick={closeTitleSearch}><Icon name="close" size={18} /></button>
+            </header>
+            {#if searchStore.isDetailActive}
+              <div class="search-results">
                 {#if isPerformingDetailSearch && detailSearchResults.length === 0}
                   {#each [60, 80, 52] as width}
                     <div class="skeleton-row">
@@ -168,10 +176,18 @@
                     highlightedIndex={searchStore.highlightedDetailIndex} {settings} listFixedAspectRatio />
                 {:else if searchStore.detailSearchError}
                   <p class="search-status" role="status">Could not load results. Edit the search to try again.</p>
-                {:else if searchStore.isDetailActive}
+                {:else}
                   <p class="search-status">No results found.</p>
                 {/if}
-            </div>
+              </div>
+              {#if detailSearchResults.length > 0}
+                <footer class="search-hints" aria-hidden="true">
+                  <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                  <span><kbd>Enter</kbd> Open</span>
+                  <span><kbd>Esc</kbd> Close</span>
+                </footer>
+              {/if}
+            {/if}
           </section>
         {/if}
       </div>
@@ -280,14 +296,53 @@
     z-index: 5;
     top: 0;
     inset-inline-start: calc(100% + .9rem);
-    width: min(36rem, calc(100dvw - var(--sidebar-width) - 1.1rem));
-    padding: .7rem;
+    display: flex;
+    flex-direction: column;
+    width: min(33rem, calc(100dvw - var(--sidebar-width) - 1.1rem));
+    max-height: min(36rem, calc(100dvh - 9rem));
+    overflow: hidden;
+    box-shadow: var(--edge-light), var(--shadow-window);
   }
-  .search-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .45rem; }
-  .search-results { grid-column: 1 / -1; }
-  .search-results { max-height: min(32rem, calc(100dvh - 16rem)); overflow: auto; }
-  .search-status { padding: 1.1rem .4rem .45rem; color: var(--color-text-soft); font-size: .85rem; }
-  .skeleton-row { display: flex; align-items: center; gap: .65rem; padding: .5rem .25rem; }
+  /* The panel frames the field, so the field itself is bare. */
+  .search-bar { display: flex; align-items: center; gap: .15rem; padding: .35rem .45rem .35rem .85rem; }
+  .search-bar-icon { display: grid; flex: none; color: var(--color-text-dim); }
+  .search-bar :global(.search-input-wrapper) { flex: 1; min-width: 0; }
+  .search-bar :global(.chip-field) { background: transparent; border-color: transparent; box-shadow: none; }
+  .search-results {
+    --collection-row-background: transparent;
+    --collection-row-border: transparent;
+    --collection-row-shadow: none;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: .35rem;
+    border-top: 1px solid var(--color-border-soft);
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  .search-results :global(.media-list) { gap: .1rem; padding: 0; }
+  .search-status { padding: 1.1rem .6rem; color: var(--color-text-soft); font-size: .85rem; }
+  .skeleton-row { display: flex; align-items: center; gap: .65rem; padding: .5rem .45rem; }
+  .search-hints {
+    display: flex;
+    gap: 1.1rem;
+    padding: .45rem .85rem;
+    border-top: 1px solid var(--color-border-soft);
+    color: var(--color-text-dim);
+    font-size: .74rem;
+  }
+  .search-hints kbd {
+    display: inline-block;
+    min-width: 1.25rem;
+    margin-inline-end: .2rem;
+    padding: 0 .3rem;
+    border: 1px solid var(--color-border);
+    border-radius: 5px;
+    color: var(--color-text-soft);
+    font: inherit;
+    text-align: center;
+  }
+  @media (hover: none) { .search-hints { display: none; } }
   .reloading { display: flex; animation: rotate .9s linear infinite; }
   @keyframes rotate { to { transform: rotate(360deg); } }
   @media (max-width: 600px) {

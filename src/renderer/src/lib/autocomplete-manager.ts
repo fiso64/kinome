@@ -156,24 +156,16 @@ export function autocomplete(
     const text = node.value
     const cursorPos = node.selectionStart ?? 0
     const requestId = ++currentRequestId
-    autocompleteState.update((s) =>
-      s.targetNode === node && s.suggestions.length ? { ...s, suggestions: [], loading: true } : s
-    )
 
     const runUpdate = async () => {
       if (node.value !== text || document.activeElement !== node) return
       const rawResult = config.getSuggestions(text, cursorPos)
 
       if (rawResult instanceof Promise) {
+        // Keep the open menu and its suggestions in place until the new ones
+        // arrive. Emptying it on every keystroke makes it flicker.
         const position = calculatePosition(node, text, cursorPos)
-        autocompleteState.update((s) => ({
-          ...s,
-          suggestions: [],
-          loading: true,
-          show: true,
-          position,
-          targetNode: node
-        }))
+        autocompleteState.update((s) => s.show && s.targetNode === node ? { ...s, position } : s)
       }
 
       try {
