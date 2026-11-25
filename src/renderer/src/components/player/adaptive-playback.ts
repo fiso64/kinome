@@ -111,72 +111,6 @@ export function bufferedEnd(video: HTMLVideoElement) {
   return position
 }
 
-/** Recover a stopped media clock or a native seek abandoned by the demuxer. */
-export function watchPlaybackProgress(
-  video: HTMLVideoElement, signal: AbortSignal, native: boolean,
-  stalled: (reason: string, details: Record<string, number>) => void
-) {
-  const page = video.ownerDocument
-  let timer: ReturnType<typeof setInterval> | undefined
-  let lastTime = 0
-  let lastPosition = 0
-  let healthyAt = 0
-  let healthyPosition = 0
-
-  function stop() {
-    clearInterval(timer)
-    timer = undefined
-  }
-  function active() {
-    return !page.hidden && !video.ended && !video.error && (video.seeking ? native : !video.paused)
-  }
-  function sample() {
-    if (!active()) { stop(); return }
-    const now = performance.now()
-    const position = video.currentTime
-    const elapsed = now - lastTime
-    const advance = position - lastPosition
-    lastTime = now
-    lastPosition = position
-    const idleRead = native && video.networkState === video.NETWORK_IDLE &&
-      (video.seeking || video.readyState < video.HAVE_FUTURE_DATA)
-    // Firefox can stay at HAVE_CURRENT_DATA with seconds of both tracks
-    // already buffered. Use the buffered range to distinguish a stuck decoder
-    // from an ordinary wait for bytes.
-    const slowClock = !video.seeking && advance >= 0 && advance < elapsed / 1000 * video.playbackRate / 4
-    if (elapsed > 5000 || (!idleRead && !slowClock)) {
-      healthyAt = now
-      healthyPosition = position
-      return
-    }
-    if (now - healthyAt < 6000) return
-    const progress = position - healthyPosition
-    healthyAt = now
-    healthyPosition = position
-    const bufferedAhead = bufferedEnd(video) - position
-    if (!idleRead && bufferedAhead < 2 * video.playbackRate) return
-    stop()
-    stalled(idleRead ? 'The browser stopped loading before the requested position was playable.' :
-      'The playback clock stopped advancing with media buffered.', {
-      bufferedAhead, progress, readyState: video.readyState, networkState: video.networkState
-    })
-  }
-  function reset() {
-    stop()
-    if (!active()) return
-    lastTime = healthyAt = performance.now()
-    lastPosition = healthyPosition = video.currentTime
-    timer = setInterval(sample, 2000)
-  }
-
-  for (const event of ['play', 'playing', 'waiting', 'suspend']) {
-    video.addEventListener(event, () => { if (timer === undefined) reset() }, { signal })
-  }
-  for (const event of ['pause', 'ended', 'seeking', 'seeked', 'ratechange']) video.addEventListener(event, reset, { signal })
-  page.addEventListener('visibilitychange', reset, { signal })
-  signal.addEventListener('abort', stop, { once: true })
-}
-
 export function monitorAdaptivePlayback(
   video: HTMLVideoElement, signal: AbortSignal, stats: AdaptivePlaybackStats,
   previousRenditions: readonly RenditionTarget[], recoverySeconds: number,
@@ -213,84 +147,8 @@ export function monitorAdaptivePlayback(
 
 type HlsClass = typeof import('hls.js').default
 
-export function watchHlsSeeks(
-  Hls: HlsClass, player: InstanceType<HlsClass>, video: HTMLVideoElement, signal: AbortSignal,
-  stalled: (detail: string) => void
-) {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let lastSegment: number | undefined
-  let unhelpfulFragments = 0
-  function clear() {
-    clearTimeout(timer)
-    timer = undefined
-    lastSegment = undefined
-    unhelpfulFragments = 0
-  }
-  function check() {
-    if (!video.seeking || signal.aborted) return
-    if (unhelpfulFragments >= 2) {
-      clear()
-      stalled('HLS buffered segments without reaching the seek target.')
-      return
-    }
-    const { state } = player.inFlightFragments.main
-    // An active transfer has its own timeout and retries. An idle loader
-    // can wait forever when MSE reports a buffered but unplayable range.
-    if (state === 'IDLE' || state === 'STOPPED' || state === 'ENDED') stalled('HLS stopped loading during the seek.')
-    else timer = setTimeout(check, 8000)
-  }
-  video.addEventListener('seeking', () => {
-    clear()
-    timer = setTimeout(check, 8000)
-    if (!player.config.progressive) return
-    const { frag } = player.inFlightFragments.main
-    const target = video.currentTime
-    // Abandoning a partly transmuxed TS fragment can carry samples across
-    // the seek. Reset the parser while keeping completed media buffers.
-    // Parsed audio/video timestamps can move a playlist cut by a few
-    // frames. HLS still considers that fragment a match for the target.
-    const tolerance = player.config.maxFragLookUpTolerance
-    if (frag && frag.stats.chunkCount && !frag.stats.buffering.end &&
-      (target < frag.start - tolerance || target > frag.end + tolerance)) player.startLoad(target, true)
-  }, { signal })
-  player.on(Hls.Events.FRAG_BUFFERED, (_event, { frag }) => {
-    if (timer === undefined || !video.seeking || typeof frag.sn !== 'number') return
-    // One neighbouring fragment can legitimately supply decode preroll.
-    const margin = player.latestLevelDetails?.targetduration ?? frag.duration
-    const outside = video.currentTime < frag.start - margin || video.currentTime > frag.end + margin
-    if (lastSegment === frag.sn || outside) {
-      if (++unhelpfulFragments === 2) {
-        // Cached fragments can finish in one burst before the decoder reports
-        // seeked. Give the pending seek time to present its first picture.
-        clearTimeout(timer)
-        timer = setTimeout(check, 1000)
-      }
-    } else {
-      unhelpfulFragments = 0
-      clearTimeout(timer)
-      timer = setTimeout(check, 8000)
-    }
-    lastSegment = frag.sn
-  })
-  video.addEventListener('seeked', () => { if (!video.seeking) clear() }, { signal })
-  signal.addEventListener('abort', clear, { once: true })
-}
-
 export function createPlaybackHls(Hls: HlsClass, position: number, prefetch = false) {
-  const player = new Hls({
-    progressive: true, maxBufferLength: 12, maxMaxBufferLength: 30,
-    startPosition: position || -1, startFragPrefetch: prefetch
-  })
-  // Request the streaming loader above, but deliver complete fragments until
-  // the playlist identifies TS. HLS.js can start its first fragment inside
-  // its own LEVEL_LOADED listener, before application listeners run.
-  const canStream = player.config.progressive
-  player.config.progressive = false
-  player.on(Hls.Events.LEVEL_UPDATED, (_event, { details }) => {
-    const first = details.fragments[0]
-    player.config.progressive = canStream && !!first && !first.initSegment
-  })
-  return player
+  return new Hls({ maxBufferLength: 12, maxMaxBufferLength: 30, startPosition: position || -1, startFragPrefetch: prefetch })
 }
 
 /** Keep presenting the current source while the first on-demand segment is generated. */

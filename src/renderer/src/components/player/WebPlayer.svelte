@@ -19,15 +19,15 @@
   import { notificationStore } from '@lib/notification-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
-    playbackAttempts, browserPlaybackUrl, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
+    playbackAttempts, browserPlaybackUrl, reportPlayback, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
     knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition, supportsVideoReflection
   } from '@lib/services/web-playback.service'
   import { hlsMime, isVideoQuality, videoQualityHeights } from '@shared/playback-quality'
   import { resolveWebQuality, webQualityChoices, webQualityLabel, type PlaybackDefaultScope, type WebPlaybackInfo, type WebPlaybackQuality, type WebQualityChoice, type WebQueueItem } from '@shared/web-playback'
-  import { defaultAudioTrack, isMatroskaContainer, isMp4Container, type MediaChapter } from '@shared/local-media'
+  import { defaultAudioTrack, type MediaChapter } from '@shared/local-media'
   import type { MediaFile, Settings } from '@shared/types'
   import reflectionSample from '../../assets/player/reflection.mp4?no-inline'
-  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, watchPlaybackProgress, watchHlsSeeks, type RenditionTarget } from './adaptive-playback'
+  import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, monitorAdaptivePlayback, prefetchRendition, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
 
   let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
@@ -46,9 +46,8 @@
   let opening: AbortController | undefined
 
   let dialog: HTMLDialogElement
-  let videoGeneration = $state(0)
   type BrowserAudioTracks = ArrayLike<{ enabled: boolean }> & EventTarget
-  type PlayerVideo = HTMLVideoElement & { audioTracks?: BrowserAudioTracks; mozHasAudio?: boolean; captureStream?: () => MediaStream }
+  type PlayerVideo = HTMLVideoElement & { audioTracks?: BrowserAudioTracks }
   let video: PlayerVideo = $state(null!)
   let nativeAudio = $state.raw<BrowserAudioTracks>()
   let surface: HTMLDivElement
@@ -82,7 +81,6 @@
 
   let info = $state<WebPlaybackInfo>()
   let timelineDuration = $state(0)
-  let videoTimeOrigin = $state(0)
   let bufferedRanges = $state.raw<[number, number][]>([])
   let playbackPosition = $state(0)
   let requestedPosition = $state<number>()
@@ -156,6 +154,7 @@
   let height = $state(0)
   let resumeAt = 0
   let wantPlayback = true
+  let pauseRequested = false
   let retryTransport: (() => void) | undefined
   let operation: AbortController | undefined
   let hls: HlsType | undefined
@@ -353,13 +352,12 @@
       if (controller.signal.aborted) return
     }
     let index = 0
-    let reportRecovery = false
+    let reportStart = true
     // Keep intermediate rungs available for a gradual recovery.
     const previousRenditions: RenditionTarget[] = []
     const incompatible = new Set<number>()
     let recoverySeconds = 20
     let lastUpgrade = -Infinity
-    let reopened: { source: number; position: number } | undefined
     let transportRetries = 0
     let reconnectTimer: ReturnType<typeof setTimeout>
     let attempt: AbortController | undefined
@@ -368,7 +366,7 @@
       attempt?.abort()
     }, { once: true })
 
-    async function nextSource(prepared?: HlsType, resetVideoClock = false) {
+    async function nextSource(prepared?: HlsType) {
       if (controller.signal.aborted) return
       clearTimeout(reconnectTimer)
       const candidate = candidates[index++]
@@ -382,28 +380,15 @@
         hls = undefined
         video.removeAttribute('src')
         video.load()
-        if (resetVideoClock) {
-          // Firefox keeps the last presented timestamp across load(). An
-          // out-of-range timestamp suppresses frame callbacks on the next
-          // source too, including those used by the subtitle renderer.
-          const { volume, muted } = video
-          subtitleReady = false
-          videoGeneration++
-          await tick()
-          if (controller.signal.aborted) return
-          video.volume = volume
-          video.muted = muted
-        }
       }
       if (!mode) {
         loading = false
         activeQuality = undefined
-        error = 'The selected audio track requires playback conversion.'
-        console.error('[Kinome player] No playable source', { itemId: item.id, audioIndex, position: resumeAt })
+        error = 'This browser cannot play the file without playback conversion.'
+        reportPlayback('error', 'No playable source', { itemId: item.id, audioIndex, position: resumeAt })
         loadQueue()
         return
       }
-      videoTimeOrigin = 0
       activeQuality = mode
       const nativeHls = video.canPlayType(hlsMime) && navigator.vendor === 'Apple Computer, Inc.'
       const signal = (attempt = new AbortController()).signal
@@ -414,7 +399,7 @@
         itemId: item.id, mode, sourceVideo: sourceVideo?.codec, sourceAudio: audio?.codec, audioIndex,
         videoCodec: candidate.videoCodec, sound: candidate.sound, position: mediaReady ? mediaTime() : resumeAt
       })
-      function failed(message: string, transport = false, details?: { status?: number; [key: string]: unknown }, resetVideoClock = false) {
+      function failed(message: string, transport = false, details?: { status?: number; [key: string]: unknown }) {
         if (signal.aborted) return
         const next = transport ? undefined : candidates[index]
         const status = details?.status
@@ -427,17 +412,16 @@
           mediaCode: video.error?.code, mediaMessage: diagnosticMessage(video.error?.message)
         }
         if (retryDelay) {
-          console.warn('[Kinome player] Connection interrupted, retrying source', { ...failure, retryInMs: retryDelay })
+          reportPlayback('warn', 'Connection interrupted, retrying source', { ...failure, retryInMs: retryDelay })
         } else if (next) {
-          console.warn('[Kinome player] Source failed, trying fallback', { ...failure, next })
+          reportPlayback('warn', 'Source failed, trying fallback', { ...failure, next })
         } else {
-          console.error('[Kinome player] Playback failed', failure)
+          reportPlayback('error', 'Playback failed', failure)
         }
-        reportRecovery = true
+        reportStart = true
         if (mediaReady) {
           persist(true)
           resumeAt = requestedPosition ?? mediaTime()
-          if (resetVideoClock) wantPlayback = !video.paused
         }
         mediaReady = false
         if (transport) {
@@ -454,7 +438,7 @@
           return
         }
         if (index < candidates.length) {
-          void nextSource(undefined, resetVideoClock)
+          void nextSource()
         } else {
           loading = false
           activeQuality = undefined
@@ -472,19 +456,6 @@
         index--
         void nextSource()
       }
-      function reopenStalledSource(reason: string, details: Record<string, unknown>) {
-        const position = mediaTime()
-        if ((mode === 'original' && candidates[index]?.mode === 'remux') ||
-            (reopened?.source === index && Math.abs(reopened.position - position) < 5)) {
-          failed(reason, false, details, mode === 'original')
-          return
-        }
-        console.warn('[Kinome player] Playback stalled, reopening source', { ...context(), reason, ...details })
-        reopened = { source: index, position }
-        reportRecovery = true
-        retryTransport?.()
-      }
-      watchPlaybackProgress(video, signal, mode === 'original' || !!nativeHls, reopenStalledSource)
       const url = browserPlaybackUrl(item.id, item.name, mode, audioIndex, candidate)
       video.playbackRate = speed
       video.defaultPlaybackRate = speed
@@ -492,7 +463,11 @@
         if (!wantPlayback) return
         void video.play().catch((reason: DOMException) => {
           if (signal.aborted || reason.name === 'AbortError') return
-          if (reason.name === 'NotAllowedError') { playBlocked = true; loading = false }
+          if (reason.name === 'NotAllowedError') {
+            playBlocked = true
+            loading = false
+            reportPlayback('info', 'Browser requires a tap to start playback', context())
+          }
           else if (!video.error) failed('This browser could not play the selected source.', reason.name === 'NetworkError',
             { cause: diagnosticMessage(reason) })
         })
@@ -518,72 +493,7 @@
         paused = false
         resetFrameStep()
       })
-      const firstPicture = sourceVideo?.startSeconds ?? 0
-      const sourceStart = info?.media?.startSeconds ?? 0
-      const checkOrigin = sourceStart > 0.05 && isMatroskaContainer(info?.media?.container)
-      const checkFrame = checkOrigin || (firstPicture > 0 && candidates[index] && isMp4Container(info?.media?.container))
-      // Register before assigning src. A cached first frame may arrive before loadedmetadata.
-      const openingPicture = mode === 'original' && checkFrame && typeof video.requestVideoFrameCallback === 'function'
-        ? checkOpeningPicture(video, signal, firstPicture, (pictureTime) => {
-          // Firefox rebases Matroska timestamps. Chromium can retain the
-          // container clock for the element, including its rendered subtitles.
-          if (checkOrigin && pictureTime !== undefined &&
-              Math.abs(pictureTime - (sourceStart + firstPicture)) < Math.min(0.25, sourceStart / 3)) {
-            videoTimeOrigin = sourceStart
-            updateTimelineDuration()
-            updatePlaybackPosition()
-          }
-          if (pictureTime !== undefined && pictureTime - videoTimeOrigin <= Math.max(firstPicture, mediaTime()) + 0.5) return
-          if (!candidates[index]) return
-          const recover = () => failed(pictureTime === undefined ? 'The browser did not present the opening picture.'
-            : 'The browser placed the picture outside the playback timeline.',
-            false, { pictureTime, firstPicture }, true)
-          if (Math.max(resumeAt, mediaTime()) >= firstPicture) { recover(); return }
-          // Let the viewer hear the intentional audio lead-in.
-          const afterLead = () => { if (mediaTime() >= firstPicture) recover() }
-          listen('timeupdate', afterLead)
-          listen('seeking', afterLead)
-        }) : undefined
-      const openingPosition = resumeAt
-      if (mode === 'original' && candidates[index] && openingPosition < 0.5 && isMatroskaContainer(info?.media?.container)) {
-        const firstSample = Math.min(firstPicture, audio?.startSeconds ?? firstPicture)
-        const initialSeek = lastSeekAt
-        listen('playing', async () => {
-          const started = performance.now()
-          await openingPicture
-          if (signal.aborted || initialSeek !== lastSeekAt) return
-          // Chromium can jump straight to a delayed soundtrack, skipping
-          // seconds of valid opening pictures before the first playing event.
-          const position = mediaTime()
-          const elapsed = (performance.now() - started) / 1000 * video.playbackRate
-          if (position <= Math.max(openingPosition, firstSample) + elapsed + 0.5) return
-          mediaReady = false
-          resumeAt = openingPosition
-          failed('The browser skipped the beginning of the native playback timeline.', false, { position, firstSample }, true)
-        }, true)
-      }
-      const deferPlay = !!openingPicture && resumeAt > 0
-      listen('loadedmetadata', async () => {
-        if (!video.videoWidth && info?.media?.tracks.some((track) => track.kind === 'video')) {
-          failed('The browser could decode the audio but could not decode the video.')
-          return
-        }
-        if (mode === 'original' || candidate.checkAudio) {
-          // Some browsers play the picture and silently discard an unsupported soundtrack.
-          let hasAudio = video.audioTracks ? video.audioTracks.length > 0 : video.mozHasAudio
-          if (candidate.checkAudio && hasAudio === undefined && video.captureStream) {
-            // Chromium exposes decoded track presence here even before the first frame.
-            try {
-              const stream = video.captureStream()
-              hasAudio = stream.getAudioTracks().length > 0
-              stream.getTracks().forEach(track => track.stop())
-            } catch { /* The platform may restrict media capture. */ }
-          }
-          if (audio && hasAudio === false) {
-            failed('The browser could not decode the selected audio track.')
-            return
-          }
-        }
+      listen('loadedmetadata', () => {
         if (mode === 'original') {
           const tracks = video.audioTracks
           if (tracks && tracks.length !== audioCapability.length && audioCapability.length > 1) {
@@ -602,23 +512,16 @@
             return
           }
         }
-        if (openingPicture) {
-          // Inspect the opening frame before seeking. Firefox can interpret an
-          // empty MP4 edit in track ticks, then present no pictures on resume.
-          await openingPicture
-          if (signal.aborted) return
-        }
         // A fresh HLS loader seeks to its configured start after it has
         // appended both tracks. Seeking earlier can strand the element just
         // before the first playable sample at a segment boundary. A prepared
         // rendition still needs the position reached during prefetch.
         updateTimelineDuration()
         if (resumeAt > 0 && timelineDuration && (!hls || prepared || resumeAt >= timelineDuration)) {
-          video.currentTime = videoTimeOrigin + Math.min(resumeAt, Math.max(0, timelineDuration - 0.1))
+          video.currentTime = Math.min(resumeAt, Math.max(0, timelineDuration - 0.1))
         }
         updatePlaybackPosition()
         observePresentedFrames(signal)
-        if (deferPlay) play()
         width = video.videoWidth
         height = video.videoHeight
         mediaReady = true
@@ -706,9 +609,9 @@
       listen('waiting', () => { if (!video.paused) loading = true })
       listen('playing', () => {
         updateBufferedRanges()
-        if (reportRecovery) {
-          console.info('[Kinome player] Source playing after fallback or retry', context())
-          reportRecovery = false
+        if (reportStart) {
+          reportPlayback('info', 'Source playing', context())
+          reportStart = false
         }
         hasPlayed = true
         playBlocked = false
@@ -722,13 +625,18 @@
         // A decoder failure also pauses the element. Carry the viewer's play
         // intent through the next compatible source, including after a seek.
         if (!video.error && !video.ended) wantPlayback = false
+        if (!pauseRequested && !video.error && !video.ended && !signal.aborted) {
+          reportPlayback('warn', 'Browser paused playback', {
+            ...context(), hidden: document.hidden, readyState: video.readyState, bufferedAhead: bufferedEnd(video) - video.currentTime
+          })
+        }
+        pauseRequested = false
         paused = true
         loading = false
         if (!video.ended) persist(true)
       })
       listen('timeupdate', () => {
         if (transportRetries && !video.seeking && mediaTime() >= resumeAt + 5) transportRetries = 0
-        if (reopened && !video.seeking && Math.abs(mediaTime() - reopened.position) >= 5 && mediaReady) reopened = undefined
         updatePlaybackPosition()
         persist()
       })
@@ -755,7 +663,7 @@
       })
       if (mode === 'original' || nativeHls) {
         video.src = url
-        if (!deferPlay) play()
+        play()
         return
       }
       try {
@@ -764,12 +672,6 @@
         if (Hls.isSupported()) {
           const player = prepared ?? createPlaybackHls(Hls, resumeAt)
           hls = player
-          watchHlsSeeks(Hls, player, video, signal, (reason) => {
-            const { state, frag } = player.inFlightFragments.main
-            reopenStalledSource(reason, {
-              state, segment: frag?.sn, readyState: video.readyState, bufferedAhead: bufferedEnd(video) - video.currentTime
-            })
-          })
           const updateBuffer = () => { if (!signal.aborted) updateBufferedRanges() }
           player.on(Hls.Events.BUFFER_APPENDED, updateBuffer)
           player.on(Hls.Events.BUFFER_FLUSHED, updateBuffer)
@@ -795,7 +697,7 @@
               if (!warned.has(data.details) && (data.type === Hls.ErrorTypes.NETWORK_ERROR ||
                 data.type === Hls.ErrorTypes.MUX_ERROR || /codec|append|parsing/i.test(data.details))) {
                 warned.add(data.details)
-                console.warn('[Kinome player] Recoverable stream error', { ...context(), ...hlsDiagnostic(data) })
+                reportPlayback('warn', 'Recoverable stream error', { ...context(), ...hlsDiagnostic(data) })
               }
               return
             }
@@ -905,11 +807,11 @@
   }
 
   function mediaTime(nativeTime = video.currentTime) {
-    return Math.min(timelineDuration || Infinity, Math.max(0, nativeTime - videoTimeOrigin))
+    return Math.min(timelineDuration || Infinity, Math.max(0, nativeTime))
   }
 
   function updateTimelineDuration() {
-    const duration = video.duration - videoTimeOrigin
+    const duration = video.duration
     const probed = info?.media?.durationSeconds
     // A subtitle can extend the native timeline past every playable track.
     const knownEnds = info?.media?.tracks.every(track => track.kind === 'subtitle' || track.endSeconds !== undefined)
@@ -949,7 +851,7 @@
     }
     committedPosition = requestedPosition
     lastSeekAt = performance.now()
-    video.currentTime = videoTimeOrigin + committedPosition
+    video.currentTime = committedPosition
   }
 
   function scheduleLiveSeek() {
@@ -1014,7 +916,7 @@
   function stepFrame(direction: number) {
     if (!mediaReady || !Number.isFinite(video.duration)) return
     if (scrubPointer === undefined) commitSeek()
-    video.pause()
+    pauseVideo()
     const [frames, seconds = 1] = (info?.media?.tracks.find((track) => track.kind === 'video')?.frameRate ?? '').split('/').map(Number)
     const rate = frames / seconds
     const step = Number.isFinite(rate) && rate > 0 ? 1 / rate : 1 / 30
@@ -1023,61 +925,13 @@
     // boundaries relative to currentTime even at a constant frame rate.
     const base = steppedFrameTime ?? (presented !== undefined && !video.seeking &&
       Math.abs(presented - video.currentTime) < step ? presented + step / 2 : video.currentTime)
-    steppedFrameTime = Math.min(videoTimeOrigin + timelineDuration, Math.max(videoTimeOrigin, base + direction * step))
+    steppedFrameTime = Math.min(timelineDuration, Math.max(0, base + direction * step))
     pendingFrameTime = steppedFrameTime
     applyFrameStep()
   }
 
   function resetFrameStep() {
     pendingFrameTime = steppedFrameTime = undefined
-  }
-
-  function checkOpeningPicture(
-    element: HTMLVideoElement, signal: AbortSignal, firstPicture: number, inspect: (time?: number) => void
-  ): Promise<void> {
-    return new Promise((resolve) => {
-      const listeners = new AbortController()
-      let timer: ReturnType<typeof setTimeout>
-      let missing: ReturnType<typeof setTimeout> | undefined
-      const frame = element.requestVideoFrameCallback((_now, { mediaTime }) => {
-        finish()
-        inspect(mediaTime)
-      })
-      function finish() {
-        listeners.abort()
-        clearTimeout(timer)
-        clearTimeout(missing)
-        element.cancelVideoFrameCallback(frame)
-        resolve()
-      }
-      signal.addEventListener('abort', () => finish(), { once: true, signal: listeners.signal })
-      // A background tab or a decoder without a drawable opening frame can
-      // still play. Continue startup, but inspect the frame when it arrives.
-      const shouldPresent = () => !document.hidden && !element.seeking && element.currentTime >= firstPicture &&
-        element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
-      function watchPresentation() {
-        if (shouldPresent()) {
-          missing ??= setTimeout(() => {
-            missing = undefined
-            if (shouldPresent()) { finish(); inspect() }
-          }, 2000)
-          return
-        }
-        clearTimeout(missing)
-        missing = undefined
-      }
-      function continueStartup() {
-        resolve()
-        for (const event of ['timeupdate', 'seeking', 'seeked', 'waiting']) {
-          element.addEventListener(event, watchPresentation, { signal: listeners.signal })
-        }
-        document.addEventListener('visibilitychange', watchPresentation, { signal: listeners.signal })
-        watchPresentation()
-      }
-      const ready = () => { timer = setTimeout(continueStartup, 300) }
-      if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) ready()
-      else element.addEventListener('loadeddata', ready, { once: true, signal: listeners.signal })
-    })
   }
 
   function observePresentedFrames(signal: AbortSignal) {
@@ -1184,7 +1038,13 @@
     clearTimeout(videoClickTimer)
     videoClickTimer = undefined
     if (video.paused) void video.play().catch(() => {})
-    else video.pause()
+    else pauseVideo()
+  }
+
+  /** Pause for the viewer. Any other pause comes from the browser and is reported. */
+  function pauseVideo() {
+    pauseRequested = !video.paused
+    video.pause()
   }
 
   function stepSpeed(direction: number) {
@@ -1473,7 +1333,7 @@
     } catch (reason) {
       if (!signal.aborted) {
         error = reason instanceof Error ? reason.message : 'Could not open the player.'
-        console.error('[Kinome player] Could not open media', { itemId: item.id, reason: diagnosticMessage(error) })
+        reportPlayback('error', 'Could not open media', { itemId: item.id, reason: diagnosticMessage(error) })
         loadQueue()
         loading = false
       }
@@ -1538,7 +1398,7 @@
       if (warned) return
       warned = true
       notificationStore.add('This subtitle track could not be displayed.', 'error')
-      console.warn('[Kinome player] Subtitle track failed', {
+      reportPlayback('warn', 'Subtitle track failed', {
         itemId: item.id, format: track.format, language: track.language,
         position: mediaTime(), reason: diagnosticMessage(reason)
       })
@@ -1548,7 +1408,7 @@
       source: info?.media?.tracks.find((stream) => stream.kind === 'video'),
       localFonts: track.format === 'ass' && canUseLocalFonts,
       fonts: info?.media?.fonts ?? [], fontRevision: info?.fontRevision,
-      signal: controller.signal, delay: untrack(() => delay + videoTimeOrigin), onReady, onError
+      signal: controller.signal, delay: untrack(() => delay), onReady, onError
     }).then((subtitle) => {
       if (controller.signal.aborted) return
       renderer = subtitle
@@ -1556,7 +1416,7 @@
     return () => { clearTimeout(slow); controller.abort(); renderer = undefined }
   })
 
-  $effect(() => { renderer?.setDelay(delay + videoTimeOrigin) })
+  $effect(() => { renderer?.setDelay(delay) })
   $effect(() => { renderer?.setPosition?.(subtitlePosition) })
 </script>
 
@@ -1615,10 +1475,8 @@
       aria-label={title}>
       <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}
         style:--subtitle-scale={subtitleScale / 100} style:--subtitle-position={`${subtitlePosition}%`}>
-        {#key videoGeneration}
-          <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
-            onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
-        {/key}
+        <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
+          onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
         {#if error}
           <div class="playback-error" role="alert">
             <h2>Couldn't play this video</h2>

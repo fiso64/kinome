@@ -274,6 +274,22 @@ export async function getWebPlaybackInfo(itemId: string, accountId: string): Pro
   }
 }
 
+let reportWindow = 0
+let reportsInWindow = 0
+
+/** Record a web player diagnostic. Phones and tablets have no accessible console. */
+export function logPlayerReport(
+  accountId: string, userAgent: string | null, level: 'info' | 'warn' | 'error', message: string, details: Record<string, unknown>
+): void {
+  const now = performance.now()
+  if (now - reportWindow > 60_000) {
+    reportWindow = now
+    reportsInWindow = 0
+  }
+  if (++reportsInWindow > 60 || JSON.stringify(details).length > 4096) return
+  console[level](`[Player] ${message}`, { accountId, userAgent: userAgent?.slice(0, 256), ...details })
+}
+
 export async function updateWebPlayback(itemId: string, accountId: string, position: number, completed: boolean): Promise<boolean> {
   // Progress only needs a visible file identity. Avoid accessing the disk on every update.
   ensureUpToDate(accountId)

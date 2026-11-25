@@ -349,9 +349,12 @@ describe('HTTP authorization — capability enforcement', () => {
       expect(audioSegmentUrl.searchParams.get('web')).toBe('1')
       const audioSegment = await app.handle(new Request(audioSegmentUrl.href))
       expect(audioSegment.status).toBe(200)
-      const audioData = await audioSegment.arrayBuffer()
+      // Browser segments are fragmented MP4. Probe them with their initialization.
+      const audioInit = Buffer.from(await (await app.handle(new Request(
+        new URL(audioText.match(/#EXT-X-MAP:URI="([^"]+)"/)![1], webMaster).href))).arrayBuffer())
+      const audioData = Buffer.concat([audioInit, Buffer.from(await audioSegment.arrayBuffer())])
       const codecs = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=codec_name',
-        '-of', 'csv=p=0', '-i', 'pipe:0'], { stdin: Buffer.from(audioData) })
+        '-of', 'csv=p=0', '-i', 'pipe:0'], { stdin: audioData })
       expect(codecs.exitCode).toBe(0)
       expect(codecs.stdout.toString()).toContain('mpeg4')
       expect(codecs.stdout.toString()).toContain('aac')
@@ -363,7 +366,7 @@ describe('HTTP authorization — capability enforcement', () => {
         expect(response.status).toBe(200)
         const probe = Bun.spawnSync([ffprobe!, '-v', 'error', '-select_streams', 'a:0',
           '-show_entries', 'packet=pts_time,duration_time', '-of', 'json', '-i', 'pipe:0'],
-          { stdin: Buffer.from(await response.arrayBuffer()) })
+          { stdin: Buffer.concat([audioInit, Buffer.from(await response.arrayBuffer())]) })
         expect(probe.exitCode).toBe(0)
         return JSON.parse(probe.stdout.toString()).packets as { pts_time: string; duration_time: string }[]
       }

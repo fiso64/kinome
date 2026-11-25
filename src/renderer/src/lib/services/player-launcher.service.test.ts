@@ -147,10 +147,11 @@ test('expands saved language priorities once per launch and preserves empty argu
   }
 })
 
-test('tries the original before lossy fallback and preserves compatible audio at source resolution', async () => {
+test('plays supported MP4 and WebM directly, remuxes other supported streams, and converts the rest', async () => {
   const { playbackAttempts } = await import('./web-playback.service')
   const flags = { default: true, forced: false, hearingImpaired: false }
   const video = { index: 0, kind: 'video' as const, codec: 'mpeg4', height: 2160, ...flags }
+  const h264 = { ...video, codec: 'h264' }
   const audio = { index: 1, kind: 'audio' as const, codec: 'aac', channels: 6, ...flags }
   const info: WebPlaybackInfo = {
     languageDefaults: [],
@@ -160,33 +161,33 @@ test('tries the original before lossy fallback and preserves compatible audio at
     position: 0, subtitles: [], audioConversion: true
   }
   const player = { canPlayType: (type: string) =>
-    type.includes('mpegurl') || type.includes('mp4a') ? 'probably' : '' } as HTMLVideoElement
+    /mpegurl|mp4a|avc1|webm/.test(type) ? 'probably' : '' } as HTMLVideoElement
+  const modes = (media: WebPlaybackInfo['media'], selected = audio, quality: 'source' | 'auto' | '1080p' | '4k' = 'source') =>
+    playbackAttempts(player, { ...info, media }, selected, media!.tracks[1], quality).map(attempt => attempt.mode)
+
   expect(playbackAttempts(player, { ...info, qualities: ['original'], audioConversion: false }, audio, audio, 'source')
     .map(attempt => attempt.mode)).toEqual(['original'])
   const attempts = playbackAttempts(player, info, audio, audio, 'source')
-  expect(attempts.map(attempt => attempt.mode).slice(0, 2)).toEqual(['original', 'remux'])
-  expect(attempts[2]).toMatchObject({ mode: '4k', sound: 'copy' })
-  expect(attempts.findIndex(attempt => attempt.mode === '1080p')).toBeGreaterThan(1)
+  expect(attempts[0]).toEqual({ mode: '4k', videoCodec: undefined, sound: 'copy' })
+  expect(attempts.findIndex(attempt => attempt.mode === '1080p')).toBeGreaterThan(0)
 
+  expect(modes({ container: 'mp4', tracks: [h264, audio] }).slice(0, 2)).toEqual(['original', 'remux'])
+  expect(modes({ container: 'mp4', tracks: [{ ...h264, startSeconds: 1 }, audio] })[0]).toBe('remux')
+  expect(modes({ container: 'matroska', tracks: [h264, audio] })[0]).toBe('remux')
   const unsupported = { ...audio, codec: 'dts' }
-  info.media = { container: 'avi', tracks: [video, unsupported, { ...audio, index: 2, default: false }] }
-  // This client cannot identify or select the track that its native demuxer picked.
-  expect(playbackAttempts(player, info, unsupported, unsupported, 'auto').some(attempt => attempt.mode === 'original')).toBe(false)
+  expect(modes({ container: 'matroska', tracks: [h264, unsupported] }, unsupported).slice(0, 3)).toEqual(['audio', 'audio', '4k'])
+
   const vorbis = { ...audio, codec: 'vorbis' }
   const opus = { ...audio, index: 2, codec: 'opus', default: false }
-  const webm = { ...info, media: { container: 'matroska', tracks: [{ ...video, codec: 'vp8' }, vorbis, opus] } }
-  const webmPlayer = { canPlayType: (type: string) => type.startsWith('audio/webm') ? 'probably' : '' } as HTMLVideoElement
-  expect(playbackAttempts(webmPlayer, webm, vorbis, vorbis, 'source')[0]).toEqual({ mode: 'original', checkAudio: false })
-  expect(playbackAttempts(webmPlayer, webm, opus, vorbis, 'source').some(attempt => attempt.mode === 'original')).toBe(false)
-  const h264 = { ...video, codec: 'h264' }
-  const hlsPlayer = { canPlayType: (type: string) => type.includes('avc1') ? 'probably' : player.canPlayType(type) } as HTMLVideoElement
-  const compatibleVideo = { ...info, media: { container: 'matroska', tracks: [h264, unsupported, { ...audio, index: 2 }] } }
-  expect(playbackAttempts(hlsPlayer, compatibleVideo, unsupported, unsupported, 'source').slice(0, 3)
-    .map(attempt => attempt.mode)).toEqual(['remux', 'audio', 'audio'])
-  expect(playbackAttempts(player, info, audio, audio, '1080p').map(attempt => attempt.mode)).toEqual(['1080p', '1080p', '1080p'])
-  const hd = { ...info, media: { container: 'avi', tracks: [{ ...video, height: 720 }, audio] } }
-  expect(playbackAttempts(player, hd, audio, audio, 'auto').some(attempt => attempt.mode === '4k')).toBe(false)
-  expect(playbackAttempts(player, hd, audio, audio, '4k').map(attempt => attempt.mode)).toEqual(['4k', '4k', '4k'])
+  const webm = { container: 'webm', tracks: [{ ...video, codec: 'vp8' }, vorbis, opus] }
+  expect(modes(webm, vorbis)[0]).toBe('original')
+  // This client cannot select a soundtrack that its native demuxer did not pick.
+  expect(modes(webm, opus)).not.toContain('original')
+
+  expect(modes(info.media, audio, '1080p')).toEqual(['1080p', '1080p', '1080p'])
+  const hd = { container: 'avi', tracks: [{ ...video, height: 720 }, audio] }
+  expect(modes(hd, audio, 'auto')).not.toContain('4k')
+  expect(modes(hd, audio, '4k')).toEqual(['4k', '4k', '4k'])
 })
 
 test('resolves audio and subtitle defaults independently and falls through unavailable languages', async () => {

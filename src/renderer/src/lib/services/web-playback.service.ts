@@ -1,6 +1,6 @@
 import { getStreamUrl } from '@lib/api'
 import { authStore } from '@lib/auth-store.svelte'
-import { isMatroskaContainer, type LocalMediaTrack } from '@shared/local-media'
+import { isMp4Container, type LocalMedia, type LocalMediaTrack } from '@shared/local-media'
 import { avcFormat, hlsMime, isHdrTransfer, isVideoQuality, videoQualityHeights, type PlaybackOutput, type VideoQuality } from '@shared/playback-quality'
 import { playbackLanguagePattern, playbackLanguagePriorities } from '@shared/web-playback'
 import type { PlaybackDefault, PlaybackDefaultScope, PlaybackDefaultsEditor, PlaybackLanguageDefaults, PlaybackPreferences, SubtitleMode, WebPlaybackInfo, WebPlaybackQuality, WebQualityChoice, WebQueueItem, WebSubtitle } from '@shared/web-playback'
@@ -124,7 +124,18 @@ function supportsHlsCodec(player: HTMLVideoElement, mime: string) {
 
 interface PlaybackAttempt extends PlaybackOutput {
   mode: WebPlaybackQuality
-  checkAudio?: boolean
+}
+
+/**
+ * Hand the file itself only to browsers that report support for its container
+ * and codecs. Matroska and timelines with a delayed first picture are remuxed.
+ */
+function playsDirectly(player: HTMLVideoElement, source: LocalMedia, codecs: (string | undefined)[]): boolean {
+  const webm = source.container === 'webm'
+  if (!webm && !isMp4Container(source.container)) return false
+  const video = source.tracks.find(track => track.kind === 'video')
+  if ((source.startSeconds ?? 0) > 0.25 || (video?.startSeconds ?? 0) > 0.25) return false
+  return codecs.every(codec => !!codec && player.canPlayType(`${webm ? 'video/webm' : 'video/mp4'}; codecs="${codec}"`))
 }
 
 export function playbackAttempts(
@@ -142,24 +153,17 @@ export function playbackAttempts(
     if ((audio?.channels ?? 0) > 2) attempts.push({ mode, videoCodec, sound: 'stereo' })
   }
   if (!explicit) {
-    const audioTracks = source?.tracks.filter(track => track.kind === 'audio') ?? []
-    // FFprobe groups WebM with Matroska. Native WebM playback can decode
-    // Vorbis even when the browser's fragmented MP4 demuxer cannot.
-    const audioMime = isMatroskaContainer(source?.container) && (audioCodec === 'vorbis' || audioCodec === 'opus')
-      ? 'audio/webm' : 'audio/mp4'
-    const nativeAudio = audioCodec && player.canPlayType(`${audioMime}; codecs="${audioCodec}"`)
-    const mixedCodecs = audioTracks.some(track => codecsFor(track) !== audioCodec)
-    const couldSubstituteAudio = audioTracks.length > 1 &&
-      (audio?.index !== audioTracks[0].index || (mixedCodecs && !nativeAudio))
-    if ('audioTracks' in player || (audio?.index === defaultAudio?.index && !couldSubstituteAudio)) {
-      attempts.push({ mode: 'original', checkAudio: !!audio && !nativeAudio })
-    }
-    if (info.qualities.includes('remux')) {
-      attempts.push({ mode: 'remux', checkAudio: !!audio && !copyAudio })
-      const videoCodec = video && codecsFor(video)
-      if (info.audioConversion && audio && videoCodec && supportsHlsCodec(player, `video/mp4; codecs="${videoCodec}"`)) {
-        withEncodedAudio('audio')
-      }
+    const convertible = info.qualities.includes('remux')
+    const videoCodec = video && codecsFor(video)
+    const tracks = [...(video ? [videoCodec] : []), ...(audio ? [audioCodec] : [])]
+    // Without native track selection the browser plays the file's first soundtrack.
+    const selectsAudio = 'audioTracks' in player || !audio ||
+      (audio.index === defaultAudio?.index && audio.index === source?.tracks.find(track => track.kind === 'audio')?.index)
+    // With conversion unavailable the file itself is the only source.
+    if (!convertible || (source && selectsAudio && playsDirectly(player, source, tracks))) attempts.push({ mode: 'original' })
+    if (convertible && (!video || (videoCodec && supportsHlsCodec(player, `video/mp4; codecs="${videoCodec}"`)))) {
+      if (!audio || copyAudio) attempts.push({ mode: 'remux' })
+      if (info.audioConversion && audio) withEncodedAudio('audio')
     }
   }
   let renditions: readonly VideoQuality[]
@@ -287,6 +291,17 @@ export async function storePlaybackPosition(itemId: string, token: string, posit
     body: JSON.stringify({ position, completed })
   })
   if (!response.ok) throw new Error('Could not save playback position.')
+}
+
+/** Log a player diagnostic to the console and to the server, for devices without an accessible console. */
+export function reportPlayback(level: 'info' | 'warn' | 'error', message: string, details: Record<string, unknown>): void {
+  console[level](`[Kinome player] ${message}`, details)
+  if (!authStore.token) return
+  void fetch('/api/playback/report', {
+    method: 'POST', keepalive: true,
+    headers: { Authorization: `Bearer ${authStore.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level, message, details })
+  }).catch(() => {})
 }
 
 export function browserPlaybackUrl(itemId: string, filename: string, quality: WebPlaybackQuality, audio?: number, output?: PlaybackOutput): string {

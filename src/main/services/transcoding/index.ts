@@ -147,27 +147,19 @@ export async function openPlaybackSource(
     if (encoding.audioChannels !== 'auto' && channels > channelLimit) return false
     return output.sound === 'copy' || (!browser && browserTransportAudio.has(track.codec ?? ''))
   }).map(track => track.index))
-  // HLS.js accepts fewer elementary audio formats in TS than in fMP4.
-  const tsAudio = browser ? browserTransportAudio : transportAudio
+  // Browsers append fragmented MP4 to their media buffers as delivered. A
+  // transport stream would first be rewritten by the player's own demuxer.
   const audioNeedsMp4 = audioTracks.some(track => {
     const copy = copyAudio.has(track.index)
-    // Keep MP3 packet timestamps. Progressive TS is appended as raw
-    // audio/mpeg in Chromium and can leave a hole at every segment.
-    if (browser && copy && track.codec === 'mp3') return true
-    if (copy && !tsAudio.has(track.codec ?? '')) return true
+    if (copy && !transportAudio.has(track.codec ?? '')) return true
     // ADTS cannot represent all AAC channel configurations above 5.1.
     const channels = track.channels ?? 2
     return copy ? track.codec === 'aac' && channels > 6 : Math.min(channels, channelLimit) > 6
   })
   // A transport stream loses the container's rotation and reflection matrix.
   const copiedVideoNeedsMp4 = copiesVideo(quality) && (!!video.displayMatrix || (x264Build !== undefined && x264Build < 151) ||
-    (browser && video.codec === 'hevc') || !transportVideo.has(video.codec ?? ''))
-  // The HLS.js TS parser measures AVC crop offsets in 4:2:0 samples.
-  // MP4 carries the display dimensions for 4:2:2 and 4:4:4 without that conversion.
-  const wideAvc = browser && wideChroma && (copiesVideo(quality) ? video.codec === 'h264' : videoCodec === 'avc')
-  const fragmented = videoCodec === 'hevc' || videoCodec === 'vp9' || wideAvc || audioNeedsMp4 || copiedVideoNeedsMp4
-  const firstSound = browser && !fragmented
-    ? audioTracks.reduce((start, track) => copyAudio.has(track.index) ? Math.max(start, track.startSeconds ?? 0) : start, 0) : 0
+    !transportVideo.has(video.codec ?? ''))
+  const fragmented = browser || videoCodec === 'hevc' || videoCodec === 'vp9' || audioNeedsMp4 || copiedVideoNeedsMp4
   return { path, video, audioTracks, quality, browser, fragmented, encoding, copyAudio, videoCodec, channelLimit, seekMpegInput, x264Build,
-    timeline: createTimeline(media.durationSeconds ?? 0, keyframes, video.endSeconds, firstPicture, firstSound) }
+    timeline: createTimeline(media.durationSeconds ?? 0, keyframes, video.endSeconds, firstPicture) }
 }

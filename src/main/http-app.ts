@@ -2,7 +2,7 @@ import { ROLE_CAPABILITIES, type AccountRole, type Capability } from '@shared/ty
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
 import { textResponse } from './http-compression'
 import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes, subtitleModes } from '@shared/web-playback'
-import { getExternalPlaybackLanguages, getPlaybackPreferences, savePlaybackPreferences, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
+import { getExternalPlaybackLanguages, getPlaybackPreferences, savePlaybackPreferences, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, logPlayerReport, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
 /**
  * Elysia HTTP app factory.
@@ -618,6 +618,14 @@ export function buildApp() {
           if (!ok) set.status = 404
           return { success: ok }
         }, { body: t.Object({ position: t.Number({ minimum: 0 }), completed: t.Boolean() }) })
+        .post('/playback/report', ({ body, request, session }) => {
+          logPlayerReport(session.accountId, request.headers.get('user-agent'), body.level, body.message, body.details)
+          return { success: true }
+        }, { body: t.Object({
+          level: t.Union([t.Literal('info'), t.Literal('warn'), t.Literal('error')]),
+          message: t.String({ maxLength: 200 }),
+          details: t.Record(t.String(), t.Unknown())
+        }) })
         .get('/playback/:id/subtitle/:track/:part', handleSubtitleRequest)
         .head('/playback/:id/subtitle/:track/:part', handleSubtitleRequest)
         .get('/stream/:id', handleDirectStreamRequest)
