@@ -21,7 +21,7 @@ interface ProbeStream {
   channels?: number
   channel_layout?: string
   sample_rate?: string
-  side_data_list?: { side_data_type?: string; displaymatrix?: string }[]
+  side_data_list?: { side_data_type?: string; displaymatrix?: string; dv_profile?: number; dv_bl_signal_compatibility_id?: number }[]
   tags?: Record<string, string>
   disposition?: { attached_pic?: number; default?: number; forced?: number; hearing_impaired?: number }
 }
@@ -45,6 +45,11 @@ function displayMatrix(stream: ProbeStream): LocalMediaTrack['displayMatrix'] {
   const rows = [...(data.displaymatrix ?? '').matchAll(/^\s*\d+:\s+(-?\d+)\s+(-?\d+)/gm)]
   if (rows.length >= 2 && Number(rows[0][1]) * Number(rows[1][2]) < Number(rows[0][2]) * Number(rows[1][1])) return 'reflection'
   return 'rotation'
+}
+
+function dolbyVision(stream: ProbeStream): LocalMediaTrack['dolbyVision'] {
+  const data = stream.side_data_list?.find(entry => entry.side_data_type === 'DOVI configuration record')
+  return data?.dv_profile === undefined ? undefined : { profile: data.dv_profile, compatibility: data.dv_bl_signal_compatibility_id ?? 0 }
 }
 
 function positiveNumber(value: string | number | undefined): number | undefined {
@@ -83,7 +88,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
     '-show_entries', [
       'format=format_name,start_time,duration,bit_rate', 'format_tags=encoder',
       'chapter=start_time,end_time', 'chapter_tags=title',
-      'stream_side_data=side_data_type,displaymatrix',
+      'stream_side_data=side_data_type,displaymatrix,dv_profile,dv_bl_signal_compatibility_id',
       'stream=index,codec_type,codec_name,profile,level,pix_fmt,color_transfer,field_order,avg_frame_rate,bit_rate,width,height,channels,channel_layout,sample_rate,start_time,duration',
       'stream_tags=language,title,encoder,filename,mimetype,DURATION,NUMBER_OF_FRAMES,NUMBER_OF_FRAMES-eng', 'stream_disposition=attached_pic,default,forced,hearing_impaired'
     ].join(':'),
@@ -126,7 +131,7 @@ export async function probeMedia(executable: string, filePath: string): Promise<
       codec: stream.codec_name, profile: stream.profile, level: stream.level !== undefined && stream.level >= 0 ? stream.level : undefined,
       language: tag(stream.tags, 'language')?.trim().toLowerCase() || undefined,
       title: tag(stream.tags, 'title'), encoder: tag(stream.tags, 'encoder'), pixelFormat: stream.pix_fmt,
-      colorTransfer: stream.color_transfer, fieldOrder: stream.field_order,
+      colorTransfer: stream.color_transfer, dolbyVision: kind === 'video' ? dolbyVision(stream) : undefined, fieldOrder: stream.field_order,
       displayMatrix: displayMatrix(stream),
       frameRate: stream.avg_frame_rate === '0/0' ? undefined : stream.avg_frame_rate,
       bitrate: positiveNumber(stream.bit_rate),

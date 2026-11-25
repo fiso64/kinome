@@ -14,6 +14,11 @@ export interface LocalMediaTrack {
   encoder?: string
   pixelFormat?: string
   colorTransfer?: string
+  /**
+   * Dolby Vision profile, and what its base layer plays as without it:
+   * 0 nothing usable, 1 HDR10, 2 SDR, 4 HLG, 6 HDR10 (profile 7 Blu-ray).
+   */
+  dolbyVision?: { profile: number; compatibility: number }
   fieldOrder?: string
   displayMatrix?: 'rotation' | 'reflection'
   frameRate?: string

@@ -145,7 +145,8 @@ in
         CPUQuota = cfg.cpuQuota;
         CPUWeight = 50;
         TasksMax = 256;
-        OOMPolicy = "stop";
+        # An FFmpeg killed for memory ends only its own stream. If Kinome itself is killed, Restart brings it back.
+        OOMPolicy = "continue";
         NoNewPrivileges = true;
         PrivateTmp = true;
         ProtectHome = true;

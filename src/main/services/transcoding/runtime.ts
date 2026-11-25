@@ -1,8 +1,37 @@
 import { constants } from 'node:fs'
 import { access, readdir } from 'node:fs/promises'
+import os from 'node:os'
 
 export const ffmpeg = Bun.which('ffmpeg')
 export const ffprobe = Bun.which('ffprobe')
+
+// Background work runs a few FFmpeg processes at a time, below playback in CPU priority.
+const BACKGROUND_SLOTS = 2
+let backgroundRunning = 0
+const backgroundWaiting: (() => void)[] = []
+
+/**
+ * Runs FFmpeg for work no viewer is waiting on frame by frame, such as
+ * scrubbing thumbnails and scaled artwork, so it cannot starve a stream of
+ * CPU or memory. Resolves to FFmpeg's error, or undefined when it succeeds.
+ */
+export async function backgroundFfmpeg(args: string[]): Promise<string | undefined> {
+  if (backgroundRunning >= BACKGROUND_SLOTS) await new Promise<void>((resolve) => backgroundWaiting.push(resolve))
+  backgroundRunning++
+  try {
+    const child = Bun.spawn([ffmpeg!, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
+    try {
+      os.setPriority(child.pid, 19)
+    } catch {
+      // The process may have exited already.
+    }
+    const [code, errors] = await Promise.all([child.exited, new Response(child.stderr).text()])
+    return code === 0 ? undefined : errors.trim().slice(0, 300) || `FFmpeg exited with status ${code}`
+  } finally {
+    backgroundRunning--
+    backgroundWaiting.shift()?.()
+  }
+}
 export const conversionEnabled = process.env.KINOME_TRANSCODING_DISABLED !== '1'
 export const conversionAvailable = conversionEnabled && !!ffmpeg && !!ffprobe
 const preferredRenderNode = process.env.KINOME_VAAPI_DEVICE

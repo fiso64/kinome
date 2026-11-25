@@ -110,6 +110,10 @@ export function startSegmentJob(
       videoBitstreamFilters.push('h264_mp4toannexb', 'dump_extra=freq=keyframe')
     }
     if (fragmented && video.codec === 'hevc') args.push('-tag:v', 'hvc1')
+    // A player that sees Dolby Vision looks for a decoder few devices have, and
+    // shows nothing without one. A compatible base layer plays as plain HDR10,
+    // SDR or HLG. Profile 5 has none, so its Dolby Vision is kept.
+    if (video.dolbyVision?.compatibility) videoBitstreamFilters.push('dovi_rpu=strip=1')
   } else {
     const height = Math.floor(Math.min(video.height!, videoQualityHeights[quality]) / 2) * 2
     const width = Math.round(height * video.width! / video.height! / 2) * 2

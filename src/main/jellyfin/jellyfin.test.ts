@@ -462,6 +462,18 @@ describe('Jellyfin playback negotiation', () => {
     expect(negotiate(profile, info, media, { audioIndex: 2 })).toMatchObject({ quality: '1080p', sound: 'copy' })
   })
 
+  it('strips Dolby Vision for a client that shows only its base layer, and converts profile 5', () => {
+    const hdr10Only = { ...tv, CodecProfiles: [{ Type: 'Video' as const, Codec: 'hevc', Conditions: [{ Condition: 'EqualsAny' as const, Property: 'VideoRangeType' as const, Value: 'SDR|HDR10|HLG', IsRequired: false }] }] }
+    const withDolbyVision = (profile: number, compatibility: number) => ({
+      ...media, tracks: media.tracks.map((track) => track.kind === 'video' ? { ...track, colorTransfer: 'smpte2084', dolbyVision: { profile, compatibility } } : track)
+    })
+    for (const [profile, compatibility] of [[7, 6], [8, 1]]) {
+      expect(negotiate(hdr10Only, info, withDolbyVision(profile, compatibility), { audioIndex: 2 })).toMatchObject({ directPlay: false, quality: 'remux', reasons: ['VideoRangeTypeNotSupported'] })
+    }
+    expect(negotiate(hdr10Only, info, withDolbyVision(5, 0), {})).toMatchObject({ directPlay: false, quality: '1080p' })
+    expect(negotiate(tv, info, withDolbyVision(8, 1), {})).toMatchObject({ directPlay: true })
+  })
+
   it('picks the rendition that fits the bitrate limit', () => {
     expect(negotiate(tv, info, media, { maxBitrate: 3_000_000 })).toMatchObject({ directPlay: false, quality: '480p' })
   })

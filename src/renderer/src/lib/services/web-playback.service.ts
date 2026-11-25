@@ -117,6 +117,16 @@ function codecsFor(track: LocalMediaTrack): string | undefined {
   return videoCodecs[track.codec]
 }
 
+/**
+ * Dolby Vision needs a decoder of its own. A remux strips it when the base
+ * layer plays alone, so only the file itself and profile 5 remuxes need one.
+ */
+function dolbyVisionCodec(track: LocalMediaTrack | undefined): string | undefined {
+  const dolbyVision = track?.dolbyVision
+  if (!dolbyVision) return undefined
+  return `${track.codec === 'av1' ? 'dav1' : 'dvh1'}.${String(dolbyVision.profile).padStart(2, '0')}.06`
+}
+
 function supportsHlsCodec(player: HTMLVideoElement, mime: string) {
   const mse = window.MediaSource ?? (window as Window & { ManagedMediaSource?: typeof MediaSource }).ManagedMediaSource
   return !!(mse?.isTypeSupported(mime) || (player.canPlayType(hlsMime) && player.canPlayType(mime)))
@@ -155,13 +165,14 @@ export function playbackAttempts(
   if (!explicit) {
     const convertible = info.qualities.includes('remux')
     const videoCodec = video && codecsFor(video)
-    const tracks = [...(video ? [videoCodec] : []), ...(audio ? [audioCodec] : [])]
+    const remuxedVideo = video?.dolbyVision?.compatibility === 0 ? dolbyVisionCodec(video) : videoCodec
+    const tracks = [...(video ? [dolbyVisionCodec(video) ?? videoCodec] : []), ...(audio ? [audioCodec] : [])]
     // Without native track selection the browser plays the file's first soundtrack.
     const selectsAudio = 'audioTracks' in player || !audio ||
       (audio.index === defaultAudio?.index && audio.index === source?.tracks.find(track => track.kind === 'audio')?.index)
     // With conversion unavailable the file itself is the only source.
     if (!convertible || (source && selectsAudio && playsDirectly(player, source, tracks))) attempts.push({ mode: 'original' })
-    if (convertible && (!video || (videoCodec && supportsHlsCodec(player, `video/mp4; codecs="${videoCodec}"`)))) {
+    if (convertible && (!video || (remuxedVideo && supportsHlsCodec(player, `video/mp4; codecs="${remuxedVideo}"`)))) {
       if (!audio || copyAudio) attempts.push({ mode: 'remux' })
       if (info.audioConversion && audio) withEncodedAudio('audio')
     }

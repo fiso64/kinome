@@ -22,7 +22,7 @@ let
     aarch64-linux = "bun-linux-arm64";
   }.${stdenv.hostPlatform.system} or (throw "Unsupported Kinome target: ${stdenv.hostPlatform.system}");
 in
-bun2nix.mkDerivation {
+(bun2nix.mkDerivation {
   pname = "kinome";
   version = packageJson.version;
 
@@ -84,11 +84,12 @@ bun2nix.mkDerivation {
 
     runHook postInstall
   '';
-
+}).overrideAttrs {
+  # bun2nix.mkDerivation replaces meta with its own, so it is set afterwards.
   meta = {
     description = "A media server and manager";
     homepage = "https://github.com/fiso64/kinome";
-    license = lib.licenses.mit;
+    license = lib.licenses.agpl3Only;
     mainProgram = "kinome";
     platforms = [ "x86_64-linux" "aarch64-linux" ];
   };

@@ -18,7 +18,7 @@ import { TRICKPLAY_WIDTH, trickplaySheet } from '../services/trickplay.service'
 import * as events from './events'
 import { resolveItemId, toJellyfinId } from './ids'
 import {
-  FAVORITE, findItems, itemKind, mediaSource, mediaStreams, playableFile, relate, requireItem, type Item, type MediaStream
+  FAVORITE, findItems, itemKind, mediaSource, mediaStreams, playableFile, relate, requireItem, videoRangeType, type Item, type MediaStream
 } from './items'
 import { JellyfinError, field, json, notFound, route, type JellyfinRequest } from './request'
 
@@ -69,7 +69,7 @@ function propertyValue(property: string, video?: LocalMediaTrack, audio?: LocalM
     case 'IsInterlaced': return ['tt', 'bb', 'tb', 'bt'].includes(video?.fieldOrder ?? '')
     case 'IsAnamorphic': return false
     case 'IsAvc': return video?.codec === 'h264'
-    case 'VideoRangeType': return video?.colorTransfer === 'smpte2084' ? 'HDR10' : video?.colorTransfer === 'arib-std-b67' ? 'HLG' : 'SDR'
+    case 'VideoRangeType': return videoRangeType(video)
     case 'AudioChannels': return audio?.channels
     case 'AudioBitrate': return audio?.bitrate
     case 'AudioProfile': return audio?.profile
@@ -163,7 +163,10 @@ export function negotiate(
   const maxChannels = Math.min(options.maxAudioChannels ?? Infinity, ...targets.map((entry) => Number(entry.MaxAudioChannels) || Infinity))
   const sound = maxChannels <= 2 ? 'stereo' as const : undefined
   const bitrateOk = !maxBitrate || !media.bitrate || media.bitrate <= maxBitrate
-  const copyVideo = bitrateOk && !problems.video.length && playsVideo(targets)
+  // A converted stream carries a Dolby Vision file's compatible base layer only, so it is judged without it.
+  const copiedVideo = video?.dolbyVision?.compatibility ? { ...video, dolbyVision: undefined } : video
+  const copiedProblems = copiedVideo === video ? problems.video : codecProblems(profile, container, copiedVideo, audio, media).video
+  const copyVideo = bitrateOk && !copiedProblems.length && playsVideo(targets)
   const copyAudio = !problems.audio.length && playsAudio(targets) && !(audio?.channels && audio.channels > maxChannels)
   if (copyVideo && copyAudio && info.qualities.includes('remux')) return { directPlay: false, quality: 'remux', reasons }
   if (copyVideo && !copyAudio && info.audioConversion && audio) return { directPlay: false, quality: 'audio', sound, reasons }

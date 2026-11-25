@@ -5,7 +5,7 @@
  */
 import type { components } from './openapi'
 import type { LibraryFilter, LibraryItem } from '@shared/types'
-import type { LocalMedia, LocalMediaTrack, MediaChapter, VideoSummary } from '@shared/local-media'
+import type { LocalMedia, LocalMediaTrack, VideoSummary } from '@shared/local-media'
 import type { CompiledSql, TypedWhereClause, FindOptions, OrderByClause } from '../database/query-builder'
 import { isMovieFileCandidate, selectMovieFile } from '@shared/item-capabilities'
 import * as repositoryService from '../services/repository.service'
@@ -132,6 +132,16 @@ function frameRate(rate?: string): number | undefined {
   return frames && seconds ? Math.round(frames / seconds * 1000) / 1000 : undefined
 }
 
+type VideoRangeType = NonNullable<MediaStream['VideoRangeType']>
+const DOLBY_VISION_BASE: Record<number, VideoRangeType> = { 1: 'DOVIWithHDR10', 2: 'DOVIWithSDR', 4: 'DOVIWithHLG', 6: 'DOVIWithHDR10' }
+
+/** The picture's dynamic range as Jellyfin names it, which clients compare against what they can show. */
+export function videoRangeType(track: LocalMediaTrack | undefined): VideoRangeType {
+  const dolbyVision = track?.dolbyVision
+  if (dolbyVision) return dolbyVision.profile === 7 ? 'DOVIWithEL' : DOLBY_VISION_BASE[dolbyVision.compatibility] ?? 'DOVI'
+  return track?.colorTransfer === 'smpte2084' ? 'HDR10' : track?.colorTransfer === 'arib-std-b67' ? 'HLG' : 'SDR'
+}
+
 /** Probed tracks in the order and numbering FFmpeg gives them. */
 export function mediaStreams(media: LocalMedia | null | undefined): MediaStream[] {
   return (media?.tracks ?? []).map((track: LocalMediaTrack): MediaStream => {
@@ -153,8 +163,8 @@ export function mediaStreams(media: LocalMedia | null | undefined): MediaStream[
       ...(type === 'Video' ? {
         Width: track.width, Height: track.height, Profile: track.profile, Level: track.level, PixelFormat: track.pixelFormat,
         BitDepth: bitDepth(track.pixelFormat), AverageFrameRate: frameRate(track.frameRate), RealFrameRate: frameRate(track.frameRate),
-        VideoRange: track.colorTransfer === 'smpte2084' || track.colorTransfer === 'arib-std-b67' ? 'HDR' : 'SDR',
-        VideoRangeType: track.colorTransfer === 'smpte2084' ? 'HDR10' : track.colorTransfer === 'arib-std-b67' ? 'HLG' : 'SDR',
+        VideoRange: videoRangeType(track) === 'SDR' ? 'SDR' : 'HDR',
+        VideoRangeType: videoRangeType(track),
         IsAVC: codec === 'h264', BitRate: track.bitrate
       } : {}),
       ...(type === 'Audio' ? {
@@ -846,19 +856,22 @@ export async function itemDto(request: JellyfinRequest, item: Item): Promise<Bas
   const related = await relate([item], request, { progress: true, extras: true })
   loadVersionMedia(related)
   const file = playableFile(item, related)
-  if (file?.localMedia) file.localMedia = { ...file.localMedia, chapters: await chapters(file, request) }
+  if (file) file.localMedia = await liveMedia(file, request) ?? file.localMedia
   return toDto(item, related, dtoOptions(request.query, true))
 }
 
-/** Chapters are read by the same cached probe the player uses, since the library stores none. */
-async function chapters(file: Item, request: JellyfinRequest): Promise<MediaChapter[]> {
+/**
+ * The playing file as the player's cached probe sees it. The library stores
+ * neither chapters nor Dolby Vision, which clients need to choose how to play.
+ */
+async function liveMedia(file: Item, request: JellyfinRequest): Promise<LocalMedia | undefined> {
   const path = ffprobe ? await playbackService.resolveStreamPath(file.id, request.session?.accountId) : null
-  if (!path) return []
+  if (!path) return undefined
   try {
-    return (await (await playbackMetadata(ffprobe!, path)).media).chapters ?? []
+    return await (await playbackMetadata(ffprobe!, path)).media
   } catch {
-    // The file may be unreadable right now. Details still answer without chapters.
-    return []
+    // The file may be unreadable right now. Details answer from the library instead.
+    return undefined
   }
 }
 
