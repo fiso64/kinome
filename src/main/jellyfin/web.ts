@@ -1,19 +1,18 @@
 /**
- * The Jellyfin release Kinome follows, and the web client vendored from it.
+ * The Jellyfin release Kinome follows, and the web client taken from it.
  *
  * The official Android app and other wrappers open the server's own web
  * client, so Kinome serves Jellyfin's at /jellyfin/web from vendor/jellyfin-web.
- * scripts/jellyfin-web.ts replaces that folder from RELEASE_ARCHIVE, and
- * scripts/jellyfin-openapi.ts pins the API document for JELLYFIN_VERSION.
+ * That folder is not in git: scripts/jellyfin-web.ts downloads it, and the Nix
+ * package fetches the same archive. web-release.json pins the release for all
+ * of them, and scripts/jellyfin-openapi.ts pins the API document to its version.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import release from './web-release.json'
 
-export const JELLYFIN_VERSION = '12.4.0'
-export const RELEASE_ARCHIVE = {
-  url: 'https://repo.jellyfin.org/files/server/linux/stable/v12.4/amd64/jellyfin_12.4-amd64.tar.xz',
-  sha256: '29831bfda5699018d1d3058085c6b837fb31da34b5eab3c98259aa12da80375f'
-}
+export const JELLYFIN_VERSION = release.version
+export const RELEASE_ARCHIVE = { url: release.url, sha256: release.sha256 }
 
 // Beside the executable when packaged, in the repository otherwise.
 const root = [

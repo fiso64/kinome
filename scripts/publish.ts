@@ -2,6 +2,7 @@ import { $ } from 'bun'
 import { parseArgs } from 'util'
 import path from 'path'
 import fs from 'fs/promises'
+import { existsSync } from 'fs'
 
 // Read version from package.json
 const pkg = await fs.readFile('package.json', 'utf-8')
@@ -70,6 +71,8 @@ await fs.cp(path.resolve('out'), outDest, { recursive: true })
 const publicDest = path.join(buildDir, 'public')
 await fs.mkdir(publicDest, { recursive: true })
 await fs.cp(path.resolve('public'), publicDest, { recursive: true })
+// Jellyfin's web client is downloaded, not kept in git.
+if (!existsSync(path.resolve('vendor/jellyfin-web/index.html'))) await $`bun scripts/jellyfin-web.ts`
 await fs.cp(path.resolve('vendor'), path.join(buildDir, 'vendor'), { recursive: true })
 
 // 7. Packaging (Branch based on OS)

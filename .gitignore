@@ -43,4 +43,7 @@ response.json
 tsconfig.node.tsbuildinfo
 
 public/bin
+
+# Downloaded by scripts/jellyfin-web.ts
+vendor/jellyfin-web
 # scripts/deploy-deb.bat

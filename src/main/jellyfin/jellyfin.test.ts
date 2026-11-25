@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import bcrypt from 'bcryptjs'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
@@ -173,7 +174,10 @@ describe('Jellyfin-compatible API', () => {
     // Apps such as the official Android app open the server's own web client.
     const start = await call('GET', '/')
     expect(start.headers.get('location')).toBe('http://localhost/jellyfin/web/')
-    expect(await (await call('GET', '/web/')).text()).toContain('<html')
+    // The client itself is downloaded separately and may be absent in a fresh clone.
+    const page = await call('GET', '/web/')
+    if (existsSync(join(import.meta.dir, '../../../vendor/jellyfin-web/index.html'))) expect(await page.text()).toContain('<html')
+    else expect(page.status).toBe(404)
     expect((await call('GET', '/web/..%2F..%2F..%2Fpackage.json')).status).toBe(404)
     expect((await call('GET', '/web/%E0%A4%A')).status).toBe(404)
     const info = await conforming('GET', '/System/Info/Public', '')

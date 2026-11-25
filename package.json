@@ -16,6 +16,7 @@
     "dev:frontend": "vite",
     "dev": "concurrently --raw \"bun run dev:backend\" \"bun run dev:frontend\"",
     "dev:test": "bun scripts/dev-test.ts",
+    "jellyfin-web": "bun scripts/jellyfin-web.ts",
     "dev:fresh": "bun scripts/seed-dev.ts && bun run dev",
     "pretty": "prettier --write \"./**/*.{js,jsx,mjs,cjs,ts,tsx,json,svelte}\"",
     "build": "bunx --bun vite build",
