@@ -5,6 +5,7 @@ import { getPlaylistUrl, getPlaybackUrl } from '../api'
 import type { MediaFile, PlayerCommandConfig } from '@shared/types'
 import { notificationStore } from '../notification-store.svelte'
 import { authStore } from '../auth-store.svelte'
+import { copyTextDuringClick } from '../clipboard'
 import type { PlaybackLanguageDefaults } from '@shared/web-playback'
 
 export const BUILTIN_COPY_PLAYLIST_LINK: PlayerCommandConfig = {
@@ -136,6 +137,12 @@ async function copyPlaybackLink(url: string, ready?: Promise<void>): Promise<voi
     for (const result of results) {
       if (result.status === 'rejected') throw result.reason
     }
+    return
+  }
+  if (!navigator.clipboard?.writeText) {
+    // The fallback only works during the click, before the network check completes.
+    copyTextDuringClick(url)
+    await ready
     return
   }
   if (ready) await ready

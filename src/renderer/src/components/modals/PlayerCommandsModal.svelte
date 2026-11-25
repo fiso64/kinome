@@ -1,5 +1,6 @@
 <script lang="ts">
   import { authStore } from '@lib/auth-store.svelte'
+  import { copyText } from '@lib/clipboard'
   import Icon from '@components/ui/Icon.svelte'
   import { onDestroy, tick, untrack } from 'svelte'
   import equal from 'fast-deep-equal'
@@ -219,7 +220,7 @@
 
   async function copy(text: string, id: string) {
     try {
-      await navigator.clipboard.writeText(text)
+      await copyText(text)
       copied = id
     } catch {
       copied = `${id}-error`
