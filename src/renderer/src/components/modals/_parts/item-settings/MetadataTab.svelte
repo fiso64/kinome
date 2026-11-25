@@ -12,6 +12,7 @@
     item,
     readOnly,
     playbackDefaults = $bindable(),
+    personalTags = $bindable(),
     playbackDefaultsError,
     trackLanguages,
     tmdbMetadata,
@@ -30,6 +31,7 @@
     item: LibraryItem
     readOnly: boolean
     playbackDefaults: PlaybackLanguageDefaults | null
+    personalTags: { id: string; key: string; value: string }[] | null
     playbackDefaultsError: boolean
     trackLanguages: PlaybackDefaultsEditor['languages']
     tmdbMetadata?: TmdbMetadata | null
@@ -157,6 +159,14 @@
       <TagInput bind:tags {suggestions} />
     </div>
   </fieldset>
+
+  {#if personalTags}
+    <section class="metadata-summary raised-surface">
+      <h3>Personal tags</h3>
+      <p class="form-hint">Only your account sees these. Jellyfin clients show favorite:true as a favourite.</p>
+      <TagInput bind:tags={personalTags} {suggestions} />
+    </section>
+  {/if}
 
   {#if playbackDefaults}
     <section class="metadata-summary raised-surface">

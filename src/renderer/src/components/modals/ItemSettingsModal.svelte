@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { authStore } from '@lib/auth-store.svelte'
+  import { api } from '@lib/api'
   import equal from 'fast-deep-equal'
   import type { SortPlacement } from '@shared/sort-placement'
   import ModalWindow from './_base/ModalWindow.svelte'
@@ -74,6 +75,25 @@
   let playbackDefaultsError = $state(false)
   let isSaving = $state(false)
   const playbackDefaultsChanged = $derived(!equal(playbackDefaults, savedPlaybackDefaults))
+
+  // Personal tags belong to the signed-in account, which may edit them without metadata rights.
+  let personalTags = $state<{ id: string; key: string; value: string }[] | null>(null)
+  let savedPersonalTags = $state.raw<Record<string, string>>({})
+  const tagRecord = (list: { key: string; value: string }[]) => Object.fromEntries(list.map(({ key, value }) => [key, value]))
+  const personalTagsChanged = $derived(!!personalTags && !equal(tagRecord(personalTags), savedPersonalTags))
+  const personalChanges = $derived(playbackDefaultsChanged || personalTagsChanged)
+
+  $effect(() => {
+    const id = item.id
+    let cancelled = false
+    personalTags = null
+    void api.getPersonalTags(id).then((tags) => {
+      if (cancelled) return
+      savedPersonalTags = tags
+      personalTags = Object.entries(tags).map(([key, value]) => ({ id: crypto.randomUUID(), key, value }))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  })
 
   $effect(() => {
     const id = item.id
@@ -448,7 +468,7 @@
   }
 
   async function handleSave() {
-    if (isRefreshing || isSaving || (editControl.disabled && !playbackDefaultsChanged)) return
+    if (isRefreshing || isSaving || (editControl.disabled && !personalChanges)) return
     const defaultsUpdate = playbackDefaultsChanged && playbackDefaults ? {
       audioLanguage: playbackDefaults.audioLanguage === null ? null : normalizePlaybackLanguages(playbackDefaults.audioLanguage),
       subtitleLanguage: playbackDefaults.subtitleLanguage === null ? null : normalizePlaybackLanguages(playbackDefaults.subtitleLanguage)
@@ -526,6 +546,7 @@
         }
         if (Object.keys(patch).length) await saveItemPlaybackDefault(item.id, patch)
       }
+      if (personalTags && personalTagsChanged) await api.savePersonalTags(item.id, tagRecord(personalTags))
     } catch (err: any) {
       dialogStore.showError({ title: 'Error Saving', message: err.message || 'Failed to save settings.' })
       return
@@ -561,8 +582,8 @@
   title={overrideParent && activeTab === 'view' ? `Override: ${overrideParent.name} > ${item.name}` : title || item.name}
   onClose={handleClose}
   onSave={handleSave}
-  submitDisabled={isRefreshing || isSaving || (editControl.disabled && !playbackDefaultsChanged)}
-  cancelText={editControl.disabled && !playbackDefaultsChanged ? 'Close' : 'Cancel'}
+  submitDisabled={isRefreshing || isSaving || (editControl.disabled && !personalChanges)}
+  cancelText={editControl.disabled && !personalChanges ? 'Close' : 'Cancel'}
   maxWidth="700px"
 >
   {#snippet header()}
@@ -601,6 +622,7 @@
       <MetadataTab
         readOnly={editControl.disabled}
         bind:playbackDefaults
+        bind:personalTags
         {trackLanguages}
         {playbackDefaultsError}
         {item}

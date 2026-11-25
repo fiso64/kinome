@@ -108,6 +108,48 @@ FROM media_items i
 ${ITEM_METADATA_JOINS};
 `
 
+/**
+ * Genres set on an item override its provider's genres. They are stored as a
+ * list in media_item_metadata.genres_json and mirrored here, one row per
+ * genre, so genre filters use an index instead of parsing JSON.
+ */
+export const ITEM_GENRES_SQL = `
+CREATE TABLE IF NOT EXISTS item_genres (
+    item_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    name TEXT NOT NULL,
+    PRIMARY KEY (item_id, name)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_item_genres_name ON item_genres(name, item_id);
+
+CREATE TRIGGER IF NOT EXISTS item_genres_after_insert AFTER INSERT ON media_item_metadata
+BEGIN
+  INSERT OR IGNORE INTO item_genres (item_id, name)
+  SELECT new.item_id, value FROM json_each(new.genres_json) WHERE value IS NOT NULL;
+END;
+
+CREATE TRIGGER IF NOT EXISTS item_genres_after_update AFTER UPDATE OF genres_json, item_id ON media_item_metadata
+BEGIN
+  DELETE FROM item_genres WHERE item_id IN (old.item_id, new.item_id);
+  INSERT OR IGNORE INTO item_genres (item_id, name)
+  SELECT new.item_id, value FROM json_each(new.genres_json) WHERE value IS NOT NULL;
+END;
+
+CREATE TRIGGER IF NOT EXISTS item_genres_after_delete AFTER DELETE ON media_item_metadata
+BEGIN
+  DELETE FROM item_genres WHERE item_id = old.item_id;
+END;
+`
+
+/**
+ * Items whose effective genres include one matching the predicate on the
+ * genre column g.name. Item overrides replace the provider's genres.
+ */
+export function effectiveGenreSql(item: string, predicate: string): string {
+  return `(${item}.id IN (SELECT g.item_id FROM item_genres g WHERE ${predicate})
+    OR (${item}.entity_id IN (SELECT eg.entity_id FROM entity_genres eg JOIN genres g ON g.id = eg.genre_id WHERE ${predicate})
+      AND NOT EXISTS (SELECT 1 FROM media_item_metadata override WHERE override.item_id = ${item}.id AND override.genres_json IS NOT NULL)))`
+}
+
 export const FTS_TABLE = 'media_items_fts'
 // FTS5 weights are positional. Define them in the same order as the columns.
 // Index only text that search matches: bm25 normalizes by the length of the

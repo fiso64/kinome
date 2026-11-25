@@ -260,40 +260,20 @@ describe('query-builder genre filter', () => {
         db.prepare(`INSERT INTO entity_genres (entity_id, genre_id) VALUES (?, ?)`).run('e-both', 2)
     })
 
-    it('genre EXISTS filter returns all items with that genre', () => {
-        const rows = db.prepare(`
-            SELECT i.id FROM media_items_read i
-            LEFT JOIN media_entities e ON i.entity_id = e.id
-            WHERE i.parent_id = ?
-              AND EXISTS (
-                SELECT 1 FROM entity_genres eg
-                JOIN genres g ON eg.genre_id = g.id
-                WHERE eg.entity_id = e.id AND g.name = ?
-              )
-        `).all('movies', 'Action') as any[]
-
-        const ids = rows.map((r) => r.id)
-        expect(ids).toContain('action-film')
-        expect(ids).toContain('both-film')
-        expect(ids).not.toContain('drama-film')
-    })
-
-    it('genre EXISTS filter excludes items without that genre', () => {
-        const rows = db.prepare(`
-            SELECT i.id FROM media_items_read i
-            LEFT JOIN media_entities e ON i.entity_id = e.id
-            WHERE i.parent_id = ?
-              AND EXISTS (
-                SELECT 1 FROM entity_genres eg
-                JOIN genres g ON eg.genre_id = g.id
-                WHERE eg.entity_id = e.id AND g.name = ?
-              )
-        `).all('movies', 'Drama') as any[]
-
-        const ids = rows.map((r) => r.id)
-        expect(ids).toContain('drama-film')
-        expect(ids).toContain('both-film')
-        expect(ids).not.toContain('action-film')
+    it('matches effective genres, where an item override replaces the provider genres', () => {
+        // The drama film's own genres replace its provider's.
+        db.prepare(`INSERT INTO media_item_metadata (item_id, genres_json) VALUES (?, ?)`).run('drama-film', '["Action","Comedy"]')
+        const find = (op: 'eq' | 'ne' | 'contains' | 'isEmpty', value?: string) => {
+            const { query, params } = buildFindQuery({ fields: ['id'], where: { parentId: 'movies' }, typedWhere: [{ field: 'genre', op, value }], orderBy: { field: 'id', direction: 'ASC' } })
+            return (db.prepare(query).all(...params) as { id: string }[]).map((row) => row.id)
+        }
+        expect(find('eq', 'Action')).toEqual(['action-film', 'both-film', 'drama-film'])
+        expect(find('eq', 'Drama')).toEqual(['both-film'])
+        expect(find('ne', 'Action')).toEqual([])
+        expect(find('contains', 'med')).toEqual(['drama-film'])
+        db.prepare(`UPDATE media_item_metadata SET genres_json = '[]' WHERE item_id = ?`).run('drama-film')
+        expect(find('isEmpty')).toEqual(['drama-film'])
+        expect(find('eq', 'Drama')).toEqual(['both-film'])
     })
 })
 

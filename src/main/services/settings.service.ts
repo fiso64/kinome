@@ -2,6 +2,8 @@ import { conversionAvailable } from './transcoding/runtime'
 import { DEFAULT_VIDEO_QUALITIES, isVideoQuality, isPlaybackQuality, normalizePlaybackEncoding } from '@shared/playback-quality'
 import path, { dirname, resolve as resolvePath } from 'path'
 import fs from 'fs/promises'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { createHmac, randomBytes } from 'crypto'
 import { Database } from 'bun:sqlite'
 import equal from 'fast-deep-equal'
 import { PREDEFINED_VTAGS } from './predefined-vtags'
@@ -570,4 +572,32 @@ export async function checkPathExists(absolutePath: string): Promise<boolean> {
 
 export async function createDirectory(absolutePath: string): Promise<void> {
   await fs.mkdir(absolutePath, { recursive: true })
+}
+
+let identity: { id: string; secret: string } | undefined
+
+/** A stable public ID of this installation and a private key for signing values it hands out. */
+function serverIdentity(): { id: string; secret: string } {
+  if (identity) return identity
+  const file = path.join(getUserDataPath(), 'server-identity.json')
+  let stored: { id?: unknown; secret?: unknown } = {}
+  try { stored = existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : {} } catch { /* Replaced below. */ }
+  const valid = (value: unknown, length: number) => typeof value === 'string' && new RegExp(`^[0-9a-f]{${length}}$`).test(value)
+  identity = {
+    id: valid(stored.id, 32) ? stored.id as string : randomBytes(16).toString('hex'),
+    secret: valid(stored.secret, 64) ? stored.secret as string : randomBytes(32).toString('hex')
+  }
+  if (identity.id !== stored.id || identity.secret !== stored.secret) {
+    writeFileSync(file, JSON.stringify(identity), { encoding: 'utf-8', mode: 0o600 })
+  }
+  return identity
+}
+
+export function getServerId(): string {
+  return serverIdentity().id
+}
+
+/** Signs a value so that it cannot be guessed, only handed out by this server. */
+export function signServerValue(value: string): string {
+  return createHmac('sha256', serverIdentity().secret).update(value).digest('hex').slice(0, 32)
 }

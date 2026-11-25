@@ -125,10 +125,7 @@ export function getDistinctMetadataValues(column: typeof EFFECTIVE_SUGGESTION_CO
 
 export function getDistinctGenreNames(): string[] {
     const rows = getDb().query(`
-        WITH genre_lists AS (
-            SELECT DISTINCT genres_json FROM media_item_metadata WHERE genres_json IS NOT NULL
-        )
-        SELECT entry.value AS name FROM genre_lists, json_each(genre_lists.genres_json) entry
+        SELECT DISTINCT name FROM item_genres
         UNION
         SELECT g.name FROM genres g WHERE EXISTS (
             SELECT 1 FROM entity_genres eg JOIN media_items i ON i.entity_id = eg.entity_id

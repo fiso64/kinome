@@ -120,6 +120,10 @@ class AuthStore {
   }
 
   logout() {
+    // Sessions persist on the server until they are signed out.
+    if (this.token) {
+      void fetch('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${this.token}` } }).catch(() => {})
+    }
     this.token = ''
     localStorage.removeItem('auth_token')
     this.isAuthenticated = false

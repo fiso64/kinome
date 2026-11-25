@@ -17,7 +17,7 @@ import {
   LibraryCondition
 } from '@shared/types'
 import { find, getItemById, type FindOptions } from './repository.service'
-import { compileFilter, buildWhereFragment } from '../database/query-builder'
+import { compileFilter, buildWhereFragment, type CompiledSql } from '../database/query-builder'
 
 // --- Read operations ---
 
@@ -84,6 +84,16 @@ export function resolveEffectiveFilter(filter: LibraryFilter, visited = new Set<
  * Entry point for resolving the contents of a virtual folder (Branch A2).
  * Compiles the effective filter and merges with manually parented virtual children.
  */
+/** The items a virtual folder's filter matches, as a condition on the read model `i`. */
+export function filterCondition(filter: LibraryFilter): CompiledSql {
+  const fragment = buildWhereFragment({
+    ...compileFilter(resolveEffectiveFilter(filter)),
+    includeHidden: true,
+    includeIgnored: true
+  })
+  return { sql: `(${fragment.conditions.join(' AND ')})`, params: fragment.params, tables: fragment.tables }
+}
+
 export async function getVirtualChildren(
   item: MediaFolder,
   options: FindOptions
@@ -91,20 +101,11 @@ export async function getVirtualChildren(
   const filter = item.filter
   if (!filter) return []
 
-  const effectiveFilter = resolveEffectiveFilter(filter)
-  const compiled = compileFilter(effectiveFilter)
-
   // Merge manually parented virtual children with the results of the filter.
-  const fragment = buildWhereFragment({
-    ...compiled,
-    includeHidden: true,
-    includeIgnored: true
-  })
-
-  const filterPart = `(${fragment.conditions.join(' AND ')})`
+  const fragment = filterCondition(filter)
   const virtualChildrenSql = `(i.parent_id = ? AND i.is_virtual = 1)`
 
-  const combinedSql = `(${filterPart} OR ${virtualChildrenSql})`
+  const combinedSql = `(${fragment.sql} OR ${virtualChildrenSql})`
   const combinedParams = [...fragment.params, item.id]
 
   return find({

@@ -24,6 +24,8 @@ contents:
   # 3. Public Assets (Handler installers)
   - src: "${BUILD_DIR}/public"
     dst: "/opt/kinome/public"
+  - src: "${BUILD_DIR}/vendor"
+    dst: "/opt/kinome/vendor"
 
   # 4. Systemd Service
   - src: "./packaging/kinome.service"

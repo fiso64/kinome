@@ -1,6 +1,6 @@
 import { playableFileMatchesSql } from './playable-files.sql'
 import { localMediaFact, readMetadataFact, tmdbFact } from './metadata-facts.sql'
-import { EFFECTIVE_METADATA } from './item-metadata.sql'
+import { EFFECTIVE_METADATA, effectiveGenreSql } from './item-metadata.sql'
 import { ITEM_READ_MODEL, withAccountLocations } from './media-read-model.sql'
 import { isLocalMediaField, isTmdbFilterField, type LocalMediaField } from '@shared/metadata-fields'
 import { REPOSITORY_SCHEMA } from './repo-definitions'
@@ -313,6 +313,42 @@ function compileFileConditions(conditions: FileCondition[], depth: number, targe
     }
 }
 
+/** Items at any level below one of the given items. */
+export function descendantsCondition(ancestorIds: readonly string[]): CompiledSql {
+    if (!ancestorIds.length) return { sql: '0 = 1', params: [], tables: new Set() }
+    return {
+        sql: `i.id IN (WITH RECURSIVE tree(id) AS (
+            SELECT id FROM media_items WHERE parent_item_id IN (${ancestorIds.map(() => '?').join(', ')})
+            UNION ALL SELECT child.id FROM media_items child JOIN tree ON child.parent_item_id = tree.id
+        ) SELECT id FROM tree)`,
+        params: [...ancestorIds],
+        tables: new Set()
+    }
+}
+
+/**
+ * Watched state lives on files. A folder counts as watched when it directly
+ * holds a watched file, as a movie folder holds its feature.
+ */
+export function watchedCondition(userId: string): CompiledSql {
+    return {
+        sql: `(i.id IN (SELECT item_id FROM user_state WHERE user_id = ? AND watched = 1)
+            OR i.id IN (SELECT file.parent_item_id FROM user_state state JOIN media_items file ON file.id = state.item_id
+                WHERE state.user_id = ? AND state.watched = 1 AND file.physical_kind = 'file'))`,
+        params: [userId, userId],
+        tables: new Set()
+    }
+}
+
+/** Items the account has tagged for itself with the given key and value. */
+export function personalTagCondition(userId: string, key: string, value: string): CompiledSql {
+    return {
+        sql: 'i.id IN (SELECT item_id FROM account_item_tags WHERE account_id = ? AND key = ? AND value = ?)',
+        params: [userId, key, value],
+        tables: new Set()
+    }
+}
+
 export function compileConditionToSql(field: string, op: TypedWhereClause['op'], value?: string | number | null, targets?: string): CompiledSql {
     const fileTarget = getFileConditionTarget(field)
     if (fileTarget) return compileFileConditions([{ field: fileTarget.field, op, value }], fileTarget.depth, targets)
@@ -328,16 +364,23 @@ export function compileConditionToSql(field: string, op: TypedWhereClause['op'],
     const mediaCondition = compileMediaCondition(field, 'i', op, value, !!targets)
     if (mediaCondition) return { ...mediaCondition, tables }
 
-    if (field === 'genre' || field === 'genres') {
-        tables.add('e')
-        const subquery = `SELECT 1 FROM json_each(e.genres_json) WHERE 1=1`
-        if (op === 'isNull' || op === 'isEmpty') return { sql: `NOT EXISTS (${subquery})`, params, tables }
-        if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: `EXISTS (${subquery})`, params, tables }
-        if (op === 'contains') { params.push(`%${value}%`); return { sql: `EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'notContains') { params.push(`%${value}%`); return { sql: `NOT EXISTS (${subquery} AND value LIKE ?)`, params, tables } }
-        if (op === 'ne') { params.push(value); return { sql: `NOT EXISTS (${subquery} AND value = ?)`, params, tables } }
+    // A TMDB person, through the credits index ordered by person.
+    if (field === 'personId') {
         params.push(value)
-        return { sql: `EXISTS (${subquery} AND value = ?)`, params, tables }
+        return { sql: `i.entity_id IN (SELECT entity_id FROM credits WHERE person_id = ?)`, params, tables }
+    }
+
+    // Any level below the given item.
+    if (field === 'ancestorId') return descendantsCondition([String(value)])
+
+    if (field === 'genre' || field === 'genres') {
+        if (op === 'isNull' || op === 'isEmpty') return { sql: `NOT ${effectiveGenreSql('i', '1=1')}`, params, tables }
+        if (op === 'isNotNull' || op === 'isNotEmpty') return { sql: effectiveGenreSql('i', '1=1'), params, tables }
+        const like = op === 'contains' || op === 'notContains'
+        const operand = like ? `%${value}%` : value
+        params.push(operand, operand)
+        const match = effectiveGenreSql('i', like ? 'g.name LIKE ?' : 'g.name = ?')
+        return { sql: op === 'ne' || op === 'notContains' ? `NOT ${match}` : match, params, tables }
     }
 
     if (field.startsWith('tags.') || field.startsWith('vt.') || field.startsWith('virtualTags.')) {
@@ -534,9 +577,8 @@ export function buildWhereFragment(options: FindOptions): {
                 conditions.push(`EXISTS (SELECT 1 FROM item_tags WHERE item_id = i.id AND key = ? AND value = ?)`)
                 params.push(tagKey, value)
             } else if (key === 'genre' || key === 'genres') {
-                tables.add('e')
-                conditions.push(`EXISTS (SELECT 1 FROM json_each(e.genres_json) WHERE value = ?)`)
-                params.push(value)
+                conditions.push(effectiveGenreSql('i', 'g.name = ?'))
+                params.push(value, value)
             }
         }
     }

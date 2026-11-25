@@ -478,9 +478,10 @@ describe('compileFilter', () => {
         expect(params).toContain('is_anime')
     })
 
-    it('compiles isEmpty on genre to NOT EXISTS', () => {
+    it('compiles genre conditions without reading JSON', () => {
         const { sql } = compileToSql({ conditions: [{ field: 'genre', op: 'isEmpty' }] })
-        expect(sql).toContain('json_each(e.genres_json)')
+        expect(sql).toContain('item_genres')
+        expect(sql).not.toContain('json_each')
     })
 })
 

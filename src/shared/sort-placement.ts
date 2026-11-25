@@ -60,3 +60,17 @@ export function applySortPlacement(natural: string[], placement: SortPlacement):
     .flatMap((id) => [id, ...(followers.get(id) ?? []).filter((follower) => present.has(follower))])
   return [...top.filter((id) => present.has(id)), ...middle, ...bottom.filter((id) => present.has(id))]
 }
+
+/** Places one child right after another, or first when there is none. Children placed after it move with it. */
+export function placeAfter(placement: SortPlacement, id: string, predecessor: string | null): SortPlacement {
+  const without = (ids: string[] = []) => ids.filter((entry) => entry !== id)
+  const after: Record<string, string[]> = {}
+  for (const [anchor, ids] of Object.entries(placement.after ?? {})) {
+    const kept = without(ids)
+    if (kept.length) after[anchor] = kept
+  }
+  const top = without(placement.top)
+  if (predecessor === null) top.unshift(id)
+  else after[predecessor] = [id, ...(after[predecessor] ?? [])]
+  return { top, bottom: without(placement.bottom), after }
+}

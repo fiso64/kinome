@@ -38,6 +38,8 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     inode: { sql: 'i.inode', table: 'i' },
     deviceId: { sql: 'i.device_id', table: 'i' },
     entityId: { sql: 'i.entity_id', table: 'i' },
+    // The effective media type, kept on the item by triggers and indexed. Filters on it skip other items.
+    mediaKind: { sql: 'i.media_kind', table: 'i' },
     sourceId: { sql: 'i.source_id', table: 'i' },
 
     // Effective item metadata
@@ -126,6 +128,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     },
     lockedFields: { sql: 'e.locked_fields_json', table: 'e', isJson: true, jsonDefault: [] },
     lastRefreshedAt: { sql: 'e.last_refreshed_at', table: 'e' },
+    tmdbScore: { sql: '(SELECT tmdb_rating FROM media_entities WHERE id = i.entity_id)', isSubquery: true },
     _v: { sql: 'e.version', table: 'e' },
 
     // User State Table
@@ -134,6 +137,7 @@ export const REPOSITORY_SCHEMA: Record<string, RepositoryFieldDef> = {
     continueWatchingDismissed: { sql: 'u.continue_watching_dismissed', table: 'u', parser: Boolean },
     nextUpDismissed: { sql: 'u.next_up_dismissed', table: 'u', parser: Boolean },
     nextUpEpisodeId: { sql: 'u.next_up_episode_id', table: 'u' },
+    playbackPosition: { sql: 'u.playback_position', table: 'u' },
 
     // Folder Settings
     retrieveChildrenMetadata: { sql: 'f.retrieve_children_metadata', table: 'f', parser: Boolean },

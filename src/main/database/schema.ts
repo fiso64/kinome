@@ -1,10 +1,13 @@
 import { PLAYBACK_DEFAULTS_SQL } from './playback-defaults.sql'
+import { AUTH_TOKENS_SQL } from './auth-tokens.sql'
+import { DISPLAY_PREFERENCES_SQL } from '../jellyfin/display-preferences.sql'
+import { PERSONAL_TAGS_SQL } from './personal-tags.sql'
 import { LOCAL_MEDIA_SQL } from './local-media.sql'
 // Keep this as the canonical schema for new databases.
 // Existing databases are upgraded by versioned migrations in migrations/.
 import {
     EFFECTIVE_METADATA_VIEW_SQL, EFFECTIVE_SUGGESTION_COLUMNS, effectiveSuggestionIndexSql,
-    ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, SEARCH_DOCUMENT_INDEX_SQL, SEARCH_INDEX_SQL,
+    ITEM_GENRES_SQL, ITEM_METADATA_TABLE_SQL, ITEM_METADATA_TRIGGER_SQL, SEARCH_DOCUMENT_INDEX_SQL, SEARCH_INDEX_SQL,
     TMDB_COLUMNS, TMDB_RELATIONS_SQL
 } from './item-metadata.sql'
 import { ACCOUNT_EXCLUDED_LOCATIONS_SQL, MEDIA_ITEMS_READ_MODEL_SQL, SOURCE_PRIORITIES_SQL } from './media-read-model.sql'
@@ -242,6 +245,9 @@ CREATE TABLE IF NOT EXISTS account_visible_items (
 CREATE INDEX IF NOT EXISTS idx_account_visible_items_account
     ON account_visible_items(account_id);
 
+${AUTH_TOKENS_SQL}
+${DISPLAY_PREFERENCES_SQL}
+
 
 ${PLAYBACK_DEFAULTS_SQL}
 
@@ -288,4 +294,6 @@ ${EFFECTIVE_METADATA_VIEW_SQL(true)}
 
 ${SEARCH_INDEX_SQL}
 ${ITEM_METADATA_TRIGGER_SQL}
+${ITEM_GENRES_SQL}
+${PERSONAL_TAGS_SQL}
 `

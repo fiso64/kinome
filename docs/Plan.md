@@ -13,13 +13,18 @@
   - [ ] Optimize the frontend to load super quickly.
 - [ ] [P0] Pagination everywhere (vertical lists, horizontal lists, arbitrarily nested sublists, etc), but still have seamless infinite scrolling).
 - [ ] [P1] Jellyfin-compatible API as a second surface, so native Jellyfin clients and common integrations work when pointed at Kinome. A translation layer over existing services under its own prefix (`/jellyfin`), separate from our API, with no data model of its own. Most of Jellyfin's API, not all of it. See [the proposal](jellyfin-api-proposal.md). <a id="alt-api"></a>
-  - [ ] Prerequisite: persistent sign-ins and API keys (sessions are in memory today and lost on restart).
-  - [ ] Connect, sign in, browse and direct play, presenting two standard libraries (Movies, TV Shows). Accepted when Jellyfin's web client works against Kinome (automated in headless Chromium).
-  - [ ] Progress, watched state, resume and next up.
-  - [ ] Jellyfin for Android TV, then Wholphin and Moonfin.
-  - [ ] Transcode negotiation from client device profiles.
-  - [ ] Seerr, Sonarr and Radarr.
-  - [ ] Favourites as a personal `favorite:true` tag. Needs personal tags first.
+  - [x] Prerequisite: persistent sign-ins and API keys.
+  - [x] Connect, sign in, browse and direct play, presenting two standard libraries (Movies, TV Shows). Accepted when Jellyfin's web client works against Kinome (automated in headless Chromium).
+  - [x] Progress, watched state, resume and next up.
+  - [ ] Jellyfin for Android TV, then Wholphin and Moonfin. The routes they call are implemented. Verify on devices.
+  - [x] Transcode negotiation from client device profiles.
+  - [ ] Seerr, Sonarr and Radarr. The routes they call are implemented. Verify against running instances.
+  - [x] Favourites as a personal `favorite:true` tag.
+  - [x] Chapters from probed media on item details.
+  - [x] Server events over the socket: `UserDataChanged` to the account's own connections, `LibraryChanged` filtered by visibility, both from the existing item update broadcast.
+  - [x] Virtual folders as libraries, collections and playlists, opted in per folder with a tag such as `jellyfin:movies|tvshows|collection|playlist` (folders are items, so a personal tag makes it per account). Contents and order follow the folder's filter and sort. Without any library tag, keep the two default libraries. Library IDs derive from the folder ID. Playlist edits from apps work on folders whose filter is a single tag condition: adding sets that tag on the item, removing clears it (a personal tag for a personal folder, once filters support personal tags). Other folders are read-only playlists. Order is the folder's sort with its arranged items. A move from an app becomes an arrangement: the item is placed after its new predecessor, or at the top. Relates to personal home folders (P2): a user's own folders become their collections and playlists.
+  - [x] Several versions of a film: playable files of at least about 70% of the longest file's length become media sources, shorter ones special features (or trailers by name). Decided in the adapter only.
+  - Later: intro and credits segments (needs detection), Chromecast (see Cast support).
   - Out of scope: Live TV, SyncPlay, plugins, DLNA, admin dashboard, music.
 
 ### 🎬 Playback & Transcoding
@@ -119,8 +124,9 @@
   - [x] Implement basic multi-account support with normal and admin roles and per-user watched state.
   - [x] Allow locking normals to a particular library filter (e.g. user A can only see media that has a particular tag).
 - [ ] [P2] Granular permission/capability flags for non-admin accounts.
-- [ ] [P1] Normals should be able to create and remove their personal tags. How? Maybe separate "personal tags" entry in metadata for each user. Favourites in the [Jellyfin-compatible API](#alt-api) become a personal `favorite:true` tag, so lookups by account must be indexed.
-- [ ] [P2] Create virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership). 
+- [x] [P1] Normals should be able to create and remove their personal tags. How? Maybe separate "personal tags" entry in metadata for each user. Favourites in the [Jellyfin-compatible API](#alt-api) become a personal `favorite:true` tag, so lookups by account must be indexed.
+  - [ ] Use personal tags in Kinome's search, filters and virtual tags. They are stored and edited per account, and favourites use them.
+- [ ] [P2] Create virtual home folders for each user, owned by them. Normals can fully edit their own folders but not others' (unix-like ownership). These also become that user's collections and playlists in the [Jellyfin-compatible API](#alt-api). 
 - [ ] UI for sharing folders and accessing shared folders.
   - [ ] Store more settings (like layout and sort by) per-user to allow normals to modify appearance even for shared folders.
 - [ ] Admins should be able to filter their library too.

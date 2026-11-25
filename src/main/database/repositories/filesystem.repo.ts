@@ -353,6 +353,18 @@ export function fetchAncestorIdsForItems(itemIds: string[]): Record<string, stri
 }
 
 /**
+ * Resolves a 32-digit hex form of an item ID. UUIDs are written without dashes.
+ * Hash IDs are shortened to a prefix, found by a primary-key range scan.
+ */
+export function findItemIdByHexPrefix(hex: string): string | null {
+    const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+    const row = getDb().prepare(
+        'SELECT id FROM media_items WHERE id = ? OR (id > ? AND id < ?) LIMIT 1'
+    ).get(uuid, hex, hex + 'g') as { id: string } | undefined
+    return row?.id ?? null
+}
+
+/**
  * Executes a dynamic find query.
  */
 export function rawFind(query: string, params: any[]): any[] {

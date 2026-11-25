@@ -2,7 +2,7 @@
 
 # Kinome
 
-Media server and manager. Fetches metadata from TMDB and displays it nice, streams media. Under development!
+Media server and manager. Fetches metadata from TMDB and displays it nice, streams media. Kinome works very differently from Jellyfin, but it speaks Jellyfin's API, so your Jellyfin apps, TV apps, and *arrs can (mostly) keep using it. Under development!
 
 <img width="800" alt="image" src="./assets/demo/home.png" />
 <img width="800" alt="image" src="./assets/demo/detail.png" />
@@ -35,9 +35,10 @@ Kinome is under development and is probably not yet robust enough to replace you
 It is also missing some features which one might expect to find in a media server. These are planned, but not yet available in the latest version:
 
 - Automatic library rescans
+- Automatic intro skipping
+- Chromecast support
 - Very messy media folders might not be shown as well as in other media servers (still, many common cases are handled). This is partly because Kinome wants to give you more freedom in how you organize and represent your library. 
 - Pagination in the UI (very large libraries might be a bit slower to load)
-- TV apps or *arr integration. A full jellyfin-compatible UI is planned!
 
 See [**Plan.md**](./docs/Plan.md) for more details.
 

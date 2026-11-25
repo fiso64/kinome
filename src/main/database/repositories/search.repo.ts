@@ -3,7 +3,8 @@
  * Handles FTS5 indexing and trigram search execution.
  */
 import {
-    EFFECTIVE_METADATA, effectiveMetadataColumn, FTS_TABLE, ITEM_METADATA_JOINS, REBUILD_SEARCH_INDEX_SQL, SEARCH_RANK_WEIGHTS
+    EFFECTIVE_METADATA, effectiveGenreSql, effectiveMetadataColumn, FTS_TABLE, ITEM_METADATA_JOINS, REBUILD_SEARCH_INDEX_SQL,
+    SEARCH_RANK_WEIGHTS
 } from '../item-metadata.sql'
 import { getDb, runTransaction } from '../client'
 import { getMetadataSearchField, isLocalMediaField } from '@shared/metadata-fields'
@@ -88,12 +89,7 @@ function appendTagFilters(
         } else if (field === 'genre') {
             const pVal = `@genreVal${idx}`
             params[pVal] = tagValue
-            sql += ` AND CASE WHEN m.genres_json IS NULL THEN EXISTS (
-                SELECT 1 FROM entity_genres eg JOIN genres g ON g.id = eg.genre_id
-                WHERE eg.entity_id = e.id AND lower(g.name) = ${pVal}
-            ) ELSE EXISTS (
-                SELECT 1 FROM json_each(m.genres_json) WHERE lower(value) = ${pVal}
-            ) END`
+            sql += ` AND ${effectiveGenreSql('i', `lower(g.name) = ${pVal}`)}`
         } else if (field === 'person') {
             const pVal = `@personVal${idx}`
             params[pVal] = `%${tagValue}%`

@@ -37,6 +37,12 @@ export function fetchCredits(entityId: string): { cast: any[]; crew: any[] } | n
     return { cast, crew }
 }
 
+export function fetchPerson(id: number): { id: number; name: string; profilePath: string | null } | null {
+    const row = getDb().prepare('SELECT id, name, profile_path FROM people WHERE id = ?').get(id) as
+        { id: number; name: string; profile_path: string | null } | undefined
+    return row ? { id: row.id, name: row.name, profilePath: row.profile_path } : null
+}
+
 /**
  * Fetches credits for an item by looking up its entity_id.
  */

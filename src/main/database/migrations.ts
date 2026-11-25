@@ -25,6 +25,10 @@ import { migration as searchDocumentIds } from './migrations/0023_search_documen
 import { migration as searchIndexWithoutOverview } from './migrations/0024_search_index_without_overview'
 import { migration as accountPlaybackPreferences } from './migrations/0025_account_playback_preferences'
 import { migration as lockManualMatchType } from './migrations/0026_lock_manual_match_type'
+import { migration as authTokens } from './migrations/0027_auth_tokens'
+import { migration as jellyfinDisplayPreferences } from './migrations/0028_jellyfin_display_preferences'
+import { migration as itemGenres } from './migrations/0029_item_genres'
+import { migration as personalTags } from './migrations/0030_personal_tags'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -62,7 +66,11 @@ const MIGRATIONS: Migration[] = [
   searchDocumentIds,
   searchIndexWithoutOverview,
   accountPlaybackPreferences,
-  lockManualMatchType
+  lockManualMatchType,
+  authTokens,
+  jellyfinDisplayPreferences,
+  itemGenres,
+  personalTags
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

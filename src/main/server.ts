@@ -8,6 +8,7 @@ import * as libraryService from './services/library.service'
 import * as settingsService from './services/settings.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
+import { withJellyfinEvents } from './jellyfin/events'
 import * as authService from './services/auth.service'
 import { buildApp, getPublicRequestUrl } from './http-app'
 import * as handlerService from './services/handler.service'
@@ -82,7 +83,8 @@ if (!fs.existsSync(userDataPath)) {
 initializeStartup(userDataPath)
 
 const webTransport = new WebTransport()
-setTransport(webTransport)
+// Jellyfin clients hear about item changes too.
+setTransport(withJellyfinEvents(webTransport))
 
 // Build the Elysia app (all API routes defined in http-app.ts)
 const app = buildApp()

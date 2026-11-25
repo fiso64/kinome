@@ -1,4 +1,4 @@
-import { ROLE_CAPABILITIES, type AccountRole, type Capability } from '@shared/types'
+import type { AccountRole, Capability } from '@shared/types'
 import { availablePlaybackQualities, isPlaybackQuality } from '@shared/playback-quality'
 import { textResponse } from './http-compression'
 import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes, subtitleModes } from '@shared/web-playback'
@@ -32,6 +32,8 @@ import * as accountFilterRepo from './database/repositories/account-filter.repo'
 import * as accountFilterService from './services/account-filter.service'
 import { setCurrentAccountId } from './request-context'
 import { getTransport } from './transport.registry'
+import { JELLYFIN_BASE, handleJellyfinRequest, jellyfinSocket } from './jellyfin'
+import * as jellyfinEvents from './jellyfin/events'
 
 // --- Security Middleware & Constants ---
 
@@ -43,39 +45,6 @@ export function getPublicRequestUrl(request: Request): URL {
     url.protocol = 'https:'
   }
   return url
-}
-
-// Simple in-memory rate limiter for login
-const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 mins
-const MAX_ATTEMPTS = 10
-
-function checkRateLimit(ip: string): { allowed: boolean; waitTime?: number } {
-  const now = Date.now()
-  const attempt = loginAttempts.get(ip)
-
-  if (attempt) {
-    if (now - attempt.lastAttempt > RATE_LIMIT_WINDOW) {
-      loginAttempts.delete(ip)
-      return { allowed: true }
-    }
-    if (attempt.count >= MAX_ATTEMPTS) {
-      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (now - attempt.lastAttempt)) / 60000)
-      return { allowed: false, waitTime }
-    }
-  }
-  return { allowed: true }
-}
-
-function recordFailedAttempt(ip: string) {
-  const attempt = loginAttempts.get(ip) || { count: 0, lastAttempt: Date.now() }
-  attempt.count++
-  attempt.lastAttempt = Date.now()
-  loginAttempts.set(ip, attempt)
-}
-
-function resetRateLimit(ip: string) {
-  loginAttempts.delete(ip)
 }
 
 function parseFindOptions(query: any): repositoryService.FindOptions {
@@ -298,6 +267,14 @@ export function buildApp() {
         throw new UnauthorizedError()
       })
     )
+    // Jellyfin-compatible API. It authenticates its own requests.
+    .ws(`${JELLYFIN_BASE}/socket`, jellyfinSocket)
+    // Registered per method: the frontend's GET catch-all would otherwise take precedence over a catch-all route.
+    .get(`${JELLYFIN_BASE}/*`, ({ request, server }) => handleJellyfinRequest(request, server))
+    .head(`${JELLYFIN_BASE}/*`, ({ request, server }) => handleJellyfinRequest(request, server))
+    .post(`${JELLYFIN_BASE}/*`, ({ request, server }) => handleJellyfinRequest(request, server))
+    .delete(`${JELLYFIN_BASE}/*`, ({ request, server }) => handleJellyfinRequest(request, server))
+    .options(`${JELLYFIN_BASE}/*`, ({ request, server }) => handleJellyfinRequest(request, server))
     // Assets (High-performance streaming)
     .get('/api/assets/*', async ({ params, set }) => {
       try {
@@ -345,7 +322,7 @@ export function buildApp() {
         })
         .post('/login', async ({ body, set, request }: { body: any; set: any; request: Request }) => {
           const ip = (request as any).ip || '0.0.0.0'
-          const rateLimit = checkRateLimit(ip)
+          const rateLimit = authService.checkLoginRateLimit(ip)
           if (!rateLimit.allowed) {
             set.status = 429
             return {
@@ -360,9 +337,9 @@ export function buildApp() {
             set.status = 400
             return { authenticated: false, needsSetup: false, message: 'Username and password required' }
           }
-          const result = await authService.login(username, password)
+          const result = await authService.login(username, password, { client: 'Kinome Web' })
           if (result) {
-            resetRateLimit(ip)
+            authService.resetLoginRateLimit(ip)
             const session = authService.validateToken(result.token)
             return {
               authenticated: true,
@@ -371,7 +348,7 @@ export function buildApp() {
               account: { ...result.account, capabilities: session ? [...session.capabilities] : [] }
             }
           } else {
-            recordFailedAttempt(ip)
+            authService.recordFailedLogin(ip)
             set.status = 401
             return { authenticated: false, needsSetup: false, message: 'Invalid username or password' }
           }
@@ -391,6 +368,35 @@ export function buildApp() {
             return { authenticated: false, needsSetup: false, message: error.message }
           }
         })
+        .post('/logout', ({ request }) => {
+          const token = request.headers.get('authorization')?.replace(/^Bearer /, '')
+          if (token) authService.logout(token)
+          return { success: true }
+        })
+        // Approves a device that shows a Jellyfin Quick Connect code, signing it in as this account.
+        .post('/quick-connect', ({ body, session, set }: { body: { code: string }; session: authService.SessionData; set: any }) => {
+          if (!authService.authorizeQuickConnect(session.accountId, body.code)) { set.status = 404; return { success: false } }
+          return { success: true }
+        }, { body: t.Object({ code: t.String({ maxLength: 20 }) }) })
+        // API keys belong to the signed-in account and act with its permissions.
+        .get('/api-keys', ({ session }: { session: authService.SessionData }) => authService.listApiKeys(session.accountId))
+        .post('/api-keys', ({ body, session }: { body: { name: string }; session: authService.SessionData }) =>
+          authService.createApiKey(session.accountId, body.name), { body: t.Object({ name: t.String({ maxLength: 100 }) }) })
+        .delete('/api-keys/:id', ({ params, session, set }: { params: { id: string }; session: authService.SessionData; set: any }) => {
+          if (!authService.revokeApiKey(session.accountId, params.id)) set.status = 404
+          return { success: set.status !== 404 }
+        })
+        // Personal tags belong to the signed-in account. The item must be visible to it.
+        .get('/items/:id/personal-tags', ({ params, session, set }: { params: { id: string }; session: authService.SessionData; set: any }) => {
+          if (!repositoryService.find({ fields: ['id'], where: { id: params.id } }).length) { set.status = 404; return {} }
+          return repositoryService.getPersonalTags(session.accountId, params.id)
+        })
+        .put('/items/:id/personal-tags', ({ params, body, session, set }: { params: { id: string }; body: { tags: Record<string, string> }; session: authService.SessionData; set: any }) => {
+          if (!repositoryService.find({ fields: ['id'], where: { id: params.id } }).length) { set.status = 404; return { success: false } }
+          repositoryService.replacePersonalTags(session.accountId, params.id, body.tags)
+          jellyfinEvents.userDataChanged(session.accountId, [params.id])
+          return { success: true }
+        }, { body: t.Object({ tags: t.Record(t.String({ minLength: 1, maxLength: 100 }), t.String({ maxLength: 500 }), { maxProperties: 100 }) }) })
         .post('/change-password', async ({ body, session }: { body: any; session: any }) => {
           const { password } = body
           if (!password || !session?.accountId) {
@@ -691,7 +697,7 @@ export function buildApp() {
                 accountFilterRepo.deleteFilterRule(params.id)
                 accountFilterRepo.replaceVisibleItems(params.id, [])
               }
-              getTransport().broadcast('account-permissions-changed', { role, capabilities: ROLE_CAPABILITIES[role] }, params.id)
+              // The account's sessions were revoked. It signs in again with the new role.
               return { success: true }
             })
             .delete('/accounts/:id', ({ params, session, set }: { params: any; session: any; set: any }) => {

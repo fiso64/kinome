@@ -512,6 +512,19 @@ describe('HTTP authorization — capability enforcement', () => {
     expect((await app.handle(req('POST', '/api/accounts/normal-1/password', { password: 'newpw' }))).status).not.toBe(403)
   })
 
+  it('lets an account create, use and revoke its own API keys', async () => {
+    const token = (await authService.login('alice', 'password'))!.token
+    const created = await (await app.handle(req('POST', '/api/api-keys', { name: 'Sonarr' }, token))).json() as { id: string; token: string }
+    const keys = await (await app.handle(req('GET', '/api/api-keys', undefined, token))).json() as { id: string }[]
+    expect(keys.map((key) => key.id)).toContain(created.id)
+    expect(JSON.stringify(keys)).not.toContain(created.token)
+    expect((await app.handle(req('GET', '/api/accounts', undefined, created.token))).status).toBe(200)
+    expect((await app.handle(req('DELETE', `/api/api-keys/${created.id}`, undefined, created.token))).status).toBe(200)
+    expect((await app.handle(req('GET', '/api/accounts', undefined, created.token))).status).toBe(401)
+    expect((await app.handle(req('POST', '/api/logout', undefined, token))).status).toBe(200)
+    expect((await app.handle(req('GET', '/api/accounts', undefined, token))).status).toBe(401)
+  })
+
   // ─── Unauthenticated requests ────────────────────────────────────────────────
 
   describe('unauthenticated', () => {

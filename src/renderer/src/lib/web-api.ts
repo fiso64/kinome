@@ -601,6 +601,30 @@ class WebApiClient implements ApiClient {
     })
   }
 
+  approveQuickConnect(code: string): Promise<void> {
+    return this.request('/api/quick-connect', { method: 'POST', body: JSON.stringify({ code }) })
+  }
+
+  getPersonalTags(itemId: string): Promise<Record<string, string>> {
+    return this.request(`/api/items/${encodeURIComponent(itemId)}/personal-tags`)
+  }
+
+  savePersonalTags(itemId: string, tags: Record<string, string>): Promise<void> {
+    return this.request(`/api/items/${encodeURIComponent(itemId)}/personal-tags`, { method: 'PUT', body: JSON.stringify({ tags }) })
+  }
+
+  listApiKeys(): Promise<import('@shared/types').ApiKey[]> {
+    return this.request('/api/api-keys')
+  }
+
+  createApiKey(name: string): Promise<import('@shared/types').ApiKey & { token: string }> {
+    return this.request('/api/api-keys', { method: 'POST', body: JSON.stringify({ name }) })
+  }
+
+  revokeApiKey(id: string): Promise<void> {
+    return this.request(`/api/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
   getAccounts(): Promise<import('@shared/types').Account[]> {
     return this.request('/api/accounts')
   }

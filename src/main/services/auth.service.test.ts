@@ -106,31 +106,69 @@ describe('auth.service', () => {
     })
   })
 
-  // ─── invalidateSessionsForAccount ───────────────────────────────────────────
+  // ─── persisted tokens ────────────────────────────────────────────────────────
 
-  describe('invalidateSessionsForAccount', () => {
-    it('invalidates all sessions for the account', async () => {
-      seedAccount('acc-1', 'alice')
-      const r1 = (await authService.login('alice', 'password123'))!
-      const r2 = (await authService.login('alice', 'password123'))!
-
-      authService.invalidateSessionsForAccount('acc-1')
-
-      expect(authService.validateToken(r1.token)).toBeNull()
-      expect(authService.validateToken(r2.token)).toBeNull()
-    })
-
-    it('does not invalidate sessions belonging to other accounts', async () => {
+  describe('revokeAccountTokens', () => {
+    it('revokes sessions and API keys of the account only', async () => {
       seedAccount('acc-1', 'alice')
       seedAccount('acc-2', 'bob')
-      const { token: aliceToken } = (await authService.login('alice', 'password123'))!
-      const { token: bobToken } = (await authService.login('bob', 'password123'))!
+      const alice = (await authService.login('alice', 'password123'))!
+      const aliceKey = authService.createApiKey('acc-1', 'Sonarr')
+      const bob = (await authService.login('bob', 'password123'))!
 
-      authService.invalidateSessionsForAccount('acc-1')
+      authService.revokeAccountTokens('acc-1')
 
-      expect(authService.validateToken(aliceToken)).toBeNull()
-      expect(authService.validateToken(bobToken)).not.toBeNull()
-      authService.logout(bobToken)
+      expect(authService.validateToken(alice.token)).toBeNull()
+      expect(authService.validateToken(aliceKey.token)).toBeNull()
+      expect(authService.validateToken(bob.token)?.accountId).toBe('acc-2')
+    })
+
+    it('stores only a hash of each token', async () => {
+      seedAccount('acc-1', 'alice')
+      const { token } = (await authService.login('alice', 'password123'))!
+      const key = authService.createApiKey('acc-1', 'Seerr')
+      const rows = ctx.db.prepare('SELECT * FROM auth_tokens').all() as Record<string, unknown>[]
+      expect(rows).toHaveLength(2)
+      for (const row of rows) expect(Object.values(row)).not.toContain(token)
+      for (const row of rows) expect(Object.values(row)).not.toContain(key.token)
+    })
+
+    it('replaces the earlier session of a device that signs in again', async () => {
+      seedAccount('acc-1', 'alice')
+      const device = { client: 'Jellyfin Android TV', deviceId: 'tv-1', deviceName: 'Living room' }
+      const first = (await authService.login('alice', 'password123', device))!
+      const second = (await authService.login('alice', 'password123', device))!
+      expect(authService.validateToken(first.token)).toBeNull()
+      expect(authService.validateToken(second.token)?.accountId).toBe('acc-1')
+    })
+
+    it('revokes the account tokens on a role change and on deletion', async () => {
+      seedAccount('acc-1', 'alice', 'normal')
+      const before = (await authService.login('alice', 'password123'))!
+      authService.updateAccountRole('acc-1', 'admin')
+      expect(authService.validateToken(before.token)).toBeNull()
+      const after = (await authService.login('alice', 'password123'))!
+      expect(authService.validateToken(after.token)?.role).toBe('admin')
+      authService.deleteAccount('acc-1')
+      expect(authService.validateToken(after.token)).toBeNull()
+    })
+  })
+
+  describe('API keys', () => {
+    it('act as their account and can be listed and revoked by it alone', () => {
+      seedAccount('acc-1', 'alice', 'normal')
+      seedAccount('acc-2', 'bob')
+      const key = authService.createApiKey('acc-1', '  Radarr  ')
+      const session = authService.validateToken(key.token)!
+      expect(session).toMatchObject({ accountId: 'acc-1', role: 'normal', kind: 'api_key' })
+      expect([...session.capabilities]).toHaveLength(0)
+      expect(authService.listApiKeys('acc-1')).toEqual([expect.objectContaining({ id: key.id, name: 'Radarr' })])
+      expect(JSON.stringify(authService.listApiKeys('acc-1'))).not.toContain(key.token)
+
+      expect(authService.revokeApiKey('acc-2', key.id)).toBe(false)
+      expect(authService.validateToken(key.token)).not.toBeNull()
+      expect(authService.revokeApiKey('acc-1', key.id)).toBe(true)
+      expect(authService.validateToken(key.token)).toBeNull()
     })
   })
 

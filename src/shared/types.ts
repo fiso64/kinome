@@ -827,6 +827,14 @@ export interface Account {
   role: AccountRole
 }
 
+/** A long-lived token that acts as its account, for apps such as Sonarr or Seerr. */
+export interface ApiKey {
+  id: string
+  name: string
+  createdAt: number
+  lastUsedAt: number
+}
+
 export interface AccountFilterRule {
   accountId: string
   mode: 'allow' | 'deny'

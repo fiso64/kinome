@@ -10,8 +10,7 @@
   import ContinueWatchingItem from './ContinueWatchingItem.svelte'
   import { slide, fade } from 'svelte/transition'
   import { prefersReducedMotion } from 'svelte/motion'
-  import { isSupportedVideoFile } from '@shared/local-media'
-  import { itemCapabilities } from '@shared/item-capabilities'
+  import { itemCapabilities, selectMovieFile } from '@shared/item-capabilities'
   import { getAssetUrl } from '@lib/api'
   import { notificationStore } from '@lib/notification-store.svelte'
 
@@ -174,22 +173,8 @@
     childrenQuery.data || (initialItem.type === 'folder' ? initialItem.children || [] : [])
   )
 
-  const movieFile = $derived.by(() => {
-    if (item.type !== 'folder' || item.mediaType !== 'movie') return undefined
-
-    let selected: (LibraryItem & MediaFile) | undefined
-    for (const child of children) {
-      if (child.type !== 'file' || child.isHidden || child.isIgnored ||
-        !isSupportedVideoFile(child.name) || !itemCapabilities(child).canPlay) continue
-
-      const priority = !selected ? -1 :
-        Number(selected.mediaType === 'movie') - Number(child.mediaType === 'movie') ||
-        (selected.size ?? 0) - (child.size ?? 0) ||
-        child.name.localeCompare(selected.name, undefined, { numeric: true })
-      if (priority < 0) selected = child
-    }
-    return selected
-  })
+  const movieFile = $derived(item.type === 'folder' && item.mediaType === 'movie'
+    ? selectMovieFile(children as (LibraryItem & MediaFile)[]) : undefined)
 
   // -- 3. Derived Template Properties --
 

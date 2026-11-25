@@ -70,7 +70,7 @@ bun2nix.mkDerivation {
 
     mkdir -p $out/bin $out/libexec/kinome
     install -Dm755 dist/kinome $out/libexec/kinome/kinome
-    cp -r out public $out/libexec/kinome/
+    cp -r out public vendor $out/libexec/kinome/
     makeWrapper $out/libexec/kinome/kinome $out/bin/kinome \
       --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
 

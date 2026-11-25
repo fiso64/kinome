@@ -5,7 +5,8 @@
   import AccountFilterModal from './AccountFilterModal.svelte'
   import { api } from '@lib/api'
   import { authStore } from '@lib/auth-store.svelte'
-  import type { Account, AccountRole, AccountFilterRule } from '@shared/types'
+  import { copyText } from '@lib/clipboard'
+  import type { Account, AccountRole, AccountFilterRule, ApiKey } from '@shared/types'
 
   let {
     account,
@@ -34,8 +35,32 @@
   const canManage = $derived(authStore.can.manageAccounts)
   const isAdmin = $derived(savedRole === 'admin')
 
+  let apiKeys = $state<ApiKey[]>([])
+  let keyName = $state('')
+  let newKey = $state<{ name: string; token: string }>()
+  let keyMessage = $state({ text: '', type: '' })
+  let quickConnectCode = $state('')
+  let quickConnectMessage = $state({ text: '', type: '' })
+
+  async function approveQuickConnect() {
+    saving = true
+    try {
+      await api.approveQuickConnect(quickConnectCode)
+      quickConnectMessage = { text: 'The device is signed in.', type: 'success' }
+      quickConnectCode = ''
+    } catch {
+      quickConnectMessage = { text: 'No device is waiting with that code.', type: 'error' }
+    } finally {
+      saving = false
+    }
+  }
+
   onMount(async () => {
-    if (!canManage || isSelf) return
+    if (isSelf) {
+      apiKeys = await api.listApiKeys().catch(() => [])
+      return
+    }
+    if (!canManage) return
     const result = await api.getAccountFilter(account.id)
     filterRule = result.rule
     filterLoaded = true
@@ -85,6 +110,47 @@
       saving = false
     }
   }
+
+  async function handleCreateKey() {
+    saving = true
+    keyMessage = { text: '', type: '' }
+    try {
+      const { token, ...key } = await api.createApiKey(keyName)
+      apiKeys = [...apiKeys, key]
+      newKey = { name: key.name, token }
+      keyName = ''
+    } catch (err) {
+      keyMessage = { text: err instanceof Error && err.message ? err.message : 'Failed to create the key.', type: 'error' }
+    } finally {
+      saving = false
+    }
+  }
+
+  async function handleRevokeKey(key: ApiKey) {
+    if (!confirm(`Revoke the key "${key.name}"? Apps using it lose access.`)) return
+    saving = true
+    try {
+      await api.revokeApiKey(key.id)
+      apiKeys = apiKeys.filter((entry) => entry.id !== key.id)
+      if (newKey?.name === key.name) newKey = undefined
+    } catch (err) {
+      keyMessage = { text: err instanceof Error && err.message ? err.message : 'Failed to revoke the key.', type: 'error' }
+    } finally {
+      saving = false
+    }
+  }
+
+  async function copyNewKey() {
+    if (!newKey) return
+    try {
+      await copyText(newKey.token)
+      keyMessage = { text: 'Key copied.', type: 'success' }
+    } catch {
+      keyMessage = { text: 'Select the key and copy it manually.', type: 'error' }
+    }
+  }
+
+  const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
   async function handleDelete() {
     if (!confirm(`Delete account "${account.username}"? This cannot be undone.`)) return
@@ -150,6 +216,58 @@
       <button class="secondary" onclick={handleChangePassword} disabled={saving}>Update Password</button>
     </div>
 
+    {#if isSelf}
+      <div class="section raised-surface">
+        <h3>API Keys</h3>
+        <p class="message">Connect apps such as Sonarr, Radarr or Seerr. A key acts as your account, with your permissions.</p>
+        {#each apiKeys as key (key.id)}
+          <div class="key-row" data-api-key={key.id}>
+            <div class="key-meta">
+              <span class="key-name">{key.name}</span>
+              <span class="message">Created {dateFormat.format(key.createdAt)} · Last used {dateFormat.format(key.lastUsedAt)}</span>
+            </div>
+            <button class="secondary" data-action="revoke-api-key" onclick={() => handleRevokeKey(key)} disabled={saving}>Revoke</button>
+          </div>
+        {/each}
+        {#if newKey}
+          <div class="form-field">
+            <label for="new-api-key">Copy the key for {newKey.name} now. It is not shown again.</label>
+            <div class="role-row">
+              <input id="new-api-key" readonly value={newKey.token} onfocus={(event) => event.currentTarget.select()} />
+              <button class="secondary" data-action="copy-api-key" onclick={copyNewKey}>Copy</button>
+            </div>
+          </div>
+        {/if}
+        <div class="role-row">
+          <input aria-label="Key name" placeholder="Key name, such as Sonarr" bind:value={keyName} maxlength="100" disabled={saving}
+            onkeydown={(event) => event.key === 'Enter' && handleCreateKey()} />
+          <button class="secondary" data-action="create-api-key" onclick={handleCreateKey} disabled={saving}>Create Key</button>
+        </div>
+        {#if keyMessage.text}
+          <p class="message" role="status" class:success={keyMessage.type === 'success'} class:error={keyMessage.type === 'error'}>
+            {keyMessage.text}
+          </p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if isSelf}
+      <div class="section raised-surface">
+        <h3>Quick Connect</h3>
+        <p class="message">Sign in a Jellyfin app as your account by entering the code it shows.</p>
+        <div class="role-row">
+          <input aria-label="Quick Connect code" inputmode="numeric" placeholder="Code" bind:value={quickConnectCode} maxlength="6" disabled={saving}
+            onkeydown={(event) => event.key === 'Enter' && approveQuickConnect()} />
+          <button class="secondary" data-action="approve-quick-connect" onclick={approveQuickConnect} disabled={saving || !quickConnectCode.trim()}>Approve</button>
+        </div>
+        {#if quickConnectMessage.text}
+          <p class="message" role="status" class:success={quickConnectMessage.type === 'success'} class:error={quickConnectMessage.type === 'error'}>
+            {quickConnectMessage.text}
+          </p>
+        {/if}
+      </div>
+    {/if}
+
     {#if canManage && !isSelf && filterLoaded}
       <div class="section raised-surface">
         <h3>Library Filter</h3>
@@ -199,7 +317,10 @@
   .role-badge.admin { color: var(--color-primary-soft); }
   .section { padding: .75rem; }
   .section h3 { font-size: .95rem; font-weight: 660; }
-  .role-row select { flex: 1; }
+  .role-row select, .role-row input { flex: 1; min-width: 0; }
+  .key-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+  .key-meta { display: grid; min-width: 0; }
+  .key-name { overflow-wrap: anywhere; }
   .section > button { justify-self: start; }
   .message.success { color: var(--color-success-soft); }
   .message.error, .danger-section h3 { color: var(--color-danger-soft); }

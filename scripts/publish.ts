@@ -70,6 +70,7 @@ await fs.cp(path.resolve('out'), outDest, { recursive: true })
 const publicDest = path.join(buildDir, 'public')
 await fs.mkdir(publicDest, { recursive: true })
 await fs.cp(path.resolve('public'), publicDest, { recursive: true })
+await fs.cp(path.resolve('vendor'), path.join(buildDir, 'vendor'), { recursive: true })
 
 // 7. Packaging (Branch based on OS)
 if (isWinTarget) {

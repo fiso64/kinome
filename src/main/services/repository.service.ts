@@ -309,6 +309,27 @@ export function find(options: FindOptions = {}): LibraryItem[] {
   return rows.map(mapRowToLibraryItem)
 }
 
+/** A credited person by TMDB ID. */
+export function getPerson(id: number) {
+  return metadataRepo.fetchPerson(id)
+}
+
+export { compileConditionGroups, descendantsCondition, personalTagCondition, watchedCondition } from '../database/query-builder'
+export { getPersonalTags, replacePersonalTags, setPersonalTag, itemsWithPersonalTag, itemsWithTagKey } from '../database/repositories/personal-tag.repo'
+
+/** Counts the rows find() would return without limit or offset. */
+export function count(options: FindOptions = {}): number {
+  const userId = options.userId ?? getCurrentAccountId()
+  if (userId) ensureUpToDate(userId)
+  const { query, params } = buildFindQuery({ ...options, userId, fields: ['id'], orderBy: undefined, placement: undefined, limit: undefined, offset: undefined })
+  return (itemsRepo.rawFind(`SELECT COUNT(*) AS total FROM (${query})`, params)[0] as { total: number }).total
+}
+
+/** Finds the item whose ID is a UUID written without dashes, or starts with the given 32 hex digits. */
+export function findItemIdByHexPrefix(hex: string): string | null {
+  return itemsRepo.findItemIdByHexPrefix(hex)
+}
+
 /**
  * Builds a full tree structure for a folder and its descendants.
  */
