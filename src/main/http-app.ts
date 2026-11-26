@@ -4,6 +4,7 @@ import { textResponse } from './http-compression'
 import { isPlaybackLanguageList, normalizePlaybackLanguages, playbackDefaultScopes, subtitleModes } from '@shared/web-playback'
 import { getExternalPlaybackLanguages, getPlaybackPreferences, savePlaybackPreferences, getItemPlaybackDefault, saveItemPlaybackDefault, getWebPlaybackInfo, getWebPlaybackQueue, logPlayerReport, serveSubtitle, updateWebPlayback } from './services/web-playback.service'
 import { getWorkerStatus, hlsSegmentPattern, serveHls } from './services/transcoding.service'
+import { isPageRequest, streamPage } from './services/transcoding/stream-page'
 /**
  * Elysia HTTP app factory.
  *
@@ -173,6 +174,7 @@ async function handleHlsRequest({ params, request, session, server }: {
   // A seek can need a long decode preroll on slow storage. Segment jobs
   // already observe the client's abort signal while a request is pending.
   server?.timeout(request, 0)
+  if (params['*'] === 'master.m3u8' && isPageRequest(request)) return streamPage(request, params.quality)
   const response = await serveHls(request, params.id, params.quality, params['*'], session.accountId)
   if (response.ok && request.method === 'GET' && hlsSegmentPattern.test(params['*']) &&
     new URL(request.url).searchParams.get('web') !== '1') {

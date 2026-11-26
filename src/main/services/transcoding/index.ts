@@ -100,7 +100,8 @@ export async function openPlaybackSource(
     ? defaultAudioTrack(audios)
     : audios.find((track) => track.index === audioIndex)
   if (audioIndex !== undefined && !audio) throw new Error('Audio track does not exist')
-  const audioTracks = !audio ? [] : audioIndex === undefined ? [audio, ...audios.filter((track) => track !== audio)] : [audio]
+  // External players switch between all tracks. A browser buffers one, so it gets the chosen or default track.
+  const audioTracks = !audio ? [] : audioIndex === undefined && !browser ? [audio, ...audios.filter((track) => track !== audio)] : [audio]
 
   let keyframes: number[] | undefined
   if (copiesVideo(quality)) {
