@@ -13,6 +13,11 @@
 let
   packageJson = lib.importJSON ../package.json;
 
+  # libplacebo converts HDR video for SDR screens on the GPU, the same way mpv does.
+  # Kinome's CI builds this variant into its binary cache, since nixpkgs' cache has
+  # libplacebo only in ffmpeg-full, which is mostly libraries Kinome never uses.
+  ffmpeg = ffmpeg-headless.override { withPlacebo = true; };
+
   # Jellyfin's web client, for Jellyfin apps that open the server's own. Fetched once per pinned release.
   jellyfinRelease = lib.importJSON ../src/main/jellyfin/web-release.json;
   jellyfinArchive = fetchurl { inherit (jellyfinRelease) url sha256; };
@@ -80,7 +85,7 @@ in
     mkdir -p $out/libexec/kinome/vendor
     tar -xJf ${jellyfinArchive} -C $out/libexec/kinome/vendor --strip-components=1 jellyfin/jellyfin-web
     makeWrapper $out/libexec/kinome/kinome $out/bin/kinome \
-      --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
+      --prefix PATH : ${lib.makeBinPath [ ffmpeg ]}
 
     runHook postInstall
   '';

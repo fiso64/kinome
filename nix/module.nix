@@ -80,6 +80,12 @@ in
       description = "Enable the built-in FFmpeg playback engine.";
     };
 
+    binaryCache = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Download Kinome and its FFmpeg build from kinome.cachix.org, which Kinome's CI fills. Without it, FFmpeg compiles locally. The setting applies from the rebuild after the one that enables it.";
+    };
+
     memoryMax = lib.mkOption {
       type = lib.types.str;
       default = "1G";
@@ -101,6 +107,11 @@ in
 
   config = lib.mkIf cfg.enable {
     networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ 7359 ];
+
+    nix.settings = lib.mkIf cfg.binaryCache {
+      substituters = [ "https://kinome.cachix.org" ];
+      trusted-public-keys = [ "kinome.cachix.org-1:Q3VwYYvn8pZxPFmEDcHeeFwJH/HDV7e0UY9WPTe+EZg=" ];
+    };
 
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
