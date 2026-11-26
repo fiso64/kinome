@@ -23,7 +23,7 @@
   .notification-container {
     position: fixed;
     inset-inline-end: max(1rem, env(safe-area-inset-right));
-    inset-block-end: max(1rem, env(safe-area-inset-bottom));
+    inset-block-end: calc(var(--bottom-bar-height) + max(1rem, env(safe-area-inset-bottom)));
     z-index: 5000;
     display: grid;
     justify-items: end;

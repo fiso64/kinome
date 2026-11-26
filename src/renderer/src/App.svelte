@@ -14,7 +14,7 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore, withPending } from '@lib/modal-store.svelte'
-  import { contextMenuStore } from '@lib/context-menu-store.svelte'
+  import { contextMenuStore, enableLongPressMenus } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
@@ -26,6 +26,7 @@
   import { isWebQualityChoice, type WebPlaybackInfo, type WebQualityChoice } from '@shared/web-playback'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { resolveViewSettings } from '@shared/settings-helpers'
+  import { isPhone, isPhoneLayout } from '@lib/view-helpers'
   import { authStore } from '@lib/auth-store.svelte'
   import LoginPage from '@components/layout/LoginPage.svelte'
   import SetupScreen from '@components/layout/SetupScreen.svelte'
@@ -94,7 +95,9 @@
   async function openSearch() {
     if (navStore.isSettingsActive) return
     if (navStore.isDetailViewActive) {
-      await appSidebarComponent?.focusSearchInput()
+      // Phones have no room for the compact title search, so they open the full search view.
+      if (isPhoneLayout()) await expandSearch()
+      else await appSidebarComponent?.focusSearchInput()
       return
     }
     librarySearchOpen = true
@@ -579,9 +582,22 @@
       })
   }
 
+  // On phones the player is always fullscreen. Leaving fullscreen, such as with the back gesture, closes it.
+  let fullscreenForPlayer = false
+
   function closeWebPlayer() {
     playback?.controller.abort()
     playback = undefined
+    if (!fullscreenForPlayer) return
+    fullscreenForPlayer = false
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+  }
+
+  function enterPlayerFullscreen() {
+    if (!isPhone() || document.fullscreenElement || !document.documentElement.requestFullscreen) return
+    fullscreenForPlayer = true
+    // Called from the tap that started playback, which browsers require for fullscreen.
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => { fullscreenForPlayer = false })
   }
 
   function handlePlayFile(item: MediaFile, preferred?: PlayerCommandConfig, quality?: WebQualityChoice | PlaybackQuality): void {
@@ -589,6 +605,7 @@
     const players = resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
     const player = preferred ?? players[0]
     if (player.id === BUILTIN_WEB_PLAYER.id) {
+      enterPlayerFullscreen()
       webPlayer ??= import('@components/player/WebPlayer.svelte')
       playback?.controller.abort()
       const controller = new AbortController()
@@ -704,6 +721,8 @@
   function handleSearchByTag(key: string, value: string): void {
     searchStore.searchByTag(key, value)
   }
+
+  $effect(() => enableLongPressMenus())
 
   $effect(() => {
     const cleanupShortcuts = initializeShortcuts({
@@ -849,6 +868,8 @@
   </QueryClientProvider>
 {/if}
 
+<svelte:document onfullscreenchange={() => { if (fullscreenForPlayer && !document.fullscreenElement) closeWebPlayer() }} />
+
 <svelte:window
   onpopstate={() => { librarySearchOpen = false; appSidebarComponent?.blurSearchInput() }}
   ondragstart={(e) => {
@@ -890,7 +911,7 @@
   }
 
   @media (max-width: 600px) {
-    .application-shell { --sidebar-width: 56px; }
+    .application-shell { --content-inset: 0px; }
   }
 
   .loading-screen {

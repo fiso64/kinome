@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { navStore } from '@lib/navigation-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import Icon from '@components/ui/Icon.svelte'
   import { contextMenuStore } from '@lib/context-menu-store.svelte'
@@ -7,6 +8,7 @@
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
   import { itemCapabilities } from '@shared/item-capabilities'
   import { CONTAINER_LAYOUTS } from '@shared/types'
+  import { isPhoneLayout } from '@lib/view-helpers'
   import { availablePlaybackQualities, qualityLabel, type PlaybackQuality } from '@shared/playback-quality'
   import { resolveWebQuality, webQualityChoices, webQualityLabel, type WebQualityChoice } from '@shared/web-playback'
   import type {
@@ -42,7 +44,8 @@
     onAssignSeasons,
     onCreateVirtualFolder,
     onLogout,
-    onShowShortcuts
+    onShowShortcuts,
+    onRefreshLibrary
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -69,6 +72,7 @@
     onCreateVirtualFolder: () => void
     onLogout?: () => void
     onShowShortcuts?: () => void
+    onRefreshLibrary?: () => void
   } = $props()
 
   const canEdit = $derived(authStore.can.editMetadata)
@@ -105,14 +109,24 @@
   })
 
   $effect(() => {
-    if (!qualityMenu) return
+    // On phones, submenus open inline in the menu sheet.
+    if (!qualityMenu || isPhoneLayout()) return
     const parent = qualityMenu.parentElement!.getBoundingClientRect()
     const menu = qualityMenu.getBoundingClientRect()
     const left = parent.right + menu.width <= window.innerWidth ? parent.width - 1 : -menu.width + 1
     const top = Math.max(4, Math.min(parent.top - 4, window.innerHeight - menu.height - 4)) - parent.top
     qualityMenuPosition = `left: ${Math.max(4 - parent.left, left)}px; top: ${top}px;`
   })
-  let submenuStyle = $state('visibility: hidden')
+  /**
+   * A mouse opens submenus by pointing at them. Touch opens them only by tapping, since a submenu
+   * that opens as the finger lands moves the items, and the tap would land on another item.
+   */
+  function hoverSubmenu(event: PointerEvent, submenu: string | null): boolean {
+    if (event.pointerType !== 'mouse') return false
+    activeSubmenu = submenu
+    return true
+  }
+  let submenuStyle = $state(isPhoneLayout() ? '' : 'visibility: hidden')
   let style = $state('visibility: hidden;') // Start hidden to prevent flicker
 
   type WatchedState =
@@ -142,6 +156,11 @@
     // For file items, the menu content can change when `globalSettings` are loaded (e.g. "Play with...").
     // We must wait for globalSettings to be available before calculating the position to avoid a layout shift.
     if (menuElement && (item.type !== 'file' || globalSettings)) {
+      // On phones, the menu is a sheet along the bottom of the screen.
+      if (isPhoneLayout()) {
+        style = ''
+        return
+      }
       const menuRect = menuElement.getBoundingClientRect()
       const { innerHeight: windowHeight, innerWidth: windowWidth } = window
       const margin = 5 // a small margin from the edge
@@ -167,7 +186,7 @@
     const sub = submenuElement
     const parent = sub?.parentElement
     const main = menuElement
-    if (!activeSubmenu || !sub || !parent || !main) return
+    if (!activeSubmenu || !sub || !parent || !main || isPhoneLayout()) return
 
     const positionSubmenu = () => {
       const mainRect = main.getBoundingClientRect()
@@ -193,6 +212,8 @@
       size.disconnect()
     }
   })
+
+  $effect(() => navStore.closeOnBack(() => onClose()))
 
   function handleOpen() {
     onOpen()
@@ -324,7 +345,8 @@
 
   $effect(() => {
     const handleGlobalMouseDown = (e: MouseEvent) => {
-      if (menuElement && !menuElement.contains(e.target as Node)) {
+      // The scrim behind the phone sheet closes it on click, so the tap does not reach what lies beneath.
+      if (menuElement && !menuElement.contains(e.target as Node) && !(e.target as Element).classList?.contains('context-menu-scrim')) {
         // Close on left-click outside
         if (e.button === 0) onClose()
       }
@@ -359,6 +381,8 @@
   })
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events (Escape closes the menu) -->
+<div class="context-menu-scrim" role="presentation" onclick={onClose}></div>
 <div
   bind:this={menuElement}
   class="context-menu"
@@ -370,15 +394,24 @@
     <button
       class="context-menu-item"
       onclick={() => { onLogout!(); onClose() }}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       <span>Log Out</span>
     </button>
-    {#if onShowShortcuts}
+    {#if onRefreshLibrary}
       <button
         class="context-menu-item"
+        onclick={() => { onRefreshLibrary!(); onClose() }}
+        onpointerenter={(event) => hoverSubmenu(event, null)}
+      >
+        <span>Refresh Library</span>
+      </button>
+    {/if}
+    {#if onShowShortcuts}
+      <button
+        class="context-menu-item keyboard-only"
         onclick={() => { onShowShortcuts!(); onClose() }}
-        onmouseenter={() => (activeSubmenu = null)}
+        onpointerenter={(event) => hoverSubmenu(event, null)}
       >
         <span>Keyboard Shortcuts</span>
         <span class="shortcut-hint">?</span>
@@ -389,8 +422,8 @@
   {#if matchingFiles?.length}
     <div
       class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'matches')}
-      onmouseleave={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, 'matches')}
+      onpointerleave={(event) => hoverSubmenu(event, null)}
     >
       <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'matches'} onclick={() => (activeSubmenu = 'matches')}>
         <span>Matching files ({matchingFiles.length})</span>
@@ -415,8 +448,8 @@
   {#if caps.canPlay && availablePlayers.length > 0}
     <div
       class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'play')}
-      onmouseleave={() => { activeSubmenu = null; activePlayerQuality = null }}
+      onpointerenter={(event) => hoverSubmenu(event, 'play')}
+      onpointerleave={(event) => { if (hoverSubmenu(event, null)) activePlayerQuality = null }}
     >
       <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'play'} onclick={() => (activeSubmenu = 'play')}>
         <span class="icon"><Icon name="play" size={17} /></span>
@@ -473,7 +506,7 @@
     <button
       class="context-menu-item"
       onclick={handleOpen}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       Open
     </button>
@@ -481,7 +514,7 @@
   <button
     class="context-menu-item"
     onclick={handleEdit}
-    onmouseenter={() => (activeSubmenu = null)}
+    onpointerenter={(event) => hoverSubmenu(event, null)}
   >
     <span class="icon"><Icon name={canEdit ? 'edit' : 'info'} size={17} /></span>
     <span>{canEdit ? 'Edit Metadata' : 'View Metadata'}</span>
@@ -490,7 +523,7 @@
     <button
       class="context-menu-item"
       onclick={handleManualSearch}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       <span class="icon"><Icon name="search" size={17} /></span>
       <span>Manual Search...</span>
@@ -500,7 +533,7 @@
     <button
       class="context-menu-item"
       onclick={handleArtwork}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       <span class="icon"><Icon name="image" size={17} /></span>
       <span>Artwork...</span>
@@ -511,7 +544,7 @@
     <button
       class="context-menu-item"
       onclick={handleLayout}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       <span class="icon">
         <svg
@@ -538,7 +571,7 @@
     <button
       class="context-menu-item"
       onclick={handleFolderSettings}
-      onmouseenter={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, null)}
     >
       <span class="icon"><Icon name="settings" size={17} /></span>
       <span>Folder Settings...</span>
@@ -547,8 +580,8 @@
   {#if canEdit || watchedState !== 'none'}
     <div
       class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'actions')}
-      onmouseleave={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, 'actions')}
+      onpointerleave={(event) => hoverSubmenu(event, null)}
     >
       <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'actions'} onclick={() => (activeSubmenu = 'actions')}>
         <span class="icon"><Icon name="bolt" size={17} /></span>
@@ -612,11 +645,11 @@
   {/if}
 
   {#if canEdit && caps.canCustomActions && item.path && globalSettings?.customActions && globalSettings.customActions.length > 0}
-    <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
+    <div class="separator" onpointerenter={(event) => hoverSubmenu(event, null)}></div>
     <div
       class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'custom')}
-      onmouseleave={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, 'custom')}
+      onpointerleave={(event) => hoverSubmenu(event, null)}
     >
       <button class="context-menu-item has-submenu" aria-expanded={activeSubmenu === 'custom'} onclick={() => (activeSubmenu = 'custom')}>
         <span class="icon"><Icon name="tool" size={17} /></span>
@@ -642,11 +675,11 @@
   {/if}
 
   {#if caps.canFilesystemOps}
-    <div class="separator" onmouseenter={() => (activeSubmenu = null)}></div>
+    <div class="separator" onpointerenter={(event) => hoverSubmenu(event, null)}></div>
     <div
       class="submenu-container"
-      onmouseenter={() => (activeSubmenu = 'file')}
-      onmouseleave={() => (activeSubmenu = null)}
+      onpointerenter={(event) => hoverSubmenu(event, 'file')}
+      onpointerleave={(event) => hoverSubmenu(event, null)}
     >
       <button
         class="context-menu-item has-submenu"
@@ -730,6 +763,7 @@
     min-height: 2.22rem;
     background: none;
     border: none;
+    box-shadow: none;
     color: var(--color-text);
     text-align: left;
     cursor: pointer;
@@ -806,7 +840,45 @@
     position: relative;
   }
 
+  .context-menu-scrim { display: none; }
+
+  @media (max-width: 600px) {
+    .context-menu-scrim { display: block; position: fixed; inset: 0; z-index: 999; background: #0008; }
+    .context-menu:not(.submenu) {
+      inset: auto 0 0;
+      width: auto;
+      max-width: none;
+      max-height: 80dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: .5rem .5rem calc(.5rem + env(safe-area-inset-bottom));
+      border-radius: var(--radius-window) var(--radius-window) 0 0;
+      animation: sheet-in .18s ease-out;
+    }
+    .submenu {
+      position: static;
+      width: auto;
+      max-height: none;
+      margin: 0 0 .25rem 1.9rem;
+      padding: 0 0 0 .25rem;
+      border: 0;
+      border-inline-start: 1px solid var(--color-border);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      animation: none;
+    }
+    .player-row { flex-wrap: wrap; }
+    .quality-menu { flex-basis: 100%; }
+    .context-menu-item { min-height: 2.9rem; font-size: 1rem; }
+    .has-submenu[aria-expanded='true'] .submenu-arrow { transform: rotate(90deg); }
+  }
+
   @media (prefers-reduced-motion: reduce) { .context-menu { animation: none; } }
+
+  @keyframes sheet-in {
+    from { transform: translateY(1.5rem); opacity: 0; }
+  }
 
   @keyframes fadeIn {
     from {

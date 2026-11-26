@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { navStore } from '@lib/navigation-store.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import type HlsType from 'hls.js'
   import type { ErrorData } from 'hls.js'
@@ -1222,8 +1223,42 @@
     videoClickTimer = setTimeout(togglePlayback, 250)
   }
 
+  // Touch: a double tap on either half of the video skips 10 seconds that way. Further taps on
+  // that side while the skip shows add 10 seconds each.
+  const TOUCH_SEEK_SECONDS = 10
+  let lastTouchTap = { time: 0, direction: 0 }
+  let touchSeek = $state<{ direction: -1 | 1; seconds: number }>()
+  let touchSeekTimer: ReturnType<typeof setTimeout> | undefined
+
+  let lastTouchAt = 0
+
+  $effect(() => navStore.closeOnBack(() => { if (panel) closePanel(); else onClose() }))
+
+  function touchTapVideo(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return
+    lastTouchAt = performance.now()
+    if (!mediaReady || dismissedPanelOnVideo) return
+    const bounds = video.getBoundingClientRect()
+    const direction = event.clientX < bounds.left + bounds.width / 2 ? -1 : 1
+    const now = performance.now()
+    const continuing = touchSeek?.direction === direction
+    if (!continuing && (now - lastTouchTap.time > 300 || lastTouchTap.direction !== direction)) {
+      lastTouchTap = { time: now, direction }
+      return
+    }
+    // The first tap of the pair already showed or hid the controls. Later taps only skip.
+    event.stopPropagation()
+    lastTouchTap = { time: 0, direction: 0 }
+    seek(direction * TOUCH_SEEK_SECONDS)
+    touchSeek = { direction, seconds: (continuing ? touchSeek!.seconds : 0) + TOUCH_SEEK_SECONDS }
+    clearTimeout(touchSeekTimer)
+    touchSeekTimer = setTimeout(() => { touchSeek = undefined }, 700)
+  }
+
+  // A mouse double-click toggles fullscreen. Mobile browsers also report a double tap as a
+  // dblclick mouse event, and on touch a double tap only skips.
   function doubleClickVideo(event: MouseEvent) {
-    if (event instanceof PointerEvent && event.pointerType === 'touch') return
+    if ((event instanceof PointerEvent && event.pointerType === 'touch') || performance.now() - lastTouchAt < 600) return
     clearTimeout(videoClickTimer)
     fullscreenButton.click()
   }
@@ -1577,7 +1612,14 @@
       <div class="video-surface" class:media-ready={mediaReady} bind:this={surface}
         style:--subtitle-scale={subtitleScale / 100} style:--subtitle-position={`${subtitlePosition}%`}>
         <video bind:this={video} class:subtitle-scaled={subtitleScale !== 100} playsinline preload="auto"
-          onclick={tapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
+          onclick={tapVideo} onpointerup={touchTapVideo} ondblclick={doubleClickVideo} onvolumechange={saveVolume}></video>
+        {#key touchSeek}
+          {#if touchSeek}
+            <div class="touch-seek" class:forward={touchSeek.direction > 0} role="status">
+              {touchSeek.direction < 0 ? '−' : '+'}{touchSeek.seconds} s
+            </div>
+          {/if}
+        {/key}
         {#if error}
           <div class="playback-error" role="alert">
             <h2>Couldn't play this video</h2>
@@ -1611,6 +1653,15 @@
           {/if}
         </div>
       </header>
+
+      <!-- Touch screens get play and pause in the middle of the video, within thumb reach. -->
+      {#if !casting && mediaReady && !error}
+        <div class="touch-transport chrome">
+          <button type="button" class="control play-button" aria-label={paused ? 'Play' : 'Pause'} class:hidden={loading} onclick={togglePlayback}>
+            <media-icon name={paused ? 'play' : 'pause'} aria-hidden="true"></media-icon>
+          </button>
+        </div>
+      {/if}
 
       <!-- While casting, the overlay has the controls. These would act on the paused local video. -->
       <footer class="player-footer chrome" bind:this={chromeFooter} hidden={casting}>
@@ -1735,7 +1786,7 @@
                 {#if chapters.length}{@render settingsLink('switches', 'Chapters', 'chapters')}{/if}
                 {@render settingsLink('speed', 'Playback speed', 'speed', `${speed}x`)}
                 {#if availablePlayers.length}{@render settingsLink('play', 'Play with', 'external')}{/if}
-                {@render settingsLink('switches', 'Keyboard shortcuts', 'shortcuts')}
+                <div class="keyboard-only">{@render settingsLink('switches', 'Keyboard shortcuts', 'shortcuts')}</div>
               </div>
             {:else if panel === 'chapters'}
               <div class="panel-body">
@@ -2067,6 +2118,8 @@
     outline-offset: 1px;
   }
   media-icon { display: inline-flex; width: 1em; height: 1em; flex: none; font-size: 1.25rem; }
+  /* The icons are drawn at a fixed 18px. They fill the icon box so larger icons stay centered. */
+  media-icon :global(svg) { width: 100%; height: 100%; }
   .control-icon {
     width: 1.25rem;
     height: 1.25rem;
@@ -2399,8 +2452,50 @@
   }
   .shortcuts dd { margin: 0; color: var(--label-muted); }
   kbd { padding: 0.1rem 0.27rem; border-radius: 0.25rem; background: #ffffff16; }
-  @media (max-width: 740px) {
+  .touch-transport { display: none; }
+  /* While the whole page is fullscreen, as on phones, the player's own fullscreen button has nothing to do. */
+  :global(:root:fullscreen) .fullscreen-button { display: none; }
+  .touch-seek {
+    position: absolute;
+    z-index: 1;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 40%;
+    display: grid;
+    place-items: center;
+    border-radius: 0 50% 50% 0 / 0 50% 50% 0;
+    background: #ffffff1c;
+    color: #fff;
+    font-size: 1.15rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 4px #000;
+    pointer-events: none;
+    animation: touch-seek .7s ease-out forwards;
+  }
+  .touch-seek.forward { inset-inline: auto 0; border-radius: 50% 0 0 50% / 50% 0 0 50%; }
+  @keyframes touch-seek { 15%, 70% { opacity: 1; } from, to { opacity: 0; } }
+  /* Touch screens: play sits in the middle of the video, and the device buttons set the volume. */
+  @media (hover: none) {
+    .touch-transport.chrome { inset: 50% auto auto 50%; transform: translate(-50%, -50%); display: flex; }
+    .touch-transport .play-button { width: 4.5rem; height: 4.5rem; border-radius: 50%; background: #000a; }
+    .touch-transport .play-button media-icon { font-size: 2.1rem; }
+    .touch-transport .hidden { visibility: hidden; }
+    /* A finger needs a taller bar to grab. */
+    .seek-slider { height: 2.75rem; }
+    .center-play, .transport :is(.play-button, .mute-button, .volume-slider) { display: none; }
+  }
+  /* Phones held sideways have little height for the title. */
+  @media (max-height: 500px) {
+    .title p { display: none; }
+    .player-header { padding-block-end: .6rem; }
+  }
+  @media (max-width: 740px) and (hover: hover) {
     .jump-buttons { display: none; }
+  }
+  @media (max-width: 460px) and (hover: none) {
+    .player { --transport-height: 2.6rem; }
+    .transport-group { gap: 0; }
   }
   @media (max-width: 460px) {
     .volume-slider { display: none; }
@@ -2408,10 +2503,10 @@
     .control-panel { max-height: min(33rem, calc(100dvh - 7rem)); }
 
   }
-  @media (max-width: 370px) {
+  @media (max-width: 370px) and (hover: hover) {
     .player { --transport-height: 2.75rem; }
     .transport-group { gap: 0; }
     .mute-button { display: none; }
   }
-  @media (prefers-reduced-motion: reduce) { .chrome { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .chrome { transition: none; } .touch-seek { animation: none; } }
 </style>

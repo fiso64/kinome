@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Kinome's brand mark on a full-bleed square, so platforms can crop it to their own shape. -->
+  <defs>
+    <radialGradient id="glow" cx="20%" cy="0%" r="110%">
+      <stop offset="0" stop-color="#3a2c22"/>
+      <stop offset=".6" stop-color="#16161a"/>
+      <stop offset="1" stop-color="#0e0e0f"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <g transform="translate(76 76) scale(15)" fill="none" stroke="#f0be91" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 3H3v18h2M19 3h2v18h-2M9 7v10m0-5 6-5m-6 5 6 5"/>
+    <path d="M15 7v10" opacity=".7"/>
+  </g>
+</svg>

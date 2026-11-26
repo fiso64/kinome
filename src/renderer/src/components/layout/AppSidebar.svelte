@@ -12,6 +12,7 @@
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { DETAIL_HEADER_FIELDS } from '@lib/view-requirements'
   import { itemCapabilities } from '@shared/item-capabilities'
+  import { isPhoneLayout } from '@lib/view-helpers'
   import type {
     Settings,
     MediaFolder,
@@ -99,6 +100,27 @@
     return true
   }
 
+  // On phones, the bar slides away while content scrolls down and returns when it scrolls up.
+  let barHidden = $state(false)
+  $effect(() => {
+    const positions = new WeakMap<Element, number>()
+    const track = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element) || !isPhoneLayout()) return
+      const top = target.scrollTop
+      const previous = positions.get(target) ?? 0
+      positions.set(target, top)
+      // Horizontal lists scroll without changing scrollTop.
+      if (top !== previous) barHidden = top > previous && top > 48
+    }
+    window.addEventListener('scroll', track, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', track, { capture: true })
+  })
+  $effect(() => {
+    void [navStore.currentFolderId, navStore.selectedItemId, navStore.isSettingsActive, librarySearchVisible]
+    barHidden = false
+  })
+
   const searchPopupParentItem = $derived(
     settings
       ? ({
@@ -116,7 +138,7 @@
 
 <svelte:window onclick={dismissOutsideSearch} />
 
-<aside class="sidebar">
+<aside class="sidebar" class:bar-hidden={barHidden}>
   <div class="rail-top">
     <button class="brand" type="button" aria-label="Kinome home" title="Kinome home" onclick={() => {
       blurSearchInput()
@@ -140,7 +162,7 @@
           aria-current={librarySearchVisible && !navStore.isDetailViewActive ? 'page' : undefined}
           aria-controls={searchOpen ? 'sidebar-search' : librarySearchVisible ? 'library-search' : undefined}
           title="Search" onclick={() => {
-            if (!navStore.isDetailViewActive) dispatch('librarySearch')
+            if (!navStore.isDetailViewActive || isPhoneLayout()) dispatch('librarySearch')
             else if (searchOpen) closeTitleSearch()
             else void focusSearchInput()
           }}>
@@ -182,7 +204,7 @@
                 {/if}
               </div>
               {#if detailSearchResults.length > 0}
-                <footer class="search-hints" aria-hidden="true">
+                <footer class="search-hints keyboard-only" aria-hidden="true">
                   <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
                   <span><kbd>Enter</kbd> Open</span>
                   <span><kbd>Esc</kbd> Close</span>
@@ -194,7 +216,8 @@
       </div>
     {/if}
     {#if navStore.canGoBack || librarySearchVisible}
-      <button class="rail-button" type="button" aria-label="Back" title="Back"
+      <button class="rail-button back-button" type="button" aria-label="Back" title="Back"
+        class:beside-search={librarySearchVisible}
         onclick={() => { blurSearchInput(); dispatch('back') }}>
         <Icon name="back" />
       </button>
@@ -204,7 +227,7 @@
   <div class="rail-bottom">
     {#if !navStore.isSettingsActive}
       <div class="rail-tools" aria-label="Library tools">
-        <button type="button" class="icon-button" onclick={() => dispatch('refresh')}
+        <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('refresh')}
           {...authStore.control('triggerLibraryScan', 'Refresh library (Shift+R)')}
           disabled={!authStore.can.triggerLibraryScan || scanInProgress}
           aria-busy={scanInProgress}
@@ -213,7 +236,7 @@
         </button>
         {#if contextItem}
           {#if authStore.can.editMetadata && itemCapabilities(contextItem).canEditView}
-            <button type="button" class="icon-button" onclick={() => dispatch('openLayoutSelector')}
+            <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('openLayoutSelector')}
               title="Set view layout" aria-label="Set view layout">
               <Icon name="grid" size={18} />
             </button>
@@ -343,14 +366,79 @@
     font: inherit;
     text-align: center;
   }
-  @media (hover: none) { .search-hints { display: none; } }
-  .reloading { display: flex; animation: rotate .9s linear infinite; }
+  .rail-tools .icon-button > span { display: flex; }
+  .reloading { animation: rotate .9s linear infinite; }
   @keyframes rotate { to { transform: rotate(360deg); } }
+  /* Short screens, such as phones held sideways, keep the rail without the brand. */
+  @media (max-height: 500px) {
+    .sidebar { padding-block: .4rem; gap: .3rem; }
+    .rail-top { display: none; }
+    .rail-button { min-height: 40px; }
+    .rail-nav, .rail-bottom, .rail-tools { gap: 0; }
+    .rail-tools { padding-bottom: 0; }
+  }
+  /* Phones get a floating navigation bar along the bottom of the screen and a round back button
+     in the top left corner. Rescanning and the view layout are in the More menu. */
   @media (max-width: 600px) {
-    .sidebar { padding: .65rem .3rem; gap: .75rem; }
-    .brand { width: 36px; height: 36px; }
-    .rail-button { min-height: 46px; }
-    .search-panel { inset-inline-start: calc(100% + .6rem); }
+    .sidebar {
+      position: fixed;
+      inset: auto .75rem calc(.6rem + env(safe-area-inset-bottom));
+      width: auto;
+      height: 3.4rem;
+      flex-direction: row;
+      align-items: stretch;
+      justify-content: space-around;
+      gap: 0;
+      padding: .3rem;
+      transition: bottom .22s ease;
+    }
+    .sidebar.bar-hidden { bottom: -4.5rem; }
+    /* The keyboard needs the room while a text field is focused. */
+    :global(body:has(:is(input:not([type='checkbox'], [type='radio'], [type='range']), textarea):focus)) .sidebar { display: none; }
+    .sidebar::before {
+      inset: 0;
+      background: var(--surface-glass);
+      border: 1px solid var(--color-border);
+      border-radius: 1.7rem;
+      box-shadow: var(--edge-light), var(--shadow-standard);
+      backdrop-filter: blur(18px);
+    }
+    .rail-top, .desktop-tool { display: none; }
+    .rail-nav, .rail-bottom, .rail-tools, .search-anchor { display: contents; }
+    .rail-button, .rail-tools .icon-button {
+      flex: 1;
+      width: auto;
+      max-width: 5rem;
+      height: auto;
+      min-height: 0;
+      border-radius: 1.4rem;
+    }
+    .rail-button.back-button {
+      position: fixed;
+      top: max(.75rem, env(safe-area-inset-top));
+      left: max(.75rem, env(safe-area-inset-left));
+      width: 2.75rem;
+      height: 2.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: 50%;
+      color: var(--color-text);
+      background: var(--surface-glass);
+      box-shadow: var(--edge-light), var(--shadow-standard);
+      backdrop-filter: blur(18px);
+      transition: top .22s ease;
+    }
+    .bar-hidden .back-button { top: -3.5rem; }
+    /* The library search has its own close button there. */
+    .back-button.beside-search { display: none; }
+    .search-panel {
+      position: fixed;
+      inset: auto .5rem calc(var(--bottom-bar-height) + .5rem);
+      width: auto;
+      max-height: calc(100dvh - var(--bottom-bar-height) - 1rem);
+    }
+  }
+  @media (max-width: 600px) and (prefers-reduced-motion: reduce) {
+    .sidebar, .rail-button.back-button { transition: none; }
   }
   @media (prefers-reduced-motion: reduce) { .reloading { animation: none; } }
 </style>

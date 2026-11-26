@@ -232,12 +232,44 @@ function syncHistory() {
   }
 }
 
+// Overlays that the browser's back button closes, newest last. They add no history entries:
+// the back press is undone, and it closes the newest overlay instead of navigating.
+const backClosers: (() => void)[] = []
+let restoringForOverlay = false
+
+function closeOnBack(close: () => void): () => void {
+  backClosers.push(close)
+  return () => {
+    const index = backClosers.lastIndexOf(close)
+    if (index >= 0) backClosers.splice(index, 1)
+  }
+}
+
+function closeOverlayOnBack(event: PopStateEvent) {
+  if (restoringForOverlay) {
+    restoringForOverlay = false
+    event.stopImmediatePropagation()
+    return
+  }
+  const close = backClosers.at(-1)
+  if (!close) return
+  event.stopImmediatePropagation()
+  const target = history.state?.kinomePosition
+  // Returning to our entry fires one more popstate, which is ours to ignore.
+  if (target !== undefined && target !== historyPosition) restoringForOverlay = true
+  restoreHistory()
+  close()
+}
+
 function init() {
   applyHistory()
+  // Capture listeners on the window run before the navigation listeners below.
+  window.addEventListener('popstate', closeOverlayOnBack, { capture: true })
   window.addEventListener('popstate', syncHistory)
 }
 
 export const navStore = {
+  closeOnBack,
   get state() {
     return currentState
   },

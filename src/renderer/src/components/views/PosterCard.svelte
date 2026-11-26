@@ -60,4 +60,11 @@
   .missing img { filter: grayscale(1) brightness(.75); }
   .missing-mark { position: absolute; inset-block-start: .44rem; inset-inline-end: .44rem; display: grid; place-items: center; width: 25px; aspect-ratio: 1; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-inset); color: var(--color-danger-soft); }
   .poster-card-shell.episode .missing-mark { inset-inline: .44rem auto; }
+  /* Phones: the rounded poster with its title below, without a card around them. */
+  @media (max-width: 600px) {
+    .poster-card { gap: .3rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+    .poster-card:hover:not(:disabled) { box-shadow: none; }
+    .artwork { border: 1px solid var(--color-border-soft); border-radius: var(--radius-field); }
+    .title { padding: 0 .15rem; font-size: .8rem; font-weight: 600; }
+  }
 </style>

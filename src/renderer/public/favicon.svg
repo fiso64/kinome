@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The brand mark filling the square, with bolder strokes, so it reads at browser tab sizes. -->
+  <rect width="512" height="512" rx="104" fill="#16161a"/>
+  <g transform="translate(16 16) scale(20)" fill="none" stroke="#f0be91" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 3H3v18h2M19 3h2v18h-2M9 7v10m0-5 6-5m-6 5 6 5"/>
+    <path d="M15 7v10" opacity=".7"/>
+  </g>
+</svg>

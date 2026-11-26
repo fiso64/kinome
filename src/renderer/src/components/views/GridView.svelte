@@ -51,7 +51,7 @@
 <style>
   .media-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--local-grid-poster-size, var(--grid-poster-size, 155px))), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--local-grid-poster-size, var(--grid-poster-size, 155px)) * var(--media-scale))), 1fr));
     gap: clamp(.65rem, 1.4vw, 1.15rem);
     padding: .35rem 0 .65rem;
     width: 100%;

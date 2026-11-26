@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { navStore } from '@lib/navigation-store.svelte'
   import { onMount, tick, type Snippet } from 'svelte'
   import { registerModalKeyHandler } from '@lib/modal-keyboard-manager'
   import Icon from '@components/ui/Icon.svelte'
+  import { isPhoneLayout } from '@lib/view-helpers'
 
   let {
     title,
@@ -119,9 +121,11 @@
     }
   })
 
+  $effect(() => navStore.closeOnBack(() => onClose()))
+
   function handleDragStart(event: MouseEvent) {
-    // Don't drag if a button in the header is clicked
-    if (event.button !== 0 || (event.target as HTMLElement).closest('button, a, input, select')) return
+    // Don't drag if a button in the header is clicked. On phones, the window is a sheet that stays put.
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button, a, input, select') || isPhoneLayout()) return
 
     isDragging = true
     dragStartPos = {
@@ -170,8 +174,10 @@
 >
   <div
     class="modal-positioner"
-    style="transform: translate({position.x}px, {position.y}px); max-width: min({maxWidth}, 100%);{minWidth
-      ? ` width: fit-content; min-width: min(${minWidth}, 100%);` : ''}"
+    class:fit-content={!!minWidth}
+    style:transform="translate({position.x}px, {position.y}px)"
+    style:--modal-max-width={maxWidth}
+    style:--modal-min-width={minWidth}
   >
     <div class="modal-window glass-surface" bind:this={windowElement} {role} aria-modal="true"
       aria-labelledby={titleId} aria-describedby={descriptionId} tabindex="-1">
@@ -216,7 +222,8 @@
     padding: clamp(.52rem, 3vw, 2.75rem);
   }
 
-  .modal-positioner { width: 100%; min-width: 0; }
+  .modal-positioner { width: 100%; min-width: 0; max-width: min(var(--modal-max-width), 100%); }
+  .modal-positioner.fit-content { width: fit-content; min-width: min(var(--modal-min-width), 100%); }
   .modal-window {
     width: 100%;
     display: flex;
@@ -266,7 +273,16 @@
   }
 
   @media (pointer: coarse) { .modal-header { cursor: default; } }
-  @media (max-width: 540px) {
+  /* Phones: windows are sheets along the bottom of the screen, like menus. */
+  @media (max-width: 600px) {
+    .modal-backdrop { place-items: end stretch; padding: 1.5rem 0 0; }
+    .modal-positioner, .modal-positioner.fit-content { width: 100%; max-width: none; }
+    .modal-window {
+      max-height: calc(100dvh - 1.5rem);
+      padding-bottom: env(safe-area-inset-bottom);
+      border-bottom: 0;
+      border-radius: var(--radius-window) var(--radius-window) 0 0;
+    }
     .modal-header { padding-inline: .8rem .55rem; min-height: 3.2rem; }
     .header-extra { padding-inline: .7rem; }
   }

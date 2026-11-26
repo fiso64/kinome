@@ -716,6 +716,7 @@
   .info-column, .title-and-meta, .overview-container { display: grid; min-width: 0; }
   .info-column { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; padding-top: clamp(.45rem, 2.4vw, 1.85rem); }
   .title-and-meta { gap: .65rem; justify-items: start; }
+  .info-grid { padding-block-start: var(--floating-back-space); }
   .parent-show-link {
     display: flex;
     align-items: center;

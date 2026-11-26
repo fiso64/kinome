@@ -4,6 +4,16 @@ import type { LibraryItem, SearchIndexEntry, MediaFolder } from '@shared/types'
 type DisplayableItem = LibraryItem | SearchIndexEntry
 type ParentItem = MediaFolder | (MediaFolder & { isVirtual?: boolean })
 
+/** True while the phone layout applies. Matches the breakpoint in assets/base.css. */
+export function isPhoneLayout(): boolean {
+  return matchMedia('(max-width: 600px)').matches
+}
+
+/** True on phones: a touch screen with the phone layout, or held sideways. */
+export function isPhone(): boolean {
+  return matchMedia('(hover: none) and (max-width: 600px), (hover: none) and (max-height: 500px)').matches
+}
+
 const byteUnits = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
 
 export function formatClockTime(seconds: number, guide = seconds): string {

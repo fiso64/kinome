@@ -43,6 +43,11 @@
     --accent-border: #77563c;
     --accent-button: linear-gradient(180deg, #edc09a, #e3b48d);
     --focus-ring: #efbc8fbf;
+    /* Scales poster and card sizes from the view settings. */
+    --media-scale: 1;
+    /* Room the phone navigation bar takes at the bottom of the screen. */
+    --bottom-bar-height: 0px;
+    --floating-back-space: 0px;
 
     --ev-c-white: #fff;
     --ev-c-white-soft: #f8f8f8;
@@ -68,6 +73,22 @@
     --ev-button-alt-hover-border: transparent;
     --ev-button-alt-hover-text: var(--color-text);
     --ev-button-alt-hover-bg: var(--color-hover);
+  }
+
+  /* The phone layout. Components that change their layout for phones use these
+     same media queries: (max-width: 600px) for the bottom navigation bar, and
+     either query for compact media. */
+  @media (max-width: 600px), (max-height: 500px) {
+    :root { --media-scale: .5; }
+  }
+  /* Keyboard shortcut references, which touch screens have no use for. */
+  @media (hover: none) {
+    .keyboard-only { display: none !important; }
+  }
+  @media (max-width: 600px) {
+    :root { --bottom-bar-height: calc(4rem + env(safe-area-inset-bottom)); }
+    /* While the round back button shows in the top left corner, headings leave room for it. */
+    :root:has(.rail-button.back-button:not(.beside-search)) { --floating-back-space: 3.25rem; }
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; }
@@ -149,6 +170,8 @@
   }
 
   img { -webkit-user-drag: none; user-select: none; }
+  /* A long press on a control opens Kinome's menu, not the system's link and image callout. */
+  :where(button, img, [role='button']) { -webkit-touch-callout: none; }
   /* Text is selectable. Controls are not, so clicking, double-clicking and
      dragging them never highlights their labels. */
   :where(button, select, summary, [role='button'], [role='tab'], [role='menuitem'], [data-drag-item], kbd),

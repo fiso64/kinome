@@ -186,6 +186,7 @@
     gap: clamp(1.1rem, 2.4vw, 2rem);
   }
   .folder-header-title {
+    padding-inline-start: var(--floating-back-space);
     font-size: clamp(2.1rem, 4vw, 3.5rem);
     font-weight: 720;
     letter-spacing: -.045em;

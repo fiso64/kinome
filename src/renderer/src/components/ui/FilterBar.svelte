@@ -48,7 +48,7 @@
 <style>
   .filter-bar-container {
     position: absolute;
-    inset-block-end: max(.85rem, env(safe-area-inset-bottom));
+    inset-block-end: calc(var(--bottom-bar-height) + max(.85rem, env(safe-area-inset-bottom)));
     inset-inline-start: 50%;
     transform: translateX(-50%);
     z-index: 30;

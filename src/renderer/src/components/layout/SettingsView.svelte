@@ -458,7 +458,8 @@
 
     <nav class="tabs" aria-label="Settings categories">
       {#each tabIds as tab (tab)}
-        <button type="button" aria-current={activeTab === tab ? 'page' : undefined}
+        <button type="button" aria-current={activeTab === tab ? 'page' : undefined} class:keyboard-only={tab === 'shortcuts'}
+          {@attach (button) => { if (activeTab === tab) button.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
           {...tabControl(tab)}
           onclick={() => navStore.setSettingsTab(tab)}>
           <Icon name={TABS[tab].icon} size={17} />
@@ -1069,6 +1070,14 @@
     .settings-header { margin-bottom: .75rem; }
     .tabs { flex-direction: row; margin-bottom: .65rem; }
     .tabs button { flex: none; }
+  }
+
+  /* Phones: the tab bar already names the page, so the heading goes and the header tightens. */
+  @media (max-width: 600px) {
+    .settings-header { padding-block: .8rem .6rem; padding-inline-start: var(--floating-back-space); margin-bottom: .6rem; }
+    .settings-header h1 { font-size: 1.5rem; }
+    .tabs { margin-bottom: .4rem; }
+    .content-heading { display: none; }
   }
 
   .form-section {

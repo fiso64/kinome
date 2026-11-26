@@ -49,5 +49,6 @@
     onCreateVirtualFolder={() => actions.createVirtualFolder(item)}
     onLogout={showLogout ? () => authStore.logout() : undefined}
     onShowShortcuts={showLogout ? () => modalStore.open('shortcuts', {}) : undefined}
+    onRefreshLibrary={showLogout && authStore.can.triggerLibraryScan ? () => actions.rescan() : undefined}
   />
 {/if}
