@@ -73,21 +73,9 @@ export function initializeSearchEffects() {
     const query = navStore.globalQuery
     const serialized = serializeSearchQuery(query)
 
-    // Check if URL and State are out of sync.
-    // This only happens when the user types (state changes first).
-    // On popstate, parseUrl updates state synchronously, so they match here.
-    const urlParams = new URLSearchParams(window.location.search)
-    const urlQuery = urlParams.get('q') || ''
-
-    if (serialized !== urlQuery) {
-      // Safeguard: only trigger navigation if we are NOT in detail view.
-      // If we ARE in detail view, URL changes for 'q' should usually be
-      // ignored or handled differently (e.g. if the user actually clicked a search result).
-      if (!navStore.isDetailViewActive) {
-        navStore.setGlobalSearch(query, {
-          closeDetail: !isTypingGlobalTag
-        })
-      }
+    // Search inputs edit the query in place, so the URL catches up here.
+    if (navStore.isSearchOpen && serialized !== (new URLSearchParams(window.location.search).get('q') ?? '')) {
+      navStore.setGlobalSearch(query)
     }
 
     if (!isGlobalActive) {
@@ -186,10 +174,6 @@ export function initializeSearchEffects() {
 }
 
 // --- Methods ---
-
-function clearGlobal() {
-  navStore.setGlobalSearch({ text: '', tags: [] }, { replace: true })
-}
 
 function clearDetail() {
   detailQuery = { text: '', tags: [] }
@@ -354,7 +338,6 @@ export const searchStore = {
   },
 
   handleResultKeys,
-  clearGlobal,
   clearDetail,
   clearFilter,
   searchByTag,

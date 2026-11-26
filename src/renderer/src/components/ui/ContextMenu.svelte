@@ -45,7 +45,8 @@
     onCreateVirtualFolder,
     onLogout,
     onShowShortcuts,
-    onRefreshLibrary
+    onRefreshLibrary,
+    appOnly = false
   }: {
     item: LibraryItem
     position: { top: number; left: number }
@@ -73,6 +74,7 @@
     onLogout?: () => void
     onShowShortcuts?: () => void
     onRefreshLibrary?: () => void
+    appOnly?: boolean
   } = $props()
 
   const canEdit = $derived(authStore.can.editMetadata)
@@ -417,8 +419,9 @@
         <span class="shortcut-hint">?</span>
       </button>
     {/if}
-    <div class="separator"></div>
   {/if}
+  {#if !appOnly}
+  {#if onLogout}<div class="separator"></div>{/if}
   {#if matchingFiles?.length}
     <div
       class="submenu-container"
@@ -729,6 +732,7 @@
         </div>
       {/if}
     </div>
+  {/if}
   {/if}
 </div>
 

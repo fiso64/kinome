@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ContextMenuOptions } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
   import WindowControls from './WindowControls.svelte'
   import SearchInput from '../ui/SearchInput.svelte'
@@ -55,7 +56,7 @@
     refresh: void
     openSettings: void
     openLayoutSelector: void
-    showContextMenu: { item: LibraryItem; event: MouseEvent; options?: { showLogout?: boolean } }
+    showContextMenu: { item: LibraryItem; event: MouseEvent; options?: ContextMenuOptions }
     librarySearch: void
     expandSearch: void
     home: void
@@ -138,7 +139,7 @@
 
 <svelte:window onclick={dismissOutsideSearch} />
 
-<aside class="sidebar" class:bar-hidden={barHidden}>
+<aside class="sidebar" class:bar-hidden={barHidden} class:in-settings={navStore.isSettingsActive}>
   <div class="rail-top">
     <button class="brand" type="button" aria-label="Kinome home" title="Kinome home" onclick={() => {
       blurSearchInput()
@@ -154,67 +155,65 @@
       onclick={() => { blurSearchInput(); dispatch('home') }}>
       <Icon name="home" />
     </button>
-    {#if !navStore.isSettingsActive}
-      <div class="search-anchor">
-        <button type="button" class="rail-button" bind:this={searchButton}
-          aria-label="Search"
-          aria-expanded={navStore.isDetailViewActive ? searchOpen : undefined}
-          aria-current={librarySearchVisible && !navStore.isDetailViewActive ? 'page' : undefined}
-          aria-controls={searchOpen ? 'sidebar-search' : librarySearchVisible ? 'library-search' : undefined}
-          title="Search" onclick={() => {
-            if (!navStore.isDetailViewActive || isPhoneLayout()) dispatch('librarySearch')
-            else if (searchOpen) closeTitleSearch()
-            else void focusSearchInput()
-          }}>
-          <Icon name="search" />
-        </button>
+    <div class="search-anchor">
+      <button type="button" class="rail-button" bind:this={searchButton}
+        aria-label="Search"
+        aria-expanded={navStore.isDetailViewActive ? searchOpen : undefined}
+        aria-current={librarySearchVisible && !navStore.isDetailViewActive ? 'page' : undefined}
+        aria-controls={searchOpen ? 'sidebar-search' : librarySearchVisible ? 'library-search' : undefined}
+        title="Search" onclick={() => {
+          if (!navStore.isDetailViewActive || navStore.isSettingsActive || isPhoneLayout()) dispatch('librarySearch')
+          else if (searchOpen) closeTitleSearch()
+          else void focusSearchInput()
+        }}>
+        <Icon name="search" />
+      </button>
 
-        {#if searchOpen && navStore.isDetailViewActive}
-          <section id="sidebar-search" class="search-panel glass-surface" aria-label="Search this title"
-            tabindex="-1"
-            bind:this={searchPanel}
-            onkeydown={(event) => searchStore.handleResultKeys(event, 'title', searchInputEl, (item) => dispatch('detailSearchItemClick', { item }))}>
-            <header class="search-bar">
-              <span class="search-bar-icon"><Icon name="search" size={18} /></span>
-              <SearchInput label="Search this folder" bind:query={searchStore.detailQuery} {suggestions} bind:element={searchInputEl} />
-              <button class="icon-button" type="button" data-action="expand-search"
-                aria-label="Open in full search" title="Open in full search"
-                onclick={() => dispatch('expandSearch')}><Icon name="expand" size={17} /></button>
-              <button class="icon-button" type="button" aria-label="Close title search" title="Close"
-                onclick={closeTitleSearch}><Icon name="close" size={18} /></button>
-            </header>
-            {#if searchStore.isDetailActive}
-              <div class="search-results">
-                {#if isPerformingDetailSearch && detailSearchResults.length === 0}
-                  {#each [60, 80, 52] as width}
-                    <div class="skeleton-row">
-                      <Skeleton width="36px" height="49px" radius="7px" />
-                      <Skeleton width={width + '%'} height="1rem" />
-                    </div>
-                  {/each}
-                {:else if detailSearchResults.length > 0}
-                  <MediaView items={detailSearchResults} parentItem={searchPopupParentItem}
-                    onItemClick={(item) => dispatch('detailSearchItemClick', { item: item as SearchIndexEntry })}
-                    onShowContextMenu={(item, event) => dispatch('showContextMenu', { item: item as LibraryItem, event })}
-                    highlightedIndex={searchStore.highlightedDetailIndex} {settings} listFixedAspectRatio />
-                {:else if searchStore.detailSearchError}
-                  <p class="search-status" role="status">Could not load results. Edit the search to try again.</p>
-                {:else}
-                  <p class="search-status">No results found.</p>
-                {/if}
-              </div>
-              {#if detailSearchResults.length > 0}
-                <footer class="search-hints keyboard-only" aria-hidden="true">
-                  <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
-                  <span><kbd>Enter</kbd> Open</span>
-                  <span><kbd>Esc</kbd> Close</span>
-                </footer>
+      {#if searchOpen && navStore.isDetailViewActive}
+        <section id="sidebar-search" class="search-panel glass-surface" aria-label="Search this title"
+          tabindex="-1"
+          bind:this={searchPanel}
+          onkeydown={(event) => searchStore.handleResultKeys(event, 'title', searchInputEl, (item) => dispatch('detailSearchItemClick', { item }))}>
+          <header class="search-bar">
+            <span class="search-bar-icon"><Icon name="search" size={18} /></span>
+            <SearchInput label="Search this folder" bind:query={searchStore.detailQuery} {suggestions} bind:element={searchInputEl} />
+            <button class="icon-button" type="button" data-action="expand-search"
+              aria-label="Open in full search" title="Open in full search"
+              onclick={() => dispatch('expandSearch')}><Icon name="expand" size={17} /></button>
+            <button class="icon-button" type="button" aria-label="Close title search" title="Close"
+              onclick={closeTitleSearch}><Icon name="close" size={18} /></button>
+          </header>
+          {#if searchStore.isDetailActive}
+            <div class="search-results">
+              {#if isPerformingDetailSearch && detailSearchResults.length === 0}
+                {#each [60, 80, 52] as width}
+                  <div class="skeleton-row">
+                    <Skeleton width="36px" height="49px" radius="7px" />
+                    <Skeleton width={width + '%'} height="1rem" />
+                  </div>
+                {/each}
+              {:else if detailSearchResults.length > 0}
+                <MediaView items={detailSearchResults} parentItem={searchPopupParentItem}
+                  onItemClick={(item) => dispatch('detailSearchItemClick', { item: item as SearchIndexEntry })}
+                  onShowContextMenu={(item, event) => dispatch('showContextMenu', { item: item as LibraryItem, event })}
+                  highlightedIndex={searchStore.highlightedDetailIndex} {settings} listFixedAspectRatio />
+              {:else if searchStore.detailSearchError}
+                <p class="search-status" role="status">Could not load results. Edit the search to try again.</p>
+              {:else}
+                <p class="search-status">No results found.</p>
               {/if}
+            </div>
+            {#if detailSearchResults.length > 0}
+              <footer class="search-hints keyboard-only" aria-hidden="true">
+                <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                <span><kbd>Enter</kbd> Open</span>
+                <span><kbd>Esc</kbd> Close</span>
+              </footer>
             {/if}
-          </section>
-        {/if}
-      </div>
-    {/if}
+          {/if}
+        </section>
+      {/if}
+    </div>
     {#if navStore.canGoBack || librarySearchVisible}
       <button class="rail-button back-button" type="button" aria-label="Back" title="Back"
         class:beside-search={librarySearchVisible}
@@ -225,30 +224,28 @@
   </nav>
 
   <div class="rail-bottom">
-    {#if !navStore.isSettingsActive}
-      <div class="rail-tools" aria-label="Library tools">
-        <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('refresh')}
-          {...authStore.control('triggerLibraryScan', 'Refresh library (Shift+R)')}
-          disabled={!authStore.can.triggerLibraryScan || scanInProgress}
-          aria-busy={scanInProgress}
-          aria-label={scanInProgress ? 'Refreshing library' : 'Refresh library'}>
-          <span class:reloading={scanInProgress}><Icon name="refresh" size={18} /></span>
-        </button>
-        {#if contextItem}
-          {#if authStore.can.editMetadata && itemCapabilities(contextItem).canEditView}
-            <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('openLayoutSelector')}
-              title="Set view layout" aria-label="Set view layout">
-              <Icon name="grid" size={18} />
-            </button>
-          {/if}
-          <button type="button" class="icon-button"
-            onclick={(event) => dispatch('showContextMenu', { item: contextItem, event, options: { showLogout: true } })}
-            title="More options" aria-label="More options">
-            <Icon name="more" />
+    <div class="rail-tools" aria-label="Library tools">
+      <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('refresh')}
+        {...authStore.control('triggerLibraryScan', 'Refresh library (Shift+R)')}
+        disabled={!authStore.can.triggerLibraryScan || scanInProgress}
+        aria-busy={scanInProgress}
+        aria-label={scanInProgress ? 'Refreshing library' : 'Refresh library'}>
+        <span class:reloading={scanInProgress}><Icon name="refresh" size={18} /></span>
+      </button>
+      {#if contextItem}
+        {#if !navStore.isSettingsActive && authStore.can.editMetadata && itemCapabilities(contextItem).canEditView}
+          <button type="button" class="icon-button desktop-tool" onclick={() => dispatch('openLayoutSelector')}
+            title="Set view layout" aria-label="Set view layout">
+            <Icon name="grid" size={18} />
           </button>
         {/if}
-      </div>
-    {/if}
+        <button type="button" class="icon-button"
+          onclick={(event) => dispatch('showContextMenu', { item: contextItem, event, options: navStore.isSettingsActive ? { appOnly: true } : { showLogout: true } })}
+          title="More options" aria-label="More options">
+          <Icon name="more" />
+        </button>
+      {/if}
+    </div>
     <button type="button" class="rail-button" title="Settings" aria-label="Settings"
       aria-current={navStore.isSettingsActive ? 'page' : undefined}
       onclick={() => { blurSearchInput(); dispatch('openSettings') }}>
@@ -392,7 +389,8 @@
       padding: .3rem;
       transition: bottom .22s ease;
     }
-    .sidebar.bar-hidden { bottom: -4.5rem; }
+    /* Settings is a page of its own on phones, left with the back button. */
+    .sidebar:is(.bar-hidden, .in-settings) { bottom: -4.5rem; }
     /* The keyboard needs the room while a text field is focused. */
     :global(body:has(:is(input:not([type='checkbox'], [type='radio'], [type='range']), textarea):focus)) .sidebar { display: none; }
     .sidebar::before {

@@ -87,6 +87,7 @@
   }
   @media (max-width: 600px) {
     :root { --bottom-bar-height: calc(4rem + env(safe-area-inset-bottom)); }
+    :root:has(.sidebar.in-settings) { --bottom-bar-height: 0px; }
     /* While the round back button shows in the top left corner, headings leave room for it. */
     :root:has(.rail-button.back-button:not(.beside-search)) { --floating-back-space: 3.25rem; }
   }

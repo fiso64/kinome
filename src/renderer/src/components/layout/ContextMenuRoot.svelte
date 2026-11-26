@@ -27,6 +27,7 @@
     {item}
     {position}
     {layout}
+    appOnly={contextMenuStore.appOnly}
     globalSettings={settings}
     matchingFiles={contextMenuStore.matchingFiles}
     {onOpenMatchingFile}

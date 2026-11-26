@@ -15,7 +15,7 @@
   import { navStore } from '@lib/navigation-store.svelte'
   import { searchStore, initializeSearchEffects } from '@lib/search-store.svelte'
   import { modalStore, withPending } from '@lib/modal-store.svelte'
-  import { contextMenuStore, enableLongPressMenus } from '@lib/context-menu-store.svelte'
+  import { contextMenuStore, enableLongPressMenus, type ContextMenuOptions } from '@lib/context-menu-store.svelte'
   import { libraryDataService } from '@lib/services/library-data-service.svelte'
   import { api } from '@lib/api'
   import { clientSettingsStore } from '@lib/client-settings-store.svelte'
@@ -89,19 +89,16 @@
 
   let appSidebarComponent = $state<AppSidebar>()
   let viewManager = $state<ViewManager>()
-  let librarySearchOpen = $state(false)
-  const librarySearchVisible = $derived(!navStore.isSettingsActive && !navStore.isDetailViewActive &&
-    (librarySearchOpen || searchStore.isGlobalActive))
+  const librarySearchVisible = $derived(navStore.isSearchOpen)
 
   async function openSearch() {
-    if (navStore.isSettingsActive) return
-    if (navStore.isDetailViewActive) {
+    if (navStore.isDetailViewActive && !navStore.isSettingsActive) {
       // Phones have no room for the compact title search, so they open the full search view.
       if (isPhoneLayout()) await expandSearch()
       else await appSidebarComponent?.focusSearchInput()
       return
     }
-    librarySearchOpen = true
+    navStore.openSearch()
     await tick()
     viewManager?.focusLibrarySearch()
   }
@@ -112,22 +109,12 @@
     appSidebarComponent?.blurSearchInput()
     searchStore.clearDetail()
     navStore.setGlobalSearch(query, { replace: false, closeDetail: true })
-    librarySearchOpen = true
     await tick()
     viewManager?.focusLibrarySearch()
   }
 
-  // The search view closes only on request: clearing the query of a view that
-  // was reached through a link, history, or a tag keeps it open.
-  $effect(() => {
-    if (!librarySearchOpen && searchStore.isGlobalActive && !navStore.isDetailViewActive && !navStore.isSettingsActive) {
-      librarySearchOpen = true
-    }
-  })
-
   function closeLibrarySearch() {
-    librarySearchOpen = false
-    if (searchStore.isGlobalActive) searchStore.clearGlobal()
+    navStore.closeSearch()
     appSidebarComponent?.focusSearchTrigger()
   }
 
@@ -665,7 +652,6 @@
       }
 
       appSidebarComponent?.blurSearchInput()
-      librarySearchOpen = false
 
       if (source === 'detail' || (navStore.isDetailViewActive && !searchStore.isGlobalActive)) {
         searchStore.clearDetail()
@@ -680,11 +666,6 @@
 
   function goBack(): void {
     appSidebarComponent?.blurSearchInput()
-    if (librarySearchOpen && !searchStore.isGlobalActive) {
-      closeLibrarySearch()
-      return
-    }
-    librarySearchOpen = false
     if (navStore.canGoBack) {
       navStore.goBack()
     }
@@ -757,7 +738,7 @@
   async function handleShowContextMenu(
     item: LibraryItem | SearchIndexEntry,
     event: MouseEvent,
-    options?: { layout?: string; parentItem?: LibraryItem; showLogout?: boolean }
+    options?: ContextMenuOptions & { parentItem?: LibraryItem }
   ) {
     contextMenuStore.open(item, event, options)
   }
@@ -807,8 +788,8 @@
           {isScanning}
           {librarySearchVisible}
           on:refresh={handleRefresh}
-          on:openSettings={() => { librarySearchOpen = false; navStore.navigateToSettings() }}
-          on:home={() => { librarySearchOpen = false; navStore.navigateToHome() }}
+          on:openSettings={() => navStore.navigateToSettings()}
+          on:home={() => navStore.navigateToHome()}
           on:back={goBack}
           on:librarySearch={openSearch}
           on:expandSearch={expandSearch}
@@ -822,7 +803,6 @@
         <div class="application-content">
           <ViewManager
             bind:this={viewManager}
-            {librarySearchOpen}
             {closeLibrarySearch}
             {libraryStatus}
             bind:settings
@@ -872,7 +852,7 @@
 <svelte:document onfullscreenchange={() => { if (fullscreenForPlayer && !document.fullscreenElement) closeWebPlayer() }} />
 
 <svelte:window
-  onpopstate={() => { librarySearchOpen = false; appSidebarComponent?.blurSearchInput() }}
+  onpopstate={() => appSidebarComponent?.blurSearchInput()}
   ondragstart={(e) => {
     if ((e.target as HTMLElement).tagName === 'IMG') {
       e.preventDefault()

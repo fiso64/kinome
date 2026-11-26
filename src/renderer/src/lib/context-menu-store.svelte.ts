@@ -12,6 +12,8 @@ export interface ContextMenuPosition {
 export interface ContextMenuOptions {
   layout?: string
   showLogout?: boolean
+  /** Only the app section: Settings has no library item to act on. */
+  appOnly?: boolean
 }
 
 // --- State ---
@@ -22,6 +24,7 @@ let parentItem = $state<LibraryItem | null>(null)
 let position = $state<ContextMenuPosition>({ top: 0, left: 0 })
 let layout = $state<string | undefined>(undefined)
 let showLogout = $state(false)
+let appOnly = $state(false)
 let isVisible = $state(false)
 let lastClick = { x: 0, y: 0, time: 0 }
 
@@ -69,7 +72,8 @@ async function open(
 
   matchingFiles = 'matchingFiles' in target ? target.matchingFiles?.filter(({ id }) => id !== target.id) : undefined
   layout = options?.layout
-  showLogout = options?.showLogout ?? false
+  appOnly = options?.appOnly ?? false
+  showLogout = (options?.showLogout ?? false) || appOnly
   parentItem = options?.parentItem || null
   position = { top: event.clientY, left: event.clientX }
   isVisible = true
@@ -104,6 +108,7 @@ function close() {
   matchingFiles = undefined
   parentItem = null
   showLogout = false
+  appOnly = false
   isVisible = false
 }
 
@@ -181,6 +186,9 @@ export const contextMenuStore = {
   },
   get showLogout() {
     return showLogout
+  },
+  get appOnly() {
+    return appOnly
   },
   get isVisible() {
     return isVisible

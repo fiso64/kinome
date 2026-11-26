@@ -10,6 +10,7 @@ interface NavigationState {
   path: string // '/' or '/settings'
   settingsTab: string | null // Open Settings tab, kept in the URL so a reload returns to it
   globalQuery: SearchQuery // Unified source of truth for global search
+  searchOpen: boolean // The search view, kept in the URL as `q` so Back closes it
 }
 
 // --- State ---
@@ -19,7 +20,8 @@ let currentState = $state<NavigationState>({
   selectedItemId: null,
   path: '/',
   settingsTab: null,
-  globalQuery: { text: '', tags: [] }
+  globalQuery: { text: '', tags: [] },
+  searchOpen: false
 })
 
 // --- Route Predicates ---
@@ -40,6 +42,10 @@ function isSettingsRoute(state: NavigationState): boolean {
   return state.path === '/settings'
 }
 
+function isSearchRoute(state: NavigationState): boolean {
+  return state.searchOpen && !isDetailRoute(state) && !isSettingsRoute(state)
+}
+
 function isDetailRoute(state: NavigationState): boolean {
   return state.selectedItemId !== null
 }
@@ -49,7 +55,7 @@ function canNavigateBack(state: NavigationState): boolean {
     state.currentFolderId !== 'home' ||
     isDetailRoute(state) ||
     isSettingsRoute(state) ||
-    hasSearchQuery(state.globalQuery)
+    isSearchRoute(state)
   )
 }
 
@@ -76,7 +82,8 @@ function readRoute(): NavigationState {
     selectedItemId: item,
     path: pathParam,
     settingsTab: params.get('tab')?.trim() || null,
-    globalQuery: queryObj
+    globalQuery: queryObj,
+    searchOpen: params.has('q')
   }
 }
 
@@ -93,7 +100,7 @@ function updateUrl(replace = false) {
   if (currentState.selectedItemId) {
     params.set('item', currentState.selectedItemId)
     // We explicitly DON'T set 'q' here.
-  } else if (queryStr) {
+  } else if (currentState.searchOpen) {
     params.set('q', queryStr)
   }
 
@@ -105,10 +112,15 @@ function updateUrl(replace = false) {
   const str = params.toString()
   const url = str ? `?${str}` : '/'
 
+  // A search entry remembers the entry its search started from, so closing the search
+  // returns there in one step, however many searches it went through.
+  const searchBase = !isSearchRoute(currentState) ? undefined
+    : replace || isSearchRoute(readRoute()) ? history.state?.searchBase : historyPosition
+
   if (replace) {
-    history.replaceState({ ...history.state, kinomePosition: historyPosition }, '', url)
+    history.replaceState({ ...history.state, kinomePosition: historyPosition, searchBase }, '', url)
   } else {
-    history.pushState({ kinomePosition: ++historyPosition }, '', url)
+    history.pushState({ kinomePosition: ++historyPosition, searchBase }, '', url)
   }
 }
 
@@ -119,6 +131,7 @@ function navigateToFolder(folderId: string) {
   currentState.selectedItemId = null
   currentState.path = '/'
   currentState.globalQuery = { text: '', tags: [] } // Clear search on folder change
+  currentState.searchOpen = false
   updateUrl()
 }
 
@@ -127,6 +140,7 @@ function navigateToHome() {
   currentState.selectedItemId = null
   currentState.path = '/'
   currentState.globalQuery = { text: '', tags: [] }
+  currentState.searchOpen = false
   updateUrl()
 }
 
@@ -164,7 +178,30 @@ function closeDetail() {
 function navigateToSettings() {
   currentState.path = '/settings'
   currentState.settingsTab = null
+  currentState.searchOpen = false
   updateUrl()
+}
+
+function openSearch() {
+  if (isSearchRoute(currentState)) return
+  currentState.path = '/'
+  currentState.settingsTab = null
+  currentState.selectedItemId = null
+  currentState.globalQuery = { text: '', tags: [] }
+  currentState.searchOpen = true
+  updateUrl()
+}
+
+function closeSearch() {
+  const base = history.state?.searchBase
+  if (base !== undefined && base < historyPosition) {
+    history.go(base - historyPosition)
+  } else {
+    // A search opened from a link has no entry to return to.
+    currentState.globalQuery = { text: '', tags: [] }
+    currentState.searchOpen = false
+    updateUrl(true)
+  }
 }
 
 function goBack() {
@@ -225,6 +262,11 @@ function restoreHistory() {
 
 function syncHistory() {
   if (navigationPending) return
+  // Back from the first entry: leave as the browser would have.
+  if (history.state?.kinomeGuard) {
+    history.back()
+    return
+  }
   if (isSettingsRoute(currentState) && !isSettingsRoute(readRoute())) {
     allowSettingsExit(applyHistory)
   } else {
@@ -238,11 +280,21 @@ const backClosers: (() => void)[] = []
 let restoringForOverlay = false
 
 function closeOnBack(close: () => void): () => void {
+  guardFirstEntry()
   backClosers.push(close)
   return () => {
     const index = backClosers.lastIndexOf(close)
     if (index >= 0) backClosers.splice(index, 1)
   }
+}
+
+// Back from the app's first entry unloads the page before an overlay can catch it, which
+// leaves a blank page in an installed app. So the first overlay opened there moves that
+// entry forward one step, with a guard entry behind it that Back can land on.
+function guardFirstEntry() {
+  if (historyPosition !== 0 || history.state?.kinomeGuarded) return
+  history.replaceState({ ...history.state, kinomePosition: -1, kinomeGuard: true }, '')
+  history.pushState({ ...history.state, kinomePosition: 0, kinomeGuard: undefined, kinomeGuarded: true }, '', location.href)
 }
 
 function closeOverlayOnBack(event: PopStateEvent) {
@@ -262,6 +314,8 @@ function closeOverlayOnBack(event: PopStateEvent) {
 }
 
 function init() {
+  // Arriving on the guard, such as with Forward from another site, shows the entry it guards.
+  if (history.state?.kinomeGuard) history.forward()
   applyHistory()
   // Capture listeners on the window run before the navigation listeners below.
   window.addEventListener('popstate', closeOverlayOnBack, { capture: true })
@@ -303,6 +357,16 @@ export const navStore = {
   get isGlobalSearchActive() {
     return hasSearchQuery(currentState.globalQuery)
   },
+  /** The search view is open, whether or not it has a query yet. */
+  get isSearchOpen() {
+    return isSearchRoute(currentState)
+  },
+  openSearch: () => {
+    allowSettingsExit(openSearch)
+  },
+  closeSearch: () => {
+    if (!navigationPending && isSearchRoute(currentState)) closeSearch()
+  },
   get isDetailViewActive() {
     return isDetailRoute(currentState)
   },
@@ -342,12 +406,11 @@ export const navStore = {
     options: { replace?: boolean; closeDetail?: boolean } = {}
   ) => {
     if (navigationPending) return
-    const params = getUrlParams()
-    const hasSearchInUrl = params.has('q')
-
-    const shouldReplace = options.replace ?? hasSearchInUrl
+    // Typing refines the open search in place; starting a search adds an entry.
+    const shouldReplace = options.replace ?? isSearchRoute(currentState)
 
     currentState.globalQuery = query
+    currentState.searchOpen = true
     if (options.closeDetail && currentState.selectedItemId) {
       currentState.selectedItemId = null
     }

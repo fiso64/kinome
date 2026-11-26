@@ -24,13 +24,11 @@
   let {
     settings = $bindable(),
     libraryStatus,
-    librarySearchOpen,
     closeLibrarySearch,
     suggestions
   }: {
     settings: Settings | null
     libraryStatus: LibraryStatus | null
-    librarySearchOpen: boolean
     closeLibrarySearch: () => void
     suggestions: AutocompleteSuggestions
   } = $props()
@@ -49,7 +47,7 @@
 
   // Derived State
   const selectedItemId = $derived(navStore.selectedItemId)
-  const isGlobalSearchActive = $derived(librarySearchOpen || searchStore.isGlobalActive)
+  const isGlobalSearchActive = $derived(navStore.isSearchOpen)
   let searchOverlay = $state<SearchOverlay>()
 
   export function focusLibrarySearch() {
