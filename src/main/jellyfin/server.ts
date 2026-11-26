@@ -13,11 +13,11 @@ import { getPlaybackPreferences, savePlaybackPreferences } from '../services/web
 import { accountToJellyfinId, resolveAccountId } from './ids'
 import { JellyfinError, field, forbidden, json, notFound, route, type JellyfinRequest } from './request'
 import { JELLYFIN_VERSION } from './web'
+import { sessionDto } from './sessions'
 
 const SERVER_NAME = 'Kinome'
 
 type UserDto = components['schemas']['UserDto']
-type SessionInfoDto = components['schemas']['SessionInfoDto']
 
 const SUBTITLE_MODES: Record<SubtitleMode, NonNullable<components['schemas']['UserConfiguration']['SubtitleMode']>> = {
   default: 'Default', forced: 'OnlyForced', off: 'None'
@@ -65,17 +65,6 @@ export function userDto(user: Account, preferences = getPlaybackPreferences(user
   }
 }
 
-function sessionInfo(request: JellyfinRequest, user: Account): SessionInfoDto {
-  return {
-    Id: request.session?.tokenId ?? '', UserId: accountToJellyfinId(user.id), UserName: user.username,
-    Client: request.device.client, DeviceId: request.device.deviceId, DeviceName: request.device.deviceName,
-    ApplicationVersion: request.device.version, IsActive: true, LastActivityDate: new Date().toISOString(),
-    LastPlaybackCheckIn: new Date(0).toISOString(),
-    ServerId: settingsService.getServerId(), PlayableMediaTypes: [], SupportedCommands: [],
-    SupportsMediaControl: false, SupportsRemoteControl: false, HasCustomDeviceName: false, NowPlayingQueue: []
-  }
-}
-
 function publicInfo(request: JellyfinRequest) {
   return {
     LocalAddress: request.baseUrl, ServerName: SERVER_NAME, Version: JELLYFIN_VERSION, ProductName: 'Jellyfin Server',
@@ -100,7 +89,7 @@ async function authenticate(request: JellyfinRequest, ip: string) {
   console.info('[Jellyfin] Signed in', { account: result.account.username, client: request.device.client, device: request.device.deviceName })
   const signedIn = { ...request, session: authService.validateToken(result.token) }
   return json(request, {
-    User: userDto(result.account), SessionInfo: sessionInfo(signedIn, result.account),
+    User: userDto(result.account), SessionInfo: await sessionDto(signedIn, undefined),
     AccessToken: result.token, ServerId: settingsService.getServerId()
   })
 }
@@ -244,7 +233,7 @@ export function serverRoutes(requestIp: (request: Request) => string) {
       console.info('[Jellyfin] Signed in with Quick Connect', { account: result.account.username, client: request.device.client })
       const signedIn = { ...request, session: authService.validateToken(result.token) }
       return json(request, {
-        User: userDto(result.account), SessionInfo: sessionInfo(signedIn, result.account),
+        User: userDto(result.account), SessionInfo: await sessionDto(signedIn, undefined),
         AccessToken: result.token, ServerId: settingsService.getServerId()
       })
     }, { public: true }),
@@ -261,9 +250,6 @@ export function serverRoutes(requestIp: (request: Request) => string) {
       await saveConfiguration(request, requestedUser(request, request.query.get('userId') ?? accountToJellyfinId(request.session!.accountId)))
     }),
     route('POST', '/Users/Configuration', async (request) => { await saveConfiguration(request, requestedUser(request)) }, { alias: '/Users/{userId}/Configuration' }),
-    route('POST', '/Sessions/Capabilities', ok),
-    route('POST', '/Sessions/Capabilities/Full', ok),
-    route('GET', '/Sessions', (request) => json(request, [sessionInfo(request, account(request))])),
     route('POST', '/Sessions/Logout', (request) => { if (request.token) authService.logout(request.token) }),
     route('GET', '/DisplayPreferences/{displayPreferencesId}', displayPreferences),
     route('POST', '/DisplayPreferences/{displayPreferencesId}', saveDisplayPreferences),

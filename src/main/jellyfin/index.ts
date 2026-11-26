@@ -12,8 +12,8 @@ import { grantedSession, playbackRoutes } from './playback'
 import { playlistRoutes } from './playlists'
 import { serverRoutes } from './server'
 import { serveWebClient } from './web'
-import * as events from './events'
-import type { EventSocket } from './events'
+import * as sessions from './sessions'
+import { sessionRoutes, type EventSocket } from './sessions'
 import { JellyfinError, Query, json, readAuthorization, wantsCamelCase, type JellyfinRequest, type Route } from './request'
 
 export const JELLYFIN_BASE = '/jellyfin'
@@ -30,7 +30,7 @@ let server: Server | null = null
 function allRoutes(): Route[] {
   return routes ??= [
     ...serverRoutes((request) => server?.requestIP(request)?.address ?? '0.0.0.0'),
-    ...itemRoutes, ...playbackRoutes, ...imageRoutes, ...libraryRoutes, ...playlistRoutes
+    ...itemRoutes, ...playbackRoutes, ...imageRoutes, ...libraryRoutes, ...playlistRoutes, ...sessionRoutes
   ].sort((a, b) => a.keys.length - b.keys.length)
 }
 
@@ -106,6 +106,7 @@ export async function handleJellyfinRequest(request: Request, current: Server | 
   }
   // Media can be read slowly for as long as it plays.
   if (/^\/(videos|items\/[^/]+\/download)/i.test(path)) current?.timeout(request, 0)
+  if (session && token) sessions.touch(session, device)
   try {
     const handle = () => found.route.handler(context)
     const result = await (session ? runWithAccount(session.accountId, handle) : handle())
@@ -137,11 +138,11 @@ export const jellyfinSocket = {
       ws.close(4401, 'Unauthorized')
       return
     }
-    events.connect(ws, session)
+    sessions.connect(ws, session)
     ws.send(JSON.stringify({ MessageType: 'ForceKeepAlive', Data: 60 }))
   },
   close(ws: Socket) {
-    events.disconnect(ws)
+    sessions.disconnect(ws)
   },
   message(ws: Socket, message: unknown) {
     const text = typeof message === 'string' ? message : JSON.stringify(message)

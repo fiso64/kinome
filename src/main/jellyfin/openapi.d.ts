@@ -4,6 +4,166 @@
  */
 
 export interface paths {
+    "/Sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["GetSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/Capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["PostCapabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/Capabilities/Full": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["PostFullCapabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Playing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["Play"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Playing/{command}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SendPlaystateCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SendFullGeneralCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Command/{command}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SendGeneralCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/System/{command}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SendSystemCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["SendMessageCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Sessions/{sessionId}/Viewing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["DisplayContent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/Library/MediaFolders": {
         parameters: {
             query?: never;
@@ -606,54 +766,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["UpdateUserConfiguration"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/Sessions/Capabilities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["PostCapabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/Sessions/Capabilities/Full": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["PostFullCapabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/Sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["GetSessions"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2244,6 +2356,15 @@ export interface components {
         };
         /** @enum {string} */
         ExtraType: "Unknown" | "Clip" | "Trailer" | "BehindTheScenes" | "DeletedScene" | "Interview" | "Scene" | "Sample" | "ThemeSong" | "ThemeVideo" | "Featurette" | "Short";
+        GeneralCommand: {
+            /** @enum {unknown} */
+            Name?: "MoveUp" | "MoveDown" | "MoveLeft" | "MoveRight" | "PageUp" | "PageDown" | "PreviousLetter" | "NextLetter" | "ToggleOsd" | "ToggleContextMenu" | "Select" | "Back" | "TakeScreenshot" | "SendKey" | "SendString" | "GoHome" | "GoToSettings" | "VolumeUp" | "VolumeDown" | "Mute" | "Unmute" | "ToggleMute" | "SetVolume" | "SetAudioStreamIndex" | "SetSubtitleStreamIndex" | "ToggleFullscreen" | "DisplayContent" | "GoToSearch" | "DisplayMessage" | "SetRepeatMode" | "ChannelUp" | "ChannelDown" | "Guide" | "ToggleStats" | "PlayMediaSource" | "PlayTrailers" | "SetShuffleQueue" | "PlayState" | "PlayNext" | "ToggleOsdMenu" | "Play" | "SetMaxStreamingBitrate" | "SetPlaybackOrder";
+            /** Format: uuid */
+            ControllingUserId?: string;
+            Arguments?: {
+                [key: string]: string;
+            };
+        };
         /** @enum {string} */
         GeneralCommandType: "MoveUp" | "MoveDown" | "MoveLeft" | "MoveRight" | "PageUp" | "PageDown" | "PreviousLetter" | "NextLetter" | "ToggleOsd" | "ToggleContextMenu" | "Select" | "Back" | "TakeScreenshot" | "SendKey" | "SendString" | "GoHome" | "GoToSettings" | "VolumeUp" | "VolumeDown" | "Mute" | "Unmute" | "ToggleMute" | "SetVolume" | "SetAudioStreamIndex" | "SetSubtitleStreamIndex" | "ToggleFullscreen" | "DisplayContent" | "GoToSearch" | "DisplayMessage" | "SetRepeatMode" | "ChannelUp" | "ChannelDown" | "Guide" | "ToggleStats" | "PlayMediaSource" | "PlayTrailers" | "SetShuffleQueue" | "PlayState" | "PlayNext" | "ToggleOsdMenu" | "Play" | "SetMaxStreamingBitrate" | "SetPlaybackOrder";
         GetProgramsDto: {
@@ -2668,6 +2789,12 @@ export interface components {
             Url?: string | null;
             Name?: string | null;
         };
+        MessageCommand: {
+            Header?: string | null;
+            Text: string;
+            /** Format: int64 */
+            TimeoutMs?: number | null;
+        };
         /** @enum {string} */
         MetadataField: "Cast" | "Genres" | "ProductionLocations" | "Studios" | "Tags" | "Name" | "Overview" | "Runtime" | "OfficialRating";
         MetadataOptions: {
@@ -2718,6 +2845,8 @@ export interface components {
         PersonKind: "Unknown" | "Actor" | "Director" | "Composer" | "Writer" | "GuestStar" | "Producer" | "Conductor" | "Lyricist" | "Arranger" | "Engineer" | "Mixer" | "Remixer" | "Creator" | "Artist" | "AlbumArtist" | "Author" | "Illustrator" | "Penciller" | "Inker" | "Colorist" | "Letterer" | "CoverArtist" | "Editor" | "Translator" | "Narrator";
         /** @enum {string} */
         PlayAccess: "Full" | "None";
+        /** @enum {string} */
+        PlayCommand: "PlayNow" | "PlayNext" | "PlayLast" | "PlayInstantMix" | "PlayShuffle";
         /** @enum {string} */
         PlayMethod: "Transcode" | "DirectStream" | "DirectPlay";
         /** @enum {string} */
@@ -2869,6 +2998,8 @@ export interface components {
             UserId?: string;
             CanEdit?: boolean;
         };
+        /** @enum {string} */
+        PlaystateCommand: "Stop" | "Pause" | "Unpause" | "NextTrack" | "PreviousTrack" | "Seek" | "Rewind" | "FastForward" | "PlayPause";
         PluginInfo: {
             Name?: string;
             Version?: string;
@@ -3652,6 +3783,462 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    GetSessions: {
+        parameters: {
+            query?: {
+                controllableByUserId?: string;
+                deviceId?: string;
+                activeWithinSeconds?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfoDto"][];
+                    "application/json; profile=\"CamelCase\"": components["schemas"]["SessionInfoDto"][];
+                    "application/json; profile=\"PascalCase\"": components["schemas"]["SessionInfoDto"][];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    PostCapabilities: {
+        parameters: {
+            query?: {
+                id?: string;
+                playableMediaTypes?: components["schemas"]["MediaType"][];
+                supportedCommands?: components["schemas"]["GeneralCommandType"][];
+                supportsMediaControl?: boolean;
+                supportsPersistentIdentifier?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    PostFullCapabilities: {
+        parameters: {
+            query?: {
+                id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCapabilitiesDto"];
+                "text/json": components["schemas"]["ClientCapabilitiesDto"];
+                "application/*+json": components["schemas"]["ClientCapabilitiesDto"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Play: {
+        parameters: {
+            query: {
+                playCommand: "PlayNow" | "PlayNext" | "PlayLast" | "PlayInstantMix" | "PlayShuffle";
+                itemIds: string[];
+                startPositionTicks?: number;
+                mediaSourceId?: string;
+                audioStreamIndex?: number;
+                subtitleStreamIndex?: number;
+                startIndex?: number;
+            };
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    SendPlaystateCommand: {
+        parameters: {
+            query?: {
+                seekPositionTicks?: number;
+                controllingUserId?: string;
+            };
+            header?: never;
+            path: {
+                sessionId: string;
+                command: "Stop" | "Pause" | "Unpause" | "NextTrack" | "PreviousTrack" | "Seek" | "Rewind" | "FastForward" | "PlayPause";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    SendFullGeneralCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GeneralCommand"];
+                "text/json": components["schemas"]["GeneralCommand"];
+                "application/*+json": components["schemas"]["GeneralCommand"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    SendGeneralCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+                command: "MoveUp" | "MoveDown" | "MoveLeft" | "MoveRight" | "PageUp" | "PageDown" | "PreviousLetter" | "NextLetter" | "ToggleOsd" | "ToggleContextMenu" | "Select" | "Back" | "TakeScreenshot" | "SendKey" | "SendString" | "GoHome" | "GoToSettings" | "VolumeUp" | "VolumeDown" | "Mute" | "Unmute" | "ToggleMute" | "SetVolume" | "SetAudioStreamIndex" | "SetSubtitleStreamIndex" | "ToggleFullscreen" | "DisplayContent" | "GoToSearch" | "DisplayMessage" | "SetRepeatMode" | "ChannelUp" | "ChannelDown" | "Guide" | "ToggleStats" | "PlayMediaSource" | "PlayTrailers" | "SetShuffleQueue" | "PlayState" | "PlayNext" | "ToggleOsdMenu" | "Play" | "SetMaxStreamingBitrate" | "SetPlaybackOrder";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    SendSystemCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+                command: "MoveUp" | "MoveDown" | "MoveLeft" | "MoveRight" | "PageUp" | "PageDown" | "PreviousLetter" | "NextLetter" | "ToggleOsd" | "ToggleContextMenu" | "Select" | "Back" | "TakeScreenshot" | "SendKey" | "SendString" | "GoHome" | "GoToSettings" | "VolumeUp" | "VolumeDown" | "Mute" | "Unmute" | "ToggleMute" | "SetVolume" | "SetAudioStreamIndex" | "SetSubtitleStreamIndex" | "ToggleFullscreen" | "DisplayContent" | "GoToSearch" | "DisplayMessage" | "SetRepeatMode" | "ChannelUp" | "ChannelDown" | "Guide" | "ToggleStats" | "PlayMediaSource" | "PlayTrailers" | "SetShuffleQueue" | "PlayState" | "PlayNext" | "ToggleOsdMenu" | "Play" | "SetMaxStreamingBitrate" | "SetPlaybackOrder";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    SendMessageCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCommand"];
+                "text/json": components["schemas"]["MessageCommand"];
+                "application/*+json": components["schemas"]["MessageCommand"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    DisplayContent: {
+        parameters: {
+            query: {
+                itemType: "AggregateFolder" | "Audio" | "AudioBook" | "BasePluginFolder" | "Book" | "BoxSet" | "Channel" | "ChannelFolderItem" | "CollectionFolder" | "Episode" | "Folder" | "Genre" | "ManualPlaylistsFolder" | "Movie" | "LiveTvChannel" | "LiveTvProgram" | "MusicAlbum" | "MusicArtist" | "MusicGenre" | "MusicVideo" | "Person" | "Photo" | "PhotoAlbum" | "Playlist" | "PlaylistsFolder" | "Program" | "Recording" | "Season" | "Series" | "Studio" | "Trailer" | "TvChannel" | "TvProgram" | "UserRootFolder" | "UserView" | "Video" | "Year";
+                itemId: string;
+                itemName: string;
+            };
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    "Retry-After"?: number;
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     GetMediaFolders: {
         parameters: {
             query?: {
@@ -5865,145 +6452,6 @@ export interface operations {
                     "application/json; profile=\"CamelCase\"": components["schemas"]["ProblemDetails"];
                     "application/json; profile=\"PascalCase\"": components["schemas"]["ProblemDetails"];
                 };
-            };
-            503: {
-                headers: {
-                    "Retry-After"?: number;
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    PostCapabilities: {
-        parameters: {
-            query?: {
-                id?: string;
-                playableMediaTypes?: components["schemas"]["MediaType"][];
-                supportedCommands?: components["schemas"]["GeneralCommandType"][];
-                supportsMediaControl?: boolean;
-                supportsPersistentIdentifier?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            503: {
-                headers: {
-                    "Retry-After"?: number;
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    PostFullCapabilities: {
-        parameters: {
-            query?: {
-                id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ClientCapabilitiesDto"];
-                "text/json": components["schemas"]["ClientCapabilitiesDto"];
-                "application/*+json": components["schemas"]["ClientCapabilitiesDto"];
-            };
-        };
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            503: {
-                headers: {
-                    "Retry-After"?: number;
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    GetSessions: {
-        parameters: {
-            query?: {
-                controllableByUserId?: string;
-                deviceId?: string;
-                activeWithinSeconds?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionInfoDto"][];
-                    "application/json; profile=\"CamelCase\"": components["schemas"]["SessionInfoDto"][];
-                    "application/json; profile=\"PascalCase\"": components["schemas"]["SessionInfoDto"][];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             503: {
                 headers: {

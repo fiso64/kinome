@@ -7,34 +7,20 @@
  */
 import type { LibraryItem } from '@shared/types'
 import type { ITransport } from '../transport/transport.interface'
-import type { SessionData } from '../services/auth.service'
 import { runWithAccount } from '../request-context'
 import { accountToJellyfinId, toJellyfinId } from './ids'
 import { findItems, relate, toDto, type Item } from './items'
 import type { JellyfinRequest } from './request'
-
-export interface EventSocket {
-  id: string
-  send(message: string): void
-}
+import { connectedSockets, socketMessage } from './sessions'
 
 const FLUSH_MS = 1000
 // Clients refresh their views on any change, so a large batch is cut rather than listed in full.
 const MAX_ITEMS = 500
 
-const sockets = new Map<string, { socket: EventSocket; session: SessionData }>()
 let updated = new Set<string>()
 let removed = new Set<string>()
 let userData = new Map<string, Set<string>>()
 let timer: ReturnType<typeof setTimeout> | undefined
-
-export function connect(socket: EventSocket, session: SessionData): void {
-  sockets.set(socket.id, { socket, session })
-}
-
-export function disconnect(socket: EventSocket): void {
-  sockets.delete(socket.id)
-}
 
 function schedule() {
   timer ??= setTimeout(() => {
@@ -48,14 +34,14 @@ function add(target: Set<string>, ids: Iterable<string>) {
 
 /** Records items whose library data changed for everyone. */
 export function itemsChanged(ids: Iterable<string>): void {
-  if (!sockets.size) return
+  if (!connectedSockets().length) return
   add(updated, ids)
   schedule()
 }
 
 /** Records items whose played, progress or favourite state changed for one account. */
 export function userDataChanged(accountId: string, ids: Iterable<string>): void {
-  if (![...sockets.values()].some((entry) => entry.session.accountId === accountId)) return
+  if (!connectedSockets().some((entry) => entry.session.accountId === accountId)) return
   const pending = userData.get(accountId) ?? new Set<string>()
   add(pending, ids)
   userData.set(accountId, pending)
@@ -63,7 +49,7 @@ export function userDataChanged(accountId: string, ids: Iterable<string>): void 
 }
 
 export function itemRemoved(id: string): void {
-  if (!sockets.size) return
+  if (!connectedSockets().length) return
   add(removed, [id])
   schedule()
 }
@@ -77,10 +63,6 @@ function titles(ids: string[]): Item[] {
   return [...new Map([...items.filter((item) => item.mediaType), ...movies].map((item) => [item.id, item])).values()]
 }
 
-function message(type: string, data: unknown): string {
-  return JSON.stringify({ MessageType: type, MessageId: crypto.randomUUID().replaceAll('-', ''), Data: data })
-}
-
 /** Sends what has been collected. Runs a second after the first change, or at once in tests. */
 export async function flushEvents(): Promise<void> {
   clearTimeout(timer)
@@ -89,7 +71,7 @@ export async function flushEvents(): Promise<void> {
   updated = new Set()
   removed = new Set()
   userData = new Map()
-  const accounts = Map.groupBy(sockets.values(), (entry) => entry.session.accountId)
+  const accounts = Map.groupBy(connectedSockets(), (entry) => entry.session.accountId)
   for (const [accountId, entries] of accounts) {
     const session = entries[0].session
     const request = { session } as JellyfinRequest
@@ -97,7 +79,7 @@ export async function flushEvents(): Promise<void> {
       const out: string[] = []
       const visible = titles(changedIds).map((item) => toJellyfinId(item.id))
       if (visible.length || removedIds.length) {
-        out.push(message('LibraryChanged', {
+        out.push(socketMessage('LibraryChanged', {
           ItemsAdded: [], ItemsUpdated: visible, ItemsRemoved: removedIds.map(toJellyfinId),
           FoldersAddedTo: [], FoldersRemovedFrom: [], CollectionFolders: [], IsEmpty: false
         }))
@@ -106,7 +88,7 @@ export async function flushEvents(): Promise<void> {
       if (own.length) {
         const related = await relate(own, request, { progress: true })
         const list = own.map((item) => toDto(item, related, { fields: new Set(), userData: true }).UserData)
-        out.push(message('UserDataChanged', { UserId: accountToJellyfinId(accountId), UserDataList: list }))
+        out.push(socketMessage('UserDataChanged', { UserId: accountToJellyfinId(accountId), UserDataList: list }))
       }
       return out
     })

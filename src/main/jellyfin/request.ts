@@ -126,11 +126,11 @@ export function readAuthorization(request: Request, query: Query): { token?: str
 /**
  * Jellyfin answers with the first JSON form the Accept header lists, which is
  * PascalCase unless that form names the CamelCase profile. Without an Accept
- * header it answers in camelCase.
+ * header it answers in PascalCase, which clients such as Moonfin rely on.
  */
 export function wantsCamelCase(request: Request): boolean {
   const accept = request.headers.get('accept')
-  if (accept === null) return true
+  if (accept === null) return false
   const first = accept.split(',').map((range) => range.trim().toLowerCase())
     .find((range) => range.startsWith('application/json') || range.startsWith('*/*'))
   return !!first && /profile="?camelcase/.test(first)

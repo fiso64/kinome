@@ -18,6 +18,7 @@ import { jellyfinRoutes } from '.'
 import { LIBRARIES, toJellyfinId } from './ids'
 import { negotiate } from './playback'
 import * as events from './events'
+import * as sessions from './sessions'
 import * as authService from '../services/auth.service'
 import spec from './openapi.json'
 
@@ -227,6 +228,9 @@ describe('Jellyfin-compatible API', () => {
     const camel = await call('GET', `/Items?ParentId=${LIBRARIES.movies.id}&Fields=Genres`, adminToken, undefined, { Accept: 'application/json; profile="CamelCase"' })
     const [item] = ((await camel.json()) as { items: unknown[] }).items
     expect(item).toMatchObject({ name: 'Arrival', providerIds: { Tmdb: '101' } })
+    // Moonfin sends no Accept header at all and reads PascalCase.
+    const bare = await app.handle(new Request('http://localhost/jellyfin/Users/Public'))
+    expect(((await bare.json()) as object[])[0]).toHaveProperty('Name')
   })
 
   it('keeps hidden items out of every route for a restricted account', async () => {
@@ -349,7 +353,7 @@ describe('Jellyfin-compatible API', () => {
   it('tells an account\'s sockets about its own changes and the items it can see', async () => {
     const sent: any[] = []
     const socket = { id: 'test-socket', send: (text: string) => sent.push(JSON.parse(text)) }
-    events.connect(socket, authService.validateToken(normalToken)!)
+    sessions.connect(socket, authService.validateToken(normalToken)!)
     try {
       const movie = toJellyfinId(MOVIE)
       expect((await call('POST', `/UserFavoriteItems/${movie}`, normalToken)).status).toBe(200)
@@ -361,7 +365,35 @@ describe('Jellyfin-compatible API', () => {
       expect(user.Data.UserDataList).toMatchObject([{ ItemId: movie, IsFavorite: true }])
       expect((await call('DELETE', `/UserFavoriteItems/${movie}`, normalToken)).status).toBe(200)
     } finally {
-      events.disconnect(socket)
+      sessions.disconnect(socket)
+    }
+  })
+
+  it('lets one device of an account control another over its socket', async () => {
+    const device = (name: string, token?: string) => ({ Authorization: `MediaBrowser Client="Moonfin", Device="${name}", DeviceId="${name}-id", Version="1"${token ? `, Token="${token}"` : ''}` })
+    const signInAs = async (name: string) => ((await (await call('POST', '/Users/AuthenticateByName', undefined, { Username: 'alice', Pw: 'password' }, device(name))).json()) as { AccessToken: string }).AccessToken
+    const [tv, phone] = [await signInAs('tv'), await signInAs('phone')]
+    const received: any[] = []
+    const socket = { id: 'tv-socket', send: (text: string) => received.push(JSON.parse(text)) }
+    sessions.connect(socket, authService.validateToken(tv)!)
+    try {
+      expect((await call('POST', '/Sessions/Capabilities/Full', tv, { PlayableMediaTypes: ['Video'], SupportedCommands: ['DisplayMessage'], SupportsMediaControl: true }, device('tv', tv))).status).toBe(204)
+      expect((await call('POST', '/Sessions/Playing/Progress', tv, { ItemId: toJellyfinId(MOVIE), PositionTicks: 50_000_000, IsPaused: true }, device('tv', tv))).status).toBe(204)
+      const listed = await conforming('GET', '/Sessions?controllableByUserId=x', phone)
+      const target = listed.find((entry: any) => entry.DeviceId === 'tv-id')
+      expect(target).toMatchObject({ SupportsRemoteControl: true, SupportsMediaControl: true, NowPlayingItem: { Name: 'Arrival' }, PlayState: { IsPaused: true } })
+      expect((await call('POST', `/Sessions/${target.Id}/Playing/Unpause`, phone, undefined, device('phone', phone))).status).toBe(204)
+      expect((await call('POST', `/Sessions/${target.Id}/Playing?playCommand=PlayNow&itemIds=${toJellyfinId(MOVIE)}`, phone, undefined, device('phone', phone))).status).toBe(204)
+      expect((await call('POST', `/Sessions/${target.Id}/Message`, phone, { Text: 'Hello' }, device('phone', phone))).status).toBe(204)
+      expect(received.map((message) => [message.MessageType, message.Data.Command ?? message.Data.PlayCommand ?? message.Data.Name])).toEqual([
+        ['Playstate', 'Unpause'], ['Play', 'PlayNow'], ['GeneralCommand', 'DisplayMessage']
+      ])
+      // Another account neither sees nor controls these devices.
+      expect((await conforming('GET', '/Sessions', normalToken)).some((entry: any) => entry.DeviceId === 'tv-id')).toBe(false)
+      expect((await call('POST', `/Sessions/${target.Id}/Playing/Pause`, normalToken)).status).toBe(404)
+    } finally {
+      sessions.disconnect(socket)
+      await call('POST', '/Sessions/Playing/Stopped', tv, { ItemId: toJellyfinId(MOVIE), PositionTicks: 0 }, device('tv', tv))
     }
   })
 

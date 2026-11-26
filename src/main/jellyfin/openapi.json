@@ -5,6 +5,977 @@
   "version": "12.4.0"
  },
  "paths": {
+  "/Sessions": {
+   "get": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "GetSessions",
+    "parameters": [
+     {
+      "name": "controllableByUserId",
+      "in": "query",
+      "schema": {
+       "type": "string",
+       "format": "uuid"
+      }
+     },
+     {
+      "name": "deviceId",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "activeWithinSeconds",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int32"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SessionInfoDto"
+         }
+        }
+       },
+       "application/json; profile=\"CamelCase\"": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SessionInfoDto"
+         }
+        }
+       },
+       "application/json; profile=\"PascalCase\"": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SessionInfoDto"
+         }
+        }
+       }
+      }
+     },
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/Capabilities": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "PostCapabilities",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "playableMediaTypes",
+      "in": "query",
+      "schema": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/MediaType"
+       }
+      }
+     },
+     {
+      "name": "supportedCommands",
+      "in": "query",
+      "schema": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/GeneralCommandType"
+       }
+      }
+     },
+     {
+      "name": "supportsMediaControl",
+      "in": "query",
+      "schema": {
+       "type": "boolean",
+       "default": false
+      }
+     },
+     {
+      "name": "supportsPersistentIdentifier",
+      "in": "query",
+      "schema": {
+       "type": "boolean",
+       "default": true
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/Capabilities/Full": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "PostFullCapabilities",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/ClientCapabilitiesDto"
+         }
+        ]
+       }
+      },
+      "text/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/ClientCapabilitiesDto"
+         }
+        ]
+       }
+      },
+      "application/*+json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/ClientCapabilitiesDto"
+         }
+        ]
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Playing": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "Play",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "playCommand",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "enum": [
+        "PlayNow",
+        "PlayNext",
+        "PlayLast",
+        "PlayInstantMix",
+        "PlayShuffle"
+       ],
+       "allOf": [
+        {
+         "$ref": "#/components/schemas/PlayCommand"
+        }
+       ]
+      }
+     },
+     {
+      "name": "itemIds",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "format": "uuid"
+       }
+      }
+     },
+     {
+      "name": "startPositionTicks",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int64"
+      }
+     },
+     {
+      "name": "mediaSourceId",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "audioStreamIndex",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int32"
+      }
+     },
+     {
+      "name": "subtitleStreamIndex",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int32"
+      }
+     },
+     {
+      "name": "startIndex",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int32"
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Playing/{command}": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "SendPlaystateCommand",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "command",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "Stop",
+        "Pause",
+        "Unpause",
+        "NextTrack",
+        "PreviousTrack",
+        "Seek",
+        "Rewind",
+        "FastForward",
+        "PlayPause"
+       ],
+       "allOf": [
+        {
+         "$ref": "#/components/schemas/PlaystateCommand"
+        }
+       ]
+      }
+     },
+     {
+      "name": "seekPositionTicks",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "format": "int64"
+      }
+     },
+     {
+      "name": "controllingUserId",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Command": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "SendFullGeneralCommand",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/GeneralCommand"
+         }
+        ]
+       }
+      },
+      "text/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/GeneralCommand"
+         }
+        ]
+       }
+      },
+      "application/*+json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/GeneralCommand"
+         }
+        ]
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Command/{command}": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "SendGeneralCommand",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "command",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "MoveUp",
+        "MoveDown",
+        "MoveLeft",
+        "MoveRight",
+        "PageUp",
+        "PageDown",
+        "PreviousLetter",
+        "NextLetter",
+        "ToggleOsd",
+        "ToggleContextMenu",
+        "Select",
+        "Back",
+        "TakeScreenshot",
+        "SendKey",
+        "SendString",
+        "GoHome",
+        "GoToSettings",
+        "VolumeUp",
+        "VolumeDown",
+        "Mute",
+        "Unmute",
+        "ToggleMute",
+        "SetVolume",
+        "SetAudioStreamIndex",
+        "SetSubtitleStreamIndex",
+        "ToggleFullscreen",
+        "DisplayContent",
+        "GoToSearch",
+        "DisplayMessage",
+        "SetRepeatMode",
+        "ChannelUp",
+        "ChannelDown",
+        "Guide",
+        "ToggleStats",
+        "PlayMediaSource",
+        "PlayTrailers",
+        "SetShuffleQueue",
+        "PlayState",
+        "PlayNext",
+        "ToggleOsdMenu",
+        "Play",
+        "SetMaxStreamingBitrate",
+        "SetPlaybackOrder"
+       ],
+       "allOf": [
+        {
+         "$ref": "#/components/schemas/GeneralCommandType"
+        }
+       ]
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/System/{command}": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "SendSystemCommand",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "command",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "enum": [
+        "MoveUp",
+        "MoveDown",
+        "MoveLeft",
+        "MoveRight",
+        "PageUp",
+        "PageDown",
+        "PreviousLetter",
+        "NextLetter",
+        "ToggleOsd",
+        "ToggleContextMenu",
+        "Select",
+        "Back",
+        "TakeScreenshot",
+        "SendKey",
+        "SendString",
+        "GoHome",
+        "GoToSettings",
+        "VolumeUp",
+        "VolumeDown",
+        "Mute",
+        "Unmute",
+        "ToggleMute",
+        "SetVolume",
+        "SetAudioStreamIndex",
+        "SetSubtitleStreamIndex",
+        "ToggleFullscreen",
+        "DisplayContent",
+        "GoToSearch",
+        "DisplayMessage",
+        "SetRepeatMode",
+        "ChannelUp",
+        "ChannelDown",
+        "Guide",
+        "ToggleStats",
+        "PlayMediaSource",
+        "PlayTrailers",
+        "SetShuffleQueue",
+        "PlayState",
+        "PlayNext",
+        "ToggleOsdMenu",
+        "Play",
+        "SetMaxStreamingBitrate",
+        "SetPlaybackOrder"
+       ],
+       "allOf": [
+        {
+         "$ref": "#/components/schemas/GeneralCommandType"
+        }
+       ]
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Message": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "SendMessageCommand",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/MessageCommand"
+         }
+        ]
+       }
+      },
+      "text/json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/MessageCommand"
+         }
+        ]
+       }
+      },
+      "application/*+json": {
+       "schema": {
+        "allOf": [
+         {
+          "$ref": "#/components/schemas/MessageCommand"
+         }
+        ]
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
+  "/Sessions/{sessionId}/Viewing": {
+   "post": {
+    "tags": [
+     "Session"
+    ],
+    "operationId": "DisplayContent",
+    "parameters": [
+     {
+      "name": "sessionId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "itemType",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "enum": [
+        "AggregateFolder",
+        "Audio",
+        "AudioBook",
+        "BasePluginFolder",
+        "Book",
+        "BoxSet",
+        "Channel",
+        "ChannelFolderItem",
+        "CollectionFolder",
+        "Episode",
+        "Folder",
+        "Genre",
+        "ManualPlaylistsFolder",
+        "Movie",
+        "LiveTvChannel",
+        "LiveTvProgram",
+        "MusicAlbum",
+        "MusicArtist",
+        "MusicGenre",
+        "MusicVideo",
+        "Person",
+        "Photo",
+        "PhotoAlbum",
+        "Playlist",
+        "PlaylistsFolder",
+        "Program",
+        "Recording",
+        "Season",
+        "Series",
+        "Studio",
+        "Trailer",
+        "TvChannel",
+        "TvProgram",
+        "UserRootFolder",
+        "UserView",
+        "Video",
+        "Year"
+       ],
+       "allOf": [
+        {
+         "$ref": "#/components/schemas/BaseItemKind"
+        }
+       ]
+      }
+     },
+     {
+      "name": "itemId",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "itemName",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {},
+     "401": {},
+     "403": {},
+     "503": {
+      "headers": {
+       "Retry-After": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "integer",
+         "format": "int32"
+        }
+       },
+       "Message": {
+        "allowEmptyValue": true,
+        "schema": {
+         "type": "string",
+         "format": "text"
+        }
+       }
+      },
+      "content": {
+       "text/html": {}
+      }
+     }
+    },
+    "security": [
+     {
+      "CustomAuthentication": [
+       "DefaultAuthorization"
+      ]
+     }
+    ]
+   }
+  },
   "/Library/MediaFolders": {
    "get": {
     "tags": [
@@ -5145,267 +6116,6 @@
        }
       }
      },
-     "503": {
-      "headers": {
-       "Retry-After": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "integer",
-         "format": "int32"
-        }
-       },
-       "Message": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "string",
-         "format": "text"
-        }
-       }
-      },
-      "content": {
-       "text/html": {}
-      }
-     }
-    },
-    "security": [
-     {
-      "CustomAuthentication": [
-       "DefaultAuthorization"
-      ]
-     }
-    ]
-   }
-  },
-  "/Sessions/Capabilities": {
-   "post": {
-    "tags": [
-     "Session"
-    ],
-    "operationId": "PostCapabilities",
-    "parameters": [
-     {
-      "name": "id",
-      "in": "query",
-      "schema": {
-       "type": "string"
-      }
-     },
-     {
-      "name": "playableMediaTypes",
-      "in": "query",
-      "schema": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/MediaType"
-       }
-      }
-     },
-     {
-      "name": "supportedCommands",
-      "in": "query",
-      "schema": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/GeneralCommandType"
-       }
-      }
-     },
-     {
-      "name": "supportsMediaControl",
-      "in": "query",
-      "schema": {
-       "type": "boolean",
-       "default": false
-      }
-     },
-     {
-      "name": "supportsPersistentIdentifier",
-      "in": "query",
-      "schema": {
-       "type": "boolean",
-       "default": true
-      }
-     }
-    ],
-    "responses": {
-     "204": {},
-     "401": {},
-     "403": {},
-     "503": {
-      "headers": {
-       "Retry-After": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "integer",
-         "format": "int32"
-        }
-       },
-       "Message": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "string",
-         "format": "text"
-        }
-       }
-      },
-      "content": {
-       "text/html": {}
-      }
-     }
-    },
-    "security": [
-     {
-      "CustomAuthentication": [
-       "DefaultAuthorization"
-      ]
-     }
-    ]
-   }
-  },
-  "/Sessions/Capabilities/Full": {
-   "post": {
-    "tags": [
-     "Session"
-    ],
-    "operationId": "PostFullCapabilities",
-    "parameters": [
-     {
-      "name": "id",
-      "in": "query",
-      "schema": {
-       "type": "string"
-      }
-     }
-    ],
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "allOf": [
-         {
-          "$ref": "#/components/schemas/ClientCapabilitiesDto"
-         }
-        ]
-       }
-      },
-      "text/json": {
-       "schema": {
-        "allOf": [
-         {
-          "$ref": "#/components/schemas/ClientCapabilitiesDto"
-         }
-        ]
-       }
-      },
-      "application/*+json": {
-       "schema": {
-        "allOf": [
-         {
-          "$ref": "#/components/schemas/ClientCapabilitiesDto"
-         }
-        ]
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "204": {},
-     "401": {},
-     "403": {},
-     "503": {
-      "headers": {
-       "Retry-After": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "integer",
-         "format": "int32"
-        }
-       },
-       "Message": {
-        "allowEmptyValue": true,
-        "schema": {
-         "type": "string",
-         "format": "text"
-        }
-       }
-      },
-      "content": {
-       "text/html": {}
-      }
-     }
-    },
-    "security": [
-     {
-      "CustomAuthentication": [
-       "DefaultAuthorization"
-      ]
-     }
-    ]
-   }
-  },
-  "/Sessions": {
-   "get": {
-    "tags": [
-     "Session"
-    ],
-    "operationId": "GetSessions",
-    "parameters": [
-     {
-      "name": "controllableByUserId",
-      "in": "query",
-      "schema": {
-       "type": "string",
-       "format": "uuid"
-      }
-     },
-     {
-      "name": "deviceId",
-      "in": "query",
-      "schema": {
-       "type": "string"
-      }
-     },
-     {
-      "name": "activeWithinSeconds",
-      "in": "query",
-      "schema": {
-       "type": "integer",
-       "format": "int32"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "array",
-         "items": {
-          "$ref": "#/components/schemas/SessionInfoDto"
-         }
-        }
-       },
-       "application/json; profile=\"CamelCase\"": {
-        "schema": {
-         "type": "array",
-         "items": {
-          "$ref": "#/components/schemas/SessionInfoDto"
-         }
-        }
-       },
-       "application/json; profile=\"PascalCase\"": {
-        "schema": {
-         "type": "array",
-         "items": {
-          "$ref": "#/components/schemas/SessionInfoDto"
-         }
-        }
-       }
-      }
-     },
-     "401": {},
-     "403": {},
      "503": {
       "headers": {
        "Retry-After": {
@@ -17420,6 +18130,74 @@
     ],
     "type": "string"
    },
+   "GeneralCommand": {
+    "type": "object",
+    "properties": {
+     "Name": {
+      "enum": [
+       "MoveUp",
+       "MoveDown",
+       "MoveLeft",
+       "MoveRight",
+       "PageUp",
+       "PageDown",
+       "PreviousLetter",
+       "NextLetter",
+       "ToggleOsd",
+       "ToggleContextMenu",
+       "Select",
+       "Back",
+       "TakeScreenshot",
+       "SendKey",
+       "SendString",
+       "GoHome",
+       "GoToSettings",
+       "VolumeUp",
+       "VolumeDown",
+       "Mute",
+       "Unmute",
+       "ToggleMute",
+       "SetVolume",
+       "SetAudioStreamIndex",
+       "SetSubtitleStreamIndex",
+       "ToggleFullscreen",
+       "DisplayContent",
+       "GoToSearch",
+       "DisplayMessage",
+       "SetRepeatMode",
+       "ChannelUp",
+       "ChannelDown",
+       "Guide",
+       "ToggleStats",
+       "PlayMediaSource",
+       "PlayTrailers",
+       "SetShuffleQueue",
+       "PlayState",
+       "PlayNext",
+       "ToggleOsdMenu",
+       "Play",
+       "SetMaxStreamingBitrate",
+       "SetPlaybackOrder"
+      ],
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/GeneralCommandType"
+       }
+      ]
+     },
+     "ControllingUserId": {
+      "type": "string",
+      "format": "uuid"
+     },
+     "Arguments": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     }
+    },
+    "additionalProperties": false
+   },
    "GeneralCommandType": {
     "enum": [
      "MoveUp",
@@ -19099,6 +19877,28 @@
     },
     "additionalProperties": false
    },
+   "MessageCommand": {
+    "required": [
+     "Text"
+    ],
+    "type": "object",
+    "properties": {
+     "Header": {
+      "type": "string",
+      "nullable": true
+     },
+     "Text": {
+      "minLength": 1,
+      "type": "string"
+     },
+     "TimeoutMs": {
+      "type": "integer",
+      "format": "int64",
+      "nullable": true
+     }
+    },
+    "additionalProperties": false
+   },
    "MetadataField": {
     "enum": [
      "Cast",
@@ -19309,6 +20109,16 @@
     "enum": [
      "Full",
      "None"
+    ],
+    "type": "string"
+   },
+   "PlayCommand": {
+    "enum": [
+     "PlayNow",
+     "PlayNext",
+     "PlayLast",
+     "PlayInstantMix",
+     "PlayShuffle"
     ],
     "type": "string"
    },
@@ -19873,6 +20683,20 @@
      }
     },
     "additionalProperties": false
+   },
+   "PlaystateCommand": {
+    "enum": [
+     "Stop",
+     "Pause",
+     "Unpause",
+     "NextTrack",
+     "PreviousTrack",
+     "Seek",
+     "Rewind",
+     "FastForward",
+     "PlayPause"
+    ],
+    "type": "string"
    },
    "PluginInfo": {
     "type": "object",

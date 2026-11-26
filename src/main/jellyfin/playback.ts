@@ -16,6 +16,7 @@ import { getWebPlaybackInfo, serveSubtitle, updateWebPlayback } from '../service
 import { serveHls } from '../services/transcoding.service'
 import { TRICKPLAY_WIDTH, trickplaySheet } from '../services/trickplay.service'
 import * as events from './events'
+import { reportPlayback } from './sessions'
 import { resolveItemId, toJellyfinId } from './ids'
 import {
   FAVORITE, findItems, itemKind, mediaSource, mediaStreams, playableFile, relate, requireItem, videoRangeType, type Item, type MediaStream
@@ -401,6 +402,7 @@ async function progress(request: JellyfinRequest, stopped = false) {
   await updateWebPlayback(file.id, request.session!.accountId, completed || !resumable ? 0 : position, completed)
   // Other devices learn the resume position once playback stops, not on every report.
   if (stopped) events.userDataChanged(request.session!.accountId, [file.id])
+  reportPlayback(request, body, stopped)
   return undefined
 }
 
