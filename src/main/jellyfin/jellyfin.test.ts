@@ -21,7 +21,7 @@ import * as events from './events'
 import * as sessions from './sessions'
 import { discoveryReply } from './discovery'
 import * as settingsService from '../services/settings.service'
-import type { Settings } from '@shared/types'
+import type { JellyfinFolder, Settings } from '@shared/types'
 import * as authService from '../services/auth.service'
 import spec from './openapi.json'
 
@@ -278,6 +278,19 @@ describe('Jellyfin-compatible API', () => {
     // Behind a reverse proxy without a published address there is nothing reachable to offer.
     expect(discoveryReply('who is JellyfinServer?', '192.168.1.20', {} as Settings, { hostname: '127.0.0.1', port: 3001 })).toBeUndefined()
     expect(discoveryReply('who is EmbyServer?', '192.168.1.20', settings, { hostname: '::', port: 3001 })).toBeUndefined()
+    const named = { ...settings, jellyfinServerName: 'Living Room' } as Settings
+    expect(JSON.parse(discoveryReply('who is JellyfinServer?', '192.168.1.20', named, { hostname: '::', port: 3001 })!).Name).toBe('Living Room')
+  })
+
+  it('serves nothing while the Jellyfin API is turned off', async () => {
+    await settingsService.saveSettingsChanges({ jellyfinEnabled: false })
+    try {
+      expect((await call('GET', '/System/Info/Public')).status).toBe(404)
+      expect((await call('GET', '/Users/Me', adminToken)).status).toBe(404)
+    } finally {
+      await settingsService.saveSettingsChanges({ jellyfinEnabled: true })
+    }
+    expect((await call('GET', '/System/Info/Public')).status).toBe(200)
   })
 
   it('lets Seerr create an API key and read it back once', async () => {
@@ -425,6 +438,9 @@ describe('Jellyfin-compatible API', () => {
       const names = async (token: string) => (await conforming('GET', '/UserViews', token)).Items.map((view: any) => [view.Name, view.CollectionType])
       expect(await names(adminToken)).toEqual([['Science Fiction', 'movies'], ['Playlists', 'playlists']])
       expect(await names(normalToken)).toEqual([['Science Fiction', 'movies'], ['Collections', 'boxsets'], ['Playlists', 'playlists']])
+      // Settings lists the same folders for the account.
+      const listed = await app.handle(new Request('http://localhost/api/jellyfin-folders', { headers: { Authorization: `Bearer ${normalToken}` } }))
+      expect(((await listed.json()) as JellyfinFolder[]).map((folder) => [folder.name, folder.role])).toEqual([['Everything', 'collection'], ['Road Trip', 'playlist'], ['Science Fiction', 'movies']])
       const library = toJellyfinId(LIBRARY)
       expect((await conforming('GET', `/Items?ParentId=${library}&IncludeItemTypes=Movie&Recursive=true`)).Items.map((item: any) => item.Name)).toEqual(['Arrival'])
       const [collection] = (await conforming('GET', '/Items?IncludeItemTypes=BoxSet&Recursive=true', normalToken)).Items
@@ -444,6 +460,13 @@ describe('Jellyfin-compatible API', () => {
       expect((await entries()).map(([name]: string[]) => name)).toEqual(['Arrival'])
       // A playlist that follows any other filter is read-only.
       expect((await call('POST', `/Playlists/${collection.Id}/Items?ids=${toJellyfinId(MOVIE)}`, adminToken)).status).toBe(404)
+
+      // A real folder holds what lies beneath it: as a playlist, its episodes in path order, read-only.
+      ctx.db.run('INSERT INTO account_item_tags (account_id, item_id, key, value) VALUES (?, ?, ?, ?)', ['normal-1', SEASON, 'jellyfin', 'playlist'])
+      const season = toJellyfinId(SEASON)
+      expect((await conforming('GET', `/Playlists/${season}/Items`, normalToken)).Items.map((item: any) => item.Name)).toEqual(['Good News About Hell', 'Half Loop'])
+      expect((await call('POST', `/Playlists/${season}/Items?ids=${toJellyfinId(MOVIE)}`, adminToken)).status).toBe(404)
+      expect((await call('POST', `/Playlists/${season}/Items?ids=${toJellyfinId(MOVIE)}`, normalToken)).status).toBe(403)
     } finally {
       ctx.db.run(`DELETE FROM item_tags WHERE key IN ('jellyfin', 'playlist')`)
       ctx.db.run('DELETE FROM account_item_tags WHERE key = ?', ['jellyfin'])

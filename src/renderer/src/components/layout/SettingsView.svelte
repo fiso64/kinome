@@ -29,9 +29,11 @@
     VirtualTagConfig,
     Account,
     AccountRole,
-    Capability
+    Capability,
+    JellyfinFolder
   } from '@shared/types'
   import { navStore } from '@lib/navigation-store.svelte'
+  import { contextMenuStore } from '@lib/context-menu-store.svelte'
   import { authStore } from '@lib/auth-store.svelte'
 
   let { settings }: { settings: Settings | null } = $props()
@@ -44,7 +46,9 @@
     view: { label: 'View', icon: 'grid', capability: 'editSettings' },
     virtualTags: { label: 'Virtual Tags', icon: 'filter', capability: 'editSettings' },
     // Not a setting: listed here so the shortcuts are easy to find.
-    shortcuts: { label: 'Shortcuts', icon: 'keyboard', capability: null }
+    shortcuts: { label: 'Shortcuts', icon: 'keyboard', capability: null },
+    // Quick Connect and the folder list belong to every account; the server options need editSettings.
+    jellyfin: { label: 'Jellyfin', icon: 'film', capability: null }
   } satisfies Record<string, { label: string; icon: IconName; capability: Capability | null }>
 
   type SettingsTab = keyof typeof TABS
@@ -99,6 +103,8 @@
       shadowMinDepth: settings.shadowMinDepth ?? 1,
       serverPort: settings.serverPort ?? 3000,
       serverHost: settings.serverHost ?? '::',
+      jellyfinEnabled: settings.jellyfinEnabled !== false,
+      jellyfinServerName: settings.jellyfinServerName ?? '',
       jellyfinDiscovery: settings.jellyfinDiscovery !== false,
       jellyfinPublishedUrl: settings.jellyfinPublishedUrl ?? '',
       defaultLayoutSettings: settings.defaultLayoutSettings,
@@ -140,6 +146,49 @@
     hasPreferenceChanges ||
     changedFolders.length > 0
   )
+
+  // Jellyfin tab
+  let jellyfinFolders = $state<JellyfinFolder[] | null>(null)
+  const FOLDER_GROUPS = [
+    { label: 'Libraries', roles: ['movies', 'tvshows'] },
+    { label: 'Collections', roles: ['collection'] },
+    { label: 'Playlists', roles: ['playlist'] }
+  ] as const
+  const ROLE_LABELS: Record<JellyfinFolder['role'], string> = {
+    movies: 'Movies', tvshows: 'TV shows', collection: 'Collection', playlist: 'Playlist'
+  }
+  let quickConnectCode = $state('')
+  let quickConnectMessage = $state({ text: '', type: '' })
+  let approvingQuickConnect = $state(false)
+
+  $effect(() => {
+    if (activeTab === 'jellyfin' && !jellyfinFolders) {
+      api.getJellyfinFolders().then((folders) => (jellyfinFolders = folders)).catch(() => (jellyfinFolders = []))
+    }
+  })
+
+  /** Opens the folder's usual item menu. The list holds only names, so the folder is loaded first. */
+  async function showFolderMenu(folder: JellyfinFolder, event: MouseEvent) {
+    event.preventDefault()
+    try {
+      contextMenuStore.open(await api.getItem(folder.id), event)
+    } catch (err) {
+      dialogStore.showError({ title: 'Could Not Open Menu', message: (err as Error).message || 'The folder could not be loaded.' })
+    }
+  }
+
+  async function approveQuickConnect() {
+    approvingQuickConnect = true
+    try {
+      await api.approveQuickConnect(quickConnectCode)
+      quickConnectMessage = { text: 'The device is signed in.', type: 'success' }
+      quickConnectCode = ''
+    } catch {
+      quickConnectMessage = { text: 'No device is waiting with that code.', type: 'error' }
+    } finally {
+      approvingQuickConnect = false
+    }
+  }
 
   // Accounts tab
   let allAccounts = $state<Account[]>([])
@@ -494,26 +543,6 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <h2>Jellyfin Apps</h2>
-              <p class="help-text">Jellyfin apps connect to this server at <b>/jellyfin</b>.</p>
-              <div class="form-group checkbox-group">
-                <label>
-                  <input type="checkbox" bind:checked={draft.jellyfinDiscovery} />
-                  Let Jellyfin apps on the network find this server
-                </label>
-                <p class="help-text">Answers the apps' search on UDP port 7359.</p>
-              </div>
-              <div class="form-group">
-                <label for="jellyfin-published-url">Address for Jellyfin apps</label>
-                <input type="url" id="jellyfin-published-url" bind:value={draft.jellyfinPublishedUrl}
-                  placeholder="e.g. https://media.example.com" />
-                <p class="help-text">
-                  The address apps should use, such as your reverse proxy's. When empty, the server's own
-                  network address is offered, or none if it only listens on this machine.
-                </p>
-              </div>
-            </div>
           {:else if activeTab === 'library'}
             <div class="form-section">
               <LibrarySettingsForm
@@ -734,6 +763,136 @@
           {:else if activeTab === 'shortcuts'}
             <p class="help-text shortcuts-hint">Press ? anywhere to open this list.</p>
             <ShortcutReference />
+          {:else if activeTab === 'jellyfin'}
+            {@const canEdit = authStore.can.editSettings}
+            <div class="form-section">
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" data-action="jellyfin-enabled" bind:checked={draft.jellyfinEnabled} disabled={!canEdit} />
+                  <span>Serve a Jellyfin-compatible API</span>
+                </label>
+                <p class="help-text">
+                  Jellyfin apps on phones and TVs, Jellyfin's web client, and integrations such as Seerr, Sonarr
+                  and Radarr can use Kinome as a Jellyfin server. In an app, enter
+                  <b>{(draft.jellyfinPublishedUrl.trim().replace(/\/+$/, '') || location.origin)}/jellyfin</b>
+                  and sign in with a Kinome account.
+                </p>
+              </div>
+              {#if draft.jellyfinEnabled}
+                <div class="form-group">
+                  <label for="jellyfin-server-name">Server name</label>
+                  <input type="text" id="jellyfin-server-name" bind:value={draft.jellyfinServerName} placeholder="Kinome"
+                    maxlength="100" disabled={!canEdit} />
+                  <p class="help-text">The name apps show for this server.</p>
+                </div>
+                <div class="form-group">
+                  <label for="jellyfin-published-url">Address for Jellyfin apps</label>
+                  <input type="url" id="jellyfin-published-url" bind:value={draft.jellyfinPublishedUrl}
+                    placeholder="e.g. https://media.example.com" disabled={!canEdit} />
+                  <p class="help-text">
+                    The address apps should use, such as your reverse proxy's. When empty, the server's own
+                    network address is offered, or none if it only listens on this machine.
+                  </p>
+                </div>
+                <div class="form-group checkbox-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" bind:checked={draft.jellyfinDiscovery} disabled={!canEdit} />
+                    <span>Let Jellyfin apps on the network find this server</span>
+                  </label>
+                  <p class="help-text">Answers the apps' search on UDP port 7359, which the firewall must allow.</p>
+                </div>
+              {/if}
+            </div>
+
+            {#if draft.jellyfinEnabled}
+              <div class="form-section">
+                <h2>Quick Connect</h2>
+                <p class="help-text">Sign in a Jellyfin app as your account by entering the code it shows.</p>
+                <div class="quick-connect-row">
+                  <input aria-label="Quick Connect code" inputmode="numeric" placeholder="Code" bind:value={quickConnectCode}
+                    maxlength="6" disabled={approvingQuickConnect} onkeydown={(event) => event.key === 'Enter' && approveQuickConnect()} />
+                  <button class="secondary" data-action="approve-quick-connect" onclick={approveQuickConnect}
+                    disabled={approvingQuickConnect || !quickConnectCode.trim()}>Approve</button>
+                </div>
+                {#if quickConnectMessage.text}
+                  <p class="help-text" role="status">{quickConnectMessage.text}</p>
+                {/if}
+              </div>
+
+              <div class="form-section">
+                <h2>Libraries, Collections and Playlists</h2>
+                <p class="help-text">
+                  Apps see folders that carry a <code>jellyfin</code> tag. A real folder holds everything beneath it, a
+                  virtual folder what its filter matches. Set the tag in a folder's metadata for everyone, or as a
+                  personal tag for your account only. Personal tags win.
+                </p>
+                <dl class="jellyfin-roles">
+                  <dt><code>jellyfin:movies</code>, <code>jellyfin:tvshows</code></dt>
+                  <dd>A library of that kind. Until one folder is a library, apps show all movies and all TV shows as two libraries.</dd>
+                  <dt><code>jellyfin:collection</code></dt>
+                  <dd>A collection, listed under Collections.</dd>
+                  <dt><code>jellyfin:playlist</code></dt>
+                  <dd>
+                    A playlist. A real folder plays its movies and episodes in path order, a virtual folder in its
+                    sort and arrangement. If a virtual folder's filter is a single tag condition, such
+                    as <code>playlist = road trip</code>, apps can add, remove and reorder items, which sets that tag
+                    and arranges the folder.
+                  </dd>
+                </dl>
+                {#if !jellyfinFolders}
+                  <Skeleton width="100%" height="2.6rem" />
+                {:else}
+                  {#each FOLDER_GROUPS as group (group.label)}
+                    {@const folders = jellyfinFolders.filter((folder) => (group.roles as readonly string[]).includes(folder.role))}
+                    <div class="form-group">
+                      <h3>{group.label}</h3>
+                      {#if folders.length}
+                        <div class="layout-options-list">
+                          {#each folders as folder (folder.id)}
+                            <button class="view-config-row" data-action="open-jellyfin-folder" onclick={() => navStore.navigateToFolder(folder.id)}
+                              oncontextmenu={(event) => showFolderMenu(folder, event)}>
+                              <span>{folder.name}</span>
+                              <span class="layout-value">{ROLE_LABELS[folder.role]}</span>
+                              <span class="layout-row-arrow"><Icon name="right" size={16} /></span>
+                            </button>
+                          {/each}
+                        </div>
+                      {:else if group.label === 'Libraries'}
+                        <!-- What apps show until a folder is tagged as a library. -->
+                        <div class="layout-options-list">
+                          {#each ['Movies', 'TV Shows'] as name (name)}
+                            <div class="view-config-row" data-jellyfin-default-library>
+                              <span>{name}</span>
+                              <span class="layout-value">Default</span>
+                            </div>
+                          {/each}
+                        </div>
+                      {:else}
+                        <p class="help-text">None yet.</p>
+                      {/if}
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+
+              <div class="form-section">
+                <h2>Versions and Extras</h2>
+                <p class="help-text">
+                  Files in a movie's folder that are at least 70% as long as the longest are versions of it, offered in
+                  the apps' version menus. Shorter files, and files in subfolders such as <code>Extras</code>, are extras,
+                  typed by name: trailer, deleted scene, making of, interview and so on.
+                </p>
+              </div>
+
+              <div class="form-section">
+                <h2>Integrations</h2>
+                <p class="help-text">
+                  <b>Seerr:</b> choose Jellyfin, enter the address above and sign in as an administrator.
+                  <b>Sonarr and Radarr:</b> add an Emby / Jellyfin connection with the same address and an
+                  administrator's API key from <i>Accounts → Your Account → API Keys</i>, and turn off Send Notifications.
+                </p>
+              </div>
+            {/if}
           {/if}
         </div>
       </div>
@@ -975,6 +1134,13 @@
   }
 
   .layout-options-list { display: grid; gap: .45rem; }
+  /* The default libraries are shown, not opened. */
+  .view-config-row[data-jellyfin-default-library] { cursor: default; border-color: var(--color-border); box-shadow: var(--control-shadow); }
+  .quick-connect-row { display: flex; gap: .5rem; }
+  .quick-connect-row input { width: 8rem; }
+  .jellyfin-roles { display: grid; gap: .35rem; margin: 0; font-size: .85rem; }
+  .jellyfin-roles dt { font-weight: 600; }
+  .jellyfin-roles dd { margin: 0 0 .4rem; color: var(--color-text-dim); }
 
   .view-config-row {
     display: grid;

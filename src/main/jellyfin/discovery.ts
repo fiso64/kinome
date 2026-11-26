@@ -1,12 +1,12 @@
 /**
  * LAN discovery. Jellyfin apps broadcast "who is JellyfinServer?" to UDP port
  * 7359 and list the servers that answer with their address, ID and name. On
- * unless the jellyfinDiscovery setting turns it off.
+ * unless the jellyfinDiscovery setting, or the Jellyfin API as a whole, is off.
  */
 import os from 'node:os'
 import type { Settings } from '@shared/types'
 import * as settingsService from '../services/settings.service'
-import { JELLYFIN_BASE, SERVER_NAME } from './request'
+import { JELLYFIN_BASE, serverName } from './request'
 
 export const DISCOVERY_PORT = 7359
 const QUESTION = 'who is jellyfinserver?'
@@ -47,7 +47,7 @@ export function discoveryReply(message: string, sender: string, settings: Settin
     if (!address) return undefined
     base = `http://${address}:${listening.port}`
   }
-  return JSON.stringify({ Address: base + JELLYFIN_BASE, Id: settingsService.getServerId(), Name: SERVER_NAME, EndpointAddress: null })
+  return JSON.stringify({ Address: base + JELLYFIN_BASE, Id: settingsService.getServerId(), Name: serverName(settings), EndpointAddress: null })
 }
 
 let socket: Bun.udp.Socket<'buffer'> | undefined
@@ -57,7 +57,7 @@ let listening: Listening | undefined
 export async function applyDiscovery(server?: Listening): Promise<void> {
   listening = server ?? listening
   const settings = await settingsService.readSettings()
-  const enabled = settings.jellyfinDiscovery !== false && !!listening
+  const enabled = settings.jellyfinEnabled !== false && settings.jellyfinDiscovery !== false && !!listening
   if (enabled && !socket) {
     try {
       socket = await Bun.udpSocket({

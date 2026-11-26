@@ -32,8 +32,14 @@ const genres = ['Drama', 'Comedy', 'Thriller', 'Science Fiction', 'Animation', '
 const PEOPLE = 4000
 const DIRECTORS = 400
 
+// Titles sit in two real top-level folders, as on disk. MOVIES is also tagged a collection.
+const MOVIES = id('f', 1)
+const SHOWS = id('f', 2)
+
 const started = performance.now()
 ctx.db.transaction(() => {
+  ctx.seedItems([{ id: MOVIES, name: 'MOVIES', type: 'folder', path: 'MOVIES' }, { id: SHOWS, name: 'SHOWS', type: 'folder', path: 'SHOWS' }])
+  ctx.db.run('INSERT INTO item_tags (item_id, key, value) VALUES (?, ?, ?)', [MOVIES, 'jellyfin', 'collection'])
   const person = ctx.db.prepare('INSERT OR IGNORE INTO people (id, name) VALUES (?, ?)')
   for (let p = 0; p < PEOPLE; p++) person.run(p, `Person ${p}`)
   const credit = ctx.db.prepare('INSERT OR IGNORE INTO credits (entity_id, person_id, credit_type, job, display_order) VALUES (?, ?, ?, ?, ?)')
@@ -43,21 +49,21 @@ ctx.db.transaction(() => {
     credit.run(`m${n}`, (n * 13) % DIRECTORS, 'crew', 'Director', null)
     for (let k = 0; k < 20; k++) credit.run(`m${n}`, DIRECTORS + (n * 31 + k * 97) % (PEOPLE - DIRECTORS), 'cast', null, k)
     ctx.seedItems([
-      { id: id('a', n), name: `Movie ${n}`, type: 'folder', entityId: `m${n}`, path: `Movie ${n}` },
-      { id: id('b', n), parentId: id('a', n), name: `Movie ${n}.mkv`, path: `Movie ${n}/Movie ${n}.mkv` }
+      { id: id('a', n), parentId: MOVIES, name: `Movie ${n}`, type: 'folder', entityId: `m${n}`, path: `MOVIES/Movie ${n}` },
+      { id: id('b', n), parentId: id('a', n), name: `Movie ${n}.mkv`, path: `MOVIES/Movie ${n}/Movie ${n}.mkv` }
     ])
   }
   for (let s = 0; s < series; s++) {
     ctx.seedEntities([{ id: `s${s}`, tmdbId: 2_000_000 + s, mediaType: 'tv', title: `Series ${s}` }])
-    ctx.seedItems([{ id: id('c', s), name: `Series ${s}`, type: 'folder', entityId: `s${s}`, path: `Series ${s}` }])
+    ctx.seedItems([{ id: id('c', s), parentId: SHOWS, name: `Series ${s}`, type: 'folder', entityId: `s${s}`, path: `SHOWS/Series ${s}` }])
     for (let season = 1; season <= SEASONS; season++) {
       const seasonId = id('d', s * 10 + season)
       ctx.seedEntities([{ id: `s${s}-${season}`, mediaType: 'season', seasonNumber: season }])
-      ctx.seedItems([{ id: seasonId, parentId: id('c', s), name: `Season ${season}`, type: 'folder', entityId: `s${s}-${season}`, path: `Series ${s}/Season ${season}` }])
+      ctx.seedItems([{ id: seasonId, parentId: id('c', s), name: `Season ${season}`, type: 'folder', entityId: `s${s}-${season}`, path: `SHOWS/Series ${s}/Season ${season}` }])
       for (let episode = 1; episode <= EPISODES; episode++) {
         const key = `s${s}-${season}-${episode}`
         ctx.seedEntities([{ id: key, mediaType: 'episode', seasonNumber: season, episodeNumber: episode, title: `Episode ${episode}` }])
-        ctx.seedItems([{ id: id('e', (s * 10 + season) * 100 + episode), parentId: seasonId, name: `${key}.mkv`, entityId: key, path: `Series ${s}/Season ${season}/${key}.mkv` }])
+        ctx.seedItems([{ id: id('e', (s * 10 + season) * 100 + episode), parentId: seasonId, name: `${key}.mkv`, entityId: key, path: `SHOWS/Series ${s}/Season ${season}/${key}.mkv` }])
       }
     }
   }
@@ -121,6 +127,7 @@ const routes = [
   ['search', '/Items?searchTerm=Movie 25&Recursive=true&IncludeItemTypes=Movie,Series&Limit=24'],
   ['genres', `/Genres?ParentId=${LIBRARIES.movies.id}`],
   ['similar movies', `/Items/${id('a', Math.floor(movies / 2)).slice(0, 32)}/Similar?Fields=PrimaryImageAspectRatio`],
+  ['real folder collection', `/Items?ParentId=${MOVIES.slice(0, 32)}&${fields}&SortBy=SortName&StartIndex=2400&Limit=100`],
   ['sonarr lookup', '/Items?recursive=true&includeItemTypes=Series&fields=Path,ProviderIds&years=2022'],
 ] as const
 

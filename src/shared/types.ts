@@ -289,10 +289,21 @@ export interface ServerSettings {
   playbackQualities?: VideoQuality[]
   playbackEncoding?: PlaybackEncodingPreferences
   playbackConversionAvailable?: boolean
+  /** The Jellyfin-compatible API at /jellyfin is served unless this is false. */
+  jellyfinEnabled?: boolean
+  /** The name Jellyfin apps show for this server. Kinome when empty. */
+  jellyfinServerName?: string
   /** Jellyfin apps on the network find this server unless this is false. */
   jellyfinDiscovery?: boolean
   /** The address Jellyfin apps reach Kinome at, such as a reverse proxy's. Without it, the LAN address is offered. */
   jellyfinPublishedUrl?: string
+}
+
+/** A virtual folder that Jellyfin apps show, by its jellyfin tag. */
+export interface JellyfinFolder {
+  id: string
+  name: string
+  role: 'movies' | 'tvshows' | 'collection' | 'playlist'
 }
 
 /**
@@ -358,6 +369,8 @@ export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'playbackQualities',
   'playbackEncoding',
   'libraryLocation',
+  'jellyfinEnabled',
+  'jellyfinServerName',
   'jellyfinDiscovery',
   'jellyfinPublishedUrl'
 ]

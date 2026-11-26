@@ -529,8 +529,9 @@ function people(item: Item): BaseItemDto['People'] {
 // --- Libraries, collections and playlists ---
 
 /**
- * A virtual folder's role for Jellyfin clients, chosen with its tag jellyfin:<role>.
- * A personal tag decides for its account. Without any library folder, movies
+ * A folder's role for Jellyfin clients, chosen with its tag jellyfin:<role>.
+ * A virtual folder holds what its filter matches, a real folder everything
+ * beneath it. A personal tag decides for its account. Without any library folder, movies
  * and series form the two default libraries.
  */
 export type FolderRole = LibraryKey | 'collection' | 'playlist'
@@ -552,16 +553,21 @@ export interface View {
 
 const foldersByRequest = new WeakMap<JellyfinRequest, Folder[]>()
 
-/** The tagged virtual folders the account can see, read once per request. */
+/** The tagged folders the account can see. */
+export function accountFolders(accountId: string): Folder[] {
+  const roles = repositoryService.itemsWithTagKey(accountId, TAG)
+  const ids = [...roles].flatMap(([id, role]) => ROLES.has(role) ? [id] : [])
+  return ids.length
+    ? findItems({ where: { id: ids, type: 'folder' }, orderBy: [{ field: 'displayName', direction: 'ASC' }] }, ['filter'])
+      .map((item) => ({ item, role: roles.get(item.id) as FolderRole }))
+    : []
+}
+
+/** The account's tagged folders, read once per request. */
 export function taggedFolders(request: JellyfinRequest): Folder[] {
   let folders = foldersByRequest.get(request)
   if (!folders) {
-    const roles = repositoryService.itemsWithTagKey(request.session!.accountId, TAG)
-    const ids = [...roles].flatMap(([id, role]) => ROLES.has(role) ? [id] : [])
-    folders = ids.length
-      ? findItems({ where: { id: ids, isVirtual: 1 }, orderBy: [{ field: 'displayName', direction: 'ASC' }] }, ['filter'])
-        .map((item) => ({ item, role: roles.get(item.id) as FolderRole }))
-      : []
+    folders = accountFolders(request.session!.accountId)
     foldersByRequest.set(request, folders)
   }
   return folders
@@ -630,13 +636,20 @@ function anyOf(conditions: CompiledSql[]): CompiledSql {
   }
 }
 
+/** Items a folder holds: what a virtual folder's filter matches, or everything beneath a real folder. */
+export function folderContents(folder: Folder): CompiledSql {
+  return folder.item.isVirtual
+    ? virtualFoldersService.filterCondition(folder.item.filter ?? { scope: { manual: true } })
+    : repositoryService.descendantsCondition([folder.item.id])
+}
+
 /**
- * Items a folder holds. Seasons and episodes belong to it through their
- * series, found first by ID so the condition stays a plain index lookup.
+ * Items a folder holds. Seasons and episodes of a virtual folder belong to it
+ * through their series, found first by ID so the condition stays a plain index lookup.
  */
 function folderCondition(folder: Folder, kinds: ItemKind[]): CompiledSql {
-  const matched = virtualFoldersService.filterCondition(folder.item.filter ?? { scope: { manual: true } })
-  if (!kinds.some((kind) => kind === 'Season' || kind === 'Episode')) return matched
+  const matched = folderContents(folder)
+  if (!folder.item.isVirtual || !kinds.some((kind) => kind === 'Season' || kind === 'Episode')) return matched
   const series = repositoryService.find({ fields: ['id'], where: { mediaKind: 'tv' }, compiledConditions: matched }).map((item) => item.id)
   return series.length ? anyOf([matched, repositoryService.descendantsCondition(series)]) : matched
 }

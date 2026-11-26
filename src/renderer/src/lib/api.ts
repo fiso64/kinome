@@ -128,6 +128,7 @@ export interface ApiClient {
   listApiKeys(): Promise<import('@shared/types').ApiKey[]>
   getPersonalTags(itemId: string): Promise<Record<string, string>>
   approveQuickConnect(code: string): Promise<void>
+  getJellyfinFolders(): Promise<import('@shared/types').JellyfinFolder[]>
   savePersonalTags(itemId: string, tags: Record<string, string>): Promise<void>
   createApiKey(name: string): Promise<import('@shared/types').ApiKey & { token: string }>
   revokeApiKey(id: string): Promise<void>

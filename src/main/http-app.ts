@@ -32,9 +32,8 @@ import * as accountFilterRepo from './database/repositories/account-filter.repo'
 import * as accountFilterService from './services/account-filter.service'
 import { setCurrentAccountId } from './request-context'
 import { getTransport } from './transport.registry'
-import { JELLYFIN_BASE, handleJellyfinRequest, jellyfinSocket } from './jellyfin'
+import { JELLYFIN_BASE, applyJellyfinSettings, handleJellyfinRequest, jellyfinFolders, jellyfinSocket } from './jellyfin'
 import * as jellyfinEvents from './jellyfin/events'
-import { applyDiscovery } from './jellyfin/discovery'
 
 // --- Security Middleware & Constants ---
 
@@ -379,6 +378,8 @@ export function buildApp() {
           if (!authService.authorizeQuickConnect(session.accountId, body.code)) { set.status = 404; return { success: false } }
           return { success: true }
         }, { body: t.Object({ code: t.String({ maxLength: 20 }) }) })
+        // The account's virtual folders that Jellyfin apps show as libraries, collections and playlists.
+        .get('/jellyfin-folders', ({ session }: { session: authService.SessionData }) => jellyfinFolders(session.accountId))
         // API keys belong to the signed-in account and act with its permissions.
         .get('/api-keys', ({ session }: { session: authService.SessionData }) => authService.listApiKeys(session.accountId))
         .post('/api-keys', ({ body, session }: { body: { name: string }; session: authService.SessionData }) =>
@@ -832,7 +833,7 @@ export function buildApp() {
               const changes = await settingsService.saveSettingsChanges(body)
               if (Object.keys(changes).length > 0) playbackService.clearStreamCache()
               if (changes.virtualTags) libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
-              if ('jellyfinDiscovery' in changes) void applyDiscovery()
+              if ('jellyfinDiscovery' in changes || 'jellyfinEnabled' in changes) void applyJellyfinSettings()
               if (changes.libraryLocation) {
                 await libraryService.switchToLibrary(changes.libraryLocation)
                 getTransport().forceRendererReload()

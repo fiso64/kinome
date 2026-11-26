@@ -1,6 +1,7 @@
 /**
- * Playlists are virtual folders tagged jellyfin:playlist, in the folder's sort
- * with its arranged items, as Kinome shows them. A folder whose filter is a
+ * Playlists are folders tagged jellyfin:playlist. A virtual folder plays in its
+ * sort with its arranged items, as Kinome shows it; a real folder plays the
+ * movies and episodes beneath it in path order. A folder whose filter is a
  * single tag condition can be edited from apps: adding an item sets that tag
  * on it, removing clears it, and a move arranges the item after its new
  * predecessor. Other playlists are read-only.
@@ -11,7 +12,7 @@ import * as libraryService from '../services/library.service'
 import * as navigationService from '../services/navigation.service'
 import * as repositoryService from '../services/repository.service'
 import { toJellyfinId } from './ids'
-import { ITEM_FIELDS, dtoOptions, findFolder, getItem, isPresentable, relate, toDto, type Folder, type Item } from './items'
+import { ITEM_FIELDS, dtoOptions, findFolder, findItems, folderContents, getItem, isPresentable, relate, toDto, type Folder, type Item } from './items'
 import { JellyfinError, forbidden, json, notFound, route, type JellyfinRequest } from './request'
 
 function requirePlaylist(request: JellyfinRequest): Folder {
@@ -36,7 +37,12 @@ function requireEditable(request: JellyfinRequest, folder: Folder) {
   return tag
 }
 
+/** A virtual folder's children in its sort and arrangement, or the movies and episodes beneath a real folder in path order. */
 async function entries(folder: Folder): Promise<Item[]> {
+  if (!folder.item.isVirtual) {
+    return findItems({ where: { mediaKind: ['movie', 'episode'] }, compiledConditions: folderContents(folder), orderBy: [{ field: 'path', direction: 'ASC' }] })
+      .filter(isPresentable)
+  }
   const children = await navigationService.getChildren(folder.item.id, { fields: ITEM_FIELDS })
   return Array.isArray(children) ? (children as Item[]).filter(isPresentable) : []
 }

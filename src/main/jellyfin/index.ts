@@ -4,9 +4,11 @@
  * See docs/jellyfin-api-proposal.md.
  */
 import * as authService from '../services/auth.service'
+import * as settingsService from '../services/settings.service'
 import { runWithAccount } from '../request-context'
 import { imageRoutes } from './images'
-import { itemRoutes } from './items'
+import { applyDiscovery, type Listening } from './discovery'
+import { accountFolders, itemRoutes } from './items'
 import { libraryRoutes } from './library'
 import { grantedSession, playbackRoutes } from './playback'
 import { playlistRoutes } from './playlists'
@@ -72,6 +74,8 @@ function withCors(response: Response): Response {
 
 export async function handleJellyfinRequest(request: Request, current: Server | null): Promise<Response> {
   server = current
+  const settings = await settingsService.readSettings()
+  if (settings.jellyfinEnabled === false) return new Response(null, { status: 404 })
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   const url = new URL(request.url)
   if (url.protocol === 'http:' && request.headers.get('x-forwarded-proto') === 'https') url.protocol = 'https:'
@@ -101,7 +105,7 @@ export async function handleJellyfinRequest(request: Request, current: Server | 
   let body: Promise<Record<string, unknown> | undefined> | undefined
   const context: JellyfinRequest = {
     request, url, baseUrl: url.origin + JELLYFIN_BASE, params: found.params, query, session, token, device, address,
-    camelCase: wantsCamelCase(request),
+    camelCase: wantsCamelCase(request), settings,
     body: () => body ??= request.text().then((text) => text ? JSON.parse(text) : undefined).catch(() => undefined)
   }
   // Media can be read slowly for as long as it plays.
@@ -130,10 +134,14 @@ interface Socket extends EventSocket {
 
 /** Clients keep a socket open for server events. See events.ts. */
 export const jellyfinSocket = {
-  open(ws: Socket) {
+  async open(ws: Socket) {
     const query = ws.data.query ?? {}
     const token = query.api_key ?? query.ApiKey ?? query.apikey
     const session = token ? authService.validateToken(token) : null
+    if ((await settingsService.readSettings()).jellyfinEnabled === false) {
+      ws.close(4404, 'Not found')
+      return
+    }
     if (!session) {
       ws.close(4401, 'Unauthorized')
       return
@@ -148,4 +156,19 @@ export const jellyfinSocket = {
     const text = typeof message === 'string' ? message : JSON.stringify(message)
     if (/"MessageType"\s*:\s*"KeepAlive"/.test(text)) ws.send(JSON.stringify({ MessageType: 'KeepAlive' }))
   }
+}
+
+/**
+ * Brings the API in line with the settings: discovery follows them, and turning
+ * the API off disconnects the apps' sockets. Called at startup and on changes.
+ */
+export async function applyJellyfinSettings(listening?: Listening): Promise<void> {
+  await applyDiscovery(listening)
+  if ((await settingsService.readSettings()).jellyfinEnabled !== false) return
+  for (const { socket } of sessions.connectedSockets()) socket.close?.(4404, 'Not found')
+}
+
+/** The folders an account has made libraries, collections and playlists, for Settings. */
+export function jellyfinFolders(accountId: string) {
+  return accountFolders(accountId).map(({ item, role }) => ({ id: item.id, name: item.title || item.name, role }))
 }

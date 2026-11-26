@@ -2,12 +2,17 @@
  * Request and response plumbing for the Jellyfin-compatible API.
  * Jellyfin routes, query names and JSON body keys are case-insensitive.
  */
+import type { Settings } from '@shared/types'
 import type { SessionData } from '../services/auth.service'
 import type { AuthTokenDevice } from '../database/repositories/auth-token.repo'
 
-/** Where the Jellyfin-compatible API is served, and the name it gives itself. */
+/** Where the Jellyfin-compatible API is served. */
 export const JELLYFIN_BASE = '/jellyfin'
-export const SERVER_NAME = 'Kinome'
+
+/** The name apps show for this server. */
+export function serverName(settings: Settings): string {
+  return settings.jellyfinServerName?.trim() || 'Kinome'
+}
 
 export class JellyfinError extends Error {
   constructor(readonly status: number, message = '') {
@@ -75,6 +80,7 @@ export interface JellyfinRequest {
   address: string
   device: AuthTokenDevice
   camelCase: boolean
+  settings: Settings
   body: () => Promise<Record<string, unknown> | undefined>
 }
 

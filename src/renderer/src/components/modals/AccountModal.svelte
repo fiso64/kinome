@@ -39,22 +39,6 @@
   let keyName = $state('')
   let newKey = $state<{ name: string; token: string }>()
   let keyMessage = $state({ text: '', type: '' })
-  let quickConnectCode = $state('')
-  let quickConnectMessage = $state({ text: '', type: '' })
-
-  async function approveQuickConnect() {
-    saving = true
-    try {
-      await api.approveQuickConnect(quickConnectCode)
-      quickConnectMessage = { text: 'The device is signed in.', type: 'success' }
-      quickConnectCode = ''
-    } catch {
-      quickConnectMessage = { text: 'No device is waiting with that code.', type: 'error' }
-    } finally {
-      saving = false
-    }
-  }
-
   onMount(async () => {
     if (isSelf) {
       apiKeys = await api.listApiKeys().catch(() => [])
@@ -246,23 +230,6 @@
         {#if keyMessage.text}
           <p class="message" role="status" class:success={keyMessage.type === 'success'} class:error={keyMessage.type === 'error'}>
             {keyMessage.text}
-          </p>
-        {/if}
-      </div>
-    {/if}
-
-    {#if isSelf}
-      <div class="section raised-surface">
-        <h3>Quick Connect</h3>
-        <p class="message">Sign in a Jellyfin app as your account by entering the code it shows.</p>
-        <div class="role-row">
-          <input aria-label="Quick Connect code" inputmode="numeric" placeholder="Code" bind:value={quickConnectCode} maxlength="6" disabled={saving}
-            onkeydown={(event) => event.key === 'Enter' && approveQuickConnect()} />
-          <button class="secondary" data-action="approve-quick-connect" onclick={approveQuickConnect} disabled={saving || !quickConnectCode.trim()}>Approve</button>
-        </div>
-        {#if quickConnectMessage.text}
-          <p class="message" role="status" class:success={quickConnectMessage.type === 'success'} class:error={quickConnectMessage.type === 'error'}>
-            {quickConnectMessage.text}
           </p>
         {/if}
       </div>

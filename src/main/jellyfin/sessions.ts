@@ -18,6 +18,7 @@ type SessionInfoDto = components['schemas']['SessionInfoDto']
 export interface EventSocket {
   id: string
   send(message: string): void
+  close?(code?: number, reason?: string): void
 }
 
 interface Playing {

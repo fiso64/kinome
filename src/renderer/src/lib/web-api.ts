@@ -601,6 +601,10 @@ class WebApiClient implements ApiClient {
     })
   }
 
+  getJellyfinFolders(): Promise<import('@shared/types').JellyfinFolder[]> {
+    return this.request('/api/jellyfin-folders')
+  }
+
   approveQuickConnect(code: string): Promise<void> {
     return this.request('/api/quick-connect', { method: 'POST', body: JSON.stringify({ code }) })
   }

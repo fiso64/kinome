@@ -11,7 +11,7 @@ import * as accountRepo from '../database/repositories/account.repo'
 import * as displayPreferencesRepo from './display-preferences.repo'
 import { getPlaybackPreferences, savePlaybackPreferences } from '../services/web-playback.service'
 import { accountToJellyfinId, resolveAccountId } from './ids'
-import { JellyfinError, SERVER_NAME, field, forbidden, json, notFound, route, type JellyfinRequest } from './request'
+import { JellyfinError, field, serverName, forbidden, json, notFound, route, type JellyfinRequest } from './request'
 import { JELLYFIN_VERSION } from './web'
 import { sessionDto } from './sessions'
 
@@ -74,7 +74,7 @@ export function userDto(user: Account, preferences = getPlaybackPreferences(user
 
 function publicInfo(request: JellyfinRequest) {
   return {
-    LocalAddress: request.baseUrl, ServerName: SERVER_NAME, Version: JELLYFIN_VERSION, ProductName: 'Jellyfin Server',
+    LocalAddress: request.baseUrl, ServerName: serverName(request.settings), Version: JELLYFIN_VERSION, ProductName: 'Jellyfin Server',
     OperatingSystem: '', Id: settingsService.getServerId(), StartupWizardCompleted: true
   }
 }
@@ -212,7 +212,7 @@ export function serverRoutes(requestIp: (request: Request) => string) {
     route('GET', '/System/Endpoint', (request) => json(request, { IsLocal: false, IsInNetwork: true })),
     // Sonarr and Radarr test the connection with this request.
     route('GET', '/System/Configuration', (request) => json(request, {
-      ServerName: SERVER_NAME, IsStartupWizardCompleted: true, EnableMetrics: false, QuickConnectAvailable: true,
+      ServerName: serverName(request.settings), IsStartupWizardCompleted: true, EnableMetrics: false, QuickConnectAvailable: true,
       CastReceiverApplications: [CAST_RECEIVER],
       PreferredMetadataLanguage: 'en', MetadataCountryCode: 'US', MinResumePct: 5, MaxResumePct: 90, MinResumeDurationSeconds: 300
     })),
