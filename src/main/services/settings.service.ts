@@ -13,7 +13,7 @@ import type {
   LibrarySettings,
   GlobalConfig
 } from '@shared/types'
-import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG, LIBRARY_ROOT_ID } from '@shared/types'
+import { SERVER_SETTING_KEYS, LAYOUT_SPECIFIC_SETTINGS_CONFIG, LIBRARY_ROOT_ID, DEFAULT_LAYOUTS } from '@shared/types'
 import {
   getLibraryDataPath,
   isRemoteLibrary,
@@ -27,12 +27,6 @@ const GLOBAL_SETTINGS_FILE_NAME = 'settings.json'
 const LIBRARY_SETTINGS_FILE_NAME = 'library-settings.json'
 const DEFAULT_STRING_B = 'ZDRjNDk4OWQwZm4kqI4Njc1MmY1ZDc1MzczZjExZGIwNmU=' // make bots work for it a little
 const DEFAULT_STRING = Buffer.from(DEFAULT_STRING_B.replace('4kq', ''), 'base64').toString('utf-8')
-const DEFAULT_LAYOUTS: Settings['defaultLayouts'] = {
-  _default: { layout: 'grid' },
-  movie: { layout: 'tree' },
-  tv: { layout: 'tabs' },
-  season: { layout: 'list', listDescriptionRows: 3 }
-}
 
 let cachedSettings: Settings | null = null
 let cachedAbsoluteSourcePaths: Map<string, string> | null = null

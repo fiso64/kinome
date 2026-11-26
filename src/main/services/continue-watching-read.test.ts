@@ -12,6 +12,7 @@
  * never call updateIfChangedAndBroadcast or trigger broadcasts.
  */
 import { mock, spyOn } from 'bun:test'
+import { DEFAULT_LAYOUTS, LAYOUT_SPECIFIC_SETTINGS_CONFIG } from '@shared/types'
 import path from 'path'
 
 // ─── Mock I/O boundaries BEFORE importing modules under test ────────────────
@@ -56,8 +57,9 @@ mock.module(SETTINGS_PATH, () => ({
     libraryLocation: '',
     mediaSourcePath: '',
     mediaSourcePathIsRelative: false,
-    defaultLayoutSettings: {},
-    defaultLayouts: {},
+    // Bun keeps module mocks for later test files, which may resolve view layouts.
+    defaultLayoutSettings: structuredClone(LAYOUT_SPECIFIC_SETTINGS_CONFIG),
+    defaultLayouts: structuredClone(DEFAULT_LAYOUTS),
     searchResultView: {},
     searchPopupView: {},
     itemDetailBackdropSize: 'small',

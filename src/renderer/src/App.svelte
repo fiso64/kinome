@@ -6,6 +6,7 @@
   import ContextMenuRoot from '@components/layout/ContextMenuRoot.svelte'
   import Dialog from '@ui/Dialog.svelte'
   import NotificationContainer from '@ui/NotificationContainer.svelte'
+  import PullToRefresh from '@components/layout/PullToRefresh.svelte'
   import { initializeShortcuts } from '@lib/shortcuts'
   import { dialogStore } from '@lib/dialog-store'
   import { notificationStore } from '@lib/notification-store.svelte'
@@ -785,7 +786,7 @@
     <ModalRoot bind:settings {groupByKeys} onRefresh={handleRefresh} />
 
     <ContextMenuRoot {settings} {actions} onItemClick={handleItemClick} onOpenMatchingFile={(id) => navStore.openDetail(id)} onPlay={handlePlayFile} />
-    {#if !playback}<NotificationContainer />{/if}
+    {#if !playback}<NotificationContainer /><PullToRefresh />{/if}
 
     {#if $autocompleteState.show}
       <AutocompleteMenu

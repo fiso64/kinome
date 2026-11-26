@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { LocalMediaTrack } from '@shared/local-media'
 import { avcFormat, isHdrTransfer, videoQualityHeights, type PlaybackEncodingPreferences, type PlaybackOutput, type PlaybackVideoBackend, type VideoQuality } from '@shared/playback-quality'
 import { endOfSegment, transcodeSegmentSeconds, type PlaybackTimeline } from './timeline'
+import { LIBPLACEBO_TO_SDR, vaapiDeviceArgs, type VaapiAccelerator } from './runtime'
 
 export type SegmentQuality = VideoQuality | 'remux' | 'audio'
 
@@ -23,7 +24,7 @@ export interface SegmentSource {
   channelLimit: number
   encoding: PlaybackEncodingPreferences
   timeline: PlaybackTimeline
-  vaapiDevice?: string
+  vaapi?: VaapiAccelerator
 }
 
 
@@ -58,7 +59,7 @@ export function startSegmentJob(
   const openingLead = source.browser && start === 0 && firstPicture - firstSound > 0.25 ? firstPicture - firstSound : 0
   const splitTimes = boundaries.map((time) => (time - firstPicture + openingLead).toFixed(6))
   const remux = copiesVideo(quality)
-  const hardware = !remux && mode !== 'software' ? source.vaapiDevice : undefined
+  const hardware = !remux && mode !== 'software' ? source.vaapi : undefined
   const interlaced = ['tt', 'bb', 'tb', 'bt'].includes(video.fieldOrder ?? '')
   const preserveTimestamps = !remux && !(interlaced && hardware)
   const checkCuts = preserveTimestamps && !fillVideoGaps
@@ -79,8 +80,8 @@ export function startSegmentJob(
   const args = [
     executable, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
     '-copyts', '-start_at_zero',
-    ...(hardware ? ['-vaapi_device', hardware] : []),
-    ...(mode === 'vaapi' ? ['-hwaccel', 'vaapi', '-hwaccel_output_format', 'vaapi'] : []),
+    ...(hardware ? vaapiDeviceArgs(hardware) : []),
+    ...(mode === 'vaapi' ? ['-hwaccel', 'vaapi', ...(hardware?.libplacebo ? ['-hwaccel_device', 'va'] : []), '-hwaccel_output_format', 'vaapi'] : []),
     // A copied video seeks just past its keyframe to select the correct cue.
     // Keep the corresponding decoded audio preroll instead of trimming it to
     // that later timestamp when only the audio is being converted.
@@ -130,7 +131,9 @@ export function startSegmentJob(
           ...(mode === 'vaapi-upload' ? [tenBit ? 'format=p010le' : 'format=nv12', 'hwupload'] : []),
           ...(interlaced ? ['deinterlace_vaapi=rate=field:auto=1'] : []),
           `scale_vaapi=${scale}:format=${tenBit ? 'p010' : 'nv12'}`,
-          ...(toneMap ? ['tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709'] : [])
+          // libplacebo works on the scaled picture in memory, which this GPU path copies out and back.
+          ...(toneMap ? hardware.libplacebo ? ['hwdownload', 'format=p010le', LIBPLACEBO_TO_SDR, 'hwupload']
+            : ['tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709'] : [])
         ]
       : [
           ...(interlaced ? ['bwdif=mode=send_field:deint=interlaced'] : []),
@@ -164,16 +167,23 @@ export function startSegmentJob(
       filters.push("split[video][clock];[clock]select='isnan(prev_t)+gt(floor(t),floor(prev_t))'," +
         "metadata=mode=add:key=cut:value=1,metadata=mode=print:key=cut:file='pipe\\:1':direct=1,nullsink;[video]null")
     }
-    const bitrate = encoding.videoBitrateMbps
+    // The quality setting picks the encoding quality. A maximum bitrate caps it for limited links.
+    const maximum = encoding.videoBitrateMbps
     const high = encoding.videoQuality === 'high'
-    if (bitrate) {
-      if (hardware) encoder.push('-rc_mode', 'VBR')
-      encoder.push('-b:v', `${bitrate}M`, '-maxrate', `${bitrate}M`, '-bufsize', `${2 * bitrate}M`)
+    if (hardware && maximum) {
+      // VA-API drivers have no mode that encodes for quality under a ceiling: Intel's QVBR
+      // follows its average like VBR. Scaling the average with the picture area keeps smaller
+      // sizes smaller, which Automatic quality relies on when it steps down.
+      const average = maximum * Math.min(1, width * height / (1920 * 1080))
+      encoder.push('-rc_mode', 'VBR', '-b:v', `${Math.max(average, 0.25).toFixed(2)}M`, '-maxrate', `${maximum}M`, '-bufsize', `${2 * maximum}M`)
     } else if (hardware) {
+      // Constant QP. Intel's ICQ measured no better, and AMD's drivers lack it.
       encoder.push(codec === 'vp9' ? '-global_quality' : '-qp', high ? '20' : '23')
     } else {
       encoder.push('-crf', high ? '18' : '21')
-      if (codec === 'vp9') encoder.push('-b:v', '0')
+      // libvpx caps constant quality through -b:v. x264 and x265 cap it through their VBV.
+      if (codec === 'vp9') encoder.push('-b:v', maximum ? `${maximum}M` : '0')
+      else if (maximum) encoder.push('-maxrate', `${maximum}M`, '-bufsize', `${2 * maximum}M`)
     }
     args.push(
       '-vf', filters.join(','), '-filter_threads', '2',

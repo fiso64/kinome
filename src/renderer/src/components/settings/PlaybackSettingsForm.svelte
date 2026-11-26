@@ -187,20 +187,20 @@
       </div>
       <div class="form-field">
         <label for="video-encoding-quality">Video quality</label>
-        <select id="video-encoding-quality" bind:value={encoding.videoQuality} disabled={encoding.videoBitrateMbps > 0} aria-describedby="video-quality-help">
+        <select id="video-encoding-quality" bind:value={encoding.videoQuality} aria-describedby="video-quality-help">
           <option value="balanced">Balanced</option>
           <option value="high">Higher quality</option>
         </select>
-        <p id="video-quality-help">{encoding.videoBitrateMbps ? 'The bitrate target controls video encoding.' : 'Higher quality preserves more detail and uses more bandwidth.'}</p>
+        <p id="video-quality-help">Higher quality preserves more detail and uses more bandwidth.</p>
       </div>
       <div class="form-field">
-        <label for="video-bitrate">Video bitrate target</label>
+        <label for="video-bitrate">Maximum video bitrate</label>
         <select id="video-bitrate" bind:value={encoding.videoBitrateMbps} aria-describedby="bitrate-help">
           {#each VIDEO_BITRATE_TARGETS as bitrate (bitrate)}
-            <option value={bitrate}>{bitrate ? `${bitrate} Mbps` : 'No target'}</option>
+            <option value={bitrate}>{bitrate ? `${bitrate} Mbps` : 'No limit'}</option>
           {/each}
         </select>
-        <p id="bitrate-help">A target trades picture quality for more predictable bandwidth.</p>
+        <p id="bitrate-help">Caps converted video for limited connections. CPU encoding keeps the quality setting below the cap. Hardware encoding aims near the cap instead, with less for smaller sizes.</p>
       </div>
       <div class="form-field">
         <label for="audio-channels">Audio channels</label>

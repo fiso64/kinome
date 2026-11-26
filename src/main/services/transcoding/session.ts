@@ -74,7 +74,7 @@ export class PlaybackSession {
     this.#onIdle = onIdle
     this.#onVideoBackend = onVideoBackend
     this.#videoMode = 'software'
-    if (!copiesVideo(source.quality) && source.vaapiDevice) {
+    if (!copiesVideo(source.quality) && source.vaapi) {
       // FFmpeg applies the source display matrix on CPU frames. VA-API
       // decode can discard it, leaving the encoded picture sideways or mirrored.
       this.#videoMode = source.video.displayMatrix ? 'vaapi-upload' : 'vaapi'

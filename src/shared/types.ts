@@ -164,6 +164,14 @@ export interface ResolutionInfo {
  * A single source of truth for the configurations of different default layout types.
  * This drives the UI in the settings modal and the default values in the main process.
  */
+/** The layouts a library starts with, before any folder or media type is configured. */
+export const DEFAULT_LAYOUTS: Settings['defaultLayouts'] = {
+  _default: { layout: 'grid' },
+  movie: { layout: 'tree' },
+  tv: { layout: 'tabs' },
+  season: { layout: 'list', listDescriptionRows: 3 }
+}
+
 export const DEFAULT_LAYOUTS_CONFIG = {
   _default: {
     label: 'Default Folder View',

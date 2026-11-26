@@ -8,7 +8,7 @@ import { readSettings } from './settings.service'
 import { handleFileStreamFast, resolveStreamPath } from './playback.service'
 import { openPlaybackSource, PlaybackSession, segmentPlaylist } from './transcoding'
 import { copiesVideo, type SegmentQuality } from './transcoding/segment-job'
-import { conversionAvailable, conversionEnabled, ffmpeg, ffprobe, getVaapiDevice } from './transcoding/runtime'
+import { conversionAvailable, conversionEnabled, ffmpeg, ffprobe, getVaapiAccelerator } from './transcoding/runtime'
 
 const clientPattern = /^[a-zA-Z0-9_-]{1,128}$/
 export const hlsSegmentPattern = /^segment-(\d+)\.(ts|m4s)$/
@@ -42,13 +42,14 @@ export async function getWorkerStatus(): Promise<PlaybackWorkerHealth> {
     return { status: 'ready', detail: 'FFmpeg is ready to remux media.' }
   }
   const softwareOnly = settings.playbackEncoding?.hardwareAcceleration === 'software'
-  const vaapiDevice = softwareOnly ? undefined : await getVaapiDevice()
+  const vaapi = softwareOnly ? undefined : await getVaapiAccelerator()
   return {
     status: 'ready',
-    detail: vaapiDevice ? 'VA-API passed a hardware encode test.'
+    detail: vaapi
+      ? `VA-API passed a hardware encode test. ${vaapi.libplacebo ? 'HDR converts with libplacebo.' : 'HDR converts with VA-API, since libplacebo is unavailable.'}`
       : softwareOnly ? 'Software encoding is selected.' : 'Software encoding is available. No usable VA-API device was detected.',
-    videoBackend: vaapiDevice ? 'vaapi' : 'software',
-    vaapiDevice,
+    videoBackend: vaapi ? 'vaapi' : 'software',
+    vaapiDevice: vaapi?.device,
     lastVideoBackend
   }
 }
@@ -60,9 +61,9 @@ function getViewer(path: string, accountId: string, itemId: string, quality: Seg
   if (viewer) return viewer
   viewer = Promise.all([
     openPlaybackSource(ffprobe!, path, quality, encoding, audioIndex, browser, output),
-    !copiesVideo(quality) && output.videoCodec !== 'avc' && encoding.hardwareAcceleration === 'auto' ? getVaapiDevice() : undefined
-  ]).then(([source, vaapiDevice]) => {
-    if (source.videoCodec !== 'avc') source.vaapiDevice = vaapiDevice
+    !copiesVideo(quality) && output.videoCodec !== 'avc' && encoding.hardwareAcceleration === 'auto' ? getVaapiAccelerator() : undefined
+  ]).then(([source, vaapi]) => {
+    if (source.videoCodec !== 'avc') source.vaapi = vaapi
     const session = new PlaybackSession(client, ffmpeg!, source, () => {
       if (viewers.get(key) === viewer) viewers.delete(key)
       void session.close('idle').catch((error) => console.warn('[Playback] Could not clean up a playback session', { itemId, error }))
