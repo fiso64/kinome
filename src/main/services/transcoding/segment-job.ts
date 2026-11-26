@@ -135,7 +135,8 @@ export function startSegmentJob(
       : [
           ...(interlaced ? ['bwdif=mode=send_field:deint=interlaced'] : []),
           `scale=${scale}`,
-          ...(toneMap ? ['zscale=t=linear:npl=100', 'format=gbrpf32le', 'tonemap=tonemap=mobius',
+          // HDR video places SDR white at 203 nits (ITU-R BT.2408). mpv maps it there too.
+          ...(toneMap ? ['zscale=t=linear:npl=203', 'format=gbrpf32le', 'tonemap=tonemap=mobius',
             'zscale=p=bt709:t=bt709:m=bt709:r=tv', 'format=yuv420p'] : [])
         ]
     const codec = source.videoCodec === 'avc' ? 'h264' : source.videoCodec ?? 'h264'
