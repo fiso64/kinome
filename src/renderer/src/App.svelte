@@ -588,6 +588,23 @@
     document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => { fullscreenForPlayer = false })
   }
 
+  // Locking the phone also leaves fullscreen, without meaning to close the player. The page
+  // is hidden around then, either just before or soon after, so only a visible exit closes it.
+  let hiddenAt = 0
+  function playerFullscreenChanged() {
+    if (!fullscreenForPlayer || document.fullscreenElement) return
+    const exitedAt = performance.now()
+    const visible = !document.hidden
+    setTimeout(() => {
+      if (!fullscreenForPlayer || document.fullscreenElement) return
+      if (visible && !document.hidden && hiddenAt < exitedAt) closeWebPlayer()
+      // Fullscreen needs a tap, so the next one in the player brings it back.
+      else window.addEventListener('click', () => {
+        if (fullscreenForPlayer && !document.fullscreenElement) void document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
+      }, { capture: true, once: true })
+    }, 300)
+  }
+
   function handlePlayFile(item: MediaFile, preferred?: PlayerCommandConfig, quality?: WebQualityChoice | PlaybackQuality): void {
     if (!itemCapabilities(item).canPlay) return
     const players = resolveClientPlayers(settings?.playerCommands ?? [], clientSettingsStore.settings.enabledPlayerIds)
@@ -849,7 +866,8 @@
   </QueryClientProvider>
 {/if}
 
-<svelte:document onfullscreenchange={() => { if (fullscreenForPlayer && !document.fullscreenElement) closeWebPlayer() }} />
+<svelte:document onfullscreenchange={playerFullscreenChanged}
+  onvisibilitychange={() => { if (document.hidden) hiddenAt = performance.now() }} />
 
 <svelte:window
   onpopstate={() => appSidebarComponent?.blurSearchInput()}
