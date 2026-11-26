@@ -99,6 +99,8 @@
       shadowMinDepth: settings.shadowMinDepth ?? 1,
       serverPort: settings.serverPort ?? 3000,
       serverHost: settings.serverHost ?? '::',
+      jellyfinDiscovery: settings.jellyfinDiscovery !== false,
+      jellyfinPublishedUrl: settings.jellyfinPublishedUrl ?? '',
       defaultLayoutSettings: settings.defaultLayoutSettings,
       defaultLayouts: settings.defaultLayouts
     } satisfies Partial<Settings>
@@ -488,6 +490,27 @@
                 <p class="help-text">
                   The network port the server will listen on. Default is 3000. Changes require a
                   restart.
+                </p>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h2>Jellyfin Apps</h2>
+              <p class="help-text">Jellyfin apps connect to this server at <b>/jellyfin</b>.</p>
+              <div class="form-group checkbox-group">
+                <label>
+                  <input type="checkbox" bind:checked={draft.jellyfinDiscovery} />
+                  Let Jellyfin apps on the network find this server
+                </label>
+                <p class="help-text">Answers the apps' search on UDP port 7359.</p>
+              </div>
+              <div class="form-group">
+                <label for="jellyfin-published-url">Address for Jellyfin apps</label>
+                <input type="url" id="jellyfin-published-url" bind:value={draft.jellyfinPublishedUrl}
+                  placeholder="e.g. https://media.example.com" />
+                <p class="help-text">
+                  The address apps should use, such as your reverse proxy's. When empty, the server's own
+                  network address is offered, or none if it only listens on this machine.
                 </p>
               </div>
             </div>

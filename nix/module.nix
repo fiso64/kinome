@@ -20,6 +20,12 @@ in
   options.services.kinome = {
     enable = lib.mkEnableOption "Kinome media server";
 
+    openFirewall = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Open UDP port 7359 so Jellyfin apps on the network can find Kinome. The HTTP port is not opened, since Kinome usually sits behind a reverse proxy.";
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -94,6 +100,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ 7359 ];
+
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
       isSystemUser = true;

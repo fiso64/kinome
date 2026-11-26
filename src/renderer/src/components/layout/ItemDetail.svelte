@@ -460,7 +460,7 @@
                   <button class="primary play-button" onclick={() => onPlay(item)}><Icon name="play" size={18} /> Play</button>
                 {:else if movieFile}
                   {@const playableFile = movieFile}
-                  <button class="primary play-button" onclick={() => onPlay({ ...playableFile, title: item.title ?? item.name })}>
+                  <button class="primary play-button" onclick={() => onPlay({ ...playableFile, title: item.title ?? item.name, posterPath: playableFile.posterPath ?? item.posterPath })}>
                     <Icon name="play" size={18} /> Play
                   </button>
                 {/if}

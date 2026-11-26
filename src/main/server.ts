@@ -9,6 +9,7 @@ import * as settingsService from './services/settings.service'
 import { WebTransport } from './transport/web.transport'
 import { setTransport } from './transport.registry'
 import { withJellyfinEvents } from './jellyfin/events'
+import { applyDiscovery } from './jellyfin/discovery'
 import * as authService from './services/auth.service'
 import { buildApp, getPublicRequestUrl } from './http-app'
 import * as handlerService from './services/handler.service'
@@ -276,6 +277,7 @@ async function start() {
 
   app.listen({ port: finalPort, hostname: host }, (server) => {
     webTransport.initialize(server)
+    void applyDiscovery({ hostname: host, port: finalPort })
     console.log(`🦊 Elysia is running at http://${server?.hostname}:${server?.port}`)
   })
 }

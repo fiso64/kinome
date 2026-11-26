@@ -314,6 +314,8 @@ export function getPerson(id: number) {
   return metadataRepo.fetchPerson(id)
 }
 
+export const relatedItemScores = metadataRepo.relatedItemScores
+
 export { compileConditionGroups, descendantsCondition, personalTagCondition, watchedCondition } from '../database/query-builder'
 export { getPersonalTags, replacePersonalTags, setPersonalTag, itemsWithPersonalTag, itemsWithTagKey } from '../database/repositories/personal-tag.repo'
 

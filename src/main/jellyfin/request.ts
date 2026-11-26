@@ -5,6 +5,10 @@
 import type { SessionData } from '../services/auth.service'
 import type { AuthTokenDevice } from '../database/repositories/auth-token.repo'
 
+/** Where the Jellyfin-compatible API is served, and the name it gives itself. */
+export const JELLYFIN_BASE = '/jellyfin'
+export const SERVER_NAME = 'Kinome'
+
 export class JellyfinError extends Error {
   constructor(readonly status: number, message = '') {
     super(message)

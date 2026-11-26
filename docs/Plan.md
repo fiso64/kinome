@@ -24,7 +24,11 @@
   - [x] Server events over the socket: `UserDataChanged` to the account's own connections, `LibraryChanged` filtered by visibility, both from the existing item update broadcast.
   - [x] Virtual folders as libraries, collections and playlists, opted in per folder with a tag such as `jellyfin:movies|tvshows|collection|playlist` (folders are items, so a personal tag makes it per account). Contents and order follow the folder's filter and sort. Without any library tag, keep the two default libraries. Library IDs derive from the folder ID. Playlist edits from apps work on folders whose filter is a single tag condition: adding sets that tag on the item, removing clears it (a personal tag for a personal folder, once filters support personal tags). Other folders are read-only playlists. Order is the folder's sort with its arranged items. A move from an app becomes an arrangement: the item is placed after its new predecessor, or at the top. Relates to personal home folders (P2): a user's own folders become their collections and playlists.
   - [x] Several versions of a film: playable files of at least about 70% of the longest file's length become media sources, shorter ones special features (or trailers by name). Decided in the adapter only.
-  - Later: intro and credits segments (needs detection), Chromecast (see Cast support).
+  - [x] Related titles ranked as Jellyfin ranks them: shared director, actors, genres and tags, unwatched only.
+  - [x] Network discovery on UDP 7359, on unless turned off in settings, with an address to advertise for setups behind a reverse proxy.
+  - [x] Remote control between an account's own devices.
+  - [x] Chromecast from Jellyfin apps, through Jellyfin's own receiver.
+  - Later: intro and credits segments (needs detection).
   - Out of scope: Live TV, SyncPlay, plugins, DLNA, admin dashboard, music.
 
 ### 🎬 Playback & Transcoding
@@ -38,7 +42,9 @@
     - [x] For this feature to work, users will have to install a protocol handler on their device. Make this process user-friendly.
   - [x] Web player with capability-based playback, manual quality selection, and embedded and sidecar subtitles.
     - [ ] Adaptive bitrate switching across aligned HLS renditions.
-    - [ ] Cast support (DLNA / UPnP, Chromecast). (Chromecast likely requires transmuxing support)
+    - [ ] Cast support (DLNA / UPnP, Chromecast).
+      - [x] Chromecast from the web player, through Google's Default Media Receiver. Verify on a device.
+      - [ ] DLNA / UPnP.
 - [x] Web player preferences for audio language, subtitle language, and forced subtitles.
 - [x] Pass language preferences to external players.
   - [ ] and sidecar subtitles?

@@ -34,6 +34,7 @@ import { setCurrentAccountId } from './request-context'
 import { getTransport } from './transport.registry'
 import { JELLYFIN_BASE, handleJellyfinRequest, jellyfinSocket } from './jellyfin'
 import * as jellyfinEvents from './jellyfin/events'
+import { applyDiscovery } from './jellyfin/discovery'
 
 // --- Security Middleware & Constants ---
 
@@ -831,6 +832,7 @@ export function buildApp() {
               const changes = await settingsService.saveSettingsChanges(body)
               if (Object.keys(changes).length > 0) playbackService.clearStreamCache()
               if (changes.virtualTags) libraryService.reapplyVirtualTagsAfterSettingsChange().catch(console.error)
+              if ('jellyfinDiscovery' in changes) void applyDiscovery()
               if (changes.libraryLocation) {
                 await libraryService.switchToLibrary(changes.libraryLocation)
                 getTransport().forceRendererReload()

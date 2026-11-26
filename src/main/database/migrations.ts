@@ -29,6 +29,7 @@ import { migration as authTokens } from './migrations/0027_auth_tokens'
 import { migration as jellyfinDisplayPreferences } from './migrations/0028_jellyfin_display_preferences'
 import { migration as itemGenres } from './migrations/0029_item_genres'
 import { migration as personalTags } from './migrations/0030_personal_tags'
+import { migration as genreEntityIndex } from './migrations/0031_genre_entity_index'
 import type { Migration } from './migrations/types'
 
 export function getUserVersion(db: Database): number {
@@ -70,7 +71,8 @@ const MIGRATIONS: Migration[] = [
   authTokens,
   jellyfinDisplayPreferences,
   itemGenres,
-  personalTags
+  personalTags,
+  genreEntityIndex
 ]
 
 export const DATABASE_MIGRATIONS = [...MIGRATIONS].sort((a, b) => a.version - b.version)

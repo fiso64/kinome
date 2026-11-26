@@ -508,3 +508,41 @@ export function replaceVirtualTags(tags: VirtualTagConfig[] = [], itemIds?: stri
         }
     })
 }
+
+/**
+ * Titles that share people, genres or tags with an item, scored as Jellyfin
+ * does: a director 50, one of the first fifteen billed actors 15, a genre 10,
+ * a tag 5. Genres are the item's effective ones, an override or else the
+ * entity's. Every part is an index lookup, and only the best `limit` return.
+ */
+export function relatedItemScores(itemId: string, entityId: string | null, genres: readonly string[], limit: number): { id: string; score: number }[] {
+  const genreList = genres.map(() => '?').join(', ')
+  return getDb().prepare(`
+    WITH matches(item_id, points) AS (
+      SELECT i.id, CASE WHEN source.credit_type = 'crew' THEN 50 ELSE 15 END
+      FROM credits source
+      JOIN credits other ON other.person_id = source.person_id AND other.credit_type = source.credit_type
+        AND other.entity_id != source.entity_id
+        AND (source.credit_type = 'crew' OR other.display_order < 15)
+      JOIN media_items i ON i.entity_id = other.entity_id
+      WHERE source.entity_id = ? AND (
+        (source.credit_type = 'crew' AND source.job = 'Director' AND other.job = 'Director')
+        OR (source.credit_type = 'cast' AND source.display_order < 15))
+      ${genres.length ? `
+      UNION ALL
+      SELECT g.item_id, 10 FROM item_genres g WHERE g.name IN (${genreList})
+      UNION ALL
+      SELECT i.id, 10 FROM genres name
+      JOIN entity_genres eg ON eg.genre_id = name.id
+      JOIN media_items i ON i.entity_id = eg.entity_id
+      WHERE name.name IN (${genreList})
+        AND NOT EXISTS (SELECT 1 FROM media_item_metadata override WHERE override.item_id = i.id AND override.genres_json IS NOT NULL)` : ''}
+      UNION ALL
+      SELECT other.item_id, 5 FROM item_tags source
+      JOIN item_tags other ON other.key = source.key AND other.value = source.value AND other.item_id != source.item_id
+      WHERE source.item_id = ? AND source.key != 'jellyfin'
+    )
+    SELECT item_id AS id, SUM(points) AS score FROM matches WHERE item_id != ?
+    GROUP BY item_id ORDER BY score DESC LIMIT ?
+  `).all(entityId ?? '', ...genres, ...genres, itemId, itemId, limit) as { id: string; score: number }[]
+}

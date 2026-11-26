@@ -452,6 +452,8 @@ export const playbackRoutes = [
   route('POST', '/Sessions/Playing/Progress', (request) => progress(request)),
   route('POST', '/Sessions/Playing/Stopped', (request) => progress(request, true)),
   route('POST', '/Sessions/Playing/Ping', () => undefined),
+  // Kinome ends conversions nobody fetches from on its own.
+  route('DELETE', '/Videos/ActiveEncodings', () => undefined),
   route('POST', '/UserPlayedItems/{itemId}', (request) => setPlayed(request, true)),
   route('POST', '/UserPlayedItems/{itemId}', (request) => setPlayed(request, true), { alias: '/Users/{userId}/PlayedItems/{itemId}' }),
   route('DELETE', '/UserPlayedItems/{itemId}', (request) => setPlayed(request, false)),

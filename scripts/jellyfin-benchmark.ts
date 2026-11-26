@@ -28,11 +28,20 @@ accountRepo.createAccount('admin', 'admin', await bcrypt.hash('q', 1), 'admin')
 const id = (prefix: string, n: number) => (prefix + n.toString(16).padStart(8, '0')).padEnd(64, '0')
 const genres = ['Drama', 'Comedy', 'Thriller', 'Science Fiction', 'Animation', 'Documentary']
 
+// Credits as TMDB gives them: a director from a few hundred, and fifteen billed actors from a few thousand.
+const PEOPLE = 4000
+const DIRECTORS = 400
+
 const started = performance.now()
 ctx.db.transaction(() => {
+  const person = ctx.db.prepare('INSERT OR IGNORE INTO people (id, name) VALUES (?, ?)')
+  for (let p = 0; p < PEOPLE; p++) person.run(p, `Person ${p}`)
+  const credit = ctx.db.prepare('INSERT OR IGNORE INTO credits (entity_id, person_id, credit_type, job, display_order) VALUES (?, ?, ?, ?, ?)')
   for (let n = 0; n < movies; n++) {
     ctx.seedEntities([{ id: `m${n}`, tmdbId: 1_000_000 + n, mediaType: 'movie', title: `Movie ${n}`, year: 1950 + (n % 75) }])
-    ctx.seedGenres(`m${n}`, [genres[n % genres.length]])
+    ctx.seedGenres(`m${n}`, [genres[n % genres.length], genres[(n * 7 + 3) % genres.length]])
+    credit.run(`m${n}`, (n * 13) % DIRECTORS, 'crew', 'Director', null)
+    for (let k = 0; k < 20; k++) credit.run(`m${n}`, DIRECTORS + (n * 31 + k * 97) % (PEOPLE - DIRECTORS), 'cast', null, k)
     ctx.seedItems([
       { id: id('a', n), name: `Movie ${n}`, type: 'folder', entityId: `m${n}`, path: `Movie ${n}` },
       { id: id('b', n), parentId: id('a', n), name: `Movie ${n}.mkv`, path: `Movie ${n}/Movie ${n}.mkv` }
@@ -111,6 +120,7 @@ const routes = [
   ['movie detail', `/Items/${id('a', Math.floor(movies / 2)).slice(0, 32)}`],
   ['search', '/Items?searchTerm=Movie 25&Recursive=true&IncludeItemTypes=Movie,Series&Limit=24'],
   ['genres', `/Genres?ParentId=${LIBRARIES.movies.id}`],
+  ['similar movies', `/Items/${id('a', Math.floor(movies / 2)).slice(0, 32)}/Similar?Fields=PrimaryImageAspectRatio`],
   ['sonarr lookup', '/Items?recursive=true&includeItemTypes=Series&fields=Path,ProviderIds&years=2022'],
 ] as const
 

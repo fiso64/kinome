@@ -11,13 +11,19 @@ import * as accountRepo from '../database/repositories/account.repo'
 import * as displayPreferencesRepo from './display-preferences.repo'
 import { getPlaybackPreferences, savePlaybackPreferences } from '../services/web-playback.service'
 import { accountToJellyfinId, resolveAccountId } from './ids'
-import { JellyfinError, field, forbidden, json, notFound, route, type JellyfinRequest } from './request'
+import { JellyfinError, SERVER_NAME, field, forbidden, json, notFound, route, type JellyfinRequest } from './request'
 import { JELLYFIN_VERSION } from './web'
 import { sessionDto } from './sessions'
 
-const SERVER_NAME = 'Kinome'
 
 type UserDto = components['schemas']['UserDto']
+
+/**
+ * Jellyfin's own Chromecast receiver, hosted by the Jellyfin project, which
+ * Jellyfin apps cast with. It plays through this API, so the cast device needs
+ * to reach Kinome at the address the app uses.
+ */
+const CAST_RECEIVER = { Id: 'F007D354', Name: 'Stable' }
 
 const SUBTITLE_MODES: Record<SubtitleMode, NonNullable<components['schemas']['UserConfiguration']['SubtitleMode']>> = {
   default: 'Default', forced: 'OnlyForced', off: 'None'
@@ -46,7 +52,8 @@ export function userDto(user: Account, preferences = getPlaybackPreferences(user
       SubtitleMode: SUBTITLE_MODES[preferences.subtitles],
       DisplayMissingEpisodes: false, GroupedFolders: [], DisplayCollectionsView: false, EnableLocalPassword: false,
       OrderedViews: [], LatestItemsExcludes: [], MyMediaExcludes: [], HidePlayedInLatest: true,
-      RememberAudioSelections: true, RememberSubtitleSelections: true, EnableNextEpisodeAutoPlay: true
+      RememberAudioSelections: true, RememberSubtitleSelections: true, EnableNextEpisodeAutoPlay: true,
+      CastReceiverId: CAST_RECEIVER.Id
     },
     Policy: {
       IsAdministrator: admin, IsHidden: false, IsDisabled: false, EnableCollectionManagement: false,
@@ -190,7 +197,6 @@ function quickConnectResult(entry: ReturnType<typeof authService.initiateQuickCo
 }
 
 const emptyResult = (request: JellyfinRequest) => json(request, { Items: [], TotalRecordCount: 0, StartIndex: 0 })
-const ok = () => undefined
 
 export function serverRoutes(requestIp: (request: Request) => string) {
   return [
@@ -198,7 +204,7 @@ export function serverRoutes(requestIp: (request: Request) => string) {
     route('GET', '/System/Info', (request) => json(request, {
       ...publicInfo(request), OperatingSystemDisplayName: '', HasPendingRestart: false, IsShuttingDown: false,
       SupportsLibraryMonitor: true, WebSocketPortNumber: Number(request.url.port) || undefined, CompletedInstallations: [],
-      CanSelfRestart: false, CanLaunchWebBrowser: false, CastReceiverApplications: [], HasUpdateAvailable: false,
+      CanSelfRestart: false, CanLaunchWebBrowser: false, CastReceiverApplications: [CAST_RECEIVER], HasUpdateAvailable: false,
       EncoderLocation: 'System', SystemArchitecture: 'X64'
     })),
     route('GET', '/System/Ping', () => new Response('"Jellyfin Server"', { headers: { 'Content-Type': 'application/json' } }), { public: true }),
@@ -206,7 +212,8 @@ export function serverRoutes(requestIp: (request: Request) => string) {
     route('GET', '/System/Endpoint', (request) => json(request, { IsLocal: false, IsInNetwork: true })),
     // Sonarr and Radarr test the connection with this request.
     route('GET', '/System/Configuration', (request) => json(request, {
-      ServerName: SERVER_NAME, IsStartupWizardCompleted: true, EnableMetrics: false, QuickConnectAvailable: false,
+      ServerName: SERVER_NAME, IsStartupWizardCompleted: true, EnableMetrics: false, QuickConnectAvailable: true,
+      CastReceiverApplications: [CAST_RECEIVER],
       PreferredMetadataLanguage: 'en', MetadataCountryCode: 'US', MinResumePct: 5, MaxResumePct: 90, MinResumeDurationSeconds: 300
     })),
     route('GET', '/Branding/Configuration', (request) => json(request, { LoginDisclaimer: '', CustomCss: '', SplashscreenEnabled: false }), { public: true }),

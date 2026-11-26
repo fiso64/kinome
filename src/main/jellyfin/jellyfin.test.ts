@@ -19,6 +19,9 @@ import { LIBRARIES, toJellyfinId } from './ids'
 import { negotiate } from './playback'
 import * as events from './events'
 import * as sessions from './sessions'
+import { discoveryReply } from './discovery'
+import * as settingsService from '../services/settings.service'
+import type { Settings } from '@shared/types'
 import * as authService from '../services/auth.service'
 import spec from './openapi.json'
 
@@ -268,6 +271,15 @@ describe('Jellyfin-compatible API', () => {
     expect((await call('POST', '/Users/AuthenticateWithQuickConnect', undefined, { Secret: waiting.Secret })).status).toBe(401)
   })
 
+  it('answers network discovery with the address apps should use', () => {
+    const settings = { jellyfinPublishedUrl: 'https://media.example.com/' } as Settings
+    const published = JSON.parse(discoveryReply('who is JellyfinServer?', '192.168.1.20', settings, { hostname: '127.0.0.1', port: 3001 })!)
+    expect(published).toMatchObject({ Address: 'https://media.example.com/jellyfin', Name: 'Kinome', Id: settingsService.getServerId() })
+    // Behind a reverse proxy without a published address there is nothing reachable to offer.
+    expect(discoveryReply('who is JellyfinServer?', '192.168.1.20', {} as Settings, { hostname: '127.0.0.1', port: 3001 })).toBeUndefined()
+    expect(discoveryReply('who is EmbyServer?', '192.168.1.20', settings, { hostname: '::', port: 3001 })).toBeUndefined()
+  })
+
   it('lets Seerr create an API key and read it back once', async () => {
     expect((await call('POST', '/Auth/Keys?App=Seerr', adminToken)).status).toBe(204)
     const keys = await conforming('GET', '/Auth/Keys')
@@ -460,6 +472,32 @@ describe('Jellyfin-compatible API', () => {
     expect(making).toMatchObject({ Name: 'Making of.mkv', Type: 'Video', ExtraType: 'BehindTheScenes', ParentId: movie })
     // An extra opens by its own ID.
     expect((await conforming('GET', `/Items/${making.Id}`)).ExtraType).toBe('BehindTheScenes')
+  })
+
+  it('ranks related titles by shared people over shared genres, leaving out watched and unrelated ones', async () => {
+    const [DUNE, INTERSTELLAR, NOTEBOOK] = ['3a', '3b', '3c'].map((prefix) => prefix.repeat(32))
+    ctx.seedEntities([
+      { id: 'dune-entity', tmdbId: 301, mediaType: 'movie', title: 'Dune', year: 2021 },
+      { id: 'interstellar-entity', tmdbId: 302, mediaType: 'movie', title: 'Interstellar', year: 2014 },
+      { id: 'notebook-entity', tmdbId: 303, mediaType: 'movie', title: 'The Notebook', year: 2004 }
+    ])
+    ctx.seedGenres('dune-entity', ['Adventure'])
+    ctx.seedGenres('interstellar-entity', ['Science Fiction'])
+    ctx.seedGenres('notebook-entity', ['Romance'])
+    ctx.seedItems([
+      { id: DUNE, name: 'Dune', type: 'folder', entityId: 'dune-entity', path: 'Dune' },
+      { id: INTERSTELLAR, name: 'Interstellar', type: 'folder', entityId: 'interstellar-entity', path: 'Interstellar' },
+      { id: NOTEBOOK, name: 'The Notebook', type: 'folder', entityId: 'notebook-entity', path: 'The Notebook' }
+    ])
+    // Arrival and Dune share their director.
+    ctx.db.run('INSERT INTO people (id, name) VALUES (?, ?)', [137427, 'Denis Villeneuve'])
+    for (const entity of ['movie-entity', 'dune-entity']) {
+      ctx.db.run("INSERT INTO credits (entity_id, person_id, credit_type, job) VALUES (?, 137427, 'crew', 'Director')", [entity])
+    }
+    const similar = async () => (await conforming('GET', `/Items/${toJellyfinId(MOVIE)}/Similar`)).Items.map((item: any) => item.Name)
+    expect(await similar()).toEqual(['Dune', 'Interstellar'])
+    ctx.db.run("INSERT INTO user_state (item_id, user_id, watched) VALUES (?, 'admin-1', 1)", [DUNE])
+    expect(await similar()).toEqual(['Interstellar'])
   })
 })
 

@@ -6,8 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Kinome</title>
   <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+  <!-- www.gstatic.com serves Google's Cast sender, loaded only when the viewer casts. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: kinome-asset: https://image.tmdb.org; connect-src 'self' ws: http:; frame-src 'self' kinome:;" />
+    content="default-src 'self'; script-src 'self' 'unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: kinome-asset: https://image.tmdb.org; connect-src 'self' ws: http:; frame-src 'self' kinome:;" />
 </head>
 
 <body spellcheck="false">

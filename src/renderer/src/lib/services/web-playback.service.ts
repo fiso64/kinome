@@ -315,6 +315,26 @@ export function reportPlayback(level: 'info' | 'warn' | 'error', message: string
   }).catch(() => {})
 }
 
+/**
+ * How a file plays on a Chromecast. Every model decodes 8-bit H.264 up to 1080p
+ * with stereo AAC or MP3. Such a file plays as it is when it is MP4, or else
+ * remuxed. A file with other audio has only that converted, and anything else
+ * is transcoded to H.264 at up to 1080p, with HDR tone-mapped.
+ */
+export function castPlayback(info: WebPlaybackInfo, audio?: LocalMediaTrack): (PlaybackOutput & { mode: WebPlaybackQuality }) | undefined {
+  const video = info.media?.tracks.find(track => track.kind === 'video')
+  const videoFits = !!video && video.codec === 'h264' && (video.height ?? Infinity) <= 1080 && !video.displayMatrix &&
+    !avcFormat(video.pixelFormat).tenBit && !avcFormat(video.pixelFormat).wideChroma && !isHdrTransfer(video.colorTransfer)
+  const audioFits = !audio || ((audio.codec === 'aac' || audio.codec === 'mp3') && (audio.channels ?? 2) <= 2)
+  if (videoFits && audioFits && isMp4Container(info.media?.container) && (info.media?.startSeconds ?? 0) <= 0.25) return { mode: 'original' }
+  if (videoFits && audioFits && info.qualities.includes('remux')) return { mode: 'remux' }
+  if (videoFits && info.audioConversion) return { mode: 'audio', sound: 'stereo' }
+  const height = Math.min(video?.height ?? 1080, 1080)
+  const renditions = info.qualities.filter(isVideoQuality).sort((a, b) => videoQualityHeights[b] - videoQualityHeights[a])
+  const mode = renditions.find(quality => videoQualityHeights[quality] <= height) ?? renditions.at(-1)
+  return mode ? { mode, sound: 'stereo' } : undefined
+}
+
 export function browserPlaybackUrl(
   itemId: string, filename: string, quality: WebPlaybackQuality, audio?: number, output?: PlaybackOutput, position = 0
 ): string {

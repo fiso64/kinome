@@ -38,6 +38,7 @@ export type Item = LibraryItem & {
   addedAt?: number
   sourceId?: string
   size?: number | null
+  entityId?: string | null
 }
 
 const TICKS_PER_SECOND = 10_000_000
@@ -1045,17 +1046,33 @@ async function episodesHandler(request: JellyfinRequest) {
   return json(request, { Items: dtos, TotalRecordCount: total, StartIndex: start })
 }
 
+/**
+ * Titles of the same kind that share people, genres or tags with the item,
+ * best match first, as Jellyfin ranks them. Like Jellyfin, it leaves out what
+ * the account has watched and anything sharing nothing.
+ */
 async function similarHandler(request: JellyfinRequest) {
-  const item = requireItem(request)
-  const genre = item.genres?.[0]
-  if (!genre || (item.mediaType !== 'movie' && item.mediaType !== 'tv')) return json(request, { Items: [], TotalRecordCount: 0, StartIndex: 0 })
-  const items = findItems({
-    where: { mediaKind: item.mediaType, isMissing: 0 },
-    typedWhere: [{ field: 'genre', op: 'eq', value: genre }, { field: 'id', op: 'ne', value: item.id }],
-    orderBy: [{ field: 'tmdbScore', direction: 'DESC', nullsLast: true }],
-    limit: request.query.int('limit') ?? 12
-  })
-  const related = await relate(items, request)
+  const item = requireItem(request, 'itemId', ['entityId'])
+  const none = { Items: [], TotalRecordCount: 0, StartIndex: 0 }
+  if (item.mediaType !== 'movie' && item.mediaType !== 'tv') return json(request, none)
+  const limit = request.query.int('limit') ?? 50
+  // Watched and hidden titles drop out after scoring, so more are scored than shown.
+  const scores = repositoryService.relatedItemScores(item.id, item.entityId ?? null, item.genres ?? [], limit * 2)
+  if (!scores.length) return json(request, none)
+  const score = new Map(scores.map((entry) => [entry.id, entry.score]))
+  const rating = (entry: Item) => entry.tmdbMetadata?.tmdbRating ?? 0
+  const movies = item.mediaType === 'movie'
+  // A movie is watched through its file. A series only once every episode is.
+  const watched = repositoryService.watchedCondition(request.session!.accountId)
+  const candidates = findItems({
+    where: { id: [...score.keys()], mediaKind: item.mediaType, isMissing: 0 },
+    ...(movies ? { compiledConditions: { ...watched, sql: `NOT ${watched.sql}` } } : {})
+  }).sort((a, b) => score.get(b.id)! - score.get(a.id)! || rating(b) - rating(a))
+  const related = await relate(candidates, request, { progress: !movies })
+  const items = candidates.filter((entry) => {
+    const progress = related.progress.get(entry.id)
+    return movies || !progress || progress.watched < progress.total
+  }).slice(0, limit)
   const dtos = items.map((entry) => toDto(entry, related, dtoOptions(request.query)))
   return json(request, { Items: dtos, TotalRecordCount: dtos.length, StartIndex: 0 })
 }

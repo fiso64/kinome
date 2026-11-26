@@ -18,6 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_item_virtual_tags_value ON item_virtual_tags(key,
 `
 
 export const CREDIT_PERSON_INDEX_SQL = 'CREATE INDEX IF NOT EXISTS idx_credits_person ON credits(person_id, entity_id)'
+// Titles by genre, for finding related titles.
+export const GENRE_ENTITY_INDEX_SQL = 'CREATE INDEX IF NOT EXISTS idx_entity_genres_genre ON entity_genres(genre_id, entity_id)'
 
 export const SCHEMA_SQL = `
 -- Durable logical library items.
@@ -193,6 +195,7 @@ CREATE TABLE IF NOT EXISTS item_virtual_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_genres_entity_id ON entity_genres(entity_id);
+${GENRE_ENTITY_INDEX_SQL};
 ${CREDIT_PERSON_INDEX_SQL};
 ${TAG_VALUE_INDEX_SQL}
 

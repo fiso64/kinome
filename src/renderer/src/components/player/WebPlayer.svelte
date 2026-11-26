@@ -19,7 +19,7 @@
   import { notificationStore } from '@lib/notification-store.svelte'
   import { BUILTIN_WEB_PLAYER, playerLauncherService, resolveClientPlayers, resolvePlaybackQuality } from '@lib/services/player-launcher.service'
   import {
-    playbackAttempts, browserPlaybackUrl, reportPlayback, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
+    playbackAttempts, browserPlaybackUrl, castPlayback, reportPlayback, subtitleUrl, getWebPlaybackInfo, getWebPlaybackQueue, languageName,
     knownTrackLanguage, saveItemPlaybackDefault, selectPlaybackAudio, selectPlaybackSubtitle, storePlaybackPosition, supportsVideoReflection
   } from '@lib/services/web-playback.service'
   import { hlsMime, isVideoQuality, videoQualityHeights } from '@shared/playback-quality'
@@ -29,6 +29,9 @@
   import reflectionSample from '../../assets/player/reflection.mp4?no-inline'
   import { AdaptivePlaybackStats, bufferedEnd, createPlaybackHls, discardAbandonedSegment, monitorAdaptivePlayback, prefetchRendition, seekWhenStartBuffered, type RenditionTarget } from './adaptive-playback'
   import { openSubtitle, type SubtitleRenderer } from './subtitles'
+  import { castController, castSupported } from './cast.svelte'
+  import CastOverlay from './CastOverlay.svelte'
+  import { getAssetUrl, getStreamUrl } from '@lib/api'
 
   let { item: startItem, settings, initialQuality, initialInfo, onClose }: {
     item: MediaFile
@@ -263,8 +266,96 @@
     : activeQuality === 'audio' ? 'Converting audio'
     : activeQuality ? 'Transcoding' : '')
 
+  // --- Casting ---
+  const casting = $derived(!!castController.device)
+  let castStarting = $state(false)
+  let castItemId: string | undefined
+  let castSavedAt = 0
+
+  /** Plays the current item on a cast device from where it is, in a form every Chromecast decodes. */
+  async function startCast() {
+    if (!info || castStarting) return
+    // The cast device fetches the stream at this page's address itself.
+    if (/^(localhost|127\.|\[::1\])/.test(window.location.hostname)) {
+      notificationStore.add('Open Kinome at its network address to cast. A cast device cannot reach localhost.', 'error')
+      return
+    }
+    const output = castPlayback(info, audioCapability.find((track) => track.index === audioIndex) ?? defaultAudio)
+    if (!output) {
+      notificationStore.add('This video needs conversion to play on a cast device, and conversion is off.', 'error')
+      return
+    }
+    const position = castItemId === item.id || !casting ? mediaTime() : 0
+    const absolute = (path: string) => new URL(path, window.location.origin).href
+    const subtitle = selectedSubtitle?.format === 'text' ? selectedSubtitle : undefined
+    if (selectedSubtitle && !subtitle) notificationStore.add('This subtitle style cannot be shown on a cast device.', 'info')
+    castStarting = true
+    try {
+      castItemId = item.id
+      const started = await castController.start({
+        url: output.mode === 'original' ? getStreamUrl(item.id, item.name)
+          : browserPlaybackUrl(item.id, item.name, output.mode, audioIndex, output, position),
+        contentType: output.mode === 'original' ? 'video/mp4' : hlsMime,
+        hls: output.mode !== 'original',
+        title, subtitle: episode || undefined,
+        poster: item.posterPath ? absolute(getAssetUrl(item.posterPath)) : undefined,
+        startTime: position,
+        textTrack: subtitle && { url: absolute(subtitleUrl(item.id, subtitle.id)), name: subtitle.title || languageName(subtitle.language) || 'Subtitles', language: subtitle.language }
+      })
+      if (started) pauseVideo()
+      else castItemId = undefined
+    } catch (reason) {
+      castItemId = undefined
+      notificationStore.add(reason instanceof Error ? reason.message : 'Could not cast this video.', 'error')
+    } finally {
+      castStarting = false
+    }
+  }
+
+  // The cast device's position is saved like the player's own, and a finished cast completes the item.
+  $effect(() => {
+    if (!castController.device || castItemId !== item.id) return
+    const position = Math.round(castController.position)
+    const finished = castController.finished
+    untrack(() => {
+      const token = authStore.token
+      if (!token) return
+      if (finished && !completed) {
+        completed = true
+        void storePlaybackPosition(item.id, token, 0, true).catch(() => {})
+      } else if (!finished && position > 0 && performance.now() - castSavedAt > 15_000) {
+        castSavedAt = performance.now()
+        void storePlaybackPosition(item.id, token, position, false).catch(() => {})
+      }
+    })
+  })
+
+  // When casting ends, the player continues from where the cast device stopped.
+  let castWasActive = false
+  $effect(() => {
+    const active = casting
+    untrack(() => {
+      if (active) castWasActive = true
+      else if (castWasActive) {
+        castWasActive = false
+        const position = castController.finished ? 0 : castController.position
+        if (castItemId === item.id && position > 0) {
+          const token = authStore.token
+          if (token) void storePlaybackPosition(item.id, token, Math.round(position), false).catch(() => {})
+          seekTo(position)
+        }
+        castItemId = undefined
+      }
+    })
+  })
+
+  // Moving to another item while casting casts that item once it is ready.
+  $effect(() => {
+    if (casting && mediaReady && castItemId !== item.id) untrack(() => void startCast())
+  })
+
   function persist(force = false, finished = false) {
-    if (!hasPlayed || !mediaReady || (completed && !finished)) return
+    if (!hasPlayed || !mediaReady || (completed && !finished) || casting) return
     const now = performance.now()
     const position = finished ? 0 : Math.round(mediaTime())
     if (!finished && (!Number.isFinite(position) || position === lastSaved || (!force && now - lastSaveAt < 15_000))) return
@@ -1159,6 +1250,12 @@
   function handleKey(event: KeyboardEvent) {
     if (event.key === ' ' && !event.repeat) playbackSpace = false
     if (event.defaultPrevented) return
+    if (casting && [' ', 'k', 'ArrowLeft', 'ArrowRight'].includes(event.key) && !(event.target instanceof HTMLInputElement)) {
+      event.preventDefault()
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') castController.seek(castController.position + (event.key === 'ArrowLeft' ? -10 : 10))
+      else if (!event.repeat) castController.playOrPause()
+      return
+    }
     if (event.key === 'Escape') {
       if (panel || !document.fullscreenElement) {
         event.preventDefault()
@@ -1370,6 +1467,8 @@
     openItem(initialQuality, initialInfo)
     return () => {
       persist(true)
+      // Nothing keeps track of a cast once the player is gone.
+      if (castItemId) castController.stop()
       lifecycle.abort()
       opening?.abort()
       clearTimeout(shortcutTimer)
@@ -1496,6 +1595,9 @@
         {/if}
       </div>
       <div class="shortcut-feedback" role="status">{shortcutFeedback}</div>
+      {#if casting}
+        <CastOverlay {title} onNext={next ? () => navigate(next) : undefined} />
+      {/if}
 
       <header class="player-header chrome" bind:this={chromeHeader}>
         <button type="button" class="control back-button" title="Close player (Esc)" aria-label="Close player" onclick={onClose}>
@@ -1510,7 +1612,8 @@
         </div>
       </header>
 
-      <footer class="player-footer chrome" bind:this={chromeFooter}>
+      <!-- While casting, the overlay has the controls. These would act on the paused local video. -->
+      <footer class="player-footer chrome" bind:this={chromeFooter} hidden={casting}>
         {#if panel}
           <section class="control-panel" id="player-control-panel" aria-labelledby="player-panel-heading" bind:this={panelElement}>
             <header class="panel-header">
@@ -1734,6 +1837,15 @@
               disabled={!next} onclick={() => navigate(next)}>
               <media-icon name="chevron" aria-hidden="true"></media-icon>
             </button>
+            {#if castSupported}
+              <button class="control" type="button" data-action="cast" aria-label="Cast to a device" title="Cast to a device"
+                disabled={!mediaReady || castStarting} onclick={startCast}>
+                <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 18a3 3 0 0 1 3 3M3 14a7 7 0 0 1 7 7M3 10a11 11 0 0 1 11 11" />
+                  <path d="M3 7V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+                </svg>
+              </button>
+            {/if}
             <media-fullscreen-button class="control fullscreen-button" title="Fullscreen (F)" bind:this={fullscreenButton}>
               <media-icon name="fullscreen-enter" class="fullscreen-enter" aria-hidden="true"></media-icon>
               <media-icon name="fullscreen-exit" class="fullscreen-exit" aria-hidden="true"></media-icon>

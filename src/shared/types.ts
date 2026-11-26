@@ -289,6 +289,10 @@ export interface ServerSettings {
   playbackQualities?: VideoQuality[]
   playbackEncoding?: PlaybackEncodingPreferences
   playbackConversionAvailable?: boolean
+  /** Jellyfin apps on the network find this server unless this is false. */
+  jellyfinDiscovery?: boolean
+  /** The address Jellyfin apps reach Kinome at, such as a reverse proxy's. Without it, the LAN address is offered. */
+  jellyfinPublishedUrl?: string
 }
 
 /**
@@ -353,7 +357,9 @@ export const SERVER_SETTING_KEYS: (keyof ServerSettings)[] = [
   'defaultPlaybackQuality',
   'playbackQualities',
   'playbackEncoding',
-  'libraryLocation'
+  'libraryLocation',
+  'jellyfinDiscovery',
+  'jellyfinPublishedUrl'
 ]
 
 export interface Person {

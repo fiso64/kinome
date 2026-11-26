@@ -14,9 +14,9 @@ import { serverRoutes } from './server'
 import { serveWebClient } from './web'
 import * as sessions from './sessions'
 import { sessionRoutes, type EventSocket } from './sessions'
-import { JellyfinError, Query, json, readAuthorization, wantsCamelCase, type JellyfinRequest, type Route } from './request'
+import { JELLYFIN_BASE, JellyfinError, Query, json, readAuthorization, wantsCamelCase, type JellyfinRequest, type Route } from './request'
 
-export const JELLYFIN_BASE = '/jellyfin'
+export { JELLYFIN_BASE } from './request'
 
 interface Server {
   timeout(request: Request, seconds: number): void

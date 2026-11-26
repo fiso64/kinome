@@ -224,3 +224,26 @@ test('resolves audio and subtitle defaults independently and falls through unava
   expect(selectPlaybackSubtitle(subtitles, [], account(null, 'ja', 'off'))).toBe('')
 
 })
+
+test('casts what every Chromecast decodes: H.264 to 1080p with stereo AAC, converting only what does not fit', async () => {
+  const { castPlayback } = await import('./web-playback.service')
+  const flags = { default: true, forced: false, hearingImpaired: false }
+  const h264 = { index: 0, kind: 'video' as const, codec: 'h264', height: 1080, pixelFormat: 'yuv420p', ...flags }
+  const stereo = { index: 1, kind: 'audio' as const, codec: 'aac', channels: 2, ...flags }
+  const surround = { ...stereo, codec: 'eac3', channels: 6 }
+  const info: WebPlaybackInfo = {
+    languageDefaults: [], preferences: { audioLanguage: null, subtitleLanguage: null, subtitles: 'default' },
+    media: { container: 'matroska', tracks: [h264, stereo] },
+    qualities: ['original', 'remux', '4k', '1080p', '720p'], position: 0, subtitles: [], audioConversion: true
+  }
+  const cast = (tracks: typeof info.media.tracks, container = 'matroska', base = info) =>
+    castPlayback({ ...base, media: { container, tracks } }, tracks.find((track) => track.kind === 'audio'))
+  expect(cast([h264, stereo], 'mp4')).toEqual({ mode: 'original' })
+  expect(cast([h264, stereo])).toEqual({ mode: 'remux' })
+  expect(cast([h264, surround])).toEqual({ mode: 'audio', sound: 'stereo' })
+  // HEVC, 4K, ten-bit or HDR is transcoded to H.264 at no more than 1080p.
+  expect(cast([{ ...h264, codec: 'hevc', height: 2160, pixelFormat: 'yuv420p10le', colorTransfer: 'smpte2084' }, surround])).toEqual({ mode: '1080p', sound: 'stereo' })
+  expect(cast([{ ...h264, codec: 'hevc', height: 720 }, stereo])).toEqual({ mode: '720p', sound: 'stereo' })
+  // With conversion off, only a file that already fits can be cast.
+  expect(cast([{ ...h264, codec: 'hevc' }, stereo], 'matroska', { ...info, qualities: ['original'], audioConversion: false })).toBeUndefined()
+})
