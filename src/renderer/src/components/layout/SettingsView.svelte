@@ -9,6 +9,7 @@
   import Skeleton from '@components/ui/Skeleton.svelte'
   import AccountAvatar from '@components/ui/AccountAvatar.svelte'
   import ShortcutReference from '@components/ui/ShortcutReference.svelte'
+  import { centerInStrip } from '@lib/horizontal-scroll'
   import { formatLayoutString } from '@shared/settings-helpers'
   import { dialogStore } from '@lib/dialog-store'
   import DefaultViewSettingsModal from '@modals/DefaultViewSettingsModal.svelte'
@@ -459,7 +460,7 @@
     <nav class="tabs" aria-label="Settings categories">
       {#each tabIds as tab (tab)}
         <button type="button" aria-current={activeTab === tab ? 'page' : undefined} class:keyboard-only={tab === 'shortcuts'}
-          {@attach (button) => { if (activeTab === tab) button.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
+          {@attach (button) => { if (activeTab === tab) centerInStrip(button.parentElement!, button) }}
           {...tabControl(tab)}
           onclick={() => navStore.setSettingsTab(tab)}>
           <Icon name={TABS[tab].icon} size={17} />
@@ -988,7 +989,7 @@
     align-items: center;
     gap: .5rem 1rem;
     flex-wrap: wrap;
-    padding-block: clamp(1.5rem, 4.5vw, 3.75rem) 1.35rem;
+    padding-block: calc(clamp(1.5rem, 4.5vw, 3.75rem) + env(safe-area-inset-top)) 1.35rem;
     border-bottom: 1px solid var(--color-border-soft);
     margin-bottom: 1.5rem;
   }
@@ -1074,7 +1075,7 @@
 
   /* Phones: the tab bar already names the page, so the heading goes and the header tightens. */
   @media (max-width: 600px) {
-    .settings-header { padding-block: .8rem .6rem; padding-inline-start: var(--floating-back-space); margin-bottom: .6rem; }
+    .settings-header { padding-block: calc(.8rem + env(safe-area-inset-top)) .6rem; padding-inline-start: var(--floating-back-space); margin-bottom: .6rem; }
     .settings-header h1 { font-size: 1.5rem; }
     .tabs { margin-bottom: .4rem; }
     .content-heading { display: none; }

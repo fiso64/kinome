@@ -270,7 +270,7 @@
     width: var(--sidebar-width);
     min-height: 0;
     gap: 1rem;
-    padding: .75rem .5rem;
+    padding: max(.75rem, env(safe-area-inset-top)) .5rem .75rem calc(.5rem + env(safe-area-inset-left));
   }
   .sidebar::before {
     content: '';
@@ -415,8 +415,8 @@
     }
     .rail-button.back-button {
       position: fixed;
-      top: max(.75rem, env(safe-area-inset-top));
-      left: max(.75rem, env(safe-area-inset-left));
+      top: calc(.75rem + env(safe-area-inset-top));
+      left: calc(.75rem + env(safe-area-inset-left));
       width: 2.75rem;
       height: 2.75rem;
       border: 1px solid var(--color-border);

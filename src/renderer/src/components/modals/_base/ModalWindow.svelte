@@ -275,10 +275,10 @@
   @media (pointer: coarse) { .modal-header { cursor: default; } }
   /* Phones: windows are sheets along the bottom of the screen, like menus. */
   @media (max-width: 600px) {
-    .modal-backdrop { place-items: end stretch; padding: 1.5rem 0 0; }
+    .modal-backdrop { place-items: end stretch; padding: calc(1.5rem + env(safe-area-inset-top)) 0 0; }
     .modal-positioner, .modal-positioner.fit-content { width: 100%; max-width: none; }
     .modal-window {
-      max-height: calc(100dvh - 1.5rem);
+      max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top));
       padding-bottom: env(safe-area-inset-bottom);
       border-bottom: 0;
       border-radius: var(--radius-window) var(--radius-window) 0 0;

@@ -5,6 +5,17 @@ export interface HorizontalScrollState {
   canScrollRight: boolean
 }
 
+/**
+ * Centers an item in a horizontally scrolling strip. Unlike scrollIntoView, this leaves the
+ * page's vertical scroll alone, so a strip below the fold does not pull the page down to it.
+ */
+export function centerInStrip(strip: HTMLElement, item: Element, behavior: ScrollBehavior = 'instant') {
+  const stripBox = strip.getBoundingClientRect()
+  const itemBox = item.getBoundingClientRect()
+  const left = strip.scrollLeft + itemBox.left - stripBox.left - (stripBox.width - itemBox.width) / 2
+  strip.scrollTo({ left, behavior })
+}
+
 export function horizontalScroller(node: HTMLElement, state: Writable<HorizontalScrollState> | undefined) {
   if (!state) return {}
   let targetScrollLeft = node.scrollLeft

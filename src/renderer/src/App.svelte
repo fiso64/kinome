@@ -881,7 +881,7 @@
 
 <style>
   .application-shell {
-    --sidebar-width: 72px;
+    --sidebar-width: calc(72px + env(safe-area-inset-left));
     /* Set relative, 0px, and 0px to return to an inset rail. */
     --rail-position: absolute;
     --content-inset: var(--sidebar-width);
@@ -899,6 +899,8 @@
 
   .application-content {
     position: relative;
+    /* Phones held sideways: clear the notch or rounded corner on the right. */
+    margin-inline-end: env(safe-area-inset-right);
     min-width: 0;
     flex: 1;
     display: flex;

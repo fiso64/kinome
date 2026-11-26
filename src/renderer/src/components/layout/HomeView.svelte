@@ -55,7 +55,7 @@
     gap: clamp(1.1rem, 2.4vw, 2rem);
     width: min(100%, 108rem);
     margin-inline: auto;
-    padding: clamp(1.25rem, 3.2vw, 2.75rem) clamp(.9rem, 3.2vw, 3rem) 4rem;
+    padding: calc(clamp(1.25rem, 3.2vw, 2.75rem) + env(safe-area-inset-top)) clamp(.9rem, 3.2vw, 3rem) 4rem;
   }
 
   h1 {

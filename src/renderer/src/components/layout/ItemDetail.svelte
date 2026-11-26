@@ -688,7 +688,7 @@
     --detail-max-width: 1320px;
     width: min(calc(100% - var(--content-inset, 0px)), var(--detail-max-width));
     margin-inline-start: max(var(--content-inset, 0px), calc((100% + var(--content-inset, 0px) - var(--detail-max-width)) / 2));
-    padding: clamp(1.25rem, 6vw, 5.35rem) clamp(.9rem, 4.25vw, 3.4rem) 4rem;
+    padding: calc(clamp(1.25rem, 6vw, 5.35rem) + env(safe-area-inset-top)) clamp(.9rem, 4.25vw, 3.4rem) 4rem;
   }
   .info-grid {
     display: grid;

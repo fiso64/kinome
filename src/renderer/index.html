@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover" />
   <title>Kinome</title>
   <!-- Lets phones add Kinome to the home screen as an app without browser bars. -->
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -12,6 +12,8 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Kinome" />
+  <!-- The status bar is transparent over Kinome's own background. Pages leave room for it. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0e0e0f" />
   <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
   <!-- www.gstatic.com serves Google's Cast sender, loaded only when the viewer casts. -->

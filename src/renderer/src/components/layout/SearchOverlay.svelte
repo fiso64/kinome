@@ -149,7 +149,7 @@
     scrollbar-gutter: stable;
     background: var(--color-background);
     z-index: 2;
-    padding: clamp(1.1rem, 3vw, 2.6rem) clamp(.9rem, 3.2vw, 3rem) 4rem;
+    padding: calc(clamp(1.1rem, 3vw, 2.6rem) + env(safe-area-inset-top)) clamp(.9rem, 3.2vw, 3rem) 4rem;
   }
   .search-header, .search-content-wrapper { width: min(100%, 70rem); margin-inline: auto; }
   .search-header {

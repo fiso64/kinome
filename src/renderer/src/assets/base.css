@@ -170,6 +170,17 @@
   }
 
   img { -webkit-user-drag: none; user-select: none; }
+  /* iPhone home-screen apps draw under a transparent status bar. This fade keeps the clock
+     readable over artwork. Elsewhere the inset is zero and it takes no room. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 4000;
+    height: env(safe-area-inset-top);
+    background: linear-gradient(#0e0e0fd9, #0e0e0f66);
+    pointer-events: none;
+  }
   /* A long press on a control opens Kinome's menu, not the system's link and image callout. */
   :where(button, img, [role='button']) { -webkit-touch-callout: none; }
   /* Text is selectable. Controls are not, so clicking, double-clicking and

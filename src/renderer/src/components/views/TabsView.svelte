@@ -80,7 +80,7 @@
   })
 
   import { writable } from 'svelte/store'
-  import { horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
+  import { centerInStrip, horizontalScroller, type HorizontalScrollState } from '@lib/horizontal-scroll'
 
   let tabListElement: HTMLDivElement | undefined = $state()
   const scrollState = writable<HorizontalScrollState>({
@@ -95,7 +95,7 @@
   $effect(() => {
     if (activeTabId && tabListElement) {
       const activeTabElement = tabListElement.querySelector('.tab.active')
-      activeTabElement?.scrollIntoView({ behavior: prefersReducedMotion.current ? 'instant' : 'smooth', block: 'nearest', inline: 'center' })
+      if (activeTabElement) centerInStrip(tabListElement, activeTabElement, prefersReducedMotion.current ? 'instant' : 'smooth')
     }
   })
 
