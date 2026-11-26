@@ -84,9 +84,10 @@ async function detectVaapi(executable: string): Promise<VaapiAccelerator | undef
 /**
  * Converts HDR to SDR BT.709 as mpv does. Peak detection is off because each segment job is a
  * separate FFmpeg run, and per-run detection could change brightness where two jobs meet.
+ * Contrast recovery is off, as in mpv by default: FFmpeg turns it on, and it costs a third of the speed.
  */
 export const LIBPLACEBO_TO_SDR =
-  'libplacebo=format=nv12:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:peak_detect=0'
+  'libplacebo=format=nv12:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:peak_detect=0:contrast_recovery=0'
 
 /**
  * FFmpeg options that open the accelerator. With libplacebo, Vulkan derives from the same
