@@ -241,8 +241,8 @@
         {/if}
         <button type="button" class="icon-button"
           onclick={(event) => dispatch('showContextMenu', { item: contextItem, event, options: navStore.isSettingsActive ? { appOnly: true } : { showLogout: true } })}
-          title="More options" aria-label="More options">
-          <Icon name="more" />
+          title="Menu" aria-label="Menu">
+          <Icon name="menu" />
         </button>
       {/if}
     </div>
