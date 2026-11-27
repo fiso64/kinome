@@ -1,13 +1,13 @@
 /**
  * Server events for Jellyfin clients' sockets: LibraryChanged when items are
- * added, changed or removed, and UserDataChanged when an account's played,
+ * added, changed or removed, including titles an edit hid from the account, and UserDataChanged when an account's played,
  * progress or favourite state changes. Kinome's item notifications are
  * collected for a second and sent once, checked against each account's
  * visibility, so a scan does not flood clients.
  */
 import type { LibraryItem } from '@shared/types'
 import type { ITransport } from '../transport/transport.interface'
-import { runWithAccount } from '../request-context'
+import { runWithAccount, runWithoutAccount } from '../request-context'
 import { accountToJellyfinId, toJellyfinId } from './ids'
 import { findItems, relate, toDto, type Item } from './items'
 import type { JellyfinRequest } from './request'
@@ -72,15 +72,19 @@ export async function flushEvents(): Promise<void> {
   removed = new Set()
   userData = new Map()
   const accounts = Map.groupBy(connectedSockets(), (entry) => entry.session.accountId)
+  // An edit such as removing a tag can hide a title from an account. Clients drop it only when told it was removed.
+  const changedTitles = changedIds.length ? runWithoutAccount(() => titles(changedIds)).map((item) => toJellyfinId(item.id)) : []
   for (const [accountId, entries] of accounts) {
     const session = entries[0].session
     const request = { session } as JellyfinRequest
     const messages = await runWithAccount(accountId, async () => {
       const out: string[] = []
       const visible = titles(changedIds).map((item) => toJellyfinId(item.id))
-      if (visible.length || removedIds.length) {
+      const shown = new Set(visible)
+      const gone = [...removedIds.map(toJellyfinId), ...changedTitles.filter((id) => !shown.has(id))]
+      if (visible.length || gone.length) {
         out.push(socketMessage('LibraryChanged', {
-          ItemsAdded: [], ItemsUpdated: visible, ItemsRemoved: removedIds.map(toJellyfinId),
+          ItemsAdded: [], ItemsUpdated: visible, ItemsRemoved: gone,
           FoldersAddedTo: [], FoldersRemovedFrom: [], CollectionFolders: [], IsEmpty: false
         }))
       }

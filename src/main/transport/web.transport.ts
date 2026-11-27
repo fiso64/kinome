@@ -1,6 +1,7 @@
 import { AutocompleteSuggestions, LibraryItem, ScanStatus, Settings } from '@shared/types'
 import equal from 'fast-deep-equal'
 import type { ITransport } from './transport.interface'
+import { visibleItemIds } from '../services/account-filter.service'
 
 /**
  * A Bun/Elysia implementation of the ITransport interface.
@@ -9,6 +10,8 @@ import type { ITransport } from './transport.interface'
 export class WebTransport implements ITransport {
   // We'll store a reference to the publisher (the Elysia app's server)
   private server: any = null
+  // Open sockets per signed-in account, which receive item updates on their account's channel.
+  private accounts = new Map<string, number>()
 
   private currentStatus: ScanStatus = {
     isFileScanningLibrary: false,
@@ -34,9 +37,29 @@ export class WebTransport implements ITransport {
     this.server.publish(accountId ? `broadcast:${accountId}` : 'broadcast', JSON.stringify({ type: event, data: payload }))
   }
 
+  connect(accountId: string): void {
+    this.accounts.set(accountId, (this.accounts.get(accountId) ?? 0) + 1)
+  }
+
+  disconnect(accountId: string): void {
+    const count = (this.accounts.get(accountId) ?? 0) - 1
+    if (count > 0) this.accounts.set(accountId, count)
+    else this.accounts.delete(accountId)
+  }
+
+  /**
+   * Each account receives only the items it may see. An item it cannot see, such as one
+   * an edit just hid from it, arrives as removed, by ID alone, so its views drop it.
+   */
   notifyLibraryItemsUpdated(items: LibraryItem[], userId?: string): void {
     console.log(`[WebTransport] Notifying update for ${items.length} items.`)
-    this.broadcast('library-items-updated', items, userId)
+    const ids = items.map((item) => item.id)
+    for (const accountId of userId ? [userId] : [...this.accounts.keys()]) {
+      const visible = visibleItemIds(accountId, ids)
+      const shown = items.filter((item) => visible.has(item.id))
+      if (shown.length) this.broadcast('library-items-updated', shown, accountId)
+      if (shown.length < items.length) this.broadcast('library-items-removed', ids.filter((id) => !visible.has(id)), accountId)
+    }
   }
 
   notifyMetadataIndexUpdated(index: {
@@ -50,7 +73,7 @@ export class WebTransport implements ITransport {
 
   notifyLibraryItemDeleted(itemId: string): void {
     console.log(`[WebTransport] Notifying deletion of item ${itemId}.`)
-    this.broadcast('library-item-deleted', itemId)
+    this.broadcast('library-items-removed', [itemId])
   }
 
   notifySettingsUpdated(newSettings: Settings): void {

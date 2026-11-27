@@ -153,7 +153,7 @@ export interface ApiClient {
   closeWindow(): void
   isWindowMaximized(): Promise<boolean>
   onWindowMaximizedStatus(callback: (isMaximized: boolean) => void): () => void
-  onLibraryItemDeleted(callback: (itemId: string) => void): () => void
+  onLibraryItemsRemoved(callback: (itemIds: string[]) => void): () => void
   onLibraryItemsUpdated(callback: (items: LibraryItem[]) => void): () => void
   onMetadataIndexUpdated(
     callback: (index: {

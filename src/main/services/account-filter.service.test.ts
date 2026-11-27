@@ -16,7 +16,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { createServiceTestContext, type ServiceTestContext } from '../database/test-helpers'
 import { createAccount } from '../database/repositories/account.repo'
 import { setFilterRule, replaceVisibleItems } from '../database/repositories/account-filter.repo'
-import { rebuildForAccount, rebuildAll } from './account-filter.service'
+import { rebuildForAccount, rebuildAll, markDirty } from './account-filter.service'
+import { WebTransport } from '../transport/web.transport'
+import type { LibraryItem } from '@shared/types'
 import { find } from './repository.service'
 import { replaceSourcePriorities, resolveSelectedLocationForItem } from '../database/repositories/media-location.repo'
 
@@ -274,5 +276,35 @@ describe('find() with userId', () => {
 
     const items = find({ where: { parentId: 'root' }, userId: 'acc-filtered' })
     expect(items.map((i) => i.id)).toContain('vfolder')
+  })
+})
+
+describe('live item updates', () => {
+  it('sends each account only items it may see, and an item an edit hid as removed', () => {
+    seedStandardTree()
+    ctx.seedTags('e-a', { allow: 'true' })
+    setFilterRule('acc-filtered', 'allow', { conditionGroups: [[{ field: 'tags.allow', op: 'eq', value: 'true' }]] })
+    markDirty()
+    const sent: { topic: string; type: string; data: any }[] = []
+    const transport = new WebTransport()
+    transport.initialize({ publish: (topic: string, text: string) => sent.push({ topic, ...JSON.parse(text) }) })
+    transport.connect('acc-filtered')
+    transport.connect('acc-plain')
+    const items = [{ id: 'dir-a' }, { id: 'dir-b' }] as LibraryItem[]
+    const received = (account: string) => sent.filter((entry) => entry.topic === `broadcast:${account}`)
+      .map((entry) => [entry.type, entry.data.map((item: any) => item.id ?? item)])
+
+    transport.notifyLibraryItemsUpdated(items)
+    expect(received('acc-filtered')).toEqual([['library-items-updated', ['dir-a']], ['library-items-removed', ['dir-b']]])
+    expect(received('acc-plain')).toEqual([['library-items-updated', ['dir-a', 'dir-b']]])
+
+    // The tag no longer matches, as after an edit.
+    sent.length = 0
+    ctx.db.prepare("UPDATE item_tags SET value = 'false' WHERE key = 'allow'").run()
+    markDirty()
+    transport.notifyLibraryItemsUpdated(items)
+    expect(received('acc-filtered')).toEqual([['library-items-removed', ['dir-a', 'dir-b']]])
+    expect(received('acc-plain')).toEqual([['library-items-updated', ['dir-a', 'dir-b']]])
+    expect(sent.some((entry) => entry.topic === 'broadcast')).toBe(false)
   })
 })

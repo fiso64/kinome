@@ -253,17 +253,15 @@
     }
   })
 
-  // Listener for item deletion
+  // Items deleted, or hidden from this account by an edit
   $effect(() => {
-    const unlisten = api.onLibraryItemDeleted((deletedItemId) => {
-      log(`Received deletion event for item ${deletedItemId}`)
-      libraryDataService.handleLibraryDeletion(deletedItemId)
+    const unlisten = api.onLibraryItemsRemoved((ids) => {
+      log(`Received removal of ${ids.length} items`)
+      libraryDataService.handleLibraryRemoval(ids)
+      searchStore.handleLibraryRemoval(ids)
 
-      // If we are looking at this item, go back
-      if (
-        navStore.currentFolderId === deletedItemId ||
-        navStore.selectedItemId === deletedItemId
-      ) {
+      // If we are looking at one of them, go back
+      if (ids.includes(navStore.currentFolderId) || (navStore.selectedItemId && ids.includes(navStore.selectedItemId))) {
         navStore.goBack()
       }
     })

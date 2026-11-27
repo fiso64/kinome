@@ -73,3 +73,20 @@ export function replaceVisibleItems(accountId: string, itemIds: string[], exclud
     for (const id of excludedLocations) excludeLocation.run(accountId, id)
   })
 }
+
+/** Those of the given items the account may see. Virtual items are visible to everyone. */
+export function filterVisibleItemIds(accountId: string, itemIds: string[]): string[] {
+  const db = getDb()
+  const visible: string[] = []
+  // SQLite caps the parameters of one statement.
+  for (let start = 0; start < itemIds.length; start += 900) {
+    const batch = itemIds.slice(start, start + 900)
+    const rows = db.query(`
+      SELECT id FROM media_items
+      WHERE id IN (${batch.map(() => '?').join(', ')})
+        AND (is_virtual = 1 OR id IN (SELECT item_id FROM account_visible_items WHERE account_id = ?))
+    `).all(...batch, accountId) as { id: string }[]
+    for (const row of rows) visible.push(row.id)
+  }
+  return visible
+}

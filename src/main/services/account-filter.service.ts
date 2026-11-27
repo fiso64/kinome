@@ -231,6 +231,13 @@ export function markDirty(): void {
  * in the common case (already up to date → single map lookup, no DB I/O).
  * The revision changes when visibility is rebuilt or a rule is removed.
  */
+/** Those of the given items the account may see, after bringing its visibility up to date. */
+export function visibleItemIds(accountId: string, itemIds: string[]): Set<string> {
+  ensureUpToDate(accountId)
+  if (!itemIds.length || !accountFilterRepo.hasFilterRule(accountId)) return new Set(itemIds)
+  return new Set(accountFilterRepo.filterVisibleItemIds(accountId, itemIds))
+}
+
 export function ensureUpToDate(accountId: string): number {
   const previous = accountVisibility.get(accountId)
   if (previous?.builtVersion === globalDirtyVersion) return previous.revision

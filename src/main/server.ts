@@ -91,6 +91,7 @@ setTransport(withJellyfinEvents(webTransport))
 const app = buildApp()
 
 // WebSocket transport (server-specific; needs the WebTransport instance for getCurrentStatus)
+const socketAccounts = new Map<string, string>()
 app.ws('/ws', {
   open(ws) {
     console.log(`[WebTransport] Client connected: ${ws.id}`)
@@ -100,6 +101,8 @@ app.ws('/ws', {
       const session = authService.validateToken(token)
       if (session) {
         ws.subscribe(`broadcast:${session.accountId}`)
+        socketAccounts.set(ws.id, session.accountId)
+        webTransport.connect(session.accountId)
         ws.send(JSON.stringify({
           type: 'account-permissions-changed',
           data: { role: session.role, capabilities: [...session.capabilities] }
@@ -113,6 +116,9 @@ app.ws('/ws', {
   },
   close(ws) {
     console.log(`[WebTransport] Client disconnected: ${ws.id}`)
+    const accountId = socketAccounts.get(ws.id)
+    socketAccounts.delete(ws.id)
+    if (accountId) webTransport.disconnect(accountId)
   }
 })
 

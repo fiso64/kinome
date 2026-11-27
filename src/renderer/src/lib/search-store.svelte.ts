@@ -217,6 +217,12 @@ function handleLibraryUpdates(updatedItems: any[]) {
   if (nextDetail) detailResults = nextDetail
 }
 
+function handleLibraryRemoval(ids: string[]) {
+  const removed = new Set(ids)
+  if (searchResults.some((item) => removed.has(item.id))) searchResults = searchResults.filter((item) => !removed.has(item.id))
+  if (detailResults.some((item) => removed.has(item.id))) detailResults = detailResults.filter((item) => !removed.has(item.id))
+}
+
 // --- Exported Store Object ---
 
 
@@ -341,5 +347,6 @@ export const searchStore = {
   clearDetail,
   clearFilter,
   searchByTag,
-  handleLibraryUpdates
+  handleLibraryUpdates,
+  handleLibraryRemoval
 }

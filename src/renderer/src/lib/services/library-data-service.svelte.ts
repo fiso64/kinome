@@ -440,11 +440,11 @@ class LibraryDataService {
   /**
    * Processes an item deletion from the backend.
    */
-  handleLibraryDeletion(deletedItemId: string) {
+  handleLibraryRemoval(itemIds: string[]) {
     if (!this.queryClient) return
 
     // 1. Invalidate item queries
-    this.queryClient.invalidateQueries({ queryKey: [...this.keys.item.all, deletedItemId] })
+    for (const id of itemIds) this.queryClient.invalidateQueries({ queryKey: [...this.keys.item.all, id] })
 
     // 2. Invalidate all children lists (structural sync)
     this.queryClient.invalidateQueries({ queryKey: this.keys.children.all })

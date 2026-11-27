@@ -386,6 +386,8 @@ describe('Jellyfin-compatible API', () => {
       await events.flushEvents()
       const library = sent.find((entry) => entry.MessageType === 'LibraryChanged')
       expect(library.Data.ItemsUpdated).toEqual([movie])
+      // A changed title the account cannot see, such as one an edit just hid, is removed from its view.
+      expect(library.Data.ItemsRemoved).toEqual([toJellyfinId(HIDDEN)])
       const user = sent.find((entry) => entry.MessageType === 'UserDataChanged')
       expect(user.Data.UserDataList).toMatchObject([{ ItemId: movie, IsFavorite: true }])
       expect((await call('DELETE', `/UserFavoriteItems/${movie}`, normalToken)).status).toBe(200)

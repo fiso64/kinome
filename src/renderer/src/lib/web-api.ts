@@ -716,8 +716,8 @@ class WebApiClient implements ApiClient {
     return () => {}
   }
 
-  onLibraryItemDeleted(callback: (itemId: string) => void): () => void {
-    return this.on('library-item-deleted', callback)
+  onLibraryItemsRemoved(callback: (itemIds: string[]) => void): () => void {
+    return this.on('library-items-removed', callback)
   }
 
   onLibraryItemsUpdated(callback: (items: LibraryItem[]) => void): () => void {
